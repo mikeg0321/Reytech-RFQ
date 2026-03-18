@@ -2874,10 +2874,10 @@ def api_expansion_outreach():
             "items": items, "total": round(total, 2), "status": "pending",
             "source": "cchcs_expansion", "tags": [f"{agency_type.lower()}_expansion", "outreach"],
         }
-        pcs_path = os.path.join(DATA_DIR, "price_checks.json")
-        pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
+        from src.api.dashboard import _load_price_checks, _save_price_checks
+        pcs = _load_price_checks()
         pcs[pc_id] = pc
-        with open(pcs_path, "w") as f: _json.dump(pcs, f, indent=2)
+        _save_price_checks(pcs)
         results["pc_id"] = pc_id; results["items_count"] = len(items); results["total"] = round(total, 2)
 
     # Email

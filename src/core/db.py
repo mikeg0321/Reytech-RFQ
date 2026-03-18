@@ -1226,6 +1226,11 @@ def _migrate_columns():
         ("rfqs", "email_subject", "TEXT DEFAULT ''"),
         ("rfqs", "body_text", "TEXT DEFAULT ''"),
         ("rfqs", "form_type", "TEXT DEFAULT ''"),
+        # ── Quote number persistence (prevents duplicate allocation) ──
+        ("rfqs", "reytech_quote_number", "TEXT DEFAULT ''"),
+        ("rfqs", "shipping_option", "TEXT DEFAULT 'included'"),
+        ("rfqs", "shipping_amount", "REAL DEFAULT 0"),
+        ("rfqs", "delivery_location", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

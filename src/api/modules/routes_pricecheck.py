@@ -4961,16 +4961,13 @@ def api_pc_retry_auto_price(pcid):
         except Exception as e:
             errors.append(f"catalog: {e}")
         
-        # Also JSON backup
+        # Also save via standard pipeline (SQLite + JSON + cache invalidation)
         try:
-            json_path = os.path.join(_DATA_DIR, "price_checks.json")
-            jdata = {}
-            if os.path.exists(json_path):
-                with open(json_path) as fp2: jdata = json.load(fp2)
-            jdata[pcid] = pc
-            with open(json_path, "w") as fp2: json.dump(jdata, fp2, indent=2, default=str)
+            pcs_all = _load_price_checks()
+            pcs_all[pcid] = pc
+            _save_price_checks(pcs_all)
         except Exception as e:
-            errors.append(f"json_save: {e}")
+            errors.append(f"save: {e}")
 
     return jsonify({
         "ok": True,

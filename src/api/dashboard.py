@@ -298,7 +298,9 @@ def load_rfqs():
                                 "body_text", "form_type", "agency_name", "quote_type",
                                 "parse_note", "parse_details", "delivery_location",
                                 "requestor_phone", "templates", "attachments_raw",
-                                "email_message_id", "institution_name"):
+                                "email_message_id", "institution_name",
+                                "reytech_quote_number", "shipping_option", "shipping_amount",
+                                "package_forms", "output_files", "linked_pc_id", "draft_email"):
                         if not r.get(key) and jr.get(key):
                             r[key] = jr[key]
             return _normalize_rfq_fields(result)
@@ -329,8 +331,9 @@ def save_rfqs(rfqs):
                     (id, received_at, agency, institution, requestor_name, requestor_email,
                      rfq_number, items, status, source, email_uid, notes,
                      solicitation_number, due_date, email_subject, body_text, form_type,
+                     reytech_quote_number, shipping_option, shipping_amount, delivery_location,
                      updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
                 """, (
                     rid, r.get("received_at", ""), r.get("agency", ""),
                     r.get("institution", ""), r.get("requestor_name", ""),
@@ -344,6 +347,10 @@ def save_rfqs(rfqs):
                     r.get("email_subject", ""),
                     (r.get("body_text", "") or "")[:3000],
                     r.get("form_type", ""),
+                    r.get("reytech_quote_number", ""),
+                    r.get("shipping_option", "included"),
+                    r.get("shipping_amount", 0),
+                    r.get("delivery_location", ""),
                 ))
     except Exception as e:
         log.debug("RFQ dual-write to SQLite failed: %s", str(e)[:200])
