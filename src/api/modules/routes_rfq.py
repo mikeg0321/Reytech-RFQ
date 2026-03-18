@@ -3122,33 +3122,21 @@ def api_rfq_dismiss(rid):
     """Dismiss an RFQ from the active queue with a reason.
     Keeps data for SCPRS intelligence. reason=delete does hard delete."""
     from datetime import datetime
-    import os as _os
-    import json as _jl
-    
+
     data = request.get_json(force=True) if request.data else {}
     reason = data.get("reason", "other")
-    
-    # Load RFQs directly from JSON
-    rfqs_path = _os.path.join(DATA_DIR, "rfqs.json")
-    try:
-        with open(rfqs_path) as f:
-            rfqs = _jl.load(f)
-    except Exception:
-        rfqs = {}
-    
+
+    rfqs = load_rfqs()
+
     if rid not in rfqs:
         return jsonify({"ok": False, "error": "RFQ not found"})
-    
+
     # Hard delete path
     if reason == "delete":
         sol = rfqs[rid].get("solicitation_number", "?")
         del rfqs[rid]
-        try:
-            with open(rfqs_path, "w") as f:
-                _jl.dump(rfqs, f, indent=2)
-        except Exception as e:
-            log.error("Failed to save rfqs.json: %s", e)
-        # Also delete from SQLite via DAL
+        save_rfqs(rfqs)
+        # Direct SQLite delete — save_rfqs only does INSERT OR REPLACE
         try:
             from src.core.db import get_db
             with get_db() as conn:
@@ -3157,17 +3145,13 @@ def api_rfq_dismiss(rid):
             log.debug("DAL RFQ delete: %s", e)
         log.info("Hard deleted RFQ #%s (id=%s)", sol, rid)
         return jsonify({"ok": True, "deleted": rid})
-    
+
     r = rfqs[rid]
     r["status"] = "dismissed"
     r["dismiss_reason"] = reason
     r["dismissed_at"] = datetime.now().isoformat()
     rfqs[rid] = r
-    try:
-        with open(rfqs_path, "w") as f:
-            _jl.dump(rfqs, f, indent=2)
-    except Exception as e:
-        log.error("Failed to save rfqs.json: %s", e)
+    save_rfqs(rfqs)
     
     # Also update SQLite status via DAL
     try:

@@ -265,7 +265,7 @@ function doDismiss(reason) {
   .then(function(d) {
     console.log('Dismiss result:', d);
     if (d.ok) {
-      showMsg('✅ Dismissed (' + (_dismissReason||'ok') + ')', 'ok');
+      showMsg('✅ Dismissed (' + (reason||'ok') + ')', 'ok');
       if (_dismissRow) {
         _dismissRow.style.transition = 'opacity .3s';
         _dismissRow.style.opacity = '0';
