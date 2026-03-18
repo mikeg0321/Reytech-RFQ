@@ -98,12 +98,14 @@ def rfq_auto_lookup(rid):
             try:
                 from src.agents.scprs_lookup import bulk_lookup
                 r["line_items"] = bulk_lookup(items)
-                # Carry SCPRS cost to vendor_cost for profit calculation
+                # Carry SCPRS cost to vendor_cost — NEVER overwrite supplier quote costs
                 for _item in r["line_items"]:
                     _sp = _item.get("scprs_last_price") or 0
-                    if _sp and not _item.get("vendor_cost"):
+                    if _sp and not _item.get("vendor_cost") and not _item.get("supplier_cost") and _item.get("cost_source") != "Supplier Quote":
                         try:
                             _item["vendor_cost"] = float(_sp)
+                            _item["cost_source"] = "SCPRS"
+                            _item["cost_supplier_name"] = _item.get("scprs_vendor", "")
                             if not _item.get("pricing"): _item["pricing"] = {}
                             _item["pricing"]["unit_cost"] = float(_sp)
                         except (ValueError, TypeError):
@@ -120,12 +122,13 @@ def rfq_auto_lookup(rid):
             try:
                 from src.agents.web_price_research import research_items
                 r["line_items"] = research_items(r["line_items"])
-                # Carry Amazon cost to vendor_cost for profit calculation
+                # Carry Amazon cost to vendor_cost — NEVER overwrite supplier quote costs
                 for _item in r["line_items"]:
                     _ap = _item.get("amazon_price") or 0
-                    if _ap and not _item.get("vendor_cost"):
+                    if _ap and not _item.get("vendor_cost") and not _item.get("supplier_cost") and _item.get("cost_source") != "Supplier Quote":
                         try:
                             _item["vendor_cost"] = float(_ap)
+                            _item["cost_source"] = "Amazon"
                             if not _item.get("pricing"): _item["pricing"] = {}
                             _item["pricing"]["unit_cost"] = float(_ap)
                         except (ValueError, TypeError):

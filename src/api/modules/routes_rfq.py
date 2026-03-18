@@ -1476,6 +1476,8 @@ def api_rfq_bulk_scrape_urls(rid):
                 item["item_link"] = url
                 item["item_supplier"] = detect_supplier(url)
                 item["supplier_cost"] = price
+                item["cost_source"] = "Supplier URL"
+                item["cost_supplier_name"] = item.get("item_supplier", "")
                 markup = item.get("markup_pct") or r.get("default_markup") or 25
                 try:
                     markup = float(markup)
@@ -1562,6 +1564,7 @@ def api_rfq_bulk_paste_data(rid):
                     cost = float(cost_str)
                     if cost > 0:
                         item["supplier_cost"] = cost
+                        item["cost_source"] = "Bulk Paste"
                         fields_set += 1
                         # Recalculate bid price with markup
                         markup_str = (row.get("markup_pct") or "").strip().replace("%", "")
@@ -2038,6 +2041,8 @@ def rfq_upload_supplier_quote(rid):
                 "description": q.get("description", ""),
                 "item_number": q.get("item_number", ""),
                 "supplier_cost": round(q.get("unit_price", 0), 2),
+                "cost_source": "Supplier Quote",
+                "cost_supplier_name": supplier,
                 "item_supplier": supplier,
                 "price_per_unit": 0,
                 "scprs_last_price": 0,
@@ -2155,6 +2160,8 @@ def rfq_upload_supplier_quote(rid):
             if idx < len(rfq_items):
                 item = rfq_items[idx]
                 item["supplier_cost"] = round(cost, 2)
+                item["cost_source"] = "Supplier Quote"
+                item["cost_supplier_name"] = supplier
                 item["item_supplier"] = supplier
 
                 # ── Description: ALWAYS use supplier's when matched ──
