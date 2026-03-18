@@ -212,11 +212,24 @@ def supplier_record_page(n):
          <td style="font-size:13px">{track}</td>
         </tr>"""
 
-    return render_page("supplier_record.html", active_page="Orders",
-        supplier_name=supplier_name, items=supplier_items,
-        rows=rows, order_count=len(order_ids),
-        item_count=len(supplier_items),
-        total_spend=total_spend)
+    content = (
+        f'<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">'
+        f'<a href="/orders" class="btn btn-s" style="font-size:14px">← Orders</a>'
+        f'<h2 style="margin:0;font-size:22px;font-weight:700">🏪 {supplier_name}</h2></div>'
+        f'<div class="bento bento-3" style="margin-bottom:14px">'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--tx2);text-transform:uppercase">Orders</div><div style="font-size:28px;font-weight:700;color:var(--ac)">{len(order_ids)}</div></div>'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--tx2);text-transform:uppercase">Line Items</div><div style="font-size:28px;font-weight:700;color:#58a6ff">{len(supplier_items)}</div></div>'
+        f'<div class="card" style="text-align:center;margin:0"><div style="font-size:14px;color:var(--tx2);text-transform:uppercase">Total Spend</div><div style="font-size:28px;font-weight:700;color:#3fb950">${total_spend:,.2f}</div></div>'
+        f'</div>'
+        f'<div class="card"><div class="card-t" style="font-size:16px">All Items from {supplier_name}</div>'
+        f'<div style="overflow-x:auto"><table class="home-tbl" style="min-width:800px;font-size:14px">'
+        f'<thead><tr><th>Order</th><th>Institution</th><th>Description</th><th>Part #</th>'
+        f'<th style="text-align:center">Qty</th><th style="text-align:right">Price</th>'
+        f'<th>Status</th><th>Tracking</th></tr></thead>'
+        f'<tbody>{rows}</tbody></table></div></div>'
+    )
+    return render_page("generic.html", active_page="Orders",
+        page_title=f"{supplier_name} — Supplier Record", content=content)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

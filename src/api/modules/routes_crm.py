@@ -3404,10 +3404,18 @@ def page_scprs_gap_analysis():
   <span id="ingestStatus" style="margin-left:12px;font-size:14px;color:var(--tx2)"></span>
 </div>"""
 
-    return render_page("scprs_gap.html", active_page="Intel",
-        no_data_html=no_data_html,
-        paste_box=paste_box,
-        stats_html=stats_html)
+    content = (
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">'
+        '<div><h2 style="font-size:22px;font-weight:700">🔍 SCPRS Gap Analysis</h2>'
+        '<p style="color:var(--tx2);font-size:13px;margin-top:4px">What is CCHCS/CDCR buying that Reytech isn\'t selling them?</p></div>'
+        '<div style="display:flex;gap:8px">'
+        '<a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" style="padding:5px 12px;border:1px solid var(--ac);border-radius:6px;font-size:14px;text-decoration:none;color:var(--ac)">🔎 Open SCPRS</a>'
+        '<a href="/" style="padding:5px 12px;border:1px solid var(--bd);border-radius:6px;font-size:14px;text-decoration:none">🏠 Home</a>'
+        '</div></div>'
+        + no_data_html + stats_html + paste_box
+    )
+    return render_page("generic.html", active_page="Intel",
+        page_title="SCPRS Gap Analysis", content=content)
 
 
 

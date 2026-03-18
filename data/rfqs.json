@@ -1,1 +1,112 @@
-{}
+{
+  "TEST001": {
+    "id": "TEST001",
+    "line_items": [
+      {
+        "desc": "Gloves"
+      }
+    ],
+    "items": [
+      {
+        "desc": "Gloves"
+      }
+    ],
+    "status": "new",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "CDCR",
+    "source": ""
+  },
+  "LIST1": {
+    "id": "LIST1",
+    "line_items": [],
+    "items": [],
+    "status": "new",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "",
+    "source": ""
+  },
+  "LIST2": {
+    "id": "LIST2",
+    "line_items": [],
+    "items": [],
+    "status": "sent",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "",
+    "source": ""
+  },
+  "UPD1": {
+    "id": "UPD1",
+    "line_items": [],
+    "items": [],
+    "status": "sent",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "",
+    "source": ""
+  },
+  "LI1": {
+    "id": "LI1",
+    "line_items": [
+      {
+        "desc": "Updated"
+      },
+      {
+        "desc": "Added"
+      }
+    ],
+    "items": [
+      {
+        "desc": "Updated"
+      },
+      {
+        "desc": "Added"
+      }
+    ],
+    "status": "new",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "",
+    "source": ""
+  },
+  "AUD1": {
+    "id": "AUD1",
+    "line_items": [],
+    "items": [],
+    "status": "new",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "",
+    "source": ""
+  },
+  "SNAP1": {
+    "id": "SNAP1",
+    "line_items": [],
+    "items": [],
+    "status": "new",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "AFTER",
+    "source": ""
+  },
+  "REST1": {
+    "id": "REST1",
+    "line_items": [],
+    "items": [],
+    "status": "draft",
+    "requestor_name": "",
+    "requestor_email": "",
+    "solicitation_number": "",
+    "agency": "CHANGED",
+    "source": ""
+  }
+}
