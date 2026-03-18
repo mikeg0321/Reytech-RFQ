@@ -150,6 +150,13 @@ TIGHT_FIELDS.add("703B_Certification Expiration Date")
 TIGHT_FIELDS.add("Date_CUF")
 TIGHT_FIELDS.add("Date__darfur")
 TIGHT_FIELDS.add("Date1_PD843")
+# PD 843 DVBE fields — name/desc/solicitation get clipped at default 11pt
+TIGHT_FIELDS.add("DVBEname")
+TIGHT_FIELDS.add("description")
+TIGHT_FIELDS.add("SCno")
+TIGHT_FIELDS.add("Text1_PD843")
+TIGHT_FIELDS.add("Text3_PD843")
+TIGHT_FIELDS.add("Text4_PD843")
 TIGHT_FIELDS.add("Date_PD802")
 TIGHT_FIELDS.add("708_Text16")
 # Generic date fields that may appear in newer templates
@@ -2201,8 +2208,8 @@ def _calrecycle_clean_desc(item):
 
 def _calrecycle_fix_date(pdf_path, sign_date):
     """
-    Overlay the date directly onto the CalRecycle 74 Date field.
-    Uses the actual "Date" field coordinates (rect) for exact placement.
+    Overlay the date onto ALL CalRecycle 74 Date fields (every page).
+    Finds every annotation named "Date" and overlays text at its rect.
     """
     import io as _io
     from pypdf import PdfReader as _PR, PdfWriter as _PW
@@ -2212,9 +2219,8 @@ def _calrecycle_fix_date(pdf_path, sign_date):
         writer = _PW()
         writer.append(reader)
 
-        # Find the "Date" field on any page
-        cr_page_idx = None
-        date_rect = None
+        # Find ALL "Date" fields across all pages
+        date_fields = []  # [(page_idx, rect), ...]
         for pg_idx, pg in enumerate(reader.pages):
             annots = pg.get("/Annots", []) or []
             for a in annots:
@@ -2223,36 +2229,32 @@ def _calrecycle_fix_date(pdf_path, sign_date):
                 if name == "Date":
                     rect = obj.get("/Rect")
                     if rect:
-                        date_rect = [float(x) for x in rect]
-                        cr_page_idx = pg_idx
-                        break
-            if cr_page_idx is not None:
-                break
+                        date_fields.append((pg_idx, [float(x) for x in rect]))
 
-        if cr_page_idx is None or date_rect is None:
-            print(f"  ⚠ CalRecycle date: could not find Date field")
+        if not date_fields:
+            print(f"  ⚠ CalRecycle date: could not find any Date fields")
             return
 
-        page = writer.pages[cr_page_idx]
-        mb = page.get("/MediaBox", [0, 0, 612, 792])
-        pw, ph = float(mb[2]), float(mb[3])
+        for pg_idx, date_rect in date_fields:
+            page = writer.pages[pg_idx]
+            mb = page.get("/MediaBox", [0, 0, 612, 792])
+            pw, ph = float(mb[2]), float(mb[3])
 
-        packet = _io.BytesIO()
-        c = _rlc.Canvas(packet, pagesize=(pw, ph))
-        c.setFont("Helvetica", 9)
-        c.setFillColorRGB(0, 0, 0)
-        # Draw inside the Date field rect
-        c.drawString(date_rect[0] + 3, date_rect[1] + 5, sign_date)
-        c.save()
-        packet.seek(0)
+            packet = _io.BytesIO()
+            c = _rlc.Canvas(packet, pagesize=(pw, ph))
+            c.setFont("Helvetica", 9)
+            c.setFillColorRGB(0, 0, 0)
+            c.drawString(date_rect[0] + 3, date_rect[1] + 5, sign_date)
+            c.save()
+            packet.seek(0)
 
-        from pypdf import PdfReader as _PR2
-        overlay = _PR2(packet)
-        page.merge_page(overlay.pages[0])
+            from pypdf import PdfReader as _PR2
+            overlay = _PR2(packet)
+            page.merge_page(overlay.pages[0])
 
         with open(pdf_path, "wb") as _f:
             writer.write(_f)
-        print(f"  ✓ CalRecycle date overlaid at field rect {date_rect} → {sign_date}")
+        print(f"  ✓ CalRecycle date overlaid on {len(date_fields)} pages → {sign_date}")
     except Exception as _e:
         print(f"  ⚠ CalRecycle date fix failed: {_e}")
 
@@ -2437,11 +2439,10 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
         "Text7_std21": company["title"], "Text8_std21": company["address"],
         "Text9_std21": company.get("drug_free_expiration", "7/1/2028"),
 
-        # CalRecycle 74 — company info + signature
+        # CalRecycle 74 — company info + signature (Date handled by overlay only — no double-write)
         "ContractorCompany Name": company["name"],
         "Address": company["address"], "Phone_2": company["phone"],
         "Print Name": company["owner"], "Title": company["title"],
-        "Date": sign_date,
     }
 
     # ── CalRecycle 74: populate each line item row ──

@@ -2513,7 +2513,7 @@ def generate_rfq_package(rid):
             except Exception as e:
                 t.warn("Drug-Free failed", error=str(e))
         # GenAI 708
-        if _include("genai_708") or r.get("form_type") == "703c":
+        if _include("genai_708"):
             _genai_tmpl = os.path.join(DATA_DIR, "templates", "genai_708_blank.pdf")
             if os.path.exists(_genai_tmpl):
                 try:
@@ -2548,15 +2548,16 @@ def generate_rfq_package(rid):
                 except Exception as e:
                     errors.append(f"Darfur Act: {e}")
 
-        # W-9 (static copy)
-        _w9_path = os.path.join(DATA_DIR, "templates", "w9_reytech.pdf")
-        if os.path.exists(_w9_path):
-            import shutil as _sh_w9
-            try:
-                _sh_w9.copy2(_w9_path, f"{out_dir}/{sol}_W9_Reytech.pdf")
-                output_files.append(f"{sol}_W9_Reytech.pdf")
-            except Exception:
-                pass
+        # W-9 (static copy) — only if agency requires it (CalVet doesn't)
+        if _include("w9"):
+            _w9_path = os.path.join(DATA_DIR, "templates", "w9_reytech.pdf")
+            if os.path.exists(_w9_path):
+                import shutil as _sh_w9
+                try:
+                    _sh_w9.copy2(_w9_path, f"{out_dir}/{sol}_W9_Reytech.pdf")
+                    output_files.append(f"{sol}_W9_Reytech.pdf")
+                except Exception:
+                    pass
 
         # Seller's Permit (static copy if not already added)
         if _include("sellers_permit"):
