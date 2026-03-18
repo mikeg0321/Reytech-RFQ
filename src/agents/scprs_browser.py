@@ -925,7 +925,8 @@ def _scrape_with_retry(search_params, seen_pos, max_rows=500, max_retries=3):
 def _cleanup_old_po_records():
     """Delete PO screenshots older than 90 days + all HTML files. Data is in SQLite."""
     import os, time
-    po_dir = os.environ.get("DATA_DIR", "/data") + "/po_records"
+    from src.core.paths import DATA_DIR as _DATA_DIR
+    po_dir = os.path.join(_DATA_DIR, "po_records")
     if not os.path.exists(po_dir):
         return 0
     cutoff = time.time() - (90 * 86400)

@@ -8,10 +8,11 @@ import json
 import shutil
 import logging
 from datetime import datetime, timedelta
+from src.core.paths import DATA_DIR
 
 log = logging.getLogger("reytech.data_guard")
 
-SNAPSHOT_DIR = os.path.join(os.environ.get("DATA_DIR", "/data"), "snapshots")
+SNAPSHOT_DIR = os.path.join(DATA_DIR, "snapshots")
 
 
 MAX_SNAPSHOTS_PER_FILE = 10  # Keep only the most recent N snapshots per file
@@ -225,7 +226,7 @@ def boot_health_check():
     """Run on every boot. Logs the state of all critical data files and DB tables.
     Returns a dict with status of each check. Logs errors loudly.
     """
-    data_dir = os.environ.get("DATA_DIR", "/data")
+    data_dir = DATA_DIR
     checks = {"ok": True, "issues": [], "stats": {}}
 
     # 1. Check JSON files

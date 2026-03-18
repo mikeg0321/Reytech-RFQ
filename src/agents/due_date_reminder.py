@@ -10,12 +10,11 @@ import json
 import os
 from datetime import datetime, timedelta
 
+from src.core.paths import DATA_DIR
+
 log = logging.getLogger("reytech.reminders")
 
-REMINDED_FILE = os.path.join(
-    os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data")),
-    "reminded_ids.json",
-)
+REMINDED_FILE = os.path.join(DATA_DIR, "reminded_ids.json")
 
 
 def _load_reminded():

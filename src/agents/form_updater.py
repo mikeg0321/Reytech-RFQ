@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 log = logging.getLogger("reytech.form_updater")
 
-DATA_DIR = os.environ.get("DATA_DIR", "/data")
+from src.core.paths import DATA_DIR
 TEMPLATE_DIR = os.path.join(DATA_DIR, "templates")
 FORM_INDEX_PATH = os.path.join(DATA_DIR, "form_index.json")
 
