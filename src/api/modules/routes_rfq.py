@@ -2601,13 +2601,27 @@ def generate_rfq_package(rid):
             quote_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
             locked_qn = r.get("reytech_quote_number", "")
 
+            # SQLite doesn't store reytech_quote_number — check JSON directly
+            if not locked_qn:
+                try:
+                    import json as _jqn
+                    _rfq_json_path = os.path.join(DATA_DIR, "rfqs.json")
+                    if os.path.exists(_rfq_json_path):
+                        with open(_rfq_json_path) as _jf:
+                            _jrfqs = _jqn.load(_jf)
+                        locked_qn = _jrfqs.get(rid, {}).get("reytech_quote_number", "")
+                        if locked_qn:
+                            r["reytech_quote_number"] = locked_qn
+                            t.step(f"Recovered quote number from JSON: {locked_qn}")
+                except Exception:
+                    pass
+
             # GUARDRAIL: if this RFQ already has a quote number locked,
             # ALWAYS reuse it — never burn a new counter on regenerate.
             if locked_qn:
                 t.step(f"Reusing locked quote number: {locked_qn}")
             else:
                 # Allocate number BEFORE generating and save immediately
-                # to prevent duplicate numbers on repeated generate clicks.
                 from src.forms.quote_generator import _next_quote_number
                 locked_qn = _next_quote_number()
                 r["reytech_quote_number"] = locked_qn
@@ -2990,6 +3004,19 @@ def rfq_generate_quote(rid):
     output_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
 
     locked_qn = r.get("reytech_quote_number", "")
+    # SQLite doesn't store reytech_quote_number — check JSON directly
+    if not locked_qn:
+        try:
+            import json as _jqn2
+            _rfq_json_path2 = os.path.join(DATA_DIR, "rfqs.json")
+            if os.path.exists(_rfq_json_path2):
+                with open(_rfq_json_path2) as _jf2:
+                    _jrfqs2 = _jqn2.load(_jf2)
+                locked_qn = _jrfqs2.get(rid, {}).get("reytech_quote_number", "")
+                if locked_qn:
+                    r["reytech_quote_number"] = locked_qn
+        except Exception:
+            pass
     if not locked_qn:
         from src.forms.quote_generator import _next_quote_number
         locked_qn = _next_quote_number()
