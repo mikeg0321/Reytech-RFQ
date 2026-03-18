@@ -4169,17 +4169,36 @@ def api_download_file(sol, filename):
     filepath = os.path.join(OUTPUT_DIR, sol, filename)
     if not os.path.exists(filepath):
         # Fallback: try serving from DB
+        # sol might be solicitation number OR rfq_id — try both
         try:
+            found_file = None
+            # Try sol as rfq_id first
             files = list_rfq_files(sol, category="generated")
             for dbf in files:
                 if dbf.get("filename") == filename:
-                    full = get_rfq_file(dbf["id"])
-                    if full and full.get("data"):
-                        from flask import Response
-                        return Response(full["data"], mimetype="application/pdf",
-                                        headers={"Content-Disposition": f'inline; filename="{filename}"'})
-        except Exception:
-            pass
+                    found_file = dbf
+                    break
+            # If not found, search all RFQs by solicitation number
+            if not found_file:
+                rfqs = load_rfqs()
+                for rid, r in rfqs.items():
+                    r_sol = (r.get("solicitation_number") or r.get("rfq_number") or "").replace("/", "_")
+                    if r_sol == sol or rid == sol:
+                        files = list_rfq_files(rid, category="generated")
+                        for dbf in files:
+                            if dbf.get("filename") == filename:
+                                found_file = dbf
+                                break
+                        if found_file:
+                            break
+            if found_file:
+                full = get_rfq_file(found_file["id"])
+                if full and full.get("data"):
+                    from flask import Response
+                    return Response(full["data"], mimetype="application/pdf",
+                                    headers={"Content-Disposition": f'inline; filename="{filename}"'})
+        except Exception as _e:
+            log.warning("DB download fallback failed for %s/%s: %s", sol, filename, _e)
         return jsonify({"ok": False, "error": "File not found"}), 404
     from flask import send_file
     return send_file(filepath, mimetype="application/pdf", download_name=filename)
