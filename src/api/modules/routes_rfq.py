@@ -4845,6 +4845,25 @@ def api_rfq_clear_quote(rid):
     return jsonify({"ok": True, "cleared": old_qn, "message": f"Cleared {old_qn}. Regenerate to get a new number."})
 
 
+@bp.route("/api/rfq/<rid>/set-quote-number", methods=["POST"])
+@auth_required
+def api_rfq_set_quote_number(rid):
+    """Force-set the quote number on an RFQ. Used to fix counter drift."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    qn = data.get("quote_number", "").strip()
+    if not qn:
+        return jsonify({"ok": False, "error": "Provide quote_number"})
+    old = r.get("reytech_quote_number", "")
+    r["reytech_quote_number"] = qn
+    save_rfqs(rfqs)
+    log.info("Force-set quote number on RFQ %s: %s → %s", rid, old, qn)
+    return jsonify({"ok": True, "old": old, "new": qn})
+
+
 @bp.route("/api/rfq/<rid>/clear-generated", methods=["POST", "GET"])
 @auth_required
 def api_rfq_clear_generated(rid):
