@@ -2734,21 +2734,35 @@ def generate_rfq_package(rid):
         # Bidder Declaration
         if _include("bidder_decl"):
             try:
-                from src.forms.reytech_filler_v4 import generate_bidder_declaration
-                generate_bidder_declaration(r, CONFIG, f"{out_dir}/{sol}_BidderDecl_Reytech.pdf")
+                _bd_tmpl = os.path.join(DATA_DIR, "templates", "bidder_declaration_blank.pdf")
+                if os.path.exists(_bd_tmpl):
+                    from src.forms.reytech_filler_v4 import fill_bidder_declaration
+                    fill_bidder_declaration(_bd_tmpl, r, CONFIG, f"{out_dir}/{sol}_BidderDecl_Reytech.pdf")
+                    t.step("Bidder Declaration filled from template")
+                else:
+                    from src.forms.reytech_filler_v4 import generate_bidder_declaration
+                    generate_bidder_declaration(r, CONFIG, f"{out_dir}/{sol}_BidderDecl_Reytech.pdf")
+                    t.step("Bidder Declaration generated via ReportLab (no template)")
                 output_files.append(f"{sol}_BidderDecl_Reytech.pdf")
-                t.step("Bidder Declaration generated")
             except Exception as e:
+                errors.append(f"Bidder Declaration: {e}")
                 t.warn("Bidder Declaration failed", error=str(e))
-        
-        # Darfur Act
+
+        # Darfur Act — template-first, ReportLab fallback
         if _include("darfur_act"):
             try:
-                from src.forms.reytech_filler_v4 import generate_darfur_act
-                generate_darfur_act(r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
+                _da_tmpl = os.path.join(DATA_DIR, "templates", "darfur_act_blank.pdf")
+                if os.path.exists(_da_tmpl):
+                    from src.forms.reytech_filler_v4 import fill_darfur_standalone
+                    fill_darfur_standalone(_da_tmpl, r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
+                    t.step("Darfur Act filled from template")
+                else:
+                    from src.forms.reytech_filler_v4 import generate_darfur_act
+                    generate_darfur_act(r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
+                    t.step("Darfur Act generated via ReportLab (no template)")
                 output_files.append(f"{sol}_DarfurAct_Reytech.pdf")
-                t.step("Darfur Act generated")
             except Exception as e:
+                errors.append(f"Darfur Act: {e}")
                 t.warn("Darfur Act failed", error=str(e))
         
         # CalRecycle 74
@@ -2817,18 +2831,6 @@ def generate_rfq_package(rid):
                     t.step("STD 205 filled from template")
                 except Exception as e:
                     errors.append(f"STD 205 template: {e}")
-
-        # Standalone Darfur (for non-CDCR agencies that don't have bidpkg)
-        if _include("darfur_act") and "bidpkg" not in tmpl:
-            _darfur_tmpl = os.path.join(DATA_DIR, "templates", "Darfur_Certification_Form.pdf")
-            if os.path.exists(_darfur_tmpl):
-                try:
-                    from src.forms.reytech_filler_v4 import fill_darfur_standalone
-                    fill_darfur_standalone(_darfur_tmpl, r, CONFIG, f"{out_dir}/{sol}_DarfurAct_Reytech.pdf")
-                    output_files.append(f"{sol}_DarfurAct_Reytech.pdf")
-                    t.step("Darfur Act filled from template")
-                except Exception as e:
-                    errors.append(f"Darfur Act: {e}")
 
         # W-9 (static copy) — only if agency requires it (CalVet doesn't)
         if _include("w9"):

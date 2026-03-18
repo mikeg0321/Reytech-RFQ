@@ -1565,8 +1565,31 @@ def generate_std205(rfq_data, config, output_path):
 # Bidder Declaration GSPD-05-106 (ReportLab)
 # ═══════════════════════════════════════════════════════════════════════
 
+def fill_bidder_declaration(input_path, rfq_data, config, output_path):
+    """Fill Bidder Declaration GSPD-05-105 from actual state template."""
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    sol = rfq_data.get("solicitation_number", "") or rfq_data.get("rfq_number", "")
+
+    values = {
+        "Solicitaion #": sol,  # typo is in the actual form field name
+        "Certification": company.get("cert_number", ""),
+        "Certification #": company.get("cert_number", ""),
+        "Check Box2": "/Yes",  # No subcontractors
+        "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
+                        "Reytech Inc. sources, prices, and delivers all products directly.",
+        "Check Box4": "/Yes",  # Not a broker
+        "Check Box8": "/Yes",  # Equipment rental: N/A
+        "page": "1",
+        "of #": "1",
+    }
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    print(f"  ✓ Bidder Declaration filled from template (GSPD-05-105, sol={sol})")
+
+
 def generate_bidder_declaration(rfq_data, config, output_path):
-    """Generate Bidder Declaration GSPD-05-106 via ReportLab."""
+    """Generate Bidder Declaration GSPD-05-106 via ReportLab (fallback)."""
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
@@ -2852,16 +2875,25 @@ def fill_darfur_standalone(input_path, rfq_data, config, output_path):
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
     values = {
+        # Page 1 — Option 1 (not a scrutinized company)
+        "CompanyVendor Name": company["name"],
         "CompanyVendor Name Printed": company["name"],
-        "Company Name": company["name"], "Vendor Name": company["name"],
+        "Company Name": company["name"],
+        "Vendor Name": company["name"],
         "Federal ID Number": company.get("fein", ""),
+        "Federal ID Number_2": company.get("fein", ""),
         "FEIN": company.get("fein", ""),
         "Printed Name and Title of Person Signing": f"{company['owner']}, {company.get('title', 'President')}",
-        "Date": sign_date, "Date__darfur": sign_date,
+        "Printed Name and Title of Person Initialing": f"{company['owner']}, {company.get('title', 'President')}",
+        "Date of signature": sign_date,
+        "Date of signature 2": sign_date,
+        "Date": sign_date,
+        "Date__darfur": sign_date,
+        "CompanyVendor Name Printed_2": company["name"],
     }
     for name in ["Option1", "Check1", "Option_1", "#1"]:
         values[name] = "/Yes"
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    print(f"  ✓ Darfur Act filled — Option 1 (not scrutinized)")
+    print(f"  ✓ Darfur Act filled from template — Option 1 (not scrutinized)")
 
