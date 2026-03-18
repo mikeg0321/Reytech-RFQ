@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Review Package — RFQ #{{ sol }}{% endblock %}
+{% block content %}
+<style>
+.rv-wrap{max-width:1600px;margin:0 auto;padding:0 12px}
+.rv-header{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--bd);margin-bottom:16px}
+.rv-header h2{margin:0;font-size:18px;color:var(--tx)}
+.rv-3col{display:grid;grid-template-columns:260px 1fr 300px;gap:16px;min-height:calc(100vh - 180px)}
+.rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
+.rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
+.rv-form-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;cursor:pointer;margin-bottom:4px;border:1px solid transparent;font-size:13px}
+.rv-form-item:hover{background:rgba(79,140,255,.06)}
+.rv-form-item.active{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3)}
+.rv-form-item .rv-icon{font-size:16px;flex-shrink:0}
+.rv-form-item .rv-name{flex:1;color:var(--tx)}
+.rv-form-item .rv-badge{font-size:11px;padding:2px 6px;border-radius:4px;font-weight:600}
+.rv-badge-pending{background:rgba(139,148,158,.15);color:#8b949e}
+.rv-badge-approved{background:rgba(63,185,80,.15);color:#3fb950}
+.rv-badge-rejected{background:rgba(248,81,73,.15);color:#f85149}
+.rv-badge-missing{background:rgba(248,81,73,.2);color:#f85149;font-style:italic}
+.rv-progress{text-align:center;padding:12px 0;border-top:1px solid var(--bd);margin-top:8px;font-size:13px;color:var(--tx2)}
+.rv-preview iframe{flex:1;border:none;background:#fff}
+.rv-preview-empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--tx2);font-size:14px}
+.rv-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd)}
+.rv-section:last-child{border-bottom:none}
+.rv-section-title{font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px}
+.rv-warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#d29922;margin-bottom:8px}
+.rv-error{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#f85149;margin-bottom:8px}
+.rv-audit-item{font-size:13px;padding:4px 0;color:var(--tx2);display:flex;gap:6px}
+@media(max-width:1024px){.rv-3col{grid-template-columns:220px 1fr;}.rv-audit{display:none}}
+@media(max-width:768px){.rv-3col{grid-template-columns:1fr;}.rv-checklist{max-height:200px}}
+</style>
+
+<div class="rv-wrap">
+  <div class="rv-header">
+    <div>
+      <h2>📋 Package Review — RFQ #{{ sol }}</h2>
+      <div style="font-size:13px;color:var(--tx2);margin-top:2px">
+        {{ manifest.agency_name or 'Unknown Agency' }} — {{ r.get('requestor_name', '?') }}
+        {% if r.get('due_date') %} — Due {{ r.due_date }}{% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span id="rv-status-badge" style="font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;background:rgba(139,148,158,.15);color:#8b949e">{{ manifest.overall_status|upper }}</span>
+      <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">← Back to RFQ</a>
+    </div>
+  </div>
+
+  {% if buyer_prefs %}
+  <div class="rv-warn" style="margin-bottom:12px">
+    <b>Buyer Preferences:</b>
+    {% for pref in buyer_prefs %}
+      <div style="margin-top:4px">{{ pref.preference_key|replace('_',' ')|title }}: {{ pref.notes or pref.preference_value }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if manifest.missing_forms and manifest.missing_forms|length > 0 %}
+  <div class="rv-error" style="margin-bottom:12px">
+    <b>Missing Forms:</b> {{ manifest.missing_forms|join(', ') }} — required by {{ manifest.agency_name }} but not generated.
+  </div>
+  {% endif %}
+
+  <div class="rv-3col">
+    <!-- LEFT: Form Checklist -->
+    <div class="rv-checklist">
+      <div style="font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;padding:0 4px">Package Contents ({{ manifest.total_forms }} forms)</div>
+
+      <div id="rv-form-list">
+        {% for review in manifest.reviews %}
+        <div class="rv-form-item {% if loop.first %}active{% endif %}"
+             data-form-id="{{ review.form_id }}"
+             data-filename="{{ review.form_filename }}"
+             data-verdict="{{ review.verdict }}"
+             onclick="selectForm(this, '{{ review.form_id }}', '{{ review.form_filename }}')">
+          <span class="rv-icon">{% if review.verdict == 'approved' %}✅{% elif review.verdict == 'rejected' %}❌{% else %}⏳{% endif %}</span>
+          <span class="rv-name">{{ review.form_id|replace('_',' ')|title }}</span>
+          <span class="rv-badge rv-badge-{{ review.verdict }}">{{ review.verdict|upper }}</span>
+        </div>
+        {% endfor %}
+
+        {% if manifest.missing_forms %}
+        {% for missing in manifest.missing_forms %}
+        <div class="rv-form-item" style="opacity:.6">
+          <span class="rv-icon">🚫</span>
+          <span class="rv-name">{{ missing|replace('_',' ')|title }}</span>
+          <span class="rv-badge rv-badge-missing">MISSING</span>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+
+      <div class="rv-progress">
+        <div id="rv-progress-text">0/{{ manifest.reviews|length }} reviewed</div>
+        <div style="background:var(--bd);border-radius:4px;height:6px;margin-top:6px;overflow:hidden">
+          <div id="rv-progress-bar" style="background:#3fb950;height:100%;width:0%;transition:width .3s;border-radius:4px"></div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <button id="rv-finalize-btn" class="btn" style="width:100%;background:rgba(139,148,158,.2);color:var(--tx);font-size:14px;padding:10px;border-radius:6px;font-weight:600" onclick="finalizePackage()" disabled>
+          🔒 Finalize Package
+        </button>
+        <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--tx2);margin-top:4px">Review all forms to enable</div>
+      </div>
+    </div>
+
+    <!-- CENTER: PDF Preview -->
+    <div class="rv-preview">
+      <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
+        <span id="rv-preview-title" style="font-size:13px;font-weight:600;color:var(--tx)">Select a form to preview</span>
+        <a id="rv-download-link" href="#" target="_blank" class="btn btn-sm" style="font-size:12px;display:none">⬇ Download</a>
+      </div>
+      <div id="rv-preview-empty" class="rv-preview-empty">
+        <div style="text-align:center">
+          <div style="font-size:32px;margin-bottom:8px">📄</div>
+          <div>Click a form on the left to preview</div>
+        </div>
+      </div>
+      <iframe id="rv-preview-frame" style="display:none;flex:1;min-height:600px" sandbox="allow-same-origin"></iframe>
+    </div>
+
+    <!-- RIGHT: Audit Panel -->
+    <div class="rv-audit">
+      <div class="rv-section">
+        <div class="rv-section-title">Quote Summary</div>
+        <div class="rv-audit-item"><span>💰</span> Quote #: {{ manifest.quote_number or '—' }}</div>
+        <div class="rv-audit-item"><span>📦</span> Items: {{ manifest.item_count or 0 }}</div>
+        <div class="rv-audit-item"><span>💲</span> Total: ${{ "%.2f"|format(manifest.quote_total or 0) }}</div>
+        <div class="rv-audit-item"><span>🏢</span> Agency: {{ manifest.agency_name or '?' }}</div>
+      </div>
+
+      <div class="rv-section">
+        <div class="rv-section-title">Package Info</div>
+        <div class="rv-audit-item"><span>📋</span> Version: {{ manifest.version }}</div>
+        <div class="rv-audit-item"><span>⏰</span> Generated: {{ manifest.created_at[:16] if manifest.created_at else '?' }}</div>
+      </div>
+
+      <div class="rv-section" id="rv-form-audit">
+        <div class="rv-section-title">Form Audit</div>
+        <div style="color:var(--tx2);font-size:13px">Select a form to see details</div>
+      </div>
+
+      <div class="rv-section">
+        <div class="rv-section-title">Review Actions</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);flex:1" onclick="reviewCurrent('approved')">✅ Approve</button>
+          <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);flex:1" onclick="reviewCurrent('rejected')">❌ Reject</button>
+        </div>
+        <textarea id="rv-review-notes" placeholder="Optional notes..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var RID={{ rid|tojson }};
+var SOL={{ sol|tojson }};
+var MANIFEST_ID={{ manifest.id|tojson }};
+var _currentFormId=null;
+
+function selectForm(el,formId,filename){
+ _currentFormId=formId;
+ document.querySelectorAll('.rv-form-item').forEach(function(i){i.classList.remove('active')});
+ el.classList.add('active');
+ document.getElementById('rv-preview-title').textContent=formId.replace(/_/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase()})+(filename?' — '+filename:'');
+ if(filename){
+  var url='/api/download/'+SOL+'/'+filename;
+  var frame=document.getElementById('rv-preview-frame');
+  frame.src=url;frame.style.display='block';
+  document.getElementById('rv-preview-empty').style.display='none';
+  var dl=document.getElementById('rv-download-link');dl.href=url;dl.style.display='inline-flex';
+ } else {
+  document.getElementById('rv-preview-frame').style.display='none';
+  document.getElementById('rv-preview-empty').style.display='flex';
+  document.getElementById('rv-preview-empty').innerHTML='<div style="text-align:center"><div style="font-size:32px;margin-bottom:8px">🚫</div><div>Form not generated</div></div>';
+  document.getElementById('rv-download-link').style.display='none';
+ }
+ updateAuditPanel(formId);
+}
+
+function updateAuditPanel(formId){
+ var checks={
+  'quote':['Quote number assigned','All items priced','Company info correct','Subtotal + tax = total','Signature present'],
+  'bidder_decl':['Solicitation # matches','Certifications listed','Page 1 of 1'],
+  'darfur_act':['Company name filled','FEIN filled','Option 1 selected','Signature present'],
+  'dvbe843':['Company info filled','DVBE cert number','Signature present'],
+  '704b':['VENDOR FIELDS ONLY — buyer header untouched','Prices filled','Subtotals correct'],
+  '703b':['Company info complete','Certifications checked','Signature present'],
+  'calrecycle74':['Line items listed','Date on all pages','Signature present'],
+  'cv012_cuf':['Company info filled','Signature present'],
+  'std204':['Payee name/address','FEIN filled'],
+  'std1000':['Terms accepted','Signature present'],
+  'sellers_permit':['Static copy — no fields to verify'],
+ };
+ var el=document.getElementById('rv-form-audit');
+ var h='<div class="rv-section-title">'+formId.replace(/_/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase()})+'</div>';
+ (checks[formId]||['No automated checks']).forEach(function(c){h+='<div class="rv-audit-item"><span>🔍</span> '+c+'</div>';});
+ el.innerHTML=h;
+}
+
+function reviewCurrent(verdict){
+ if(!_currentFormId){alert('Select a form first');return;}
+ var notes=document.getElementById('rv-review-notes').value;
+ fetch('/api/rfq/'+RID+'/manifest/'+MANIFEST_ID+'/review',{
+  method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({form_id:_currentFormId,verdict:verdict,notes:notes})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){alert('Review failed: '+(d.error||'unknown'));return;}
+  var item=document.querySelector('.rv-form-item[data-form-id="'+_currentFormId+'"]');
+  if(item){
+   item.dataset.verdict=verdict;
+   item.querySelector('.rv-icon').textContent=verdict==='approved'?'✅':'❌';
+   var b=item.querySelector('.rv-badge');b.textContent=verdict.toUpperCase();b.className='rv-badge rv-badge-'+verdict;
+  }
+  document.getElementById('rv-review-notes').value='';
+  updateProgress();
+  var next=document.querySelector('.rv-form-item[data-verdict="pending"]');
+  if(next)next.click();
+ });
+}
+
+function updateProgress(){
+ var items=document.querySelectorAll('.rv-form-item[data-verdict]');
+ var total=0,reviewed=0,approved=0;
+ items.forEach(function(i){if(i.dataset.formId){total++;if(i.dataset.verdict!=='pending')reviewed++;if(i.dataset.verdict==='approved')approved++;}});
+ document.getElementById('rv-progress-text').textContent=reviewed+'/'+total+' reviewed';
+ document.getElementById('rv-progress-bar').style.width=(total>0?Math.round(reviewed/total*100):0)+'%';
+ var btn=document.getElementById('rv-finalize-btn'),hint=document.getElementById('rv-finalize-hint');
+ if(reviewed>=total&&total>0){
+  var rej=document.querySelectorAll('.rv-form-item[data-verdict="rejected"]').length;
+  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.textContent='Fix and regenerate';}
+  else{btn.disabled=false;btn.style.background='var(--gn)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
+ } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--tx2)';}
+}
+
+function finalizePackage(){
+ if(!confirm('Finalize this package? All forms approved.'))return;
+ fetch('/api/rfq/'+RID+'/manifest/'+MANIFEST_ID+'/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'}})
+ .then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){alert('Approval failed: '+(d.error||'unknown'));return;}
+  document.getElementById('rv-status-badge').textContent='APPROVED';
+  document.getElementById('rv-status-badge').style.background='rgba(63,185,80,.15)';
+  document.getElementById('rv-status-badge').style.color='#3fb950';
+  var btn=document.getElementById('rv-finalize-btn');
+  btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
+  document.getElementById('rv-finalize-hint').innerHTML='<a href="/rfq/'+RID+'" style="color:var(--ac)">← Return to RFQ to download/send</a>';
+ });
+}
+
+document.addEventListener('DOMContentLoaded',function(){
+ var first=document.querySelector('.rv-form-item');
+ if(first)first.click();
+ updateProgress();
+});
+</script>
+{% endblock %}

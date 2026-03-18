@@ -935,6 +935,36 @@ def detail(rid):
                        agency_required_forms=_agency_req)
 
 
+@bp.route("/rfq/<rid>/review-package")
+@auth_required
+@safe_route
+def review_package(rid):
+    """Package review screen — guided form-by-form verification before sending."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error")
+        return redirect("/")
+
+    from src.core.dal import get_latest_manifest, get_buyer_preferences, get_lifecycle_events
+    manifest = get_latest_manifest(rid)
+    if not manifest:
+        flash("No package generated yet — generate first, then review.", "error")
+        return redirect(f"/rfq/{rid}")
+
+    buyer_email = r.get("requestor_email", "")
+    buyer_prefs = get_buyer_preferences(buyer_email) if buyer_email else []
+    timeline = get_lifecycle_events("rfq", rid, limit=20)
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+
+    return render_page("rfq_review.html",
+        r=r, rid=rid, sol=sol,
+        manifest=manifest,
+        buyer_prefs=buyer_prefs,
+        timeline=timeline,
+        active_page="Home")
+
+
 @bp.route("/rfq/<rid>/save-restore", methods=["POST"])
 @auth_required
 @safe_route
@@ -2973,7 +3003,7 @@ def generate_rfq_package(rid):
     
     t.ok("Package complete", files=len(output_files), errors=len(errors))
     flash(msg, "success" if not errors else "info")
-    return redirect(f"/rfq/{rid}")
+    return redirect(f"/rfq/{rid}/review-package")
 
 
 @bp.route("/rfq/<rid>/generate", methods=["POST"])
