@@ -2213,16 +2213,22 @@ def pricecheck_generate_quote(pcid):
     output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
 
     locked_qn = pc.get("reytech_quote_number", "")
+    # Allocate quote number BEFORE generating to prevent burns on repeated clicks
+    if not locked_qn:
+        from src.forms.quote_generator import _next_quote_number
+        locked_qn = _next_quote_number()
+        pc["reytech_quote_number"] = locked_qn
+        _save_price_checks(pcs)  # persist NOW
 
     result = generate_quote_from_pc(
         pc, output_path,
         include_tax=True,
-        quote_number=locked_qn if locked_qn else None,
+        quote_number=locked_qn,
     )
 
     if result.get("ok"):
         pc["reytech_quote_pdf"] = output_path
-        pc["reytech_quote_number"] = result.get("quote_number", "")
+        pc["reytech_quote_number"] = result.get("quote_number", locked_qn)
         pc["status"] = "draft"
         _save_price_checks(pcs)
         _enrich_catalog_from_pc(pc)
