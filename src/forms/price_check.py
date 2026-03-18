@@ -469,6 +469,201 @@ def _filter_junk_items(items: list) -> list:
     return filtered
 
 
+# ─── Parse items from email body text ─────────────────────────────────────────
+
+def parse_items_from_email_body(body_text: str) -> dict:
+    """Parse line items from email body text when no 704 PDF is attached.
+
+    Handles tabular data like CalVet RFQs:
+    LINE NO.  QTY/UNIT  U OF M  PART #  DESCRIPTION
+    1         20        CS      MCK-123 BANDAGE ELASTIC 6"
+    """
+    if not body_text or len(body_text) < 50:
+        return {"line_items": [], "header": {}}
+
+    lines = body_text.split("\n")
+    header = {}
+
+    # ── Extract header info ──
+    for line in lines:
+        m = re.search(r'request(?:or|er)[:\s]+([A-Z][A-Za-z\s]+?)(?:\s+\d|$)', line)
+        if m and not header.get("requestor"):
+            header["requestor"] = m.group(1).strip()
+
+        m = re.search(r'due\s*(?:date|day)?[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', line, re.IGNORECASE)
+        if m and not header.get("due_date"):
+            header["due_date"] = m.group(1)
+
+        for pat in [r"department[:\s]+(.+?)(?:\s{2,}|$)",
+                    r"veteran'?s?\s+(?:home|affairs)\s*[-\u2013\u2014]?\s*(\w+)",
+                    r"(cal\s*vet\b.+?)(?:\s{2,}|$)"]:
+            m = re.search(pat, line, re.IGNORECASE)
+            if m and not header.get("institution"):
+                header["institution"] = m.group(1).strip()
+
+        m = re.search(r'(?:requisition|solicitation|rfq)\s*#?\s*(\d+)', line, re.IGNORECASE)
+        if m and not header.get("solicitation_number"):
+            header["solicitation_number"] = m.group(1).strip()
+
+        m = re.search(r'deliver(?:y|ed)\s+to\s+(.+?)(?:\.\s|$)', line, re.IGNORECASE)
+        if m and not header.get("ship_to"):
+            header["ship_to"] = m.group(1).strip()
+
+    # ── Extract line items ──
+    # Pattern: LINE_NO  QTY  UOM  PART#  DESCRIPTION
+    item_pat = re.compile(
+        r'^\s*(\d{1,3})\s+'
+        r'(\d{1,6})\s+'
+        r'([A-Z]{1,5})\s+'
+        r'([\w\-\.#]+(?:\s[\w\-\.#]+)?)\s+'
+        r'(.+?)\s*$',
+        re.IGNORECASE
+    )
+    # Simpler: LINE_NO  QTY  DESCRIPTION (no UOM/part#)
+    simple_pat = re.compile(r'^\s*(\d{1,3})\s+(\d{1,6})\s+(.{10,})\s*$')
+
+    items = []
+    skip_headers = {"LINE NO", "QTY/UNIT", "PART #", "DESCRIPTION", "ITEM #", "U OF M"}
+
+    for line in lines:
+        line = line.strip()
+        if not line or len(line) < 5:
+            continue
+        if any(h in line.upper() for h in skip_headers):
+            continue
+
+        m = item_pat.match(line)
+        if m:
+            items.append({
+                "item_number": m.group(1),
+                "qty": int(m.group(2)),
+                "uom": m.group(3).upper(),
+                "mfg_number": m.group(4).strip(),
+                "description": m.group(5).strip(),
+                "row_index": int(m.group(1)),
+                "pricing": {},
+                "source": "email_body",
+            })
+            continue
+
+        if items:
+            m = simple_pat.match(line)
+            if m:
+                items.append({
+                    "item_number": m.group(1),
+                    "qty": int(m.group(2)),
+                    "uom": "EA",
+                    "mfg_number": "",
+                    "description": m.group(3).strip(),
+                    "row_index": int(m.group(1)),
+                    "pricing": {},
+                    "source": "email_body",
+                })
+
+    if items:
+        items = _filter_junk_items(_sanitize_parsed_items(items))
+
+    log.info("parse_email_body: found %d items, header=%s", len(items),
+             {k: v for k, v in header.items() if v})
+    return {"line_items": items, "header": header}
+
+
+# ─── Pre-generation validation ────────────────────────────────────────────────
+
+def validate_against_source(priced_items: list, source_items: list) -> dict:
+    """Compare priced items against original parsed items to catch mismatches.
+
+    Returns dict with ok, warnings, errors, missing_items, qty_mismatches.
+    """
+    result = {
+        "ok": True,
+        "warnings": [],
+        "errors": [],
+        "missing_items": [],
+        "qty_mismatches": [],
+    }
+
+    if not source_items:
+        result["warnings"].append("No source items to compare against")
+        return result
+
+    def _normalize(s):
+        if not s:
+            return ""
+        s = s.lower().strip()
+        s = re.sub(r'[^a-z0-9\s]', '', s)
+        return re.sub(r'\s+', ' ', s)
+
+    def _similarity(a, b):
+        wa = set(_normalize(a).split())
+        wb = set(_normalize(b).split())
+        if not wa or not wb:
+            return 0
+        return len(wa & wb) / max(len(wa), len(wb))
+
+    matched_source = set()
+
+    for pi, priced in enumerate(priced_items):
+        if priced.get("no_bid"):
+            continue
+        p_desc = priced.get("description", "")
+        p_qty = priced.get("qty", 1)
+        p_mfg = _normalize(priced.get("mfg_number", ""))
+
+        best_idx, best_score = -1, 0
+        for si, source in enumerate(source_items):
+            if si in matched_source:
+                continue
+            s_desc = source.get("description", "")
+            s_mfg = _normalize(source.get("mfg_number", ""))
+            score = _similarity(p_desc, s_desc)
+            if p_mfg and s_mfg and p_mfg == s_mfg:
+                score = max(score, 0.8)
+            if score > best_score:
+                best_score = score
+                best_idx = si
+
+        if best_idx >= 0 and best_score >= 0.4:
+            matched_source.add(best_idx)
+            s_item = source_items[best_idx]
+            s_qty = s_item.get("qty", 1)
+            if s_qty and p_qty and s_qty != p_qty:
+                result["qty_mismatches"].append({
+                    "item": pi + 1,
+                    "desc": p_desc[:50],
+                    "priced_qty": p_qty,
+                    "source_qty": s_qty,
+                })
+                result["warnings"].append(
+                    f"Item #{pi+1} qty mismatch: priced={p_qty}, source={s_qty} ({p_desc[:40]})"
+                )
+
+    # Check for source items not matched
+    for si, source in enumerate(source_items):
+        if si not in matched_source:
+            s_desc = source.get("description", "")
+            if s_desc and len(s_desc) > 3:
+                result["missing_items"].append({
+                    "source_idx": si + 1,
+                    "desc": s_desc[:50],
+                })
+                result["warnings"].append(
+                    f"Source item #{si+1} not found in priced items: {s_desc[:40]}"
+                )
+
+    if result["qty_mismatches"] or len(result["missing_items"]) > len(source_items) * 0.3:
+        result["ok"] = False
+        result["errors"].append(
+            f"{len(result['qty_mismatches'])} qty mismatches, "
+            f"{len(result['missing_items'])} missing items"
+        )
+
+    log.info("validate_against_source: ok=%s, warnings=%d, mismatches=%d, missing=%d",
+             result["ok"], len(result["warnings"]),
+             len(result["qty_mismatches"]), len(result["missing_items"]))
+    return result
+
+
 # ─── Parse AMS 704 ──────────────────────────────────────────────────────────
 
 def parse_ams704(pdf_path: str) -> dict:

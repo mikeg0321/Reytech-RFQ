@@ -2294,6 +2294,25 @@ def process_rfq_email(rfq_email):
                         else:
                             items = parsed.get("line_items", [])
                             header = parsed.get("header", {})
+                            # Fallback: if no items from PDF, try email body
+                            if not items:
+                                try:
+                                    from src.forms.price_check import parse_items_from_email_body
+                                    _body = rfq_email.get("body", "")
+                                    if _body and len(_body) > 100:
+                                        _bp = parse_items_from_email_body(_body)
+                                        if _bp.get("line_items"):
+                                            items = _bp["line_items"]
+                                            parsed["line_items"] = items
+                                            parsed["parse_method"] = "email_body"
+                                            for _k, _v in _bp.get("header", {}).items():
+                                                if _v and not header.get(_k):
+                                                    header[_k] = _v
+                                            _trace.append(f"EMAIL BODY: parsed {len(items)} items (no PDF items)")
+                                            log.info("PC %s: parsed %d items from email body", pc_id, len(items))
+                                except Exception as _ebody_e:
+                                    _trace.append(f"Email body parse failed: {_ebody_e}")
+                                    log.debug("Email body parse: %s", _ebody_e)
                             pc_num = header.get("price_check_number", "unknown")
                             institution = header.get("institution", "")
                             due_date = header.get("due_date", "")
