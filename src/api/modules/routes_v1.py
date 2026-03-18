@@ -160,8 +160,19 @@ def api_v1_create_rfq():
             "items": items,
         }
 
+        rfq["line_items"] = items  # alias — generate endpoint reads line_items
+
         from src.core.dal import save_rfq
         save_rfq(rfq, actor="manual_form")
+
+        # Also write to JSON + dashboard cache so generate/autosave can find it
+        try:
+            from src.api.dashboard import load_rfqs, save_rfqs
+            rfqs = load_rfqs()
+            rfqs[rfq_id] = rfq
+            save_rfqs(rfqs)
+        except Exception as _e:
+            log.debug("RFQ JSON dual-write: %s", _e)
 
         # If form submission, redirect to RFQ detail page
         if request.form:
