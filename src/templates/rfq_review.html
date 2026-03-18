@@ -56,6 +56,22 @@
   </div>
   {% endif %}
 
+  {% if manifest.source_validation %}
+  {% set sv = manifest.source_validation %}
+  {% if sv.errors or sv.warnings %}
+  <div class="{% if sv.errors %}rv-error{% else %}rv-warn{% endif %}" style="margin-bottom:8px">
+    <b>📧 Source Validation:</b> {{ sv.summary or '' }}
+    {% for e in sv.get('errors',[]) %}<div style="margin-top:4px">❌ {{ e }}</div>{% endfor %}
+    {% for w in sv.get('warnings',[]) %}<div style="margin-top:4px">⚠️ {{ w }}</div>{% endfor %}
+    {% for c in sv.get('checks',[]) %}<div style="margin-top:4px;color:#3fb950">✅ {{ c }}</div>{% endfor %}
+  </div>
+  {% elif sv.get('checks') %}
+  <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#3fb950;margin-bottom:8px">
+    ✅ <b>Source Validation:</b> {{ sv.get('checks',[])|join(' · ') }}
+  </div>
+  {% endif %}
+  {% endif %}
+
   {% if manifest.missing_forms and manifest.missing_forms|length > 0 %}
   <div class="rv-error" style="margin-bottom:12px">
     <b>Missing Forms:</b> {{ manifest.missing_forms|join(', ') }} — required by {{ manifest.agency_name }} but not generated.
@@ -184,22 +200,20 @@ function selectForm(el,formId,filename){
 }
 
 function updateAuditPanel(formId){
- var checks={
-  'quote':['Quote number assigned','All items priced','Company info correct','Subtotal + tax = total','Signature present'],
-  'bidder_decl':['Solicitation # matches','Certifications listed','Page 1 of 1'],
-  'darfur_act':['Company name filled','FEIN filled','Option 1 selected','Signature present'],
-  'dvbe843':['Company info filled','DVBE cert number','Signature present'],
-  '704b':['VENDOR FIELDS ONLY — buyer header untouched','Prices filled','Subtotals correct'],
-  '703b':['Company info complete','Certifications checked','Signature present'],
-  'calrecycle74':['Line items listed','Date on all pages','Signature present'],
-  'cv012_cuf':['Company info filled','Signature present'],
-  'std204':['Payee name/address','FEIN filled'],
-  'std1000':['Terms accepted','Signature present'],
-  'sellers_permit':['Static copy — no fields to verify'],
- };
  var el=document.getElementById('rv-form-audit');
- var h='<div class="rv-section-title">'+formId.replace(/_/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase()})+'</div>';
- (checks[formId]||['No automated checks']).forEach(function(c){h+='<div class="rv-audit-item"><span>🔍</span> '+c+'</div>';});
+ var names={'quote':'Reytech Quote','703b':'AMS 703B','704b':'AMS 704B','calrecycle74':'CalRecycle 74','bidder_decl':'Bidder Declaration','dvbe843':'DVBE PD 843','darfur_act':'Darfur Act','cv012_cuf':'CV 012 CUF','std204':'STD 204','std1000':'STD 1000','sellers_permit':'Sellers Permit'};
+ var h='<div class="rv-section-title">'+(names[formId]||formId)+'</div>';
+ var fa=null;
+ try{var audits={{ manifest.field_audit|tojson if manifest.field_audit else '{}' }};if(typeof audits==='string')audits=JSON.parse(audits);fa=audits[formId];}catch(e){}
+ if(fa){
+  if(fa.page_count)h+='<div class="rv-audit-item"><span>📄</span> '+fa.page_count+' pages, '+fa.field_count+' fields</div>';
+  (fa.checks||[]).forEach(function(c){h+='<div class="rv-audit-item"><span>✅</span> '+c+'</div>';});
+  (fa.warnings||[]).forEach(function(w){h+='<div class="rv-audit-item" style="color:#d29922"><span>⚠️</span> '+w+'</div>';});
+  (fa.errors||[]).forEach(function(e){h+='<div class="rv-audit-item" style="color:#f85149"><span>❌</span> '+e+'</div>';});
+ } else {
+  var checks={'quote':['Quote number assigned','All items priced','Signature present'],'bidder_decl':['Solicitation # matches','Certifications listed'],'darfur_act':['Company name','FEIN','Signature'],'dvbe843':['Company info','Signature'],'704b':['VENDOR ONLY — buyer untouched','Prices filled'],'703b':['Company info','Signature'],'calrecycle74':['Line items','Signature'],'sellers_permit':['Static copy']};
+  (checks[formId]||['Manual review']).forEach(function(c){h+='<div class="rv-audit-item"><span>🔍</span> '+c+'</div>';});
+ }
  el.innerHTML=h;
 }
 

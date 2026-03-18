@@ -664,6 +664,152 @@ def validate_against_source(priced_items: list, source_items: list) -> dict:
     return result
 
 
+# ─── Source validation ─────────────────────────────────────────────────────
+
+def validate_source_email(rfq_data: dict) -> dict:
+    """Cross-reference original email against RFQ system data."""
+    result = {"ok": True, "warnings": [], "errors": [], "checks": []}
+    email_body = rfq_data.get("body_text", "") or rfq_data.get("email_body", "") or ""
+    email_subject = rfq_data.get("email_subject", "") or ""
+    all_text = f"{email_subject} {email_body}"
+    if not all_text or len(all_text) < 20:
+        result["warnings"].append("No email body available for cross-reference")
+        return result
+
+    items = rfq_data.get("line_items", rfq_data.get("items", []))
+
+    # Item count
+    item_numbers = re.findall(r'(?:^|\n)\s*(\d{1,3})\s+\d', all_text)
+    if item_numbers:
+        max_item = max(int(n) for n in item_numbers)
+        if max_item != len(items):
+            result["warnings"].append(f"Email has ~{max_item} items, system has {len(items)}")
+        else:
+            result["checks"].append(f"Item count matches: {len(items)}")
+
+    # Due date
+    system_due = rfq_data.get("due_date", "")
+    for pat in [r'(?:due|deadline)[:\s]+(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})',
+                r'(\d{1,2}/\d{1,2}/\d{2,4})\s*(?:08:00|8:00|AM|PM)']:
+        m = re.search(pat, all_text, re.IGNORECASE)
+        if m:
+            email_due = m.group(1)
+            if system_due and email_due not in system_due and system_due not in email_due:
+                result["warnings"].append(f"Due date mismatch — email: {email_due}, system: {system_due}")
+            else:
+                result["checks"].append(f"Due date matches: {system_due or email_due}")
+            break
+
+    # Solicitation number
+    system_sol = rfq_data.get("solicitation_number", "") or rfq_data.get("rfq_number", "")
+    m = re.search(r'(?:solicitation|requisition|rfq)\s*#?\s*(\d+)', all_text, re.IGNORECASE)
+    if m:
+        email_sol = m.group(1)
+        if system_sol and email_sol != system_sol:
+            result["errors"].append(f"Solicitation # mismatch — email: {email_sol}, system: {system_sol}")
+            result["ok"] = False
+        else:
+            result["checks"].append(f"Solicitation # matches: {system_sol or email_sol}")
+
+    # Delivery address
+    system_delivery = rfq_data.get("delivery_location", "") or rfq_data.get("ship_to", "")
+    m = re.search(r'deliver(?:y|ed)\s+to\s+(.+?)(?:\.|$)', all_text, re.IGNORECASE)
+    if m:
+        email_addr = m.group(1).strip()[:100]
+        if system_delivery:
+            overlap = len(set(email_addr.lower().split()) & set(system_delivery.lower().split()))
+            if overlap < 2 and len(email_addr.split()) > 2:
+                result["warnings"].append(f"Delivery may differ — email: '{email_addr[:50]}', system: '{system_delivery[:50]}'")
+            else:
+                result["checks"].append("Delivery address matches")
+
+    total = len(result["errors"]) + len(result["warnings"])
+    result["summary"] = f"✅ Passed ({len(result['checks'])} checks)" if total == 0 else f"⚠️ {total} issue(s)"
+    return result
+
+
+# ─── Field audit ──────────────────────────────────────────────────────────────
+
+def audit_generated_form(pdf_path: str, form_id: str, expected_values: dict = None) -> dict:
+    """Read a generated PDF and verify its fields match expectations."""
+    result = {"ok": True, "checks": [], "warnings": [], "errors": [], "fields": {}}
+
+    if not os.path.exists(pdf_path):
+        result["errors"].append(f"File not found: {pdf_path}")
+        result["ok"] = False
+        return result
+
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(pdf_path)
+        fields = reader.get_fields() or {}
+        result["page_count"] = len(reader.pages)
+        result["field_count"] = len(fields)
+
+        for fname, fdata in fields.items():
+            val = str(fdata.get("/V", "")).strip() if isinstance(fdata, dict) else ""
+            if val and val != "/Off":
+                result["fields"][fname] = val
+
+        filled = len(result["fields"])
+        result["checks"].append(f"{filled}/{len(fields)} fields filled")
+
+        if form_id == "bidder_decl":
+            _check_field(result, "Solicitaion #", "Solicitation number")
+            _check_filled(result, "page", "Page number")
+        elif form_id == "darfur_act":
+            _check_field(result, "CompanyVendor Name", "Company name")
+            _check_field(result, "Federal ID Number", "FEIN")
+            _check_filled(result, "Date of signature", "Signature date")
+        elif form_id == "704b":
+            _check_field(result, "COMPANY NAME", "Company name")
+            buyer_fields = ["DEPARTMENT", "PHONEEMAIL", "REQUESTOR", "SOLICITATION #"]
+            for bf in buyer_fields:
+                if bf in result["fields"] and expected_values:
+                    if expected_values.get("company_name", "").lower() in result["fields"].get(bf, "").lower():
+                        result["errors"].append(f"BUYER FIELD OVERWRITTEN: {bf}")
+                        result["ok"] = False
+        elif form_id == "quote":
+            text = ""
+            for page in reader.pages[:3]:
+                text += page.extract_text() or ""
+            if "$" not in text:
+                result["warnings"].append("Quote may not contain prices")
+            else:
+                result["checks"].append("Quote contains pricing")
+        elif form_id == "sellers_permit":
+            result["checks"].append("Static copy — no fields to verify")
+        else:
+            if filled == 0:
+                result["errors"].append(f"No fields filled in {form_id}")
+                result["ok"] = False
+            elif filled < 3:
+                result["warnings"].append(f"Only {filled} fields filled")
+            else:
+                result["checks"].append(f"{filled} fields filled")
+    except Exception as e:
+        result["errors"].append(f"Failed to read PDF: {e}")
+        result["ok"] = False
+
+    return result
+
+
+def _check_field(result, field_name, label):
+    val = result["fields"].get(field_name, "")
+    if val:
+        result["checks"].append(f"{label}: {val[:40]}")
+    else:
+        result["warnings"].append(f"{label} is empty")
+
+
+def _check_filled(result, field_name, label):
+    val = result["fields"].get(field_name, "")
+    if val:
+        result["checks"].append(f"{label}: filled")
+    else:
+        result["warnings"].append(f"{label} is empty")
+
+
 # ─── Parse AMS 704 ──────────────────────────────────────────────────────────
 
 def parse_ams704(pdf_path: str) -> dict:

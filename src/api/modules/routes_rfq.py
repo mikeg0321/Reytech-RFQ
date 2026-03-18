@@ -2893,6 +2893,33 @@ def generate_rfq_package(rid):
         _gen_ids = {f["form_id"] for f in _gen_forms}
         _missing = [f for f in _req_forms if f not in _gen_ids]
 
+        # ── Source validation: cross-reference email ──
+        _source_val = None
+        try:
+            from src.forms.price_check import validate_source_email
+            _source_val = validate_source_email(r)
+            if _source_val and not _source_val.get("ok"):
+                _lle("rfq", rid, "source_validation_warning",
+                     _source_val.get("summary", "Source validation issues"),
+                     actor="system", detail=_source_val)
+        except Exception as _sv_e:
+            log.debug("Source validation: %s", _sv_e)
+
+        # ── Field audit: verify each generated form ──
+        _field_audits = {}
+        try:
+            from src.forms.price_check import audit_generated_form
+            _expected = {"company_name": CONFIG.get("company", {}).get("name", "Reytech"), "solicitation": sol}
+            for _gf in _gen_forms:
+                _gf_path = os.path.join(out_dir, _gf.get("filename", ""))
+                if os.path.exists(_gf_path):
+                    _audit = audit_generated_form(_gf_path, _gf["form_id"], _expected)
+                    _field_audits[_gf["form_id"]] = _audit
+                    if not _audit.get("ok"):
+                        log.warning("Field audit FAIL %s: %s", _gf["form_id"], _audit.get("errors", []))
+        except Exception as _fa_e:
+            log.debug("Field audit: %s", _fa_e)
+
         _qtotal = 0
         _qnum = r.get("reytech_quote_number", "")
         _icount = len(r.get("line_items", []))
@@ -2928,6 +2955,18 @@ def generate_rfq_package(rid):
         if _manifest_id:
             from src.core.dal import update_manifest_status as _ums
             _ums(_manifest_id, "draft", package_filename=package_filename)
+            # Store validation + audit on manifest
+            if _source_val or _field_audits:
+                try:
+                    import json as _jm
+                    from src.core.db import get_db as _gdb
+                    with _gdb() as _conn:
+                        _conn.execute("""UPDATE package_manifest SET source_validation = ?, field_audit = ? WHERE id = ?""",
+                            (_jm.dumps(_source_val, default=str) if _source_val else None,
+                             _jm.dumps(_field_audits, default=str) if _field_audits else None,
+                             _manifest_id))
+                except Exception:
+                    pass
     except Exception as _me:
         log.warning("Package manifest creation failed: %s", _me)
 
