@@ -1494,7 +1494,8 @@ def get_funnel_stats(tenant_id: str = "reytech") -> dict:
 
 def create_package_manifest(rfq_id, agency_key, agency_name, required_forms,
                             generated_forms, missing_forms=None, quote_number="",
-                            quote_total=0, item_count=0, created_by="system"):
+                            quote_total=0, item_count=0, created_by="system",
+                            items_snapshot=None):
     """Create a new package manifest record. Returns manifest ID."""
     try:
         with get_db() as conn:
@@ -1506,13 +1507,14 @@ def create_package_manifest(rfq_id, agency_key, agency_name, required_forms,
                 INSERT INTO package_manifest
                 (rfq_id, version, created_at, created_by, agency_key, agency_name,
                  required_forms, generated_forms, missing_forms, overall_status,
-                 quote_number, quote_total, item_count, total_forms)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 quote_number, quote_total, item_count, total_forms, items_snapshot)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (rfq_id, version, datetime.now().isoformat(), created_by,
                   agency_key, agency_name,
                   json.dumps(required_forms), json.dumps(generated_forms),
                   json.dumps(missing_forms or []), "draft",
-                  quote_number, quote_total, item_count, len(generated_forms)))
+                  quote_number, quote_total, item_count, len(generated_forms),
+                  json.dumps(items_snapshot, default=str) if items_snapshot else None))
             manifest_id = cursor.lastrowid
             for form in generated_forms:
                 form_id = form.get("form_id", "") if isinstance(form, dict) else str(form)

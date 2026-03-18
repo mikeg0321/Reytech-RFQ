@@ -2739,6 +2739,7 @@ def process_rfq_email(rfq_email):
         rfq_data["requestor_name"] = rfq_data.get("requestor_name") or rfq_email.get("sender_email", "")
         rfq_data["requestor_email"] = rfq_data.get("requestor_email") or rfq_email.get("sender_email", "")
         rfq_data["line_items"] = bulk_lookup(rfq_data.get("line_items", []))
+        rfq_data["_original_items"] = [dict(i) for i in rfq_data.get("line_items", [])]
         # Detect agency for 704-based RFQs too
         try:
             from src.forms.generic_rfq_parser import detect_agency as _detect_ag

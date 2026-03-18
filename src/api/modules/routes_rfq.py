@@ -957,9 +957,24 @@ def review_package(rid):
     timeline = get_lifecycle_events("rfq", rid, limit=20)
     sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
 
+    # Get previous manifest for version diff
+    prev_manifest = None
+    if manifest and manifest.get("version", 1) > 1:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                prev_row = conn.execute(
+                    "SELECT id FROM package_manifest WHERE rfq_id = ? AND version = ?",
+                    (rid, manifest["version"] - 1)).fetchone()
+                if prev_row:
+                    prev_manifest = get_package_manifest(prev_row[0])
+        except Exception:
+            pass
+
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
         manifest=manifest,
+        prev_manifest=prev_manifest,
         buyer_prefs=buyer_prefs,
         timeline=timeline,
         active_page="Home")
@@ -2463,30 +2478,27 @@ def generate_rfq_package(rid):
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
     
-    # ── Step 1.5: Clean old generated files on regenerate ──────────────
+    # ── Step 1.5: Archive old files (don't delete until new generation succeeds) ──
+    import shutil as _sh_clean
+    _old_dir = None
     if os.path.exists(out_dir):
-        import shutil as _sh_clean
+        _old_dir = out_dir + "_prev"
         try:
-            _old_files = os.listdir(out_dir)
-            _sh_clean.rmtree(out_dir)
-            t.step(f"Cleaned {len(_old_files)} old files from {sol}/")
+            if os.path.exists(_old_dir):
+                _sh_clean.rmtree(_old_dir)
+            os.rename(out_dir, _old_dir)
+            t.step(f"Archived old files to {sol}_prev/")
         except Exception as _ce:
-            t.warn("Cleanup failed", error=str(_ce))
+            _old_dir = None
+            t.warn("Archive failed, removing old files", error=str(_ce))
+            try:
+                _sh_clean.rmtree(out_dir)
+            except Exception:
+                pass
     os.makedirs(out_dir, exist_ok=True)
-    
-    # Also clear old output_files list and DB-stored generated files
+
     r["output_files"] = []
-    r.pop("draft_email", None)  # Clear stale draft tied to old files
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute(
-                "DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated'",
-                (rid,)
-            )
-            t.step("Cleared old generated files from DB")
-    except Exception as _dbe:
-        t.warn("DB cleanup skipped", error=str(_dbe))
+    r.pop("draft_email", None)
     
     output_files = []
     errors = []
@@ -2915,6 +2927,14 @@ def generate_rfq_package(rid):
     if not output_files and not r.get("form_type") == "generic_rfq":
         t.fail("No files generated", errors=errors)
         flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
+        # Restore old files on failure
+        if _old_dir and os.path.exists(_old_dir) and not os.listdir(out_dir):
+            try:
+                _sh_clean.rmtree(out_dir)
+                os.rename(_old_dir, out_dir)
+                log.info("Restored old files after generation failure for %s", rid)
+            except Exception:
+                pass
         return redirect(f"/rfq/{rid}")
     
     # ── Step 3.5: Collect ALL package PDFs (state forms + original RFQ attachments) ──
@@ -3144,12 +3164,19 @@ def generate_rfq_package(rid):
             except (ValueError, TypeError):
                 pass
 
+        _items_snap = [{"desc": (_it.get("description") or "")[:60],
+            "qty": _it.get("qty", 1),
+            "price": _it.get("price_per_unit") or _it.get("unit_price") or 0,
+            "cost": _it.get("vendor_cost") or _it.get("supplier_cost") or 0,
+            } for _it in r.get("line_items", [])]
+
         _manifest_id = create_package_manifest(
             rfq_id=rid, agency_key=_agency_key,
             agency_name=_agency_cfg.get("name", ""),
             required_forms=list(_req_forms), generated_forms=_gen_forms,
             missing_forms=_missing, quote_number=_qnum,
-            quote_total=round(_qtotal, 2), item_count=_icount, created_by="user")
+            quote_total=round(_qtotal, 2), item_count=_icount, created_by="user",
+            items_snapshot=_items_snap)
 
         if _missing:
             _lle("rfq", rid, "package_missing_forms",
@@ -3256,6 +3283,25 @@ def generate_rfq_package(rid):
     
     t.ok("Package complete", files=len(output_files), errors=len(errors))
     flash(msg, "success" if not errors else "info")
+
+    # Clean up archived old files ONLY after successful generation
+    if _old_dir and os.path.exists(_old_dir):
+        try:
+            _sh_clean.rmtree(_old_dir)
+        except Exception:
+            pass
+    # Clean old DB files not in new output
+    try:
+        from src.core.db import get_db as _gdb_clean
+        with _gdb_clean() as _conn_clean:
+            if output_files:
+                _ph = ",".join("?" for _ in output_files)
+                _conn_clean.execute(f"DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated' AND filename NOT IN ({_ph})", [rid] + list(output_files))
+            else:
+                _conn_clean.execute("DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated'", (rid,))
+    except Exception:
+        pass
+
     return redirect(f"/rfq/{rid}/review-package")
 
 

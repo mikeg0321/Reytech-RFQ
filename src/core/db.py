@@ -987,7 +987,8 @@ CREATE TABLE IF NOT EXISTS package_manifest (
     total_pages     INTEGER,
     quote_number    TEXT,
     quote_total     REAL,
-    item_count      INTEGER
+    item_count      INTEGER,
+    items_snapshot  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pm_rfq ON package_manifest(rfq_id);
 CREATE INDEX IF NOT EXISTS idx_pm_status ON package_manifest(overall_status);

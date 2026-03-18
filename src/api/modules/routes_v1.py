@@ -161,6 +161,7 @@ def api_v1_create_rfq():
         }
 
         rfq["line_items"] = items  # alias — generate endpoint reads line_items
+        rfq["_original_items"] = [dict(i) for i in items]  # snapshot for validation
 
         from src.core.dal import save_rfq
         save_rfq(rfq, actor="manual_form")

@@ -153,6 +153,27 @@
         <div class="rv-section-title">Package Info</div>
         <div class="rv-audit-item"><span>📋</span> Version: {{ manifest.version }}</div>
         <div class="rv-audit-item"><span>⏰</span> Generated: {{ manifest.created_at[:16] if manifest.created_at else '?' }}</div>
+        {% if prev_manifest is defined and prev_manifest %}
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
+          <div class="rv-section-title">Changes from v{{ prev_manifest.version }}</div>
+          {% if manifest.quote_total != prev_manifest.quote_total %}
+          <div class="rv-audit-item" style="color:{% if manifest.quote_total > prev_manifest.quote_total %}#3fb950{% else %}#f85149{% endif %}">
+            <span>💲</span> Total: ${{ "%.2f"|format(prev_manifest.quote_total or 0) }} → ${{ "%.2f"|format(manifest.quote_total or 0) }}
+          </div>
+          {% endif %}
+          {% if manifest.item_count != prev_manifest.item_count %}
+          <div class="rv-audit-item" style="color:#d29922"><span>📦</span> Items: {{ prev_manifest.item_count }} → {{ manifest.item_count }}</div>
+          {% endif %}
+          {% if manifest.total_forms != prev_manifest.total_forms %}
+          <div class="rv-audit-item" style="color:#d29922"><span>📋</span> Forms: {{ prev_manifest.total_forms }} → {{ manifest.total_forms }}</div>
+          {% endif %}
+          {% if manifest.quote_total == prev_manifest.quote_total and manifest.item_count == prev_manifest.item_count and manifest.total_forms == prev_manifest.total_forms %}
+          <div class="rv-audit-item"><span>✅</span> No major changes</div>
+          {% endif %}
+        </div>
+        {% elif manifest.version == 1 %}
+        <div style="margin-top:8px;font-size:12px;color:var(--tx2)">First generation</div>
+        {% endif %}
       </div>
 
       <div class="rv-section" id="rv-form-audit">
