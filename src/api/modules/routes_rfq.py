@@ -965,6 +965,81 @@ def review_package(rid):
         active_page="Home")
 
 
+@bp.route("/rfq/<rid>/support")
+@auth_required
+@safe_route
+def rfq_support_view(rid):
+    """Support timeline — full RFQ lifecycle for customer support."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        flash("RFQ not found", "error"); return redirect("/")
+
+    from src.core.dal import get_lifecycle_events, get_latest_manifest, get_buyer_preferences
+    timeline = get_lifecycle_events("rfq", rid, limit=200)
+    manifest = get_latest_manifest(rid)
+    buyer_email = r.get("requestor_email", "")
+    buyer_prefs = get_buyer_preferences(buyer_email) if buyer_email else []
+
+    all_manifests = []
+    deliveries = []
+    emails = []
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, version, created_at, overall_status, total_forms, quote_number, quote_total, package_filename "
+                "FROM package_manifest WHERE rfq_id = ? ORDER BY version DESC", (rid,)).fetchall()
+            all_manifests = [dict(row) for row in rows]
+            rows = conn.execute(
+                "SELECT * FROM package_delivery WHERE rfq_id = ? ORDER BY delivered_at DESC", (rid,)).fetchall()
+            deliveries = [dict(row) for row in rows]
+    except Exception:
+        pass
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, logged_at, direction, sender, recipient, subject, status "
+                "FROM email_log WHERE rfq_id = ? ORDER BY logged_at DESC LIMIT 20", (rid,)).fetchall()
+            emails = [dict(row) for row in rows]
+    except Exception:
+        pass
+
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    return render_page("rfq_support.html", r=r, rid=rid, sol=sol,
+        timeline=timeline, manifest=manifest, all_manifests=all_manifests,
+        deliveries=deliveries, emails=emails, buyer_prefs=buyer_prefs, active_page="Home")
+
+
+@bp.route("/api/rfq/<rid>/add-buyer-pref", methods=["POST"])
+@auth_required
+def api_add_buyer_pref(rid):
+    """Add a buyer preference from the support view."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    buyer_email = r.get("requestor_email", "")
+    if not buyer_email:
+        return jsonify({"ok": False, "error": "No buyer email on this RFQ"})
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get("preference_key", "")
+    value = data.get("preference_value", "")
+    notes = data.get("notes", "")
+    if not key or not (value or notes):
+        return jsonify({"ok": False, "error": "preference_key and notes required"})
+    from src.core.dal import save_buyer_preference, log_lifecycle_event
+    ok = save_buyer_preference(buyer_email, key, value or notes[:200],
+        buyer_name=r.get("requestor_name", ""), agency_key=r.get("agency", ""),
+        source=data.get("source", "manual"), notes=notes)
+    if ok:
+        log_lifecycle_event("rfq", rid, "buyer_preference_added",
+            f"Preference added: {key} for {buyer_email}", actor="user",
+            detail={"key": key, "notes": notes[:200]})
+    return jsonify({"ok": ok})
+
+
 @bp.route("/rfq/<rid>/save-restore", methods=["POST"])
 @auth_required
 @safe_route

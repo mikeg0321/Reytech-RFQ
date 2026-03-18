@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Support — RFQ #{{ sol }}{% endblock %}
+{% block content %}
+<style>
+.sp-wrap{max-width:1200px;margin:0 auto;padding:0 12px}
+.sp-header{display:flex;justify-content:space-between;align-items:flex-start;padding:16px 0;border-bottom:1px solid var(--bd);margin-bottom:20px}
+.sp-header h2{margin:0;font-size:20px;color:var(--tx)}
+.sp-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
+.sp-meta-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px}
+.sp-meta-label{font-size:11px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px}
+.sp-meta-value{font-size:14px;color:var(--tx);margin-top:2px;font-weight:600}
+.sp-2col{display:grid;grid-template-columns:1fr 360px;gap:20px}
+@media(max-width:900px){.sp-2col{grid-template-columns:1fr}}
+.sp-timeline{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:16px}
+.sp-sidebar{display:flex;flex-direction:column;gap:16px}
+.sp-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px}
+.sp-card-title{font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--bd)}
+.sp-tl-item{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:13px}
+.sp-tl-item:last-child{border-bottom:none}
+.sp-tl-time{color:var(--tx2);white-space:nowrap;min-width:120px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.sp-delivery{padding:8px 0;border-bottom:1px solid rgba(48,54,61,.5)}
+.sp-delivery:last-child{border-bottom:none}
+.sp-pref{padding:6px 0;border-bottom:1px solid rgba(48,54,61,.5);font-size:13px}
+.sp-pref:last-child{border-bottom:none}
+</style>
+
+<div class="sp-wrap">
+  <div class="sp-header">
+    <div>
+      <h2>🎧 Support View — RFQ #{{ sol }}</h2>
+      <div style="font-size:13px;color:var(--tx2);margin-top:4px">
+        {{ r.get('agency','') or r.get('agency_name','') }} — {{ r.get('requestor_name','?') }}
+        {% if r.get('requestor_email') %} ({{ r.requestor_email }}){% endif %}
+      </div>
+    </div>
+    <div style="display:flex;gap:8px">
+      <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">📋 Full RFQ</a>
+      {% if manifest %}<a href="/rfq/{{ rid }}/review-package" class="btn btn-sm" style="font-size:13px">📦 Review</a>{% endif %}
+    </div>
+  </div>
+
+  <div class="sp-meta">
+    <div class="sp-meta-card"><div class="sp-meta-label">Solicitation</div><div class="sp-meta-value">#{{ sol }}</div></div>
+    <div class="sp-meta-card"><div class="sp-meta-label">Buyer</div><div class="sp-meta-value">{{ r.get('requestor_name','—') }}</div></div>
+    <div class="sp-meta-card"><div class="sp-meta-label">Due Date</div><div class="sp-meta-value">{{ r.get('due_date','—') }}</div></div>
+    <div class="sp-meta-card"><div class="sp-meta-label">Status</div><div class="sp-meta-value">{{ r.get('status','—')|upper }}</div></div>
+    <div class="sp-meta-card"><div class="sp-meta-label">Items</div><div class="sp-meta-value">{{ (r.get('line_items') or r.get('items') or [])|length }}</div></div>
+    <div class="sp-meta-card"><div class="sp-meta-label">Quote #</div><div class="sp-meta-value">{{ r.get('reytech_quote_number','—') }}</div></div>
+  </div>
+
+  <div class="sp-2col">
+    <div class="sp-timeline">
+      <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:12px">📜 Lifecycle Timeline ({{ timeline|length }} events)</div>
+      {% if timeline %}
+      {% for event in timeline %}
+      <div class="sp-tl-item">
+        <div class="sp-tl-time">{{ event.occurred_at[:16] if event.occurred_at else '?' }}</div>
+        <div style="font-size:16px;flex-shrink:0">
+          {% if 'received' in event.event_type %}📧{% elif 'parsed' in event.event_type %}📄{% elif 'edited' in event.event_type %}✏️{% elif 'lookup' in event.event_type %}💰{% elif 'markup' in event.event_type %}📊{% elif 'generate_started' in event.event_type %}⚙️{% elif 'generated' in event.event_type %}📦{% elif 'missing' in event.event_type %}🚫{% elif 'reviewed' in event.event_type %}🔍{% elif 'approved' in event.event_type %}✅{% elif 'sent' in event.event_type %}📤{% elif 'validation' in event.event_type %}⚠️{% elif 'preference' in event.event_type %}👤{% else %}📌{% endif %}
+        </div>
+        <div style="flex:1">
+          <div style="color:var(--tx)">{{ event.summary or event.event_type }}</div>
+          <div style="color:var(--tx2);font-size:11px">{{ event.actor or 'system' }} · {{ event.event_type }}</div>
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div style="color:var(--tx2);font-size:14px;padding:20px;text-align:center">No lifecycle events recorded yet</div>
+      {% endif %}
+    </div>
+
+    <div class="sp-sidebar">
+      <div class="sp-card">
+        <div class="sp-card-title">📦 Package Versions ({{ all_manifests|length }})</div>
+        {% for m in all_manifests %}
+        <div class="sp-delivery">
+          <div style="display:flex;justify-content:space-between"><span style="font-size:13px;font-weight:600;color:var(--tx)">v{{ m.version }} — {{ m.overall_status|upper }}</span><span style="font-size:11px;color:var(--tx2)">{{ m.created_at[:16] if m.created_at else '' }}</span></div>
+          <div style="font-size:12px;color:var(--tx2)">{{ m.total_forms or 0 }} forms · {{ m.quote_number or '—' }} · ${{ "%.2f"|format(m.quote_total or 0) }}</div>
+        </div>
+        {% else %}<div style="color:var(--tx2);font-size:13px">No packages yet</div>{% endfor %}
+      </div>
+
+      <div class="sp-card">
+        <div class="sp-card-title">📤 Deliveries ({{ deliveries|length }})</div>
+        {% for d in deliveries %}
+        <div class="sp-delivery">
+          <div style="font-size:13px;color:var(--tx)">{{ d.recipient_email or '?' }}</div>
+          <div style="font-size:12px;color:var(--tx2)">{{ d.delivered_at[:16] if d.delivered_at else '' }}</div>
+          {% if d.email_subject %}<div style="font-size:11px;color:var(--tx2);font-style:italic">"{{ d.email_subject[:60] }}"</div>{% endif %}
+          {% if d.package_hash %}<div style="font-size:10px;color:var(--tx2);font-family:'JetBrains Mono',monospace">SHA: {{ d.package_hash[:16] }}...</div>{% endif %}
+        </div>
+        {% else %}<div style="color:var(--tx2);font-size:13px">No deliveries</div>{% endfor %}
+      </div>
+
+      <div class="sp-card">
+        <div class="sp-card-title">👤 Buyer Preferences ({{ buyer_prefs|length }})</div>
+        {% for pref in buyer_prefs %}
+        <div class="sp-pref">
+          <div style="font-weight:600;color:var(--tx)">{{ pref.preference_key|replace('_',' ')|title }}</div>
+          <div style="color:var(--tx2);font-size:12px">{{ pref.notes or pref.preference_value }}</div>
+          <div style="color:var(--tx2);font-size:11px">{{ pref.source }} · {{ pref.learned_at[:10] if pref.learned_at else '' }}</div>
+        </div>
+        {% else %}<div style="color:var(--tx2);font-size:13px">No preferences</div>{% endfor %}
+        <button class="btn btn-sm" style="margin-top:8px;font-size:12px;width:100%" onclick="document.getElementById('add-pref-form').style.display=document.getElementById('add-pref-form').style.display==='none'?'block':'none'">+ Add Preference</button>
+        <div id="add-pref-form" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
+          <select id="pref-key" style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:4px;font-size:12px">
+            <option value="no_modify_buyer_fields">No modify buyer fields</option>
+            <option value="ship_to_override">Ship to override</option>
+            <option value="filename_format">Filename format</option>
+            <option value="response_preference">Response preference</option>
+            <option value="custom">Custom note</option>
+          </select>
+          <textarea id="pref-notes" placeholder="Details..." style="width:100%;margin-bottom:4px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:4px;font-size:12px;min-height:50px;resize:vertical;box-sizing:border-box"></textarea>
+          <button class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:12px;width:100%" onclick="saveBuyerPref()">Save</button>
+        </div>
+      </div>
+
+      {% if manifest and manifest.package_filename %}
+      <div class="sp-card">
+        <div class="sp-card-title">⚡ Quick Actions</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px;background:rgba(79,140,255,.15);color:var(--ac)">📎 Download</a>
+          <a href="/rfq/{{ rid }}" class="btn btn-sm" style="flex:1;text-align:center;font-size:12px">📋 Open RFQ</a>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+var RID={{ rid|tojson }};
+function saveBuyerPref(){
+ var key=document.getElementById('pref-key').value;
+ var notes=document.getElementById('pref-notes').value;
+ if(!notes.trim()){alert('Enter details');return;}
+ var email={{ (r.get('requestor_email','')|tojson) }};
+ if(!email){alert('No buyer email');return;}
+ fetch('/api/rfq/'+RID+'/add-buyer-pref',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({preference_key:key,preference_value:notes.substring(0,200),notes:notes,source:'manual'})})
+ .then(function(r){return r.json()}).then(function(d){if(d.ok)location.reload();else alert(d.error||'Failed');});
+}
+</script>
+{% endblock %}
