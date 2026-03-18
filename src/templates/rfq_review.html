@@ -147,6 +147,7 @@
         <div class="rv-audit-item"><span>📦</span> Items: {{ manifest.item_count or 0 }}</div>
         <div class="rv-audit-item"><span>💲</span> Total: ${{ "%.2f"|format(manifest.quote_total or 0) }}</div>
         <div class="rv-audit-item"><span>🏢</span> Agency: {{ manifest.agency_name or '?' }}</div>
+        <div class="rv-audit-item"><span>💲</span> Tax: {% if r.get('tax_validated') %}<span style="color:#3fb950">✅ {{ r.get('tax_rate',0) }}% ({{ r.get('tax_jurisdiction','verified') }})</span>{% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ {{ r.get('tax_rate',0) }}% (unverified)</span>{% else %}<span style="color:#f85149">❌ No tax rate</span>{% endif %}</div>
       </div>
 
       <div class="rv-section">

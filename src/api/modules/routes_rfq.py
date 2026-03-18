@@ -1055,6 +1055,41 @@ def api_add_buyer_pref(rid):
     return jsonify({"ok": ok})
 
 
+@bp.route("/api/rfq/<rid>/lookup-tax-rate", methods=["POST"])
+@auth_required
+def api_lookup_tax_rate(rid):
+    """Look up CA sales tax rate from delivery address via CDTFA API."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    address = data.get("address") or r.get("delivery_location") or r.get("ship_to") or ""
+    if not address or len(address.strip()) < 5:
+        return jsonify({"ok": False, "error": "No delivery address to look up"})
+    try:
+        from src.agents.tax_agent import get_tax_rate
+        result = get_tax_rate(ship_to_name=address, ship_to_address=[address])
+        if result and result.get("rate"):
+            rate_pct = round(result["rate"] * 100, 3)
+            r["tax_rate"] = rate_pct
+            r["tax_validated"] = True
+            r["tax_source"] = result.get("source", "cdtfa_api")
+            r["tax_jurisdiction"] = result.get("jurisdiction", "")
+            save_rfqs(rfqs)
+            return jsonify({"ok": True, "rate": rate_pct,
+                "jurisdiction": result.get("jurisdiction", ""),
+                "city": result.get("city", ""),
+                "county": result.get("county", ""),
+                "confidence": result.get("confidence", ""),
+                "source": result.get("source", "")})
+        else:
+            return jsonify({"ok": False, "error": result.get("error", "Lookup failed")})
+    except Exception as e:
+        log.error("Tax rate lookup for RFQ %s: %s", rid, e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/rfq/<rid>/resend-package", methods=["POST"])
 @auth_required
 def api_resend_package(rid):
@@ -2596,6 +2631,20 @@ def generate_rfq_package(rid):
                         t.step("Buyer pref: no_modify_buyer_fields active")
         except Exception as _bp_e:
             log.debug("Buyer pref check: %s", _bp_e)
+
+        # ── Auto-validate tax rate if not yet validated ──
+        if not r.get("tax_validated") and r.get("delivery_location"):
+            try:
+                from src.agents.tax_agent import get_tax_rate as _gtr
+                _tax_r = _gtr(ship_to_name=r["delivery_location"], ship_to_address=[r["delivery_location"]])
+                if _tax_r and _tax_r.get("rate"):
+                    r["tax_rate"] = round(_tax_r["rate"] * 100, 3)
+                    r["tax_validated"] = True
+                    r["tax_source"] = _tax_r.get("source", "cdtfa_api")
+                    r["tax_jurisdiction"] = _tax_r.get("jurisdiction", "")
+                    t.step(f"Tax auto-validated: {r['tax_rate']}% ({r['tax_jurisdiction']})")
+            except Exception as _te:
+                log.debug("Tax auto-validate: %s", _te)
 
         try:
             from src.core.dal import log_lifecycle_event as _lle_start

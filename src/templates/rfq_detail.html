@@ -96,7 +96,12 @@
   <span style="color:#8b949e">|</span>
   <span style="color:#8b949e">Tax:
    <input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.25" style="width:50px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()">%
-   <a href="https://www.cdtfa.ca.gov/taxes-and-fees/sales-use-tax-rates.htm" target="_blank" title="CA Tax Rate Lookup" style="font-size:11px;color:#58a6ff;margin-left:2px">lookup</a>
+   <button onclick="lookupTaxRate()" class="btn btn-sm" style="font-size:10px;padding:1px 6px;background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);margin-left:2px" title="Auto-lookup from CDTFA">🔍 Verify</button>
+   <span id="tax-validation" style="font-size:10px;margin-left:4px">
+     {% if r.get('tax_validated') %}<span style="color:#3fb950" title="{{r.get('tax_source','CDTFA')}} · {{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>
+     {% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ unverified</span>
+     {% else %}<span style="color:#f85149">❌ not set</span>{% endif %}
+   </span>
   </span>
   <span id="ms-tax" style="color:#d29922"></span>
   <span style="color:#8b949e">|</span>
@@ -1863,6 +1868,30 @@ function _showQaPopup(d){
 }
 
 recalc();
+
+function lookupTaxRate(){
+ var btn=event.target;btn.disabled=true;btn.textContent='⏳';
+ var valEl=document.getElementById('tax-validation');
+ valEl.innerHTML='<span style="color:var(--tx2)">Looking up...</span>';
+ fetch('/api/rfq/'+RID+'/lookup-tax-rate',{method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({address:(document.getElementById('delivery-input')||{}).value||''})})
+ .then(function(r){return r.json()}).then(function(d){
+  btn.disabled=false;btn.textContent='🔍 Verify';
+  if(d.ok){
+   document.getElementById('tax-rate').value=d.rate;
+   valEl.innerHTML='<span style="color:#3fb950" title="'+d.source+'">✅ '+d.rate+'% · '+(d.jurisdiction||d.city||'')+(d.county?', '+d.county+' Co':'')+'</span>';
+   recalc();triggerAutosave();
+  } else {
+   valEl.innerHTML='<span style="color:#f85149" title="'+(d.error||'')+'">❌ failed</span>';
+  }
+ }).catch(function(){btn.disabled=false;btn.textContent='🔍 Verify';valEl.innerHTML='<span style="color:#f85149">❌ error</span>';});
+}
+
+// Auto-lookup tax if delivery address exists but rate not validated
+{% if not r.get('tax_validated') and (r.get('delivery_location') or r.get('ship_to')) %}
+setTimeout(function(){if(parseFloat(document.getElementById('tax-rate').value||0)===0)lookupTaxRate();},1500);
+{% endif %}
 
 // RID already defined at top of script
 var _allDbFiles=[];
