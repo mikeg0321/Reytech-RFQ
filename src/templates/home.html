@@ -38,6 +38,18 @@
  <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
 </div>
 <script>
+// Toast notification — replaces alert() for non-blocking feedback
+function showMsg(msg, type) {
+ var t = document.createElement('div');
+ var bg = type==='err'?'rgba(248,113,113,.15)':type==='warn'?'rgba(251,191,36,.15)':'rgba(52,211,153,.15)';
+ var color = type==='err'?'#f85149':type==='warn'?'#d29922':'#3fb950';
+ var border = type==='err'?'rgba(248,113,113,.3)':type==='warn'?'rgba(251,191,36,.3)':'rgba(52,211,153,.3)';
+ t.style.cssText='position:fixed;bottom:20px;right:20px;padding:12px 20px;background:'+bg+';border:1px solid '+border+';border-radius:8px;color:'+color+';font-size:14px;font-weight:600;z-index:9999;max-width:500px;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer';
+ t.innerHTML=msg;
+ t.onclick=function(){t.remove()};
+ document.body.appendChild(t);
+ setTimeout(function(){if(t.parentNode)t.remove()},5000);
+}
 // Defer non-critical health check (doesn't block page render)
 setTimeout(function(){
  fetch('/api/health/startup').then(function(r){return r.json()}).then(function(d){
@@ -253,6 +265,7 @@ function doDismiss(reason) {
   .then(function(d) {
     console.log('Dismiss result:', d);
     if (d.ok) {
+      showMsg('✅ Dismissed (' + (_dismissReason||'ok') + ')', 'ok');
       if (_dismissRow) {
         _dismissRow.style.transition = 'opacity .3s';
         _dismissRow.style.opacity = '0';
@@ -268,12 +281,12 @@ function doDismiss(reason) {
         countEl.textContent = Math.max(0, cur - 1);
       }
     } else {
-      alert('Failed: ' + (d.error || 'unknown'));
+      showMsg('Failed: ' + (d.error || 'unknown'), 'err');
     }
   })
   .catch(function(err) {
     console.error('Dismiss error:', err);
-    alert('Dismiss failed: ' + err.message);
+    showMsg('Dismiss failed: ' + err.message, 'err');
   });
 }
 
@@ -283,6 +296,24 @@ document.addEventListener('click', function(e) {
     document.getElementById('global-dismiss-popup').style.display = 'none';
   }
 });
+// Client-side table sort
+function sortTable(th, col) {
+ var table = th.closest('table');
+ var tbody = table.querySelector('tbody');
+ if (!tbody) return;
+ var rows = Array.from(tbody.querySelectorAll('tr'));
+ var asc = th._sortDir !== 'asc';
+ th._sortDir = asc ? 'asc' : 'desc';
+ rows.sort(function(a, b) {
+  var at = (a.children[col]||{}).textContent||'';
+  var bt = (b.children[col]||{}).textContent||'';
+  var an = parseFloat(at.replace(/[^0-9.\-]/g,''));
+  var bn = parseFloat(bt.replace(/[^0-9.\-]/g,''));
+  if (!isNaN(an) && !isNaN(bn)) return asc ? an-bn : bn-an;
+  return asc ? at.localeCompare(bt) : bt.localeCompare(at);
+ });
+ rows.forEach(function(r){ tbody.appendChild(r); });
+}
 </script>
 <div id="queues" class="bento bento-2" style="margin-bottom:14px">
 
@@ -296,13 +327,13 @@ document.addEventListener('click', function(e) {
   <table class="home-tbl">
    <thead>
     <tr>
-     <th>PC Number</th>
-     <th>Institution</th>
-     <th>Buyer</th>
-     <th style="width:90px">Due</th>
-     <th style="width:56px;text-align:center">Items</th>
+     <th onclick="sortTable(this,0)" style="cursor:pointer">PC Number ⇅</th>
+     <th onclick="sortTable(this,1)" style="cursor:pointer">Institution ⇅</th>
+     <th onclick="sortTable(this,2)" style="cursor:pointer">Buyer ⇅</th>
+     <th onclick="sortTable(this,3)" style="cursor:pointer;width:90px">Due ⇅</th>
+     <th onclick="sortTable(this,4)" style="cursor:pointer;width:56px;text-align:center">Items ⇅</th>
      <th style="width:74px;text-align:center">Quote</th>
-     <th style="width:80px;text-align:center">Status</th>
+     <th onclick="sortTable(this,6)" style="cursor:pointer;width:80px;text-align:center">Status ⇅</th>
      <th style="width:32px"></th>
     </tr>
    </thead>

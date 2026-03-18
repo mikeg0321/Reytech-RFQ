@@ -643,7 +643,7 @@
 
     function applyFlatMarkupPC() {
      var flat=parseFloat(document.getElementById('pc-custom-flat').value);
-     if(isNaN(flat)||flat<=0){alert('Enter a dollar amount');return;}
+     if(isNaN(flat)||flat<=0){showMsg('Enter a dollar amount','warn');return;}
      document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row){
       var idx=row.getAttribute('data-row');
       var costEl=row.querySelector('[name=cost_'+idx+']');
@@ -1425,7 +1425,18 @@
        applied++;
       });
       recalcPC();
-      showMsg('🧠 Auto-Price: Applied intelligent pricing to '+applied+'/'+d.total+' items ('+d.matched+' catalog matches)','ok');
+      // Show skipped items so user knows what still needs manual pricing
+      var skipped=[];
+      (d.results||[]).forEach(function(r){
+       if(!r.recommended){
+        var de=document.querySelector('[name=desc_'+r.idx+']');
+        var dn=de?(de.value||'').substring(0,40):'item '+r.idx;
+        if(dn) skipped.push('#'+(r.idx+1)+' '+dn);
+       }
+      });
+      var msg='🧠 Auto-Price: Applied to '+applied+'/'+d.total+' items ('+d.matched+' catalog matches)';
+      if(skipped.length) msg+='<br><span style="color:#d29922;font-size:13px">Skipped: '+skipped.slice(0,5).join(', ')+(skipped.length>5?' +'+( skipped.length-5)+' more':'')+'</span>';
+      showMsg(msg,'ok');
      }).catch(e=>{
       btn.disabled=false;btn.textContent=origText;
       showMsg('❌ Auto-price failed: '+e.message,'err');
