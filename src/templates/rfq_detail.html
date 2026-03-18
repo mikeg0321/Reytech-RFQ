@@ -354,7 +354,7 @@
  {% endif %}
  {% endif %}
  {% set pf = r.get('package_forms', {}) %}
- {% set arf = agency_required_forms|default(set()) %}
+ {% set arf = agency_required_forms|default([]) %}
  <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px">
   <div style="font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:6px">Include in package:</div>
   <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px">
