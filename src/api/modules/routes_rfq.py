@@ -2591,21 +2591,27 @@ def generate_rfq_package(rid):
             quote_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
             locked_qn = r.get("reytech_quote_number", "")
 
-            # GUARDRAIL: if this RFQ already has a quote number locked in the JSON,
-            # ALWAYS reuse it — never burn a new counter number on regenerate.
-            # A new number is only issued when locked_qn is empty (first generation
-            # or after an explicit clear-quote).
+            # GUARDRAIL: if this RFQ already has a quote number locked,
+            # ALWAYS reuse it — never burn a new counter on regenerate.
             if locked_qn:
                 t.step(f"Reusing locked quote number: {locked_qn}")
-            
+            else:
+                # Allocate number BEFORE generating and save immediately
+                # to prevent duplicate numbers on repeated generate clicks.
+                from src.forms.quote_generator import _next_quote_number
+                locked_qn = _next_quote_number()
+                r["reytech_quote_number"] = locked_qn
+                save_rfqs(rfqs)  # persist NOW so next generate sees it
+                t.step(f"Allocated new quote number: {locked_qn}")
+
             result = generate_quote_from_rfq(
                 r, quote_path,
                 include_tax=True,
-                quote_number=locked_qn if locked_qn else None,
+                quote_number=locked_qn,
             )
-            
+
             if result.get("ok"):
-                qn = result.get("quote_number", "")
+                qn = result.get("quote_number", locked_qn)
                 r["reytech_quote_number"] = qn
                 output_files.append(f"{safe_sol}_Quote_Reytech.pdf")
                 t.step("Reytech Quote generated", quote_number=qn, total=result.get("total", 0))
@@ -2974,9 +2980,14 @@ def rfq_generate_quote(rid):
     output_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
 
     locked_qn = r.get("reytech_quote_number", "")
-    
+    if not locked_qn:
+        from src.forms.quote_generator import _next_quote_number
+        locked_qn = _next_quote_number()
+        r["reytech_quote_number"] = locked_qn
+        save_rfqs(rfqs)  # persist NOW to prevent duplicates
+
     result = generate_quote_from_rfq(r, output_path,
-                                      quote_number=locked_qn if locked_qn else None)
+                                      quote_number=locked_qn)
 
     if result.get("ok"):
         fname = os.path.basename(output_path)
@@ -2984,7 +2995,7 @@ def rfq_generate_quote(rid):
             r["output_files"] = []
         if fname not in r["output_files"]:
             r["output_files"].append(fname)
-        r["reytech_quote_number"] = result.get("quote_number", "")
+        r["reytech_quote_number"] = result.get("quote_number", locked_qn)
         save_rfqs(rfqs)
         t.ok("Quote generated", quote_number=result.get("quote_number",""), total=result.get("total",0))
         log.info("Quote #%s generated for RFQ %s — $%s", result.get("quote_number"), rid, f"{result['total']:,.2f}")
