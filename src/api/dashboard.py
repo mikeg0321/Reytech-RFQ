@@ -2412,6 +2412,16 @@ def process_rfq_email(rfq_email):
                         threading.Thread(target=_auto_price_new_pc, args=(pc_id,), daemon=True).start()
                         _trace.append(f"PC CREATED: {pc_id} (auto-pricing started)")
                         log.info("PC %s created successfully from email %s", pc_id, email_uid)
+                        try:
+                            from src.core.dal import log_lifecycle_event as _lle_pc
+                            _lle_pc("pc", pc_id, "email_received",
+                                f"From {rfq_email.get('sender_email', '?')}: {rfq_email.get('subject', '?')[:60]}",
+                                actor="system", detail={"sender": rfq_email.get("sender_email", ""), "subject": rfq_email.get("subject", "")})
+                            _lle_pc("pc", pc_id, "email_parsed",
+                                f"Parsed {len(items)} items",
+                                actor="system", detail={"item_count": len(items)})
+                        except Exception:
+                            pass
                         POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                         t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
                         return None
@@ -2836,6 +2846,17 @@ def process_rfq_email(rfq_email):
     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
     t.ok("RFQ created", sol=rfq_data.get("solicitation_number","?"), rfq_id=rfq_data.get("id","?"))
     log.info(f"Auto-imported RFQ #{rfq_data.get('solicitation_number', 'unknown')}")
+    try:
+        from src.core.dal import log_lifecycle_event as _lle_rfq
+        _rid = rfq_data.get("id", "")
+        _lle_rfq("rfq", _rid, "email_received",
+            f"From {rfq_email.get('sender_email', '?')}: {rfq_email.get('subject', '?')[:60]}",
+            actor="system", detail={"sender": rfq_email.get("sender_email", ""), "subject": rfq_email.get("subject", "")})
+        _lle_rfq("rfq", _rid, "email_parsed",
+            f"Parsed {len(rfq_data.get('line_items', []))} items from {len(templates)} templates",
+            actor="system", detail={"item_count": len(rfq_data.get("line_items", [])), "templates": list(templates.keys())})
+    except Exception:
+        pass
     
     # Log activity
     _log_rfq_activity(rfq_data["id"], "created",

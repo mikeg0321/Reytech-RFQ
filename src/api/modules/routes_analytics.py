@@ -186,6 +186,13 @@ def rfq_auto_lookup(rid):
             rfqs_fresh[rid] = r
             save_rfqs(rfqs_fresh)
             _emit_progress(task_id, "saved", "Results saved", done=True)
+            try:
+                from src.core.dal import log_lifecycle_event
+                log_lifecycle_event("rfq", rid, "price_lookup",
+                    f"Auto-lookup: SCPRS {scprs_found}/{total}, Amazon {amazon_found}/{total}, Catalog {catalog_found}/{total}",
+                    actor="system", detail={"scprs": scprs_found, "amazon": amazon_found, "catalog": catalog_found, "total": total})
+            except Exception:
+                pass
         except Exception as e:
             log.error("Auto-lookup FATAL error: %s", e, exc_info=True)
             _emit_progress(task_id, "fatal_error", f"Fatal: {str(e)[:100]}", done=True)

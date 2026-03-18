@@ -1430,6 +1430,13 @@ def api_rfq_autosave(rid):
 
     save_rfqs(rfqs)
 
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "items_edited",
+            f"Autosaved {len(r.get('line_items', []))} items", actor="user")
+    except Exception:
+        pass
+
     # F11: Check guardrails on saved data
     guardrail_warnings = _check_guardrails(r.get("line_items", []))
 
@@ -2325,7 +2332,15 @@ def generate_rfq_package(rid):
             if form_id in _user_forms:
                 return bool(_user_forms[form_id])
             return form_id in _req_forms
-        
+
+        try:
+            from src.core.dal import log_lifecycle_event as _lle_start
+            _lle_start("rfq", rid, "package_generate_started",
+                f"Generating package for {_agency_key} ({len(_req_forms)} required forms)",
+                actor="user", detail={"agency": _agency_key, "required_forms": list(_req_forms)})
+        except Exception:
+            pass
+
         # ── Template-based forms (only if agency requires them) ──
         if _include("703b") or _include("703c"):
             # Handle both 703B and 703C (Fair & Reasonable) — same fill logic
@@ -2726,10 +2741,18 @@ def generate_rfq_package(rid):
     
     # ── Step 4: Merge all package PDFs into ONE file ──
     final_output_files = []
-    package_filename = f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
+    try:
+        _safe_agency = (_agency_cfg.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
+    except NameError:
+        _safe_agency = ""
+    package_filename = f"RFQ_Package_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
     
     final_output_files = []
-    package_filename = f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
+    try:
+        _safe_agency = (_agency_cfg.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
+    except NameError:
+        _safe_agency = ""
+    package_filename = f"RFQ_Package_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
 
     # ── Attachment 1: 703B ──
     if file_703b:
@@ -2815,6 +2838,68 @@ def generate_rfq_package(rid):
         flash(f"No files generated — {'; '.join(errors) if errors else 'No templates found'}", "error")
         return redirect(f"/rfq/{rid}")
     
+    # ── Create package manifest for audit trail ──
+    _manifest_id = None
+    try:
+        from src.core.dal import create_package_manifest, log_lifecycle_event as _lle
+
+        _gen_forms = []
+        for _of in output_files:
+            _fid = "unknown"
+            _of_lower = _of.lower()
+            if "quote" in _of_lower and "704" not in _of_lower: _fid = "quote"
+            elif "703b" in _of_lower or "703c" in _of_lower: _fid = "703b"
+            elif "704b" in _of_lower: _fid = "704b"
+            elif "calrecycle" in _of_lower: _fid = "calrecycle74"
+            elif "bidderdecl" in _of_lower or "bidder" in _of_lower: _fid = "bidder_decl"
+            elif "dvbe" in _of_lower or "843" in _of_lower: _fid = "dvbe843"
+            elif "darfur" in _of_lower: _fid = "darfur_act"
+            elif "cuf" in _of_lower or "cv012" in _of_lower: _fid = "cv012_cuf"
+            elif "std204" in _of_lower or "payee" in _of_lower: _fid = "std204"
+            elif "std1000" in _of_lower: _fid = "std1000"
+            elif "seller" in _of_lower or "permit" in _of_lower: _fid = "sellers_permit"
+            elif "bidpkg" in _of_lower or "bidpackage" in _of_lower: _fid = "bidpkg"
+            elif "obs" in _of_lower or "1600" in _of_lower: _fid = "obs_1600"
+            elif "drug" in _of_lower: _fid = "drug_free"
+            _gen_forms.append({"form_id": _fid, "filename": _of})
+
+        _gen_ids = {f["form_id"] for f in _gen_forms}
+        _missing = [f for f in _req_forms if f not in _gen_ids]
+
+        _qtotal = 0
+        _qnum = r.get("reytech_quote_number", "")
+        _icount = len(r.get("line_items", []))
+        for _it in r.get("line_items", []):
+            try:
+                _p = float(_it.get("price_per_unit") or _it.get("unit_price") or 0)
+                _q = int(float(_it.get("qty", 1)))
+                _qtotal += _p * _q
+            except (ValueError, TypeError):
+                pass
+
+        _manifest_id = create_package_manifest(
+            rfq_id=rid, agency_key=_agency_key,
+            agency_name=_agency_cfg.get("name", ""),
+            required_forms=list(_req_forms), generated_forms=_gen_forms,
+            missing_forms=_missing, quote_number=_qnum,
+            quote_total=round(_qtotal, 2), item_count=_icount, created_by="user")
+
+        if _missing:
+            _lle("rfq", rid, "package_missing_forms",
+                 f"Package missing {len(_missing)} required forms: {', '.join(_missing)}",
+                 actor="system", detail={"missing": _missing, "generated": [f["form_id"] for f in _gen_forms]})
+
+        _lle("rfq", rid, "package_generated",
+             f"Generated {len(output_files)} forms, {len(_missing)} missing",
+             actor="user", detail={
+                 "manifest_id": _manifest_id, "forms": [f["form_id"] for f in _gen_forms],
+                 "missing": _missing, "quote_number": _qnum,
+                 "quote_total": round(_qtotal, 2), "errors": errors[:5] if errors else []})
+
+        r["_manifest_id"] = _manifest_id
+    except Exception as _me:
+        log.warning("Package manifest creation failed: %s", _me)
+
     # ── Step 5: Store final files in DB (survive redeploys) ──
     for f in final_output_files:
         fpath = os.path.join(out_dir, f)
@@ -5359,3 +5444,86 @@ def rfq_clean_items(rid):
 
     removed = original_count - len(cleaned)
     return jsonify({"ok": True, "removed": removed, "kept": len(cleaned), "original": original_count})
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Package Manifest + Lifecycle API
+# ═══════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/<rid>/manifest")
+@auth_required
+def api_rfq_manifest(rid):
+    """Get the latest package manifest for an RFQ."""
+    from src.core.dal import get_latest_manifest
+    manifest = get_latest_manifest(rid)
+    if not manifest:
+        return jsonify({"ok": False, "error": "No package manifest found"})
+    return jsonify({"ok": True, "manifest": manifest})
+
+
+@bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/review", methods=["POST"])
+@auth_required
+def api_rfq_review_form(rid, manifest_id):
+    """Record a review verdict for a form in the manifest."""
+    from src.core.dal import review_form, log_lifecycle_event
+    data = request.get_json(force=True, silent=True) or {}
+    form_id = data.get("form_id", "")
+    verdict = data.get("verdict", "approved")
+    notes = data.get("notes", "")
+    if not form_id:
+        return jsonify({"ok": False, "error": "form_id required"})
+    ok = review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=notes)
+    if ok:
+        log_lifecycle_event("rfq", rid, "form_reviewed",
+            f"Form {form_id}: {verdict}" + (f" — {notes}" if notes else ""),
+            actor="user", detail={"form_id": form_id, "verdict": verdict, "manifest_id": manifest_id})
+    return jsonify({"ok": ok})
+
+
+@bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/approve", methods=["POST"])
+@auth_required
+def api_rfq_approve_package(rid, manifest_id):
+    """Approve the entire package (all forms must be reviewed first)."""
+    from src.core.dal import get_package_manifest, update_manifest_status, log_lifecycle_event
+    manifest = get_package_manifest(manifest_id)
+    if not manifest:
+        return jsonify({"ok": False, "error": "Manifest not found"})
+    pending = [r for r in manifest.get("reviews", []) if r.get("verdict") == "pending"]
+    if pending:
+        return jsonify({"ok": False, "error": f"{len(pending)} forms still pending review",
+                        "pending": [r["form_id"] for r in pending]})
+    rejected = [r for r in manifest.get("reviews", []) if r.get("verdict") == "rejected"]
+    if rejected:
+        return jsonify({"ok": False, "error": f"{len(rejected)} forms rejected",
+                        "rejected": [r["form_id"] for r in rejected]})
+    ok = update_manifest_status(manifest_id, "approved")
+    if ok:
+        log_lifecycle_event("rfq", rid, "package_approved",
+            f"Package v{manifest.get('version', '?')} approved ({manifest.get('total_forms', 0)} forms)",
+            actor="user", detail={"manifest_id": manifest_id, "version": manifest.get("version")})
+    return jsonify({"ok": ok, "status": "approved"})
+
+
+@bp.route("/api/rfq/<rid>/timeline")
+@auth_required
+def api_rfq_timeline(rid):
+    """Get the full lifecycle timeline for an RFQ."""
+    from src.core.dal import get_lifecycle_events
+    events = get_lifecycle_events("rfq", rid, limit=200)
+    return jsonify({"ok": True, "events": events, "count": len(events)})
+
+
+@bp.route("/api/rfq/<rid>/buyer-prefs")
+@auth_required
+def api_rfq_buyer_prefs(rid):
+    """Get buyer preferences for the RFQ's requestor."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    email = r.get("requestor_email", "")
+    if not email:
+        return jsonify({"ok": True, "preferences": [], "message": "No requestor email"})
+    from src.core.dal import get_buyer_preferences
+    prefs = get_buyer_preferences(email)
+    return jsonify({"ok": True, "preferences": prefs, "buyer_email": email})
