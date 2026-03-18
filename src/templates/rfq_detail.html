@@ -98,6 +98,16 @@
    <a href="https://www.cdtfa.ca.gov/taxes-and-fees/sales-use-tax-rates.htm" target="_blank" title="CA Tax Rate Lookup" style="font-size:11px;color:#58a6ff;margin-left:2px">lookup</a>
   </span>
   <span id="ms-tax" style="color:#d29922"></span>
+  <span style="color:#8b949e">|</span>
+  <span style="color:#8b949e">Ship:
+   <select id="shipping-option" onchange="recalc();triggerAutosave()" style="background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px">
+    <option value="included"{% if r.get('shipping_option')=='included' %} selected{% endif %}>Included</option>
+    <option value="fob_dest"{% if r.get('shipping_option')=='fob_dest' %} selected{% endif %}>FOB Dest</option>
+    <option value="custom"{% if r.get('shipping_option')=='custom' %} selected{% endif %}>Custom</option>
+   </select>
+   <input type="number" id="shipping-amount" value="{{r.get('shipping_amount',0)}}" min="0" step="0.01" style="width:60px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center;display:{% if r.get('shipping_option')=='custom' %}inline{% else %}none{% endif %}" onchange="recalc();triggerAutosave()">
+  </span>
+  <span id="ms-shipping" style="color:#58a6ff"></span>
   <span id="ms-grand-total" style="font-weight:700;color:#e6edf3"></span>
  </div>
  <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
@@ -168,6 +178,8 @@
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
      {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
      {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
+     {% if i.get('catalog_match') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(167,139,250,.15);color:#a78bfa;cursor:help" title="Catalog match">📦 Catalog</span>{% endif %}
+     {% if i.get('cost_source') %}<span style="font-size:10px;color:#8b949e" title="Cost auto-filled from {{i.cost_source}}">← {{i.cost_source}}</span>{% endif %}
      <input type="hidden" name="scprs_{{loop.index0}}" value="{{i.scprs_last_price or ''}}">
     </div>
    </td>
@@ -907,6 +919,10 @@ function _getFormData(){
  var taxRateEl=document.getElementById('tax-rate');
  var payload={items:items};
  if(taxRateEl)payload.tax_rate=parseFloat(taxRateEl.value)||0;
+ var shipSel=document.getElementById('shipping-option');
+ if(shipSel)payload.shipping_option=shipSel.value;
+ var shipAmt=document.getElementById('shipping-amount');
+ if(shipAmt)payload.shipping_amount=parseFloat(shipAmt.value)||0;
  // Package form checklist
  var pkgForms={};
  document.querySelectorAll('.pkg-form').forEach(function(cb){pkgForms[cb.dataset.form]=cb.checked;});
@@ -1043,15 +1059,21 @@ function recalc(){
   mpe.textContent=marginP.toFixed(1)+'% margin';
   mpe.style.color=marginP>=20?'#3fb950':marginP>=10?'#d29922':'#f85149';
   document.getElementById('ms-items-priced').textContent=itemsPriced+'/'+itemsTotal+' priced';
-  // Tax calculation
+  // Tax + Shipping calculation
   var taxRateEl=document.getElementById('tax-rate');
   var taxRate=taxRateEl?parseFloat(taxRateEl.value)||0:0;
   var taxAmt=tb*(taxRate/100);
-  var grandTotal=tb+taxAmt;
+  var shipSel=document.getElementById('shipping-option');
+  var shipInp=document.getElementById('shipping-amount');
+  if(shipSel&&shipInp){shipInp.style.display=shipSel.value==='custom'?'inline':'none';}
+  var shipAmt=(shipSel&&shipSel.value==='custom')?(parseFloat(shipInp.value)||0):0;
+  var grandTotal=tb+taxAmt+shipAmt;
   var taxEl=document.getElementById('ms-tax');
   if(taxEl){taxEl.textContent=taxRate>0?'Tax: $'+taxAmt.toFixed(2):'';}
+  var shipEl=document.getElementById('ms-shipping');
+  if(shipEl){shipEl.textContent=shipAmt>0?'Ship: $'+shipAmt.toFixed(2):'';}
   var gtEl=document.getElementById('ms-grand-total');
-  if(gtEl){gtEl.textContent=taxRate>0?'Total: $'+grandTotal.toFixed(2):'';}
+  if(gtEl){gtEl.textContent=(taxRate>0||shipAmt>0)?'Total: $'+grandTotal.toFixed(2):'';}
  } else if(msBar){
   msBar.style.display='none';
  }

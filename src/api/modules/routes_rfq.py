@@ -422,7 +422,19 @@ def upload():
 
     # Auto SCPRS lookup
     rfq["line_items"] = bulk_lookup(rfq.get("line_items", []))
-    
+
+    # Carry SCPRS/Amazon cost to supplier_cost so YOUR COST column displays it
+    for _item in rfq.get("line_items", []):
+        _sp = _item.get("scprs_last_price") or 0
+        _ap = _item.get("amazon_price") or 0
+        _best_cost = _sp or _ap
+        if _best_cost and not _item.get("supplier_cost"):
+            try:
+                _item["supplier_cost"] = float(_best_cost)
+                _item["cost_source"] = "SCPRS" if _sp else "Amazon"
+            except (ValueError, TypeError):
+                pass
+
     # Store lookup results summary
     items = rfq.get("line_items", [])
     priced_count = sum(1 for i in items if i.get("price_per_unit") or i.get("scprs_last_price"))
@@ -1392,6 +1404,15 @@ def api_rfq_autosave(rid):
         from src.core.validation import validate_header_field
         v, _ = validate_header_field("tax_rate", tax_rate)
         r["tax_rate"] = v
+
+    # Save shipping if provided
+    if data.get("shipping_option") is not None:
+        r["shipping_option"] = str(data["shipping_option"])[:20]
+    if data.get("shipping_amount") is not None:
+        try:
+            r["shipping_amount"] = max(0, min(99999, float(data["shipping_amount"])))
+        except (ValueError, TypeError):
+            pass
 
     save_rfqs(rfqs)
 
