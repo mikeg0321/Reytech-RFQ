@@ -922,7 +922,17 @@ def detail(rid):
 
     log.info("RFQ detail render: rid=%s, line_items=%d", rid, len(_items_list))
 
-    return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid)
+    # Pass agency required_forms so checkboxes default correctly
+    _agency_req = set()
+    try:
+        from src.core.agency_config import match_agency
+        _ak, _ac = match_agency(r)
+        _agency_req = set(_ac.get("required_forms", []))
+    except Exception:
+        pass
+
+    return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid,
+                       agency_required_forms=_agency_req)
 
 
 @bp.route("/rfq/<rid>/save-restore", methods=["POST"])

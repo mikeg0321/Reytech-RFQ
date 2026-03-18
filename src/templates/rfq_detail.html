@@ -353,18 +353,19 @@
  {% endif %}
  {% endif %}
  {% set pf = r.get('package_forms', {}) %}
+ {% set arf = agency_required_forms|default(set()) %}
  <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px">
   <div style="font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:6px">Include in package:</div>
   <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px">
-   <label><input type="checkbox" class="pkg-form" data-form="703b" {% if pf.get('703b', true) %}checked{% endif %}> 703B/C</label>
-   <label><input type="checkbox" class="pkg-form" data-form="704b" {% if pf.get('704b', true) %}checked{% endif %}> 704B</label>
-   <label><input type="checkbox" class="pkg-form" data-form="bidpkg" {% if pf.get('bidpkg', true) %}checked{% endif %}> Bid Pkg</label>
-   <label><input type="checkbox" class="pkg-form" data-form="calrecycle74" {% if pf.get('calrecycle74', true) %}checked{% endif %}> CalRecycle</label>
-   <label><input type="checkbox" class="pkg-form" data-form="dvbe843" {% if pf.get('dvbe843', true) %}checked{% endif %}> DVBE 843</label>
-   <label><input type="checkbox" class="pkg-form" data-form="cv012_cuf" {% if pf.get('cv012_cuf', true) %}checked{% endif %}> CUF</label>
-   <label><input type="checkbox" class="pkg-form" data-form="obs_1600" {% if pf.get('obs_1600', false) %}checked{% endif %}> OBS 1600</label>
-   <label><input type="checkbox" class="pkg-form" data-form="sellers_permit" {% if pf.get('sellers_permit', true) %}checked{% endif %}> Seller's Permit</label>
-   <label><input type="checkbox" class="pkg-form" data-form="quote" {% if pf.get('quote', true) %}checked{% endif %}> Quote</label>
+   <label><input type="checkbox" class="pkg-form" data-form="703b" {% if pf.get('703b', '703b' in arf) %}checked{% endif %}> 703B/C</label>
+   <label><input type="checkbox" class="pkg-form" data-form="704b" {% if pf.get('704b', '704b' in arf) %}checked{% endif %}> 704B</label>
+   <label><input type="checkbox" class="pkg-form" data-form="bidpkg" {% if pf.get('bidpkg', 'bidpkg' in arf) %}checked{% endif %}> Bid Pkg</label>
+   <label><input type="checkbox" class="pkg-form" data-form="calrecycle74" {% if pf.get('calrecycle74', 'calrecycle74' in arf) %}checked{% endif %}> CalRecycle</label>
+   <label><input type="checkbox" class="pkg-form" data-form="dvbe843" {% if pf.get('dvbe843', 'dvbe843' in arf) %}checked{% endif %}> DVBE 843</label>
+   <label><input type="checkbox" class="pkg-form" data-form="cv012_cuf" {% if pf.get('cv012_cuf', 'cv012_cuf' in arf) %}checked{% endif %}> CUF</label>
+   <label><input type="checkbox" class="pkg-form" data-form="obs_1600" {% if pf.get('obs_1600', 'obs_1600' in arf) %}checked{% endif %}> OBS 1600</label>
+   <label><input type="checkbox" class="pkg-form" data-form="sellers_permit" {% if pf.get('sellers_permit', 'sellers_permit' in arf) %}checked{% endif %}> Seller's Permit</label>
+   <label><input type="checkbox" class="pkg-form" data-form="quote" {% if pf.get('quote', 'quote' in arf or not arf) %}checked{% endif %}> Quote</label>
   </div>
  </div>
 </div>
