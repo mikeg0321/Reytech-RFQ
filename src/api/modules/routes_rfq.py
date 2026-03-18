@@ -1414,6 +1414,10 @@ def api_rfq_autosave(rid):
         except (ValueError, TypeError):
             pass
 
+    # Save delivery location if provided (belt-and-suspenders with saveField)
+    if data.get("delivery_location"):
+        r["delivery_location"] = str(data["delivery_location"])[:500]
+
     save_rfqs(rfqs)
 
     # F11: Check guardrails on saved data

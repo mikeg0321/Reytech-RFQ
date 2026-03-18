@@ -891,6 +891,9 @@
     }
 
     function recalcPC() {
+     if(recalcPC._running)return;
+     recalcPC._running=true;
+     try{
      let sub=0, totalCost=0, totalProfit=0, bidCount=0, totalCount=0;
      const rows=document.querySelectorAll('tr[data-row]:not(.notes-row)');
      totalCount=rows.length;
@@ -987,6 +990,7 @@
       pp.style.color=margin>=20?'#3fb950':margin>=10?'#d29922':'#f85149';
       document.getElementById('pc-ms-items').textContent=bidCount+'/'+totalCount+' priced';
      } else if(msBar){msBar.style.display='none';}
+     }finally{recalcPC._running=false;}
     }
 
     // Due date urgency

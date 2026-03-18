@@ -923,6 +923,8 @@ function _getFormData(){
  if(shipSel)payload.shipping_option=shipSel.value;
  var shipAmt=document.getElementById('shipping-amount');
  if(shipAmt)payload.shipping_amount=parseFloat(shipAmt.value)||0;
+ var delEl=document.getElementById('delivery-input');
+ if(delEl&&delEl.value)payload.delivery_location=delEl.value;
  // Package form checklist
  var pkgForms={};
  document.querySelectorAll('.pkg-form').forEach(function(cb){pkgForms[cb.dataset.form]=cb.checked;});
@@ -932,7 +934,7 @@ function _getFormData(){
 
 function triggerAutosave(){
  clearTimeout(_autosaveTimer);
- _autosaveTimer=setTimeout(_doAutosave,2000);
+ _autosaveTimer=setTimeout(_doAutosave,3000);
  _showSaveStatus('unsaved');
 }
 // Ctrl+S / Cmd+S = immediate save
@@ -1014,6 +1016,9 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 
 function recalc(){
+ if(recalc._running)return;
+ recalc._running=true;
+ try{
  let tb=0,tc=0,itemsPriced=0,itemsTotal=0;
  for(let i=0;i<n;i++){
   const q=parseFloat(document.querySelector(`[name=qty_${i}]`).value)||0;
@@ -1077,6 +1082,7 @@ function recalc(){
  } else if(msBar){
   msBar.style.display='none';
  }
+ }finally{recalc._running=false;}
 }
 
 // ── Markup Config: load from settings, build buttons dynamically ──
