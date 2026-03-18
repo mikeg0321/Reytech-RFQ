@@ -118,7 +118,9 @@
           <div>Click a form on the left to preview</div>
         </div>
       </div>
-      <iframe id="rv-preview-frame" style="display:none;flex:1;min-height:600px" sandbox="allow-same-origin"></iframe>
+      <object id="rv-preview-frame" type="application/pdf" style="display:none;flex:1;min-height:600px;width:100%">
+        <p style="padding:20px;color:var(--tx2)">PDF preview not available — <a id="rv-preview-fallback" href="#" target="_blank" style="color:var(--ac)">click to open</a></p>
+      </object>
     </div>
 
     <!-- RIGHT: Audit Panel -->
@@ -168,7 +170,8 @@ function selectForm(el,formId,filename){
  if(filename){
   var url='/api/download/'+SOL+'/'+filename;
   var frame=document.getElementById('rv-preview-frame');
-  frame.src=url;frame.style.display='block';
+  frame.data=url;frame.style.display='block';
+  var fb=document.getElementById('rv-preview-fallback');if(fb)fb.href=url;
   document.getElementById('rv-preview-empty').style.display='none';
   var dl=document.getElementById('rv-download-link');dl.href=url;dl.style.display='inline-flex';
  } else {
@@ -231,7 +234,7 @@ function updateProgress(){
  var btn=document.getElementById('rv-finalize-btn'),hint=document.getElementById('rv-finalize-hint');
  if(reviewed>=total&&total>0){
   var rej=document.querySelectorAll('.rv-form-item[data-verdict="rejected"]').length;
-  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.textContent='Fix and regenerate';}
+  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<a href="/rfq/'+RID+'" style="color:#d29922;font-size:12px">← Return to RFQ to fix and regenerate</a>';}
   else{btn.disabled=false;btn.style.background='var(--gn)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
  } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--tx2)';}
 }
@@ -246,7 +249,8 @@ function finalizePackage(){
   document.getElementById('rv-status-badge').style.color='#3fb950';
   var btn=document.getElementById('rv-finalize-btn');
   btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
-  document.getElementById('rv-finalize-hint').innerHTML='<a href="/rfq/'+RID+'" style="color:var(--ac)">← Return to RFQ to download/send</a>';
+  var _pkgFn={{ (manifest.package_filename or '')|tojson }}||'RFQ_Package_'+SOL+'_ReytechInc.pdf';
+  document.getElementById('rv-finalize-hint').innerHTML='<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">⬇ Download Package</a><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;flex:1;text-align:center">📧 Go to Send</a></div>';
  });
 }
 

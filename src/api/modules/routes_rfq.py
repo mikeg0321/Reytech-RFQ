@@ -1462,8 +1462,10 @@ def api_rfq_autosave(rid):
 
     try:
         from src.core.dal import log_lifecycle_event
+        _has_markup = any(u.get("markup_pct") for u in items_data)
         log_lifecycle_event("rfq", rid, "items_edited",
-            f"Autosaved {len(r.get('line_items', []))} items", actor="user")
+            f"Autosaved {len(r.get('line_items', []))} items" + (" (markup changed)" if _has_markup else ""),
+            actor="user")
     except Exception:
         pass
 
@@ -2776,13 +2778,8 @@ def generate_rfq_package(rid):
     except NameError:
         _safe_agency = ""
     package_filename = f"RFQ_Package_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
-    
+
     final_output_files = []
-    try:
-        _safe_agency = (_agency_cfg.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
-    except NameError:
-        _safe_agency = ""
-    package_filename = f"RFQ_Package_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
 
     # ── Attachment 1: 703B ──
     if file_703b:
@@ -2927,6 +2924,10 @@ def generate_rfq_package(rid):
                  "quote_total": round(_qtotal, 2), "errors": errors[:5] if errors else []})
 
         r["_manifest_id"] = _manifest_id
+        r["_package_filename"] = package_filename
+        if _manifest_id:
+            from src.core.dal import update_manifest_status as _ums
+            _ums(_manifest_id, "draft", package_filename=package_filename)
     except Exception as _me:
         log.warning("Package manifest creation failed: %s", _me)
 
@@ -3203,6 +3204,19 @@ def send_email(rid):
             _log_crm_activity(qn, "email_sent",
                               f"Quote {qn} emailed to {r['draft_email'].get('to','')}",
                               actor="user", metadata={"to": r['draft_email'].get('to','')})
+        # Lifecycle event + package delivery record
+        try:
+            from src.core.dal import log_lifecycle_event as _lle_send, record_package_delivery, get_latest_manifest
+            _to = r["draft_email"].get("to", "")
+            _subj = r["draft_email"].get("subject", "")
+            _lle_send("rfq", rid, "package_sent", f"Sent to {_to}: {_subj[:60]}", actor="user",
+                detail={"recipient": _to, "subject": _subj})
+            _mf = get_latest_manifest(rid)
+            if _mf:
+                record_package_delivery(_mf["id"], rid, _to,
+                    recipient_name=r.get("requestor_name", ""), email_subject=_subj)
+        except Exception:
+            pass
     except Exception as e:
         t.fail("Send failed", error=str(e))
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
