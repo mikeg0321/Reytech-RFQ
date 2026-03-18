@@ -98,6 +98,16 @@ def rfq_auto_lookup(rid):
             try:
                 from src.agents.scprs_lookup import bulk_lookup
                 r["line_items"] = bulk_lookup(items)
+                # Carry SCPRS cost to vendor_cost for profit calculation
+                for _item in r["line_items"]:
+                    _sp = _item.get("scprs_last_price") or 0
+                    if _sp and not _item.get("vendor_cost"):
+                        try:
+                            _item["vendor_cost"] = float(_sp)
+                            if not _item.get("pricing"): _item["pricing"] = {}
+                            _item["pricing"]["unit_cost"] = float(_sp)
+                        except (ValueError, TypeError):
+                            pass
                 scprs_found = sum(1 for i in r["line_items"] if i.get("scprs_last_price"))
                 _emit_progress(task_id, "scprs_done", f"SCPRS: {scprs_found}/{total} found")
             except Exception as e:
@@ -110,6 +120,16 @@ def rfq_auto_lookup(rid):
             try:
                 from src.agents.web_price_research import research_items
                 r["line_items"] = research_items(r["line_items"])
+                # Carry Amazon cost to vendor_cost for profit calculation
+                for _item in r["line_items"]:
+                    _ap = _item.get("amazon_price") or 0
+                    if _ap and not _item.get("vendor_cost"):
+                        try:
+                            _item["vendor_cost"] = float(_ap)
+                            if not _item.get("pricing"): _item["pricing"] = {}
+                            _item["pricing"]["unit_cost"] = float(_ap)
+                        except (ValueError, TypeError):
+                            pass
                 amazon_found = sum(1 for i in r["line_items"] if i.get("amazon_price"))
                 _emit_progress(task_id, "amazon_done", f"Amazon: {amazon_found}/{total} found")
             except Exception as e:
