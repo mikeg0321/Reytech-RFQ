@@ -1655,8 +1655,8 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
     # Checkbox corrections: which to CHECK and which to CLEAR
     # Force ALL checkboxes — don't rely on template defaults
     # Answers: No subcontractors, No broker, No rental
-    check_yes = {"Check Box3", "Check Box5", "Check Box7"}  # No subs, No broker, No rental
-    check_off = {"Check Box1", "Check Box2", "Check Box4", "Check Box6", "Check Box8"}  # Clear everything else
+    check_yes = {"Check Box3", "Check Box5", "Check Box8"}  # No subs, No broker, N/A rental
+    check_off = {"Check Box1", "Check Box2", "Check Box4", "Check Box6", "Check Box7"}
 
     # Fill text fields first
     reader = PdfReader(input_path)
