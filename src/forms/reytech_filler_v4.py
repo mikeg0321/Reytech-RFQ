@@ -332,6 +332,15 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     # PDF viewers apply /Rotate to the whole page uniformly — leave it intact.
 
     clean_values = {k: v for k, v in field_values.items() if v is not None}
+
+    # Convert bool checkbox values to PDF format and track unchecked fields
+    _original_values = dict(clean_values)
+    for k, v in list(clean_values.items()):
+        if v is True:
+            clean_values[k] = "/Yes"
+        elif v is False:
+            clean_values[k] = "/Off"
+
     set_field_fonts(writer, clean_values, default_font, tight_font)
 
     for page in writer.pages:
@@ -382,6 +391,21 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             overlay_reader = PdfReader(overlay_buf)
             if overlay_reader.pages:
                 page.merge_page(overlay_reader.pages[0])
+
+    # Force-clear checkboxes that should be unchecked
+    _unchecked = [k for k, v in _original_values.items() if v is False or v == "/Off"]
+    if _unchecked:
+        from pypdf.generic import NameObject
+        for page in writer.pages:
+            if "/Annots" in page:
+                for annot in page["/Annots"]:
+                    annot_obj = annot.get_object()
+                    field_name = annot_obj.get("/T", "")
+                    if isinstance(field_name, str) and field_name in _unchecked:
+                        annot_obj.update({
+                            NameObject("/V"): NameObject("/Off"),
+                            NameObject("/AS"): NameObject("/Off"),
+                        })
 
     with open(output_path, "wb") as f:
         writer.write(f)
@@ -1573,29 +1597,29 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
 
     values = {
         # Solicitation reference
-        "Solicitaion #": sol,  # typo is in the actual form field name
+        "Solicitaion #": sol,
 
         # 1a. Certifications
         "Certification": company.get("cert_number", ""),
         "Certification #": company.get("cert_number", ""),
 
         # 1b. Subcontractors — No
-        "Check Box1": "/Off",   # Yes subcontractors — UNCHECK
-        "Check Box2": "/Yes",   # No subcontractors — CHECK
+        "Check Box1": False,    # Yes subcontractors — UNCHECK
+        "Check Box2": True,     # No subcontractors — CHECK
 
-        # 1b. Work performed by prime
+        # 1b. Work description
         "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
                         "Reytech Inc. sources, prices, and delivers all products directly.",
 
-        # 1c(1). Broker or agent — No
-        "Check Box3": "/Off",   # Yes broker — UNCHECK (template has this pre-checked!)
-        "Check Box4": "/Yes",   # No broker — CHECK
+        # 1c(1). Broker or agent — NO
+        "Check Box3": False,    # Yes broker — UNCHECK
+        "Check Box4": True,     # No broker — CHECK
 
-        # 1c(2). Equipment rental 51% — N/A
-        "Check Box5": "/Off",   # Yes rental — UNCHECK (template has this pre-checked!)
-        "Check Box6": "/Off",   # No rental — UNCHECK
-        "Check Box7": "/Off",   # (unused or alternative)
-        "Check Box8": "/Yes",   # N/A rental — CHECK
+        # 1c(2). Equipment rental 51% — NO
+        "Check Box5": False,    # Yes rental — UNCHECK
+        "Check Box6": True,     # No rental — CHECK
+        "Check Box7": False,    # (unused)
+        "Check Box8": False,    # N/A rental — UNCHECK
 
         # Page numbers
         "page": "1",
