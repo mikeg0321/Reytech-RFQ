@@ -94,19 +94,44 @@
   <div class="rv-3col">
     <!-- LEFT: Form Checklist -->
     <div class="rv-checklist">
-      <div style="font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;padding:0 4px">Package Contents ({{ manifest.total_forms }} forms)</div>
+      <div style="font-size:13px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px;padding:0 4px;font-weight:700">Deliverables</div>
 
       <div id="rv-form-list">
+        <div style="font-size:11px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;margin-bottom:2px">📄 Quote</div>
         {% for review in manifest.reviews %}
+        {% if review.form_id == 'quote' %}
         <div class="rv-form-item {% if loop.first %}active{% endif %}"
              data-form-id="{{ review.form_id }}"
              data-filename="{{ review.form_filename }}"
              data-verdict="{{ review.verdict }}"
              onclick="selectForm(this, '{{ review.form_id }}', '{{ review.form_filename }}')">
-          <span class="rv-icon">{% if review.verdict == 'approved' %}✅{% elif review.verdict == 'rejected' %}❌{% else %}⏳{% endif %}</span>
+          <span class="rv-icon">
+            {% if review.verdict == 'approved' %}✅
+            {% elif review.verdict == 'rejected' %}❌
+            {% else %}⏳{% endif %}
+          </span>
+          <span class="rv-name">Reytech Quote</span>
+          <span class="rv-badge rv-badge-{{ review.verdict }}">{{ review.verdict|upper }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+        <div style="font-size:11px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;margin-top:8px;margin-bottom:2px;border-top:1px solid var(--bd);padding-top:8px">📋 Compliance Forms</div>
+        {% for review in manifest.reviews %}
+        {% if review.form_id != 'quote' %}
+        <div class="rv-form-item"
+             data-form-id="{{ review.form_id }}"
+             data-filename="{{ review.form_filename }}"
+             data-verdict="{{ review.verdict }}"
+             onclick="selectForm(this, '{{ review.form_id }}', '{{ review.form_filename }}')">
+          <span class="rv-icon">
+            {% if review.verdict == 'approved' %}✅
+            {% elif review.verdict == 'rejected' %}❌
+            {% else %}⏳{% endif %}
+          </span>
           <span class="rv-name">{{ review.form_id|replace('_',' ')|title }}</span>
           <span class="rv-badge rv-badge-{{ review.verdict }}">{{ review.verdict|upper }}</span>
         </div>
+        {% endif %}
         {% endfor %}
 
         {% if manifest.missing_forms %}
@@ -430,8 +455,14 @@ function finalizePackage(){
   document.getElementById('rv-status-badge').style.color='#3fb950';
   var btn=document.getElementById('rv-finalize-btn');
   btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
-  var _pkgFn={{ (manifest.package_filename or '')|tojson }}||'RFQ_Package_'+SOL+'_ReytechInc.pdf';
-  document.getElementById('rv-finalize-hint').innerHTML='<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">⬇ Download Package</a><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;flex:1;text-align:center">📧 Go to Send</a></div>';
+  var _quoteFile=null;var _pkgFile=null;
+  {% for review in manifest.reviews %}{% if review.form_id == 'quote' %}_quoteFile={{ review.form_filename|tojson }};{% endif %}{% endfor %}
+  _pkgFile={{ (manifest.package_filename or '')|tojson }}||'Compliance_Forms_'+SOL+'_ReytechInc.pdf';
+  var dlHtml='<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
+  if(_quoteFile){dlHtml+='<a href="/api/download/'+SOL+'/'+_quoteFile+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';}
+  if(_pkgFile){dlHtml+='<a href="/api/download/'+SOL+'/'+_pkgFile+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Compliance Forms</a>';}
+  dlHtml+='<a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;flex:1;text-align:center">📧 Go to Send</a></div>';
+  document.getElementById('rv-finalize-hint').innerHTML=dlHtml;
  });
 }
 

@@ -3173,7 +3173,7 @@ def generate_rfq_package(rid):
         _safe_agency = (_agency_cfg.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
     except NameError:
         _safe_agency = ""
-    package_filename = f"RFQ_Package_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
+    package_filename = f"Compliance_Forms_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"Compliance_Forms_{safe_sol}_ReytechInc.pdf"
 
     final_output_files = []
 
@@ -4817,6 +4817,13 @@ def api_download_file(sol, filename):
     sol = _re.sub(r'[^a-zA-Z0-9_-]', '', sol)
     filename = os.path.basename(filename)
     filepath = os.path.join(OUTPUT_DIR, sol, filename)
+    # Backwards compat: Compliance_Forms_ → RFQ_Package_ rename
+    if not os.path.exists(filepath) and filename.startswith("Compliance_Forms_"):
+        _old_name = filename.replace("Compliance_Forms_", "RFQ_Package_", 1)
+        _old_path = os.path.join(OUTPUT_DIR, sol, _old_name)
+        if os.path.exists(_old_path):
+            filepath = _old_path
+            filename = _old_name
     if not os.path.exists(filepath):
         # Fallback: try serving from DB
         # sol might be solicitation number OR rfq_id — try both
