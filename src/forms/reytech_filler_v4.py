@@ -3067,7 +3067,7 @@ def fill_darfur_standalone(input_path, rfq_data, config, output_path):
         c.setFillColor(Color(1, 1, 0, alpha=0.25))
         # The "I, the official named below, CERTIFY UNDER PENALTY OF PERJURY..." paragraph
         # Coordinates from the DGS PD 1 template layout
-        c.rect(62, 340, 480, 80, fill=True, stroke=False)
+        c.rect(58, 318, 500, 125, fill=True, stroke=False)
         c.save()
         buf.seek(0)
 
