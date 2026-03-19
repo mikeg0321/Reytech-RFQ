@@ -974,6 +974,46 @@ def review_package(rid):
     from src.core.dal import get_latest_manifest, get_buyer_preferences, get_lifecycle_events
     manifest = get_latest_manifest(rid)
     if not manifest:
+        # Try to create manifest from existing output_files
+        output_files = r.get("output_files", [])
+        if output_files:
+            try:
+                from src.core.dal import create_package_manifest
+                from src.core.agency_config import match_agency
+                _ak, _ac = match_agency(r)
+                _gen_forms = []
+                for _of in output_files:
+                    _fid = "unknown"
+                    _of_lower = _of.lower()
+                    if "quote" in _of_lower and "704" not in _of_lower: _fid = "quote"
+                    elif "703b" in _of_lower or "703c" in _of_lower: _fid = "703b"
+                    elif "704b" in _of_lower: _fid = "704b"
+                    elif "calrecycle" in _of_lower: _fid = "calrecycle74"
+                    elif "bidderdecl" in _of_lower or "bidder" in _of_lower: _fid = "bidder_decl"
+                    elif "dvbe" in _of_lower or "843" in _of_lower: _fid = "dvbe843"
+                    elif "darfur" in _of_lower: _fid = "darfur_act"
+                    elif "cuf" in _of_lower or "cv012" in _of_lower: _fid = "cv012_cuf"
+                    elif "std204" in _of_lower or "payee" in _of_lower: _fid = "std204"
+                    elif "std1000" in _of_lower: _fid = "std1000"
+                    elif "seller" in _of_lower or "permit" in _of_lower: _fid = "sellers_permit"
+                    _gen_forms.append({"form_id": _fid, "filename": _of})
+
+                _mid = create_package_manifest(
+                    rfq_id=rid, agency_key=_ak, agency_name=_ac.get("name", ""),
+                    required_forms=_ac.get("required_forms", []),
+                    generated_forms=_gen_forms,
+                    quote_number=r.get("reytech_quote_number", ""),
+                    quote_total=sum(float(i.get("price_per_unit",0))*int(float(i.get("qty",1))) for i in r.get("line_items", r.get("items", [])) if i.get("price_per_unit")),
+                    item_count=len(r.get("line_items", r.get("items", []))),
+                    created_by="recovery"
+                )
+                if _mid:
+                    manifest = get_latest_manifest(rid)
+                    log.info("Created recovery manifest %s for RFQ %s from %d output_files", _mid, rid, len(output_files))
+            except Exception as _rm_e:
+                log.error("Recovery manifest failed: %s", _rm_e)
+
+    if not manifest:
         flash("No package generated yet — generate first, then review.", "error")
         return redirect(f"/rfq/{rid}")
 

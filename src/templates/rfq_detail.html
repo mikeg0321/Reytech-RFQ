@@ -30,6 +30,9 @@
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
   <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--ac);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
+  {% if r.get('output_files') or r.get('status') == 'generated' %}
+  <a href="/rfq/{{ r.id }}/review-package" class="btn btn-sm" style="font-size:12px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2)" title="Review Package">📦 Review</a>
+  {% endif %}
   <a href="/rfq/{{ r.id }}/support" class="btn btn-sm" style="font-size:12px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);margin-left:4px" title="Support Timeline">🎧 Support</a>
  </div>
  <div class="meta-g">
