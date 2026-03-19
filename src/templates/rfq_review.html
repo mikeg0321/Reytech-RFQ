@@ -160,16 +160,13 @@
       </div>
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
         <div style="display:flex;gap:6px">
-          {% for review in manifest.reviews %}
-          {% if review.form_id == 'quote' and review.form_filename %}
-          <a href="/api/download/{{ sol }}/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="font-size:11px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac)">📄 Quote</a>
-          {% endif %}
-          {% endfor %}
+          {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}
+          <a href="/api/download/{{ sol }}/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="font-size:12px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac);padding:6px">📄 Quote</a>
+          {% endif %}{% endfor %}
           {% if manifest.package_filename %}
-          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="font-size:11px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac)">📋 Package</a>
+          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="font-size:12px;flex:1;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;padding:6px">📋 Package</a>
           {% endif %}
         </div>
-        <button class="btn btn-sm" style="font-size:12px;width:100%;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2)" onclick="downloadAllForms()">⬇ Download All Forms</button>
       </div>
     </div>
 
@@ -472,18 +469,14 @@ function finalizePackage(){
   document.getElementById('rv-status-badge').style.color='#3fb950';
   var btn=document.getElementById('rv-finalize-btn');
   btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
-  var dlHtml='<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
-  {% for review in manifest.reviews %}
-  {% if review.form_id == 'quote' and review.form_filename %}
-  dlHtml+='<a href="/api/download/'+SOL+'/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';
-  {% endif %}
-  {% endfor %}
-  {% if manifest.package_filename %}
-  dlHtml+='<a href="/api/download/'+SOL+'/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
-  {% endif %}
-  dlHtml+='<a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;flex:1;text-align:center">📧 Go to Send</a>';
-  dlHtml+='</div>';
-  document.getElementById('rv-finalize-hint').innerHTML=dlHtml;
+  var _quoteFn = '';
+  {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}_quoteFn='{{ review.form_filename }}';{% endif %}{% endfor %}
+  var _pkgFn = {{ (manifest.package_filename or '')|tojson }} || 'RFQ_Package_'+SOL+'_ReytechInc.pdf';
+  var _dl = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
+  if (_quoteFn) _dl += '<a href="/api/download/'+SOL+'/'+_quoteFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';
+  _dl += '<a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
+  _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
+  document.getElementById('rv-finalize-hint').innerHTML = _dl;
  });
 }
 
