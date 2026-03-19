@@ -31,7 +31,16 @@
 @media(max-width:1100px){.rv-3col{grid-template-columns:280px 1fr;}.rv-audit{display:none}}
 @media(max-width:768px){.rv-3col{grid-template-columns:1fr;}.rv-checklist{max-height:200px}}
 .rv-3col.expand-preview{grid-template-columns:0px 1fr 0px}
-.rv-3col.expand-preview .rv-checklist,.rv-3col.expand-preview .rv-audit{display:none}
+.rv-3col.expand-preview .rv-checklist{display:none}
+.rv-3col.expand-preview .rv-audit{display:none}
+.rv-floating-bar{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--sf);border-top:2px solid var(--bd);padding:10px 20px;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.3)}
+.rv-float-forms{display:flex;gap:6px;overflow-x:auto;flex:1;align-items:center;padding-right:12px}
+.rv-float-form{padding:6px 12px;border-radius:6px;border:1px solid var(--bd);cursor:pointer;font-size:13px;white-space:nowrap;color:var(--tx)}
+.rv-float-form:hover{background:rgba(79,140,255,.1)}
+.rv-float-form.active{background:rgba(79,140,255,.15);border-color:rgba(79,140,255,.3)}
+.rv-float-form[data-v="approved"]{border-color:rgba(63,185,80,.3);color:#3fb950}
+.rv-float-form[data-v="rejected"]{border-color:rgba(248,81,73,.3);color:#f85149}
+.rv-float-actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
 .rv-3col.hide-right{grid-template-columns:280px 1fr 0px}
 .rv-3col.hide-right .rv-audit{display:none}
 .rv-expand-bar{display:flex;gap:6px;align-items:center}
@@ -207,6 +216,27 @@
       </div>
     </div>
   </div>
+
+  <div class="rv-floating-bar" id="rv-floating-bar">
+    <div class="rv-float-forms" id="rv-float-forms">
+      {% for review in manifest.reviews %}
+      <div class="rv-float-form {% if loop.first %}active{% endif %}"
+           data-form-id="{{ review.form_id }}"
+           data-filename="{{ review.form_filename }}"
+           data-v="{{ review.verdict }}"
+           onclick="selectFormFloat(this, '{{ review.form_id }}', '{{ review.form_filename }}')">
+        {% if review.verdict == 'approved' %}✅{% elif review.verdict == 'rejected' %}❌{% else %}⏳{% endif %}
+        {{ review.form_id|replace('_',' ')|title }}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="rv-float-actions">
+      <span id="rv-float-current" style="font-size:14px;color:var(--tx);font-weight:600;margin-right:8px">—</span>
+      <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 16px" onclick="reviewCurrent('approved')">✅ Approve</button>
+      <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);font-size:14px;padding:8px 16px" onclick="reviewCurrent('rejected')">❌ Reject</button>
+      <button class="btn btn-sm" style="background:var(--gn);color:#fff;font-size:14px;padding:8px 16px" onclick="finalizePackage()" id="rv-float-finalize" disabled>🔒 Finalize</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -275,6 +305,12 @@ function reviewCurrent(verdict){
    item.querySelector('.rv-icon').textContent=verdict==='approved'?'✅':'❌';
    var b=item.querySelector('.rv-badge');b.textContent=verdict.toUpperCase();b.className='rv-badge rv-badge-'+verdict;
   }
+  // Sync floating bar
+  var floatItem = document.querySelector('.rv-float-form[data-form-id="' + _currentFormId + '"]');
+  if (floatItem) {
+    floatItem.dataset.v = verdict;
+    floatItem.innerHTML = (verdict === 'approved' ? '✅' : '❌') + ' ' + _currentFormId.replace(/_/g, ' ').replace(/\b\w/g, function(l){return l.toUpperCase();});
+  }
   document.getElementById('rv-review-notes').value='';
   updateProgress();
   var next=document.querySelector('.rv-form-item[data-verdict="pending"]');
@@ -282,19 +318,59 @@ function reviewCurrent(verdict){
  });
 }
 
+function selectFormFloat(el, formId, filename) {
+  _currentFormId = formId;
+
+  // Update floating bar active state
+  document.querySelectorAll('.rv-float-form').forEach(function(f) { f.classList.remove('active'); });
+  el.classList.add('active');
+
+  // Update current label
+  document.getElementById('rv-float-current').textContent = formId.replace(/_/g, ' ');
+
+  // Show preview
+  if (filename) {
+    var url = '/api/download/' + SOL + '/' + filename;
+    var frame = document.getElementById('rv-preview-frame');
+    frame.data = url;
+    frame.style.display = 'block';
+    document.getElementById('rv-preview-empty').style.display = 'none';
+    document.getElementById('rv-preview-title').textContent = formId.replace(/_/g, ' ').replace(/\b\w/g, function(l){return l.toUpperCase();});
+    var dlLink = document.getElementById('rv-download-link');
+    if (dlLink) { dlLink.href = url; dlLink.style.display = 'inline-flex'; }
+  }
+
+  // Also sync main checklist if visible
+  var mainItem = document.querySelector('.rv-form-item[data-form-id="' + formId + '"]');
+  if (mainItem) {
+    document.querySelectorAll('.rv-form-item').forEach(function(i) { i.classList.remove('active'); });
+    mainItem.classList.add('active');
+  }
+}
+
 function toggleView(mode) {
   var grid = document.querySelector('.rv-3col');
+  var floatBar = document.getElementById('rv-floating-bar');
   grid.classList.remove('expand-preview', 'hide-right');
   if (mode) grid.classList.add(mode);
-  // Update active state on buttons
-  document.querySelectorAll('.rv-expand-btn').forEach(function(btn) { btn.classList.remove('active'); });
-  if (mode === 'expand-preview') {
-    document.querySelectorAll('.rv-expand-btn')[1].classList.add('active');
-  } else if (mode === 'hide-right') {
-    document.querySelectorAll('.rv-expand-btn')[0].classList.add('active');
-  } else {
-    document.querySelectorAll('.rv-expand-btn')[2].classList.add('active');
+
+  // Show floating bar only in expand-preview mode
+  if (floatBar) {
+    floatBar.style.display = (mode === 'expand-preview') ? 'flex' : 'none';
   }
+
+  // Add bottom padding to preview when floating bar is visible
+  var preview = document.querySelector('.rv-preview');
+  if (preview) {
+    preview.style.paddingBottom = (mode === 'expand-preview') ? '70px' : '0';
+  }
+
+  // Update button active states
+  document.querySelectorAll('.rv-expand-btn').forEach(function(btn) { btn.classList.remove('active'); });
+  var btns = document.querySelectorAll('.rv-expand-btn');
+  if (mode === 'expand-preview' && btns[1]) btns[1].classList.add('active');
+  else if (mode === 'hide-right' && btns[0]) btns[0].classList.add('active');
+  else if (btns[2]) btns[2].classList.add('active');
 }
 
 function removeCurrentForm() {
@@ -337,11 +413,17 @@ function updateProgress(){
  document.getElementById('rv-progress-text').textContent=reviewed+'/'+total+' reviewed';
  document.getElementById('rv-progress-bar').style.width=(total>0?Math.round(reviewed/total*100):0)+'%';
  var btn=document.getElementById('rv-finalize-btn'),hint=document.getElementById('rv-finalize-hint');
+ var rej=document.querySelectorAll('.rv-form-item[data-verdict="rejected"]').length;
  if(reviewed>=total&&total>0){
-  var rej=document.querySelectorAll('.rv-form-item[data-verdict="rejected"]').length;
   if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<div style="font-size:12px;margin-top:4px"><b>Options:</b></div><div style="font-size:12px;color:var(--tx2);margin-top:2px">1. Click the rejected form → change to ✅ Approve (with override note)</div><div style="font-size:12px;color:var(--tx2);margin-top:2px">2. <a href="/rfq/'+RID+'" style="color:#d29922">Return to RFQ</a> → fix data → Generate again</div>';}
   else{btn.disabled=false;btn.style.background='var(--gn)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
  } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--tx2)';}
+ // Sync floating finalize button
+ var floatFin=document.getElementById('rv-float-finalize');
+ if(floatFin){
+  if(reviewed>=total&&total>0&&rej===0){floatFin.disabled=false;floatFin.textContent='✅ Finalize ('+approved+')';}
+  else{floatFin.disabled=true;floatFin.textContent='🔒 Finalize';}
+ }
 }
 
 function finalizePackage(){
