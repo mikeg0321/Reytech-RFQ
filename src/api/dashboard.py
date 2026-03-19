@@ -269,44 +269,69 @@ def _normalize_rfq_fields(rfqs: dict) -> dict:
 
 
 def load_rfqs():
-    """Load RFQs — DAL (SQLite) primary, JSON fallback.
+    """Load RFQs — SQLite primary with data_json blob for full fidelity.
 
-    Merges line_items from JSON when SQLite items column is empty
-    (historical bug: save_rfqs used r.get("items") when data was under "line_items").
-    Normalizes field name aliases so all templates work.
+    Priority: data_json blob (complete dict) > structured columns > JSON file fallback.
+    Structured columns are kept for indexing/querying. data_json has ALL fields.
     """
     try:
-        from src.core.dal import list_rfqs as _dal_list
-        rows = _dal_list(limit=10000)
-        if rows:
-            result = {r["id"]: r for r in rows}
-            # Merge missing fields from JSON into SQLite results
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM rfqs ORDER BY received_at DESC LIMIT 10000"
+            ).fetchall()
+            if not rows:
+                # Empty DB — fall back to JSON
+                return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
+
+            result = {}
+            for row in rows:
+                d = dict(row)
+                rid = d.get("id", "")
+                if not rid:
+                    continue
+
+                # If data_json exists, it's the authoritative source
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        # Overlay structured columns for any that are newer
+                        # (e.g. status updated via direct SQL)
+                        for key in ("status", "updated_at", "reytech_quote_number"):
+                            if d.get(key) and d[key] != full.get(key):
+                                full[key] = d[key]
+                        result[rid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                # No data_json — use structured columns (legacy/migration path)
+                # Parse items from JSON string
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                result[rid] = d
+
+            # Merge any fields from JSON file not yet in data_json (one-time migration)
             json_data = _cached_json_load(rfq_db_path(), fallback={})
             if json_data:
                 for rid, r in result.items():
                     jr = json_data.get(rid, {})
                     if not jr:
                         continue
-                    # Merge line_items if SQLite items column is empty
-                    items = r.get("items", [])
-                    if not items or (isinstance(items, list) and len(items) == 0):
-                        li = jr.get("line_items", jr.get("items", []))
-                        if li and isinstance(li, list) and len(li) > 0:
-                            r["items"] = li
-                    # Merge any other fields that are empty in SQLite but present in JSON
-                    for key in ("solicitation_number", "due_date", "email_subject",
-                                "body_text", "form_type", "agency_name", "quote_type",
-                                "parse_note", "parse_details", "delivery_location",
-                                "requestor_phone", "templates", "attachments_raw",
-                                "email_message_id", "institution_name",
-                                "reytech_quote_number", "shipping_option", "shipping_amount",
-                                "package_forms", "output_files", "linked_pc_id", "draft_email"):
-                        if not r.get(key) and jr.get(key):
-                            r[key] = jr[key]
+                    # Only merge fields missing from the loaded record
+                    for key, val in jr.items():
+                        if key not in r or (not r[key] and val):
+                            r[key] = val
+
             return _normalize_rfq_fields(result)
     except Exception as e:
-        log.warning("DAL list_rfqs failed, falling back to JSON: %s", str(e)[:200])
-    # JSON fallback
+        log.warning("load_rfqs failed: %s", str(e)[:200])
+
     return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
 
 def save_rfqs(rfqs):
@@ -324,8 +349,8 @@ def save_rfqs(rfqs):
                      rfq_number, items, status, source, email_uid, notes,
                      solicitation_number, due_date, email_subject, body_text, form_type,
                      reytech_quote_number, shipping_option, shipping_amount, delivery_location,
-                     updated_at)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                     updated_at, data_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
                 """, (
                     rid, r.get("received_at", ""), r.get("agency", ""),
                     r.get("institution", ""), r.get("requestor_name", ""),
@@ -343,6 +368,7 @@ def save_rfqs(rfqs):
                     r.get("shipping_option", "included"),
                     r.get("shipping_amount", 0),
                     r.get("delivery_location", ""),
+                    json.dumps(r, default=str),
                 ))
     except Exception as e:
         log.error("SQLite write failed for rfqs: %s", str(e)[:200])
@@ -1111,16 +1137,41 @@ def _load_price_checks(include_items=True):
 
     data = {}
 
-    # DAL primary read
+    # SQLite primary read — use data_json blob if available
     try:
-        from src.core.dal import list_pcs as _dal_list_pcs
-        rows = _dal_list_pcs(limit=10000)
-        if rows:
-            data = {r["id"]: r for r in rows}
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM price_checks ORDER BY created_at DESC LIMIT 10000"
+            ).fetchall()
+            for row in rows:
+                d = dict(row)
+                pcid = d.get("id", "")
+                if not pcid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        for key in ("status", "quote_number"):
+                            if d.get(key) and d[key] != full.get(key):
+                                full[key] = d[key]
+                        data[pcid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # No data_json — use structured columns
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                data[pcid] = d
     except Exception as e:
-        log.warning("DAL list_pcs failed, falling back to JSON: %s", str(e)[:200])
+        log.warning("SQLite load_pcs failed, falling back to JSON: %s", str(e)[:200])
 
-    # JSON fallback — only if DAL returned nothing
+    # JSON fallback — only if SQLite returned nothing
     if not data:
         json_path = os.path.join(DATA_DIR, "price_checks.json")
         if os.path.exists(json_path):
@@ -1178,8 +1229,8 @@ def _save_price_checks(pcs):
                     INSERT OR REPLACE INTO price_checks
                     (id, created_at, requestor, agency, institution, items, source_file,
                      quote_number, pc_number, total_items, status,
-                     email_uid, email_subject, due_date, pc_data, ship_to)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     email_uid, email_subject, due_date, pc_data, ship_to, data_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     pc_id,
                     pc.get("created_at", ""),
@@ -1197,6 +1248,7 @@ def _save_price_checks(pcs):
                     pc.get("due_date", ""),
                     pc_blob,
                     pc.get("ship_to", ""),
+                    json.dumps(pc, default=str),
                 ))
     except Exception as e:
         log.error("DB save failed for price_checks: %s", e)

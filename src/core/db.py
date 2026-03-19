@@ -242,7 +242,8 @@ CREATE TABLE IF NOT EXISTS rfqs (
     source          TEXT,           -- email|manual
     email_uid       TEXT,
     notes           TEXT,
-    updated_at      TEXT
+    updated_at      TEXT,
+    data_json       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sent_quote_tracker (
@@ -331,7 +332,8 @@ CREATE TABLE IF NOT EXISTS price_checks (
     email_subject   TEXT,
     due_date        TEXT,
     pc_data         TEXT DEFAULT '{}',
-    ship_to         TEXT DEFAULT ''
+    ship_to         TEXT DEFAULT '',
+    data_json       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
@@ -1234,6 +1236,9 @@ def _migrate_columns():
         ("rfqs", "delivery_location", "TEXT DEFAULT ''"),
         # ── Package manifest (items_snapshot added after table existed on Railway) ──
         ("package_manifest", "items_snapshot", "TEXT"),
+        # ── data_json blob: stores full dict for lossless round-trip ──
+        ("rfqs", "data_json", "TEXT"),
+        ("price_checks", "data_json", "TEXT"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
