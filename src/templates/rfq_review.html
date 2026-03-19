@@ -188,6 +188,7 @@
           <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('approved')">✅ Approve</button>
           <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('rejected')">❌ Reject</button>
         </div>
+          <button class="btn btn-sm" style="background:rgba(139,148,158,.1);color:#8b949e;border:1px solid rgba(139,148,158,.2);font-size:12px;padding:6px;width:100%;margin-top:4px" onclick="removeCurrentForm()">🗑️ Remove from Package</button>
         <textarea id="rv-review-notes" placeholder="Notes (why rejected, or approval override reason)..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
         <div style="font-size:11px;color:var(--tx2);margin-top:4px">You can re-review any form by clicking it and choosing a new verdict.</div>
       </div>
@@ -266,6 +267,39 @@ function reviewCurrent(verdict){
   var next=document.querySelector('.rv-form-item[data-verdict="pending"]');
   if(next)next.click();
  });
+}
+
+function removeCurrentForm() {
+  if (!_currentFormId) { alert('Select a form first'); return; }
+  if (!confirm('Remove "' + _currentFormId.replace(/_/g,' ') + '" from the package?\n\nThis deletes the form file. You won\'t need to regenerate the other forms.')) return;
+
+  fetch('/api/rfq/' + RID + '/manifest/' + MANIFEST_ID + '/remove-form', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({form_id: _currentFormId})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (!d.ok) { alert('Remove failed: ' + (d.error || 'unknown')); return; }
+
+    // Remove from checklist
+    var item = document.querySelector('.rv-form-item[data-form-id="' + _currentFormId + '"]');
+    if (item) item.remove();
+
+    // Clear preview
+    document.getElementById('rv-preview-frame').data = '';
+    document.getElementById('rv-preview-frame').style.display = 'none';
+    document.getElementById('rv-preview-empty').style.display = 'flex';
+    document.getElementById('rv-preview-empty').innerHTML = '<div style="text-align:center"><div style="font-size:32px;margin-bottom:8px">🗑️</div><div>Form removed from package</div></div>';
+
+    _currentFormId = null;
+    updateProgress();
+
+    // Select next form
+    var next = document.querySelector('.rv-form-item');
+    if (next) next.click();
+  });
 }
 
 function updateProgress(){

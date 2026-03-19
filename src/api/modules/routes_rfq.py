@@ -2974,8 +2974,8 @@ def generate_rfq_package(rid):
         errors.append(f"State forms: {e}")
         t.warn("State forms exception", error=str(e))
 
-    # ── Step 2.5: 703C master template fallback ──
-    if not any(f.endswith("_703B_Reytech.pdf") or f.endswith("_703C_Reytech.pdf") for f in output_files):
+    # ── Step 2.5: 703C master template fallback (ONLY if agency requires it) ──
+    if (_include("703b") or _include("703c")) and not any(f.endswith("_703B_Reytech.pdf") or f.endswith("_703C_Reytech.pdf") for f in output_files):
         _master_703c = os.path.join(DATA_DIR, "templates", "AMS 703C - RFQ.pdf")
         if os.path.exists(_master_703c):
             try:
@@ -5978,6 +5978,71 @@ def api_rfq_approve_package(rid, manifest_id):
             f"Package v{manifest.get('version', '?')} approved ({manifest.get('total_forms', 0)} forms)",
             actor="user", detail={"manifest_id": manifest_id, "version": manifest.get("version")})
     return jsonify({"ok": ok, "status": "approved"})
+
+
+@bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/remove-form", methods=["POST"])
+@auth_required
+def api_rfq_remove_form(rid, manifest_id):
+    """Remove a form from the package manifest and delete its file."""
+    data = request.get_json(force=True, silent=True) or {}
+    form_id = data.get("form_id", "")
+    if not form_id:
+        return jsonify({"ok": False, "error": "form_id required"})
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Get the review record to find the filename
+            row = conn.execute(
+                "SELECT form_filename FROM package_review WHERE manifest_id = ? AND form_id = ?",
+                (manifest_id, form_id)).fetchone()
+            filename = row[0] if row else ""
+
+            # Delete the review record
+            conn.execute(
+                "DELETE FROM package_review WHERE manifest_id = ? AND form_id = ?",
+                (manifest_id, form_id))
+
+            # Update the manifest's generated_forms list
+            manifest_row = conn.execute(
+                "SELECT generated_forms, total_forms FROM package_manifest WHERE id = ?",
+                (manifest_id,)).fetchone()
+            if manifest_row:
+                import json as _json_rm
+                gen_forms = _json_rm.loads(manifest_row[0] or "[]")
+                gen_forms = [f for f in gen_forms if (f.get("form_id") if isinstance(f, dict) else f) != form_id]
+                total = (manifest_row[1] or 0) - 1
+                conn.execute(
+                    "UPDATE package_manifest SET generated_forms = ?, total_forms = ? WHERE id = ?",
+                    (_json_rm.dumps(gen_forms), max(total, 0), manifest_id))
+
+            # Delete the actual file from disk
+            if filename:
+                rfqs = load_rfqs()
+                r = rfqs.get(rid, {})
+                sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+                filepath = os.path.join(OUTPUT_DIR, sol, filename)
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                    log.info("Removed file %s for form %s", filename, form_id)
+
+                # Remove from rfq output_files list
+                out_files = r.get("output_files", [])
+                if filename in out_files:
+                    out_files.remove(filename)
+                    r["output_files"] = out_files
+                    save_rfqs(rfqs)
+
+            # Log the removal
+            from src.core.dal import log_lifecycle_event
+            log_lifecycle_event("rfq", rid, "form_removed",
+                f"Removed {form_id} from package ({filename})",
+                actor="user", detail={"form_id": form_id, "filename": filename, "manifest_id": manifest_id})
+
+        return jsonify({"ok": True, "removed": form_id, "filename": filename})
+    except Exception as e:
+        log.error("Remove form failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/rfq/<rid>/timeline")
