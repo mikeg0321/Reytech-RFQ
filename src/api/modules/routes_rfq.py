@@ -6122,3 +6122,76 @@ def api_rfq_buyer_prefs(rid):
     from src.core.dal import get_buyer_preferences
     prefs = get_buyer_preferences(email)
     return jsonify({"ok": True, "preferences": prefs, "buyer_email": email})
+
+
+@bp.route("/api/rfq/<rid>/download-complete-package")
+@auth_required
+def api_download_complete_package(rid):
+    """Download ALL forms merged into one PDF — quote + compliance."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    output_files = r.get("output_files", [])
+
+    if not output_files:
+        return jsonify({"ok": False, "error": "No files generated"})
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        merged_count = 0
+
+        # Quote first, then all other forms in order
+        quote_files = [f for f in output_files if "Quote" in f and "704" not in f.upper()]
+        other_files = [f for f in output_files if f not in quote_files]
+        ordered = quote_files + other_files
+
+        for f in ordered:
+            fpath = os.path.join(out_dir, f)
+            if not os.path.exists(fpath):
+                continue
+            # Skip the merged package file itself (avoid double-counting)
+            if "RFQ_Package" in f or "Compliance_Forms" in f:
+                continue
+            try:
+                reader = PdfReader(fpath)
+                for page in reader.pages:
+                    text = ""
+                    try:
+                        text = page.extract_text() or ""
+                    except Exception:
+                        pass
+                    if text.strip().startswith("Please wait") and len(text.strip()) < 300:
+                        continue
+                    writer.add_page(page)
+                merged_count += 1
+            except Exception as _e:
+                log.warning("Skip %s in complete package: %s", f, _e)
+
+        if merged_count == 0:
+            return jsonify({"ok": False, "error": "No valid PDFs to merge"})
+
+        import io
+        buf = io.BytesIO()
+        writer.write(buf)
+        buf.seek(0)
+
+        _safe_agency = ""
+        try:
+            from src.core.agency_config import match_agency
+            _ak, _ac = match_agency(r)
+            _safe_agency = (_ac.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
+        except Exception:
+            pass
+
+        filename = f"Complete_RFQ_{_safe_agency}_{sol}_ReytechInc.pdf" if _safe_agency else f"Complete_RFQ_{sol}_ReytechInc.pdf"
+
+        from flask import send_file
+        return send_file(buf, mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except Exception as e:
+        log.error("Complete package download failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})

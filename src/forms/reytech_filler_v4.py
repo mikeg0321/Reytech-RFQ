@@ -277,7 +277,10 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
             "DVBEowner" in name or  # DVBE 843 has separate date fields
             name == "Signature1"
         )
-        has_room_for_date = 120 < field_w < 250 and sign_date and not is_separate_date_field
+        # Don't draw date next to signature if there's a separate Date field on the same page
+        # (CalRecycle 74 has both Signature1 and Date fields — _calrecycle_fix_date handles Date)
+        _is_calrecycle_sig = (name == "Signature1" or name == "Signature")
+        has_room_for_date = 120 < field_w < 250 and sign_date and not is_separate_date_field and not _is_calrecycle_sig
 
         # PRIMARY: size by width (fill the signature line)
         # Real signatures span most of the line, not a tiny portion
@@ -2542,6 +2545,7 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
             ov_values = dict(base_values)
             ov_path = output_path.replace(".pdf", f"_overflow_{batch_start}.pdf")
             fill_and_sign_pdf(blank_cr, ov_values, ov_path, sign_date=sign_date)
+            _calrecycle_fix_date(ov_path, sign_date)
             _calrecycle_overlay_items(ov_path, batch)
             overflow_pages.append(ov_path)
 
@@ -3041,5 +3045,40 @@ def fill_darfur_standalone(input_path, rfq_data, config, output_path):
     }
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    # Highlight the Option 1 certification paragraph
+    try:
+        from pypdf import PdfReader as _PR, PdfWriter as _PW
+        from io import BytesIO as _BIO
+        from reportlab.pdfgen import canvas as _rlc
+        from reportlab.lib.colors import Color
+
+        reader = _PR(output_path)
+        writer = _PW()
+        writer.append(reader)
+
+        page = writer.pages[0]
+        pw = float(page.mediabox.width)
+        ph = float(page.mediabox.height)
+
+        buf = _BIO()
+        c = _rlc.Canvas(buf, pagesize=(pw, ph))
+        # Yellow highlight with transparency
+        c.setFillColor(Color(1, 1, 0, alpha=0.25))
+        # The "I, the official named below, CERTIFY UNDER PENALTY OF PERJURY..." paragraph
+        # Coordinates from the DGS PD 1 template layout
+        c.rect(62, 340, 480, 80, fill=True, stroke=False)
+        c.save()
+        buf.seek(0)
+
+        overlay = _PR(buf)
+        page.merge_page(overlay.pages[0])
+
+        with open(output_path, "wb") as _f:
+            writer.write(_f)
+    except Exception as _he:
+        import logging
+        logging.getLogger("filler").debug("Darfur highlight: %s", _he)
+
     print(f"  ✓ Darfur Act filled from template — Option 1 only (page 2 blank)")
 

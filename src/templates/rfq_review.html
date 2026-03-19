@@ -159,6 +159,7 @@
         <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--tx2);margin-top:4px">Review all forms to enable</div>
       </div>
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <a href="/api/rfq/{{ rid }}/download-complete-package" class="btn btn-sm" style="font-size:13px;width:100%;text-align:center;background:var(--ac);color:#fff;padding:8px;font-weight:600;margin-bottom:4px">⬇ Download Complete RFQ (All Forms)</a>
         <div style="display:flex;gap:6px">
           {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}
           <a href="/api/download/{{ sol }}/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="font-size:12px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac);padding:6px">📄 Quote</a>
@@ -475,6 +476,7 @@ function finalizePackage(){
   var _dl = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
   if (_quoteFn) _dl += '<a href="/api/download/'+SOL+'/'+_quoteFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';
   _dl += '<a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
+  _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
   _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
   document.getElementById('rv-finalize-hint').innerHTML = _dl;
  });

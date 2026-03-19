@@ -908,6 +908,10 @@ def generate_quote(
         c.rect(x, rl_y, w, h, fill=0, stroke=1)
         return rl_y  # bottom of box in rl coords
 
+    def _fmt_qty(q):
+        """Format qty: 20.0 → '20', 1.5 → '1.5'"""
+        return str(int(q)) if float(q) == int(float(q)) else str(q)
+
     def _sanitize(s):
         """Replace unicode chars that Helvetica renders as squares."""
         if not s:
@@ -1202,7 +1206,7 @@ def generate_quote(
         # QTY (right-aligned in cell)
         c.setFont("Helvetica", 9)
         qty_cx, qty_cw = COLS[2][1], COLS[2][2]
-        c.drawRightString(qty_cx + qty_cw - 8, text_baseline, str(qty))
+        c.drawRightString(qty_cx + qty_cw - 8, text_baseline, _fmt_qty(qty))
 
         # UOM
         c.drawString(COLS[3][1] + 4, text_baseline,
