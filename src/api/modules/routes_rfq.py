@@ -3209,6 +3209,10 @@ def generate_rfq_package(rid):
                     reader = PdfReader(pdf_path)
                     pages_added = 0
 
+                    # ONLY apply bid-package page filter to the actual BidPackage PDF
+                    # Standalone forms (BidderDecl, Darfur, etc.) must NOT be filtered
+                    _is_bidpkg = "BidPackage" in label or "bidpkg" in label.lower() or "bid_package" in label.lower()
+
                     for page_idx, page in enumerate(reader.pages):
                         try:
                             text = page.extract_text() or ""
@@ -3221,7 +3225,8 @@ def generate_rfq_package(rid):
                             continue
 
                         # Skip pages flagged by the bid-package page filter
-                        if _skip_reason is not None:
+                        # ONLY for the actual bid package — NOT standalone forms
+                        if _is_bidpkg and _skip_reason is not None:
                             try:
                                 skip = _skip_reason(page)
                             except Exception:
