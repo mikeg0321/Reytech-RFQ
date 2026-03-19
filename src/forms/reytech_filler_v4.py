@@ -334,7 +334,7 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     clean_values = {k: v for k, v in field_values.items() if v is not None}
 
     # Convert bool checkbox values to PDF format and track unchecked fields
-    _original_values = dict(clean_values)
+    _original_clean = dict(clean_values)
     for k, v in list(clean_values.items()):
         if v is True:
             clean_values[k] = "/Yes"
@@ -393,9 +393,8 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
                 page.merge_page(overlay_reader.pages[0])
 
     # Force-clear checkboxes that should be unchecked
-    _unchecked = [k for k, v in _original_values.items() if v is False or v == "/Off"]
+    _unchecked = [k for k, v in _original_clean.items() if v is False or v == "/Off"]
     if _unchecked:
-        from pypdf.generic import NameObject
         for page in writer.pages:
             if "/Annots" in page:
                 for annot in page["/Annots"]:

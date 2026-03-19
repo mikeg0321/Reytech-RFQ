@@ -644,6 +644,7 @@ def _upsert_row(conn, table: str, pk: str, data: dict, columns: list, json_field
 
 def _update_row(conn, table: str, pk: str, data: dict, columns: list):
     """Update an existing row. Table and column names are validated against the schema."""
+    import re as _re_upd
     # Validate table name against known tables (prevents injection via table name)
     _ALLOWED_TABLES = {
         "leads", "customers", "vendors", "outbox", "email_outbox",
@@ -652,6 +653,10 @@ def _update_row(conn, table: str, pk: str, data: dict, columns: list):
     }
     if table not in _ALLOWED_TABLES:
         raise ValueError(f"Unknown table: {table}")
+    # Validate column names — only alphanumeric + underscore allowed
+    for c in columns:
+        if not _re_upd.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', c):
+            raise ValueError(f"Invalid column name: {c!r}")
     cols = [c for c in columns if c in data and c != pk]
     if not cols:
         return
@@ -1410,6 +1415,19 @@ def update_tenant_profile(tenant_id: str, updates: dict) -> bool:
     Output: True on success
     Side effects: writes to tenant_profiles table
     """
+    _ALLOWED_FIELDS = {
+        "legal_name", "dba_names", "entity_number", "entity_type",
+        "state_of_formation", "formation_date", "status", "website",
+        "phone", "address", "city", "state", "zip",
+        "vendor_search_names", "vendor_codes", "certifications",
+        "naics_codes", "statement_of_info_due", "licenses_json",
+        "notify_phone", "notify_email", "base_url", "api_key_hash",
+        "approval_threshold",
+    }
+    if not updates:
+        return True
+    # Filter to allowed fields only
+    updates = {k: v for k, v in updates.items() if k in _ALLOWED_FIELDS}
     if not updates:
         return True
     try:

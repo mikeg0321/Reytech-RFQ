@@ -142,11 +142,12 @@ fetch('/api/qb/financial-context').then(r=>r.json()).then(d=>{
   +mkStat('Collected','$'+(d.total_collected||0).toLocaleString(),'var(--gn)')
   +mkStat('Invoices',d.invoice_count||0);
  const inv=d.pending_invoices||[];
+ var _esc=function(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;};
  if(inv.length){
   let t='<table class="tbl" style="width:100%;font-size:14px"><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Due</th><th>Days Out</th><th>Status</th></tr></thead><tbody>';
   inv.forEach(i=>{
    const st=i.status==='overdue'?'<span style="color:var(--rd);font-weight:600">⚠️ OVERDUE</span>':'<span style="color:var(--yl)">Open</span>';
-   t+='<tr><td class="mono">'+i.doc_number+'</td><td>'+i.customer+'</td><td style="text-align:right;font-weight:600" class="mono">$'+i.total.toLocaleString()+'</td><td style="text-align:right;color:var(--yl)" class="mono">$'+i.balance.toLocaleString()+'</td><td class="mono">'+i.due_date+'</td><td style="text-align:center">'+i.days_outstanding+'</td><td>'+st+'</td></tr>';
+   t+='<tr><td class="mono">'+_esc(i.doc_number)+'</td><td>'+_esc(i.customer)+'</td><td style="text-align:right;font-weight:600" class="mono">$'+i.total.toLocaleString()+'</td><td style="text-align:right;color:var(--yl)" class="mono">$'+i.balance.toLocaleString()+'</td><td class="mono">'+_esc(i.due_date)+'</td><td style="text-align:center">'+i.days_outstanding+'</td><td>'+st+'</td></tr>';
   });
   t+='</tbody></table>';
   document.getElementById('inv-table').innerHTML=t;

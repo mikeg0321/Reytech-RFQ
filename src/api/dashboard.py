@@ -4983,8 +4983,8 @@ def _load_route_module(module_name: str):
     if _saved_file:
         mod.__file__ = _saved_file
     import sys as _sys
-    _sys.modules[spec.name] = mod  # Cache so regular imports don't re-execute and double-register routes
     spec.loader.exec_module(mod)
+    _sys.modules[spec.name] = mod  # Cache AFTER exec so regular imports don't re-execute and double-register routes
     # Copy new definitions back so later modules can reference them
     for k, v in mod.__dict__.items():
         if not k.startswith('__') and k not in _shared:

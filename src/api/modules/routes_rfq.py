@@ -5992,6 +5992,13 @@ def api_rfq_remove_form(rid, manifest_id):
     try:
         from src.core.db import get_db
         with get_db() as conn:
+            # Verify manifest belongs to this RFQ
+            _owner = conn.execute(
+                "SELECT rfq_id FROM package_manifest WHERE id = ?",
+                (manifest_id,)).fetchone()
+            if not _owner or _owner[0] != rid:
+                return jsonify({"ok": False, "error": "Manifest not found for this RFQ"})
+
             # Get the review record to find the filename
             row = conn.execute(
                 "SELECT form_filename FROM package_review WHERE manifest_id = ? AND form_id = ?",
