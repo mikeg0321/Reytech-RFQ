@@ -4351,37 +4351,47 @@ def api_cleanup_quote_numbers():
     if request.method == "GET":
         data = {"dry_run": not request.args.get("execute"),
                 "keep": request.args.get("keep", "").split(",") if request.args.get("keep") else [],
-                "reset_to": int(request.args.get("reset_to")) if request.args.get("reset_to") else None}
+                "reset_to": int(request.args.get("reset_to")) if request.args.get("reset_to") else None,
+                "rename": request.args.get("rename", "")}  # e.g. rename=R26Q37:R26Q30
     else:
         data = request.get_json(force=True, silent=True) or {}
     keep = set(data.get("keep", []))
     reset_to = data.get("reset_to")
     dry_run = data.get("dry_run", True)
+    rename_str = data.get("rename", "")
+
+    # Parse rename: "R26Q37:R26Q30" → rename R26Q37 to R26Q30
+    rename_map = {}
+    if rename_str:
+        for pair in rename_str.split(","):
+            if ":" in pair:
+                old_qn, new_qn = pair.strip().split(":", 1)
+                rename_map[old_qn.strip()] = new_qn.strip()
 
     rfqs = load_rfqs()
     cleaned = []
     kept = []
+    renamed = []
 
     for rid, r in rfqs.items():
         qn = r.get("reytech_quote_number", "")
         if not qn or not qn.startswith("R26Q"):
             continue
+        # Check if this quote should be renamed
+        if qn in rename_map:
+            new_qn = rename_map[qn]
+            if not dry_run:
+                r["reytech_quote_number"] = new_qn
+            renamed.append({"old": qn, "new": new_qn, "rfq": rid})
+            continue
         if qn in keep:
             kept.append({"qn": qn, "rfq": rid, "action": "kept"})
             continue
-        items = r.get("line_items", r.get("items", []))
-        has_real_content = (
-            len(items) > 0 and
-            r.get("status") in ("generated", "sent", "won", "lost", "approved") and
-            any(i.get("price_per_unit") or i.get("supplier_cost") for i in items)
-        )
-        if has_real_content:
-            kept.append({"qn": qn, "rfq": rid, "action": "kept (has content)"})
-            continue
+        # Everything else gets cleaned — ghost or not
         if not dry_run:
             r["reytech_quote_number"] = ""
             r.pop("_manifest_id", None)
-        cleaned.append({"qn": qn, "rfq": rid, "status": r.get("status", ""), "items": len(items)})
+        cleaned.append({"qn": qn, "rfq": rid, "status": r.get("status", ""), "items": len(r.get("line_items", r.get("items", [])))})
 
     db_cleaned = 0
     if not dry_run:
@@ -4393,6 +4403,12 @@ def api_cleanup_quote_numbers():
                     conn.execute("DELETE FROM quotes WHERE quote_number = ?", (c["qn"],))
                     conn.execute("DELETE FROM quote_number_ledger WHERE quote_number = ?", (c["qn"],))
                     db_cleaned += 1
+                # Rename in DB too
+                for rn in renamed:
+                    conn.execute("UPDATE quotes SET quote_number = ? WHERE quote_number = ?",
+                                 (rn["new"], rn["old"]))
+                    conn.execute("UPDATE quote_number_ledger SET quote_number = ? WHERE quote_number = ?",
+                                 (rn["new"], rn["old"]))
         except Exception as e:
             log.warning("DB quote cleanup: %s", e)
 
@@ -4408,6 +4424,7 @@ def api_cleanup_quote_numbers():
     return jsonify({
         "ok": True,
         "dry_run": dry_run,
+        "renamed": renamed,
         "cleaned": cleaned,
         "kept": kept,
         "db_cleaned": db_cleaned,
