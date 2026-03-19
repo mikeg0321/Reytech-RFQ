@@ -1694,6 +1694,49 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
     # Add signature overlay
     _overlay_signature(writer, sign_date)
 
+    # ── Overlay signature + date on certification line ──
+    # Page is landscape 792x612. Certification text at ~y=58, Page at y=35.
+    # Place signature at y=12 (between cert text and page number)
+    try:
+        if os.path.exists(SIGNATURE_PATH):
+            from io import BytesIO
+            from reportlab.pdfgen import canvas as rl_c
+
+            page = writer.pages[0]
+            pw = float(page.mediabox.width)   # 792
+            ph = float(page.mediabox.height)  # 612
+
+            buf = BytesIO()
+            c = rl_c.Canvas(buf, pagesize=(pw, ph))
+
+            # Signature image — left side under certification
+            c.drawImage(SIGNATURE_PATH, 70, 8, 120, 35, mask='auto')
+
+            # Signature line
+            c.setStrokeColorRGB(0, 0, 0)
+            c.setLineWidth(0.5)
+            c.line(70, 6, 250, 6)
+
+            # Labels
+            c.setFont("Helvetica", 7)
+            c.drawString(70, -2, "Authorized Signature")
+
+            # Date — right of signature
+            c.setFont("Helvetica", 10)
+            c.drawString(280, 12, sign_date)
+            c.setLineWidth(0.5)
+            c.line(280, 6, 380, 6)
+            c.setFont("Helvetica", 7)
+            c.drawString(280, -2, "Date")
+
+            c.save()
+            buf.seek(0)
+            overlay_reader = PdfReader(buf)
+            page.merge_page(overlay_reader.pages[0])
+    except Exception as _sig_e:
+        import logging
+        logging.getLogger("filler").warning("Bidder Decl signature overlay: %s", _sig_e)
+
     with open(output_path, "wb") as f:
         writer.write(f)
     print(f"  ✓ Bidder Declaration filled from template (GSPD-05-105, sol={sol})")
