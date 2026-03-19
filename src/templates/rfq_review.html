@@ -188,7 +188,7 @@
           <div>Click a form on the left to preview</div>
         </div>
       </div>
-      <object id="rv-preview-frame" type="application/pdf" style="display:none;flex:1;min-height:600px;width:100%">
+      <object id="rv-preview-frame" type="application/pdf" style="display:none;flex:1;min-height:calc(100vh - 250px);width:100%">
         <p style="padding:20px;color:var(--tx2)">PDF preview not available — <a id="rv-preview-fallback" href="#" target="_blank" style="color:var(--ac)">click to open</a></p>
       </object>
     </div>
@@ -366,9 +366,11 @@ function selectFormFromFloat(el) {
   if (filename) {
     var url = '/api/download/'+SOL+'/'+filename;
     var frame = document.getElementById('rv-preview-frame');
-    frame.data = url;
+    // Force re-render: clear first, then set after DOM updates
+    frame.data = '';
     frame.style.display = 'block';
     document.getElementById('rv-preview-empty').style.display = 'none';
+    setTimeout(function(){ frame.data = url; }, 50);
     var dl = document.getElementById('rv-download-link');
     if (dl) { dl.href = url; dl.style.display = 'inline-flex'; }
     var fallback = document.getElementById('rv-preview-fallback');
@@ -394,14 +396,16 @@ function toggleView(mode) {
   if (preview) preview.style.paddingBottom = (mode === 'expand-preview') ? '70px' : '0';
   document.querySelectorAll('.rv-expand-btn').forEach(function(b){ b.classList.remove('active'); });
   if (mode === 'expand-preview') {
-    // Auto-load current form in full screen
-    if (_currentFormId) {
-      var f = document.querySelector('.rv-float-form[data-form-id="'+_currentFormId+'"]');
-      if (f) { selectFormFromFloat(f); }
-    } else {
-      var first = document.querySelector('.rv-float-form');
-      if (first) selectFormFromFloat(first);
-    }
+    // Auto-load current form in full screen — delay so grid layout completes first
+    setTimeout(function() {
+      if (_currentFormId) {
+        var f = document.querySelector('.rv-float-form[data-form-id="'+_currentFormId+'"]');
+        if (f) { selectFormFromFloat(f); }
+      } else {
+        var first = document.querySelector('.rv-float-form');
+        if (first) selectFormFromFloat(first);
+      }
+    }, 100);
   }
 }
 
