@@ -411,9 +411,29 @@ class FiscalSession:
                 return None
 
             modal_html = modal_r.text
+
+            # Modal click sets PO context server-side on SCPRS1 session.
+            # SCPRS2 reads that context via a separate GET.
+            DETAIL_URL = (
+                'https://suppliers.fiscal.ca.gov/psc/'
+                'psfpd1_1/SUPPLIER/ERP/c/'
+                'ZZ_PO.ZZ_SCPRS2_CMP.GBL'
+                '?Page=ZZ_SCPRS_PDDTL_PG&Action=U'
+            )
+            try:
+                detail_r = self.session.get(DETAIL_URL, timeout=20)
+                log.info('Detail GET: %db has_PDL=%s',
+                         len(detail_r.content),
+                         'ZZ_SCPR_PDL_DVW' in detail_r.text)
+                # If SCPRS2 detail page has line items, use it
+                if 'ZZ_SCPR_PDL_DVW' in detail_r.text:
+                    return self._parse_detail(detail_r.text)
+            except Exception as _det_e:
+                log.debug('Detail GET failed: %s', _det_e)
+
             has_pdl = "ZZ_SCPR_PDL_DVW" in modal_html
 
-            # Try standard detail parse first
+            # Try standard detail parse first (fallback to modal response)
             if has_pdl:
                 log.info("Detail POST: %db has_PDL_DVW=True", len(modal_html))
                 return self._parse_detail(modal_html)
