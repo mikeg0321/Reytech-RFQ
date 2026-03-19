@@ -4341,6 +4341,80 @@ def admin_backup_now():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/admin/cleanup-quote-numbers", methods=["GET", "POST"])
+@auth_required
+def api_cleanup_quote_numbers():
+    """Clean ghost quote numbers and reset counter.
+    GET = always dry_run (safe from browser). POST body for real cleanup.
+    POST body: {"keep": ["R26Q30"], "reset_to": 30, "dry_run": false}
+    """
+    if request.method == "GET":
+        data = {"dry_run": True,
+                "keep": request.args.get("keep", "").split(",") if request.args.get("keep") else [],
+                "reset_to": int(request.args.get("reset_to")) if request.args.get("reset_to") else None}
+    else:
+        data = request.get_json(force=True, silent=True) or {}
+    keep = set(data.get("keep", []))
+    reset_to = data.get("reset_to")
+    dry_run = data.get("dry_run", True)
+
+    rfqs = load_rfqs()
+    cleaned = []
+    kept = []
+
+    for rid, r in rfqs.items():
+        qn = r.get("reytech_quote_number", "")
+        if not qn or not qn.startswith("R26Q"):
+            continue
+        if qn in keep:
+            kept.append({"qn": qn, "rfq": rid, "action": "kept"})
+            continue
+        items = r.get("line_items", r.get("items", []))
+        has_real_content = (
+            len(items) > 0 and
+            r.get("status") in ("generated", "sent", "won", "lost", "approved") and
+            any(i.get("price_per_unit") or i.get("supplier_cost") for i in items)
+        )
+        if has_real_content:
+            kept.append({"qn": qn, "rfq": rid, "action": "kept (has content)"})
+            continue
+        if not dry_run:
+            r["reytech_quote_number"] = ""
+            r.pop("_manifest_id", None)
+        cleaned.append({"qn": qn, "rfq": rid, "status": r.get("status", ""), "items": len(items)})
+
+    db_cleaned = 0
+    if not dry_run:
+        save_rfqs(rfqs)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for c in cleaned:
+                    conn.execute("DELETE FROM quotes WHERE quote_number = ?", (c["qn"],))
+                    conn.execute("DELETE FROM quote_number_ledger WHERE quote_number = ?", (c["qn"],))
+                    db_cleaned += 1
+        except Exception as e:
+            log.warning("DB quote cleanup: %s", e)
+
+    counter_result = None
+    if reset_to is not None and not dry_run:
+        try:
+            from src.forms.quote_generator import set_quote_counter
+            set_quote_counter(int(reset_to))
+            counter_result = f"Counter reset to {reset_to}"
+        except Exception as e:
+            counter_result = f"Counter reset failed: {e}"
+
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "cleaned": cleaned,
+        "kept": kept,
+        "db_cleaned": db_cleaned,
+        "counter": counter_result,
+    })
+
+
 # ── Email Classification API (F6) ────────────────────────────────────────────
 
 @bp.route("/api/email/review-queue")
