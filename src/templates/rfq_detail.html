@@ -75,7 +75,7 @@
   <div style="display:flex;align-items:center;gap:4px;margin-left:6px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
    <input type="number" id="custom-markup-pct" step="1" min="0" max="200" placeholder="%" style="width:72px;background:transparent;border:none;color:#e6edf3;font-size:16px;font-weight:700;text-align:center;outline:none" title="Markup % — click a button or type any value, then Apply or use arrows">
    <span style="color:#8b949e;font-size:14px;font-weight:600">%</span>
-   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:4px 12px;font-size:14px;background:#238636;color:#fff;border:none;font-weight:600" aria-label="Apply markup">Apply</button>
+   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:6px 16px;font-size:15px;background:#238636;color:#fff;border:none;font-weight:600" aria-label="Apply markup">Apply</button>
   </div>
   <div style="display:flex;align-items:center;gap:4px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
    <span style="color:#8b949e;font-size:14px">$</span>
@@ -86,7 +86,7 @@
   <span id="uc-buttons-container"></span>
  </div>
  <!-- Margin Summary Bar -->
- <div id="margin-summary" style="display:none;margin-top:6px;padding:8px 14px;background:var(--sf2,#21262d);border:1px solid var(--bd,#30363d);border-radius:8px;font-size:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
+ <div id="margin-summary" style="display:none;margin-top:6px;padding:10px 14px;background:var(--sf2,#21262d);border:1px solid var(--bd,#30363d);border-radius:8px;font-size:15px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
   <span style="color:#8b949e">Margin Summary:</span>
   <span id="ms-total-cost" style="color:#e6edf3"></span>
   <span id="ms-total-bid" style="color:#e6edf3"></span>
@@ -117,17 +117,17 @@
   <span id="ms-grand-total" style="font-weight:700;color:#e6edf3"></span>
  </div>
  <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
-  <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
-  <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
-  <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
-  <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:4px" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
-  <button class="btn btn-sm" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:4px" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
-  <button class="btn btn-sm" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:4px" onclick="uploadSupplierQuote()" aria-label="Upload supplier quote PDF to fill costs">🏷️ Supplier Quote</button>
+  <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px;font-size:14px;padding:6px 14px" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
+  <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:4px;font-size:14px;padding:6px 14px" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:4px;font-size:14px;padding:6px 14px" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
+  <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:4px;font-size:14px;padding:6px 14px" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
+  <button class="btn btn-sm" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:4px;font-size:14px;padding:6px 14px" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
+  <button class="btn btn-sm" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:4px;font-size:14px;padding:6px 14px" onclick="uploadSupplierQuote()" aria-label="Upload supplier quote PDF to fill costs">🏷️ Supplier Quote</button>
   <input type="file" id="sq-upload-input" accept=".pdf" style="display:none" onchange="handleSQUpload(this)">
-  <button class="btn btn-sm" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:4px" onclick="uploadPC()" aria-label="Upload a filled PC PDF to import prices">📤 Upload PC PDF</button>
+  <button class="btn btn-sm" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:4px;font-size:14px;padding:6px 14px" onclick="uploadPC()" aria-label="Upload a filled PC PDF to import prices">📤 Upload PC PDF</button>
   <input type="file" id="pc-upload-input" accept=".pdf" style="display:none" onchange="handlePCUpload(this)">
-  <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px" onclick="applyRecommendations()" aria-label="Auto-price all items using SCPRS, catalog, Amazon, and cost data">💡 Auto-Price All</button>
-  <button class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:4px" onclick="openBulkPaste()" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
+  <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:4px;font-size:14px;padding:6px 14px" onclick="applyRecommendations()" aria-label="Auto-price all items using SCPRS, catalog, Amazon, and cost data">💡 Auto-Price All</button>
+  <button class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:4px;font-size:14px;padding:6px 14px" onclick="openBulkPaste()" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
@@ -166,9 +166,9 @@
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
    <td style="font-size:13px">{{i.line_number}}</td>
-   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:14px;font-weight:700;padding:6px 4px;text-align:center" oninput="recalc()"></td>
-   <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:13px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
-   <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;font-size:13px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.3;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()"></td>
+   <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
+   <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
@@ -180,7 +180,7 @@
     </div>
    </td>
    <td>
-    <input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalcFromMarkup({{loop.index0}})">
+    <input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromMarkup({{loop.index0}})">
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
      {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
      {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
@@ -202,14 +202,14 @@
    </td>
    <td>
     <div style="display:flex;align-items:center;gap:2px">
-     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{i.get('markup_pct', '')}}" placeholder="%" class="num-in" style="width:62px;font-size:15px;font-weight:700;padding:6px 4px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="recalcFromMarkup({{loop.index0}},true)">
+     <input type="number" step="1" min="0" max="200" name="markup_{{loop.index0}}" value="{{i.get('markup_pct', '')}}" placeholder="%" class="num-in" style="width:55px;font-size:15px;font-weight:700;padding:6px 8px;text-align:center;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.2)" oninput="recalcFromMarkup({{loop.index0}},true)">
      <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
     </div>
    </td>
-   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:90px;font-size:15px;font-weight:700;padding:6px 8px" oninput="recalcFromBid({{loop.index0}})"></td>
-   <td class="mono" style="font-size:15px;font-weight:700" id="sub_{{loop.index0}}">—</td>
-   <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
-   <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:14px">—</td>
+   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})"></td>
+   <td class="mono" style="font-size:16px;font-weight:600" id="sub_{{loop.index0}}">—</td>
+   <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
+   <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td style="position:relative">
     <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:16px;padding:2px 6px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})">⋯</button>
     <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
@@ -1113,7 +1113,7 @@ function _buildMarkupButtons(){
  var html='';
  _mkConfig.buttons.forEach(function(pct){
   var label=pct%1===0?'+'+pct+'%':'+'+pct.toFixed(1)+'%';
-  html+='<button class="btn btn-sm btn-s mk-btn" data-mk="'+pct+'" onclick="applyMarkup('+(pct/100)+')">'+label+'</button>';
+  html+='<button class="btn btn-sm btn-s mk-btn" data-mk="'+pct+'" onclick="applyMarkup('+(pct/100)+')" style="font-size:14px;padding:6px 12px">'+label+'</button>';
  });
  mc.innerHTML=html;
  var inp=document.getElementById('custom-markup-pct');
