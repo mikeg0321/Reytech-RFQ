@@ -4349,7 +4349,7 @@ def api_cleanup_quote_numbers():
     POST body: {"keep": ["R26Q30"], "reset_to": 30, "dry_run": false}
     """
     if request.method == "GET":
-        data = {"dry_run": True,
+        data = {"dry_run": not request.args.get("execute"),
                 "keep": request.args.get("keep", "").split(",") if request.args.get("keep") else [],
                 "reset_to": int(request.args.get("reset_to")) if request.args.get("reset_to") else None}
     else:
