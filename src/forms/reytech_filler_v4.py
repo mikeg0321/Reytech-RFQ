@@ -1572,14 +1572,32 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
     sol = rfq_data.get("solicitation_number", "") or rfq_data.get("rfq_number", "")
 
     values = {
+        # Solicitation reference
         "Solicitaion #": sol,  # typo is in the actual form field name
+
+        # 1a. Certifications
         "Certification": company.get("cert_number", ""),
         "Certification #": company.get("cert_number", ""),
-        "Check Box2": "/Yes",  # No subcontractors
+
+        # 1b. Subcontractors — No
+        "Check Box1": "/Off",   # Yes subcontractors — UNCHECK
+        "Check Box2": "/Yes",   # No subcontractors — CHECK
+
+        # 1b. Work performed by prime
         "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
                         "Reytech Inc. sources, prices, and delivers all products directly.",
-        "Check Box4": "/Yes",  # Not a broker
-        "Check Box8": "/Yes",  # Equipment rental: N/A
+
+        # 1c(1). Broker or agent — No
+        "Check Box3": "/Off",   # Yes broker — UNCHECK (template has this pre-checked!)
+        "Check Box4": "/Yes",   # No broker — CHECK
+
+        # 1c(2). Equipment rental 51% — N/A
+        "Check Box5": "/Off",   # Yes rental — UNCHECK (template has this pre-checked!)
+        "Check Box6": "/Off",   # No rental — UNCHECK
+        "Check Box7": "/Off",   # (unused or alternative)
+        "Check Box8": "/Yes",   # N/A rental — CHECK
+
+        # Page numbers
         "page": "1",
         "of #": "1",
     }
