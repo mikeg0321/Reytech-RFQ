@@ -17,6 +17,7 @@
   <button onclick="createOrder()" class="btn btn-s" style="font-size:16px;white-space:nowrap;padding:8px 18px" aria-label="Manual Order">+ Manual Order</button>
  </div>
 </div>
+{# SECURITY: backend must sanitize before passing #}
 {{ macro_html|safe }}
 
 <!-- F3: Filters + Search -->
@@ -59,6 +60,7 @@
    <th style="width:100px;text-align:center">Status</th>
    <th style="width:40px"></th>
   </tr></thead>
+  {# SECURITY: backend must sanitize before passing #}
   <tbody>{{ rows|safe if rows else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2);font-size:15px">No orders yet — mark a quote as Won or import a PO PDF</td></tr>' }}</tbody>
  </table>
 </div>

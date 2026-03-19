@@ -48,17 +48,20 @@ table{width:100%;border-collapse:collapse}
   <div>
     <!-- Agency intelligence -->
     <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Agency Intelligence</div>
+    {# SECURITY: backend must sanitize before passing #}
     {{ agencies_html | safe }}
   </div>
   <div>
     <!-- Accounts to register -->
     <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Accounts to Register Now</div>
     <div class="card" style="padding:0;margin-bottom:20px">
+      {# SECURITY: backend must sanitize before passing #}
       {{ accounts_html | safe }}
     </div>
 
     <!-- Land & Expand Playbook -->
     <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">30/60/90 Day Playbook</div>
+    {# SECURITY: backend must sanitize before passing #}
     {{ playbook_html | safe }}
   </div>
 </div>
@@ -71,6 +74,7 @@ table{width:100%;border-collapse:collapse}
   </div>
   <table>
     <thead><tr><th>Product / Item</th><th>Priority</th><th>Annual Missed</th><th>Fix</th></tr></thead>
+    {# SECURITY: backend must sanitize before passing #}
     <tbody>{{ gaps_html | safe }}</tbody>
   </table>
 </div>

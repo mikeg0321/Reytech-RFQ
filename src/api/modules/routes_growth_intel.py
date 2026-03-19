@@ -414,8 +414,14 @@ def _get_price_alerts(threshold_pct=10.0, limit=20):
 @auth_required
 def api_price_alerts():
     """Get price trend alerts for dashboard."""
-    threshold = float(request.args.get("threshold", 10))
-    limit = int(request.args.get("limit", 20))
+    try:
+        threshold = max(0.0, min(float(request.args.get("threshold", 10)), 100.0))
+    except (ValueError, TypeError, OverflowError):
+        threshold = 10.0
+    try:
+        limit = max(1, min(int(request.args.get("limit", 20)), 200))
+    except (ValueError, TypeError, OverflowError):
+        limit = 20
     alerts = _get_price_alerts(threshold_pct=threshold, limit=limit)
     return jsonify({"ok": True, "alerts": alerts, "count": len(alerts)})
 

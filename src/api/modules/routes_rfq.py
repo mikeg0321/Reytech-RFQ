@@ -13,6 +13,15 @@ from src.core.paths import DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
 from src.core.db import get_db
 from src.api.render import render_page
 from datetime import datetime, timezone, timedelta
+import re as _re_mod
+
+
+def _validate_rid(rid: str):
+    """Validate rfq_id to prevent path traversal. Returns None if valid,
+    or a (response, status_code) tuple if invalid."""
+    if not rid or not _re_mod.match(r'^[a-zA-Z0-9_-]+$', rid):
+        return jsonify({"ok": False, "error": "Invalid RFQ ID"}), 400
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -780,6 +789,8 @@ def _save_price_checks(pcs):
 @auth_required
 @safe_route
 def detail(rid):
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     # WARNING: GET handler — must NEVER call save_rfqs() or modify data.
     # Data loss incident 2026-03-16: save_rfqs in GET handler corrupted items.
     # Check if this is actually a price check
@@ -2025,6 +2036,8 @@ def rfq_lookup_single_item(rid, idx):
 @auth_required
 def rfq_upload_supplier_quote(rid):
     """Upload a supplier quote PDF → parse → match to RFQ items → fill costs + update catalog."""
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     import os
     from src.core.paths import DATA_DIR
 
@@ -2397,6 +2410,8 @@ def _item_response(rid, ok, msg):
 @safe_route
 def upload_templates(rid):
     """Upload 703B/704B/Bid Package template PDFs for an RFQ."""
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2476,6 +2491,8 @@ def generate_rfq_package(rid):
     4. Reytech Quote on letterhead
     5. Draft email with all attachments
     """
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     from src.api.trace import Trace
     t = Trace("rfq_package", rfq_id=rid)
     
@@ -3366,6 +3383,8 @@ def generate_rfq_package(rid):
 @bp.route("/rfq/<rid>/generate", methods=["POST"])
 @auth_required
 def generate(rid):
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     log.info("Generate bid package for RFQ %s", rid)
     rfqs = load_rfqs()
     r = rfqs.get(rid)
@@ -3447,6 +3466,8 @@ def generate(rid):
 @safe_route
 def rfq_generate_quote(rid):
     """Generate a standalone Reytech-branded quote PDF from an RFQ."""
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     from src.api.trace import Trace
     t = Trace("quote_generation", rfq_id=rid)
     
@@ -3522,6 +3543,8 @@ def rfq_generate_quote(rid):
 @bp.route("/rfq/<rid>/send", methods=["POST"])
 @auth_required
 def send_email(rid):
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     from src.api.trace import Trace
     t = Trace("email_send", rfq_id=rid)
     rfqs = load_rfqs()
@@ -3750,6 +3773,8 @@ def api_rfq_dismiss(rid):
 @safe_route
 def delete_rfq(rid):
     """Delete an RFQ from the queue and remove its UID from processed list."""
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     rfqs = load_rfqs()
     if rid in rfqs:
         sol = rfqs[rid].get("solicitation_number", "?")
@@ -3781,6 +3806,8 @@ def delete_rfq(rid):
 @auth_required
 def rfq_download_file(rid, file_id):
     """Download an RFQ file from the database."""
+    _bad = _validate_rid(rid)
+    if _bad: return _bad
     f = get_rfq_file(file_id)
     if not f or f.get("rfq_id") != rid:
         flash("File not found", "error")

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title or 'Reytech' }}{% endblock %}
 {% block content %}
+{# SECURITY: backend must sanitize before passing #}
 {{ content | safe }}
 {% endblock %}

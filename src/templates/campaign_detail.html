@@ -28,6 +28,7 @@
  <div class="card-t" style="margin-bottom:10px">Contact List</div>
  <table class="tbl" style="width:100%">
   <thead><tr><th>Name</th><th>Phone</th><th>Institution</th><th>Script</th><th>Outcome</th><th>Actions</th></tr></thead>
+  {# SECURITY: backend must sanitize before passing #}
   <tbody>{{ contact_rows|safe }}</tbody>
  </table>
 </div>

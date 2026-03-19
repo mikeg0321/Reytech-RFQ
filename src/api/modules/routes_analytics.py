@@ -56,7 +56,10 @@ def _emit_progress(task_id, step, detail="", done=False):
 @auth_required
 def poll_progress(task_id):
     """JSON polling endpoint — returns progress steps since last_idx."""
-    last_idx = int(request.args.get("since", 0))
+    try:
+        last_idx = max(0, min(int(request.args.get("since", 0)), 999999999))
+    except (ValueError, TypeError, OverflowError):
+        last_idx = 0
     pf = _progress_file(task_id)
     try:
         with open(pf, "r") as f:
@@ -1103,7 +1106,10 @@ def stale_quotes():
     global _stale_cache
     if _stale_cache["data"] and (_time.time() - _stale_cache["ts"]) < 120:
         return jsonify(_stale_cache["data"])
-    days_threshold = int(request.args.get("days", 3))
+    try:
+        days_threshold = max(1, min(int(request.args.get("days", 3)), 365))
+    except (ValueError, TypeError, OverflowError):
+        days_threshold = 3
     cutoff = (datetime.now() - _timedelta(days=days_threshold)).isoformat()
 
     stale = []

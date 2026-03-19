@@ -2168,6 +2168,8 @@ def pricecheck_download(fname):
     """Serve generated PDF files (704s, quotes) from DATA_DIR."""
     # Sanitize filename to prevent directory traversal
     safe_fname = os.path.basename(fname)
+    if not safe_fname.lower().endswith('.pdf'):
+        return jsonify({"ok": False, "error": "Only PDF downloads allowed"}), 403
     filepath = os.path.join(DATA_DIR, safe_fname)
     if os.path.exists(filepath):
         return send_file(filepath, as_attachment=True, download_name=safe_fname)

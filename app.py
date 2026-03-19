@@ -161,6 +161,13 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("Security init: %s", e)
 
+    # ── Secrets validation ──
+    try:
+        from src.core.secrets import startup_check
+        startup_check()
+    except Exception as e:
+        logging.getLogger("reytech").warning("Secrets check: %s", e)
+
     # ── Error handlers ──
     # Bare connectivity test — no auth, no DB, no templates
     @app.route("/ping")
@@ -277,11 +284,9 @@ def create_app():
 
         # Auto-populate catalog from won_quotes if empty
         try:
-            import sqlite3
-            from src.core.db import DB_PATH
-            _db = sqlite3.connect(DB_PATH, timeout=10)
-            _cat_count = _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
-            _db.close()
+            from src.core.db import get_db
+            with get_db() as _db:
+                _cat_count = _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
             if _cat_count == 0:
                 logging.getLogger("reytech").info("Catalog empty — populating from won_quotes...")
                 try:
@@ -291,24 +296,22 @@ def create_app():
                         "SELECT description, unit_price, quantity, supplier, "
                         "department, po_number, award_date FROM won_quotes WHERE unit_price > 0"
                     ).fetchall()
-                    _db2 = sqlite3.connect(DB_PATH, timeout=10)
-                    for _r in _rows:
-                        _desc = (_r[0] or "")[:500]
-                        if not _desc or not _r[1] or _r[1] <= 0:
-                            continue
-                        try:
-                            _db2.execute("""
-                                INSERT OR IGNORE INTO scprs_catalog
-                                (description, last_unit_price, last_quantity,
-                                 last_supplier, last_department, last_po_number,
-                                 last_date, times_seen, updated_at)
-                                VALUES (?,?,?,?,?,?,?,1,datetime('now'))
-                            """, (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
-                        except Exception:
-                            pass
-                    _db2.commit()
-                    _new_count = _db2.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
-                    _db2.close()
+                    with get_db() as _db2:
+                        for _r in _rows:
+                            _desc = (_r[0] or "")[:500]
+                            if not _desc or not _r[1] or _r[1] <= 0:
+                                continue
+                            try:
+                                _db2.execute("""
+                                    INSERT OR IGNORE INTO scprs_catalog
+                                    (description, last_unit_price, last_quantity,
+                                     last_supplier, last_department, last_po_number,
+                                     last_date, times_seen, updated_at)
+                                    VALUES (?,?,?,?,?,?,?,1,datetime('now'))
+                                """, (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
+                            except Exception:
+                                pass
+                        _new_count = _db2.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
                     logging.getLogger("reytech").info("Catalog populated: %d items", _new_count)
                 except Exception as _e:
                     logging.getLogger("reytech").warning("Catalog population failed: %s", _e)

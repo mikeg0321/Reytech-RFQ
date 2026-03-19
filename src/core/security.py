@@ -151,36 +151,30 @@ def csrf_protect(f):
 
 def _log_audit_internal(action: str, details: str = "", metadata: dict = None):
     """Log to audit trail (internal use — avoids circular imports)."""
-    conn = None
     try:
-        import sqlite3
-        from src.core.paths import DATA_DIR
-        conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=10)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS audit_trail (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                timestamp TEXT NOT NULL,
-                action TEXT NOT NULL,
-                details TEXT,
-                ip_address TEXT,
-                user_agent TEXT,
-                metadata TEXT
-            )
-        """)
+        from src.core.db import get_db
         import json
-        conn.execute(
-            "INSERT INTO audit_trail (timestamp, action, details, ip_address, user_agent, metadata) VALUES (?,?,?,?,?,?)",
-            (datetime.now().isoformat(), action, details[:500],
-             request.remote_addr if request else "",
-             (request.user_agent.string[:200] if request and request.user_agent else ""),
-             json.dumps(metadata or {}, default=str)[:1000])
-        )
-        conn.commit()
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_trail (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    ip_address TEXT,
+                    user_agent TEXT,
+                    metadata TEXT
+                )
+            """)
+            conn.execute(
+                "INSERT INTO audit_trail (timestamp, action, details, ip_address, user_agent, metadata) VALUES (?,?,?,?,?,?)",
+                (datetime.now().isoformat(), action, details[:500],
+                 request.remote_addr if request else "",
+                 (request.user_agent.string[:200] if request and request.user_agent else ""),
+                 json.dumps(metadata or {}, default=str)[:1000])
+            )
     except Exception:
         pass
-    finally:
-        if conn:
-            conn.close()
 
 
 def audit_action(action_name: str):
@@ -211,6 +205,7 @@ def add_security_headers(response):
     response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     if not response.headers.get("Cache-Control"):
         response.headers["Cache-Control"] = "no-store"
     return response

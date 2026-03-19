@@ -70,6 +70,7 @@ h1 { font-size:22px; margin-bottom:4px; }
 .scol.hid { max-height:0 !important; }
 .step-label { margin-bottom:8px;font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:1px }
 .env-box { margin-top:10px;padding:10px;background:#0a0e14;border-radius:8px;font-size:14px;font-family:monospace;color:#8b949e }
+{# SECURITY: backend-generated CSS only #}
 {{ brief_css|safe }}
 </style>
 </head><body>
@@ -794,6 +795,8 @@ try{loadFleet();}catch(e){console.error('[INIT] Fleet load failed:',e);}
 setInterval(function(){try{loadFleet();}catch(e){}},60000);
 setInterval(function(){var s=Math.floor((Date.now()-_plt)/1000),m=Math.floor(s/60),el=document.getElementById('uptime');if(el)el.textContent='Page: '+(m>0?m+'m ':'')+s%60+'s';},1000);
 </script>
+{# SECURITY: backend must sanitize before passing #}
 {{ brief_html|safe }}
+{# SECURITY: backend-generated JS only — XSS risk if user input reaches this variable #}
 <script>{{ brief_js|safe }}</script>
 </body></html>

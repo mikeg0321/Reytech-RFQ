@@ -324,49 +324,64 @@ def _should_reset_counter(stored_year: int) -> bool:
     return stored_year != now.year
 
 def _next_quote_number() -> str:
-    """R{YY}Q{seq} — sequential, collision-safe, syncs to highest existing."""
-    data = _load_counter()
+    """R{YY}Q{seq} — sequential, collision-safe, syncs to highest existing.
+
+    Uses BEGIN IMMEDIATE on SQLite to prevent race conditions between
+    concurrent requests reading/incrementing the same counter.
+    """
+    import sqlite3
+    from src.core.db import get_db
+
     year = datetime.now().year
     yy = str(year)[-2:]
     prefix = f"R{yy}Q"
 
-    if _should_reset_counter(data.get("year", 0)):
-        log.info("New year detected — resetting quote counter from seq=%d (year=%d) to seq=1 (year=%d)",
-                 data.get("seq", 0), data.get("year", 0), year)
-        data = {"year": year, "seq": 0}
-
-    # Sync to highest existing quote number to prevent collisions
-    highest = data.get("seq", 0)
-    try:
-        for q in get_all_quotes():
-            qn = q.get("quote_number", "")
-            if qn.startswith(prefix):
-                try:
-                    num = int(qn[len(prefix):])
-                    if num > highest:
-                        highest = num
-                except (ValueError, IndexError):
-                    pass
-        # Also check SQLite quotes table
+    # Acquire an exclusive SQLite lock for the entire read-modify-write cycle
+    with get_db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                for r in conn.execute("SELECT quote_number FROM quotes WHERE quote_number LIKE ?", (f"{prefix}%",)).fetchall():
-                    try:
-                        num = int(r[0][len(prefix):])
-                        if num > highest:
-                            highest = num
-                    except (ValueError, IndexError):
-                        pass
-        except Exception:
-            pass
-    except Exception as e:
-        log.warning("Counter sync: %s", e)
+            data = _load_counter()
 
-    next_seq = max(data.get("seq", 0), highest) + 1
-    data["seq"] = next_seq
-    data["year"] = year
-    _save_counter(data)
+            if _should_reset_counter(data.get("year", 0)):
+                log.info("New year detected — resetting quote counter from seq=%d (year=%d) to seq=1 (year=%d)",
+                         data.get("seq", 0), data.get("year", 0), year)
+                data = {"year": year, "seq": 0}
+
+            # Sync to highest existing quote number to prevent collisions
+            highest = data.get("seq", 0)
+            try:
+                for q in get_all_quotes():
+                    qn = q.get("quote_number", "")
+                    if qn.startswith(prefix):
+                        try:
+                            num = int(qn[len(prefix):])
+                            if num > highest:
+                                highest = num
+                        except (ValueError, IndexError):
+                            pass
+                # Also check SQLite quotes table
+                try:
+                    for r in conn.execute("SELECT quote_number FROM quotes WHERE quote_number LIKE ?", (f"{prefix}%",)).fetchall():
+                        try:
+                            num = int(r[0][len(prefix):])
+                            if num > highest:
+                                highest = num
+                        except (ValueError, IndexError):
+                            pass
+                except Exception:
+                    pass
+            except Exception as e:
+                log.warning("Counter sync: %s", e)
+
+            next_seq = max(data.get("seq", 0), highest) + 1
+            data["seq"] = next_seq
+            data["year"] = year
+            _save_counter(data)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
     new_number = f"{prefix}{next_seq}"
     log.info("Quote number: %s (synced to %d)", new_number, next_seq)
     return new_number

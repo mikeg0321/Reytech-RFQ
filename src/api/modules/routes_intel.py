@@ -464,7 +464,10 @@ def api_intel_competitors():
     try:
         from src.agents.scprs_intelligence_engine import get_competitor_intelligence
         agency = request.args.get("agency", "")
-        limit = int(request.args.get("limit", 50))
+        try:
+            limit = max(1, min(int(request.args.get("limit", 50)), 500))
+        except (ValueError, TypeError, OverflowError):
+            limit = 50
         return jsonify(get_competitor_intelligence(agency_filter=agency, limit=limit))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -482,7 +485,10 @@ def api_scprs_search():
             return jsonify({"ok": False, "error": "Query must be at least 2 characters"})
         search_type = request.args.get("type", "all")
         agency = request.args.get("agency", "")
-        limit = int(request.args.get("limit", 50))
+        try:
+            limit = max(1, min(int(request.args.get("limit", 50)), 500))
+        except (ValueError, TypeError, OverflowError):
+            limit = 50
         return jsonify(search_scprs_data(q, search_type=search_type, agency=agency, limit=limit))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -496,7 +502,10 @@ def api_discover_agencies():
     """Discover new agencies buying products Reytech sells but not buying from Reytech."""
     try:
         from src.agents.growth_discovery import discover_new_agencies
-        min_spend = float(request.args.get("min_spend", 10000))
+        try:
+            min_spend = max(0.0, min(float(request.args.get("min_spend", 10000)), 999999999.0))
+        except (ValueError, TypeError, OverflowError):
+            min_spend = 10000.0
         return jsonify(discover_new_agencies(min_spend=min_spend))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -1046,7 +1055,10 @@ def api_vendor_search():
         elif vendor == "amazon":
             results = amazon_search_catalog(q, max_results=10)
         elif vendor == "compare":
-            qty = int(request.args.get("qty", 1))
+            try:
+                qty = max(1, min(int(request.args.get("qty", 1)), 999999))
+            except (ValueError, TypeError, OverflowError):
+                qty = 1
             return jsonify(compare_vendor_prices(q, qty))
         else:
             return jsonify({"ok": False, "error": f"Unknown vendor: {vendor}"})
@@ -1062,7 +1074,10 @@ def api_vendor_compare():
     ?q=nitrile+gloves+medium&qty=10
     """
     q = request.args.get("q", "")
-    qty = int(request.args.get("qty", 1))
+    try:
+        qty = max(1, min(int(request.args.get("qty", 1)), 999999))
+    except (ValueError, TypeError, OverflowError):
+        qty = 1
     if not q:
         return jsonify({"ok": False, "error": "q required"})
     try:
@@ -1114,7 +1129,10 @@ def api_vendor_order():
 def api_vendor_orders():
     """Get vendor order history."""
     status_filter = request.args.get("status")
-    limit = int(request.args.get("limit", 50))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 500))
+    except (ValueError, TypeError, OverflowError):
+        limit = 50
     try:
         from src.agents.vendor_ordering_agent import get_vendor_orders
         orders = get_vendor_orders(limit=limit, status=status_filter)
@@ -2328,7 +2346,10 @@ def api_predict_win():
         return jsonify({"ok": False, "error": "Predictive module not available"})
     inst = request.args.get("institution", "")
     agency = request.args.get("agency", "")
-    value = float(request.args.get("value", 0) or 0)
+    try:
+        value = max(0.0, float(request.args.get("value", 0) or 0))
+    except (ValueError, TypeError, OverflowError):
+        value = 0.0
     result = predict_win_probability(institution=inst, agency=agency, po_value=value)
     return jsonify({"ok": True, **result})
 
@@ -2361,7 +2382,10 @@ def api_competitor_insights():
         return jsonify({"ok": False, "error": "Predictive module not available"})
     inst = request.args.get("institution", "")
     agency = request.args.get("agency", "")
-    limit = int(request.args.get("limit", 20))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 20)), 200))
+    except (ValueError, TypeError, OverflowError):
+        limit = 20
     result = get_competitor_insights(institution=inst, agency=agency, limit=limit)
     return jsonify({"ok": True, **result})
 
@@ -2846,7 +2870,10 @@ def api_qa_workflow_latest():
 def api_qa_workflow_history():
     if not _WF_AVAILABLE:
         return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
-    n = int(request.args.get("n", 20))
+    try:
+        n = max(1, min(int(request.args.get("n", 20)), 200))
+    except (ValueError, TypeError, OverflowError):
+        n = 20
     return jsonify(get_wf_history(n))
 
 
@@ -3526,7 +3553,10 @@ def api_qb_recent_pos():
     """Get recent Purchase Orders from QuickBooks."""
     if not QB_AVAILABLE or not qb_configured():
         return jsonify({"ok": False, "error": "QuickBooks not configured"})
-    days = int(request.args.get("days", 30))
+    try:
+        days = max(1, min(int(request.args.get("days", 30)), 365))
+    except (ValueError, TypeError, OverflowError):
+        days = 30
     pos = get_recent_purchase_orders(days_back=days)
     return jsonify({"ok": True, "purchase_orders": pos, "count": len(pos)})
 

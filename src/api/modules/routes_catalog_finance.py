@@ -638,7 +638,10 @@ def api_products_search():
     q = request.args.get("q", "")
     cat = request.args.get("category", "")
     strat = request.args.get("strategy", "")
-    limit = min(int(request.args.get("limit", 50)), 200)
+    try:
+        limit = min(max(1, int(request.args.get("limit", 50))), 200)
+    except (ValueError, TypeError, OverflowError):
+        limit = 50
     results = search_products(q, limit=limit, category=cat, strategy=strat)
     return jsonify(results)
 
@@ -1353,8 +1356,11 @@ def api_pricing_trends():
     Query params: part_number, description, limit"""
     pn = request.args.get("part_number", "")
     desc = request.args.get("description", "")
-    limit = int(request.args.get("limit", 50))
-    
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 500))
+    except (ValueError, TypeError, OverflowError):
+        limit = 50
+
     try:
         from src.knowledge.pricing_intel import get_item_price_trends
         trends = get_item_price_trends(part_number=pn, description=desc, limit=limit)

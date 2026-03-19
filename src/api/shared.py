@@ -27,7 +27,9 @@ DASH_PASS = os.environ.get("DASH_PASS", "changeme")
 API_KEY = os.environ.get("API_KEY", "")
 
 if DASH_PASS == "changeme":
-    log.warning("SECURITY: DASH_PASS is set to default 'changeme'. Set DASH_PASS env var for production!")
+    if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"):
+        raise RuntimeError("SECURITY: DASH_PASS must be set in production. Configure via Railway secrets.")
+    log.warning("DASH_PASS is default 'changeme' — OK for local dev only")
 
 
 def check_auth(username, password):

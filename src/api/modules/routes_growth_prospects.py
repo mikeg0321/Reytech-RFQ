@@ -297,7 +297,10 @@ def api_growth_find_buyers():
     Requires Step 1 first. Long-running."""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
-    max_cats = int(request.args.get("max_categories", 10))
+    try:
+        max_cats = max(1, min(int(request.args.get("max_categories", 10)), 100))
+    except (ValueError, TypeError, OverflowError):
+        max_cats = 10
     from_date = request.args.get("from", "01/01/2024")
 
     import threading
@@ -376,7 +379,10 @@ def api_growth_outreach():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     dry_run = request.args.get("dry_run", "true").lower() != "false"
-    max_p = int(request.args.get("max", 50))
+    try:
+        max_p = max(1, min(int(request.args.get("max", 50)), 500))
+    except (ValueError, TypeError, OverflowError):
+        max_p = 50
     return jsonify(launch_outreach(max_prospects=max_p, dry_run=dry_run))
 
 
@@ -413,7 +419,10 @@ def api_growth_distro_campaign():
         dry_run = body.get("dry_run", True)
 
     args = request.get_json(silent=True) or {} if request.method == "POST" else {}
-    max_c = int(request.args.get("max", args.get("max", 100)))
+    try:
+        max_c = max(1, min(int(request.args.get("max", args.get("max", 100))), 500))
+    except (ValueError, TypeError, OverflowError):
+        max_c = 100
     template = request.args.get("template", args.get("template", "distro_list"))
     source_filter = request.args.get("source", args.get("source_filter", ""))
 
@@ -465,7 +474,10 @@ def api_growth_voice_follow_up():
     """Step 4: Auto-dial non-responders."""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
-    max_calls = int(request.args.get("max", 10))
+    try:
+        max_calls = max(1, min(int(request.args.get("max", 10)), 100))
+    except (ValueError, TypeError, OverflowError):
+        max_calls = 10
     return jsonify(launch_voice_follow_up(max_calls=max_calls))
 
 
@@ -740,7 +752,10 @@ def api_growth_audit_log():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     from src.agents.growth_agent import get_audit_log
-    limit = int(request.args.get("limit", 50))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 500))
+    except (ValueError, TypeError, OverflowError):
+        limit = 50
     action_filter = request.args.get("action")
     return jsonify({"entries": get_audit_log(limit, action_filter)})
 
@@ -1100,7 +1115,11 @@ def api_growth_quick_wins():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     from src.agents.growth_agent import get_quick_wins
-    return jsonify({"quick_wins": get_quick_wins(int(request.args.get("max", 10)))})
+    try:
+        _max_qw = max(1, min(int(request.args.get("max", 10)), 100))
+    except (ValueError, TypeError, OverflowError):
+        _max_qw = 10
+    return jsonify({"quick_wins": get_quick_wins(_max_qw)})
 
 
 @bp.route("/api/growth/campaign-performance")

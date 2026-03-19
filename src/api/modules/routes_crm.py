@@ -244,7 +244,10 @@ def api_universal_search():
     GET ?q=<query>&limit=<n>
     """
     q = (_sanitize_input(request.args.get("q", "")) or "").strip().lower()
-    limit = min(int(request.args.get("limit", 30)), 100)
+    try:
+        limit = min(max(1, int(request.args.get("limit", 30))), 100)
+    except (ValueError, TypeError, OverflowError):
+        limit = 30
     if not q or len(q) < 2:
         return jsonify({"ok": False, "error": "Query must be at least 2 characters"})
 
@@ -691,10 +694,13 @@ def api_pricecheck_process():
         return jsonify({"error": "Upload a file or provide pdf_path in JSON"}), 400
 
     tax_rate = 0.0
-    if request.is_json:
-        tax_rate = float((request.get_json(force=True, silent=True) or {}).get("tax_rate", 0.0))
-    elif request.form.get("tax_rate"):
-        tax_rate = float(request.form.get("tax_rate", 0.0))
+    try:
+        if request.is_json:
+            tax_rate = max(0.0, min(float((request.get_json(force=True, silent=True) or {}).get("tax_rate", 0.0)), 100.0))
+        elif request.form.get("tax_rate"):
+            tax_rate = max(0.0, min(float(request.form.get("tax_rate", 0.0)), 100.0))
+    except (ValueError, TypeError, OverflowError):
+        tax_rate = 0.0
 
     try:
         log.info("Price check process pipeline started: %s", pdf_path)
@@ -1113,7 +1119,10 @@ def api_price_history():
         q = request.args.get("q","").strip()
         pn = request.args.get("pn","").strip()
         source = request.args.get("source","").strip()
-        limit = min(int(request.args.get("limit",50)), 200)
+        try:
+            limit = min(max(1, int(request.args.get("limit",50))), 200)
+        except (ValueError, TypeError, OverflowError):
+            limit = 50
 
         if not q and not pn and not source:
             stats = get_price_stats()
@@ -1765,7 +1774,10 @@ def api_crm_bulk_outreach():
 def api_notifications_persistent():
     """Get persistent notifications from SQLite (survives deploys)."""
     unread_only = request.args.get("unread_only") == "true"
-    limit = int(request.args.get("limit", 30))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 30)), 200))
+    except (ValueError, TypeError, OverflowError):
+        limit = 30
     try:
         from src.agents.notify_agent import get_notifications, get_unread_count
         notifs = get_notifications(limit=limit, unread_only=unread_only)
@@ -1859,7 +1871,10 @@ def api_email_log():
     contact = request.args.get("contact","")
     quote = request.args.get("quote","")
     po = request.args.get("po","")
-    limit = int(request.args.get("limit", 50))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 500))
+    except (ValueError, TypeError, OverflowError):
+        limit = 50
     try:
         from src.agents.notify_agent import get_email_thread, build_cs_communication_summary
         thread = get_email_thread(contact_email=contact, quote_number=quote, po_number=po, limit=limit)
@@ -2103,7 +2118,10 @@ def page_catalog_legacy():
 def api_catalog_search():
     """Search product catalog. ?q=nitrile&limit=10"""
     q = request.args.get("q","").strip()
-    limit = int(request.args.get("limit", 10))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 10)), 200))
+    except (ValueError, TypeError, OverflowError):
+        limit = 10
     if not q:
         return jsonify({"ok": False, "error": "q required"})
     try:
@@ -2131,7 +2149,10 @@ def api_catalog_stats():
 def api_catalog_items():
     """List all catalog items. ?category=Medical"""
     cat = request.args.get("category")
-    limit = int(request.args.get("limit", 200))
+    try:
+        limit = max(1, min(int(request.args.get("limit", 200)), 1000))
+    except (ValueError, TypeError, OverflowError):
+        limit = 200
     try:
         from src.core.catalog import init_catalog, get_catalog
         init_catalog()
@@ -3488,7 +3509,10 @@ def api_qa_history_v2():
         from src.agents.qa_agent import _qa_db
         import json as _j
         conn = _qa_db()
-        limit = int(request.args.get("limit", 30))
+        try:
+            limit = max(1, min(int(request.args.get("limit", 30)), 200))
+        except (ValueError, TypeError, OverflowError):
+            limit = 30
         rows = conn.execute(
             "SELECT run_at, score, grade, passed, failed, warned, duration_ms "
             "FROM qa_runs ORDER BY run_at DESC LIMIT ?", (limit,)

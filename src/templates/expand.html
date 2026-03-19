@@ -202,11 +202,11 @@
 </div>
 
 <script>
-var F={{ facilities_json|safe }};
-var C={{ contacts_json|safe }};
-var CC={{ central_json|safe }};
-var PR={{ recs_json|safe }};
-var GAPS={{ gaps_json|safe }};
+var F={{ facilities_json|tojson }};
+var C={{ contacts_json|tojson }};
+var CC={{ central_json|tojson }};
+var PR={{ recs_json|tojson }};
+var GAPS={{ gaps_json|tojson }};
 var HAS_SCPRS={{ ('true' if scprs_has_data else 'false')|tojson }};
 var cs={f:'score',d:-1},cf='all';
 var TC={CCHCS:'var(--ac)',CalVet:'var(--gn)',DSH:'var(--yl)'};

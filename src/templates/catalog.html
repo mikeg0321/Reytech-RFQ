@@ -36,6 +36,7 @@
  </div>
 </div>
 
+{# SECURITY: backend must sanitize before passing #}
 <div id="catalog-content" class="card" style="overflow-x:auto">{{ cats_html | safe }}</div>
 
 <script>
