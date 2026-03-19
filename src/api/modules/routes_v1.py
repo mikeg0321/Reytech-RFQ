@@ -540,7 +540,7 @@ def api_v1_agencies():
         conn = sqlite3.connect(DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
         state = request.args.get("state", "")
-        limit = int(request.args.get("limit", 100))
+        limit = min(int(request.args.get("limit", 100)), 200)
         if state:
             rows = conn.execute(
                 "SELECT * FROM agency_registry WHERE state=? AND active=1 LIMIT ?",
@@ -2012,7 +2012,7 @@ def api_v1_buyers_refresh():
 def api_v1_buyers_prospects():
     """Get ranked prospect list for outreach."""
     from src.agents.buyer_intelligence import get_top_prospects
-    limit = int(request.args.get("limit", "50"))
+    limit = min(int(request.args.get("limit", "50")), 200)
     min_score = float(request.args.get("min_score", "20"))
     new_only = request.args.get("new_only", "false").lower() == "true"
     prospects = get_top_prospects(limit=limit, min_score=min_score, exclude_customers=new_only)
@@ -2688,7 +2688,7 @@ def api_v1_outreach_preview(email):
 def api_v1_outreach_batch():
     """Generate batch outreach for top prospects with A/B variants."""
     from src.agents.outreach_agent import generate_batch_outreach
-    limit = int(request.args.get("limit", "20"))
+    limit = min(int(request.args.get("limit", "20")), 200)
     min_score = float(request.args.get("min_score", "30"))
     batch = generate_batch_outreach(limit=limit, min_score=min_score)
     return api_response({"emails": batch, "count": len(batch)})
@@ -2861,7 +2861,7 @@ def api_v1_catalog_search():
     """Search the catalog for items matching a query."""
     from src.agents.quote_intelligence import search_catalog, get_competitor_prices
     q = request.args.get("q", "")
-    limit = int(request.args.get("limit", "10"))
+    limit = min(int(request.args.get("limit", "10")), 200)
     if not q:
         return api_response(error="No query provided", status=400)
     catalog = search_catalog(q, limit=limit)

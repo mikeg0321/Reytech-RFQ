@@ -13,9 +13,14 @@ All quotes MUST include tax. Shipping is baked into item cost/margin.
 import logging
 import json
 import os
+import time
 from datetime import datetime, timedelta
 
 log = logging.getLogger("reytech.tax")
+
+# ── Circuit breaker for CDTFA API ────────────────────────────────────────────
+_cdtfa_failures = 0
+_cdtfa_circuit_open_until = 0
 
 # ── Cache: avoid hitting CDTFA API repeatedly ─────────────────────────────────
 _rate_cache = {}  # zip -> (rate, fetched_at)
@@ -178,8 +183,16 @@ def get_rate_for_facility(facility: dict) -> dict:
 
 def _call_cdtfa_api(address: str, city: str, zip_code: str) -> dict:
     """Call CDTFA REST API for tax rate. Returns dict or None on failure."""
+    global _cdtfa_failures, _cdtfa_circuit_open_until
+
     if not zip_code and not address:
         return None
+
+    # Circuit breaker check — skip API if too many recent failures
+    if _cdtfa_failures >= 5 and time.time() < _cdtfa_circuit_open_until:
+        log.warning("CDTFA circuit breaker open — skipping API call (will retry after %ds)",
+                     int(_cdtfa_circuit_open_until - time.time()))
+        return None  # fall through to fallback logic
 
     import urllib.request
     import urllib.parse
@@ -217,13 +230,23 @@ def _call_cdtfa_api(address: str, city: str, zip_code: str) -> dict:
         }
         log.info("CDTFA API: zip=%s → rate=%.4f jurisdiction=%s",
                  zip_code, rate, result["jurisdiction"])
+        # API success — reset circuit breaker
+        _cdtfa_failures = 0
         return result
 
     except urllib.error.URLError as e:
         log.warning("CDTFA API unreachable: %s", e)
+        _cdtfa_failures += 1
+        if _cdtfa_failures >= 5:
+            _cdtfa_circuit_open_until = time.time() + 3600
+            log.error("CDTFA circuit breaker OPENED after %d failures — fallback rates for 1 hour", _cdtfa_failures)
         return None
     except Exception as e:
         log.warning("CDTFA API error: %s", e)
+        _cdtfa_failures += 1
+        if _cdtfa_failures >= 5:
+            _cdtfa_circuit_open_until = time.time() + 3600
+            log.error("CDTFA circuit breaker OPENED after %d failures — fallback rates for 1 hour", _cdtfa_failures)
         return None
 
 

@@ -25,7 +25,7 @@ def search_page():
 @auth_required
 def api_v1_search():
     q = (request.args.get("q", "") or "").strip()
-    limit = int(request.args.get("limit", 50))
+    limit = min(int(request.args.get("limit", 50)), 200)
     if not q or len(q) < 2:
         return api_response({"results": [], "query": q, "total": 0})
     results = universal_search(q, limit=limit)

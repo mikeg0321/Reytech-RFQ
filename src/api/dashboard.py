@@ -4095,8 +4095,8 @@ def api_admin_traces():
     from src.api.trace import get_traces, get_summary
     workflow = request.args.get("workflow")
     status = request.args.get("status")
-    limit = int(request.args.get("limit", 50))
-    
+    limit = min(int(request.args.get("limit", 50)), 200)
+
     if request.args.get("summary") == "1":
         return jsonify(get_summary())
     
@@ -4551,7 +4551,7 @@ def growth_prospects():
     """Scored prospect list from SCPRS data for outreach prioritization."""
     try:
         from src.agents.prospect_scorer import score_prospects
-        limit = request.args.get("limit", 50, type=int)
+        limit = min(request.args.get("limit", 50, type=int), 200)
         return jsonify(score_prospects(limit=limit))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})

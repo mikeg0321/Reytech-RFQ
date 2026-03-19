@@ -1836,8 +1836,20 @@ def pricecheck_upload_pdf(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
 
     f = request.files.get("file")
-    if not f or not f.filename.lower().endswith(".pdf"):
-        return jsonify({"ok": False, "error": "Upload a PDF file"})
+    if not f:
+        return jsonify({"ok": False, "error": "No file"}), 400
+    if not f.filename.lower().endswith('.pdf'):
+        return jsonify({"ok": False, "error": "Only PDF files allowed"}), 400
+    # Read and check size + magic bytes
+    content = f.read()
+    if len(content) > 10 * 1024 * 1024:
+        return jsonify({"ok": False, "error": "File too large (10MB max)"}), 413
+    if not content[:5].startswith(b'%PDF'):
+        return jsonify({"ok": False, "error": "Invalid PDF file"}), 400
+    # Reset stream for downstream use
+    from io import BytesIO
+    f.stream = BytesIO(content)
+    f.seek(0)
 
     # Save to disk
     upload_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
@@ -2997,7 +3009,9 @@ def api_scprs(rid):
 @auth_required
 def api_scprs_test():
     """SCPRS search test — ?q=stryker+xpr"""
-    q = request.args.get("q", "stryker xpr")
+    q = (request.args.get("q", "") or "").strip()
+    if not q:
+        return jsonify({"error": "Missing required parameter: q"}), 400
     try:
         from src.agents.scprs_lookup import test_search
         return jsonify(test_search(q))
@@ -3100,7 +3114,9 @@ def api_scprs_bulk(rid):
 @auth_required
 def api_scprs_raw():
     """Raw SCPRS debug — shows HTML field IDs found in search results."""
-    q = request.args.get("q", "stryker xpr")
+    q = (request.args.get("q", "") or "").strip()
+    if not q:
+        return jsonify({"error": "Missing required parameter: q"}), 400
     try:
         from src.agents.scprs_lookup import _get_session, _discover_grid_ids, SCPRS_SEARCH_URL, SEARCH_BUTTON, ALL_SEARCH_FIELDS, FIELD_DESCRIPTION
         from bs4 import BeautifulSoup
@@ -5455,7 +5471,7 @@ def api_catalog_stale_products():
         from src.agents.product_catalog import get_stale_products, init_catalog_db
         init_catalog_db()
         max_age = int(request.args.get("max_age", 14))
-        limit = int(request.args.get("limit", 50))
+        limit = min(int(request.args.get("limit", 50)), 200)
         products = get_stale_products(max_age_days=max_age, limit=limit)
         return jsonify({"ok": True, "products": products, "count": len(products)})
     except Exception as e:

@@ -601,7 +601,7 @@ def api_voice_log():
     """Get call log."""
     if not VOICE_AVAILABLE:
         return jsonify({"ok": False, "error": "Voice agent not available"})
-    limit = int(request.args.get("limit", 50))
+    limit = min(int(request.args.get("limit", 50)), 200)
     return jsonify({"ok": True, "calls": get_call_log(limit=limit)})
 
 
@@ -697,7 +697,7 @@ def api_voice_vapi_calls():
     """List recent Vapi calls with transcripts."""
     if not VOICE_AVAILABLE:
         return jsonify({"ok": False, "error": "Voice agent not available"})
-    limit = int(request.args.get("limit", 20))
+    limit = min(int(request.args.get("limit", 20)), 200)
     calls = get_vapi_calls(limit=limit)
     return jsonify({"ok": True, "calls": calls, "count": len(calls)})
 

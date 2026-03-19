@@ -3808,7 +3808,7 @@ def api_crm_activity():
     ref_id = request.args.get("ref_id")
     event_type = request.args.get("type")
     institution = request.args.get("institution")
-    limit = int(request.args.get("limit", 50))
+    limit = min(int(request.args.get("limit", 50)), 200)
     activity = _get_crm_activity(ref_id=ref_id, event_type=event_type,
                                   institution=institution, limit=limit)
     return jsonify({"ok": True, "activity": activity, "count": len(activity)})
@@ -4252,7 +4252,7 @@ def api_shipping_detected():
             shipments = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         shipments = []
-    limit = int(request.args.get("limit", 20))
+    limit = min(int(request.args.get("limit", 20)), 200)
     shipments = sorted(shipments, key=lambda s: s.get("detected_at", ""), reverse=True)[:limit]
     return jsonify({"ok": True, "shipments": shipments, "count": len(shipments)})
 
@@ -4491,7 +4491,7 @@ def api_leads_list():
         return jsonify({"ok": False, "error": "Lead gen agent not available"})
     status = request.args.get("status")
     min_score = float(request.args.get("min_score", 0))
-    limit = int(request.args.get("limit", 50))
+    limit = min(int(request.args.get("limit", 50)), 200)
     leads = get_leads(status=status, min_score=min_score, limit=limit)
     return jsonify({"ok": True, "leads": leads, "count": len(leads)})
 
@@ -4649,7 +4649,7 @@ def api_outbox_sent_log():
     """Get sent email log."""
     if not OUTREACH_AVAILABLE:
         return jsonify({"ok": False, "error": "Email outreach agent not available"})
-    limit = int(request.args.get("limit", 50))
+    limit = min(int(request.args.get("limit", 50)), 200)
     return jsonify({"ok": True, "sent": get_sent_log(limit=limit)})
 
 
@@ -5174,7 +5174,7 @@ def api_intel_priority_queue():
     """Get prioritized outreach queue — highest opportunity buyers first."""
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
-    limit = int(request.args.get("limit", 25))
+    limit = min(int(request.args.get("limit", 25)), 200)
     result = get_priority_queue(limit=limit)
     if not result.get("ok") and "No buyer data" in str(result.get("error", "")):
         return jsonify({"ok": False,

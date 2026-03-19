@@ -432,6 +432,20 @@ def upload():
     # Auto SCPRS lookup
     rfq["line_items"] = bulk_lookup(rfq.get("line_items", []))
 
+    # ── Dedup check: reject if same solicitation + agency + due_date exists ──
+    sol = rfq.get("solicitation_number", "")
+    agency = rfq.get("agency", "")
+    due = rfq.get("due_date", "")
+    if sol and agency:
+        existing = load_rfqs()
+        for eid, er in existing.items():
+            if (er.get("solicitation_number") == sol
+                    and er.get("agency") == agency
+                    and er.get("due_date") == due):
+                log.warning("Duplicate RFQ upload blocked: %s for %s (existing ID: %s)", sol, agency, eid)
+                flash(f"Duplicate RFQ: {sol} for {agency} already exists (ID: {eid})", "error")
+                return redirect(f"/rfq/{eid}")
+
     # Carry SCPRS/Amazon cost to supplier_cost so YOUR COST column displays it
     for _item in rfq.get("line_items", []):
         _sp = _item.get("scprs_last_price") or 0

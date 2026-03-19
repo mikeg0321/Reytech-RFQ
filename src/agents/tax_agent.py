@@ -12,10 +12,14 @@ Fallback: Local cache → CA base rate 7.25%
 API requires: address (no PO Boxes), city, zip (all required)
 Returns: rate, jurisdiction, city, county, tac, confidence
 """
-import os, json, re, logging
+import os, json, re, logging, time
 from datetime import datetime
 
 log = logging.getLogger("cdtfa_tax")
+
+# ── Circuit breaker for CDTFA API ────────────────────────────────────────────
+_cdtfa_failures = 0
+_cdtfa_circuit_open_until = 0
 try:
     from src.core.paths import DATA_DIR
 except ImportError:
@@ -147,7 +151,14 @@ def _call_api_by_address(street, city, zip_code):
     All three params required. No PO Boxes.
     Returns parsed result dict or None.
     """
+    global _cdtfa_failures, _cdtfa_circuit_open_until
     import requests
+
+    # Circuit breaker check — skip API if too many recent failures
+    if _cdtfa_failures >= 5 and time.time() < _cdtfa_circuit_open_until:
+        log.warning("CDTFA circuit breaker open — skipping API call (will retry after %ds)",
+                     int(_cdtfa_circuit_open_until - time.time()))
+        return None  # fall through to fallback logic
 
     params = {
         "address": street.strip(),
@@ -201,6 +212,8 @@ def _call_api_by_address(street, city, zip_code):
                 ]
                 log.info(f"CDTFA returned {len(tax_info)} rates (boundary): {result['all_rates']}")
 
+            # API success — reset circuit breaker
+            _cdtfa_failures = 0
             return result
 
         elif r.status_code == 400:
@@ -210,16 +223,33 @@ def _call_api_by_address(street, city, zip_code):
                 return {"error": str(r.text), "source": "cdtfa_api_error"}
         else:
             log.warning(f"CDTFA API HTTP {r.status_code}")
+            # Non-400 HTTP error counts as failure
+            _cdtfa_failures += 1
+            if _cdtfa_failures >= 5:
+                _cdtfa_circuit_open_until = time.time() + 3600
+                log.error("CDTFA circuit breaker OPENED after %d failures — fallback rates for 1 hour", _cdtfa_failures)
             return None
 
     except requests.exceptions.Timeout:
         log.warning("CDTFA API timeout")
+        _cdtfa_failures += 1
+        if _cdtfa_failures >= 5:
+            _cdtfa_circuit_open_until = time.time() + 3600
+            log.error("CDTFA circuit breaker OPENED after %d failures — fallback rates for 1 hour", _cdtfa_failures)
         return None
     except requests.exceptions.ConnectionError as e:
         log.warning(f"CDTFA API connection error: {e}")
+        _cdtfa_failures += 1
+        if _cdtfa_failures >= 5:
+            _cdtfa_circuit_open_until = time.time() + 3600
+            log.error("CDTFA circuit breaker OPENED after %d failures — fallback rates for 1 hour", _cdtfa_failures)
         return None
     except Exception as e:
         log.warning(f"CDTFA API unexpected error: {e}")
+        _cdtfa_failures += 1
+        if _cdtfa_failures >= 5:
+            _cdtfa_circuit_open_until = time.time() + 3600
+            log.error("CDTFA circuit breaker OPENED after %d failures — fallback rates for 1 hour", _cdtfa_failures)
         return None
 
 

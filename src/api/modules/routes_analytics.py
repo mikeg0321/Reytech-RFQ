@@ -4144,13 +4144,15 @@ def api_webhook_inbound():
     """
     import hmac, hashlib
     secret = os.environ.get("WEBHOOK_SECRET", "")
-    if secret:
-        sig = request.headers.get("X-Webhook-Signature", "")
-        body = request.get_data()
-        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(sig, expected):
-            log.warning("Webhook HMAC mismatch from %s", request.remote_addr)
-            return jsonify({"ok": False, "error": "Invalid signature"}), 403
+    if not secret:
+        log.warning("Webhook rejected — WEBHOOK_SECRET not configured (from %s)", request.remote_addr)
+        return jsonify({"ok": False, "error": "Webhook not configured"}), 403
+    sig = request.headers.get("X-Webhook-Signature", "")
+    body = request.get_data()
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        log.warning("Webhook HMAC mismatch from %s", request.remote_addr)
+        return jsonify({"ok": False, "error": "Invalid signature"}), 403
 
     data = request.get_json(silent=True) or {}
     action = data.get("action", "")

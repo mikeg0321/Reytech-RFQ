@@ -200,7 +200,7 @@ def create_app():
         logging.getLogger("reytech").error("Unhandled: %s %s → %s: %s",
             request.method, request.path, type(e).__name__, str(e)[:200])
         if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
-            return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:100]}"}, 500
+            return {"ok": False, "error": "Internal server error"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
 
     # ── Response compression + caching ──
