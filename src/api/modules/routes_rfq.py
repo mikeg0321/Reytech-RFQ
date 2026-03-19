@@ -5974,7 +5974,7 @@ def api_rfq_buyer_prefs(rid):
     return jsonify({"ok": True, "preferences": prefs, "buyer_email": email})
 
 
-@bp.route("/api/admin/cleanup-quote-numbers", methods=["POST"])
+@bp.route("/api/admin/cleanup-quote-numbers", methods=["GET", "POST"])
 @auth_required
 def api_cleanup_quote_numbers():
     """Clean ghost quote numbers and reset counter.
@@ -5982,7 +5982,11 @@ def api_cleanup_quote_numbers():
     keep = quote numbers to preserve (real quotes)
     reset_to = set counter sequence to this value
     """
-    data = request.get_json(force=True, silent=True) or {}
+    if request.method == "GET":
+        data = {"dry_run": True, "keep": request.args.get("keep", "").split(",") if request.args.get("keep") else [],
+                "reset_to": int(request.args.get("reset_to")) if request.args.get("reset_to") else None}
+    else:
+        data = request.get_json(force=True, silent=True) or {}
     keep = set(data.get("keep", []))
     reset_to = data.get("reset_to")
     dry_run = data.get("dry_run", True)
