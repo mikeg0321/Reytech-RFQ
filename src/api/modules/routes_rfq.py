@@ -1093,15 +1093,29 @@ def api_lookup_tax_rate(rid):
     if not address or len(address.strip()) < 5:
         return jsonify({"ok": False, "error": "No delivery address to look up"})
     try:
-        from src.agents.tax_agent import get_tax_rate, parse_ship_to
-        parsed = parse_ship_to(address, [address])
+        from src.agents.tax_agent import get_tax_rate
+        # Parse address directly — parse_ship_to expects multi-line format
+        # "190 California Dr, Yountville, CA 94599" → street, city, zip
+        import re as _re_tax
+        _zip_match = _re_tax.search(r'\b(\d{5})\b', address)
+        _city_match = _re_tax.search(r',\s*([A-Za-z\s]+),\s*[A-Z]{2}', address)
+        _street_match = _re_tax.search(r'^(\d+\s+.+?)(?:,|$)', address)
+        _d_street = _street_match.group(1).strip() if _street_match else ""
+        _d_city = _city_match.group(1).strip() if _city_match else ""
+        _d_zip = _zip_match.group(1) if _zip_match else ""
         log.info("Tax lookup: raw='%s' → street='%s' city='%s' zip='%s'",
-                 address[:60], parsed.get("street",""), parsed.get("city",""), parsed.get("zip",""))
-        result = get_tax_rate(
-            street=parsed.get("street", ""),
-            city=parsed.get("city", ""),
-            zip_code=parsed.get("zip", "")
-        )
+                 address[:60], _d_street, _d_city, _d_zip)
+        if _d_street and _d_city and _d_zip:
+            result = get_tax_rate(street=_d_street, city=_d_city, zip_code=_d_zip)
+        else:
+            from src.agents.tax_agent import parse_ship_to
+            _parts = [p.strip() for p in address.split(",")]
+            parsed = parse_ship_to("", _parts)
+            result = get_tax_rate(
+                street=parsed.get("street", ""),
+                city=parsed.get("city", ""),
+                zip_code=parsed.get("zip", "")
+            )
         if result and result.get("rate"):
             rate_pct = round(result["rate"] * 100, 3)
             r["tax_rate"] = rate_pct
@@ -2673,12 +2687,15 @@ def generate_rfq_package(rid):
         # ── Auto-validate tax rate if not yet validated ──
         if not r.get("tax_validated") and r.get("delivery_location"):
             try:
-                from src.agents.tax_agent import get_tax_rate as _gtr, parse_ship_to as _tax_parse
-                _tax_parsed = _tax_parse(r["delivery_location"], [r["delivery_location"]])
+                from src.agents.tax_agent import get_tax_rate as _gtr
+                _dl = r["delivery_location"]
+                _zip_m = __import__('re').search(r'\b(\d{5})\b', _dl)
+                _city_m = __import__('re').search(r',\s*([A-Za-z\s]+),\s*[A-Z]{2}', _dl)
+                _street_m = __import__('re').search(r'^(\d+\s+.+?)(?:,|$)', _dl)
                 _tax_r = _gtr(
-                    street=_tax_parsed.get("street", ""),
-                    city=_tax_parsed.get("city", ""),
-                    zip_code=_tax_parsed.get("zip", "")
+                    street=_street_m.group(1).strip() if _street_m else "",
+                    city=_city_m.group(1).strip() if _city_m else "",
+                    zip_code=_zip_m.group(1) if _zip_m else ""
                 )
                 if _tax_r and _tax_r.get("rate"):
                     r["tax_rate"] = round(_tax_r["rate"] * 100, 3)

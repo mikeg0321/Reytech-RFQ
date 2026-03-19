@@ -1232,6 +1232,8 @@ def _migrate_columns():
         ("rfqs", "shipping_option", "TEXT DEFAULT 'included'"),
         ("rfqs", "shipping_amount", "REAL DEFAULT 0"),
         ("rfqs", "delivery_location", "TEXT DEFAULT ''"),
+        # ── Package manifest (items_snapshot added after table existed on Railway) ──
+        ("package_manifest", "items_snapshot", "TEXT"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
