@@ -1079,8 +1079,15 @@ def api_lookup_tax_rate(rid):
     if not address or len(address.strip()) < 5:
         return jsonify({"ok": False, "error": "No delivery address to look up"})
     try:
-        from src.agents.tax_agent import get_tax_rate
-        result = get_tax_rate(ship_to_name=address, ship_to_address=[address])
+        from src.agents.tax_agent import get_tax_rate, parse_ship_to
+        parsed = parse_ship_to(address, [address])
+        log.info("Tax lookup: raw='%s' → street='%s' city='%s' zip='%s'",
+                 address[:60], parsed.get("street",""), parsed.get("city",""), parsed.get("zip",""))
+        result = get_tax_rate(
+            street=parsed.get("street", ""),
+            city=parsed.get("city", ""),
+            zip_code=parsed.get("zip", "")
+        )
         if result and result.get("rate"):
             rate_pct = round(result["rate"] * 100, 3)
             r["tax_rate"] = rate_pct
@@ -2652,8 +2659,13 @@ def generate_rfq_package(rid):
         # ── Auto-validate tax rate if not yet validated ──
         if not r.get("tax_validated") and r.get("delivery_location"):
             try:
-                from src.agents.tax_agent import get_tax_rate as _gtr
-                _tax_r = _gtr(ship_to_name=r["delivery_location"], ship_to_address=[r["delivery_location"]])
+                from src.agents.tax_agent import get_tax_rate as _gtr, parse_ship_to as _tax_parse
+                _tax_parsed = _tax_parse(r["delivery_location"], [r["delivery_location"]])
+                _tax_r = _gtr(
+                    street=_tax_parsed.get("street", ""),
+                    city=_tax_parsed.get("city", ""),
+                    zip_code=_tax_parsed.get("zip", "")
+                )
                 if _tax_r and _tax_r.get("rate"):
                     r["tax_rate"] = round(_tax_r["rate"] * 100, 3)
                     r["tax_validated"] = True
@@ -2965,6 +2977,7 @@ def generate_rfq_package(rid):
 
             # GUARDRAIL: if this RFQ already has a quote number locked,
             # ALWAYS reuse it — never burn a new counter on regenerate.
+            _was_existing_qn = bool(locked_qn)
             if locked_qn:
                 t.step(f"Reusing locked quote number: {locked_qn}")
             else:
@@ -2993,6 +3006,10 @@ def generate_rfq_package(rid):
             else:
                 errors.append(f"Quote: {result.get('error', 'unknown')}")
                 t.warn("Quote generation failed", error=result.get("error", "unknown"))
+                # Rollback: if we just allocated a new number and generation failed, release it
+                if locked_qn and not _was_existing_qn:
+                    r["reytech_quote_number"] = ""
+                    log.warning("Rolled back quote number %s after generation failure", locked_qn)
         except Exception as e:
             errors.append(f"Quote: {e}")
             t.warn("Quote exception", error=str(e))
@@ -3283,7 +3300,8 @@ def generate_rfq_package(rid):
                 except Exception:
                     pass
     except Exception as _me:
-        log.warning("Package manifest creation failed: %s", _me)
+        log.error("MANIFEST CREATION FAILED: %s", _me, exc_info=True)
+        errors.append(f"Manifest: {_me}")
 
     # ── Step 5: Store final files in DB (survive redeploys) ──
     for f in final_output_files:
@@ -5954,3 +5972,77 @@ def api_rfq_buyer_prefs(rid):
     from src.core.dal import get_buyer_preferences
     prefs = get_buyer_preferences(email)
     return jsonify({"ok": True, "preferences": prefs, "buyer_email": email})
+
+
+@bp.route("/api/admin/cleanup-quote-numbers", methods=["POST"])
+@auth_required
+def api_cleanup_quote_numbers():
+    """Clean ghost quote numbers and reset counter.
+    POST body: {"keep": ["R26Q30", "R26Q37"], "reset_to": 30}
+    keep = quote numbers to preserve (real quotes)
+    reset_to = set counter sequence to this value
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    keep = set(data.get("keep", []))
+    reset_to = data.get("reset_to")
+    dry_run = data.get("dry_run", True)
+
+    rfqs = load_rfqs()
+    cleaned = []
+    kept = []
+
+    for rid, r in rfqs.items():
+        qn = r.get("reytech_quote_number", "")
+        if not qn or not qn.startswith("R26Q"):
+            continue
+        if qn in keep:
+            kept.append({"qn": qn, "rfq": rid, "action": "kept"})
+            continue
+        # Ghost detection: no items, or status is draft/new with no line items
+        items = r.get("line_items", r.get("items", []))
+        has_real_content = (
+            len(items) > 0 and
+            r.get("status") in ("generated", "sent", "won", "lost", "approved") and
+            any(i.get("price_per_unit") or i.get("supplier_cost") for i in items)
+        )
+        if has_real_content:
+            kept.append({"qn": qn, "rfq": rid, "action": "kept (has content)"})
+            continue
+        # This is a ghost
+        if not dry_run:
+            r["reytech_quote_number"] = ""
+            r.pop("_manifest_id", None)
+        cleaned.append({"qn": qn, "rfq": rid, "status": r.get("status", ""), "items": len(items)})
+
+    # Clean from quotes table too
+    db_cleaned = 0
+    if not dry_run:
+        save_rfqs(rfqs)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for c in cleaned:
+                    conn.execute("DELETE FROM quotes WHERE quote_number = ?", (c["qn"],))
+                    conn.execute("DELETE FROM quote_number_ledger WHERE quote_number = ?", (c["qn"],))
+                    db_cleaned += 1
+        except Exception as e:
+            log.warning("DB quote cleanup: %s", e)
+
+    # Reset counter
+    counter_result = None
+    if reset_to is not None and not dry_run:
+        try:
+            from src.forms.quote_generator import set_quote_counter
+            set_quote_counter(int(reset_to))
+            counter_result = f"Counter reset to {reset_to}"
+        except Exception as e:
+            counter_result = f"Counter reset failed: {e}"
+
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "cleaned": cleaned,
+        "kept": kept,
+        "db_cleaned": db_cleaned,
+        "counter": counter_result,
+    })
