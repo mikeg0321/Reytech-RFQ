@@ -158,15 +158,18 @@
         </button>
         <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--tx2);margin-top:4px">Review all forms to enable</div>
       </div>
-      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
-        {% for review in manifest.reviews %}
-        {% if review.form_id == 'quote' and review.form_filename %}
-        <a href="/api/download/{{ sol }}/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="font-size:11px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac)">📄 Quote</a>
-        {% endif %}
-        {% endfor %}
-        {% if manifest.package_filename %}
-        <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="font-size:11px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac)">📋 Package</a>
-        {% endif %}
+      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;gap:6px">
+          {% for review in manifest.reviews %}
+          {% if review.form_id == 'quote' and review.form_filename %}
+          <a href="/api/download/{{ sol }}/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="font-size:11px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac)">📄 Quote</a>
+          {% endif %}
+          {% endfor %}
+          {% if manifest.package_filename %}
+          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="font-size:11px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac)">📋 Package</a>
+          {% endif %}
+        </div>
+        <button class="btn btn-sm" style="font-size:12px;width:100%;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2)" onclick="downloadAllForms()">⬇ Download All Forms</button>
       </div>
     </div>
 
@@ -478,6 +481,29 @@ function finalizePackage(){
   dlHtml+='</div>';
   document.getElementById('rv-finalize-hint').innerHTML=dlHtml;
  });
+}
+
+function downloadAllForms() {
+  var links = [];
+  {% for review in manifest.reviews %}
+  {% if review.form_filename %}
+  links.push('/api/download/{{ sol }}/{{ review.form_filename }}');
+  {% endif %}
+  {% endfor %}
+  {% if manifest.package_filename %}
+  links.push('/api/download/{{ sol }}/{{ manifest.package_filename }}');
+  {% endif %}
+  links.forEach(function(url, i) {
+    setTimeout(function() {
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = '';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, i * 500);
+  });
 }
 
 document.addEventListener('DOMContentLoaded',function(){
