@@ -101,7 +101,8 @@ SIGN_FIELDS = {
     "Signature4",          # STD 204 Payee Data Record
     # Bid Package
     "Signature_CUF",       # CUF (MC-345)
-    "Signature_darfur",    # Darfur Option #1 ONLY
+    "Signature_darfur",    # Darfur Option #1 (legacy name)
+    "Authorized Signature",  # Darfur Act DGS PD 1 actual /Sig field name
     "Signature29",         # GSPD-05-105 Bidder Declaration
     "Signature1_PD843",    # DVBE 1st block only
     "DVBEowner1signature", # DVBE 843 unlocked template owner sig
@@ -1588,44 +1589,111 @@ def generate_std205(rfq_data, config, output_path):
 # Bidder Declaration GSPD-05-106 (ReportLab)
 # ═══════════════════════════════════════════════════════════════════════
 
+def _overlay_signature(writer, sign_date):
+    """Overlay signature image on pages that have signature areas."""
+    try:
+        if not os.path.exists(SIGNATURE_PATH):
+            return
+        from PIL import Image as _Img
+        sig_img = _Img.open(SIGNATURE_PATH)
+        sig_w, sig_h = sig_img.size
+        # Scale signature to ~150pt wide
+        scale = 150.0 / sig_w
+        img_w = sig_w * scale
+        img_h = sig_h * scale
+
+        for page in writer.pages:
+            if "/Annots" not in page:
+                continue
+            for annot in page["/Annots"]:
+                obj = annot.get_object()
+                name = str(obj.get("/T", ""))
+                ft = str(obj.get("/FT", ""))
+                if name in SIGN_FIELDS or (ft == "/Sig" and name in SIGN_FIELDS):
+                    if "/Rect" in obj:
+                        rect = [float(x) for x in obj["/Rect"]]
+                        x = rect[0] + 2
+                        y = rect[1] + 2
+                        from io import BytesIO
+                        from reportlab.pdfgen import canvas as rl_c
+                        buf = BytesIO()
+                        pw = float(page.mediabox.width)
+                        ph = float(page.mediabox.height)
+                        c = rl_c.Canvas(buf, pagesize=(pw, ph))
+                        c.drawImage(SIGNATURE_PATH, x, y, img_w, img_h, mask='auto')
+                        c.save()
+                        buf.seek(0)
+                        overlay = PdfReader(buf)
+                        page.merge_page(overlay.pages[0])
+                        break  # One signature per page
+    except Exception as e:
+        import logging
+        logging.getLogger("filler").debug("Signature overlay: %s", e)
+
+
 def fill_bidder_declaration(input_path, rfq_data, config, output_path):
-    """Fill Bidder Declaration GSPD-05-105 from actual state template."""
+    """Fill Bidder Declaration GSPD-05-105 from actual state template.
+
+    Template has pre-checked boxes: Box3 (broker Yes), Box5 (rental Yes), Box8 (rental N/A).
+    We must explicitly clear these and set the correct answers.
+    Answers: subcontractors=No, broker=No, rental=No.
+    """
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
     sol = rfq_data.get("solicitation_number", "") or rfq_data.get("rfq_number", "")
 
     values = {
-        # Solicitation reference
         "Solicitaion #": sol,
-
-        # 1a. Certifications
         "Certification": company.get("cert_number", ""),
         "Certification #": company.get("cert_number", ""),
-
-        # 1b. Subcontractors — No
-        "Check Box1": False,    # Yes subcontractors — UNCHECK
-        "Check Box2": True,     # No subcontractors — CHECK
-
-        # 1b. Work description
         "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
                         "Reytech Inc. sources, prices, and delivers all products directly.",
-
-        # 1c(1). Broker or agent — NO
-        "Check Box3": False,    # Yes broker — UNCHECK
-        "Check Box4": True,     # No broker — CHECK
-
-        # 1c(2). Equipment rental 51% — NO
-        "Check Box5": False,    # Yes rental — UNCHECK
-        "Check Box6": True,     # No rental — CHECK
-        "Check Box7": False,    # (unused)
-        "Check Box8": False,    # N/A rental — UNCHECK
-
-        # Page numbers
         "page": "1",
         "of #": "1",
     }
 
-    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+    # Checkbox corrections: which to CHECK and which to CLEAR
+    check_yes = {"Check Box2", "Check Box4", "Check Box6"}  # No subs, No broker, No rental
+    check_off = {"Check Box1", "Check Box3", "Check Box5", "Check Box7", "Check Box8"}  # Clear all others
+
+    # Fill text fields first
+    reader = PdfReader(input_path)
+    writer = PdfWriter()
+    writer.append(reader)
+
+    clean_values = {k: v for k, v in values.items() if v is not None}
+    set_field_fonts(writer, clean_values, 11, 9)
+
+    for page in writer.pages:
+        try:
+            writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
+        except Exception:
+            pass
+
+    # Force-set checkboxes via direct annotation manipulation
+    from pypdf.generic import NameObject
+    for page in writer.pages:
+        if "/Annots" not in page:
+            continue
+        for annot in page["/Annots"]:
+            obj = annot.get_object()
+            field_name = str(obj.get("/T", ""))
+            if field_name in check_yes:
+                obj.update({
+                    NameObject("/V"): NameObject("/Yes"),
+                    NameObject("/AS"): NameObject("/Yes"),
+                })
+            elif field_name in check_off:
+                obj.update({
+                    NameObject("/V"): NameObject("/Off"),
+                    NameObject("/AS"): NameObject("/Off"),
+                })
+
+    # Add signature overlay
+    _overlay_signature(writer, sign_date)
+
+    with open(output_path, "wb") as f:
+        writer.write(f)
     print(f"  ✓ Bidder Declaration filled from template (GSPD-05-105, sol={sol})")
 
 
@@ -2911,30 +2979,22 @@ def fill_std205(input_path, rfq_data, config, output_path):
 
 
 def fill_darfur_standalone(input_path, rfq_data, config, output_path):
-    """Fill standalone Darfur Certification Form. Option 1: not scrutinized."""
+    """Fill Darfur Certification Form — Option 1 ONLY (not a scrutinized company).
+
+    Page 1: Option 1 — fill company name, FEIN, signature, date.
+    Page 2: Option 2 — LEAVE COMPLETELY BLANK (we are not a scrutinized company).
+    """
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
+    # ONLY page 1 (Option 1) fields — NO _2 suffix fields
     values = {
-        # Page 1 — Option 1 (not a scrutinized company)
         "CompanyVendor Name": company["name"],
-        "CompanyVendor Name Printed": company["name"],
-        "Company Name": company["name"],
-        "Vendor Name": company["name"],
         "Federal ID Number": company.get("fein", ""),
-        "Federal ID Number_2": company.get("fein", ""),
-        "FEIN": company.get("fein", ""),
         "Printed Name and Title of Person Signing": f"{company['owner']}, {company.get('title', 'President')}",
-        "Printed Name and Title of Person Initialing": f"{company['owner']}, {company.get('title', 'President')}",
         "Date of signature": sign_date,
-        "Date of signature 2": sign_date,
-        "Date": sign_date,
-        "Date__darfur": sign_date,
-        "CompanyVendor Name Printed_2": company["name"],
     }
-    for name in ["Option1", "Check1", "Option_1", "#1"]:
-        values[name] = "/Yes"
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    print(f"  ✓ Darfur Act filled from template — Option 1 (not scrutinized)")
+    print(f"  ✓ Darfur Act filled from template — Option 1 only (page 2 blank)")
 
