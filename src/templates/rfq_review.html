@@ -5,7 +5,7 @@
 .rv-wrap{max-width:1600px;margin:0 auto;padding:0 12px}
 .rv-header{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--bd);margin-bottom:16px}
 .rv-header h2{margin:0;font-size:18px;color:var(--tx)}
-.rv-3col{display:grid;grid-template-columns:320px 1fr 360px;gap:16px;min-height:calc(100vh - 180px)}
+.rv-3col{display:grid;grid-template-columns:280px 1fr 420px;gap:16px;min-height:calc(100vh - 180px)}
 .rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
 .rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
 .rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
@@ -24,12 +24,20 @@
 .rv-preview-empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--tx2);font-size:14px}
 .rv-section{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--bd)}
 .rv-section:last-child{border-bottom:none}
-.rv-section-title{font-size:13px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;font-weight:600}
+.rv-section-title{font-size:14px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:10px;font-weight:700}
 .rv-warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#d29922;margin-bottom:8px}
 .rv-error{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#f85149;margin-bottom:8px}
-.rv-audit-item{font-size:14px;padding:6px 0;color:var(--tx2);display:flex;gap:8px;line-height:1.4}
+.rv-audit-item{font-size:15px;padding:7px 0;color:var(--tx2);display:flex;gap:8px;line-height:1.5}
 @media(max-width:1100px){.rv-3col{grid-template-columns:280px 1fr;}.rv-audit{display:none}}
 @media(max-width:768px){.rv-3col{grid-template-columns:1fr;}.rv-checklist{max-height:200px}}
+.rv-3col.expand-preview{grid-template-columns:0px 1fr 0px}
+.rv-3col.expand-preview .rv-checklist,.rv-3col.expand-preview .rv-audit{display:none}
+.rv-3col.hide-right{grid-template-columns:280px 1fr 0px}
+.rv-3col.hide-right .rv-audit{display:none}
+.rv-expand-bar{display:flex;gap:6px;align-items:center}
+.rv-expand-btn{background:rgba(139,148,158,.1);border:1px solid var(--bd);color:var(--tx2);border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer}
+.rv-expand-btn:hover{background:rgba(79,140,255,.1);color:var(--ac);border-color:rgba(79,140,255,.3)}
+.rv-expand-btn.active{background:rgba(79,140,255,.15);color:var(--ac);border-color:rgba(79,140,255,.3)}
 </style>
 
 <div class="rv-wrap">
@@ -125,8 +133,13 @@
     <!-- CENTER: PDF Preview -->
     <div class="rv-preview">
       <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
-        <span id="rv-preview-title" style="font-size:13px;font-weight:600;color:var(--tx)">Select a form to preview</span>
-        <a id="rv-download-link" href="#" target="_blank" class="btn btn-sm" style="font-size:12px;display:none">⬇ Download</a>
+        <span id="rv-preview-title" style="font-size:14px;font-weight:600;color:var(--tx);flex:1">Select a form to preview</span>
+        <div class="rv-expand-bar">
+          <button class="rv-expand-btn" onclick="toggleView('hide-right')" title="Hide audit panel">◀ Hide Audit</button>
+          <button class="rv-expand-btn" onclick="toggleView('expand-preview')" title="Full-width preview">⛶ Full Preview</button>
+          <button class="rv-expand-btn" onclick="toggleView('')" title="Show all panels">☰ All Panels</button>
+          <a id="rv-download-link" href="#" target="_blank" class="rv-expand-btn" style="font-size:12px;display:none;text-decoration:none">⬇ Download</a>
+        </div>
       </div>
       <div id="rv-preview-empty" class="rv-preview-empty">
         <div style="text-align:center">
@@ -143,10 +156,10 @@
     <div class="rv-audit">
       <div class="rv-section">
         <div class="rv-section-title">Quote Summary</div>
-        <div class="rv-audit-item"><span>💰</span> Quote #: {{ manifest.quote_number or '—' }}</div>
-        <div class="rv-audit-item"><span>📦</span> Items: {{ manifest.item_count or 0 }}</div>
-        <div class="rv-audit-item"><span>💲</span> Total: ${{ "%.2f"|format(manifest.quote_total or 0) }}</div>
-        <div class="rv-audit-item"><span>🏢</span> Agency: {{ manifest.agency_name or '?' }}</div>
+        <div class="rv-audit-item"><span>💰</span> Quote #: <b>{{ manifest.quote_number or '—' }}</b></div>
+        <div class="rv-audit-item"><span>📦</span> Items: <b>{{ manifest.item_count or 0 }}</b></div>
+        <div class="rv-audit-item"><span>💲</span> Total: <b>${{ "%.2f"|format(manifest.quote_total or 0) }}</b></div>
+        <div class="rv-audit-item"><span>🏢</span> Agency: <b>{{ manifest.agency_name or '?' }}</b></div>
         <div class="rv-audit-item"><span>💲</span> Tax: {% if r.get('tax_validated') %}<span style="color:#3fb950">✅ {{ r.get('tax_rate',0) }}% ({{ r.get('tax_jurisdiction','verified') }})</span>{% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ {{ r.get('tax_rate',0) }}% (unverified)</span>{% else %}<span style="color:#f85149">❌ No tax rate</span>{% endif %}</div>
       </div>
 
@@ -267,6 +280,21 @@ function reviewCurrent(verdict){
   var next=document.querySelector('.rv-form-item[data-verdict="pending"]');
   if(next)next.click();
  });
+}
+
+function toggleView(mode) {
+  var grid = document.querySelector('.rv-3col');
+  grid.classList.remove('expand-preview', 'hide-right');
+  if (mode) grid.classList.add(mode);
+  // Update active state on buttons
+  document.querySelectorAll('.rv-expand-btn').forEach(function(btn) { btn.classList.remove('active'); });
+  if (mode === 'expand-preview') {
+    document.querySelectorAll('.rv-expand-btn')[1].classList.add('active');
+  } else if (mode === 'hide-right') {
+    document.querySelectorAll('.rv-expand-btn')[0].classList.add('active');
+  } else {
+    document.querySelectorAll('.rv-expand-btn')[2].classList.add('active');
+  }
 }
 
 function removeCurrentForm() {
