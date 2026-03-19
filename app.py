@@ -151,6 +151,12 @@ def create_app():
         from src.api.dashboard import start_polling
     except ImportError:
         start_polling = None
+    # Prevent "overwriting existing endpoint" crash — bp is a module-level
+    # singleton whose deferred_functions can accumulate across worker reloads.
+    # Clear any pre-existing dashboard endpoints before registering.
+    for _k in list(app.view_functions.keys()):
+        if _k.startswith("dashboard."):
+            del app.view_functions[_k]
     app.register_blueprint(bp)
     print(f"[BOOT] Routes registered ({time.time()-t0:.1f}s)", flush=True)
 
