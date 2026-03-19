@@ -4982,6 +4982,8 @@ def _load_route_module(module_name: str):
     mod.__spec__ = _saved_spec
     if _saved_file:
         mod.__file__ = _saved_file
+    import sys as _sys
+    _sys.modules[spec.name] = mod  # Cache so regular imports don't re-execute and double-register routes
     spec.loader.exec_module(mod)
     # Copy new definitions back so later modules can reference them
     for k, v in mod.__dict__.items():

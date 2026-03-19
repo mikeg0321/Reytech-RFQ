@@ -1362,7 +1362,7 @@ class EmailPoller:
                     # ── CROSS-INBOX DEDUP (#10) — shared fingerprint check ─────
                     # Prevents same email processed by both sales & supplier inbox
                     try:
-                        from src.api.modules.routes_intel import check_email_fingerprint, record_email_fingerprint
+                        from src.api.modules.routes_catalog_finance import check_email_fingerprint, record_email_fingerprint
                         msg_date = msg.get("Date", "")
                         msg_id = msg.get("Message-ID", "")
                         inbox_name = getattr(self, '_inbox_name', 'sales')
