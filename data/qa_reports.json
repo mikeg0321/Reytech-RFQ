@@ -1,18 +1,5 @@
 [
   {
-    "timestamp": "2026-03-14T13:27:24.270770",
-    "health_score": 62,
-    "grade": "C",
-    "summary": {
-      "total": 102,
-      "passed": 70,
-      "failed": 3,
-      "warned": 12,
-      "info": 17
-    },
-    "critical_count": 1
-  },
-  {
     "timestamp": "2026-03-14T13:30:24.011758",
     "health_score": 62,
     "grade": "C",
@@ -1296,6 +1283,19 @@
       "failed": 2,
       "warned": 12,
       "info": 17
+    },
+    "critical_count": 0
+  },
+  {
+    "timestamp": "2026-03-19T16:16:36.463415",
+    "health_score": 100,
+    "grade": "A",
+    "summary": {
+      "total": 28,
+      "passed": 26,
+      "failed": 0,
+      "warned": 0,
+      "info": 2
     },
     "critical_count": 0
   }
