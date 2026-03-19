@@ -188,7 +188,8 @@
           <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('approved')">✅ Approve</button>
           <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('rejected')">❌ Reject</button>
         </div>
-        <textarea id="rv-review-notes" placeholder="Optional notes..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
+        <textarea id="rv-review-notes" placeholder="Notes (why rejected, or approval override reason)..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
+        <div style="font-size:11px;color:var(--tx2);margin-top:4px">You can re-review any form by clicking it and choosing a new verdict.</div>
       </div>
     </div>
   </div>
@@ -219,6 +220,12 @@ function selectForm(el,formId,filename){
   document.getElementById('rv-download-link').style.display='none';
  }
  updateAuditPanel(formId);
+ // Show notes for this form if any
+ var _reviewNotes={};
+ {% for review in manifest.reviews %}{% if review.notes %}_reviewNotes[{{ review.form_id|tojson }}]={{ review.notes|tojson }};{% endif %}{% endfor %}
+ var _notesEl=document.getElementById('rv-review-notes');
+ if(_notesEl&&_reviewNotes[formId]){_notesEl.value=_reviewNotes[formId];_notesEl.style.borderColor='#f85149';}
+ else if(_notesEl){_notesEl.value='';_notesEl.style.borderColor='var(--bd)';}
 }
 
 function updateAuditPanel(formId){
@@ -270,7 +277,7 @@ function updateProgress(){
  var btn=document.getElementById('rv-finalize-btn'),hint=document.getElementById('rv-finalize-hint');
  if(reviewed>=total&&total>0){
   var rej=document.querySelectorAll('.rv-form-item[data-verdict="rejected"]').length;
-  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<a href="/rfq/'+RID+'" style="color:#d29922;font-size:12px">← Return to RFQ to fix and regenerate</a>';}
+  if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<div style="font-size:12px;margin-top:4px"><b>Options:</b></div><div style="font-size:12px;color:var(--tx2);margin-top:2px">1. Click the rejected form → change to ✅ Approve (with override note)</div><div style="font-size:12px;color:var(--tx2);margin-top:2px">2. <a href="/rfq/'+RID+'" style="color:#d29922">Return to RFQ</a> → fix data → Generate again</div>';}
   else{btn.disabled=false;btn.style.background='var(--gn)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
  } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--tx2)';}
 }
