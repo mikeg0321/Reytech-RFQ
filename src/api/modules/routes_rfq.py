@@ -3955,7 +3955,47 @@ def rfq_reopen(rid):
     return redirect(f"/rfq/{rid}")
 
 
-@bp.route("/rfq/<rid>/update-status", methods=["POST"])
+@bp.route("/api/rfq/<rid>/update-status", methods=["POST"])
+@auth_required
+def api_rfq_update_status_json(rid):
+    """Update RFQ status via JSON (AJAX)."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    new_status = data.get("status", "").strip()
+    notes = data.get("notes", "").strip()
+
+    valid = {"new", "ready", "generated", "sent", "won", "lost", "no_bid", "cancelled"}
+    if new_status not in valid:
+        return jsonify({"ok": False, "error": f"Invalid status: {new_status}"})
+
+    old_status = r.get("status", "?")
+    r["status"] = new_status
+    if notes:
+        r["status_notes"] = notes
+    save_rfqs(rfqs)
+
+    try:
+        from src.core.dal import update_rfq_status as _dal_ur
+        _dal_ur(rid, new_status)
+    except Exception:
+        pass
+
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "status_changed",
+            f"Status: {old_status} → {new_status}" + (f" ({notes})" if notes else ""),
+            actor="user")
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "old_status": old_status, "new_status": new_status})
+
+
+@bp.route("/rfq/<rid>/update-status-form", methods=["POST"])
 @auth_required
 @safe_route
 def rfq_update_status(rid):

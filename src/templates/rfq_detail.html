@@ -529,45 +529,57 @@
 {% endif %}
 
 <!-- Status Management -->
-{% if r.status not in ('new',) %}
-<div class="card">
- <div class="card-t" style="font-size:14px">⚙️ Status Management</div>
- <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-  <span style="font-size:13px;color:var(--tx2)">Current: <b>{{r.status}}</b></span>
-  <form method="POST" action="/rfq/{{rid}}/update-status" style="display:inline;margin-left:8px">
-   <select name="status" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px">
-    <option value="new">New</option>
-    <option value="ready">Ready</option>
-    <option value="generated">Generated</option>
-    <option value="sent">Sent</option>
-    <option value="won">Won</option>
-    <option value="lost">Lost</option>
-    <option value="no_bid">No Bid</option>
-    <option value="cancelled">Cancelled</option>
-   </select>
-   <input name="notes" placeholder="Notes (optional)" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;font-size:13px;width:200px">
-   <button type="submit" class="btn btn-sm btn-s" style="font-size:14px">Update</button>
-  </form>
- </div>
- {% if r.status in ('sent','generated','ready') %}
- <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
-  <div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:6px">Record Outcome</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-   <button onclick="recordOutcome('won')" class="btn btn-s" style="font-size:14px;background:rgba(46,160,67,.15);color:var(--gn);border:1px solid rgba(46,160,67,.3)" aria-label="Won">🏆 Won</button>
-   <button onclick="recordOutcome('lost')" class="btn btn-s" style="font-size:14px;background:rgba(248,81,73,.15);color:var(--rd);border:1px solid rgba(248,81,73,.3)" aria-label="Lost">❌ Lost</button>
-   <button onclick="recordOutcome('no_response')" class="btn btn-s" style="font-size:14px;background:rgba(255,193,7,.15);color:var(--yl);border:1px solid rgba(255,193,7,.3)" aria-label="No Response">⏰ No Response</button>
-   <span id="outcome-status" style="font-size:14px;color:var(--tx2)"></span>
+<div class="card" style="padding:16px 20px">
+ <div style="font-size:16px;font-weight:700;color:var(--tx);margin-bottom:12px">📋 Status</div>
+
+ <!-- Current status banner -->
+ <div id="rfq-status-banner" style="padding:12px 16px;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:10px;margin-bottom:14px;
+  {% if r.status == 'generated' %}background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#58a6ff
+  {% elif r.status == 'sent' %}background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922
+  {% elif r.status == 'won' %}background:rgba(46,160,67,.08);border:1px solid rgba(46,160,67,.25);color:#3fb950
+  {% elif r.status == 'lost' %}background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);color:#f85149
+  {% elif r.status == 'no_bid' %}background:rgba(139,148,158,.08);border:1px solid rgba(139,148,158,.25);color:#8b949e
+  {% else %}background:rgba(79,140,255,.05);border:1px solid var(--bd);color:var(--tx){% endif %}">
+  <span style="font-size:22px">
+   {% if r.status == 'new' %}📥{% elif r.status == 'ready' %}✅{% elif r.status == 'generated' %}📦{% elif r.status == 'sent' %}📨{% elif r.status == 'won' %}🏆{% elif r.status == 'lost' %}❌{% elif r.status == 'no_bid' %}🚫{% elif r.status == 'cancelled' %}🗑️{% else %}📋{% endif %}
+  </span>
+  <div>
+   <b style="font-size:16px">{{ r.status|upper }}</b>
+   {% if r.status == 'sent' and r.get('sent_at') %} · Sent {{ r.sent_at[:10] }}{% endif %}
+   {% if r.status == 'generated' %} · Package ready for review{% endif %}
+   {% if r.status == 'won' and r.get('outcome_date') %} · Won {{ r.outcome_date[:10] }}{% endif %}
+   {% if r.status == 'lost' and r.get('outcome_reason') %} · {{ r.outcome_reason }}{% endif %}
   </div>
  </div>
- {% elif r.get('outcome') %}
- <div style="margin-top:8px;font-size:14px;color:var(--tx2)">
-  Outcome: <b style="color:{% if r.outcome == 'won' %}var(--gn){% elif r.outcome == 'lost' %}var(--rd){% else %}var(--yl){% endif %}">{{r.outcome|upper}}</b>
-  {% if r.get('outcome_reason') %} — {{r.outcome_reason}}{% endif %}
-  {% if r.get('outcome_date') %} ({{r.outcome_date[:10]}}){% endif %}
+
+ <!-- Action buttons based on current status -->
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+  {% if r.status in ('new', 'ready') %}
+   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px">📦 Mark Generated</button>
+  {% endif %}
+  {% if r.status in ('generated', 'ready') %}
+   <button onclick="updateRfqStatus('sent')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);border-radius:6px">📨 Mark Sent</button>
+  {% endif %}
+  {% if r.status in ('sent', 'generated') %}
+   <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px">🏆 Won</button>
+   <button onclick="recordRfqOutcome('lost')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:6px">❌ Lost</button>
+   <button onclick="recordRfqOutcome('no_response')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3);border-radius:6px">⏰ No Response</button>
+  {% endif %}
+  {% if r.status in ('won', 'lost', 'no_bid', 'cancelled') %}
+   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px">↩ Reopen</button>
+  {% endif %}
+ </div>
+
+ {% if r.get('outcome') and r.status in ('won', 'lost') %}
+ <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd);font-size:14px;color:var(--tx2)">
+  Outcome: <b style="color:{% if r.outcome == 'won' %}#3fb950{% elif r.outcome == 'lost' %}#f85149{% else %}#d29922{% endif %}">{{ r.outcome|upper }}</b>
+  {% if r.get('outcome_reason') %} — {{ r.outcome_reason }}{% endif %}
+  {% if r.get('outcome_date') %} ({{ r.outcome_date[:10] }}){% endif %}
  </div>
  {% endif %}
+
+ <div id="rfq-status-msg" style="margin-top:8px;font-size:14px;color:var(--tx2);display:none"></div>
 </div>
-{% endif %}
 
 <!-- Source Material Panel -->
 <div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:var(--bg,#0d1117);border-left:2px solid var(--bd,#30363d);z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
@@ -1699,7 +1711,66 @@ function runAutoLookup(){
  });
 }
 
-// Win/Loss Outcome Tracking
+// AJAX Status Update
+function updateRfqStatus(newStatus) {
+  var msg = document.getElementById('rfq-status-msg');
+  msg.style.display = 'block';
+  msg.textContent = '⏳ Updating...';
+  msg.style.color = 'var(--tx2)';
+
+  fetch('/api/rfq/' + RID + '/update-status', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({status: newStatus})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      msg.textContent = '✅ Status updated to ' + newStatus.toUpperCase();
+      msg.style.color = '#3fb950';
+      setTimeout(function() { location.reload(); }, 800);
+    } else {
+      msg.textContent = '❌ ' + (d.error || 'Failed');
+      msg.style.color = '#f85149';
+    }
+  })
+  .catch(function(e) {
+    msg.textContent = '❌ Error';
+    msg.style.color = '#f85149';
+  });
+}
+
+function recordRfqOutcome(outcome) {
+  var reason = prompt(outcome === 'won' ? 'What helped win? (price, relationship, speed, etc)' :
+                      outcome === 'lost' ? 'Why lost? (price, competitor, no response, etc)' :
+                      'Notes (optional)', '');
+  if (reason === null) return;
+
+  var msg = document.getElementById('rfq-status-msg');
+  msg.style.display = 'block';
+  msg.textContent = '⏳ Recording...';
+
+  fetch('/api/rfq/' + RID + '/outcome', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({outcome: outcome, reason: reason})
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.ok) {
+      msg.textContent = '✅ Outcome recorded: ' + outcome.toUpperCase();
+      msg.style.color = '#3fb950';
+      setTimeout(function() { location.reload(); }, 800);
+    } else {
+      msg.textContent = '❌ ' + (d.error || 'Failed');
+      msg.style.color = '#f85149';
+    }
+  });
+}
+
+// Win/Loss Outcome Tracking (legacy)
 function recordOutcome(outcome) {
  var reasons = {
   won: ['competitive_price','relationship','fast_response','product_match','sole_source','incumbent','other'],
