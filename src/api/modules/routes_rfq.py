@@ -360,8 +360,9 @@ def home():
         except Exception:
             pass
 
-    # Same for RFQs
-    active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") not in ("dismissed", "sent")}
+    # Same for RFQs — filter out dismissed/archived/deleted/duplicate/cancelled
+    _hidden_rfq = {"dismissed", "archived", "deleted", "duplicate", "cancelled"}
+    active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") not in _hidden_rfq}
     for rid, r in active_rfqs.items():
         due = r.get("due_date", "") or ""
         r["_days_left"] = None
