@@ -408,6 +408,85 @@ def growth_redirect():
     return redirect("/pipeline")
 
 
+@bp.route("/awards")
+@auth_required
+@safe_route
+def awards_page():
+    """Pending PO Award Review page."""
+    from src.api.dashboard import _load_pending_pos
+    pending = _load_pending_pos()
+    return render_page("awards.html", active_page="Awards", pending=pending)
+
+
+@bp.route("/api/award/<int:idx>/approve", methods=["POST"])
+@auth_required
+def api_award_approve(idx):
+    """Approve a pending PO — creates order and marks RFQ/quote as won."""
+    from src.api.dashboard import _load_pending_pos, _save_pending_pos, _pending_po_reviews, _create_order_from_po_email
+    pending = _load_pending_pos()
+    if idx < 0 or idx >= len(pending):
+        return jsonify({"ok": False, "error": "Invalid index"})
+
+    po = pending[idx]
+    if po.get("review_status") != "pending":
+        return jsonify({"ok": False, "error": "Already processed"})
+
+    # Create the order
+    try:
+        order = _create_order_from_po_email(po)
+        po["review_status"] = "approved"
+        po["approved_at"] = datetime.now().isoformat()
+        po["order_id"] = order.get("id", "") or order.get("order_id", "")
+        _save_pending_pos()
+
+        # Also update RFQ status to won
+        sol = po.get("sol_number", "")
+        if sol:
+            rfqs = load_rfqs()
+            for rid, r in rfqs.items():
+                if r.get("solicitation_number") == sol or r.get("rfq_number") == sol:
+                    r["status"] = "won"
+                    r["outcome"] = "won"
+                    r["outcome_date"] = datetime.now().isoformat()
+                    r["po_number"] = po.get("po_number", "")
+                    break
+            save_rfqs(rfqs)
+
+        return jsonify({
+            "ok": True,
+            "order_id": po["order_id"],
+            "redirect": f"/order/{po['order_id']}",
+        })
+    except Exception as e:
+        log.error("Award approve failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/award/<int:idx>/dismiss", methods=["POST"])
+@auth_required
+def api_award_dismiss(idx):
+    """Dismiss a pending PO (not a real award)."""
+    from src.api.dashboard import _load_pending_pos, _save_pending_pos, _pending_po_reviews
+    pending = _load_pending_pos()
+    if idx < 0 or idx >= len(pending):
+        return jsonify({"ok": False, "error": "Invalid index"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    pending[idx]["review_status"] = "dismissed"
+    pending[idx]["dismiss_reason"] = data.get("reason", "")
+    _save_pending_pos()
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/awards/pending")
+@auth_required
+def api_awards_pending():
+    """Get count of pending PO reviews (for home page banner)."""
+    from src.api.dashboard import _load_pending_pos
+    pending = [p for p in _load_pending_pos() if p.get("review_status") == "pending"]
+    return jsonify({"ok": True, "count": len(pending), "pending": pending})
+
+
 @bp.route("/upload", methods=["POST"])
 @auth_required
 def upload():

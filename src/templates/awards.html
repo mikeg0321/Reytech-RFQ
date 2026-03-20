@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}🏆 Award Review{% endblock %}
+{% block content %}
+<div style="max-width:1000px;margin:0 auto;padding:20px">
+ <h1 style="font-size:22px;color:var(--tx);margin-bottom:16px">🏆 PO Award Review</h1>
+ <p style="color:var(--tx2);font-size:14px;margin-bottom:20px">Purchase orders must be reviewed and approved before creating an order. Verify items, pricing, and supplier info.</p>
+
+ {% set pending_list = pending|selectattr("review_status", "equalto", "pending")|list %}
+ {% if not pending_list %}
+ <div style="text-align:center;padding:60px 20px;color:var(--tx2)">
+  <div style="font-size:40px;margin-bottom:12px">✅</div>
+  <div style="font-size:16px">No pending PO reviews</div>
+  <a href="/" style="color:var(--ac);font-size:14px">← Back to Dashboard</a>
+ </div>
+ {% endif %}
+
+ {% for po in pending %}
+ {% if po.review_status == 'pending' %}
+ <div class="card" style="margin-bottom:16px;border:2px solid rgba(46,160,67,.3);padding:20px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+   <div>
+    <div style="font-size:18px;font-weight:700;color:var(--tx)">
+     🏆 PO #{{ po.po_number or '—' }}
+     {% if po.matched_quote %}<span style="color:#3fb950;font-size:14px;margin-left:8px">Matched: {{ po.matched_quote }}</span>{% endif %}
+    </div>
+    <div style="color:var(--tx2);font-size:14px;margin-top:4px">
+     {{ po.agency or '' }} {{ po.institution or '' }} · From: {{ po.sender_email or '?' }}
+    </div>
+    <div style="color:var(--tx2);font-size:13px">Subject: {{ po.subject or '?' }}</div>
+    <div style="color:var(--tx2);font-size:13px">Detected: {{ po.detected_at[:16] if po.detected_at else '?' }}</div>
+   </div>
+   <div style="font-size:20px;font-weight:700;color:#3fb950">${{ "%.2f"|format(po.total or 0) }}</div>
+  </div>
+
+  {% if po.items %}
+  <table style="width:100%;font-size:14px;border-collapse:collapse;margin-bottom:14px">
+   <tr style="background:var(--sf2);border-bottom:1px solid var(--bd)">
+    <th style="padding:8px;text-align:left;color:var(--tx2)">#</th>
+    <th style="padding:8px;text-align:left;color:var(--tx2)">Description</th>
+    <th style="padding:8px;text-align:left;color:var(--tx2)">Part #</th>
+    <th style="padding:8px;text-align:right;color:var(--tx2)">QTY</th>
+    <th style="padding:8px;text-align:right;color:var(--tx2)">Price</th>
+    <th style="padding:8px;text-align:right;color:var(--tx2)">Extended</th>
+   </tr>
+   {% for item in po.items %}
+   <tr style="border-bottom:1px solid var(--bd)">
+    <td style="padding:8px;color:var(--tx2)">{{ loop.index }}</td>
+    <td style="padding:8px;color:var(--tx)">{{ (item.description or item.name or '')[:60] }}</td>
+    <td style="padding:8px;color:var(--ac)">{{ item.part_number or item.sku or '' }}</td>
+    <td style="padding:8px;text-align:right;color:var(--tx)">{{ item.qty or item.quantity or 0 }}</td>
+    <td style="padding:8px;text-align:right;color:var(--tx)">${{ "%.2f"|format(item.unit_price or item.price or 0) }}</td>
+    <td style="padding:8px;text-align:right;color:var(--tx)">${{ "%.2f"|format((item.qty or item.quantity or 0) * (item.unit_price or item.price or 0)) }}</td>
+   </tr>
+   {% endfor %}
+  </table>
+  {% else %}
+  <div style="padding:12px;background:rgba(210,153,34,.1);border-radius:6px;color:#d29922;font-size:14px;margin-bottom:14px">
+   ⚠ No line items parsed from PO. You may need to enter items manually after approval.
+  </div>
+  {% endif %}
+
+  <div style="display:flex;gap:10px;justify-content:flex-end">
+   <button onclick="dismissAward({{ loop.index0 }})" class="btn" style="font-size:15px;padding:10px 20px;background:rgba(139,148,158,.15);color:var(--tx2);border:1px solid var(--bd);border-radius:6px">🗑 Dismiss</button>
+   <button onclick="approveAward({{ loop.index0 }})" class="btn" style="font-size:15px;padding:10px 20px;background:rgba(46,160,67,.2);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px;font-weight:700">✅ Approve & Create Order</button>
+  </div>
+  <div id="award-msg-{{ loop.index0 }}" style="margin-top:8px;font-size:14px;display:none"></div>
+ </div>
+ {% endif %}
+ {% endfor %}
+
+ {% set processed = pending|rejectattr("review_status", "equalto", "pending")|list %}
+ {% if processed %}
+ <details style="margin-top:20px">
+  <summary style="color:var(--tx2);font-size:14px;cursor:pointer">{{ processed|length }} processed award(s)</summary>
+  {% for po in processed %}
+  <div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2)">
+   {{ po.review_status|upper }} — PO #{{ po.po_number or '?' }} · {{ po.agency or '' }} · ${{ "%.2f"|format(po.total or 0) }}
+   {% if po.order_id %} → <a href="/order/{{ po.order_id }}" style="color:var(--ac)">{{ po.order_id }}</a>{% endif %}
+  </div>
+  {% endfor %}
+ </details>
+ {% endif %}
+</div>
+
+<script>
+function approveAward(idx) {
+ if (!confirm('Approve this PO and create an order?')) return;
+ var msg = document.getElementById('award-msg-' + idx);
+ msg.style.display = 'block'; msg.textContent = '⏳ Creating order...'; msg.style.color = '#d29922';
+ fetch('/api/award/' + idx + '/approve', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}})
+ .then(r => r.json()).then(d => {
+  if (d.ok) {
+   msg.textContent = '✅ Order created: ' + d.order_id;
+   msg.style.color = '#3fb950';
+   setTimeout(() => { window.location.href = d.redirect || '/orders'; }, 1500);
+  } else {
+   msg.textContent = '❌ ' + (d.error || 'Failed');
+   msg.style.color = '#f85149';
+  }
+ });
+}
+
+function dismissAward(idx) {
+ var reason = prompt('Reason for dismissing? (not a real PO, duplicate, etc)', '');
+ if (reason === null) return;
+ fetch('/api/award/' + idx + '/dismiss', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reason:reason})})
+ .then(r => r.json()).then(d => {
+  if (d.ok) location.reload();
+ });
+}
+</script>
+{% endblock %}

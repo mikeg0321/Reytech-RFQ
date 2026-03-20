@@ -1575,10 +1575,10 @@ class EmailPoller:
                                 except Exception:
                                     pass
                             
-                            # 4. Create order record (whether or not we matched a quote)
+                            # 4. Route to pending PO review queue (human reviews before order creation)
                             try:
-                                from src.api.dashboard import _create_order_from_po_email
-                                order_data = {
+                                from src.api.dashboard import _add_pending_po
+                                _add_pending_po({
                                     "po_number": po_number or "",
                                     "sender_email": po_detect.get("sender_email", ""),
                                     "subject": subject,
@@ -1589,11 +1589,9 @@ class EmailPoller:
                                     "institution": po_institution,
                                     "po_pdf_path": po_attachments[0] if po_attachments else "",
                                     "matched_quote": matched_quote or "",
-                                }
-                                new_order = _create_order_from_po_email(order_data)
-                                log.info("Order created: %s", new_order.get("order_id", ""))
+                                })
                             except Exception as _oe:
-                                log.error("Order creation from PO email failed: %s", _oe)
+                                log.error("PO pending review queue failed: %s", _oe)
                             
                             # 5. Update pricing intelligence — BOTH price_history AND product catalog
                             try:

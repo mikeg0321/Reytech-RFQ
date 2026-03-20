@@ -2938,3 +2938,59 @@ def api_quote_lookup():
         "results": results[:20],
         "count": len(results),
     })
+
+
+@bp.route("/api/order/<oid>/check-amazon-urls", methods=["POST"])
+@auth_required
+def api_check_amazon_urls(oid):
+    """Check Amazon URLs for all items with amazon.com supplier links."""
+    orders = _load_orders()
+    order = orders.get(oid)
+    if not order:
+        return jsonify({"ok": False, "error": "Order not found"})
+
+    results = []
+    for item in order.get("line_items", []):
+        url = item.get("supplier_url", "")
+        if "amazon.com" not in url:
+            results.append({"desc": item.get("description", "")[:40], "status": "skip", "reason": "not Amazon"})
+            continue
+
+        # Extract ASIN from URL
+        import re
+        asin_match = re.search(r'/dp/([A-Z0-9]{10})', url) or re.search(r'/gp/product/([A-Z0-9]{10})', url)
+        asin = asin_match.group(1) if asin_match else item.get("asin", "")
+
+        if not asin:
+            results.append({"desc": item.get("description", "")[:40], "status": "error", "reason": "no ASIN found in URL"})
+            continue
+
+        # Check if in catalog
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                cat = conn.execute("SELECT * FROM catalog WHERE asin = ? OR part_number = ?", (asin, asin)).fetchone()
+                if cat:
+                    results.append({
+                        "desc": item.get("description", "")[:40],
+                        "asin": asin,
+                        "status": "in_catalog",
+                        "catalog_price": cat["price"] if "price" in cat.keys() else None,
+                        "supplier": cat["supplier"] if "supplier" in cat.keys() else None,
+                    })
+                else:
+                    results.append({
+                        "desc": item.get("description", "")[:40],
+                        "asin": asin,
+                        "status": "not_in_catalog",
+                        "url": url,
+                    })
+        except Exception as e:
+            results.append({"desc": item.get("description", "")[:40], "asin": asin, "status": "error", "reason": str(e)})
+
+    return jsonify({
+        "ok": True,
+        "results": results,
+        "in_catalog": sum(1 for r in results if r["status"] == "in_catalog"),
+        "not_in_catalog": sum(1 for r in results if r["status"] == "not_in_catalog"),
+    })

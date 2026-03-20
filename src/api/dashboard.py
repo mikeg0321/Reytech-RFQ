@@ -111,6 +111,42 @@ if os.environ.get("GMAIL_ADDRESS"):
 
 POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None, "paused": False}
 
+# ── Pending PO Award Review Queue ──────────────────────────────────
+_pending_po_reviews = []  # In-memory + persisted to data/pending_po_reviews.json
+
+def _load_pending_pos():
+    global _pending_po_reviews
+    try:
+        with open(os.path.join(DATA_DIR, "pending_po_reviews.json")) as f:
+            _pending_po_reviews = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        _pending_po_reviews = []
+    return _pending_po_reviews
+
+def _save_pending_pos():
+    with open(os.path.join(DATA_DIR, "pending_po_reviews.json"), "w") as f:
+        json.dump(_pending_po_reviews, f, indent=2, default=str)
+
+def _add_pending_po(po_data):
+    """Add a PO to the pending review queue instead of auto-creating order."""
+    po_data["review_status"] = "pending"
+    po_data["detected_at"] = datetime.now().isoformat()
+    _load_pending_pos()
+    _pending_po_reviews.append(po_data)
+    _save_pending_pos()
+    try:
+        _push_notification({
+            "type": "po_award",
+            "title": f"🏆 PO Received: {po_data.get('po_number', '?')}",
+            "detail": f"From {po_data.get('agency', po_data.get('sender_email', '?'))} — {len(po_data.get('items', []))} items, ${po_data.get('total', 0):,.2f}",
+            "action_url": "/awards",
+            "urgent": True,
+        })
+    except Exception:
+        pass
+    log.info("PO %s added to pending review queue (%d items, $%.2f)",
+             po_data.get("po_number", "?"), len(po_data.get("items", [])), po_data.get("total", 0))
+
 # ── Thread-safe locks for all mutated global state ──────────────────────────
 _poll_status_lock   = threading.Lock()
 _rate_limiter_lock  = threading.Lock()

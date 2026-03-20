@@ -32,6 +32,18 @@
  <a href="/qa/workflow" style="padding:4px 10px;background:rgba(248,113,113,.15);color:#f87171;border:1px solid rgba(248,113,113,.3);border-radius:6px;font-size:14px;font-weight:600;text-decoration:none;white-space:nowrap">View Tests →</a>
 </div>
 
+<!-- ═══ PO Award Review Banner ═══ -->
+<div id="po-review-banner" style="display:none;margin:8px 0;padding:14px 20px;background:rgba(46,160,67,.1);border:2px solid rgba(46,160,67,.4);border-radius:10px;cursor:pointer" onclick="window.location='/awards'">
+ <div style="display:flex;align-items:center;gap:12px">
+  <span style="font-size:28px">🏆</span>
+  <div style="flex:1">
+   <div style="font-size:16px;font-weight:700;color:#3fb950" id="po-banner-title">PO Award Requires Review</div>
+   <div style="font-size:14px;color:var(--tx2)" id="po-banner-detail">Click to review and approve before creating order</div>
+  </div>
+  <span style="font-size:14px;color:var(--ac)">Review →</span>
+ </div>
+</div>
+
 <!-- ═══ Deploy Health Banner (auto-hides if all pass) ═══ -->
 <div id="health-banner" style="display:none;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.35);border-radius:8px;padding:10px 16px;margin-bottom:10px;font-size:14px;color:#f85149">
  <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
@@ -61,6 +73,19 @@ setTimeout(function(){
   }
  }).catch(function(){});
 },3000);
+</script>
+
+<script>
+// Check for pending PO reviews
+fetch('/api/awards/pending').then(r=>r.json()).then(d=>{
+ if(d.ok && d.count > 0){
+  var banner = document.getElementById('po-review-banner');
+  banner.style.display = 'block';
+  document.getElementById('po-banner-title').textContent = '🏆 ' + d.count + ' PO Award' + (d.count > 1 ? 's' : '') + ' Pending Review';
+  var details = d.pending.map(function(p){ return 'PO#' + (p.po_number || '?') + ' $' + (p.total || 0).toFixed(2); }).join(' · ');
+  document.getElementById('po-banner-detail').textContent = details + ' — Click to review';
+ }
+}).catch(function(){});
 </script>
 
 <!-- ═══ Compliance Alerts — Phase 3 ═══ -->
