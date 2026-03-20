@@ -89,9 +89,17 @@ API_BASE = (
 
 
 def _get_realm_id() -> str:
-    """Get realm_id from env, module constant, or saved tokens (dynamic)."""
-    rid = os.environ.get("QB_REALM_ID", "") or QB_REALM_ID
+    """Get realm_id from env, module constant, or saved tokens."""
+    rid = os.environ.get("QB_REALM_ID", "").strip().strip('"').strip("'") or QB_REALM_ID
     if rid:
+        # Save to token file for test-connection endpoint visibility
+        try:
+            tokens = _load_tokens()
+            if tokens.get("realm_id") != rid:
+                tokens["realm_id"] = rid
+                _save_tokens(tokens)
+        except Exception:
+            pass
         return rid
     tokens = _load_tokens()
     return tokens.get("realm_id", "")
@@ -248,6 +256,10 @@ def _qb_request(method: str, endpoint: str, data: dict = None) -> Optional[dict]
         else:
             log.error("Unsupported HTTP method: %s", method)
             return None
+
+        log.info("QB API: %s %s → %s", method, url[:80], resp.status_code)
+        if resp.status_code != 200:
+            log.error("QB API error: %s — %s", resp.status_code, resp.text[:300])
 
         if resp.status_code == 401:
             # Token expired mid-request — refresh and retry once
@@ -1018,7 +1030,9 @@ def get_agent_status() -> dict:
 
 def get_company_info() -> Optional[dict]:
     """Fetch QuickBooks company information."""
-    result = _qb_request("GET", "companyinfo/" + _get_realm_id() + "?minorversion=73")
+    rid = _get_realm_id()
+    log.info("QB get_company_info: realm_id=%s, api_base=%s", rid[:6] + "..." if rid else "EMPTY", _get_api_base()[:60])
+    result = _qb_request("GET", "companyinfo/" + rid + "?minorversion=73")
     if not result:
         return None
     info = result.get("CompanyInfo", {})
