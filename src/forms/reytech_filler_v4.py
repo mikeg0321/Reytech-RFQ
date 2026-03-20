@@ -1649,6 +1649,8 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
         "Solicitaion #": sol,
         "Certification": company.get("cert_number", ""),
         "Certification #": company.get("cert_number", ""),
+        "Certification 2": "",
+        "Certification 3": "",
         "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
                         "Reytech Inc. sources, prices, and delivers all products directly.",
         "page": "1",
