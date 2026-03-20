@@ -64,6 +64,51 @@
 })();
 </script>
 
+<!-- ═══ Email Sender Blocklist ═══ -->
+<div class="card" style="margin-bottom:12px">
+ <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">
+  <span>🚫 Email Sender Blocklist</span>
+  <span id="blocklist-status" style="font-size:12px;color:var(--tx2)"></span>
+ </div>
+ <p style="font-size:13px;color:var(--tx2);margin:8px 0">Emails from these addresses will be automatically skipped during polling. One per line, or comma-separated. Use a domain fragment (e.g. <code>noreply</code>) to block all matching senders.</p>
+ <textarea id="sender-blocklist" rows="5" style="width:100%;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:13px;font-family:monospace;resize:vertical" placeholder="noreply@example.com&#10;spam@vendor.com&#10;donotreply">{{ settings.get('email.sender_blocklist', '') }}</textarea>
+ <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+  <button class="btn btn-s" onclick="saveBlocklist()" style="font-size:14px;padding:8px 16px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3)">💾 Save Blocklist</button>
+  <span style="font-size:12px;color:var(--tx2)" id="blocklist-count"></span>
+ </div>
+</div>
+<script>
+(function(){
+ var ta = document.getElementById('sender-blocklist');
+ var count = document.getElementById('blocklist-count');
+ function updateCount() {
+  var entries = ta.value.split(/[,\n]/).filter(function(e){ return e.trim(); });
+  count.textContent = entries.length + ' address' + (entries.length !== 1 ? 'es' : '');
+ }
+ ta.addEventListener('input', updateCount);
+ updateCount();
+})();
+function saveBlocklist() {
+ var val = document.getElementById('sender-blocklist').value.trim();
+ var status = document.getElementById('blocklist-status');
+ status.textContent = '⏳ Saving...';
+ fetch('/api/settings', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({'email.sender_blocklist': val})
+ })
+ .then(function(r){ return r.json(); })
+ .then(function(d){
+  if (d.ok) {
+   status.innerHTML = '<span style="color:#3fb950">✅ Saved</span>';
+   setTimeout(function(){ status.textContent = ''; }, 2000);
+  } else {
+   status.innerHTML = '<span style="color:#f85149">❌ ' + (d.error||'Failed') + '</span>';
+  }
+ });
+}
+</script>
+
 <!-- ═══ System Health ═══ -->
 <div class="card" style="margin-bottom:12px">
  <div class="card-t" style="display:flex;justify-content:space-between;align-items:center">

@@ -1375,7 +1375,23 @@ class EmailPoller:
                     except Exception:
                         pass  # Dedup is best-effort, don't block processing
                     # ── END CROSS-INBOX DEDUP ──────────────────────────────────
-                    
+
+                    # ── SENDER BLOCKLIST — skip emails from blocked senders ──
+                    try:
+                        from src.api.modules.routes_analytics import _load_settings
+                        _bl_raw = _load_settings().get("email.sender_blocklist", "")
+                        if _bl_raw:
+                            _blocked = {e.strip().lower() for e in _bl_raw.replace("\n", ",").split(",") if e.strip()}
+                            if sender_email_raw in _blocked or any(b in sender_email_raw for b in _blocked if "@" not in b):
+                                log.info("🚫 Blocked sender: %s — skipping", sender_email_raw)
+                                self._diag.setdefault("blocked", 0)
+                                self._diag["blocked"] = self._diag.get("blocked", 0) + 1
+                                self._processed.add(uid)
+                                continue
+                    except Exception:
+                        pass
+                    # ── END SENDER BLOCKLIST ──────────────────────────────────
+
                     # ── RECALL DETECTION — fires FIRST ─────────────────────
                     # Outlook/Exchange recall requests delete the original PC
                     # and free the quote number for reuse.

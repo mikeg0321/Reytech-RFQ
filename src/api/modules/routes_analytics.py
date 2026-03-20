@@ -787,6 +787,7 @@ _DEFAULT_SETTINGS = {
     "company.phone": "949-229-1575",
     "company.email": "sales@reytechinc.com",
     "company.sb_number": "2002605",
+    "email.sender_blocklist": "",
 }
 
 
