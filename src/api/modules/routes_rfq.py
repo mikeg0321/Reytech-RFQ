@@ -308,6 +308,11 @@ def home():
     # Recovery runs at boot (dashboard.py), not on every request
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
+    # Additional cleanup: filter PCs with no solicitation AND 0 items
+    user_pcs = {k: v for k, v in user_pcs.items()
+                if len(v.get("items", [])) > 0
+                or v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced")
+                or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown")}
     # PST "today" for California-based due date comparisons
     _pst = timezone(timedelta(hours=-8))
     _today = datetime.now(_pst).replace(tzinfo=None)
@@ -363,6 +368,11 @@ def home():
     # Same for RFQs — filter out dismissed/archived/deleted/duplicate/cancelled
     _hidden_rfq = {"dismissed", "archived", "deleted", "duplicate", "cancelled"}
     active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") not in _hidden_rfq}
+    # Also filter ghost RFQs: 0 items + no real solicitation + new/draft
+    active_rfqs = {k: v for k, v in active_rfqs.items()
+                   if len(v.get("line_items", v.get("items", []))) > 0
+                   or v.get("status") in ("sent", "won", "lost", "generated", "ready")
+                   or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown")}
     for rid, r in active_rfqs.items():
         due = r.get("due_date", "") or ""
         r["_days_left"] = None
@@ -389,6 +399,14 @@ def home():
     log.info("HOME: rendering template, %d PCs + %d RFQs, total %.0fms", 
              len(sorted_pcs), len(active_rfqs), (_ht.time()-_t0)*1000)
     return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs)
+
+@bp.route("/growth")
+@auth_required
+@safe_route
+def growth_redirect():
+    """Growth page — redirects to pipeline."""
+    return redirect("/pipeline")
+
 
 @bp.route("/upload", methods=["POST"])
 @auth_required
@@ -3174,7 +3192,7 @@ def generate_rfq_package(rid):
         _safe_agency = (_agency_cfg.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
     except NameError:
         _safe_agency = ""
-    package_filename = f"Compliance_Forms_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"Compliance_Forms_{safe_sol}_ReytechInc.pdf"
+    package_filename = f"RFQ_Package_{_safe_agency}_{safe_sol}_ReytechInc.pdf" if _safe_agency else f"RFQ_Package_{safe_sol}_ReytechInc.pdf"
 
     final_output_files = []
 

@@ -1294,6 +1294,12 @@ def _is_user_facing_pc(pc: dict) -> bool:
     # Parse errors with 0 items — nothing actionable
     if status == "parse_error" and not pc.get("items"):
         return False
+    # Ghost PCs: 0 items + draft/new status + no real solicitation
+    items = pc.get("items", [])
+    if len(items) == 0 and status in ("new", "draft", "parsed", ""):
+        sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
+        if not sol or sol == "unknown":
+            return False
     return True
 
 
@@ -5701,6 +5707,25 @@ def api_email_trace():
         "hint": "Add ?action=nuke to clear everything, then hit Check Now",
     }
     return Response(_json.dumps(result, default=str), mimetype="application/json")
+
+
+@bp.route("/api/health/startup")
+@auth_required
+def api_health_startup():
+    """Startup health check for home page banner."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            pc_count = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+            rfq_count = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
+        return jsonify({
+            "ok": True,
+            "price_checks": pc_count,
+            "rfqs": rfq_count,
+            "status": "healthy",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/disk-cleanup")
