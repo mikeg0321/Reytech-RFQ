@@ -4477,81 +4477,77 @@ def api_cleanup_queue():
 
     results = {"pc_deleted": [], "rfq_deleted": [], "pc_kept": [], "rfq_kept": [], "dry_run": not execute}
 
-    # ── Clean Price Checks ──
+    # ── Clean Price Checks (aggressive) ──
     pcs = _load_price_checks()
     pc_delete_ids = set()
+    import re as _cleanup_re
+    _today_str = datetime.now().strftime("%Y-%m-%d")
 
-    # Group PCs by solicitation number
-    pc_by_sol = {}
     for pid, pc in pcs.items():
-        sol = pc.get("solicitation_number", "") or pc.get("pc_number", "") or "unknown"
-        pc_by_sol.setdefault(sol, []).append((pid, pc))
+        sol = pc.get("solicitation_number", "") or pc.get("pc_number", "") or ""
+        status = pc.get("status", "")
+        items = len(pc.get("items", []))
+        created = pc.get("created_at", "") or ""
 
-    for sol, entries in pc_by_sol.items():
-        if len(entries) == 1:
-            pid, pc = entries[0]
-            items = len(pc.get("items", []))
-            status = pc.get("status", "")
-            # Ghost: no items, not sent/won
-            if items == 0 and status in ("new", "draft", "parsed", "parse_error", ""):
-                pc_delete_ids.add(pid)
-                results["pc_deleted"].append({"id": pid[:12], "sol": sol, "status": status, "items": 0, "reason": "ghost (0 items)"})
-            else:
-                results["pc_kept"].append({"id": pid[:12], "sol": sol, "status": status, "items": items})
-        else:
-            # Duplicates — keep the one with most items or latest status
-            sorted_entries = sorted(entries, key=lambda x: (
-                len(x[1].get("items", [])),
-                1 if x[1].get("status") in ("sent", "won", "generated") else 0,
-                x[1].get("received_at", "")
-            ), reverse=True)
-            keeper = sorted_entries[0]
-            results["pc_kept"].append({"id": keeper[0][:12], "sol": sol, "status": keeper[1].get("status", ""), "items": len(keeper[1].get("items", []))})
-            for pid, pc in sorted_entries[1:]:
-                items = len(pc.get("items", []))
-                status = pc.get("status", "")
-                # Don't delete sent/won even if duplicate
-                if status in ("sent", "won", "lost", "generated") and items > 0:
-                    results["pc_kept"].append({"id": pid[:12], "sol": sol, "status": status, "items": items, "note": "kept (has real status)"})
-                else:
-                    pc_delete_ids.add(pid)
-                    results["pc_deleted"].append({"id": pid[:12], "sol": sol, "status": status, "items": items, "reason": f"duplicate of {keeper[0][:12]}"})
+        # Always delete: dismissed/archived/deleted/duplicate
+        if status in ("dismissed", "archived", "deleted", "duplicate"):
+            pc_delete_ids.add(pid)
+            results["pc_deleted"].append({"id": pid[:12], "sol": sol, "status": status, "items": items, "reason": f"status={status}"})
+            continue
 
-    # ── Clean RFQs ──
+        # Keep anything created today
+        if _today_str in created:
+            results["pc_kept"].append({"id": pid[:12], "sol": sol, "status": status, "items": items})
+            continue
+
+        # Keep sent/won/pending_award with items AND numeric solicitation
+        if status in ("sent", "won", "pending_award") and items > 0 and _cleanup_re.match(r'^\d+$', sol or ""):
+            results["pc_kept"].append({"id": pid[:12], "sol": sol, "status": status, "items": items})
+            continue
+
+        # Keep draft/priced PCs with items AND numeric solicitation
+        if status in ("new", "draft", "parsed", "priced", "ready", "auto_drafted", "quoted", "generated") and items > 0 and _cleanup_re.match(r'^\d+$', sol or ""):
+            results["pc_kept"].append({"id": pid[:12], "sol": sol, "status": status, "items": items})
+            continue
+
+        # Everything else: delete (ghosts, non-numeric sols, 0 items)
+        pc_delete_ids.add(pid)
+        results["pc_deleted"].append({"id": pid[:12], "sol": sol, "status": status, "items": items, "reason": "no numeric sol or no items"})
+
+    # ── Clean RFQs (aggressive) ──
     rfqs = load_rfqs()
     rfq_delete_ids = set()
 
-    rfq_by_sol = {}
     for rid, r in rfqs.items():
-        sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
-        rfq_by_sol.setdefault(sol, []).append((rid, r))
+        sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or ""
+        status = r.get("status", "")
+        items_count = len(r.get("line_items", r.get("items", [])))
+        created = r.get("received_at", "") or r.get("created_at", "") or ""
 
-    for sol, entries in rfq_by_sol.items():
-        if len(entries) == 1:
-            rid, r = entries[0]
-            items = len(r.get("line_items", r.get("items", [])))
-            status = r.get("status", "")
-            if items == 0 and status in ("new", "draft", ""):
-                rfq_delete_ids.add(rid)
-                results["rfq_deleted"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": 0, "reason": "ghost (0 items)"})
-            else:
-                results["rfq_kept"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items})
-        else:
-            sorted_entries = sorted(entries, key=lambda x: (
-                len(x[1].get("line_items", x[1].get("items", []))),
-                1 if x[1].get("status") in ("sent", "won", "generated") else 0,
-                x[1].get("received_at", "")
-            ), reverse=True)
-            keeper = sorted_entries[0]
-            results["rfq_kept"].append({"id": keeper[0][:12], "sol": sol, "buyer": keeper[1].get("requestor_name", "")[:20], "status": keeper[1].get("status", ""), "items": len(keeper[1].get("line_items", keeper[1].get("items", [])))})
-            for rid, r in sorted_entries[1:]:
-                items = len(r.get("line_items", r.get("items", [])))
-                status = r.get("status", "")
-                if status in ("sent", "won", "lost", "generated") and items > 0:
-                    results["rfq_kept"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items, "note": "kept (real)"})
-                else:
-                    rfq_delete_ids.add(rid)
-                    results["rfq_deleted"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items, "reason": f"duplicate of {keeper[0][:12]}"})
+        # Always delete: dismissed/archived/deleted/duplicate/cancelled
+        if status in ("dismissed", "archived", "deleted", "duplicate", "cancelled"):
+            rfq_delete_ids.add(rid)
+            results["rfq_deleted"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items_count, "reason": f"status={status}"})
+            continue
+
+        # Keep anything created today
+        if _today_str in created:
+            results["rfq_kept"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items_count})
+            continue
+
+        # Keep sent/won/generated with items
+        if status in ("sent", "won", "generated") and items_count > 0:
+            results["rfq_kept"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items_count})
+            continue
+
+        # Keep new/draft/ready with items AND real solicitation
+        if status in ("new", "draft", "ready") and items_count > 0 and sol and sol != "unknown":
+            results["rfq_kept"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items_count})
+            continue
+
+        # Everything else: delete
+        rfq_delete_ids.add(rid)
+        results["rfq_deleted"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items_count, "reason": "no real sol or no items"})
 
     # ── Execute deletes ──
     if execute:

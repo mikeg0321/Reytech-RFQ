@@ -406,6 +406,23 @@ function sortTable(th, col) {
   {% else %}
   <div class="empty" style="padding:32px 16px">No Price Checks yet — upload a 704 or configure email polling</div>
   {% endif %}
+  {% if sent_pcs %}
+  <details style="margin-top:8px">
+   <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">📨 Sent / Awaiting Award ({{ sent_pcs|length }})</summary>
+   <table style="width:100%;font-size:13px;margin-top:4px">
+    {% for pid, pc in sent_pcs.items() %}
+    <tr style="border-bottom:1px solid var(--bd);opacity:0.7" onclick="location.href='/pricecheck/{{ pid }}'" class="home-row">
+     <td style="padding:6px 8px"><a href="/pricecheck/{{ pid }}" style="color:var(--ac)">#{{ pc.solicitation_number or pc.pc_number or '?' }}</a></td>
+     <td style="padding:6px 8px;color:var(--tx2)">{{ pc.institution or '' }}</td>
+     <td style="padding:6px 8px;color:var(--tx2)">{{ pc.get('items', [])|length }}</td>
+     <td style="padding:6px 8px">
+      <span style="font-size:12px;padding:2px 8px;border-radius:4px;background:rgba(210,153,34,.15);color:#d29922">{{ pc.status|upper }}</span>
+     </td>
+    </tr>
+    {% endfor %}
+   </table>
+  </details>
+  {% endif %}
  </div>
 
  <!-- RFQ Queue (narrower column) -->
@@ -460,6 +477,27 @@ function sortTable(th, col) {
   </div>
   {% else %}
   <div class="empty" style="padding:32px 16px">No RFQs — configure email polling or upload below</div>
+  {% endif %}
+  {% if sent_rfqs %}
+  <details style="margin-top:8px">
+   <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">📨 Sent / Completed ({{ sent_rfqs|length }})</summary>
+   <table style="width:100%;font-size:13px;margin-top:4px">
+    {% for rid, r in sent_rfqs.items() %}
+    <tr style="border-bottom:1px solid var(--bd);opacity:0.7" onclick="location.href='/rfq/{{ rid }}'" class="home-row">
+     <td style="padding:6px 8px"><a href="/rfq/{{ rid }}" style="color:var(--ac)">#{{ r.solicitation_number or r.rfq_number or '?' }}</a></td>
+     <td style="padding:6px 8px;color:var(--tx2)">{{ r.requestor_name or '' }}</td>
+     <td style="padding:6px 8px;color:var(--tx2)">{{ r.get('line_items', r.get('items', []))|length }}</td>
+     <td style="padding:6px 8px">
+      <span style="font-size:12px;padding:2px 8px;border-radius:4px;
+       {% if r.status == 'sent' %}background:rgba(210,153,34,.15);color:#d29922
+       {% elif r.status == 'won' %}background:rgba(46,160,67,.15);color:#3fb950
+       {% elif r.status == 'lost' %}background:rgba(248,81,73,.15);color:#f85149
+       {% endif %}">{{ r.status|upper }}</span>
+     </td>
+    </tr>
+    {% endfor %}
+   </table>
+  </details>
   {% endif %}
  </div>
 

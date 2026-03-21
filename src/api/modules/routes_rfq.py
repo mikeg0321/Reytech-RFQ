@@ -313,6 +313,10 @@ def home():
                 if len(v.get("items", [])) > 0
                 or v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced")
                 or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown")}
+    # Split: active queue vs sent/completed
+    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated"}
+    active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
+    sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
     # PST "today" for California-based due date comparisons
     _pst = timezone(timedelta(hours=-8))
     _today = datetime.now(_pst).replace(tzinfo=None)
@@ -343,7 +347,7 @@ def home():
             pass
         # No parseable due date — sort by creation
         return (2, "", pc.get("created_at", ""))
-    sorted_pcs = dict(sorted(user_pcs.items(), key=_pc_sort_key))
+    sorted_pcs = dict(sorted(active_pcs.items(), key=_pc_sort_key))
     
     # Also compute urgency metadata for template
     for pid, pc in sorted_pcs.items():
@@ -365,14 +369,15 @@ def home():
         except Exception:
             pass
 
-    # Same for RFQs — filter out dismissed/archived/deleted/duplicate/cancelled
-    _hidden_rfq = {"dismissed", "archived", "deleted", "duplicate", "cancelled"}
-    active_rfqs = {k: v for k, v in load_rfqs().items() if v.get("status") not in _hidden_rfq}
-    # Also filter ghost RFQs: 0 items + no real solicitation + new/draft
+    # Same for RFQs — split active from sent/completed
+    _actionable_rfq = {"new", "draft", "ready", "generated", "parsed"}
+    all_rfqs = load_rfqs()
+    active_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in _actionable_rfq}
+    # Filter ghost RFQs: 0 items + no real solicitation
     active_rfqs = {k: v for k, v in active_rfqs.items()
                    if len(v.get("line_items", v.get("items", []))) > 0
-                   or v.get("status") in ("sent", "won", "lost", "generated", "ready")
                    or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown")}
+    sent_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in ("sent", "won", "lost")}
     for rid, r in active_rfqs.items():
         due = r.get("due_date", "") or ""
         r["_days_left"] = None
@@ -398,7 +403,7 @@ def home():
     )))
     log.info("HOME: rendering template, %d PCs + %d RFQs, total %.0fms", 
              len(sorted_pcs), len(active_rfqs), (_ht.time()-_t0)*1000)
-    return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs)
+    return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs, sent_rfqs=sent_rfqs, sent_pcs=sent_pcs)
 
 @bp.route("/growth")
 @auth_required
