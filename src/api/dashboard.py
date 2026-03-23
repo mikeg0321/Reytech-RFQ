@@ -134,18 +134,23 @@ def _add_pending_po(po_data):
     _load_pending_pos()
     _pending_po_reviews.append(po_data)
     _save_pending_pos()
+    _po_total = 0
+    try:
+        _po_total = float(po_data.get("total", 0) or 0)
+    except (ValueError, TypeError):
+        _po_total = 0
     try:
         _push_notification({
             "type": "po_award",
             "title": f"🏆 PO Received: {po_data.get('po_number', '?')}",
-            "detail": f"From {po_data.get('agency', po_data.get('sender_email', '?'))} — {len(po_data.get('items', []))} items, ${po_data.get('total', 0):,.2f}",
+            "detail": f"From {po_data.get('agency', po_data.get('sender_email', '?'))} — {len(po_data.get('items', []))} items, ${_po_total:,.2f}",
             "action_url": "/awards",
             "urgent": True,
         })
     except Exception:
         pass
     log.info("PO %s added to pending review queue (%d items, $%.2f)",
-             po_data.get("po_number", "?"), len(po_data.get("items", [])), po_data.get("total", 0))
+             po_data.get("po_number", "?"), len(po_data.get("items", [])), _po_total)
 
 # ── Thread-safe locks for all mutated global state ──────────────────────────
 _poll_status_lock   = threading.Lock()

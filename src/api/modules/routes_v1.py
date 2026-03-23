@@ -4076,7 +4076,7 @@ def _get_source_material(entity_type, entity_id):
             pd = pc.get("pc_data", pc)
             if isinstance(pd, str):
                 try: pd = _json.loads(pd)
-                except: pd = pc
+                except (ValueError, TypeError): pd = pc
             result["extracted_fields"] = {
                 "PC Number": pc.get("pc_number", ""),
                 "Requestor": pc.get("requestor", ""),
@@ -4511,7 +4511,7 @@ def api_v1_email_diagnose(uid):
         for part in msg.walk():
             if part.get_content_type() == "text/plain":
                 try: body = part.get_payload(decode=True).decode(errors="replace")
-                except: pass
+                except Exception: pass
                 break
         has_fwd_body = any(m in body.lower() for m in ["forwarded message", "begin forwarded", "---------- forwarded"])
         has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())

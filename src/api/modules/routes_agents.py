@@ -20,8 +20,8 @@ from datetime import datetime, timedelta
 @auth_required
 def agents_page():
     """Agent Control Panel — click buttons instead of writing API calls."""
-    from flask import render_template
-    return render_template("agents.html",
+    from src.api.render import render_page
+    return render_page("agents.html", active_page="Agents",
         brief_html=BRIEF_HTML,
         brief_js=BRIEF_JS,
         brief_css=BASE_CSS,
