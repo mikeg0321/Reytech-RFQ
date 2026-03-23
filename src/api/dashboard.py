@@ -4637,24 +4637,28 @@ def api_hard_cleanup():
         else:
             rfq_delete[rid] = {"sol": sol[:15], "buyer": r.get("requestor_name", "")[:25], "status": status, "items": items_count}
 
-    # Dedup: if multiple RFQs have same sol, keep the one with most items
+    # Dedup: if multiple RFQs have same sol, keep the best one
+    # Priority: sent/won > generated > draft/new, then most items as tiebreak
+    _status_rank = {"won": 5, "sent": 4, "generated": 3, "ready": 2, "draft": 1, "new": 0}
     _sol_best = {}
     for rid in list(rfq_keep.keys()):
         sol = rfq_keep[rid]["sol"]
         if not sol or sol == "unknown":
             continue
+        rank = _status_rank.get(rfq_keep[rid]["status"], 0)
         items = rfq_keep[rid]["items"]
+        score = (rank, items)
         if sol in _sol_best:
-            prev_rid, prev_items = _sol_best[sol]
-            if items > prev_items:
+            prev_rid, prev_score = _sol_best[sol]
+            if score > prev_score:
                 rfq_delete[prev_rid] = rfq_keep.pop(prev_rid)
                 rfq_delete[prev_rid]["reason"] = "duplicate sol (kept better)"
-                _sol_best[sol] = (rid, items)
+                _sol_best[sol] = (rid, score)
             else:
                 rfq_delete[rid] = rfq_keep.pop(rid)
                 rfq_delete[rid]["reason"] = "duplicate sol (kept better)"
         else:
-            _sol_best[sol] = (rid, items)
+            _sol_best[sol] = (rid, score)
 
     # ── PC FILTER ──
     pcs = _load_price_checks()
@@ -4684,22 +4688,39 @@ def api_hard_cleanup():
         else:
             pc_delete[pid] = {"sol": sol[:15], "buyer": (pc.get("requestor", "") or pc.get("buyer", ""))[:25], "status": status, "items": items_count}
 
-    # Dedup PCs: same solicitation → keep the one with most items
+    # Dedup PCs: same solicitation → keep the best one
     _pc_sol_best = {}
     for pid in list(pc_keep.keys()):
         sol = pc_keep[pid]["sol"]
         if not sol or sol == "unknown":
             continue
+        rank = _status_rank.get(pc_keep[pid]["status"], 0)
         items = pc_keep[pid]["items"]
+        score = (rank, items)
         if sol in _pc_sol_best:
-            prev_pid, prev_items = _pc_sol_best[sol]
-            if items > prev_items:
+            prev_pid, prev_score = _pc_sol_best[sol]
+            if score > prev_score:
                 pc_delete[prev_pid] = pc_keep.pop(prev_pid)
-                _pc_sol_best[sol] = (pid, items)
+                _pc_sol_best[sol] = (pid, score)
             else:
                 pc_delete[pid] = pc_keep.pop(pid)
         else:
-            _pc_sol_best[sol] = (pid, items)
+            _pc_sol_best[sol] = (pid, score)
+
+    # Cross-check: delete PCs whose solicitation matches a sent/won RFQ
+    # These are re-imported duplicates from the re-poll
+    _sent_rfq_sols = set()
+    for rid in rfq_keep:
+        if rfq_keep[rid]["status"] in ("sent", "won", "generated"):
+            s = rfq_keep[rid]["sol"]
+            if s:
+                _sent_rfq_sols.add(s)
+
+    for pid in list(pc_keep.keys()):
+        sol = pc_keep[pid]["sol"]
+        if sol and sol in _sent_rfq_sols:
+            pc_delete[pid] = pc_keep.pop(pid)
+            pc_delete[pid]["reason"] = f"duplicates sent RFQ sol#{sol}"
 
     if execute:
         for rid in rfq_delete:
