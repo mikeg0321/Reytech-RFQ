@@ -4825,6 +4825,59 @@ def api_admin_delete_rfq(rid):
     return jsonify({"ok": True, "deleted": rid, "sol": sol})
 
 
+@bp.route("/api/admin/delete-by-sol", methods=["GET", "POST"])
+@auth_required
+def api_admin_delete_by_sol():
+    """Delete PCs and RFQs by solicitation number.
+
+    Usage: /api/admin/delete-by-sol?sol=10840485&type=pc
+           /api/admin/delete-by-sol?sol=10840485&type=both
+    """
+    sol = request.args.get("sol", "").strip()
+    dtype = request.args.get("type", "pc").strip()  # pc, rfq, both
+
+    if not sol:
+        return jsonify({"ok": False, "error": "?sol= required"})
+
+    deleted = []
+
+    if dtype in ("pc", "both"):
+        pcs = _load_price_checks()
+        to_del = [pid for pid, pc in pcs.items()
+                  if (pc.get("solicitation_number", "") or pc.get("pc_number", "")) == sol]
+        for pid in to_del:
+            buyer = pcs[pid].get("requestor", "") or pcs[pid].get("buyer", "")
+            del pcs[pid]
+            deleted.append({"type": "pc", "id": pid, "sol": sol, "buyer": buyer})
+        if to_del:
+            _save_price_checks(pcs)
+
+    if dtype in ("rfq", "both"):
+        rfqs = load_rfqs()
+        to_del = [rid for rid, r in rfqs.items()
+                  if (r.get("solicitation_number", "") or r.get("rfq_number", "")) == sol]
+        for rid in to_del:
+            buyer = rfqs[rid].get("requestor_name", "")
+            del rfqs[rid]
+            deleted.append({"type": "rfq", "id": rid, "sol": sol, "buyer": buyer})
+        if to_del:
+            save_rfqs(rfqs)
+
+    # Clean SQLite too
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for d in deleted:
+                if d["type"] == "pc":
+                    conn.execute("DELETE FROM price_checks WHERE id = ?", (d["id"],))
+                else:
+                    conn.execute("DELETE FROM rfqs WHERE id = ?", (d["id"],))
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "deleted": deleted, "count": len(deleted)})
+
+
 @bp.route("/api/admin/cleanup-quote-numbers", methods=["GET", "POST"])
 @auth_required
 def api_cleanup_quote_numbers():
