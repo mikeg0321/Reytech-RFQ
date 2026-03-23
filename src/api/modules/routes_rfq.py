@@ -6364,6 +6364,10 @@ def api_export_invoice(rid):
 
     try:
         import openpyxl
+    except ImportError:
+        return jsonify({"ok": False, "error": "openpyxl not installed — run: pip install openpyxl"}), 500
+
+    try:
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from io import BytesIO
 
@@ -6462,6 +6466,10 @@ def api_export_supplier_po(rid):
 
     try:
         import openpyxl
+    except ImportError:
+        return jsonify({"ok": False, "error": "openpyxl not installed — run: pip install openpyxl"}), 500
+
+    try:
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         from io import BytesIO
 

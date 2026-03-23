@@ -1272,6 +1272,16 @@ class EmailPoller:
                 "_po_numbers_seen": set(),  # Dedup PO within same poll cycle
             }
 
+            # Load blocklist ONCE per poll cycle (not per email)
+            _blocked_senders = set()
+            try:
+                from src.api.modules.routes_analytics import _load_settings
+                _bl_raw = _load_settings().get("email.sender_blocklist", "")
+                if _bl_raw:
+                    _blocked_senders = {e.strip().lower() for e in _bl_raw.replace("\n", ",").split(",") if e.strip()}
+            except Exception:
+                pass
+
             for uid_bytes in new_uids:
                 uid = uid_bytes.decode()
 
@@ -1377,19 +1387,14 @@ class EmailPoller:
                     # ── END CROSS-INBOX DEDUP ──────────────────────────────────
 
                     # ── SENDER BLOCKLIST — skip emails from blocked senders ──
-                    try:
-                        from src.api.modules.routes_analytics import _load_settings
-                        _bl_raw = _load_settings().get("email.sender_blocklist", "")
-                        if _bl_raw:
-                            _blocked = {e.strip().lower() for e in _bl_raw.replace("\n", ",").split(",") if e.strip()}
-                            if sender_email_raw in _blocked or any(b in sender_email_raw for b in _blocked if "@" not in b):
-                                log.info("🚫 Blocked sender: %s — skipping", sender_email_raw)
-                                self._diag.setdefault("blocked", 0)
-                                self._diag["blocked"] = self._diag.get("blocked", 0) + 1
-                                self._processed.add(uid)
-                                continue
-                    except Exception:
-                        pass
+                    # _blocked_senders is loaded once per poll cycle (before the uid loop)
+                    if _blocked_senders:
+                        if sender_email_raw in _blocked_senders or any(b in sender_email_raw for b in _blocked_senders if "@" not in b):
+                            log.info("🚫 Blocked sender: %s — skipping", sender_email_raw)
+                            self._diag.setdefault("blocked", 0)
+                            self._diag["blocked"] = self._diag.get("blocked", 0) + 1
+                            self._processed.add(uid)
+                            continue
                     # ── END SENDER BLOCKLIST ──────────────────────────────────
 
                     # ── RECALL DETECTION — fires FIRST ─────────────────────

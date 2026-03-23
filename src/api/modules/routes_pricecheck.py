@@ -2174,24 +2174,8 @@ def _do_generate_original(pcid):
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 
-@bp.route("/api/pricecheck/download/<fname>")
-@auth_required
-def pricecheck_download(fname):
-    """Serve generated PDF files (704s, quotes) from DATA_DIR."""
-    # Sanitize filename to prevent directory traversal
-    safe_fname = os.path.basename(fname)
-    if not safe_fname.lower().endswith('.pdf'):
-        return jsonify({"ok": False, "error": "Only PDF downloads allowed"}), 403
-    filepath = os.path.join(DATA_DIR, safe_fname)
-    if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True, download_name=safe_fname)
-    # Also check common subdirectories
-    for subdir in ["output", "quotes"]:
-        alt = os.path.join(DATA_DIR, subdir, safe_fname)
-        if os.path.exists(alt):
-            return send_file(alt, as_attachment=True, download_name=safe_fname)
-    log.warning("Download not found: %s (looked in %s)", safe_fname, DATA_DIR)
-    return jsonify({"ok": False, "error": "File not found"}), 404
+# NOTE: /api/pricecheck/download/<filename> is defined in routes_crm.py
+# (broader search with subdirectory scan + DB fallback)
 
 
 @bp.route("/pricecheck/<pcid>/generate-quote")
@@ -2380,82 +2364,8 @@ def pricecheck_convert_to_quote(pcid):
     return jsonify({"ok": True, "rfq_id": rfq_id})
 
 
-@bp.route("/api/pc/<pcid>/convert-to-rfq", methods=["POST"])
-@auth_required
-def api_pc_convert_to_rfq(pcid):
-    """Convert a Price Check into a full RFQ."""
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"})
-
-    items = pc.get("items", [])
-    if not items:
-        return jsonify({"ok": False, "error": "PC has no items"})
-
-    import uuid
-    rid = uuid.uuid4().hex[:8]
-
-    # Build RFQ from PC data
-    rfq_data = {
-        "id": rid,
-        "received_at": pc.get("created_at", ""),
-        "agency": pc.get("agency", ""),
-        "agency_name": pc.get("agency_name", ""),
-        "institution": pc.get("institution", ""),
-        "requestor_name": pc.get("requestor", "") or pc.get("buyer", ""),
-        "requestor_email": pc.get("requestor_email", ""),
-        "solicitation_number": pc.get("solicitation_number", "") or pc.get("pc_number", ""),
-        "rfq_number": pc.get("solicitation_number", "") or pc.get("pc_number", ""),
-        "due_date": pc.get("due_date", ""),
-        "delivery_location": pc.get("ship_to", "") or pc.get("delivery_location", ""),
-        "status": "new",
-        "source": f"converted_from_pc_{pcid}",
-        "linked_pc_id": pcid,
-        "email_subject": pc.get("email_subject", ""),
-        "body_text": pc.get("body_text", ""),
-        "line_items": [],
-        "form_type": "rfq",
-    }
-
-    # Convert PC items to RFQ line items
-    for item in items:
-        rfq_item = {
-            "description": item.get("description", ""),
-            "qty": item.get("qty", 1),
-            "uom": item.get("uom", "EA"),
-            "part_number": item.get("part_number", "") or item.get("item_number", ""),
-            "supplier_cost": item.get("supplier_cost", 0) or item.get("pricing", {}).get("unit_cost", 0),
-            "price_per_unit": item.get("price_per_unit", 0) or item.get("pricing", {}).get("recommended_price", 0),
-            "scprs_last_price": item.get("scprs_last_price", 0),
-            "amazon_price": item.get("amazon_price", 0),
-            "cost_source": item.get("cost_source", ""),
-            "cost_supplier_name": item.get("cost_supplier_name", ""),
-            "markup_pct": item.get("markup_pct", 0),
-        }
-        rfq_data["line_items"].append(rfq_item)
-
-    # Save
-    from src.api.dashboard import load_rfqs, save_rfqs
-    rfqs = load_rfqs()
-    rfqs[rid] = rfq_data
-    save_rfqs(rfqs)
-
-    # Link back
-    pc["linked_rfq_id"] = rid
-    pc["status"] = "converted"
-    _save_price_checks(pcs)
-
-    try:
-        from src.core.dal import log_lifecycle_event
-        log_lifecycle_event("rfq", rid, "converted_from_pc",
-            f"Created from PC {pcid} ({pc.get('pc_number', '?')})",
-            actor="user", detail={"pc_id": pcid, "items": len(items)})
-    except Exception:
-        pass
-
-    return jsonify({"ok": True, "rfq_id": rid, "items": len(items),
-                    "redirect": f"/rfq/{rid}"})
+# NOTE: /api/pc/<pcid>/convert-to-rfq is defined in routes_analytics.py
+# (more thorough version that copies all fields, files, and PO screenshots)
 
 
 @bp.route("/api/resync")
