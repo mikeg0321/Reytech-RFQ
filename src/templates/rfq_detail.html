@@ -231,17 +231,65 @@
  </table>
  </div><!-- scroll wrapper -->
 
- <!-- Add Item (inline form) -->
+ <!-- Add Item — fetch() only, NOT a nested <form> (nested forms = invalid HTML, browser ignores inner form) -->
  <details style="margin-top:10px" id="add-item-section">
   <summary style="cursor:pointer;font-size:14px;color:var(--ac);font-weight:600;padding:6px 0">➕ Add Line Item</summary>
-  <form method="POST" action="/rfq/{{rid}}/add-item" style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd);flex-wrap:wrap">
-   <div><label style="font-size:13px;color:var(--tx2);display:block">Qty</label><input type="number" name="qty" value="1" min="1" class="num-in" style="width:60px;font-size:13px;padding:6px" required></div>
-   <div><label style="font-size:13px;color:var(--tx2);display:block">UOM</label><input type="text" name="uom" value="CASE" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
-   <div style="flex:1;min-width:200px"><label style="font-size:13px;color:var(--tx2);display:block">Description</label><input type="text" name="description" placeholder="Item description..." class="text-in" style="width:100%;font-size:13px;padding:6px" required></div>
-   <div><label style="font-size:13px;color:var(--tx2);display:block">Part #</label><input type="text" name="item_number" placeholder="Optional" class="text-in" style="width:100px;font-size:13px;padding:6px"></div>
-   <button type="submit" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:14px">Add</button>
-  </form>
+  <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd);flex-wrap:wrap">
+   <div><label style="font-size:13px;color:var(--tx2);display:block">Qty</label><input type="number" id="ai-qty" value="1" min="1" class="num-in" style="width:60px;font-size:13px;padding:6px"></div>
+   <div><label style="font-size:13px;color:var(--tx2);display:block">UOM</label><input type="text" id="ai-uom" value="CASE" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
+   <div style="flex:1;min-width:200px"><label style="font-size:13px;color:var(--tx2);display:block">Description</label><input type="text" id="ai-desc" placeholder="Item description..." class="text-in" style="width:100%;font-size:13px;padding:6px"></div>
+   <div><label style="font-size:13px;color:var(--tx2);display:block">Part #</label><input type="text" id="ai-part" placeholder="Optional" class="text-in" style="width:100px;font-size:13px;padding:6px"></div>
+   <button type="button" onclick="doAddItem()" id="ai-btn" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:14px">Add</button>
+   <span id="ai-msg" style="font-size:13px;display:none"></span>
+  </div>
  </details>
+ <script>
+  if (window.location.hash === '#add-item-section') {
+    var _d = document.getElementById('add-item-section');
+    if (_d) { _d.open = true; _d.scrollIntoView({behavior:'smooth', block:'center'}); }
+  }
+  function doAddItem() {
+    var qty  = document.getElementById('ai-qty').value.trim();
+    var uom  = document.getElementById('ai-uom').value.trim().toUpperCase();
+    var desc = document.getElementById('ai-desc').value.trim();
+    var part = document.getElementById('ai-part').value.trim();
+    if (!desc) { alert('Description is required'); return; }
+    var btn = document.getElementById('ai-btn');
+    var msg = document.getElementById('ai-msg');
+    btn.disabled = true; btn.textContent = '⏳ Adding...';
+    msg.style.display = 'none';
+    var fd = new FormData();
+    fd.append('qty', qty || '1');
+    fd.append('uom', uom || 'CASE');
+    fd.append('description', desc);
+    fd.append('item_number', part);
+    fetch('/rfq/{{rid}}/add-item', {method:'POST', body:fd})
+      .then(function(r) {
+        msg.style.display = 'inline';
+        if (r.ok || r.redirected) {
+          msg.style.color = '#3fb950'; msg.textContent = '✅ Added!';
+          document.getElementById('ai-qty').value = '1';
+          document.getElementById('ai-uom').value = 'CASE';
+          document.getElementById('ai-desc').value = '';
+          document.getElementById('ai-part').value = '';
+          btn.disabled = false; btn.textContent = 'Add';
+          setTimeout(function(){ window.location.href = '/rfq/{{rid}}#add-item-section'; }, 500);
+        } else {
+          msg.style.color = '#f85149'; msg.textContent = '❌ Failed — try again';
+          btn.disabled = false; btn.textContent = 'Add';
+        }
+      })
+      .catch(function() {
+        msg.style.display = 'inline';
+        msg.style.color = '#f85149'; msg.textContent = '❌ Network error';
+        btn.disabled = false; btn.textContent = 'Add';
+      });
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    var el = document.getElementById('ai-desc');
+    if (el) el.addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();doAddItem();} });
+  });
+ </script>
  <div style="margin-top:6px">
   <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.08);color:#f85149;border:1px solid rgba(248,81,73,.2);font-size:13px;padding:4px 12px">🔄 Reset All Items</button>
   <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);padding:6px 12px;font-size:13px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px" onclick="cleanJunkItems()">🧹 Clean Junk Items</button>
@@ -817,11 +865,6 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPas
 
 // Auto-detect mode on paste
 document.addEventListener('DOMContentLoaded',function(){
- // Auto-open add-item section after adding an item
- if(window.location.hash==='#add-item-section'){
-  var det=document.getElementById('add-item-section');
-  if(det){det.open=true;setTimeout(function(){det.scrollIntoView({behavior:'smooth',block:'center'})},100);}
- }
  var ta=document.getElementById('bulkUrlsInput');
  if(ta)ta.addEventListener('input',function(){
   var v=ta.value;

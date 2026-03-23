@@ -581,6 +581,7 @@ def api_rfq_upload_parse_doc(rid):
     items = []
     parser_used = ""
     header = {}
+    vision_error = None
 
     if is_pdf:
         # Try 1: AMS 704
@@ -627,17 +628,26 @@ def api_rfq_upload_parse_doc(rid):
 
     elif is_image:
         # Image: go straight to vision parser
+        vision_error = None
         try:
-            from src.forms.vision_parser import parse_with_vision
-            parsed = parse_with_vision(save_path)
-            _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
-            if _vitems:
-                items = _vitems
-                header = parsed.get("header", {})
-                parser_used = "Vision AI"
-                log.info("Upload parse: Vision (image) found %d items", len(items))
+            from src.forms.vision_parser import parse_with_vision, is_available
+            if not is_available():
+                vision_error = "Vision AI unavailable (API key not set — check ANTHROPIC_API_KEY or AGENT_ITEM_ID_KEY env var)"
+                log.warning("Upload parse: %s", vision_error)
+            else:
+                parsed = parse_with_vision(save_path)
+                _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
+                if _vitems:
+                    items = _vitems
+                    header = parsed.get("header", {})
+                    parser_used = "Vision AI"
+                    log.info("Upload parse: Vision (image) found %d items", len(items))
+                else:
+                    vision_error = "Vision AI returned no items from image"
+                    log.warning("Upload parse: %s", vision_error)
         except Exception as e:
-            log.debug("Vision image parse failed: %s", e)
+            vision_error = f"Vision AI error: {e}"
+            log.warning("Vision image parse failed: %s", e)
 
         # Fallback: try OCR -> text -> generic parser
         if not items:
@@ -655,9 +665,10 @@ def api_rfq_upload_parse_doc(rid):
                 log.debug("OCR parse failed: %s", e)
 
     if not items:
+        err_detail = vision_error or "No items could be extracted"
         return jsonify({
             "ok": False,
-            "error": "Could not extract items from this document. Try adding items manually.",
+            "error": f"Could not extract items. {err_detail}",
             "parser_tried": ["AMS 704", "Generic RFQ", "Vision AI"] if is_pdf else ["Vision AI", "OCR"],
         })
 
@@ -686,7 +697,12 @@ def api_rfq_upload_parse_doc(rid):
             qty = 1
 
         uom = it.get("uom", "EA") or it.get("unit_of_measure", "EA") or "EA"
-        part = it.get("mfg_number", "") or it.get("part_number", "") or it.get("item_number", "") or ""
+        # item_number from vision parser is sequential (1,2,3) — NOT a part number
+        part = it.get("mfg_number", "") or it.get("part_number", "") or ""
+        if not part:
+            raw_inum = str(it.get("item_number", "")).strip()
+            if raw_inum and not raw_inum.isdigit():
+                part = raw_inum
         cost = it.get("price", 0) or it.get("unit_price", 0) or it.get("cost", 0) or 0
         try:
             cost = float(cost)
