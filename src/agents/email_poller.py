@@ -1680,9 +1680,32 @@ class EmailPoller:
                         except Exception as _rpe:
                             log.debug("PO confirmation queue error: %s", _rpe)
                         
+                        # Tag PO for dashboard to route to pending review queue
+                        _po_result = {
+                            "sender": sender,
+                            "subject": subject,
+                            "body": body,
+                            "email_uid": uid,
+                            "attachments": [{"path": a} for a in po_attachments] if po_attachments else [],
+                            "_is_po": True,
+                            "_po_data": {
+                                "po_number": po_number,
+                                "sol_number": sol_number,
+                                "matched_quote": matched_quote or "",
+                                "items": po_items,
+                                "total": po_total,
+                                "agency": po_agency,
+                                "institution": po_institution,
+                                "sender_email": sender,
+                                "subject": subject,
+                                "po_pdf_path": po_attachments[0] if po_attachments else "",
+                            },
+                        }
+                        results.append(_po_result)
                         self._processed.add(uid)
                         self._diag.setdefault("po_received", 0)
                         self._diag["po_received"] = self._diag.get("po_received", 0) + 1
+                        log.info("PO tagged for review queue: PO#%s sol#%s from %s", po_number, sol_number, sender[:30])
                         continue
                     # ── END PO / AWARD DETECTION ──────────────────────────────
 

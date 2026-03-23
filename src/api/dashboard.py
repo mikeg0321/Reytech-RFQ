@@ -3368,6 +3368,12 @@ def do_poll_check():
                             _check_delivery_status(rfq_email, track_result)
                     except Exception as _te:
                         log.debug("Sales@ tracking scan: %s", _te)
+                    # Route PO emails to pending review instead of auto-processing
+                    if rfq_email.get("_is_po"):
+                        _load_pending_pos()
+                        _add_pending_po(rfq_email.get("_po_data", {}))
+                        log.info("PO routed to pending review: PO#%s", rfq_email.get("_po_data", {}).get("po_number", "?"))
+                        continue
                     rfq_data = process_rfq_email(rfq_email)
                     if rfq_data:
                         imported.append(rfq_data)
@@ -3442,6 +3448,12 @@ def do_poll_check():
                                          len(track_result.get("matched_orders", [])))
                         except Exception as _te:
                             log.debug("Tracking scan error: %s", _te)
+                        # Route PO emails to pending review instead of auto-processing
+                        if rfq_email.get("_is_po"):
+                            _load_pending_pos()
+                            _add_pending_po(rfq_email.get("_po_data", {}))
+                            log.info("PO routed to pending review: PO#%s", rfq_email.get("_po_data", {}).get("po_number", "?"))
+                            continue
                         rfq_data = process_rfq_email(rfq_email)
                         if rfq_data:
                             imported.append(rfq_data)
@@ -4582,6 +4594,123 @@ def api_cleanup_queue():
         "rfq_kept": len(results["rfq_kept"]),
     }
     return jsonify(results)
+
+
+@bp.route("/api/admin/hard-cleanup", methods=["GET", "POST"])
+@auth_required
+def api_hard_cleanup():
+    """Aggressive cleanup — keeps only real business items."""
+    execute = request.args.get("execute", "false").lower() == "true"
+    if request.method == "POST":
+        data = request.get_json(force=True, silent=True) or {}
+        execute = data.get("execute", execute)
+
+    import re as _hc_re
+    _today_str = datetime.now().strftime("%Y-%m-%d")
+
+    # ── RFQ FILTER ──
+    rfqs = load_rfqs()
+    rfq_keep = {}
+    rfq_delete = {}
+
+    for rid, r in rfqs.items():
+        sol = r.get("solicitation_number", "") or r.get("rfq_number", "")
+        status = r.get("status", "")
+        items_count = len(r.get("line_items", r.get("items", [])))
+        created = r.get("received_at", "") or r.get("created_at", "") or ""
+
+        keep = False
+        reason = ""
+
+        # Keep sent/won/generated with items (real business)
+        if status in ("sent", "won", "generated") and items_count > 0:
+            keep = True
+            reason = "real business"
+        # Keep anything created today
+        elif _today_str in created:
+            keep = True
+            reason = "created today"
+        # Keep new/draft with real solicitation AND items
+        elif status in ("new", "draft", "ready") and items_count > 0 and sol and sol != "unknown":
+            keep = True
+            reason = "active work"
+
+        if keep:
+            rfq_keep[rid] = {"sol": sol[:15], "buyer": r.get("requestor_name", "")[:25], "status": status, "items": items_count, "reason": reason}
+        else:
+            rfq_delete[rid] = {"sol": sol[:15], "buyer": r.get("requestor_name", "")[:25], "status": status, "items": items_count}
+
+    # ── PC FILTER ──
+    pcs = _load_price_checks()
+    pc_keep = {}
+    pc_delete = {}
+
+    for pid, pc in pcs.items():
+        sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
+        status = pc.get("status", "")
+        items_count = len(pc.get("items", []))
+        created = pc.get("created_at", "") or ""
+
+        keep = False
+        reason = ""
+
+        # Keep sent/won with items and numeric sol
+        if status in ("sent", "won", "pending_award") and items_count > 0:
+            if _hc_re.match(r'^\d+$', sol or ""):
+                keep = True
+                reason = "sent/won"
+        # Keep created today
+        if _today_str in created:
+            keep = True
+            reason = "created today"
+        # Keep new/draft with real numeric sol AND items
+        elif status in ("new", "draft", "parsed", "priced", "ready") and items_count > 0:
+            if _hc_re.match(r'^\d+$', sol or ""):
+                keep = True
+                reason = "active with real sol"
+
+        # NEVER keep duplicate/dismissed/archived regardless
+        if status in ("duplicate", "dismissed", "archived", "deleted"):
+            keep = False
+            reason = ""
+
+        if keep:
+            pc_keep[pid] = {"sol": sol[:15], "buyer": (pc.get("requestor", "") or pc.get("buyer", ""))[:25], "status": status, "items": items_count, "reason": reason}
+        else:
+            pc_delete[pid] = {"sol": sol[:15], "buyer": (pc.get("requestor", "") or pc.get("buyer", ""))[:25], "status": status, "items": items_count}
+
+    if execute:
+        for rid in rfq_delete:
+            rfqs.pop(rid, None)
+        save_rfqs(rfqs)
+
+        for pid in pc_delete:
+            pcs.pop(pid, None)
+        _save_price_checks(pcs)
+
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for rid in rfq_delete:
+                    conn.execute("DELETE FROM rfqs WHERE id = ?", (rid,))
+                for pid in pc_delete:
+                    conn.execute("DELETE FROM price_checks WHERE id = ?", (pid,))
+        except Exception as _e:
+            log.warning("SQLite cleanup: %s", _e)
+
+    return jsonify({
+        "dry_run": not execute,
+        "rfq_keep": list(rfq_keep.values()),
+        "rfq_delete": list(rfq_delete.values()),
+        "pc_keep": list(pc_keep.values()),
+        "pc_delete": list(pc_delete.values()),
+        "summary": {
+            "rfq_keep": len(rfq_keep),
+            "rfq_delete": len(rfq_delete),
+            "pc_keep": len(pc_keep),
+            "pc_delete": len(pc_delete),
+        }
+    })
 
 
 @bp.route("/api/admin/cleanup-quote-numbers", methods=["GET", "POST"])

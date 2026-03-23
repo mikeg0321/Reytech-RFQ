@@ -6343,3 +6343,203 @@ def api_download_complete_package(rid):
     except Exception as e:
         log.error("Complete package download failed: %s", e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/rfq/<rid>/export-invoice")
+@auth_required
+def api_export_invoice(rid):
+    """Export buyer invoice as Excel for QB entry."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    items = r.get("line_items", r.get("items", []))
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "")
+    quote_num = r.get("reytech_quote_number", "")
+    buyer = r.get("requestor_name", "")
+    agency = r.get("agency", "") or r.get("agency_name", "")
+    tax_rate = float(r.get("tax_rate", 0) or 0) / 100
+    delivery = r.get("delivery_location", "")
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from io import BytesIO
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Invoice"
+
+        hf = Font(bold=True, size=14)
+        sf = Font(size=11, color="333333")
+        cf = Font(bold=True, size=10, color="FFFFFF")
+        cfill = PatternFill("solid", fgColor="2E75B6")
+        mf = '#,##0.00'
+        bd = Border(bottom=Side(style='thin', color='CCCCCC'))
+
+        ws.merge_cells('A1:G1')
+        ws['A1'] = "REYTECH INC. — INVOICE"
+        ws['A1'].font = hf
+        ws['A2'] = f"Quote #: {quote_num}"
+        ws['A2'].font = sf
+        ws['A3'] = f"Bill To: {buyer} — {agency}"
+        ws['A3'].font = sf
+        ws['A4'] = f"Ship To: {delivery}"
+        ws['A4'].font = sf
+        ws['A5'] = f"Solicitation #: {sol}"
+        ws['A5'].font = sf
+
+        for col, h in enumerate(["#", "Description", "Part #", "QTY", "UOM", "Unit Price", "Subtotal"], 1):
+            c = ws.cell(row=7, column=col, value=h)
+            c.font = cf
+            c.fill = cfill
+            c.alignment = Alignment(horizontal='center')
+
+        subtotal = 0
+        for idx, item in enumerate(items):
+            row = 8 + idx
+            qty = int(float(item.get("qty", 1) or 1))
+            price = float(item.get("price_per_unit", 0) or 0)
+            lt = qty * price
+            subtotal += lt
+            ws.cell(row=row, column=1, value=idx+1).border = bd
+            ws.cell(row=row, column=2, value=(item.get("description", "") or "")[:80]).border = bd
+            ws.cell(row=row, column=3, value=item.get("part_number", "") or item.get("item_number", "")).border = bd
+            ws.cell(row=row, column=4, value=qty).border = bd
+            ws.cell(row=row, column=5, value=item.get("uom", "EA")).border = bd
+            ws.cell(row=row, column=6, value=price).number_format = mf
+            ws.cell(row=row, column=7, value=lt).number_format = mf
+
+        tr = 8 + len(items) + 1
+        tax_amt = subtotal * tax_rate
+        ws.cell(row=tr, column=6, value="Subtotal:").font = Font(bold=True)
+        ws.cell(row=tr, column=7, value=subtotal).number_format = mf
+        ws.cell(row=tr+1, column=6, value=f"Tax ({r.get('tax_rate', 0)}%):").font = Font(bold=True)
+        ws.cell(row=tr+1, column=7, value=tax_amt).number_format = mf
+        ws.cell(row=tr+2, column=6, value="TOTAL:").font = Font(bold=True, size=12)
+        ws.cell(row=tr+2, column=7, value=subtotal + tax_amt).number_format = mf
+        ws.cell(row=tr+2, column=7).font = Font(bold=True, size=12)
+
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 50
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 8
+        ws.column_dimensions['E'].width = 8
+        ws.column_dimensions['F'].width = 14
+        ws.column_dimensions['G'].width = 14
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        from flask import send_file
+        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=f"Invoice_{quote_num}_{sol}_Reytech.xlsx")
+    except Exception as e:
+        log.error("Invoice export: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/rfq/<rid>/export-supplier-po")
+@auth_required
+def api_export_supplier_po(rid):
+    """Export supplier PO as Excel for QB entry."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    items = r.get("line_items", r.get("items", []))
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "")
+    quote_num = r.get("reytech_quote_number", "")
+    supplier_name = ""
+    for item in items:
+        sn = item.get("cost_supplier_name", "") or item.get("scprs_supplier", "")
+        if sn:
+            supplier_name = sn
+            break
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from io import BytesIO
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Supplier PO"
+
+        hf = Font(bold=True, size=14)
+        sf = Font(size=11, color="333333")
+        cf = Font(bold=True, size=10, color="FFFFFF")
+        cfill = PatternFill("solid", fgColor="2D6A2E")
+        mf = '#,##0.00'
+        bd = Border(bottom=Side(style='thin', color='CCCCCC'))
+
+        ws.merge_cells('A1:H1')
+        ws['A1'] = "REYTECH INC. — PURCHASE ORDER"
+        ws['A1'].font = hf
+        ws['A2'] = f"Related Quote #: {quote_num}"
+        ws['A2'].font = sf
+        ws['A3'] = f"Supplier: {supplier_name}"
+        ws['A3'].font = sf
+        ws['A4'] = f"Solicitation #: {sol}"
+        ws['A4'].font = sf
+
+        for col, h in enumerate(["#", "Description", "Part #", "QTY", "UOM", "Supplier Cost", "Subtotal", "Source"], 1):
+            c = ws.cell(row=6, column=col, value=h)
+            c.font = cf
+            c.fill = cfill
+            c.alignment = Alignment(horizontal='center')
+
+        subtotal = 0
+        for idx, item in enumerate(items):
+            row = 7 + idx
+            qty = int(float(item.get("qty", 1) or 1))
+            cost = float(item.get("supplier_cost", 0) or item.get("vendor_cost", 0) or 0)
+            lt = qty * cost
+            subtotal += lt
+            source = item.get("cost_source", "")
+            sname = item.get("cost_supplier_name", "")
+            ws.cell(row=row, column=1, value=idx+1).border = bd
+            ws.cell(row=row, column=2, value=(item.get("description", "") or "")[:80]).border = bd
+            ws.cell(row=row, column=3, value=item.get("part_number", "") or item.get("item_number", "")).border = bd
+            ws.cell(row=row, column=4, value=qty).border = bd
+            ws.cell(row=row, column=5, value=item.get("uom", "EA")).border = bd
+            ws.cell(row=row, column=6, value=cost).number_format = mf
+            ws.cell(row=row, column=7, value=lt).number_format = mf
+            ws.cell(row=row, column=8, value=f"{source} — {sname}" if sname else source).border = bd
+
+        tr = 7 + len(items) + 1
+        bid_total = sum(int(float(i.get("qty", 1) or 1)) * float(i.get("price_per_unit", 0) or 0) for i in items)
+        ws.cell(row=tr, column=6, value="TOTAL:").font = Font(bold=True, size=12)
+        ws.cell(row=tr, column=7, value=subtotal).number_format = mf
+        ws.cell(row=tr, column=7).font = Font(bold=True, size=12)
+        ws.cell(row=tr+2, column=5, value="Supplier Cost:").font = Font(bold=True)
+        ws.cell(row=tr+2, column=7, value=subtotal).number_format = mf
+        ws.cell(row=tr+3, column=5, value="Bid Total:").font = Font(bold=True)
+        ws.cell(row=tr+3, column=7, value=bid_total).number_format = mf
+        ws.cell(row=tr+4, column=5, value="Gross Margin:").font = Font(bold=True)
+        ws.cell(row=tr+4, column=7, value=bid_total - subtotal).number_format = mf
+        ws.cell(row=tr+4, column=7).font = Font(bold=True, color="2D6A2E")
+
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 50
+        ws.column_dimensions['C'].width = 15
+        ws.column_dimensions['D'].width = 8
+        ws.column_dimensions['E'].width = 8
+        ws.column_dimensions['F'].width = 14
+        ws.column_dimensions['G'].width = 14
+        ws.column_dimensions['H'].width = 25
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        from flask import send_file
+        safe_sup = supplier_name.replace(" ", "")[:20]
+        return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         as_attachment=True, download_name=f"SupplierPO_{quote_num}_{sol}_{safe_sup}.xlsx")
+    except Exception as e:
+        log.error("Supplier PO export: %s", e)
+        return jsonify({"ok": False, "error": str(e)})

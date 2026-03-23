@@ -433,6 +433,16 @@
 </div>
 {% endif %}
 
+{% if r.get('output_files') %}
+  <div class="card" style="padding:12px 16px">
+    <div style="font-size:15px;font-weight:700;color:var(--tx);margin-bottom:8px">📊 QB Export</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a href="/api/rfq/{{ rid }}/export-invoice" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);color:var(--ac);flex:1;text-align:center;padding:8px">📄 Invoice (Excel)</a>
+      <a href="/api/rfq/{{ rid }}/export-supplier-po" class="btn btn-sm" style="font-size:13px;background:rgba(63,185,80,.1);color:#3fb950;flex:1;text-align:center;padding:8px">📦 Supplier PO (Excel)</a>
+    </div>
+  </div>
+  {% endif %}
+
 <!-- PDF Preview Modal -->
 <div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px" onclick="if(event.target===this)this.style.display='none'">
  <div style="max-width:900px;margin:0 auto;height:100%;display:flex;flex-direction:column">
