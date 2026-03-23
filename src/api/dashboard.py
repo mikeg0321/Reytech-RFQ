@@ -4455,7 +4455,7 @@ def admin_backups():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/backup-now", methods=["POST"])
+@bp.route("/api/admin/backup-now", methods=["GET", "POST"])
 @auth_required
 def admin_backup_now():
     """Trigger an immediate database backup."""

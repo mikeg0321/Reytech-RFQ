@@ -2626,7 +2626,7 @@ def api_email_debug():
     })
 
 
-@bp.route("/api/force-reprocess", methods=["POST"])
+@bp.route("/api/force-reprocess", methods=["GET", "POST"])
 @auth_required
 def api_force_reprocess():
     """Nuclear option: clear ALL processed UIDs and re-poll.
@@ -2661,7 +2661,7 @@ def api_force_reprocess():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/force-recapture", methods=["POST"])
+@bp.route("/api/force-recapture", methods=["GET", "POST"])
 @auth_required
 def api_force_recapture():
     """Delete a specific RFQ/PC by keyword match, clear its UID, and re-poll.
@@ -3290,7 +3290,7 @@ def api_poll_now():
         return jsonify({"ok": False, "found": 0, "error": str(e), "traceback": _tb.format_exc()})
 
 
-@bp.route("/api/poll/reset-processed", methods=["POST"])
+@bp.route("/api/poll/reset-processed", methods=["GET", "POST"])
 @auth_required
 def api_poll_reset_processed():
     """Atomic: clear processed UIDs → immediately re-poll → return results.
@@ -3984,7 +3984,7 @@ def api_pricecheck_dismiss(pcid):
     })
 
 
-@bp.route("/api/pricecheck/<pcid>/delete", methods=["POST"])
+@bp.route("/api/pricecheck/<pcid>/delete", methods=["GET", "POST"])
 @auth_required
 def api_pricecheck_delete(pcid):
     """Delete a price check by ID. Also removes linked quote draft and recalculates counter."""
@@ -5784,7 +5784,7 @@ def competitors_page():
     return render_page("generic.html", active_page="Compete", page_title="Competitive Intelligence", content=content)
 
 
-@bp.route("/api/admin/cleanup", methods=["POST"])
+@bp.route("/api/admin/cleanup", methods=["GET", "POST"])
 @auth_required
 def api_admin_cleanup():
     """
@@ -5893,7 +5893,7 @@ def api_admin_cleanup():
     return jsonify(results)
 
 
-@bp.route("/api/admin/rescan-item-numbers", methods=["POST"])
+@bp.route("/api/admin/rescan-item-numbers", methods=["GET", "POST"])
 @auth_required
 def api_admin_rescan_item_numbers():
     """
@@ -6045,7 +6045,7 @@ def api_admin_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/counter-set", methods=["POST"])
+@bp.route("/api/admin/counter-set", methods=["GET", "POST"])
 @auth_required
 def api_admin_counter_set():
     """Force-set the quote counter. POST body: {"seq": 16}
@@ -6072,7 +6072,7 @@ def api_admin_counter_set():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/delete-quotes", methods=["POST"])
+@bp.route("/api/admin/delete-quotes", methods=["GET", "POST"])
 @auth_required
 def api_admin_delete_quotes():
     """Delete quotes by number. POST body: {"quote_numbers": ["R26Q9","R26Q10"]}"""
@@ -6101,7 +6101,7 @@ def api_admin_delete_quotes():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/recall", methods=["POST"])
+@bp.route("/api/admin/recall", methods=["GET", "POST"])
 @auth_required
 def api_admin_recall():
     """Retroactive recall: delete PCs matching a pattern + free quote numbers.
@@ -6216,7 +6216,7 @@ def api_admin_recall():
     return jsonify(results)
 
 
-@bp.route("/api/admin/purge-rfqs", methods=["POST"])
+@bp.route("/api/admin/purge-rfqs", methods=["GET", "POST"])
 @auth_required
 def api_admin_purge_rfqs():
     """Delete RFQs from the queue.
@@ -6284,7 +6284,7 @@ def api_admin_purge_rfqs():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-@bp.route("/api/admin/clean-activity", methods=["POST"])
+@bp.route("/api/admin/clean-activity", methods=["GET", "POST"])
 @auth_required
 def api_admin_clean_activity():
     """Remove entries from crm_activity.json.
@@ -6334,7 +6334,7 @@ def api_admin_clean_activity():
     })
 
 
-@bp.route("/api/admin/backfill-contacts", methods=["POST"])
+@bp.route("/api/admin/backfill-contacts", methods=["GET", "POST"])
 @auth_required
 def api_admin_backfill_contacts():
     """Backfill CRM contacts from existing price checks and RFQ senders.
@@ -6424,7 +6424,7 @@ def api_admin_backfill_contacts():
     })
 
 
-@bp.route("/api/admin/import-contacts", methods=["POST"])
+@bp.route("/api/admin/import-contacts", methods=["GET", "POST"])
 @auth_required
 def api_admin_import_contacts():
     """Import contacts from a list.
@@ -6517,7 +6517,7 @@ def api_pricecheck_clear_quote(pcid):
 
 
 
-@bp.route("/api/admin/rfq-cleanup", methods=["POST"])
+@bp.route("/api/admin/rfq-cleanup", methods=["GET", "POST"])
 @auth_required
 def api_admin_rfq_cleanup():
     """Remove AMS 704 price check PDFs that incorrectly landed in the RFQ queue.
@@ -6648,7 +6648,7 @@ def api_item_link_lookup():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/system-reset", methods=["POST"])
+@bp.route("/api/admin/system-reset", methods=["GET", "POST"])
 @auth_required
 def api_admin_system_reset():
     """Full system reset: clean slate, re-process inbox through new auto-price pipeline.
@@ -6832,7 +6832,7 @@ def api_admin_system_reset():
     return jsonify({"ok": True, **results})
 
 
-@bp.route("/api/admin/reset-and-poll", methods=["POST"])
+@bp.route("/api/admin/reset-and-poll", methods=["GET", "POST"])
 @auth_required
 def api_admin_reset_and_poll():
     """Atomic operation: pause poller → reset → set counter → poll → unpause.
@@ -7065,7 +7065,7 @@ def api_admin_poll_result():
     return jsonify(result)
 
 
-@bp.route("/api/admin/poller-control", methods=["POST"])
+@bp.route("/api/admin/poller-control", methods=["GET", "POST"])
 @auth_required
 def api_admin_poller_control():
     """Pause or unpause the background email poller.

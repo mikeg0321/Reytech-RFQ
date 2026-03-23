@@ -395,62 +395,40 @@ loadHealth();
 <!-- ═══ Admin Tools ═══ -->
 <div class="card" style="margin-top:20px;padding:16px 20px">
  <div style="font-size:16px;font-weight:700;color:var(--tx);margin-bottom:12px">🔧 Admin Tools</div>
-
  <div style="display:flex;flex-direction:column;gap:8px">
   <div style="display:flex;gap:8px;align-items:center">
-   <button onclick="adminAction('/api/admin/hard-cleanup')" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.2);min-width:200px">🗑 Hard Cleanup (dry run)</button>
-   <span style="font-size:12px;color:var(--tx2)">Remove all junk PCs and RFQs — shows what would be deleted</span>
+   <a href="/api/admin/hard-cleanup" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.2);min-width:220px;text-align:center;text-decoration:none">🗑 Hard Cleanup (dry run)</a>
+   <span style="font-size:12px;color:var(--tx2)">Preview what would be deleted</span>
   </div>
-
   <div style="display:flex;gap:8px;align-items:center">
-   <button onclick="if(confirm('Delete all junk entries?')) adminAction('/api/admin/hard-cleanup?execute=true')" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(248,81,73,.2);color:#f85149;border:1px solid rgba(248,81,73,.3);min-width:200px;font-weight:600">🗑 Hard Cleanup (EXECUTE)</button>
-   <span style="font-size:12px;color:#f85149">⚠ Actually deletes — cannot undo</span>
+   <a href="/api/admin/hard-cleanup?execute=true" class="btn btn-sm" onclick="return confirm('Delete all junk entries? Cannot undo.')" style="font-size:13px;padding:8px 16px;background:rgba(248,81,73,.2);color:#f85149;border:1px solid rgba(248,81,73,.3);min-width:220px;text-align:center;text-decoration:none;font-weight:600">🗑 Hard Cleanup (EXECUTE)</a>
+   <span style="font-size:12px;color:#f85149">⚠ Cannot undo</span>
   </div>
-
   <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-   <button onclick="adminAction('/api/admin/force-repoll')" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2);min-width:200px">🔄 Force Re-Poll Emails</button>
-   <span style="font-size:12px;color:var(--tx2)">Clears processed cache and polls for new emails</span>
+   <a href="/api/admin/force-repoll" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2);min-width:220px;text-align:center;text-decoration:none">🔄 Force Re-Poll Emails</a>
+   <span style="font-size:12px;color:var(--tx2)">Clears processed cache and re-scans</span>
   </div>
-
   <div style="display:flex;gap:8px;align-items:center">
-   <button onclick="adminAction('/api/admin/cleanup-queue')" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);min-width:200px">🧹 Soft Cleanup (dry run)</button>
+   <a href="/api/admin/cleanup-queue" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);min-width:220px;text-align:center;text-decoration:none">🧹 Soft Cleanup (dry run)</a>
    <span style="font-size:12px;color:var(--tx2)">Remove obvious duplicates only</span>
   </div>
-
+  <div style="display:flex;gap:8px;align-items:center">
+   <a href="/api/admin/cleanup-queue?execute=true" class="btn btn-sm" onclick="return confirm('Run soft cleanup?')" style="font-size:13px;padding:8px 16px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);min-width:220px;text-align:center;text-decoration:none">🧹 Soft Cleanup (EXECUTE)</a>
+   <span style="font-size:12px;color:var(--tx2)">Deletes duplicates</span>
+  </div>
   <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-   <button onclick="adminAction('/api/admin/cleanup-quote-numbers')" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);min-width:200px">🔢 Cleanup Quote Numbers</button>
-   <span style="font-size:12px;color:var(--tx2)">Fix ghost quote numbers and reset counter</span>
+   <a href="/api/admin/cleanup-quote-numbers" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);min-width:220px;text-align:center;text-decoration:none">🔢 Cleanup Quote Numbers</a>
+   <span style="font-size:12px;color:var(--tx2)">Fix ghost quotes and reset counter</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+   <a href="/api/poll/reset-processed" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);min-width:220px;text-align:center;text-decoration:none">📧 Reset Processed Emails</a>
+   <span style="font-size:12px;color:var(--tx2)">Light version — just clears the processed list</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+   <a href="/api/admin/backup-now" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2);min-width:220px;text-align:center;text-decoration:none">💾 Backup to Drive Now</a>
+   <span style="font-size:12px;color:var(--tx2)">Manual Google Drive backup</span>
   </div>
  </div>
-
- <div id="admin-result" style="margin-top:12px;display:none;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd);max-height:400px;overflow-y:auto">
-  <pre id="admin-result-text" style="font-size:12px;color:var(--tx);white-space:pre-wrap;margin:0"></pre>
- </div>
 </div>
-
-<script>
-function adminAction(url) {
- var result = document.getElementById('admin-result');
- var text = document.getElementById('admin-result-text');
- result.style.display = 'block';
- text.textContent = '⏳ Running...';
-
- fetch(url, {method: url.includes('execute') || url.includes('force-repoll') ? 'POST' : 'GET', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}})
- .then(function(r) { return r.json(); })
- .then(function(d) {
-  text.textContent = JSON.stringify(d, null, 2);
-  if (d.summary) {
-   text.textContent = 'SUMMARY:\n' +
-    (d.summary.pc_delete !== undefined ? '  PCs deleted: ' + d.summary.pc_delete + ' | kept: ' + d.summary.pc_keep + '\n' : '') +
-    (d.summary.rfq_delete !== undefined ? '  RFQs deleted: ' + d.summary.rfq_delete + ' | kept: ' + d.summary.rfq_keep + '\n' : '') +
-    (d.dry_run !== undefined ? '  Mode: ' + (d.dry_run ? 'DRY RUN' : 'EXECUTED') + '\n' : '') +
-    '\nFull response:\n' + JSON.stringify(d, null, 2);
-  }
- })
- .catch(function(e) {
-  text.textContent = '❌ Error: ' + e.message;
- });
-}
-</script>
 
 {% endblock %}
