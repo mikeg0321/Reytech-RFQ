@@ -4611,7 +4611,6 @@ def api_hard_cleanup():
         execute = data.get("execute", execute)
 
     import re as _hc_re
-    _today_str = datetime.now().strftime("%Y-%m-%d")
 
     # ── RFQ FILTER ──
     rfqs = load_rfqs()
@@ -4622,28 +4621,40 @@ def api_hard_cleanup():
         sol = r.get("solicitation_number", "") or r.get("rfq_number", "")
         status = r.get("status", "")
         items_count = len(r.get("line_items", r.get("items", [])))
-        created = r.get("received_at", "") or r.get("created_at", "") or ""
 
         keep = False
         reason = ""
 
         # Keep sent/won/generated with items (real business)
         if status in ("sent", "won", "generated") and items_count > 0:
-            keep = True
-            reason = "real business"
-        # Keep anything created today
-        elif _today_str in created:
-            keep = True
-            reason = "created today"
+            keep, reason = True, "real business"
         # Keep new/draft with real solicitation AND items
         elif status in ("new", "draft", "ready") and items_count > 0 and sol and sol != "unknown":
-            keep = True
-            reason = "active work"
+            keep, reason = True, "active work"
 
         if keep:
             rfq_keep[rid] = {"sol": sol[:15], "buyer": r.get("requestor_name", "")[:25], "status": status, "items": items_count, "reason": reason}
         else:
             rfq_delete[rid] = {"sol": sol[:15], "buyer": r.get("requestor_name", "")[:25], "status": status, "items": items_count}
+
+    # Dedup: if multiple RFQs have same sol, keep the one with most items
+    _sol_best = {}
+    for rid in list(rfq_keep.keys()):
+        sol = rfq_keep[rid]["sol"]
+        if not sol or sol == "unknown":
+            continue
+        items = rfq_keep[rid]["items"]
+        if sol in _sol_best:
+            prev_rid, prev_items = _sol_best[sol]
+            if items > prev_items:
+                rfq_delete[prev_rid] = rfq_keep.pop(prev_rid)
+                rfq_delete[prev_rid]["reason"] = "duplicate sol (kept better)"
+                _sol_best[sol] = (rid, items)
+            else:
+                rfq_delete[rid] = rfq_keep.pop(rid)
+                rfq_delete[rid]["reason"] = "duplicate sol (kept better)"
+        else:
+            _sol_best[sol] = (rid, items)
 
     # ── PC FILTER ──
     pcs = _load_price_checks()
@@ -4654,35 +4665,41 @@ def api_hard_cleanup():
         sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
         status = pc.get("status", "")
         items_count = len(pc.get("items", []))
-        created = pc.get("created_at", "") or ""
 
         keep = False
         reason = ""
 
-        # Keep sent/won with items and numeric sol
-        if status in ("sent", "won", "pending_award") and items_count > 0:
-            if _hc_re.match(r'^\d+$', sol or ""):
-                keep = True
-                reason = "sent/won"
-        # Keep created today
-        if _today_str in created:
-            keep = True
-            reason = "created today"
-        # Keep new/draft with real numeric sol AND items
-        elif status in ("new", "draft", "parsed", "priced", "ready") and items_count > 0:
-            if _hc_re.match(r'^\d+$', sol or ""):
-                keep = True
-                reason = "active with real sol"
-
         # NEVER keep duplicate/dismissed/archived regardless
         if status in ("duplicate", "dismissed", "archived", "deleted"):
             keep = False
-            reason = ""
+        # Keep sent/won with items and numeric sol
+        elif status in ("sent", "won", "pending_award") and items_count > 0 and _hc_re.match(r'^\d+$', sol or ""):
+            keep, reason = True, "sent/won"
+        # Keep new/draft with real numeric sol AND items
+        elif status in ("new", "draft", "parsed", "priced", "ready") and items_count > 0 and _hc_re.match(r'^\d+$', sol or ""):
+            keep, reason = True, "active with real sol"
 
         if keep:
             pc_keep[pid] = {"sol": sol[:15], "buyer": (pc.get("requestor", "") or pc.get("buyer", ""))[:25], "status": status, "items": items_count, "reason": reason}
         else:
             pc_delete[pid] = {"sol": sol[:15], "buyer": (pc.get("requestor", "") or pc.get("buyer", ""))[:25], "status": status, "items": items_count}
+
+    # Dedup PCs: same solicitation → keep the one with most items
+    _pc_sol_best = {}
+    for pid in list(pc_keep.keys()):
+        sol = pc_keep[pid]["sol"]
+        if not sol or sol == "unknown":
+            continue
+        items = pc_keep[pid]["items"]
+        if sol in _pc_sol_best:
+            prev_pid, prev_items = _pc_sol_best[sol]
+            if items > prev_items:
+                pc_delete[prev_pid] = pc_keep.pop(prev_pid)
+                _pc_sol_best[sol] = (pid, items)
+            else:
+                pc_delete[pid] = pc_keep.pop(pid)
+        else:
+            _pc_sol_best[sol] = (pid, items)
 
     if execute:
         for rid in rfq_delete:
