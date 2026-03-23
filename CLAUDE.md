@@ -2,7 +2,7 @@
 
 ## System Context
 
-**What this is:** End-to-end RFQ automation + business intelligence for Reytech Inc., a California SB/DVBE government reseller. 90K lines, 714 routes, 48 templates, deployed on Railway.
+**What this is:** End-to-end RFQ automation + business intelligence for Reytech Inc., a California SB/DVBE government reseller. 90K+ lines, 955 routes, 50 templates, deployed on Railway.
 
 **Stack:** Python 3.12 / Flask / SQLite (WAL mode) / Jinja2 / Gunicorn. No frontend framework — all server-rendered HTML with inline JS.
 
@@ -79,23 +79,23 @@ All in `src/agents/growth_agent.py` (104 functions). Key patterns:
 - Status dicts (`PULL_STATUS`, `BUYER_STATUS`, `INTEL_STATUS`) for long-running ops
 - Thread-based async for SCPRS scraping — poll status endpoints for progress
 
-## Known Issues (Production Audit)
+## Known Issues (Production Audit — last audited 2026-03-23)
 
-### Critical — SQL Injection
-16 files contain f-string SQL queries. These are behind auth but still injection vectors:
-- `src/core/db.py` (3 instances)
-- `src/agents/product_catalog.py` (7 instances)
-- `src/agents/scprs_universal_pull.py` (4 instances)
-- Fix: Convert all to parameterized queries (`cursor.execute("... WHERE x = ?", (value,))`)
+### Resolved
+- **SQL Injection (was Critical):** All f-string SQL instances audited — all interpolate
+  hardcoded constants, table names from allowlists, or dynamic `LIKE ?` placeholder
+  counts. No user input reaches SQL strings. Not injection vectors.
+- **Bare `except:` clauses:** All 5 replaced with specific exception types (0 remaining).
+- **Duplicate routes:** `/api/pc/convert-to-rfq` and `/api/pricecheck/download` duplicates
+  removed. Kept the more thorough implementations.
+- **Orphaned templates:** 4 dead templates removed (expand, growth_intel, growth, crm).
 
 ### Warning — Unprotected Routes
-13 routes lack `@auth_required`. Most are intentional (health check, webhooks, email tracking pixels) but 2 admin routes need auth:
-- `/api/email-trace` — should have auth
-- `/api/disk-cleanup` — should have auth
+13 routes lack `@auth_required`. Most are intentional (health check, webhooks, email
+tracking pixels). Monitor for new unprotected admin routes.
 
 ### Info — Code Quality
-- 74 bare `except:` clauses across 6 files (should specify exception types)
-- 9 TODO/FIXME/HACK comments remaining
+- 2 TODO comments remaining (QB line-item search, RFQ Undefined values)
 - 230 POST endpoints rely on session auth only (no explicit CSRF tokens)
 
 ## File Layout Rules
