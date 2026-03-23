@@ -1199,7 +1199,7 @@ def api_v1_debug_buyer():
 
 import threading as _threading
 _backfill_lock = _threading.Lock()
-_backfill_running = False
+_backfill_state = {"running": False}  # mutable container — avoids nested global
 
 
 @bp.route("/api/v1/harvest/debug-detail")
@@ -2887,8 +2887,7 @@ def api_v1_quote_enrich():
 @auth_required
 def api_v1_backfill_details():
     """Backfill detail pages for POs that have no line items. Background thread."""
-    global _backfill_running
-    if _backfill_running:
+    if _backfill_state["running"]:
         return api_response({"started": False, "reason": "backfill already running"})
 
     try:
@@ -2905,8 +2904,7 @@ def api_v1_backfill_details():
         conn.close()
 
         def _run():
-            global _backfill_running
-            _backfill_running = True
+            _backfill_state["running"] = True
             log.info("Backfill thread STARTED")
             try:
                 from src.agents.scprs_lookup import FiscalSession
@@ -3057,7 +3055,7 @@ def api_v1_backfill_details():
             except Exception as e:
                 log.error("Backfill error: %s", e, exc_info=True)
             finally:
-                _backfill_running = False
+                _backfill_state["running"] = False
 
         log.info("Backfill: pre-check count=%d, launching thread", need_backfill)
         _threading.Thread(target=_run, daemon=True, name="backfill-details").start()

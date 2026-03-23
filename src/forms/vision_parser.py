@@ -1,12 +1,13 @@
 """
-Vision-based PDF parser for AMS 704 Price Check forms.
+Vision-based document parser for procurement forms and item lists.
 
 Uses Claude's vision capabilities to extract structured data from
-PDF pages rendered as images. Handles ALL forms regardless of:
+PDF pages, images, screenshots, and photographs. Handles:
+- AMS 704 Price Check forms
+- Any procurement list (typed, handwritten, screenshot)
 - DocuSign flattened fields
-- Scanned/photographed forms
+- Scanned/photographed documents
 - Non-standard layouts
-- Garbled OCR text
 
 Falls back gracefully when API key is not available.
 """
@@ -65,15 +66,49 @@ def _pdf_pages_to_base64(pdf_path: str, dpi: int = 200, max_pages: int = 10) -> 
     return results
 
 
+def _image_file_to_base64(image_path: str) -> Optional[dict]:
+    """Load an image file (PNG, JPG, etc.) as base64 for the vision API.
+    Returns {"base64": str, "media_type": str} or None."""
+    ext = os.path.splitext(image_path)[1].lower()
+    media_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/png",
+        ".tiff": "image/png", ".tif": "image/png",
+    }
+    media_type = media_map.get(ext)
+    if not media_type:
+        log.warning("Unsupported image format: %s", ext)
+        return None
+    try:
+        # For BMP/TIFF, convert to PNG via PIL
+        if ext in (".bmp", ".tiff", ".tif"):
+            from PIL import Image
+            import io
+            img = Image.open(image_path)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            return {"base64": b64, "media_type": "image/png"}
+        else:
+            with open(image_path, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode("utf-8")
+            return {"base64": b64, "media_type": media_type}
+    except Exception as e:
+        log.error("Failed to load image %s: %s", image_path, e)
+        return None
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Vision API Call
 # ═══════════════════════════════════════════════════════════════════════
 
-_VISION_SYSTEM = """You are a precise data extractor for California state government procurement forms (AMS 704 Price Check Worksheet).
+_VISION_SYSTEM = """You are a precise data extractor for procurement documents — item lists, price check forms, quote requests, screenshots, and handwritten lists.
 
-Extract ALL data from the form image(s) and return ONLY valid JSON with no other text.
+FIRST: Count how many line items you see in the document. State the count to yourself before extracting.
 
-The JSON structure must be:
+Extract ALL data and return ONLY valid JSON with no other text.
+
+JSON structure:
 {
   "header": {
     "price_check_number": "",
@@ -90,20 +125,22 @@ The JSON structure must be:
       "qty": 12,
       "uom": "each",
       "qty_per_uom": 1,
-      "description": "Suave Deodorant 2.6 Oz. Sweet Pea & Violet Invis. Solid",
-      "part_number": "784922807236"
+      "description": "Item description here",
+      "part_number": "manufacturer or UPC number"
     }
   ]
 }
 
 Rules:
-- Extract EVERY line item visible in the table, even if partially obscured
-- The part_number should be the UPC/barcode number (typically 12-13 digits at the end of the description)
-- Strip the UPC from the description — put it in part_number only
+- Extract EVERY line item — count them first, then extract that exact count
+- Works for ANY document layout: tables, numbered lists, handwritten lists, screenshots
+- part_number = UPC, manufacturer part number, SKU, or catalog number (if visible)
+- Strip the part number from the description — put it in part_number only
 - uom = unit of measure (each, pack, set, box, case, etc.)
 - qty_per_uom = number of items per unit (e.g. "2 Pack" means qty_per_uom=2)
-- For multi-page forms, combine all items into one list with correct sequential item numbers
-- Return ONLY the JSON object, no markdown, no explanation"""
+- If qty is not specified, default to 1
+- For multi-page documents, combine all items into one list
+- Return ONLY the JSON object, no markdown fences, no explanation"""
 
 
 def _call_vision_api(page_images: list) -> Optional[dict]:
@@ -123,14 +160,14 @@ def _call_vision_api(page_images: list) -> Optional[dict]:
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": "image/png",
+                "media_type": pg.get("media_type", "image/png"),
                 "data": pg["base64"],
             }
         })
     content.append({
         "type": "text",
-        "text": ("Extract ALL header fields and ALL line items from this AMS 704 "
-                 "Price Check form. Return ONLY JSON, no markdown fences.")
+        "text": ("Extract ALL header fields and ALL line items from this document. "
+                 "Count items first, then extract that exact count. Return ONLY JSON, no markdown fences.")
     })
 
     try:
@@ -176,11 +213,13 @@ def _call_vision_api(page_images: list) -> Optional[dict]:
 # Main Parser
 # ═══════════════════════════════════════════════════════════════════════
 
-def parse_with_vision(pdf_path: str) -> Optional[dict]:
+def parse_with_vision(file_path: str) -> Optional[dict]:
     """
-    Parse an AMS 704 PDF using Claude's vision capabilities.
+    Parse a PDF or image using Claude's vision capabilities.
 
-    Returns dict in same format as parse_ams704:
+    Accepts: PDF files, PNG, JPG, JPEG, GIF, WEBP, BMP, TIFF.
+
+    Returns dict:
     {
         "header": {...},
         "line_items": [...],
@@ -194,15 +233,24 @@ def parse_with_vision(pdf_path: str) -> Optional[dict]:
     if not ANTHROPIC_API_KEY:
         return None
 
-    # Convert PDF to images
-    page_images = _pdf_pages_to_base64(pdf_path, dpi=200)
-    if not page_images:
-        log.warning("Vision parser: no images generated from %s", pdf_path)
-        return None
+    ext = os.path.splitext(file_path)[1].lower()
+    is_image = ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif")
 
-    # Filter out instruction/blank pages (last page of 704 is usually instructions)
-    # Keep all pages that might have items (up to 10)
-    log.info("Vision parser: %d page images from %s", len(page_images), os.path.basename(pdf_path))
+    if is_image:
+        # Load image directly — don't try pdf2image
+        img_data = _image_file_to_base64(file_path)
+        if not img_data:
+            log.warning("Vision parser: failed to load image %s", file_path)
+            return None
+        page_images = [img_data]
+        log.info("Vision parser: loaded image %s (%s)", os.path.basename(file_path), img_data["media_type"])
+    else:
+        # PDF: convert to images
+        page_images = _pdf_pages_to_base64(file_path, dpi=200)
+        if not page_images:
+            log.warning("Vision parser: no images generated from %s", file_path)
+            return None
+        log.info("Vision parser: %d page images from %s", len(page_images), os.path.basename(file_path))
 
     # Call API
     vision_result = _call_vision_api(page_images)

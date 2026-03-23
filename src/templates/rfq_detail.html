@@ -236,7 +236,7 @@
   <summary style="cursor:pointer;font-size:14px;color:var(--ac);font-weight:600;padding:6px 0">➕ Add Line Item</summary>
   <form method="POST" action="/rfq/{{rid}}/add-item" style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd);flex-wrap:wrap">
    <div><label style="font-size:13px;color:var(--tx2);display:block">Qty</label><input type="number" name="qty" value="1" min="1" class="num-in" style="width:60px;font-size:13px;padding:6px" required></div>
-   <div><label style="font-size:13px;color:var(--tx2);display:block">UOM</label><input type="text" name="uom" value="EA" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
+   <div><label style="font-size:13px;color:var(--tx2);display:block">UOM</label><input type="text" name="uom" value="CASE" class="text-in" style="width:55px;font-size:13px;padding:6px;text-transform:uppercase" maxlength="6"></div>
    <div style="flex:1;min-width:200px"><label style="font-size:13px;color:var(--tx2);display:block">Description</label><input type="text" name="description" placeholder="Item description..." class="text-in" style="width:100%;font-size:13px;padding:6px" required></div>
    <div><label style="font-size:13px;color:var(--tx2);display:block">Part #</label><input type="text" name="item_number" placeholder="Optional" class="text-in" style="width:100px;font-size:13px;padding:6px"></div>
    <button type="submit" class="btn btn-sm btn-p" style="padding:6px 14px;font-size:14px">Add</button>
@@ -817,6 +817,11 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPas
 
 // Auto-detect mode on paste
 document.addEventListener('DOMContentLoaded',function(){
+ // Auto-open add-item section after adding an item
+ if(window.location.hash==='#add-item-section'){
+  var det=document.getElementById('add-item-section');
+  if(det){det.open=true;setTimeout(function(){det.scrollIntoView({behavior:'smooth',block:'center'})},100);}
+ }
  var ta=document.getElementById('bulkUrlsInput');
  if(ta)ta.addEventListener('input',function(){
   var v=ta.value;

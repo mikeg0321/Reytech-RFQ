@@ -616,8 +616,9 @@ def api_rfq_upload_parse_doc(rid):
             try:
                 from src.forms.vision_parser import parse_with_vision
                 parsed = parse_with_vision(save_path)
-                if parsed and parsed.get("items"):
-                    items = parsed["items"]
+                _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
+                if _vitems:
+                    items = _vitems
                     header = parsed.get("header", {})
                     parser_used = "Vision AI"
                     log.info("Upload parse: Vision found %d items", len(items))
@@ -629,8 +630,9 @@ def api_rfq_upload_parse_doc(rid):
         try:
             from src.forms.vision_parser import parse_with_vision
             parsed = parse_with_vision(save_path)
-            if parsed and parsed.get("items"):
-                items = parsed["items"]
+            _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
+            if _vitems:
+                items = _vitems
                 header = parsed.get("header", {})
                 parser_used = "Vision AI"
                 log.info("Upload parse: Vision (image) found %d items", len(items))
@@ -2235,7 +2237,7 @@ def rfq_add_item(rid):
         f"Line item #{next_num} added: {new_item['description'][:60]}",
         actor="user")
     flash(f"Item #{next_num} added", "success")
-    return redirect(f"/rfq/{rid}")
+    return redirect(f"/rfq/{rid}#add-item-section")
 
 
 @bp.route("/rfq/<rid>/remove-item/<int:idx>", methods=["POST"])

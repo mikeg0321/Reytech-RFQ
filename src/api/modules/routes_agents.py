@@ -21,9 +21,13 @@ from datetime import datetime, timedelta
 def agents_page():
     """Agent Control Panel — click buttons instead of writing API calls."""
     from src.api.render import render_page
+    from src.api.templates import BASE_CSS
+    # BRIEF_HTML and BRIEF_JS are defined in dashboard.py (exec namespace)
+    _brief_html = BRIEF_HTML if 'BRIEF_HTML' in dir() else ""  # noqa: F821
+    _brief_js = BRIEF_JS if 'BRIEF_JS' in dir() else ""  # noqa: F821
     return render_page("agents.html", active_page="Agents",
-        brief_html=BRIEF_HTML,
-        brief_js=BRIEF_JS,
+        brief_html=_brief_html,
+        brief_js=_brief_js,
         brief_css=BASE_CSS,
     )
 
