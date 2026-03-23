@@ -492,6 +492,59 @@ def api_awards_pending():
     return jsonify({"ok": True, "count": len(pending), "pending": pending})
 
 
+@bp.route("/api/rfq/create-manual", methods=["POST"])
+@auth_required
+def api_rfq_create_manual():
+    """Create an RFQ manually from the dashboard."""
+    data = request.get_json(force=True, silent=True) or {}
+    sol = data.get("solicitation_number", "").strip()
+    if not sol:
+        return jsonify({"ok": False, "error": "solicitation_number required"})
+
+    import uuid
+    rid = uuid.uuid4().hex[:8]
+    agency_key = data.get("agency", "")
+    agency_name = ""
+    try:
+        from src.core.agency_config import AGENCY_CONFIGS
+        if agency_key in AGENCY_CONFIGS:
+            agency_name = AGENCY_CONFIGS[agency_key].get("name", agency_key)
+    except Exception:
+        agency_name = agency_key
+
+    rfq = {
+        "id": rid,
+        "solicitation_number": sol,
+        "rfq_number": sol,
+        "agency": agency_key,
+        "agency_name": agency_name,
+        "requestor_name": data.get("requestor_name", ""),
+        "requestor_email": data.get("requestor_email", ""),
+        "due_date": data.get("due_date", ""),
+        "delivery_location": data.get("delivery_location", ""),
+        "status": "new",
+        "source": "manual",
+        "created_at": datetime.now().isoformat(),
+        "received_at": datetime.now().isoformat(),
+        "line_items": [],
+        "notes": data.get("notes", ""),
+    }
+
+    rfqs = load_rfqs()
+    rfqs[rid] = rfq
+    save_rfqs(rfqs)
+
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "manual_create",
+            f"RFQ #{sol} created manually — {agency_name} / {data.get('requestor_name', '')}",
+            actor="user")
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "rfq_id": rid, "sol": sol})
+
+
 @bp.route("/upload", methods=["POST"])
 @auth_required
 def upload():

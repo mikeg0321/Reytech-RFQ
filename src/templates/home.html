@@ -214,6 +214,18 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
 }).catch(()=>{});
 </script>
 
+<!-- ═══ Action Bar ═══ -->
+<div style="display:flex;gap:10px;margin-bottom:12px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+ <div style="display:flex;gap:8px">
+  <button onclick="document.getElementById('new-rfq-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">+ New RFQ</button>
+  <button onclick="document.getElementById('new-pc-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:8px;font-weight:600;cursor:pointer">+ New PC</button>
+ </div>
+ <div style="display:flex;gap:8px">
+  <button onclick="location.href='/awards'" class="btn" style="font-size:13px;padding:6px 14px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);border-radius:6px">🏆 Awards</button>
+  <button onclick="location.href='/settings'" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px">⚙️ Settings</button>
+ </div>
+</div>
+
 <!-- ═══ Work Queues — Primary Bento Row ═══ -->
 <style>
 /* Skeleton loader animation */
@@ -1094,6 +1106,155 @@ function timeAgo(ts){
  return d.toLocaleDateString();
 }
 setTimeout(loadFeed,5000); // defer — not needed for initial render
+</script>
+
+<!-- New RFQ Modal -->
+<div id="new-rfq-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center" onclick="if(event.target===this)this.style.display='none'">
+ <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+   <h2 style="font-size:18px;color:var(--tx);margin:0">📦 New RFQ</h2>
+   <button onclick="document.getElementById('new-rfq-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+   <div style="display:flex;gap:10px">
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Solicitation #</label>
+     <input id="nr-sol" placeholder="e.g. 25CB019" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+    </div>
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Agency</label>
+     <select id="nr-agency" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+      <option value="">Select...</option>
+      <option value="calvet">CalVet / DVA</option>
+      <option value="cchcs">CCHCS / CDCR</option>
+      <option value="dsh">DSH</option>
+      <option value="dgs">DGS</option>
+      <option value="other">Other</option>
+     </select>
+    </div>
+   </div>
+   <div style="display:flex;gap:10px">
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Buyer Name</label>
+     <input id="nr-buyer" placeholder="e.g. Grace Pfost" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+    </div>
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Buyer Email</label>
+     <input id="nr-email" placeholder="buyer@agency.ca.gov" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+    </div>
+   </div>
+   <div style="display:flex;gap:10px">
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Due Date</label>
+     <input id="nr-due" type="date" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+    </div>
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Ship To</label>
+     <input id="nr-shipto" placeholder="190 California Dr, Yountville" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+    </div>
+   </div>
+   <div>
+    <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Notes (optional)</label>
+    <input id="nr-notes" placeholder="e.g. Secure portal email, upload PDF manually" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+   </div>
+   <div id="nr-msg" style="font-size:13px;display:none"></div>
+   <button onclick="createRfq()" style="width:100%;padding:12px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create RFQ →</button>
+  </div>
+ </div>
+</div>
+
+<!-- New PC Modal -->
+<div id="new-pc-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;justify-content:center;align-items:center" onclick="if(event.target===this)this.style.display='none'">
+ <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+   <h2 style="font-size:18px;color:var(--tx);margin:0">📋 New Price Check</h2>
+   <button onclick="document.getElementById('new-pc-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:12px">
+   <div style="display:flex;gap:10px">
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Solicitation / PC #</label>
+     <input id="np-sol" placeholder="e.g. 45007500" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+    </div>
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Institution</label>
+     <input id="np-inst" placeholder="e.g. CSP Sacramento" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+    </div>
+   </div>
+   <div style="display:flex;gap:10px">
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Buyer Name</label>
+     <input id="np-buyer" placeholder="e.g. Valentina Demidenko" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:15px">
+    </div>
+    <div style="flex:1">
+     <label style="font-size:12px;color:var(--tx2);display:block;margin-bottom:4px">Due Date</label>
+     <input id="np-due" type="date" style="width:100%;padding:10px 12px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px;font-size:14px">
+    </div>
+   </div>
+   <div id="np-msg" style="font-size:13px;display:none"></div>
+   <button onclick="createPc()" style="width:100%;padding:12px;background:#3fb950;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create Price Check →</button>
+  </div>
+ </div>
+</div>
+
+<script>
+function createRfq() {
+ var sol = document.getElementById('nr-sol').value.trim();
+ var agency = document.getElementById('nr-agency').value;
+ var buyer = document.getElementById('nr-buyer').value.trim();
+ var email = document.getElementById('nr-email').value.trim();
+ var due = document.getElementById('nr-due').value;
+ var shipto = document.getElementById('nr-shipto').value.trim();
+ var notes = document.getElementById('nr-notes').value.trim();
+ var msg = document.getElementById('nr-msg');
+
+ if (!sol) { msg.style.display='block'; msg.style.color='#f85149'; msg.textContent='Solicitation # required'; return; }
+
+ msg.style.display='block'; msg.style.color='var(--tx2)'; msg.textContent='⏳ Creating...';
+
+ fetch('/api/rfq/create-manual', {
+  method: 'POST',
+  credentials: 'same-origin',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+   solicitation_number: sol, agency: agency, requestor_name: buyer,
+   requestor_email: email, due_date: due, delivery_location: shipto, notes: notes,
+  })
+ })
+ .then(function(r) { return r.json(); })
+ .then(function(d) {
+  if (d.ok) {
+   msg.style.color='#3fb950'; msg.textContent='✅ Created!';
+   setTimeout(function() { window.location.href = '/rfq/' + d.rfq_id; }, 500);
+  } else { msg.style.color='#f85149'; msg.textContent='❌ ' + (d.error || 'Failed'); }
+ });
+}
+
+function createPc() {
+ var sol = document.getElementById('np-sol').value.trim();
+ var inst = document.getElementById('np-inst').value.trim();
+ var buyer = document.getElementById('np-buyer').value.trim();
+ var due = document.getElementById('np-due').value;
+ var msg = document.getElementById('np-msg');
+
+ if (!sol && !inst) { msg.style.display='block'; msg.style.color='#f85149'; msg.textContent='Solicitation # or Institution required'; return; }
+
+ msg.style.display='block'; msg.style.color='var(--tx2)'; msg.textContent='⏳ Creating...';
+
+ fetch('/api/pricecheck/create-manual', {
+  method: 'POST',
+  credentials: 'same-origin',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({ solicitation_number: sol, institution: inst, requestor: buyer, due_date: due })
+ })
+ .then(function(r) { return r.json(); })
+ .then(function(d) {
+  if (d.ok) {
+   msg.style.color='#3fb950'; msg.textContent='✅ Created!';
+   setTimeout(function() { window.location.href = '/pricecheck/' + d.pc_id; }, 500);
+  } else { msg.style.color='#f85149'; msg.textContent='❌ ' + (d.error || 'Failed'); }
+ });
+}
 </script>
 
 {% endblock %}

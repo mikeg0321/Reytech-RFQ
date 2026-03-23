@@ -2368,6 +2368,40 @@ def pricecheck_convert_to_quote(pcid):
 # (more thorough version that copies all fields, files, and PO screenshots)
 
 
+@bp.route("/api/pricecheck/create-manual", methods=["POST"])
+@auth_required
+def api_pc_create_manual():
+    """Create a Price Check manually from the dashboard."""
+    data = request.get_json(force=True, silent=True) or {}
+    sol = data.get("solicitation_number", "").strip()
+    inst = data.get("institution", "").strip()
+    if not sol and not inst:
+        return jsonify({"ok": False, "error": "solicitation_number or institution required"})
+
+    import uuid
+    pcid = "pc_" + uuid.uuid4().hex[:8]
+
+    pc = {
+        "id": pcid,
+        "pc_number": sol or inst,
+        "solicitation_number": sol,
+        "institution": inst,
+        "requestor": data.get("requestor", ""),
+        "buyer": data.get("requestor", ""),
+        "due_date": data.get("due_date", ""),
+        "status": "new",
+        "source": "manual",
+        "created_at": datetime.now().isoformat(),
+        "items": [],
+    }
+
+    pcs = _load_price_checks()
+    pcs[pcid] = pc
+    _save_price_checks(pcs)
+
+    return jsonify({"ok": True, "pc_id": pcid, "sol": sol or inst})
+
+
 @bp.route("/api/resync")
 @auth_required
 def api_resync():
