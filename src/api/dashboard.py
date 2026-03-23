@@ -4713,6 +4713,75 @@ def api_hard_cleanup():
     })
 
 
+@bp.route("/api/admin/force-repoll", methods=["GET", "POST"])
+@auth_required
+def api_force_repoll():
+    """Clear processed email cache and trigger re-poll."""
+    global _shared_poller
+    cleared = 0
+    if _shared_poller and hasattr(_shared_poller, '_processed'):
+        cleared = len(_shared_poller._processed)
+        _shared_poller._processed.clear()
+    # Clear disk cache
+    proc_file = os.path.join(DATA_DIR, "processed_emails.json")
+    try:
+        if os.path.exists(proc_file):
+            with open(proc_file) as f:
+                disk_uids = json.load(f)
+            cleared += len(disk_uids)
+            os.remove(proc_file)
+    except Exception:
+        pass
+    # Clear SQLite
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            db_count = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
+            conn.execute("DELETE FROM processed_emails")
+            cleared += db_count
+    except Exception:
+        pass
+    return jsonify({"ok": True, "cleared_uids": cleared, "next": "Hit Check Now or wait for auto-poll"})
+
+
+@bp.route("/api/admin/delete-pc/<pcid>", methods=["GET", "POST"])
+@auth_required
+def api_admin_delete_pc(pcid):
+    """Delete a single PC by ID."""
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+    sol = pcs[pcid].get("solicitation_number", "") or pcs[pcid].get("pc_number", "")
+    del pcs[pcid]
+    _save_price_checks(pcs)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM price_checks WHERE id = ?", (pcid,))
+    except Exception:
+        pass
+    return jsonify({"ok": True, "deleted": pcid, "sol": sol})
+
+
+@bp.route("/api/admin/delete-rfq/<rid>", methods=["GET", "POST"])
+@auth_required
+def api_admin_delete_rfq(rid):
+    """Delete a single RFQ by ID."""
+    rfqs = load_rfqs()
+    if rid not in rfqs:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    sol = rfqs[rid].get("solicitation_number", "") or rfqs[rid].get("rfq_number", "")
+    del rfqs[rid]
+    save_rfqs(rfqs)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM rfqs WHERE id = ?", (rid,))
+    except Exception:
+        pass
+    return jsonify({"ok": True, "deleted": rid, "sol": sol})
+
+
 @bp.route("/api/admin/cleanup-quote-numbers", methods=["GET", "POST"])
 @auth_required
 def api_cleanup_quote_numbers():
