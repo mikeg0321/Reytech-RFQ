@@ -305,7 +305,8 @@ def api_pc_change_status(pcid):
         data = request.get_json(force=True, silent=True) or {}
         new_status = (data.get("status") or "").strip().lower()
         valid = {"new", "draft", "sent", "pending_award", "won", "lost",
-                 "no_response", "archived", "duplicate", "completed", "converted"}
+                 "no_response", "archived", "duplicate", "completed", "converted",
+                 "expired", "parsed", "priced", "ready"}
         if new_status not in valid:
             return jsonify({"ok": False, "error": f"Invalid status: {new_status}. Valid: {sorted(valid)}"})
 
@@ -321,6 +322,12 @@ def api_pc_change_status(pcid):
         # If marking as sent, record sent_at
         if new_status == "sent" and not pc.get("sent_at"):
             pc["sent_at"] = __import__('datetime').datetime.now().isoformat()
+
+        # Record closed_at and reason for terminal statuses
+        if new_status in ("won", "lost", "expired"):
+            pc["closed_at"] = __import__('datetime').datetime.now().isoformat()
+            if data.get("reason"):
+                pc["closed_reason"] = data["reason"]
 
         _save_price_checks(pcs)
         
@@ -747,6 +754,14 @@ def _pricecheck_detail_inner(pcid):
             log.debug("CRM match error: %s", e)
     
     # ── Server-side quote history ──
+    # P2-E: Normalize institution name via resolver for better history matching
+    try:
+        from src.core.institution_resolver import resolve
+        _resolved = resolve(institution)
+        if _resolved.get("canonical"):
+            institution = _resolved["canonical"]
+    except ImportError:
+        pass
     quote_history = []
     if institution and QUOTE_GEN_AVAILABLE:
         try:
@@ -7899,3 +7914,52 @@ def api_pc_send_quote(pcid):
     except Exception as e:
         log.error("PC send-quote: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)[:200]})
+
+
+@bp.route("/api/pricecheck/<pcid>/duplicate", methods=["POST"])
+@auth_required
+def api_pc_duplicate(pcid):
+    """Duplicate a PC with all items and pricing. New PC number."""
+    import uuid, copy
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    new_id = f"pc_{str(uuid.uuid4())[:8]}"
+    new_pc = copy.deepcopy(pc)
+    new_pc["id"] = new_id
+    new_pc["status"] = "draft"
+    new_pc["reytech_quote_number"] = ""
+    new_pc["output_pdf"] = ""
+    new_pc["reytech_quote_pdf"] = ""
+    new_pc["created_at"] = datetime.now().isoformat()
+    new_pc["duplicated_from"] = pcid
+    # Keep items, pricing, institution — user changes what they need
+    pcs[new_id] = new_pc
+    _save_price_checks(pcs)
+    log.info("Duplicated PC %s → %s", pcid, new_id)
+    return jsonify({"ok": True, "new_id": new_id, "redirect": f"/pricecheck/{new_id}"})
+
+
+@bp.route("/api/pricecheck/<pcid>/update-status", methods=["POST"])
+@auth_required
+def api_pc_update_status(pcid):
+    """Update PC status (won, lost, sent, etc.)."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    new_status = data.get("status", "").strip()
+    valid = ("new", "parsed", "draft", "priced", "ready", "sent", "won", "lost", "expired", "no_response")
+    if new_status not in valid:
+        return jsonify({"ok": False, "error": f"Invalid status. Valid: {', '.join(valid)}"})
+    old = pc.get("status", "")
+    pc["status"] = new_status
+    if new_status in ("won", "lost", "expired"):
+        pc["closed_at"] = datetime.now().isoformat()
+        if data.get("reason"):
+            pc["closed_reason"] = data["reason"]
+    _save_price_checks(pcs)
+    log.info("PC %s status: %s → %s", pcid, old, new_status)
+    return jsonify({"ok": True, "old": old, "new": new_status})

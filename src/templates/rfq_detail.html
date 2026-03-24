@@ -145,22 +145,26 @@
  </div>
 
  {% if r.get('linked_pc_id') %}
- <div style="padding:10px 14px;margin-bottom:12px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;font-size:13px">
-  <span style="font-weight:700;color:#58a6ff">🔗 Linked to Price Check {{r.linked_pc_number or r.linked_pc_id}}</span>
-  {% if r.get('pc_diff') %}
-   <span style="color:#8b949e;margin-left:8px">·</span>
-   <span style="color:#3fb950;margin-left:4px">{{r.pc_diff.get('ported',0)}} prices ported</span>
-   {% if r.pc_diff.get('added') %}
-    <span style="color:#d29922;margin-left:8px">⚠ +{{r.pc_diff.added|length}} new item{{'' if r.pc_diff.added|length == 1 else 's'}}</span>
-   {% endif %}
-   {% if r.pc_diff.get('removed') %}
-    <span style="color:#f85149;margin-left:8px">-{{r.pc_diff.removed|length}} removed</span>
-   {% endif %}
-   {% if r.pc_diff.get('qty_changed') %}
-    <span style="color:#d29922;margin-left:8px">Δ{{r.pc_diff.qty_changed|length}} qty change{{'' if r.pc_diff.qty_changed|length == 1 else 's'}}</span>
-   {% endif %}
-  {% endif %}
-  <a href="/pricecheck/{{r.linked_pc_id}}" style="color:#58a6ff;margin-left:12px;font-size:14px">View PC →</a>
+ <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);border-radius:8px;padding:10px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:14px">
+  <span style="font-size:18px">🔗</span>
+  <div>
+    <span style="color:#3fb950;font-weight:600">Linked to PC #{{ r.get('linked_pc_number', r.linked_pc_id[:12]) }}</span>
+    {% if r.get('linked_pc_match_reason') %} <span style="color:#8b949e;font-size:12px">· {{ r.linked_pc_match_reason }}</span>{% endif %}
+    {% if r.get('pc_diff') %}
+     <span style="color:#8b949e;margin-left:8px">·</span>
+     <span style="color:#3fb950;margin-left:4px">{{r.pc_diff.get('ported',0)}} prices ported</span>
+     {% if r.pc_diff.get('added') %}
+      <span style="color:#d29922;margin-left:8px">+{{r.pc_diff.added|length}} new item{{'' if r.pc_diff.added|length == 1 else 's'}}</span>
+     {% endif %}
+     {% if r.pc_diff.get('removed') %}
+      <span style="color:#f85149;margin-left:8px">-{{r.pc_diff.removed|length}} removed</span>
+     {% endif %}
+     {% if r.pc_diff.get('qty_changed') %}
+      <span style="color:#d29922;margin-left:8px">Δ{{r.pc_diff.qty_changed|length}} qty change{{'' if r.pc_diff.qty_changed|length == 1 else 's'}}</span>
+     {% endif %}
+    {% endif %}
+  </div>
+  <a href="/pricecheck/{{r.linked_pc_id}}" style="margin-left:auto;color:#58a6ff;font-size:13px;font-weight:600">View PC →</a>
  </div>
  {% endif %}
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">

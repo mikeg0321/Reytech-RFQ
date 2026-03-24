@@ -204,6 +204,7 @@
       <button class="btn" onclick="showPreview()" aria-label="Preview quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
       <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
       {{ download_html | default('') | safe }}
+      <button type="button" onclick="previewPcPdf()" class="btn btn-sm" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);font-size:13px;padding:6px 14px;font-weight:600;margin-left:6px" title="Preview generated 704 PDF">👁️ Preview 704</button>
       <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
       <details style="position:relative;display:inline-block" id="priceDropdown">
@@ -1098,8 +1099,7 @@
       // Ctrl+S or Cmd+S = Save & Generate
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        var btn = document.getElementById('saveBtn');
-        if (btn && !btn.disabled) savePrices(btn);
+        doPcAutosave();
       }
       // Ctrl+P = Preview
       if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
@@ -2593,7 +2593,34 @@
             }
         } catch(e) {}
     }, 60000);
+
+    function previewPcPdf() {
+      var fname = ''; // try to find the generated PDF filename
+      var dlLinks = document.querySelectorAll('a[href*="/api/pricecheck/download/"]');
+      if (dlLinks.length > 0) {
+        fname = dlLinks[0].href;
+      } else {
+        alert('No generated PDF found — click Save & Generate first');
+        return;
+      }
+      var modal = document.getElementById('pcPdfPreviewModal');
+      var frame = document.getElementById('pcPdfPreviewFrame');
+      frame.src = '';
+      modal.style.display = 'flex';
+      setTimeout(function() { frame.src = fname; }, 50);
+    }
     </script>
+
+<div id="pcPdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10000;justify-content:center;align-items:center">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:95%;max-width:900px;height:90vh;display:flex;flex-direction:column">
+    <div style="padding:12px 18px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <span style="font-size:15px;font-weight:600;color:#e6edf3">📄 PDF Preview</span>
+      <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+    </div>
+    <iframe id="pcPdfPreviewFrame" style="flex:1;border:none;background:#fff" title="PDF Preview"></iframe>
+  </div>
+</div>
+
     </body></html>
 
 {% endblock %}

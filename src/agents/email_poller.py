@@ -1587,6 +1587,14 @@ class EmailPoller:
                                 except Exception:
                                     pass
                             
+                            # Normalize institution name via resolver
+                            try:
+                                from src.core.institution_resolver import normalize
+                                if po_institution:
+                                    po_institution = normalize(po_institution) or po_institution
+                            except ImportError:
+                                pass
+
                             # 4. Route to pending PO review queue (human reviews before order creation)
                             try:
                                 from src.api.dashboard import _add_pending_po

@@ -273,6 +273,15 @@ textarea{overflow:hidden;resize:vertical}
 /* Clickable truncated text expands on click */
 .expandable{cursor:pointer;transition:all .15s}
 .expandable.expanded{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;max-height:none!important}
+@media (max-width: 768px) {
+  .action-bar, .bg { flex-wrap: wrap !important; gap: 6px !important; }
+  .it, table { font-size: 13px !important; }
+  .card { padding: 10px !important; }
+  .btn { padding: 6px 12px !important; font-size: 13px !important; }
+  h2, h3 { font-size: 18px !important; }
+  [style*="min-width:1400px"] { min-width: auto !important; }
+  [style*="min-width:160px"] { min-width: 80px !important; }
+}
 </style>
 <script>
 // Auto-resize all textareas to fit content
