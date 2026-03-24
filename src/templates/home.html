@@ -128,6 +128,7 @@ setTimeout(function(){ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then
   <span id="as-award-txt" style="color:var(--tx)">loading...</span>
  </div>
  <button onclick="_runAwardTracker()" style="margin-left:auto;padding:5px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px;cursor:pointer" title="Run award tracker now">Run Now</button>
+ <button onclick="_recoverMissedEmails()" style="padding:5px 12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);border-radius:6px;color:#d29922;font-size:13px;cursor:pointer;margin-left:6px" title="Scan last 7 days for emails that were missed or stuck in processing">🔄 Recover Missed</button>
 </div>
 <script>
 function _refreshAgentStatus(){
@@ -152,6 +153,15 @@ function _refreshAgentStatus(){
 }
 setTimeout(_refreshAgentStatus,4000);
 setInterval(_refreshAgentStatus,300000); // 5 min (was 60s)
+function _recoverMissedEmails(){
+ var btn=event.target;btn.disabled=true;btn.textContent='⏳ Scanning...';
+ fetch('/api/v1/email/reprocess-all-missed?days=7',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+  btn.disabled=false;
+  var n=d.ok&&d.data?d.data.recovered||0:0;
+  btn.textContent=d.ok?(n>0?'✅ '+n+' recovered':'✅ None missed'):'❌ Failed';
+  setTimeout(function(){btn.textContent='🔄 Recover Missed';_refreshAgentStatus();location.reload();},3000);
+ }).catch(function(){btn.disabled=false;btn.textContent='🔄 Recover Missed';});
+}
 function _runAwardTracker(){
  var btn=event.target;btn.disabled=true;btn.textContent='Running...';
  fetch('/api/intel/award-tracker/run',{method:'POST'}).then(r=>r.json()).then(d=>{

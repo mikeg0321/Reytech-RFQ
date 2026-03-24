@@ -47,6 +47,7 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
 .b-lost{background:rgba(248,113,113,.15);color:var(--rd)}
 .b-expired{background:rgba(139,144,160,.15);color:var(--tx2)}
 .b-draft{background:rgba(251,191,36,.25);color:#f59e0b;border:1px solid rgba(251,191,36,.4)}
+.b-needs_attachment{background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.35)}
 .home-tbl{width:100%;border-collapse:collapse;font-size:16px}
 .home-tbl thead th{text-align:left;padding:12px 14px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd);font-weight:600}
 .home-tbl tbody td{padding:12px 14px;border-bottom:1px solid rgba(46,51,69,.5);vertical-align:middle;font-size:15px}

@@ -47,7 +47,7 @@ RFQ_STRONG = [
     "request for quotation", "rfq", "703b", "703c", "704b", "bid package",
     "cchcs", "cdcr", "solicitation", "informal competitive",
     "acquisition quote", "quote worksheet", "bid response",
-    "quote request", "quote is due",  # "PR 10840486 - QUOTE REQUEST"
+    "quote is due",  # "quote request" REMOVED — too generic, fires on PC emails from Katrina/Demidenko
     # Non-704 agencies
     "calvet", "cal vet", "veterans affairs", "veterans home",
     "cal fire", "calfire", "department of general services",

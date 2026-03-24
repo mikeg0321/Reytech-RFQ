@@ -2291,6 +2291,51 @@ def process_rfq_email(rfq_email):
     if is_early_pc:
         _trace.append(f"EARLY PC DETECT: signals={rfq_email.get('_pc_signals', [])}")
     
+    # ── SECURE MESSAGE DETECTION — create stub so email isn't silently dropped ──
+    _all_attachments = rfq_email.get("attachments", [])
+    _has_secure_msg = any(
+        "securemessage" in (a.get("filename", "") or a.get("name", "") or a.get("path", "") or "").lower()
+        or (a.get("filename", "") or a.get("name", "") or "").lower().startswith("secure")
+        for a in _all_attachments
+    )
+    _has_real_pdf = bool(pdf_paths)
+    if _has_secure_msg and not _has_real_pdf:
+        import uuid as _uuid2
+        _stub_id = f"rfq_{str(_uuid2.uuid4())[:8]}"
+        _sol = rfq_email.get("solicitation_hint", "") or extract_solicitation_number(
+            rfq_email.get("subject", ""), rfq_email.get("body_text", ""), []
+        )
+        _stub = {
+            "id": _stub_id,
+            "solicitation_number": _sol or "",
+            "rfq_number": _sol or "",
+            "email_subject": rfq_email.get("subject", ""),
+            "requestor_email": rfq_email.get("sender_email", ""),
+            "requestor_name": rfq_email.get("sender", ""),
+            "agency_name": rfq_email.get("sender", ""),
+            "status": "needs_attachment",
+            "parse_note": "⚠️ Secure portal email — PDF must be downloaded manually from the secure link in the original email, then uploaded here via Upload & Parse.",
+            "line_items": [],
+            "created_at": datetime.now().isoformat(),
+            "email_uid": rfq_email.get("email_uid", ""),
+            "form_type": "generic_rfq",
+            "body_preview": rfq_email.get("body_preview", ""),
+        }
+        _rfq_store = load_rfqs()
+        _uid = rfq_email.get("email_uid", "")
+        if _uid and any(v.get("email_uid") == _uid for v in _rfq_store.values()):
+            _trace.append(f"SKIP: secure stub already exists for uid={_uid}")
+            t.ok("Skipped: secure stub already exists")
+            return None
+        _rfq_store[_stub_id] = _stub
+        save_rfqs(_rfq_store)
+        log.info("📧 Secure-message stub created: %s sol=%s from %s",
+                 _stub_id, _sol, rfq_email.get("sender_email", ""))
+        _trace.append(f"SECURE STUB: {_stub_id} sol={_sol}")
+        POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+        t.ok("Secure-message stub created", stub_id=_stub_id)
+        return _stub
+
     # ── ROUTING RULE: 1 PDF = Price Check, multiple PDFs = RFQ ──────────────
     # Single 704 form → PC (market pricing research)
     # Multiple PDFs (704B + 703B + bid package) → RFQ (formal bid)
@@ -2447,9 +2492,20 @@ def process_rfq_email(rfq_email):
                                 except Exception as _ebody_e:
                                     _trace.append(f"Email body parse failed: {_ebody_e}")
                                     log.debug("Email body parse: %s", _ebody_e)
-                            pc_num = header.get("price_check_number", "unknown")
+                            pc_num = header.get("price_check_number", "") or ""
                             institution = header.get("institution", "")
                             due_date = header.get("due_date", "")
+                            # Fallback: derive pc_number from email subject if PDF didn't yield one
+                            if not pc_num or pc_num == "unknown":
+                                import re as _pcre2
+                                _subj_raw = rfq_email.get("subject", "")
+                                _stripped = _pcre2.sub(
+                                    r'^(?:price\s+)?quote\s+request\s*[-\u2013]\s*|^ams\s*704\s*[-\u2013]\s*|^price\s+check\s*[-\u2013]\s*',
+                                    '', _subj_raw, flags=_pcre2.IGNORECASE
+                                ).strip()
+                                _stripped = _pcre2.sub(r'\s*[-\u2013]\s*\d{2}\.\d{2}\.\d{2,4}', '', _stripped).strip()
+                                pc_num = _stripped or os.path.basename(pc_pdf).replace(".pdf", "")[:40] or "unknown"
+                                _trace.append(f"pc_number fallback from subject: '{pc_num}'")
                             
                             # Dedup: same PC# + institution + due_date
                             pcs = _load_price_checks()
@@ -2458,7 +2514,7 @@ def process_rfq_email(rfq_email):
                                 if (epc.get("pc_number","").strip() == pc_num.strip()
                                         and epc.get("institution","").strip().lower() == institution.strip().lower()
                                         and epc.get("due_date","").strip() == due_date.strip()
-                                        and pc_num != "unknown"):
+                                        and pc_num not in ("unknown", "")):
                                     dup_id = eid
                                     break
                             
