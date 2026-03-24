@@ -1995,24 +1995,77 @@ def _link_rfq_to_pc(rfq_data, _trace):
 
         desc = rfq_item.get("description", "")
 
-        # Copy ALL fields from PC item — don't cherry-pick
-        for key, val in match.items():
-            if key not in rfq_item or not rfq_item[key]:
-                rfq_item[key] = val
+        # ── Port PC fields → RFQ fields with proper name mapping ──────────
+        # PC and RFQ use different field names for the same data.
+        # This mapping ensures nothing is lost in translation.
+        _pricing = match.get("pricing", {}) or {}
 
-        # Normalize field names for RFQ compatibility
-        rfq_item.setdefault("description", match.get("desc", ""))
-        rfq_item.setdefault("quantity", match.get("qty", 1))
-        rfq_item.setdefault("uom", match.get("uom", "EACH"))
-        rfq_item.setdefault("item_number", match.get("part_number", ""))
-        rfq_item.setdefault("supplier_cost",
-            match.get("cost", match.get("unit_cost", match.get("unit_price"))))
-        rfq_item.setdefault("price_per_unit",
-            match.get("bid_price", match.get("sell_price")))
-        rfq_item.setdefault("item_supplier", match.get("supplier", ""))
-        rfq_item.setdefault("item_link",
-            match.get("url", match.get("product_url",
-            match.get("amazon_url", ""))))
+        # Cost: PC uses vendor_cost or pricing.unit_cost → RFQ uses supplier_cost
+        _pc_cost = (match.get("vendor_cost")
+                    or _pricing.get("unit_cost")
+                    or match.get("cost")
+                    or match.get("unit_cost")
+                    or match.get("unit_price") or 0)
+        if _pc_cost and not rfq_item.get("supplier_cost"):
+            rfq_item["supplier_cost"] = _pc_cost
+
+        # Bid price: PC uses unit_price or pricing.recommended_price → RFQ uses price_per_unit
+        _pc_price = (match.get("unit_price")
+                     or _pricing.get("recommended_price")
+                     or match.get("bid_price")
+                     or match.get("sell_price") or 0)
+        if _pc_price and not rfq_item.get("price_per_unit"):
+            rfq_item["price_per_unit"] = _pc_price
+
+        # Markup: same name in both
+        _pc_markup = match.get("markup_pct") or _pricing.get("markup_pct")
+        if _pc_markup and not rfq_item.get("markup_pct"):
+            rfq_item["markup_pct"] = _pc_markup
+
+        # MFG/Part number: PC uses mfg_number → RFQ uses item_number
+        _pc_mfg = (match.get("mfg_number")
+                   or match.get("part_number")
+                   or match.get("item_number") or "")
+        if _pc_mfg and not rfq_item.get("item_number"):
+            rfq_item["item_number"] = _pc_mfg
+
+        # URL: both use item_link but PC may also have url/product_url/amazon_url
+        _pc_link = (match.get("item_link")
+                    or match.get("url")
+                    or match.get("product_url")
+                    or match.get("amazon_url") or "")
+        if _pc_link and not rfq_item.get("item_link"):
+            rfq_item["item_link"] = _pc_link
+
+        # Supplier name
+        _pc_supplier = match.get("item_supplier") or match.get("supplier") or ""
+        if _pc_supplier and not rfq_item.get("item_supplier"):
+            rfq_item["item_supplier"] = _pc_supplier
+
+        # Description: only fill if RFQ has none
+        _pc_desc = match.get("description") or match.get("desc") or ""
+        if _pc_desc and not rfq_item.get("description"):
+            rfq_item["description"] = _pc_desc
+
+        # Qty/UOM: keep RFQ's values (from the formal doc), don't overwrite
+        if not rfq_item.get("qty") and match.get("qty"):
+            rfq_item["qty"] = match["qty"]
+        if not rfq_item.get("uom") and match.get("uom"):
+            rfq_item["uom"] = match["uom"]
+
+        # SCPRS pricing intelligence
+        _scprs = _pricing.get("scprs_price")
+        if _scprs and not rfq_item.get("scprs_last_price"):
+            rfq_item["scprs_last_price"] = _scprs
+            if _pricing.get("scprs_po"):
+                rfq_item["scprs_po"] = _pricing["scprs_po"]
+            if _pricing.get("scprs_match"):
+                rfq_item["scprs_vendor"] = _pricing["scprs_match"]
+
+        # Copy any remaining PC fields that RFQ doesn't have at all
+        for key, val in match.items():
+            if key not in rfq_item and val and key != "pricing":
+                rfq_item[key] = val
 
         # Tag the source
         rfq_item["source_pc"] = matched_pid
@@ -2057,6 +2110,18 @@ def _link_rfq_to_pc(rfq_data, _trace):
     rfq_data["source_pc_number"] = pc.get("pc_number", "")
     rfq_data["source_pc_status"] = pc.get("status", "")
     rfq_data["source_pc_requestor"] = pc.get("requestor", "")
+
+    # Port PC-level fields the RFQ needs for quoting
+    if not rfq_data.get("delivery_location") and pc.get("ship_to"):
+        rfq_data["delivery_location"] = pc["ship_to"]
+    if not rfq_data.get("tax_rate") and pc.get("tax_rate"):
+        rfq_data["tax_rate"] = pc["tax_rate"]
+        rfq_data["tax_source"] = pc.get("tax_source", "ported_from_pc")
+        rfq_data["tax_validated"] = True
+    if not rfq_data.get("shipping_option") and pc.get("delivery_option"):
+        rfq_data["shipping_option"] = pc["delivery_option"]
+    if not rfq_data.get("quote_notes") and pc.get("custom_notes"):
+        rfq_data["quote_notes"] = pc["custom_notes"]
 
     # Copy source PDF if it exists
     source_file = pc.get("source_file", "")
