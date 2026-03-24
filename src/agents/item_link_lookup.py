@@ -433,6 +433,25 @@ def _lookup_aedstore(url: str) -> dict:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
+# Domains that require login — scraping returns login page, not product data.
+# Fast-fail instead of hanging for 12s per item.
+LOGIN_REQUIRED_DOMAINS = [
+    "henryschein.com",
+    "medline.com",
+    "cardinalhealth.com",
+    "owens-minor.com",
+    "mckesson.com",
+    "concordance.com",
+    "boundtree.com",
+]
+
+
+def _is_login_required(url: str) -> bool:
+    """Check if a URL belongs to a domain that requires login to view products."""
+    host = urlparse(url).netloc.lower()
+    return any(d in host for d in LOGIN_REQUIRED_DOMAINS)
+
+
 def lookup_from_url(url: str) -> dict:
     """
     Given any supplier product URL, return structured product data.
@@ -458,6 +477,17 @@ def lookup_from_url(url: str) -> dict:
         return {"error": "No URL provided"}
     if not url.startswith("http"):
         url = "https://" + url
+
+    # Fast-fail for login-required sites — don't waste 12s per item
+    if _is_login_required(url):
+        supplier = detect_supplier(url)
+        return {
+            "ok": False,
+            "error": f"{supplier} requires login — paste your cost manually",
+            "supplier": supplier,
+            "url": url,
+            "login_required": True,
+        }
 
     supplier = detect_supplier(url)
     host = urlparse(url).netloc.lower()

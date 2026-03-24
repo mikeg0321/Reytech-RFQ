@@ -71,6 +71,13 @@ function _fireLinkLookup(idx, url, mode) {
   var metaId = (mode === 'rfq') ? 'rfq_link_meta_' + idx : 'link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
   if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026</span>';
+  // 15s client-side timeout — spinner can never hang forever
+  var _done = false;
+  var _timer = setTimeout(function() {
+    if (_done) return;
+    _done = true;
+    if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">Lookup timed out \u2014 paste cost manually</span>';
+  }, 15000);
   fetch('/api/item-link/lookup', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -78,6 +85,8 @@ function _fireLinkLookup(idx, url, mode) {
   })
   .then(function(r) { return r.json(); })
   .then(function(d) {
+    if (_done) return; // timeout already fired
+    _done = true; clearTimeout(_timer);
     if (!d.ok && d.error) {
       if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">\u26A0\uFE0F ' + d.error + '</span>';
       return;
@@ -85,6 +94,8 @@ function _fireLinkLookup(idx, url, mode) {
     _applyLinkData(idx, d, mode);
   })
   .catch(function() {
+    if (_done) return;
+    _done = true; clearTimeout(_timer);
     if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">Lookup failed</span>';
   });
 }
