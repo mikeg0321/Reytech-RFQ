@@ -857,6 +857,7 @@ def generate_quote(
     terms: str = None,
     expiry_days: int = 45,
     notes: str = None,
+    revision: int = None,
 ) -> dict:
     """
     Generate a professional Reytech quote PDF.
@@ -985,7 +986,8 @@ def generate_quote(
     box(396, qbox_y, 67, 20, fill=True, border_color=LBL_BD)
     text(400, qbox_y + 15, "QUOTE #", "Helvetica-Bold", 10)
     box(463, qbox_y, 131, 20, fill=False, border_color=VAL_BD)
-    text(MR - 6, qbox_y + 15, quote_number, "Helvetica-Bold", 12, BLACK, "right")
+    _qn_display = f"{quote_number} Rev {revision}" if revision else quote_number
+    text(MR - 6, qbox_y + 15, _qn_display, "Helvetica-Bold", 11 if revision else 12, BLACK, "right")
 
     box(396, qbox_y + 21, 67, 20, fill=True, border_color=LBL_BD)
     text(400, qbox_y + 36, "DATE", "Helvetica-Bold", 10)
@@ -1757,6 +1759,8 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     kwargs.setdefault("shipping", 0.0)
     if "notes" not in kwargs and rfq.get("quote_notes"):
         kwargs["notes"] = rfq["quote_notes"]
+    if "revision" not in kwargs and rfq.get("quote_revision"):
+        kwargs["revision"] = rfq["quote_revision"]
 
     return generate_quote(data, output_path, **kwargs)
 

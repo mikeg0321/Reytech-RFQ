@@ -337,7 +337,17 @@
   <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()" aria-label="Send Quote">📧 Send Quote</button>
   <button type="button" class="btn" style="background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (OBS 1600)">🌾 Food Cert</button>
   <button type="button" class="btn" style="background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)" onclick="fillBidPackage()" title="Fill ALL forms in bid package (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)">📋 Fill All Forms</button>
+  {% if r.get('reytech_quote_number') %}
+  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 16px;font-weight:600" title="Regenerate only the quote PDF with current pricing — keeps all compliance docs">✏️ Revise Quote</button>
+  {% endif %}
  </div>
+ {% if r.get('quote_revision') %}
+ <div style="margin-top:6px;font-size:12px;color:#8b949e">
+  {{ r.reytech_quote_number }} · Rev {{ r.quote_revision }} · {{ r.get('quote_revised_at','')[:10] }}{% if r.get('quote_revision_reason') %} · <em>{{ r.quote_revision_reason }}</em>{% endif %}
+  <a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;margin-left:8px;font-size:11px">View history</a>
+ </div>
+ <div id="revision-history-panel" style="display:none;margin-top:6px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:12px">Loading...</div>
+ {% endif %}
  </form>
 </div>
 
@@ -2476,6 +2486,44 @@ function showIntel(idx){
  }
  html+='</div><div id="intel-backdrop" onclick="document.getElementById(\'intel-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.4)"></div>';
  document.body.insertAdjacentHTML('beforeend',html);
+}
+// ── Revise Quote (regenerate only quote PDF) ──
+function reviseQuote(){
+ var btn=document.getElementById('revise-quote-btn');
+ var reason=prompt('Reason for revision (optional):','Pricing updated');
+ if(reason===null)return;
+ btn.disabled=true;btn.textContent='⏳ Revising...';
+ fetch('/api/rfq/'+RID+'/revise-quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:reason||'Pricing updated'}),credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  btn.disabled=false;btn.textContent='✏️ Revise Quote';
+  if(d.ok){
+   var msg='Quote '+d.quote_number+' Rev '+d.revision+' — $'+d.total.toLocaleString('en-US',{minimumFractionDigits:2})+'\n\nDownload updated quote?';
+   if(confirm(msg))window.open(d.download,'_blank');
+   window.location.reload();
+  }else{alert('Revision failed: '+d.error);}
+ }).catch(function(e){btn.disabled=false;btn.textContent='✏️ Revise Quote';alert('Error: '+e.message);});
+}
+function loadRevisionHistory(e){
+ e.preventDefault();
+ var panel=document.getElementById('revision-history-panel');
+ if(panel.style.display==='block'){panel.style.display='none';return;}
+ panel.style.display='block';
+ fetch('/api/rfq/'+RID+'/revision-history',{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok||!d.revisions||!d.revisions.length){panel.innerHTML='<span style="color:#8b949e">No revision history yet.</span>';return;}
+  var h='';
+  d.revisions.forEach(function(rev){
+   h+='<div style="padding:4px 0;border-bottom:1px solid var(--bd)">';
+   h+='<span style="color:#e6edf3;font-weight:600">Rev '+rev.revision_num+'</span>';
+   h+=' &middot; <span style="color:#8b949e">'+(rev.revised_at||'').slice(0,16).replace('T',' ')+'</span>';
+   h+=' &middot; <span style="color:#d29922">'+_escH(rev.reason||'')+'</span>';
+   if(rev.total)h+=' &middot; <span style="color:#3fb950">$'+parseFloat(rev.total).toLocaleString('en-US',{minimumFractionDigits:2})+'</span>';
+   h+='</div>';
+  });
+  panel.innerHTML=h;
+ }).catch(function(){panel.innerHTML='<span style="color:#f85149">Failed to load.</span>';});
 }
 // ── Revert Pricing to Snapshot ──
 function revertPricing(){

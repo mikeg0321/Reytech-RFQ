@@ -5941,6 +5941,167 @@ def api_rfq_set_quote_number(rid):
     return jsonify({"ok": True, "old": old, "new": qn})
 
 
+@bp.route("/api/rfq/<rid>/revise-quote", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_revise_quote(rid):
+    """Regenerate ONLY the quote PDF with current pricing — keep all other
+    package docs unchanged. Saves revision to quote_revisions table.
+    Preserves quote number — never burns a new one."""
+    from src.api.trace import Trace
+    t = Trace("quote_revision", rfq_id=rid)
+
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"})
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+
+    locked_qn = r.get("reytech_quote_number", "")
+    if not locked_qn:
+        return jsonify({"ok": False, "error": "No quote number found — generate the full package first"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    reason = str(data.get("reason", "Pricing updated")).strip()[:200] or "Pricing updated"
+
+    sol = r.get("solicitation_number", "unknown")
+    safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out_dir, exist_ok=True)
+    output_path = os.path.join(out_dir, f"{safe_sol}_Quote_Reytech.pdf")
+
+    # Determine revision number
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT MAX(revision_num) as maxrev FROM quote_revisions WHERE quote_number=?",
+                (locked_qn,)).fetchone()
+            rev_num = (row["maxrev"] or 0) + 1 if row else 1
+    except Exception:
+        rev_num = (r.get("quote_revision", 0) or 0) + 1
+
+    t.step("Revising", quote_number=locked_qn, revision=rev_num, reason=reason)
+
+    # Snapshot pricing for diff/history
+    snapshot_items = [
+        {
+            "line_number": it.get("line_number", i+1),
+            "description": (it.get("description") or "")[:80],
+            "qty": it.get("qty", 0),
+            "uom": it.get("uom", ""),
+            "supplier_cost": it.get("supplier_cost", 0),
+            "price_per_unit": it.get("price_per_unit", 0),
+            "markup_pct": it.get("markup_pct", 0),
+        }
+        for i, it in enumerate(r.get("line_items", []))
+    ]
+
+    # Generate quote PDF — same quote number, no new allocation
+    result = generate_quote_from_rfq(r, output_path, quote_number=locked_qn)
+
+    if not result.get("ok"):
+        t.fail("Quote revision failed", error=result.get("error"))
+        return jsonify({"ok": False, "error": result.get("error", "Quote generation failed")})
+
+    new_total = result.get("total", 0)
+
+    # Save revision to DB
+    import json as _json_rev
+    try:
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO quote_revisions
+                   (quote_number, revision_num, revised_at, reason, snapshot_json, changed_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (locked_qn, rev_num, datetime.now().isoformat(),
+                 reason, _json_rev.dumps(snapshot_items), "user"))
+            conn.commit()
+    except Exception as _dbe:
+        log.warning("quote_revisions insert failed: %s", _dbe)
+
+    # Update RFQ record
+    r["quote_revision"] = rev_num
+    r["quote_revised_at"] = datetime.now().isoformat()
+    r["quote_revision_reason"] = reason
+    r["pricing_snapshot"] = {
+        "snapshot_at": datetime.now().isoformat(),
+        "quote_number": locked_qn,
+        "revision": rev_num,
+        "total": new_total,
+        "tax_rate": r.get("tax_rate", 0),
+        "items": snapshot_items,
+    }
+    fname = os.path.basename(output_path)
+    if "output_files" not in r:
+        r["output_files"] = []
+    if fname not in r["output_files"]:
+        r["output_files"].append(fname)
+    save_rfqs(rfqs)
+
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "quote_revised",
+            f"Quote {locked_qn} Rev {rev_num} — ${new_total:,.2f} — {reason}",
+            actor="user",
+            detail={"quote_number": locked_qn, "revision": rev_num, "total": new_total, "reason": reason})
+    except Exception:
+        pass
+
+    t.ok("Quote revised", revision=rev_num, total=new_total)
+    log.info("Quote %s Rev %d generated for RFQ %s — $%.2f", locked_qn, rev_num, rid, new_total)
+    return jsonify({
+        "ok": True,
+        "quote_number": locked_qn,
+        "revision": rev_num,
+        "total": new_total,
+        "download": f"/download/{sol}/{fname}",
+    })
+
+
+@bp.route("/api/rfq/<rid>/revision-history", methods=["GET"])
+@auth_required
+@safe_route
+def api_rfq_revision_history(rid):
+    """Return quote revision history for an RFQ."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "not found"})
+    locked_qn = r.get("reytech_quote_number", "")
+    if not locked_qn:
+        return jsonify({"ok": True, "revisions": [], "quote_number": ""})
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT revision_num, revised_at, reason, changed_by, snapshot_json
+                   FROM quote_revisions WHERE quote_number=?
+                   ORDER BY revision_num DESC LIMIT 20""",
+                (locked_qn,)).fetchall()
+        import json as _jh
+        revisions = []
+        for row in rows:
+            snap = []
+            try:
+                snap = _jh.loads(row["snapshot_json"] or "[]")
+            except Exception:
+                pass
+            total = sum((it.get("price_per_unit", 0) or 0) * (it.get("qty", 0) or 0) for it in snap)
+            revisions.append({
+                "revision_num": row["revision_num"],
+                "revised_at": row["revised_at"],
+                "reason": row["reason"],
+                "changed_by": row["changed_by"],
+                "total": round(total, 2),
+                "item_count": len(snap),
+            })
+        return jsonify({"ok": True, "quote_number": locked_qn, "revisions": revisions})
+    except Exception as e:
+        log.warning("revision-history for %s: %s", rid, e)
+        return jsonify({"ok": True, "revisions": [], "note": str(e)})
+
+
 @bp.route("/api/rfq/<rid>/revert-pricing", methods=["POST"])
 @auth_required
 @safe_route
