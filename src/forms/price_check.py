@@ -2395,6 +2395,13 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         mb = page.mediabox
         pw, ph = float(mb.width), float(mb.height)
 
+        # Coordinate scaling for different page sizes
+        # Reference coords are for 792×612 (landscape AMS 704)
+        _scale_x = pw / 792.0
+        _scale_y = ph / 612.0
+        def _sc(x1, y1, x2, y2):
+            return (x1 * _scale_x, y1 * _scale_y, x2 * _scale_x, y2 * _scale_y)
+
         # Page type: 0,2,4=page-1-format  1,3,5=continuation
         is_pg1 = (pg_idx % 2 == 0)
         rows = PG1_ROWS if is_pg1 else PG2_ROWS
@@ -2415,54 +2422,62 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             for fname, (x1, y1, x2, y2) in SUPPLIER_FIELDS.items():
                 val = fv_map.get(fname, "")
                 if val:
-                    _cell(c, x1, y1, x2, y2, val, fs=10)
+                    sx1, sy1, sx2, sy2 = _sc(x1, y1, x2, y2)
+                    _cell(c, sx1, sy1, sx2, sy2, val, fs=10)
                     drew = True
             # Notes
             nf, nx1, ny1, nx2, ny2 = NOTES_FIELD
             nval = fv_map.get(nf, "")
             if nval:
-                _multiline(c, nx1, ny1, nx2, ny2, nval, fs=8)
+                snx1, sny1, snx2, sny2 = _sc(nx1, ny1, nx2, ny2)
+                _multiline(c, snx1, sny1, snx2, sny2, nval, fs=8)
                 drew = True
             # Checkbox
             cf, cx1, cy1, cx2, cy2 = CHECKBOX
             if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
+                scx1, scy1, scx2, scy2 = _sc(cx1, cy1, cx2, cy2)
                 c.saveState()
                 c.setFillColorRGB(1, 1, 1)
-                c.rect(cx1 + 1, cy1 + 1, cx2 - cx1 - 2, cy2 - cy1 - 2, fill=1, stroke=0)
+                c.rect(scx1 + 1, scy1 + 1, scx2 - scx1 - 2, scy2 - scy1 - 2, fill=1, stroke=0)
                 c.restoreState()
                 c.setFont("ZapfDingbats", 10)
-                c.drawString(cx1 + 1, cy1 + 1, "4")
+                c.drawString(scx1 + 1, scy1 + 1, "4")
                 drew = True
             # Totals (first page only)
             if pg_idx == 0:
                 for fname, (x1, y1, x2, y2) in TOTALS.items():
                     val = fv_map.get(fname, "")
                     if val:
-                        _cell_right(c, x1, y1, x2, y2, val, fs=10)
+                        sx1, sy1, sx2, sy2 = _sc(x1, y1, x2, y2)
+                        _cell_right(c, sx1, sy1, sx2, sy2, val, fs=10)
                         drew = True
 
         # ── CONTINUATION HEADER (mask + fill SUPPLIER NAME) ──
         if not is_pg1:
             company = fv_map.get("COMPANY NAME", "")
             if company:
-                _cell(c, PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3],
-                      company, fs=12)
+                sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
+                _cell(c, sp0, sp1, sp2, sp3, company, fs=12)
                 drew = True
 
         # ── ROW PRICING: only PRICE PER UNIT + EXTENSION columns ──
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
+            px1, _, px2, _ = _sc(PRICE_X[0], 0, PRICE_X[1], 0)
+            ex1, _, ex2, _ = _sc(EXT_X[0], 0, EXT_X[1], 0)
+            sy_bot = y_bot * _scale_y
+            sy_top = y_top * _scale_y
             # Price
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
-                _cell_right(c, PRICE_X[0], y_bot, PRICE_X[1], y_top, pv, fs=9)
+                _cell_right(c, px1, sy_bot, px2, sy_top, pv, fs=9)
                 drew = True
             # Extension
             ef = ROW_FIELDS["extension"].format(n=rn)
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
-                _cell_right(c, EXT_X[0], y_bot, EXT_X[1], y_top, ev, fs=9)
+                _cell_right(c, ex1, sy_bot, ex2, sy_top, ev, fs=9)
                 drew = True
 
         log.info("OVERLAY pg%d: %s rows=%d-%d drew=%s",
@@ -2565,6 +2580,35 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     if not has_acroform:
         log.warning("_fill_pdf_fields: No /AcroForm and no Widget annotations — using text overlay for %s",
                      os.path.basename(source_pdf))
+        _fill_pdf_text_overlay(source_pdf, field_values, output_pdf)
+        return
+
+    # ── Check if AcroForm has any writable text fields ──
+    # DocuSign PDFs have /AcroForm but only contain a Sig field — no text fields.
+    # Trying to fill them natively produces blank output. Detect and use overlay.
+    _writable_text_fields = 0
+    try:
+        _rf = reader.get_fields() or {}
+        for _fn, _fobj in _rf.items():
+            _ft = str((_fobj or {}).get("/FT", ""))
+            if _ft in ("/Tx", "/Ch"):
+                _writable_text_fields += 1
+        if _writable_text_fields == 0:
+            for _page in reader.pages:
+                for _annot_ref in (_page.get("/Annots") or []):
+                    try:
+                        _annot = _annot_ref.get_object()
+                        if (str(_annot.get("/Subtype", "")) == "/Widget" and
+                                str(_annot.get("/FT", "")) == "/Tx"):
+                            _writable_text_fields += 1
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    if _writable_text_fields == 0:
+        log.info("_fill_pdf_fields: AcroForm has 0 writable text fields (DocuSign/flat) — forcing overlay for %s",
+                  os.path.basename(source_pdf))
         _fill_pdf_text_overlay(source_pdf, field_values, output_pdf)
         return
 
