@@ -3723,10 +3723,12 @@ def scprs_search_proxy(query: str, search_type: str = "item") -> dict:
             "cached_at": datetime.now().isoformat(),
             "query": query,
         }
-        # Keep cache size reasonable
+        # Keep cache size reasonable — evict oldest entries
         if len(cache) > 500:
-            oldest = sorted(cache.items(), key=lambda x: x[1].get("cached_at", ""))[:250]
-            cache = dict(oldest)
+            keep_keys = sorted(cache.keys(), key=lambda k: cache[k].get("cached_at", ""), reverse=True)[:250]
+            for _ek in list(cache.keys()):
+                if _ek not in keep_keys:
+                    del cache[_ek]
         _save_json(cache_path, cache)
 
         log_growth_action("scprs_search", f"SCPRS search: {search_type}={query}", metadata={"results": len(results_list)})

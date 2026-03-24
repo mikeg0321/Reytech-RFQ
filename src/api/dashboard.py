@@ -133,6 +133,13 @@ def _add_pending_po(po_data):
     po_data["detected_at"] = datetime.now().isoformat()
     _load_pending_pos()
     _pending_po_reviews.append(po_data)
+    # Trim old entries (>90 days) to prevent unbounded growth
+    _cutoff = (datetime.now() - timedelta(days=90)).isoformat()
+    while len(_pending_po_reviews) > 200:
+        if _pending_po_reviews[0].get("detected_at", "") < _cutoff:
+            _pending_po_reviews.pop(0)
+        else:
+            break
     _save_pending_pos()
     _po_total = 0
     try:

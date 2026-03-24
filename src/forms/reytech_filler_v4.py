@@ -11,8 +11,34 @@ Reytech Bid Package Filler v4
 - No $ prefix on merchandise subtotal
 """
 
-import json, os, io
+import json, os, io, re as _re_mod
 from datetime import datetime, timezone, timedelta
+
+
+def _sanitize_for_pdf(text: str) -> str:
+    """Replace unicode chars that Helvetica can't render (causes black boxes in PDF).
+    Maps smart quotes, em-dashes, bullets, etc. to ASCII equivalents."""
+    if not text:
+        return text
+    replacements = {
+        "\u2018": "'", "\u2019": "'",   # smart single quotes
+        "\u201c": '"', "\u201d": '"',   # smart double quotes
+        "\u2013": "-", "\u2014": "-",   # en-dash, em-dash
+        "\u2026": "...",                 # ellipsis
+        "\u2022": "*",                   # bullet
+        "\u00ae": "(R)", "\u2122": "(TM)",  # registered, trademark
+        "\u00a0": " ",                   # non-breaking space
+        "\u200b": "",                    # zero-width space
+        "\u00b0": "deg",                 # degree symbol
+        "\u00d7": "x",                   # multiplication sign
+        "\u2032": "'", "\u2033": '"',   # prime, double prime
+        "\ufeff": "",                    # BOM
+    }
+    for char, repl in replacements.items():
+        text = text.replace(char, repl)
+    # Strip any remaining non-ASCII that Helvetica can't handle
+    text = text.encode("ascii", errors="replace").decode("ascii")
+    return text
 
 # ═══════════════════════════════════════════════════════════════════════════
 # FORM FIELD OWNERSHIP RULES (hard rules — never violate)
@@ -342,7 +368,8 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     # update /Rect values, causing all field values to render at wrong positions.
     # PDF viewers apply /Rotate to the whole page uniformly — leave it intact.
 
-    clean_values = {k: v for k, v in field_values.items() if v is not None}
+    clean_values = {k: (_sanitize_for_pdf(v) if isinstance(v, str) else v)
+                     for k, v in field_values.items() if v is not None}
 
     # Convert bool checkbox values to PDF format and track unchecked fields
     _original_clean = dict(clean_values)
@@ -990,6 +1017,9 @@ def _overlay_std1000_description(pdf_path, items, page_index=0):
         for m in ["(R)", "(TM)", "®", "™"]:
             desc = desc.replace(m, "")
         desc = desc.rstrip(" -")
+        # Sanitize unicode chars that Helvetica can't render (causes black boxes)
+        desc = _sanitize_for_pdf(desc)
+        pn = _sanitize_for_pdf(pn)
         lines.append(f"{i}. {pn}, {qty} {uom} - {desc}")
     if not lines:
         lines = ["N/A"]

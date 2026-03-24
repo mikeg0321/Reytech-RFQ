@@ -155,6 +155,13 @@ def api_email_track_click(tracking_id):
         user_agent=request.headers.get("User-Agent", ""),
         link_url=url,
     )
+    # Prevent open redirect — only allow same-origin or whitelisted domains
+    from urllib.parse import urlparse as _urlparse
+    _parsed = _urlparse(url)
+    if _parsed.scheme and _parsed.netloc:
+        _allowed = ("reytechinc.com", "railway.app", "amazon.com", "grainger.com")
+        if not any(_parsed.netloc.endswith(d) for d in _allowed):
+            url = "/"
     return redirect(url)
 
 
