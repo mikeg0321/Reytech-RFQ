@@ -1495,15 +1495,23 @@ def api_lookup_tax_rate(rid):
         return jsonify({"ok": False, "error": "No delivery address to look up"})
     try:
         from src.agents.tax_agent import get_tax_rate
-        # Parse address directly — parse_ship_to expects multi-line format
-        # "190 California Dr, Yountville, CA 94599" → street, city, zip
         import re as _re_tax
-        _zip_match = _re_tax.search(r'\b(\d{5})\b', address)
-        _city_match = _re_tax.search(r',\s*([A-Za-z\s]+),\s*[A-Z]{2}', address)
-        _street_match = _re_tax.search(r'^(\d+\s+.+?)(?:,|$)', address)
-        _d_street = _street_match.group(1).strip() if _street_match else ""
+        # ZIP: use LAST 5-digit sequence — avoids matching street numbers like "11500"
+        _zip_matches = _re_tax.findall(r'\b(\d{5})\b', address)
+        _d_zip = _zip_matches[-1] if _zip_matches else ""
+        # City: handle "City, CA", "City, Ca.", and "City Ca. 90049" formats
+        _city_match = (_re_tax.search(r',\s*([A-Za-z\s]+),?\s*[A-Z][A-Za-z]\.?\s*\d{5}', address) or
+                       _re_tax.search(r',\s*([A-Za-z][A-Za-z\s]+?)\s*,\s*[A-Z]{2}', address))
         _d_city = _city_match.group(1).strip() if _city_match else ""
-        _d_zip = _zip_match.group(1) if _zip_match else ""
+        # Street: everything before first comma
+        _street_match = _re_tax.search(r'^(\d+\s+[^,\n]+?)(?:,|\s{2,}[A-Z][a-z]|$)', address)
+        _d_street = _street_match.group(1).strip() if _street_match else ""
+        # Last resort: extract city anchored to zip
+        if not _d_city and _d_zip:
+            _city_from_zip = _re_tax.search(
+                r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,?\s*[Cc][Aa]\.?\s*' + _d_zip, address)
+            if _city_from_zip:
+                _d_city = _city_from_zip.group(1).strip()
         log.info("Tax lookup: raw='%s' → street='%s' city='%s' zip='%s'",
                  address[:60], _d_street, _d_city, _d_zip)
         if _d_street and _d_city and _d_zip:
