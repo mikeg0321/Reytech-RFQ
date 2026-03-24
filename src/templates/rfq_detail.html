@@ -312,6 +312,10 @@
  <div style="margin-top:6px">
   <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.08);color:#f85149;border:1px solid rgba(248,81,73,.2);font-size:13px;padding:4px 12px">🔄 Reset All Items</button>
   <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);padding:6px 12px;font-size:13px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px" onclick="cleanJunkItems()">🧹 Clean Junk Items</button>
+  {% if r.get('pricing_snapshot') %}
+  <button type="button" onclick="revertPricing()" class="btn btn-sm" style="background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:13px;padding:4px 12px;margin-left:6px" title="Revert all prices to {{ r.pricing_snapshot.quote_number }} generated {{ r.pricing_snapshot.snapshot_at[:10] }}">↩ Revert to {{ r.pricing_snapshot.quote_number }}</button>
+  <span style="font-size:11px;color:#484f58;margin-left:6px">Last quoted: {{ r.pricing_snapshot.get('quote_number','') }} · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total', 0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}</span>
+  {% endif %}
  </div>
 
  <div style="margin-top:14px;margin-bottom:6px">
@@ -1156,7 +1160,7 @@ function recalc(){
   }
   // Back-calculate markup % from bid price ÷ cost
   const mkEl=document.querySelector(`[name=markup_${i}]`);
-  if(mkEl && p>0 && c>0 && document.activeElement===document.querySelector(`[name=price_${i}]`)){
+  if(mkEl && p>0 && c>0){
    mkEl.value=Math.round((p-c)/c*100);
   }
  }
@@ -1300,18 +1304,14 @@ function recalcFromMarkup(idx, forceOverwrite){
  var priceEl=document.querySelector('[name=price_'+idx+']');
  if(!costEl||!priceEl) return;
  var cost=parseFloat(costEl.value)||0;
- var mk=mkEl?parseFloat(mkEl.value):0;
- var currentPrice=parseFloat(priceEl.value)||0;
- if(!forceOverwrite && currentPrice>0 && cost>0 && mk>0){
-  // Price was manually set — don't overwrite, just recalc totals
-  recalc();
-  triggerAutosave();
-  return;
- }
+ var mk=mkEl?(parseFloat(mkEl.value)||0):0;
  if(cost>0 && mk>0){
+  // Always recalculate bid price from cost × markup
   priceEl.value=(cost*(1+mk/100)).toFixed(2);
- } else if(cost>0 && currentPrice>0 && mkEl && !mk){
-  mkEl.value=Math.round((currentPrice-cost)/cost*100);
+ } else if(cost>0 && (parseFloat(priceEl.value)||0)>0 && mkEl){
+  // Cost set but no markup — back-calculate markup from existing price
+  var existingPrice=parseFloat(priceEl.value)||0;
+  if(existingPrice>0) mkEl.value=Math.round((existingPrice-cost)/cost*100);
  }
  recalc();
  triggerAutosave();
@@ -2476,6 +2476,14 @@ function showIntel(idx){
  }
  html+='</div><div id="intel-backdrop" onclick="document.getElementById(\'intel-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.4)"></div>';
  document.body.insertAdjacentHTML('beforeend',html);
+}
+// ── Revert Pricing to Snapshot ──
+function revertPricing(){
+ if(!confirm('Revert all prices to the last generated quote snapshot? Current changes will be lost.'))return;
+ fetch('/api/rfq/'+RID+'/revert-pricing',{method:'POST',credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){if(d.ok){window.location.reload();}else{alert('Could not revert: '+d.error);}})
+ .catch(function(){alert('Revert failed — network error');});
 }
 // ── Apply Recommended Prices ──
 </script>

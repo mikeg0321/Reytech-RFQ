@@ -3448,6 +3448,25 @@ def generate_rfq_package(rid):
                 r["reytech_quote_number"] = qn
                 output_files.append(f"{safe_sol}_Quote_Reytech.pdf")
                 t.step("Reytech Quote generated", quote_number=qn, total=result.get("total", 0))
+                # Save pricing snapshot for revert capability
+                r["pricing_snapshot"] = {
+                    "snapshot_at": datetime.now().isoformat(),
+                    "quote_number": qn,
+                    "total": result.get("total", 0),
+                    "tax_rate": r.get("tax_rate", 0),
+                    "items": [
+                        {
+                            "line_number": it.get("line_number", i+1),
+                            "description": it.get("description", "")[:100],
+                            "qty": it.get("qty", 0),
+                            "uom": it.get("uom", ""),
+                            "supplier_cost": it.get("supplier_cost", 0),
+                            "price_per_unit": it.get("price_per_unit", 0),
+                            "markup_pct": it.get("markup_pct", 0),
+                        }
+                        for i, it in enumerate(r.get("line_items", []))
+                    ]
+                }
                 # CRM log
                 _log_crm_activity(qn, "quote_generated",
                                   f"Quote {qn} generated for RFQ {sol} — ${result.get('total',0):,.2f}",
@@ -5920,6 +5939,36 @@ def api_rfq_set_quote_number(rid):
     save_rfqs(rfqs)
     log.info("Force-set quote number on RFQ %s: %s → %s", rid, old, qn)
     return jsonify({"ok": True, "old": old, "new": qn})
+
+
+@bp.route("/api/rfq/<rid>/revert-pricing", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_revert_pricing(rid):
+    """Revert line item prices to the last generated quote snapshot."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    snapshot = r.get("pricing_snapshot")
+    if not snapshot:
+        return jsonify({"ok": False, "error": "No pricing snapshot found. Generate a quote first."})
+    snap_items = snapshot.get("items", [])
+    if len(snap_items) != len(r.get("line_items", [])):
+        return jsonify({"ok": False, "error": "Item count changed since snapshot — cannot auto-revert"})
+    for i, snap in enumerate(snap_items):
+        item = r["line_items"][i]
+        item["supplier_cost"] = snap.get("supplier_cost", 0)
+        item["price_per_unit"] = snap.get("price_per_unit", 0)
+        item["markup_pct"] = snap.get("markup_pct", 0)
+    save_rfqs(rfqs)
+    log.info("Reverted pricing on RFQ %s to snapshot %s", rid, snapshot.get("quote_number", ""))
+    return jsonify({
+        "ok": True,
+        "reverted_to": snapshot.get("quote_number", ""),
+        "snapshot_at": snapshot.get("snapshot_at", ""),
+        "items": len(snap_items),
+    })
 
 
 @bp.route("/api/rfq/<rid>/convert-to-pc", methods=["POST"])
