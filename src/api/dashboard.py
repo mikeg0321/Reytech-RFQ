@@ -6100,11 +6100,18 @@ def api_health_startup():
         with get_db() as conn:
             pc_count = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
             rfq_count = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
+        warnings = []
+        if not os.environ.get("GMAIL_ADDRESS_2"):
+            warnings.append("GMAIL_ADDRESS_2 not set — mike@ inbox not being polled")
+        if not os.environ.get("GMAIL_PASSWORD_2"):
+            warnings.append("GMAIL_PASSWORD_2 not set — mike@ inbox not being polled")
         return jsonify({
             "ok": True,
             "price_checks": pc_count,
             "rfqs": rfq_count,
             "status": "healthy",
+            "warnings": warnings,
+            "mike_inbox_configured": bool(os.environ.get("GMAIL_ADDRESS_2") and os.environ.get("GMAIL_PASSWORD_2")),
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})

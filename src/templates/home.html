@@ -122,6 +122,11 @@ setTimeout(function(){ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then
   <span style="color:var(--tx2)">Email Poller:</span>
   <span id="as-poller-txt" style="color:var(--tx)">loading...</span>
  </div>
+ <div style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0">
+  <span id="as-mike-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
+  <span style="color:var(--tx2)">mike@ Inbox:</span>
+  <span id="as-mike-txt" style="color:var(--tx)">loading...</span>
+ </div>
  <div id="as-award" style="display:flex;align-items:center;gap:6px;font-size:14px">
   <span id="as-award-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
   <span style="color:var(--tx2)">Award Tracker:</span>
@@ -149,6 +154,22 @@ function _refreshAgentStatus(){
   if(at.status==='ok'){atDot.style.background='#2ecc71';atTxt.textContent='Last: '+(at.last_run?new Date(at.last_run).toLocaleTimeString():'—');}
   else if(at.status==='error'){atDot.style.background='#f87171';atTxt.textContent='Error';}
   else{atDot.style.background='#484f58';atTxt.textContent='Never run';}
+  // Mike inbox status — read from POLL_STATUS via /api/diag (lightweight GET)
+  var mikeDot=document.getElementById('as-mike-dot');
+  var mikeTxt=document.getElementById('as-mike-txt');
+  fetch('/api/diag').then(function(r2){return r2.json();}).then(function(ps){
+   var mkd=(ps.poll_status||{})._mike_diag||{};
+   if(!mkd.configured){
+    mikeDot.style.background='#f85149';
+    mikeTxt.textContent='⚠️ Not configured — set GMAIL_ADDRESS_2 + GMAIL_PASSWORD_2 in Railway';
+   } else if(mkd.connected===false){
+    mikeDot.style.background='#f85149';
+    mikeTxt.textContent='IMAP connect failed — check credentials';
+   } else if(mkd.configured){
+    mikeDot.style.background='#2ecc71';
+    mikeTxt.textContent='Active — '+(mkd.addr||'mike@')+(mkd.emails_returned?' ('+mkd.emails_returned+' found)':'');
+   }
+  }).catch(function(){mikeTxt.textContent='unknown';});
  }).catch(()=>{});
 }
 setTimeout(_refreshAgentStatus,4000);
