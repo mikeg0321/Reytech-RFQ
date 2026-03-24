@@ -58,8 +58,8 @@ def check_due_dates():
     # Check price_checks
     try:
         from src.core.db import get_db
-        db = get_db()
-        rows = db.execute("""
+        with get_db() as db:
+            rows = db.execute("""
             SELECT id, pc_data, status, due_date FROM price_checks
             WHERE status NOT IN ('sent', 'won', 'lost', 'dismissed', 'expired')
             AND due_date IS NOT NULL AND due_date != ''

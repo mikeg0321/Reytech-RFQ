@@ -6,6 +6,11 @@ Exit 0 = safe to deploy, Exit 1 = broken.
 """
 import ast, sys, os, importlib, traceback
 
+# Fix Windows console encoding for emoji output
+if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("cp"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("FLASK_ENV", "testing")
 os.environ.setdefault("SECRET_KEY", "test")
