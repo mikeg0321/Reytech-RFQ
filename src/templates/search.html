@@ -30,18 +30,8 @@
  </div>
 </form>
 
-<!-- Quick search tags -->
-{% if not q %}
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
- <span style="font-size:14px;color:var(--tx2);padding:6px 0">Quick:</span>
- <a href="/search?q=CDCR" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">CDCR</a>
- <a href="/search?q=CCHCS" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">CCHCS</a>
- <a href="/search?q=CalVet" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">CalVet</a>
- <a href="/search?q=DSH" style="font-size:14px;padding:6px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);text-decoration:none">DSH</a>
- <a href="/search?q=won" style="font-size:14px;padding:6px 14px;border-radius:8px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:#3fb950;text-decoration:none">🏆 Won</a>
- <a href="/search?q=sent" style="font-size:14px;padding:6px 14px;border-radius:8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);text-decoration:none">📤 Sent</a>
-</div>
-{% endif %}
+<!-- Quick search chips (status filters + agency shortcuts) -->
+{{ quick_chips_html|default('')|safe }}
 
 <!-- Breakdown badges -->
 {% if breakdown_html %}
