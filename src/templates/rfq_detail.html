@@ -2612,6 +2612,13 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     }
   });
+  // Navigate-away warning for unsaved changes
+  window.addEventListener('beforeunload', function(e) {
+    if (typeof _lastSaveData !== 'undefined' && _lastSaveData !== null &&
+        typeof _getFormData === 'function' && _getFormData() !== _lastSaveData) {
+      e.preventDefault(); e.returnValue = 'You have unsaved changes.';
+    }
+  });
 });
 </script>
 

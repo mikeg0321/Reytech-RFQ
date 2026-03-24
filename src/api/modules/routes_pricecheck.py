@@ -1826,6 +1826,44 @@ def pricecheck_reparse(pcid):
                     "msg": f"Re-parsed {len(fresh['line_items'])} items from source PDF"})
 
 
+@bp.route("/api/pricecheck/<pcid>/lookup-tax-rate", methods=["POST"])
+@auth_required
+def api_pc_lookup_tax_rate(pcid):
+    """Look up CA sales tax rate from ship-to address for a PC."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    address = data.get("address") or pc.get("ship_to") or ""
+    if not address:
+        return jsonify({"ok": False, "error": "No address — enter Ship To first"})
+    try:
+        import re as _re_tax
+        _zips = _re_tax.findall(r'\b(\d{5})\b', address)
+        _d_zip = _zips[-1] if _zips else ""
+        _city_m = (_re_tax.search(r',\s*([A-Za-z\s]+),?\s*[A-Z][A-Za-z]\.?\s*\d{5}', address) or
+                   _re_tax.search(r',\s*([A-Za-z][A-Za-z\s]+?)\s*,\s*[A-Z]{2}', address))
+        _d_city = _city_m.group(1).strip() if _city_m else ""
+        if not _d_city and _d_zip:
+            _cfz = _re_tax.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,?\s*[Cc][Aa]\.?\s*' + _d_zip, address)
+            if _cfz: _d_city = _cfz.group(1).strip()
+        from src.agents.tax_agent import get_tax_rate
+        result = get_tax_rate(city=_d_city, zip_code=_d_zip)
+        if result and result.get("rate"):
+            rate_pct = round(result["rate"] * 100, 3)
+            pc["tax_rate"] = rate_pct
+            pc["tax_validated"] = True
+            pc["tax_source"] = result.get("source", "")
+            _save_price_checks(pcs)
+            return jsonify({"ok": True, "rate": rate_pct,
+                "jurisdiction": result.get("jurisdiction", ""),
+                "source": result.get("source", "")})
+        return jsonify({"ok": False, "error": "Tax lookup returned no rate"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/pricecheck/<pcid>/upload-pdf", methods=["POST"])
 @auth_required
 def pricecheck_upload_pdf(pcid):

@@ -357,6 +357,8 @@
        <input type="checkbox" id="taxToggle" onchange="recalcPC()" style="width:18px;height:18px">
        <span>Include CA Sales Tax</span>
        <span id="taxRateDisplay" style="color:#8b949e;font-size:13px">({{ tax_source }} — {{ (tax_rate * 100)|round(3) }}%)</span>
+       <button type="button" onclick="lookupPcTaxRate()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:5px;padding:5px 12px;font-size:13px;font-weight:600;cursor:pointer;margin-left:6px" aria-label="Verify tax rate">🔍 Verify</button>
+       <span id="pc-tax-validation" style="font-size:12px;margin-left:4px"></span>
       </label>
       <span style="color:#30363d">|</span>
       <span style="color:#8b949e">📅 Date: <b style="color:#c9d1d9">{{ today_date }}</b> · Valid through: <b id="expiryDate" style="color:#d29922">{{ expiry_date }}</b> (45 days)</span>
@@ -1892,6 +1894,57 @@
       });
       setTimeout(function() { _pcLastSaved = JSON.stringify(collectPrices()); }, 1000);
     });
+
+    // ── Tax Verify ──────────────────────────────────────
+    function lookupPcTaxRate() {
+      var shipTo = (document.getElementById('shipToField') || {}).value || '';
+      if (!shipTo) { alert('Enter Ship To address first'); return; }
+      var valEl = document.getElementById('pc-tax-validation');
+      if (valEl) valEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up...</span>';
+      fetch('/api/pricecheck/' + _pcid + '/lookup-tax-rate', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({address: shipTo}), credentials: 'same-origin'
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok) {
+          cachedTaxRate = d.rate / 100;
+          var isFallback = d.source && d.source.indexOf('fallback') >= 0;
+          if (valEl) valEl.innerHTML = '<span style="color:' + (isFallback ? '#d29922' : '#3fb950') + '">' +
+            (isFallback ? '\u26A0\uFE0F' : '\u2705') + ' ' + d.rate + '% \u00B7 ' + (d.jurisdiction || '') +
+            (isFallback ? ' (fallback)' : '') + '</span>';
+          document.getElementById('taxToggle').checked = true;
+          document.getElementById('taxRateDisplay').textContent = '(' + d.source + ' \u2014 ' + d.rate + '%)';
+          recalcPC();
+          triggerPcAutosave();
+        } else {
+          if (valEl) valEl.innerHTML = '<span style="color:#f85149">\u274C ' + (d.error || 'Failed') + '</span>';
+        }
+      }).catch(function() {
+        if (valEl) valEl.innerHTML = '<span style="color:#f85149">Network error</span>';
+      });
+    }
+
+    // ── CRM Buyer Autocomplete ───────────────────────────
+    if (typeof initCrmAutocomplete === 'function') {
+      // Wire to the requestor text near the top of the page
+      var _reqEl = document.querySelector('input[value*="{{ pc.get("requestor","").replace('"','') }}"]');
+      if (!_reqEl) {
+        // Fallback: find by proximity to "Requestor:" label
+        document.querySelectorAll('input.text-in').forEach(function(inp) {
+          if (inp.previousElementSibling && inp.previousElementSibling.textContent.indexOf('Requestor') >= 0) _reqEl = inp;
+        });
+      }
+      if (_reqEl) {
+        if (!_reqEl.id) _reqEl.id = 'pc-detail-buyer-ac';
+        initCrmAutocomplete(_reqEl.id, {
+          onSelect: function(c) {
+            var shipTo = document.getElementById('shipToField');
+            if (shipTo && !shipTo.value) {
+              shipTo.value = c.agency || c.institution || c.department || '';
+            }
+          }
+        });
+      }
+    }
 
     // ── Quote Preview ──────────────────────────────────
     const REYTECH={
