@@ -1292,24 +1292,26 @@ def generate_quote(
 
         ty += tot_h + 1
 
-    # ── Quote Notes (printed below totals if present) ──────────────────────
+    # ── Quote Notes (printed below totals if present) ────────────────────────
     if notes and notes.strip():
-        import textwrap
-        notes_y = ty + 8
-        rl_notes_y = Y(notes_y) - 14
+        import textwrap as _textwrap
+        notes_gap_y = ty + 10
+        rl_label_y = Y(notes_gap_y) - 11
         c.setFont("Helvetica-Bold", 8)
-        c.setFillColor(BLACK)
-        c.drawString(ML + 4, rl_notes_y, "NOTES:")
-        c.setFont("Helvetica", 8)
+        c.setFillColor(GRAY)
+        c.drawString(ML + 4, rl_label_y, "NOTES:")
         note_lines = []
         for para in notes.strip().split("\n"):
-            wrapped = textwrap.wrap(para.strip(), width=110)
+            wrapped = _textwrap.wrap(para.strip(), width=112)
             note_lines.extend(wrapped if wrapped else [""])
-        nl_y = rl_notes_y - 12
-        for nl in note_lines[:8]:  # max 8 lines
-            c.setFillColor(BLACK)
-            c.drawString(ML + 4, nl_y, nl)
-            nl_y -= 10
+        nl_rl_y = rl_label_y - 11
+        c.setFont("Helvetica", 8)
+        for nl in note_lines[:10]:
+            if nl_rl_y < 35:
+                break
+            c.setFillColor(GRAY)
+            c.drawString(ML + 4, nl_rl_y, nl)
+            nl_rl_y -= 10
 
     # ── Footer ────────────────────────────────────────────────────────────────
     c.setFillColor(GRAY)

@@ -332,7 +332,29 @@ def get_tax_rate(ship_to_name="", ship_to_address=None, street=None, city=None, 
         cache_rate(cache_key, result)
         return result
 
-    # Step 7: Default fallback
+    # Step 7: Try tax_rates FALLBACK_RATES table before giving up
+    # This table has known rates for common CA facility zip codes
+    if zip_code:
+        try:
+            from src.core.tax_rates import lookup_tax_rate as _ltr
+            _fallback = _ltr(zip_code=zip_code, city=city, address=street)
+            if _fallback and _fallback.get("rate") and _fallback.get("source") not in ("default",):
+                log.info("tax_agent: using tax_rates fallback for zip=%s → %.4f (%s)",
+                         zip_code, _fallback["rate"], _fallback.get("source"))
+                return {
+                    "rate": _fallback["rate"],
+                    "rate_pct": f"{_fallback['rate']*100:.3f}%",
+                    "jurisdiction": _fallback.get("jurisdiction", city.upper()),
+                    "city": _fallback.get("city", city),
+                    "county": _fallback.get("county", ""),
+                    "confidence": "Medium",
+                    "source": "fallback_table",
+                    "formatted_address": f"{street}, {city}, CA {zip_code}",
+                }
+        except Exception as _fe:
+            log.debug("tax_agent fallback table error: %s", _fe)
+
+    # Step 8: Default fallback — CA statewide base rate
     return _default_result(f"CDTFA lookup failed for {cache_key}")
 
 

@@ -101,7 +101,12 @@
    <input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.25" style="width:50px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()">%
    <button onclick="lookupTaxRate(event)" class="btn btn-sm" style="font-size:10px;padding:1px 6px;background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);margin-left:2px" title="Auto-lookup from CDTFA">🔍 Verify</button>
    <span id="tax-validation" style="font-size:10px;margin-left:4px">
-     {% if r.get('tax_validated') %}<span style="color:#3fb950" title="{{r.get('tax_source','CDTFA')}} · {{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>
+     {% if r.get('tax_validated') %}
+       {% if r.get('tax_source') in ('default', 'fallback_table', 'fallback') %}
+         <span style="color:#d29922" title="Source: {{r.get('tax_source','')}} · {{r.get('tax_jurisdiction','')}} — CDTFA API unavailable, using fallback table. Click Verify to retry.">⚠️ {{r.get('tax_jurisdiction','')}} (fallback — verify)</span>
+       {% else %}
+         <span style="color:#3fb950" title="Source: {{r.get('tax_source','CDTFA')}} · {{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>
+       {% endif %}
      {% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ unverified</span>
      {% else %}<span style="color:#f85149">❌ not set</span>{% endif %}
    </span>
@@ -308,9 +313,9 @@
   <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);padding:6px 12px;font-size:13px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px" onclick="cleanJunkItems()">🧹 Clean Junk Items</button>
  </div>
 
- <div style="margin:10px 0">
+ <div style="margin-top:14px;margin-bottom:6px">
   <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px;font-weight:600">Notes to Buyer <span style="font-weight:400;opacity:.7">(printed on quote)</span></label>
-  <textarea name="quote_notes" rows="3" class="text-in" style="width:100%;font-size:13px;padding:8px;resize:vertical;border-radius:6px" placeholder="e.g. Line items 1-4 are on allocation, separate deliveries may be required...">{{ r.get('quote_notes', '') }}</textarea>
+  <textarea name="quote_notes" rows="3" class="text-in" style="width:100%;font-size:13px;padding:8px;resize:vertical;border-radius:6px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx)" placeholder="e.g. Line items 1-4 are on allocation, separate deliveries may be required to deliver full quantities requested...">{{ r.get('quote_notes', '') }}</textarea>
  </div>
 
  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
@@ -2047,7 +2052,11 @@ function lookupTaxRate(e){
   btn.disabled=false;btn.textContent='🔍 Verify';
   if(d.ok){
    document.getElementById('tax-rate').value=d.rate;
-   valEl.innerHTML='<span style="color:#3fb950" title="'+d.source+'">✅ '+d.rate+'% · '+(d.jurisdiction||d.city||'')+(d.county?', '+d.county+' Co':'')+'</span>';
+   var isFallback = d.source && (d.source.indexOf('fallback') >= 0 || d.source === 'default');
+   var badgeColor = isFallback ? '#d29922' : '#3fb950';
+   var badgeIcon = isFallback ? '⚠️' : '✅';
+   var badgeSuffix = isFallback ? ' (fallback — verify)' : '';
+   valEl.innerHTML='<span style="color:'+badgeColor+'" title="'+d.source+'">'+badgeIcon+' '+d.rate+'% · '+(d.jurisdiction||d.city||'')+badgeSuffix+'</span>';
    recalc();triggerAutosave();
   } else {
    valEl.innerHTML='<span style="color:#f85149" title="'+(d.error||'')+'">❌ failed</span>';
