@@ -838,6 +838,7 @@ def generate_quote(
     shipping: float = 0.0,
     terms: str = None,
     expiry_days: int = 45,
+    notes: str = None,
 ) -> dict:
     """
     Generate a professional Reytech quote PDF.
@@ -1291,6 +1292,25 @@ def generate_quote(
 
         ty += tot_h + 1
 
+    # ── Quote Notes (printed below totals if present) ──────────────────────
+    if notes and notes.strip():
+        import textwrap
+        notes_y = ty + 8
+        rl_notes_y = Y(notes_y) - 14
+        c.setFont("Helvetica-Bold", 8)
+        c.setFillColor(BLACK)
+        c.drawString(ML + 4, rl_notes_y, "NOTES:")
+        c.setFont("Helvetica", 8)
+        note_lines = []
+        for para in notes.strip().split("\n"):
+            wrapped = textwrap.wrap(para.strip(), width=110)
+            note_lines.extend(wrapped if wrapped else [""])
+        nl_y = rl_notes_y - 12
+        for nl in note_lines[:8]:  # max 8 lines
+            c.setFillColor(BLACK)
+            c.drawString(ML + 4, nl_y, nl)
+            nl_y -= 10
+
     # ── Footer ────────────────────────────────────────────────────────────────
     c.setFillColor(GRAY)
     c.setFont("Helvetica", 8)
@@ -1471,6 +1491,8 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             kwargs["tax_rate"] = 0.0725
 
     kwargs.setdefault("shipping", 0.0)
+    if "notes" not in kwargs and pc.get("quote_notes"):
+        kwargs["notes"] = pc["quote_notes"]
 
     return generate_quote(data, output_path, **kwargs)
 
@@ -1691,6 +1713,8 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
 
     # No shipping line — shipping is baked into item cost/margin
     kwargs.setdefault("shipping", 0.0)
+    if "notes" not in kwargs and rfq.get("quote_notes"):
+        kwargs["notes"] = rfq["quote_notes"]
 
     return generate_quote(data, output_path, **kwargs)
 

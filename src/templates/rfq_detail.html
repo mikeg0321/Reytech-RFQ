@@ -308,6 +308,11 @@
   <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);padding:6px 12px;font-size:13px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px" onclick="cleanJunkItems()">🧹 Clean Junk Items</button>
  </div>
 
+ <div style="margin:10px 0">
+  <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px;font-weight:600">Notes to Buyer <span style="font-weight:400;opacity:.7">(printed on quote)</span></label>
+  <textarea name="quote_notes" rows="3" class="text-in" style="width:100%;font-size:13px;padding:8px;resize:vertical;border-radius:6px" placeholder="e.g. Line items 1-4 are on allocation, separate deliveries may be required...">{{ r.get('quote_notes', '') }}</textarea>
+ </div>
+
  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
   <div>
    <span style="color:var(--tx2);font-size:13px">Revenue: </span><span id="tot" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700">$0</span>

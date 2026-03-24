@@ -1708,6 +1708,10 @@ def update(rid):
             except Exception as _e:
                 log.debug("Suppressed: %s", _e)
     
+    # Save quote-level notes
+    quote_notes_val, _ = validate_text(request.form.get("quote_notes", ""), max_len=2000)
+    r["quote_notes"] = quote_notes_val
+
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
     save_rfqs(rfqs)
     try:
