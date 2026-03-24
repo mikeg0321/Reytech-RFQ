@@ -126,17 +126,17 @@
   <span id="ms-grand-total" style="font-weight:700;color:#e6edf3"></span>
  </div>
  <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
-  <button class="btn btn-sm btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px;font-size:14px;padding:8px 18px;font-weight:600" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
-  <button class="btn btn-sm btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
-  <button class="btn btn-sm" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
-  <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
-  <button class="btn btn-sm" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
-  <button class="btn btn-sm" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="uploadSupplierQuote()" aria-label="Upload supplier quote PDF to fill costs">🏷️ Supplier Quote</button>
+  <button class="btn btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px;font-size:14px;padding:9px 18px;font-weight:600" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
+  <button class="btn btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
+  <button class="btn" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
+  <button class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
+  <button class="btn" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
+  <button class="btn" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="uploadSupplierQuote()" aria-label="Upload supplier quote PDF to fill costs">🏷️ Supplier Quote</button>
   <input type="file" id="sq-upload-input" accept=".pdf" style="display:none" onchange="handleSQUpload(this)">
-  <button class="btn btn-sm" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="uploadDoc()" aria-label="Upload any PDF, image, or screenshot to parse items">📄 Upload & Parse</button>
+  <button class="btn" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="uploadDoc()" aria-label="Upload any PDF, image, or screenshot to parse items">📄 Upload & Parse</button>
   <input type="file" id="doc-upload-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff" onchange="handleDocUpload(this)">
-  <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="applyRecommendations()" aria-label="Auto-price all items using SCPRS, catalog, Amazon, and cost data">💡 Auto-Price All</button>
-  <button class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
+  <button class="btn" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="applyRecommendations()" aria-label="Auto-price all items using SCPRS, catalog, Amazon, and cost data">💡 Auto-Price All</button>
+  <button class="btn" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
@@ -176,6 +176,17 @@
    <th scope="col">Your Cost</th><th scope="col" style="width:30px" title="Price Intelligence">📊</th><th scope="col" style="width:70px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
   </tr></thead>
   <tbody>
+  {% if not (r.get("line_items") or r.get("items")) %}
+  <tr><td colspan="14" style="text-align:center;padding:48px 20px;color:var(--tx2)">
+    <div style="font-size:32px;margin-bottom:12px">📋</div>
+    <div style="font-size:16px;font-weight:600;color:var(--tx);margin-bottom:8px">No line items parsed</div>
+    <div style="font-size:14px;margin-bottom:16px">Use <strong style="color:#d29922">Upload &amp; Parse</strong> to extract items from a PDF or image, or click <strong style="color:#3fb950">+ Add Item</strong> below to enter manually.</div>
+    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+      <button class="btn" onclick="uploadDoc()" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);padding:9px 20px;font-size:14px;font-weight:600">📄 Upload &amp; Parse PDF</button>
+      <button class="btn" onclick="importFromPC(this)" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);padding:9px 20px;font-size:14px;font-weight:600">📥 Import from PC</button>
+    </div>
+  </td></tr>
+  {% endif %}
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
    <td style="font-size:13px">{{i.line_number}}</td>
@@ -722,7 +733,7 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
   .num-in { font-size: 13px !important; padding: 4px 6px !important; width: 70px !important; }
   input[name^="cost_"], input[name^="price_"] { width: 80px !important; }
   #margin-summary { flex-wrap: wrap !important; font-size: 12px !important; gap: 6px !important; }
-  .btn { padding: 6px 10px !important; font-size: 12px !important; }
+  .btn { padding: 7px 12px !important; font-size: 13px !important; }
   .card { padding: 10px !important; }
   .desc-area { min-width: 140px !important; max-width: 180px !important; }
 }
