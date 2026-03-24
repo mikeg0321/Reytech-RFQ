@@ -1765,6 +1765,134 @@
      return data;
     }
 
+    // ── AUTOSAVE ──────────────────────────────────────────────────
+    var _pcAutosaveTimer = null;
+    var _pcLastSaved = null;
+    var _pcSaveInFlight = false;
+
+    function triggerPcAutosave() {
+      clearTimeout(_pcAutosaveTimer);
+      _pcAutosaveTimer = setTimeout(doPcAutosave, 2500);
+    }
+
+    function doPcAutosave() {
+      if (_pcSaveInFlight) return;
+      var payload = collectPrices();
+      var snapshot = JSON.stringify(payload);
+      if (snapshot === _pcLastSaved) return;
+      _pcSaveInFlight = true;
+      try {
+        localStorage.setItem('pc_autosave_' + _pcid, JSON.stringify({
+          ts: Date.now(), pcid: _pcid, data: payload
+        }));
+      } catch(e) {}
+      _showPcSaveStatus('saving');
+      _fetchWithRetry('/pricecheck/' + _pcid + '/save-prices', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: snapshot
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        _pcSaveInFlight = false;
+        if (d.ok) {
+          _pcLastSaved = snapshot;
+          _showPcSaveStatus('saved');
+          try { localStorage.removeItem('pc_autosave_' + _pcid); } catch(e) {}
+        } else {
+          _showPcSaveStatus('error');
+        }
+      })
+      .catch(function() {
+        _pcSaveInFlight = false;
+        _showPcSaveStatus('error');
+      });
+    }
+
+    function _showPcSaveStatus(state) {
+      var el = document.getElementById('pc-save-status');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'pc-save-status';
+        el.style.cssText = 'position:fixed;bottom:16px;right:16px;padding:6px 14px;border-radius:6px;font-size:13px;font-weight:600;z-index:9999;transition:opacity .5s;pointer-events:none';
+        document.body.appendChild(el);
+      }
+      if (state === 'saving') {
+        el.textContent = '\u23F3 Saving...';
+        el.style.background = '#21262d'; el.style.color = '#8b949e';
+        el.style.opacity = '1'; el.style.border = '1px solid #30363d';
+      } else if (state === 'saved') {
+        el.textContent = '\u2705 Saved';
+        el.style.background = 'rgba(63,185,80,.15)'; el.style.color = '#3fb950';
+        el.style.border = '1px solid rgba(63,185,80,.3)'; el.style.opacity = '1';
+        setTimeout(function() { el.style.opacity = '0'; }, 3000);
+      } else if (state === 'error') {
+        el.textContent = '\u26A0\uFE0F Save failed \u2014 data in local backup';
+        el.style.background = 'rgba(248,81,73,.15)'; el.style.color = '#f85149';
+        el.style.border = '1px solid rgba(248,81,73,.3)'; el.style.opacity = '1';
+      }
+    }
+
+    function checkLocalBackup() {
+      try {
+        var raw = localStorage.getItem('pc_autosave_' + _pcid);
+        if (!raw) return;
+        var backup = JSON.parse(raw);
+        var age = (Date.now() - backup.ts) / 1000;
+        if (age < 3600 && backup.pcid === _pcid) {
+          var bar = document.createElement('div');
+          bar.style.cssText = 'background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:14px;color:#d29922;display:flex;align-items:center;gap:12px';
+          bar.innerHTML = '<span>\u26A0\uFE0F <strong>Unsaved session recovered</strong> from browser backup (' + Math.round(age) + 's ago)</span>' +
+            '<button onclick="restoreLocalBackup()" style="background:rgba(210,153,34,.2);border:1px solid rgba(210,153,34,.4);color:#d29922;border-radius:6px;padding:4px 12px;font-size:13px;font-weight:600;cursor:pointer">\u21A9 Restore & Save</button>' +
+            '<button onclick="this.closest(\'div\').remove()" style="background:none;border:none;color:#d29922;cursor:pointer;font-size:16px;padding:4px 8px">\u2715</button>';
+          var container = document.querySelector('.card') || document.body;
+          container.insertBefore(bar, container.firstChild);
+        }
+      } catch(e) {}
+    }
+
+    function restoreLocalBackup() {
+      try {
+        var raw = localStorage.getItem('pc_autosave_' + _pcid);
+        if (!raw) { alert('No backup found'); return; }
+        var data = JSON.parse(raw).data;
+        Object.keys(data).forEach(function(key) {
+          var el = document.querySelector('[name="' + key + '"]');
+          if (!el) return;
+          if (el.type === 'checkbox') el.checked = !!data[key];
+          else el.value = data[key];
+        });
+        recalcPC();
+        doPcAutosave();
+        var bars = document.querySelectorAll('[style*="Unsaved session"]');
+        bars.forEach(function(b) { b.remove(); });
+      } catch(e) { alert('Restore failed: ' + e.message); }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      checkLocalBackup();
+      document.addEventListener('input', function(e) {
+        var name = e.target.name || '';
+        if (name.match(/^(price_|cost_|markup_|qty_|desc_|uom_|itemno_|itemnum_|link_|notes_|linenum_)/)) {
+          triggerPcAutosave();
+        }
+      });
+      document.addEventListener('change', function(e) {
+        var name = e.target.name || '';
+        if (name.match(/^(bid_|substitute_|qpu_)/)) triggerPcAutosave();
+        if (e.target.id === 'taxToggle' || e.target.id === 'deliverySelect' || e.target.id === 'markupDefault') triggerPcAutosave();
+      });
+      setInterval(doPcAutosave, 30000);
+      window.addEventListener('beforeunload', function(e) {
+        var payload = JSON.stringify(collectPrices());
+        if (_pcLastSaved !== null && payload !== _pcLastSaved) {
+          e.preventDefault();
+          e.returnValue = 'You have unsaved changes.';
+        }
+      });
+      setTimeout(function() { _pcLastSaved = JSON.stringify(collectPrices()); }, 1000);
+    });
+
     // ── Quote Preview ──────────────────────────────────
     const REYTECH={
      name:'Reytech Inc.',
