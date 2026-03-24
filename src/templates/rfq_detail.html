@@ -2476,4 +2476,23 @@ function showIntel(idx){
 // ── Apply Recommended Prices ──
 </script>
 
+<script>
+/* Wire CRM autocomplete to inline Buyer Name field on RFQ detail */
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof initCrmAutocomplete !== 'function') return;
+  var buyerInp = document.querySelector('input[aria-label="Buyer Name"]');
+  if (!buyerInp) return;
+  if (!buyerInp.id) buyerInp.id = 'rfq-detail-buyer-ac';
+  initCrmAutocomplete(buyerInp.id, {
+    onSelect: function(c) {
+      var emailInp = document.querySelector('input[aria-label="Buyer Email"]');
+      if (emailInp && !emailInp.value) {
+        emailInp.value = c.buyer_email || c.email || '';
+        emailInp.dispatchEvent(new Event('blur'));
+      }
+    }
+  });
+});
+</script>
+
 {% endblock %}

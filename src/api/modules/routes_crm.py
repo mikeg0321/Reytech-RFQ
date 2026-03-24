@@ -3960,17 +3960,32 @@ def api_data_quality():
 @bp.route("/api/crm/search")
 @auth_required
 def api_crm_contact_search():
-    """Search contacts by name, email, or institution. ?q=keyword"""
+    """Search contacts by name, email, or institution. ?q=keyword
+    Unions contacts table + scprs_buyers table for full autocomplete coverage.
+    """
     try:
         q = request.args.get("q", "").strip()
         if not q:
             return jsonify({"ok": False, "error": "Provide ?q=search_term"})
         with get_db() as conn:
             like = f"%{q}%"
-            rows = conn.execute(
-                "SELECT * FROM contacts WHERE name LIKE ? OR email LIKE ? OR institution LIKE ? LIMIT 20",
-                (like, like, like)).fetchall()
-            return jsonify({"ok": True, "contacts": [dict(r) for r in rows], "count": len(rows), "query": q})
+            rows = conn.execute("""
+                SELECT buyer_name, buyer_email,
+                       department AS agency, department AS institution
+                FROM scprs_buyers
+                WHERE (buyer_name LIKE ? OR buyer_email LIKE ? OR department LIKE ?)
+                  AND buyer_name != ''
+                UNION
+                SELECT name AS buyer_name, email AS buyer_email,
+                       COALESCE(agency, institution, '') AS agency,
+                       COALESCE(institution, agency, '') AS institution
+                FROM contacts
+                WHERE name LIKE ? OR email LIKE ? OR institution LIKE ? OR agency LIKE ?
+                ORDER BY buyer_name
+                LIMIT 25
+            """, (like, like, like, like, like, like, like)).fetchall()
+            contacts = [dict(r) for r in rows]
+            return jsonify({"ok": True, "contacts": contacts, "count": len(contacts), "query": q})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 

@@ -162,3 +162,68 @@ function _applyLinkData(idx, d, mode) {
   if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
   if (metaEl && filled.length) { metaEl.textContent = filled.join(', ') + ' filled'; metaEl.style.color = '#3fb950'; }
 }
+
+/* ── CRM Buyer Autocomplete ─────────────────────────────────────────────── */
+/* Used in New PC modal, New RFQ modal, and RFQ detail requestor field       */
+var _crmAcDebounce = {};
+var _crmAcCache = {};
+
+function initCrmAutocomplete(inputId, opts) {
+  var inp = document.getElementById(inputId);
+  if (!inp) return;
+  var drop = document.createElement('div');
+  drop.id = inputId + '-ac-drop';
+  drop.style.cssText = 'position:absolute;z-index:9999;background:#161b22;border:1px solid #30363d;' +
+    'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.5);width:320px;max-height:220px;' +
+    'overflow-y:auto;display:none;font-size:13px;';
+  inp.parentNode.style.position = 'relative';
+  inp.parentNode.appendChild(drop);
+
+  function showDrop(contacts) {
+    drop.innerHTML = '';
+    if (!contacts.length) { drop.style.display='none'; return; }
+    contacts.forEach(function(c) {
+      var row = document.createElement('div');
+      var name = c.buyer_name || c.name || '';
+      var inst = c.agency || c.institution || c.department || '';
+      var email = c.buyer_email || c.email || '';
+      row.style.cssText = 'padding:8px 12px;cursor:pointer;border-bottom:1px solid #21262d;';
+      row.innerHTML = '<div style="font-weight:600;color:#e6edf3">' + _escH(name) + '</div>' +
+        (inst ? '<div style="color:#8b949e;font-size:12px">' + _escH(inst) + '</div>' : '') +
+        (email ? '<div style="color:#58a6ff;font-size:11px">' + _escH(email) + '</div>' : '');
+      row.addEventListener('mouseenter', function(){ this.style.background='rgba(79,140,255,.1)'; });
+      row.addEventListener('mouseleave', function(){ this.style.background=''; });
+      row.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        inp.value = name;
+        drop.style.display = 'none';
+        if (opts && opts.onSelect) opts.onSelect(c);
+      });
+      drop.appendChild(row);
+    });
+    drop.style.display = 'block';
+  }
+
+  inp.addEventListener('input', function() {
+    var q = inp.value.trim();
+    if (q.length < 2) { drop.style.display='none'; return; }
+    clearTimeout(_crmAcDebounce[inputId]);
+    _crmAcDebounce[inputId] = setTimeout(function() {
+      if (_crmAcCache[q]) { showDrop(_crmAcCache[q]); return; }
+      fetch('/api/crm/search?q=' + encodeURIComponent(q), {credentials:'same-origin'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var results = d.ok ? (d.contacts || []) : [];
+          _crmAcCache[q] = results;
+          showDrop(results);
+        }).catch(function() { drop.style.display='none'; });
+    }, 250);
+  });
+
+  inp.addEventListener('blur', function() {
+    setTimeout(function() { drop.style.display='none'; }, 200);
+  });
+  inp.addEventListener('focus', function() {
+    if (inp.value.trim().length >= 2) inp.dispatchEvent(new Event('input'));
+  });
+}

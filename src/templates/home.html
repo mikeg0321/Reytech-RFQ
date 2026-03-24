@@ -1288,4 +1288,32 @@ function createPc() {
 }
 </script>
 
+<script>
+/* Wire CRM autocomplete to buyer name fields in both modals */
+document.addEventListener('DOMContentLoaded', function() {
+  if (typeof initCrmAutocomplete !== 'function') return;
+  initCrmAutocomplete('np-buyer', {
+    onSelect: function(c) {
+      var inst = document.getElementById('np-inst');
+      if (inst && !inst.value) inst.value = c.agency || c.institution || c.department || '';
+    }
+  });
+  initCrmAutocomplete('nr-buyer', {
+    onSelect: function(c) {
+      var email = document.getElementById('nr-email');
+      var agency = document.getElementById('nr-agency');
+      if (email && !email.value) email.value = c.buyer_email || c.email || '';
+      if (agency && !agency.value) {
+        var dept = (c.agency || c.department || '').toLowerCase();
+        if (dept.indexOf('calvet') >= 0 || dept.indexOf('veteran') >= 0) agency.value = 'calvet';
+        else if (dept.indexOf('cchcs') >= 0 || dept.indexOf('cdcr') >= 0) agency.value = 'cchcs';
+        else if (dept.indexOf('dsh') >= 0) agency.value = 'dsh';
+        else if (dept.indexOf('dgs') >= 0) agency.value = 'dgs';
+        else if (dept) agency.value = 'other';
+      }
+    }
+  });
+});
+</script>
+
 {% endblock %}
