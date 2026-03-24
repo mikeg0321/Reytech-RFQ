@@ -254,16 +254,29 @@
     var desc = document.getElementById('ai-desc').value.trim();
     var part = document.getElementById('ai-part').value.trim();
     if (!desc) { alert('Description is required'); return; }
+    // Cancel any pending autosave to prevent race condition (autosave could
+    // overwrite the newly-added item if it fires concurrently)
+    clearTimeout(_autosaveTimer);
+    _autosaveTimer = null;
     var btn = document.getElementById('ai-btn');
     var msg = document.getElementById('ai-msg');
     btn.disabled = true; btn.textContent = '⏳ Adding...';
     msg.style.display = 'none';
+    // Flush pending edits synchronously before adding — ensures any unsaved
+    // changes are persisted alongside the new item
+    var pendingData = _getFormData();
+    if (pendingData !== _lastSaveData) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/rfq/'+RID+'/autosave', false); // sync
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      try { xhr.send(pendingData); _lastSaveData = pendingData; } catch(e) {}
+    }
     var fd = new FormData();
     fd.append('qty', qty || '1');
     fd.append('uom', uom || 'CASE');
     fd.append('description', desc);
     fd.append('item_number', part);
-    fetch('/rfq/{{rid}}/add-item', {method:'POST', body:fd})
+    fetch('/rfq/{{rid}}/add-item', {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest','Origin':window.location.origin},credentials:'same-origin'})
       .then(function(r) {
         msg.style.display = 'inline';
         if (r.ok || r.redirected) {

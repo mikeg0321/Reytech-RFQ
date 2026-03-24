@@ -28,11 +28,15 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
-try:
-    from src.core.secrets import get_agent_key
-    ANTHROPIC_API_KEY = get_agent_key("item_identifier")
-except Exception:
-    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+def _get_api_key() -> str:
+    """Get Anthropic API key, trying secrets manager first then env var."""
+    try:
+        from src.core.secrets import get_agent_key
+        return get_agent_key("item_identifier") or ""
+    except Exception:
+        return os.environ.get("ANTHROPIC_API_KEY", "")
+
+ANTHROPIC_API_KEY = _get_api_key()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -286,16 +290,16 @@ def parse_with_vision(file_path: str) -> Optional[dict]:
         "line_items": line_items,
         "existing_prices": {},
         "ship_to": header.get("delivery_zip", ""),
-        "source_pdf": pdf_path,
+        "source_pdf": file_path,
         "field_count": 0,
         "parse_method": "vision",
     }
 
     log.info("Vision parser complete: %d items from %s",
-             len(line_items), os.path.basename(pdf_path))
+             len(line_items), os.path.basename(file_path))
     return result
 
 
 def is_available() -> bool:
     """Check if vision parsing is available (API key + dependencies)."""
-    return bool(ANTHROPIC_API_KEY) and HAS_REQUESTS
+    return bool(_get_api_key()) and HAS_REQUESTS
