@@ -1641,44 +1641,70 @@ function handleDocUpload(input){
 function handlePCUpload(input){handleDocUpload(input)} // legacy alias
 
 function importFromPC(btn){
- btn.disabled=true;btn.textContent='⏳ Loading PCs...';
- fetch('/api/pcs/list').then(r=>r.json()).then(d=>{
+ btn.disabled=true;btn.textContent='⏳ Loading...';
+ fetch('/api/pcs/list?rfq_id='+RID,{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
   btn.disabled=false;btn.textContent='📥 Import from PC';
-  if(!d.ok||!d.pcs||!d.pcs.length){alert('No Price Checks found');return}
-  // Build modal with PC list
-  var m=document.createElement('div');
-  m.id='pc-import-modal';
-  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:1000;display:flex;align-items:center;justify-content:center';
+  if(!d.ok){alert('Error loading PCs');return}
+  if(d.auto_linked){location.reload();return}
+  var existing=document.getElementById('pc-import-modal');if(existing)existing.remove();
+  var m=document.createElement('div');m.id='pc-import-modal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9000;display:flex;align-items:center;justify-content:center';
   m.onclick=function(e){if(e.target===m)m.remove()};
-  var h='<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:90%;max-width:600px;max-height:80vh;overflow-y:auto">';
-  h+='<div style="padding:16px 20px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center">';
-  h+='<b style="color:#c9d1d9;font-size:16px">📥 Import from Price Check</b>';
-  h+='<button onclick="this.closest(\'#pc-import-modal\').remove()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button></div>';
-  h+='<div style="padding:12px 20px;color:#8b949e;font-size:13px">Select a PC to import its items and prices into this RFQ:</div>';
-  d.pcs.forEach(function(pc){
-   var priced=pc.priced||0;
-   var total=pc.items||0;
-   var badge=priced>0?'<span style="color:#3fb950;font-size:13px">'+priced+'/'+total+' priced</span>':'<span style="color:#d29922;font-size:13px">0 priced</span>';
-   h+='<div onclick="doImportPC(\''+pc.id+'\')" style="padding:12px 20px;border-bottom:1px solid #21262d;cursor:pointer;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background=\'#21262d\'" onmouseout="this.style.background=\'none\'">';
-   h+='<div><b style="color:#58a6ff">#'+pc.pc_number+'</b> <span style="color:#c9d1d9">'+pc.institution+'</span>';
-   h+='<div style="color:#8b949e;font-size:13px">'+total+' items · '+pc.status+' · '+(pc.created_at||'').substring(0,10)+'</div></div>';
-   h+='<div>'+badge+'</div></div>';
-  });
-  h+='</div>';
-  m.innerHTML=h;
-  document.body.appendChild(m);
+  var h='<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:94%;max-width:640px;max-height:82vh;display:flex;flex-direction:column">';
+  h+='<div style="padding:14px 18px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">';
+  h+='<b style="color:#e6edf3;font-size:15px">📥 Import from Price Check</b>';
+  h+='<button onclick="document.getElementById(\'pc-import-modal\').remove()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;line-height:1">✕</button></div>';
+  h+='<div style="padding:10px 18px;border-bottom:1px solid #21262d;flex-shrink:0"><input id="pc-search-inp" type="text" placeholder="Search by PC #, institution, requestor..." oninput="filterPCList(this.value)" style="width:100%;padding:7px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px"></div>';
+  h+='<div style="padding:8px 18px;background:rgba(88,166,255,.05);border-bottom:1px solid #21262d;font-size:12px;color:#8b949e;flex-shrink:0">Can\'t find it? <button onclick="pcUploadFallback()" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer;margin-left:4px">📎 Upload & Parse PC PDF</button></div>';
+  h+='<div id="pc-list-container" style="overflow-y:auto;flex:1">';
+  if(!d.pcs||!d.pcs.length){h+='<div style="padding:20px;color:#8b949e;text-align:center">No Price Checks found</div>';}
+  else{d.pcs.forEach(function(pc){
+   var isMatch=pc.score>=60,isLinked=pc.match_reason==='linked';
+   var bc=isLinked?'#3fb950':isMatch?'#58a6ff':'#21262d';
+   var bg=isLinked?'rgba(63,185,80,.06)':isMatch?'rgba(88,166,255,.06)':'transparent';
+   var badge=isLinked?'<span style="background:rgba(63,185,80,.2);color:#3fb950;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px">LINKED</span>':(isMatch?'<span style="background:rgba(88,166,255,.2);color:#58a6ff;font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px">MATCH</span>':'');
+   var pl=pc.priced>0?'<span style="color:#3fb950;font-size:12px">'+pc.priced+'/'+pc.items+' priced</span>':'<span style="color:#d29922;font-size:12px">0 priced</span>';
+   h+='<div class="pc-list-row" data-search="'+(pc.pc_number+' '+pc.institution+' '+(pc.requestor||'')).toLowerCase()+'" onclick="doImportPC(\''+pc.id+'\')" style="padding:10px 18px;border-bottom:1px solid '+bc+';cursor:pointer;background:'+bg+';display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background=\'rgba(88,166,255,.1)\'" onmouseout="this.style.background=\''+bg+'\'">';
+   h+='<div><div style="font-size:14px"><b style="color:#58a6ff">'+(pc.source_pdf?'📄 ':'')+'#'+_escH(pc.pc_number)+'</b>'+badge;
+   if(pc.requestor)h+=' <span style="color:#c9d1d9;font-size:13px">'+_escH(pc.requestor)+'</span>';
+   h+='</div><div style="color:#8b949e;font-size:12px">';
+   if(pc.institution)h+=_escH(pc.institution)+' · ';
+   h+=pc.items+' items · '+pc.status+' · '+(pc.created_at||'').substring(0,10)+'</div></div>';
+   h+='<div>'+pl+'</div></div>';
+  });}
+  h+='</div></div>';m.innerHTML=h;document.body.appendChild(m);
+  setTimeout(function(){var si=document.getElementById('pc-search-inp');if(si)si.focus()},100);
  }).catch(function(e){btn.disabled=false;btn.textContent='📥 Import from PC';alert('Error: '+e.message)});
 }
+function filterPCList(q){
+ q=(q||'').toLowerCase();
+ document.querySelectorAll('.pc-list-row').forEach(function(row){
+  row.style.display=(!q||(row.getAttribute('data-search')||'').indexOf(q)>=0)?'':'none';
+ });
+}
 function doImportPC(pcId){
- if(!confirm('Import all items and prices from this PC into the current RFQ?')) return;
- document.getElementById('pc-import-modal').remove();
- fetch('/api/rfq/'+RID+'/import-from-pc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pc_id:pcId})})
- .then(r=>r.json()).then(d=>{
-  if(d.ok){
-   alert('✅ Imported '+d.items_imported+' items with prices from PC #'+d.pc_number);
-   location.reload();
-  } else alert('❌ '+(d.error||'Failed'));
- }).catch(e=>alert('Error: '+e.message));
+ if(!confirm('Import all items and prices from this PC into the current RFQ?'))return;
+ var modal=document.getElementById('pc-import-modal');if(modal)modal.remove();
+ fetch('/api/rfq/'+RID+'/import-from-pc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pc_id:pcId}),credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.ok){alert('✅ Imported '+d.items_imported+' items from PC #'+d.pc_number+'\n\n'+(d.priced_imported>0?d.priced_imported+' items have pricing.':'No pricing yet.'));location.reload();}
+  else{alert('❌ '+(d.error||'Failed'));}
+ }).catch(function(e){alert('Error: '+e.message)});
+}
+function pcUploadFallback(){
+ var modal=document.getElementById('pc-import-modal');if(modal)modal.remove();
+ var inp=document.createElement('input');inp.type='file';inp.accept='.pdf,.png,.jpg,.jpeg';
+ inp.onchange=function(){
+  if(!inp.files[0])return;
+  var fd=new FormData();fd.append('file',inp.files[0]);
+  var st=document.createElement('div');st.style.cssText='position:fixed;bottom:20px;right:20px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 18px;z-index:9999;color:#e6edf3;font-size:14px';
+  st.textContent='⏳ Parsing PDF...';document.body.appendChild(st);
+  fetch('/api/rfq/'+RID+'/upload-parse-doc',{method:'POST',body:fd,credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){st.remove();
+   if(d.ok){alert('✅ Parsed '+d.items_added+' items via '+d.parser);location.reload();}
+   else{alert('❌ '+(d.error||'Parse failed'));}
+  }).catch(function(e){st.remove();alert('Error: '+e.message)});
+ };inp.click();
 }
 
 function importFromCatalog(btn){
@@ -2554,5 +2580,22 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 });
 </script>
+
+{% if not r.get('linked_pc_id') and r.get('solicitation_number') %}
+<script>
+setTimeout(function(){
+ fetch('/api/pcs/list?rfq_id='+{{rid|tojson}},{credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(d.auto_linked){
+   var nb=document.createElement('div');nb.id='linked-pc-bar';
+   nb.style.cssText='background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:6px;padding:6px 12px;font-size:13px;color:#3fb950;margin-bottom:8px';
+   nb.innerHTML='🔗 Auto-linked to PC #'+d.pcs[0].pc_number+' <a href="#" onclick="location.reload()" style="color:#58a6ff;margin-left:8px">Reload to sync →</a>';
+   var tgt=document.querySelector('.action-bar')||document.querySelector('.bg');
+   if(tgt&&tgt.parentNode)tgt.parentNode.insertBefore(nb,tgt);
+  }
+ }).catch(function(){});
+},2000);
+</script>
+{% endif %}
 
 {% endblock %}

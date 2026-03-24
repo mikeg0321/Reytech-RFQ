@@ -2368,30 +2368,82 @@ def rfq_debug_link(rid):
 @bp.route("/api/pcs/list")
 @auth_required
 def api_pcs_list():
-    """List all PCs with basic info for import picker."""
-    from src.api.dashboard import _load_price_checks
+    """List PCs for import picker. Pass ?rfq_id=<rid> for smart ranking."""
+    from src.api.dashboard import _load_price_checks, _save_price_checks
     pcs = _load_price_checks()
+    rfq_id = request.args.get("rfq_id", "")
+    rfq = {}
+    rfq_sol = ""
+    rfq_institution = ""
+
+    if rfq_id:
+        try:
+            _rfqs = load_rfqs()
+            rfq = _rfqs.get(rfq_id, {})
+            rfq_sol = (rfq.get("solicitation_number") or "").strip()
+            rfq_institution = (rfq.get("agency_name") or rfq.get("department") or "").lower()
+        except Exception:
+            pass
+
     result = []
     for pid, pc in pcs.items():
+        if pc.get("status") in ("converted", "deleted", "archived"):
+            continue
         items = pc.get("items", [])
         priced = sum(1 for it in items if isinstance(it, dict) and (
             it.get("pricing", {}).get("recommended_price") or
             it.get("pricing", {}).get("unit_cost") or
             it.get("pricing", {}).get("scprs_price") or
-            it.get("pricing", {}).get("amazon_price")
+            it.get("supplier_cost") or it.get("price_per_unit")
         ))
+        pc_sol = (pc.get("pc_number") or pc.get("solicitation_hint") or "").strip()
+        pc_inst = (pc.get("institution") or pc.get("department") or "").lower()
+
+        score = 0
+        match_reason = ""
+        if rfq_sol and pc_sol and rfq_sol == pc_sol:
+            score += 100; match_reason = "sol_match"
+        elif rfq_sol and pc_sol and (rfq_sol in pc_sol or pc_sol in rfq_sol):
+            score += 60; match_reason = "sol_partial"
+        if rfq_institution and pc_inst and len(rfq_institution) >= 4 and (rfq_institution[:8] in pc_inst or pc_inst[:8] in rfq_institution):
+            score += 20; match_reason = match_reason or "institution_match"
+        if priced > 0:
+            score += 5
+        if pc.get("linked_rfq_id") == rfq_id:
+            score += 50; match_reason = "linked"
+
         result.append({
-            "id": pid,
-            "pc_number": pc.get("pc_number", "unknown"),
-            "institution": (pc.get("institution") or "")[:40],
-            "status": pc.get("status", ""),
-            "items": len(items),
-            "priced": priced,
+            "id": pid, "pc_number": pc_sol or pid,
+            "institution": (pc.get("institution") or "")[:50],
+            "requestor": (pc.get("requestor") or pc.get("requestor_name") or "")[:40],
+            "status": pc.get("status", ""), "items": len(items), "priced": priced,
             "created_at": pc.get("created_at", ""),
+            "score": score, "match_reason": match_reason,
+            "source_pdf": bool(pc.get("source_pdf") or pc.get("source_file")),
         })
-    # Sort: most recently created first
-    result.sort(key=lambda x: x.get("created_at", ""), reverse=True)
-    return jsonify({"ok": True, "pcs": result})
+
+    result.sort(key=lambda x: (x["score"], x["priced"], x["created_at"]), reverse=True)
+
+    # Auto-link if exact sol match and not already linked
+    auto_linked = None
+    if rfq_sol and rfq_id:
+        exact = [r for r in result if r["match_reason"] == "sol_match"]
+        if exact and rfq and not rfq.get("linked_pc_id"):
+            try:
+                _rfqs = load_rfqs()
+                _r = _rfqs.get(rfq_id, {})
+                _r["linked_pc_id"] = exact[0]["id"]
+                _r["linked_pc_number"] = exact[0]["pc_number"]
+                save_rfqs(_rfqs)
+                _pc_obj = pcs.get(exact[0]["id"], {})
+                _pc_obj["linked_rfq_id"] = rfq_id
+                _save_price_checks(pcs)
+                auto_linked = exact[0]["id"]
+                log.info("Auto-linked RFQ %s ↔ PC %s (sol=%s)", rfq_id, exact[0]["id"], rfq_sol)
+            except Exception as _ale:
+                log.debug("Auto-link failed: %s", _ale)
+
+    return jsonify({"ok": True, "pcs": result, "auto_linked": auto_linked, "rfq_sol": rfq_sol})
 
 
 @bp.route("/api/rfq/<rid>/import-from-pc", methods=["POST"])
