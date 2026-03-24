@@ -5,9 +5,9 @@
 
 <a href="/" class="btn btn-s" style="margin-bottom:16px">← Queue</a>
 <form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
- <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:4px 10px;font-size:14px" onclick="return confirm('Delete this RFQ?')" aria-label="Delete">Delete</button>
+ <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:6px 14px;font-size:14px;font-weight:600" onclick="return confirm('Delete this RFQ?')" aria-label="Delete">Delete</button>
 </form>
-<button type="button" onclick="if(confirm('Convert this RFQ to a Price Check? The RFQ will be marked as converted.')){fetch('/api/rfq/{{rid}}/convert-to-pc',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(d.ok){window.location.href='/pricecheck/'+d.pc_id;}else{alert('Failed: '+(d.error||'unknown'));}}).catch(e=>alert('Error: '+e));}" class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);font-size:13px;padding:4px 12px;margin-left:4px" title="This was mis-routed as an RFQ — convert it to a Price Check">Convert to PC</button>
+<button type="button" onclick="if(confirm('Convert this RFQ to a Price Check? The RFQ will be marked as converted.')){fetch('/api/rfq/{{rid}}/convert-to-pc',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(d.ok){window.location.href='/pricecheck/'+d.pc_id;}else{alert('Failed: '+(d.error||'unknown'));}}).catch(e=>alert('Error: '+e));}" class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);font-size:13px;padding:6px 14px;margin-left:6px;font-weight:600" title="This was mis-routed as an RFQ — convert it to a Price Check">Convert to PC</button>
 
 <!-- Preview Modal -->
 <div class="modal-overlay" id="previewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;overflow-y:auto;padding:20px;justify-content:center;align-items:flex-start">
@@ -32,7 +32,7 @@
   <span class="badge b-{{r.status}}">{{r.status}}</span>
   <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--ac);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
   {% if r.get('output_files') or r.get('status') == 'generated' %}
-  <a href="/rfq/{{ r.id }}/review-package" class="btn btn-sm" style="font-size:12px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2)" title="Review Package">📦 Review</a>
+  <a href="/rfq/{{ r.id }}/review-package" class="btn btn-sm" style="font-size:12px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2)" title="Review and download the full RFP package">📦 Review Package</a>
   {% endif %}
   <a href="/rfq/{{ r.id }}/support" class="btn btn-sm" style="font-size:12px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);margin-left:4px" title="Support Timeline">🎧 Support</a>
  </div>
@@ -220,7 +220,7 @@
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td style="position:relative">
-    <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:16px;padding:2px 6px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})" aria-label="Item options">⋯</button>
+    <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:17px;padding:4px 8px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})" aria-label="Item options">⋯</button>
     <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
      <button type="button" onclick="lookupSingleItem({{loop.index0}})" style="display:block;width:100%;text-align:left;background:none;border:none;color:#58a6ff;padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Price Lookup</button>
      <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
@@ -399,13 +399,13 @@
 </div>
 
 <!-- Template / Agency Status Card -->
-<div class="card">
+<details class="card" id="form-templates-card" style="padding:0">
+ <summary style="padding:14px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:8px;list-style:none"><span style="font-size:16px">⚙</span> Package Settings <span style="font-size:12px;font-weight:400;opacity:.7;margin-left:4px">Templates, forms, upload</span><span style="margin-left:auto;font-size:12px;opacity:.5">▸</span></summary><div style="padding:0 16px 16px">
  {% set t = r.get('templates', {}) %}
  {% set is_generic = r.get('form_type') == 'generic_rfq' %}
 
  {% if is_generic %}
  {# ── Generic Agency (Cal Vet, CalFire, DGS, etc.) — No 704 forms ── #}
- <div class="card-t">📋 {{ r.get('agency_name', 'Agency') }} RFQ Package</div>
  <div style="padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);color:#a78bfa">
   ℹ️ <b>{{ r.get('agency_name', 'This agency') }}</b> uses a formal Reytech quote — no 704B form filling needed.
   The response package will include your Reytech quote{% if r.get('attachments_raw') %} plus the original RFQ attachments{% endif %}.
@@ -432,7 +432,6 @@
 
  {% else %}
  {# ── Standard 704B Agency (CCHCS, DSH) ── #}
- <div class="card-t">📋 Form Templates</div>
  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
   <div style="padding:8px 14px;border-radius:6px;font-size:13px;border:1px solid {{ 'rgba(52,211,153,.3)' if t.get('703b') or t.get('703c') else 'rgba(248,113,113,.3)' }};background:{{ 'rgba(52,211,153,.06)' if t.get('703b') or t.get('703c') else 'rgba(248,113,113,.06)' }}">
    {{ '✅' if t.get('703b') or t.get('703c') else '❌' }} {{ '703C (F&R)' if t.get('703c') else '703B (RFQ)' }}
@@ -475,7 +474,7 @@
    <label><input type="checkbox" class="pkg-form" data-form="quote" {% if pf.get('quote', 'quote' in arf or not arf) %}checked{% endif %}> Quote</label>
   </div>
  </div>
-</div>
+</div></details>
 
 <!-- SCPRS Results Panel (populated by JS after lookup) -->
 <div class="card" id="scprs-panel" style="display:none">

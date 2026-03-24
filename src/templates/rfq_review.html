@@ -186,9 +186,15 @@
           <div>Click a form on the left to preview</div>
         </div>
       </div>
-      <object id="rv-preview-frame" type="application/pdf" style="display:none;flex:1;min-height:calc(100vh - 250px);width:100%">
-        <p style="padding:20px;color:var(--tx2)">PDF preview not available — <a id="rv-preview-fallback" href="#" target="_blank" style="color:var(--ac)">click to open</a></p>
-      </object>
+      <iframe id="rv-preview-frame"
+        style="display:none;flex:1;border:none;min-height:calc(100vh - 250px);width:100%;background:#fff"
+        allow="fullscreen"
+        title="Document Preview">
+      </iframe>
+      <div id="rv-preview-fallback-bar" style="display:none;padding:8px 16px;background:rgba(210,153,34,.08);border-top:1px solid rgba(210,153,34,.2);font-size:13px;color:#d29922;text-align:center">
+        PDF preview blocked by browser —
+        <a id="rv-preview-fallback" href="#" target="_blank" style="color:#58a6ff;font-weight:600">Open in new tab</a>
+      </div>
     </div>
 
     <!-- RIGHT: Audit Panel -->
@@ -283,7 +289,7 @@ function selectForm(el,formId,filename){
  if(filename){
   var url='/api/download/'+SOL+'/'+filename;
   var frame=document.getElementById('rv-preview-frame');
-  frame.data=url;frame.style.display='block';
+  frame.src=url;frame.style.display='block';
   var fb=document.getElementById('rv-preview-fallback');if(fb)fb.href=url;
   document.getElementById('rv-preview-empty').style.display='none';
   var dl=document.getElementById('rv-download-link');dl.href=url;dl.style.display='inline-flex';
@@ -365,10 +371,10 @@ function selectFormFromFloat(el) {
     var url = '/api/download/'+SOL+'/'+filename;
     var frame = document.getElementById('rv-preview-frame');
     // Force re-render: clear first, then set after DOM updates
-    frame.data = '';
+    frame.src = '';
     frame.style.display = 'block';
     document.getElementById('rv-preview-empty').style.display = 'none';
-    setTimeout(function(){ frame.data = url; }, 50);
+    setTimeout(function(){ frame.src = url; }, 50);
     var dl = document.getElementById('rv-download-link');
     if (dl) { dl.href = url; dl.style.display = 'inline-flex'; }
     var fallback = document.getElementById('rv-preview-fallback');
