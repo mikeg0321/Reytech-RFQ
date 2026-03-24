@@ -386,6 +386,24 @@ def _next_quote_number() -> str:
     log.info("Quote number: %s (synced to %d)", new_number, next_seq)
     return new_number
 
+def _rollback_quote_number(quote_number: str):
+    """Roll back the counter after a failed generate so the number isn't wasted."""
+    try:
+        prefix_len = 4  # "R26Q"
+        seq = int(quote_number[prefix_len:])
+        year = int("20" + quote_number[1:3])
+        # Only roll back if the counter is still at this seq (no one else incremented)
+        data = _load_counter()
+        if data.get("seq") == seq:
+            data["seq"] = seq - 1
+            _save_counter(data)
+            log.info("Quote number %s rolled back — counter now at seq=%d", quote_number, seq - 1)
+        else:
+            log.warning("Quote number %s rollback skipped — counter already at %d", quote_number, data.get("seq"))
+    except Exception as e:
+        log.warning("Quote number rollback failed: %s", e)
+
+
 def peek_next_quote_number() -> str:
     """Preview what the next number would be without consuming it."""
     data = _load_counter()
@@ -853,8 +871,10 @@ def generate_quote(
         agency = _detect_agency(quote_data)
     cfg = AGENCY_CONFIGS.get(agency, AGENCY_CONFIGS["DEFAULT"])
 
+    _allocated_number = False
     if not quote_number:
         quote_number = _next_quote_number()
+        _allocated_number = True  # track so we can roll back on failure
 
     log.info("Generating quote %s for %s (agency=%s, %d items)",
              quote_number, quote_data.get("institution", "?")[:40],
@@ -890,7 +910,12 @@ def generate_quote(
     UW    = MR - ML  # 576 usable
     TXT_X = 53       # company info text indent (from extraction)
 
-    c = canvas.Canvas(output_path, pagesize=letter)
+    try:
+        c = canvas.Canvas(output_path, pagesize=letter)
+    except Exception as _ce:
+        if _allocated_number:
+            _rollback_quote_number(quote_number)
+        raise
     c.setTitle(f"Reytech Quote {quote_number}")
     c.setAuthor("Reytech Inc.")
 
@@ -1330,7 +1355,13 @@ def generate_quote(
     else:
         c.drawRightString(MR, 20, f"Quote {quote_number}")
 
-    c.save()
+    try:
+        c.save()
+    except Exception as _se:
+        if _allocated_number:
+            _rollback_quote_number(quote_number)
+        log.error("Quote %s PDF save failed — number rolled back: %s", quote_number, _se)
+        raise
 
     result = {
         "ok": True,
