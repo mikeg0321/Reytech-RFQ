@@ -5915,6 +5915,42 @@ def api_rfq_set_quote_number(rid):
     return jsonify({"ok": True, "old": old, "new": qn})
 
 
+@bp.route("/api/admin/fix-quote-number/<rid>/<new_qn>/<int:counter_seq>", methods=["POST", "GET"])
+@auth_required
+def api_admin_fix_quote_number(rid, new_qn, counter_seq):
+    """One-shot admin: set RFQ quote number + reset counter. GET-accessible for browser.
+
+    Example: /api/admin/fix-quote-number/cab4bad5/R26Q31/31
+    Sets RFQ cab4bad5 to R26Q31, counter to 31 (next = R26Q32).
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    old_qn = r.get("reytech_quote_number", "")
+    r["reytech_quote_number"] = new_qn
+    # Also update in output files and generated package data
+    if r.get("quote_number"):
+        r["quote_number"] = new_qn
+    save_rfqs(rfqs)
+    # Reset counter
+    try:
+        from src.forms.quote_generator import set_quote_counter, peek_next_quote_number
+        set_quote_counter(seq=counter_seq)
+        nxt = peek_next_quote_number()
+    except Exception as e:
+        nxt = f"error: {e}"
+    log.warning("ADMIN fix-quote: RFQ %s: %s → %s, counter → %d (next: %s)", rid, old_qn, new_qn, counter_seq, nxt)
+    return jsonify({
+        "ok": True,
+        "rfq": rid,
+        "old_quote": old_qn,
+        "new_quote": new_qn,
+        "counter_set_to": counter_seq,
+        "next_quote_will_be": nxt,
+    })
+
+
 @bp.route("/api/rfq/<rid>/clear-generated", methods=["POST", "GET"])
 @auth_required
 def api_rfq_clear_generated(rid):
