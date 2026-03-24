@@ -154,13 +154,16 @@ function _applyLinkData(idx, d, mode) {
     var cur = (descEl.value || '').trim();
     if (!cur || cur.length < 3) { descEl.value = d.description; filled.push('desc'); }
   }
-  var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]');
+  var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]') || document.querySelector('[name="part_' + idx + '"]');
   if (mfgEl && d.part_number && !(mfgEl.value || '').trim()) { mfgEl.value = d.part_number; filled.push('mfg'); }
   var costEl = document.querySelector('[name="cost_' + idx + '"]');
   var ec = costEl ? (parseFloat(costEl.value) || 0) : 0;
   if (costEl && d.price && d.price > 0 && ec === 0) { costEl.value = d.price.toFixed(2); filled.push('cost'); }
   if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
   if (metaEl && filled.length) { metaEl.textContent = filled.join(', ') + ' filled'; metaEl.style.color = '#3fb950'; }
+  // Trigger autosave so extracted data persists
+  if (filled.length && typeof triggerAutosave === 'function') triggerAutosave();
+  if (filled.length && typeof recalcPC === 'function') recalcPC();
 }
 
 /* ── CRM Buyer Autocomplete ─────────────────────────────────────────────── */
