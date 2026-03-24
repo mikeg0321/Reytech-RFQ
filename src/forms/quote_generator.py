@@ -1295,23 +1295,32 @@ def generate_quote(
     # ── Quote Notes (printed below totals if present) ────────────────────────
     if notes and notes.strip():
         import textwrap as _textwrap
-        notes_gap_y = ty + 10
-        rl_label_y = Y(notes_gap_y) - 11
-        c.setFont("Helvetica-Bold", 8)
+        # rl_y is the bottom of the last totals row (bottom-origin ReportLab coords)
+        # Notes go directly below it — no coordinate conversion needed
+        notes_label_y = rl_y - 20
+        if notes_label_y < 50:  # near bottom — start a new page
+            c.setFont("Helvetica", 8)
+            c.setFillColor(GRAY)
+            c.drawRightString(MR, 20, f"Page {page_num}")
+            c.showPage()
+            page_num += 1
+            total_pages += 1
+            notes_label_y = H - 60
+        c.setFont("Helvetica-Bold", 8.5)
         c.setFillColor(GRAY)
-        c.drawString(ML + 4, rl_label_y, "NOTES:")
+        c.drawString(ML + 4, notes_label_y, "NOTES:")
         note_lines = []
         for para in notes.strip().split("\n"):
             wrapped = _textwrap.wrap(para.strip(), width=112)
             note_lines.extend(wrapped if wrapped else [""])
-        nl_rl_y = rl_label_y - 11
+        nl_y = notes_label_y - 12
         c.setFont("Helvetica", 8)
         for nl in note_lines[:10]:
-            if nl_rl_y < 35:
+            if nl_y < 35:
                 break
             c.setFillColor(GRAY)
-            c.drawString(ML + 4, nl_rl_y, nl)
-            nl_rl_y -= 10
+            c.drawString(ML + 4, nl_y, nl)
+            nl_y -= 10
 
     # ── Footer ────────────────────────────────────────────────────────────────
     c.setFillColor(GRAY)
