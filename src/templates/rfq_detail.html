@@ -883,8 +883,11 @@ function handleRfqLinkInput(idx, inp){
  if(metaEl&&supplier)metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up '+supplier+'…</span>';
  else if(metaEl&&_isUrl(url))metaEl.innerHTML='<span style="color:#d29922">\u23F3 Looking up…</span>';
  if(!_isUrl(url))return;
+ // Always re-fire lookup when URL changes — user pasted a new link
  clearTimeout(_linkDebounce['rfq_'+idx]);
- _linkDebounce['rfq_'+idx]=setTimeout(()=>_fireLinkLookup(idx,url,'rfq'),800);
+ _linkDebounce['rfq_'+idx]=setTimeout(function(){
+  _fireLinkLookup(idx,url,'rfq');
+ }, url.indexOf('amazon.com')>=0?400:800); // Amazon faster — ASIN extract is instant
 }
 
 // ── Bulk Paste ──

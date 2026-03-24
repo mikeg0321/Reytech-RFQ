@@ -106,6 +106,15 @@ def _extract_asin(url: str) -> str:
     return ""
 
 
+def _normalize_amazon_url(url: str) -> str:
+    """Normalize any Amazon URL to clean canonical dp/ form.
+    Strips tracking params, ref tags, search terms, affiliate codes."""
+    asin = _extract_asin(url)
+    if asin:
+        return f"https://www.amazon.com/dp/{asin}"
+    return url
+
+
 def _extract_grainger_sku(url: str) -> str:
     """Extract Grainger item number from URL."""
     # https://www.grainger.com/product/TITLE--XXXXXXXX
@@ -356,33 +365,49 @@ def _lookup_amazon(url: str) -> dict:
             )
             if size_match:
                 size = size_match.group(1).strip()
-            # Prefer list price (non-discounted) for stable quoting
-            _list = r.get("list_price") or r.get("typical_price") or r.get("price")
+            # Price: always use list/typical price — never sale/coupon price
+            _list = r.get("list_price") or r.get("typical_price")
             _sale = r.get("price")
             _use_price = _list or _sale
+
+            # Structured description: "{Title}, MFG# {mfg}, ASIN: {asin}"
+            mfg = r.get("mfg_number", "") or r.get("part_number", "") or ""
+            structured_desc = title
+            if mfg:
+                structured_desc += f", MFG# {mfg}"
+            if asin:
+                structured_desc += f", ASIN: {asin}"
+
+            clean_url = _normalize_amazon_url(url)
+
             return {
-                "supplier":     "Amazon",
-                "title":        title,
-                "description":  title,
-                "price":        _use_price,
-                "list_price":   _list,
-                "sale_price":   _sale if _sale != _list else None,
-                "cost":         _use_price,   # Amazon list price = your cost basis
-                "part_number":  r.get("mfg_number", "") or r.get("part_number", ""),
-                "mfg_number":   r.get("mfg_number", ""),
-                "manufacturer": r.get("manufacturer", ""),
-                "url":          url,
-                "asin":         asin,
-                "size":         size,
-                "shipping":     0.0,
-                "shipping_note": "Prime/standard shipping",
-                "source":       "amazon_asin",
+                "supplier":      "Amazon",
+                "title":         title,
+                "description":   structured_desc,
+                "price":         _use_price,
+                "list_price":    _list,
+                "sale_price":    _sale if _sale and _sale != _list else None,
+                "cost":          _use_price,
+                "part_number":   mfg,
+                "mfg_number":    mfg,
+                "manufacturer":  r.get("manufacturer", ""),
+                "url":           clean_url,
+                "original_url":  url,
+                "asin":          asin,
+                "size":          size,
+                "shipping":      0.0,
+                "shipping_note": "Prime/standard shipping — verify delivery window",
+                "source":        "amazon_asin",
+                "price_note":    f"List: ${_list:.2f}" if _list and _sale and _list != _sale else "",
             }
         # Fallback: scrape the product page
         scraped = _scrape_generic(url)
         scraped["supplier"] = "Amazon"
         scraped["asin"] = asin
-        # Don't put ASIN in part_number — it goes in description via JS
+        scraped["url"] = _normalize_amazon_url(url)
+        _title = scraped.get("title") or scraped.get("description") or ""
+        if _title and asin:
+            scraped["description"] = f"{_title}, ASIN: {asin}"
         return scraped
     except Exception as e:
         return {"error": str(e), "supplier": "Amazon", "asin": asin}
@@ -491,6 +516,10 @@ def lookup_from_url(url: str) -> dict:
 
     supplier = detect_supplier(url)
     host = urlparse(url).netloc.lower()
+
+    # Normalize Amazon URLs before lookup — strip tracking params
+    if "amazon.com" in host:
+        url = _normalize_amazon_url(url) or url
 
     try:
         if "amazon.com" in host:

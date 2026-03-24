@@ -149,21 +149,60 @@ function _applyLinkData(idx, d, mode) {
   var filled = [];
   var metaId = (mode === 'pc') ? 'link_meta_' + idx : 'rfq_link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
+  var isAmazon = d.supplier === 'Amazon';
+
+  // Description: Amazon always overwrites (structured format), others only if empty
   var descEl = document.querySelector('[name="desc_' + idx + '"]');
   if (descEl && d.description) {
     var cur = (descEl.value || '').trim();
-    if (!cur || cur.length < 3) { descEl.value = d.description; filled.push('desc'); }
+    if (isAmazon || !cur || cur.length < 5) {
+      descEl.value = d.description;
+      filled.push('desc');
+      if (descEl.tagName === 'TEXTAREA') { descEl.style.height = 'auto'; descEl.style.height = Math.min(descEl.scrollHeight, 120) + 'px'; }
+    }
   }
+
+  // MFG#: Amazon always overwrites, others only if empty
   var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]') || document.querySelector('[name="part_' + idx + '"]');
-  if (mfgEl && d.part_number && !(mfgEl.value || '').trim()) { mfgEl.value = d.part_number; filled.push('mfg'); }
+  var mfgVal = d.mfg_number || d.part_number || '';
+  if (mfgEl && mfgVal) {
+    if (isAmazon || !(mfgEl.value || '').trim()) { mfgEl.value = mfgVal; filled.push('mfg#'); }
+  }
+
+  // Cost: always update when new URL pasted — old cost is stale
   var costEl = document.querySelector('[name="cost_' + idx + '"]');
-  var ec = costEl ? (parseFloat(costEl.value) || 0) : 0;
-  if (costEl && d.price && d.price > 0 && ec === 0) { costEl.value = d.price.toFixed(2); filled.push('cost'); }
+  if (costEl && d.price && d.price > 0) {
+    costEl.value = d.price.toFixed(2);
+    filled.push('cost $' + d.price.toFixed(2));
+    if (typeof recalcFromMarkup === 'function') recalcFromMarkup(idx);
+    else if (typeof recalc === 'function') recalc();
+    // Warn if sale ≠ list (Amazon)
+    if (d.list_price && d.sale_price && d.list_price !== d.sale_price && metaEl) {
+      metaEl.innerHTML = '<span style="color:#d29922">Using list $' + parseFloat(d.list_price).toFixed(2) + ' (sale: $' + parseFloat(d.sale_price).toFixed(2) + ')</span>';
+      if (typeof triggerAutosave === 'function') triggerAutosave();
+      return;
+    }
+  }
+
+  // Normalize URL field to canonical form
+  var linkEl = document.querySelector('[name="link_' + idx + '"]');
+  if (linkEl && d.url && d.url !== linkEl.value) { linkEl.value = d.url; }
+
+  // Supplier badge
   if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
-  if (metaEl && filled.length) { metaEl.textContent = filled.join(', ') + ' filled'; metaEl.style.color = '#3fb950'; }
-  // Trigger autosave so extracted data persists
-  if (filled.length && typeof triggerAutosave === 'function') triggerAutosave();
-  if (filled.length && typeof recalcPC === 'function') recalcPC();
+
+  // Status message
+  if (metaEl && filled.length) {
+    metaEl.innerHTML = '<span style="color:#3fb950">' + filled.join(', ') + ' filled</span>';
+  } else if (metaEl && d.ok === false) {
+    metaEl.innerHTML = '<span style="color:#f85149">' + (d.error || 'Lookup failed') + '</span>';
+  }
+
+  // Autosave + recalc
+  if (filled.length) {
+    if (typeof triggerAutosave === 'function') triggerAutosave();
+    if (typeof recalcPC === 'function') recalcPC();
+  }
 }
 
 /* ── CRM Buyer Autocomplete ─────────────────────────────────────────────── */
