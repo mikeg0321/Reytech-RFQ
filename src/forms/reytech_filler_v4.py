@@ -204,6 +204,16 @@ def get_pst_date():
 
 def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
     """Set font sizes and FORCE appearance regeneration for clean text rendering."""
+    import re as _re_sff
+    # Sanitize all field values before writing to PDF
+    _clean = {}
+    for _k, _v in field_values.items():
+        if isinstance(_v, str):
+            _v = _re_sff.sub(r'[^\x20-\x7E\n]', '', _v)
+            _v = _re_sff.sub(r'/{2,}', '/', _v)
+            _v = _re_sff.sub(r'[ \t]{2,}', ' ', _v).strip()
+        _clean[_k] = _v
+    field_values = _clean
     da_default = f"/Helv {default_size} Tf 0 g"
     
     # Conservative character widths at different font sizes (Helvetica, mixed text).

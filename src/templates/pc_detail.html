@@ -72,6 +72,16 @@
       .modal-content{box-shadow:none!important;margin:0!important;max-width:none!important}
       .modal-header button,.modal-close{display:none!important}
      }
+     @media screen and (max-width: 900px) {
+      table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      td, th { white-space: nowrap; padding: 4px 6px !important; font-size: 12px !important; }
+      .num-in { font-size: 13px !important; padding: 4px 6px !important; }
+      .num-in.sm { width: 50px !important; }
+      input[name^="cost_"], input[name^="price_"] { width: 78px !important; }
+      #pc-margin-summary { flex-wrap: wrap !important; font-size: 12px !important; gap: 6px !important; }
+      .btn { padding: 6px 10px !important; font-size: 12px !important; }
+      .card { padding: 10px !important; }
+     }
     </style></head><body>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
      <a href="/" style="color:#58a6ff;font-size:13px;text-decoration:none;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:6px">🏠 Home</a>

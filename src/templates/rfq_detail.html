@@ -716,6 +716,16 @@
 td:hover .desc-expand-btn { opacity: 1 !important; }
 .desc-area:focus + .desc-expand-btn { opacity: 1 !important; }
 .desc-area.expanded { height: auto !important; min-height: 80px !important; overflow: auto !important; resize: vertical !important; }
+@media screen and (max-width: 900px) {
+  .it { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .it td, .it th { white-space: nowrap; padding: 4px 6px !important; font-size: 12px !important; }
+  .num-in { font-size: 13px !important; padding: 4px 6px !important; width: 70px !important; }
+  input[name^="cost_"], input[name^="price_"] { width: 80px !important; }
+  #margin-summary { flex-wrap: wrap !important; font-size: 12px !important; gap: 6px !important; }
+  .btn { padding: 6px 10px !important; font-size: 12px !important; }
+  .card { padding: 10px !important; }
+  .desc-area { min-width: 140px !important; max-width: 180px !important; }
+}
 </style>
 <script src="/static/shared_item_utils.js"></script>
 <script>
@@ -1107,11 +1117,13 @@ function _fetchWithRetry(url, opts, retries) {
 
 function _doAutosave(){
  const data=_getFormData();
- if(data===_lastSaveData)return; // no changes
+ if(data===_lastSaveData)return;
+ try{localStorage.setItem('rfq_autosave_'+RID,JSON.stringify({ts:Date.now(),rid:RID,data:data}));}catch(e){}
  _showSaveStatus('saving');
  _fetchWithRetry('/api/rfq/'+RID+'/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:data,credentials:'same-origin'})
  .then(r=>r.json()).then(d=>{
-  if(d.ok){_lastSaveData=data;_showSaveStatus('saved');_showGuardrails(d.guardrails);}
+  if(d.ok){_lastSaveData=data;_showSaveStatus('saved');_showGuardrails(d.guardrails);
+   try{localStorage.removeItem('rfq_autosave_'+RID);}catch(e){}}
   else{_showSaveStatus('error')}
  }).catch(()=>_showSaveStatus('error'));
 }
@@ -1151,6 +1163,20 @@ function _showSaveStatus(state){
 
 // Wire up all inputs to auto-save
 document.addEventListener('DOMContentLoaded',function(){
+ // Check for localStorage crash backup
+ try{
+  var _rfqBk=localStorage.getItem('rfq_autosave_'+RID);
+  if(_rfqBk){var _b=JSON.parse(_rfqBk);
+   if(_b&&(Date.now()-_b.ts)<3600000){
+    var _ageS=Math.round((Date.now()-_b.ts)/1000);
+    var _bar=document.createElement('div');_bar.id='rfq-backup-bar';
+    _bar.style.cssText='background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:14px;color:#d29922;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+    _bar.innerHTML='<span>\u26A0\uFE0F <strong>Unsaved session recovered</strong> \u2014 browser backup from '+_ageS+'s ago</span><button onclick="try{var d=JSON.parse(localStorage.getItem(\'rfq_autosave_\'+RID)).data;if(d){var p=JSON.parse(d);if(p.items)p.items.forEach(function(it,i){[\'qty\',\'uom\',\'description\',\'item_number\',\'item_link\',\'supplier_cost\',\'price_per_unit\',\'markup_pct\'].forEach(function(f){var el=document.querySelector(\'[name=\'+f.replace(\'description\',\'desc\').replace(\'item_number\',\'part\').replace(\'item_link\',\'link\').replace(\'supplier_cost\',\'cost\').replace(\'price_per_unit\',\'price\').replace(\'markup_pct\',\'markup\')+\'_\'+i+\']\');if(el)el.value=it[f]||\'\'});});if(typeof recalc===\'function\')recalc();_doAutosave();}document.getElementById(\'rfq-backup-bar\').remove()}catch(e){alert(\'Restore failed: \'+e)}" style="background:rgba(210,153,34,.2);border:1px solid rgba(210,153,34,.4);color:#d29922;border-radius:6px;padding:5px 14px;font-size:13px;font-weight:700;cursor:pointer">\u21A9 Restore & Save</button><button onclick="localStorage.removeItem(\'rfq_autosave_\'+RID);document.getElementById(\'rfq-backup-bar\').remove()" style="background:none;border:none;color:#d29922;cursor:pointer;font-size:18px;padding:2px 8px">\u2715</button>';
+    var _ref=document.getElementById('margin-summary')||document.querySelector('.card');
+    if(_ref&&_ref.parentNode)_ref.parentNode.insertBefore(_bar,_ref);
+   }
+  }
+ }catch(e){}
  _lastSaveData=_getFormData(); // snapshot on load
  document.querySelectorAll('#pf input').forEach(function(inp){
   inp.addEventListener('change',triggerAutosave);

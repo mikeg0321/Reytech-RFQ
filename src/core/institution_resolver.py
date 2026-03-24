@@ -305,3 +305,8 @@ def _match_alias(text: str) -> dict:
         if text == alias or text.startswith(alias + " "):
             return {"canonical": canonical, "agency": canonical.lower().split()[0], "facility_code": ""}
     return None
+
+
+# ── Backward-compatibility aliases ──────────────────────────────────────────
+resolve_institution = resolve
+canonical_name = normalize
