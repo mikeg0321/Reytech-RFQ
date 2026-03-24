@@ -5960,6 +5960,39 @@ def api_rfq_convert_to_pc(rid):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/admin/relink-rfq/<rid>", methods=["POST", "GET"])
+@auth_required
+def api_admin_relink_rfq(rid):
+    """Re-run auto-linking on an existing RFQ to find its matching PC.
+    GET-accessible for browser use. Example: /api/admin/relink-rfq/abc123
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    _trace = []
+    try:
+        from src.api.dashboard import _link_rfq_to_pc
+        linked = _link_rfq_to_pc(r, _trace)
+        if linked:
+            rfqs[rid] = r
+            save_rfqs(rfqs)
+            return jsonify({
+                "ok": True,
+                "linked": True,
+                "linked_pc_id": r.get("linked_pc_id", ""),
+                "linked_pc_number": r.get("linked_pc_number", ""),
+                "match_reason": r.get("linked_pc_match_reason", ""),
+                "ported_items": r.get("pc_diff", {}).get("ported", 0),
+                "trace": _trace,
+            })
+        return jsonify({"ok": True, "linked": False, "trace": _trace,
+                        "message": "No matching PC found for this RFQ"})
+    except Exception as e:
+        log.error("relink-rfq %s: %s", rid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e), "trace": _trace})
+
+
 @bp.route("/api/admin/fix-quote-number/<rid>/<new_qn>/<int:counter_seq>", methods=["POST", "GET"])
 @auth_required
 def api_admin_fix_quote_number(rid, new_qn, counter_seq):
