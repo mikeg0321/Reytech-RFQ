@@ -309,47 +309,54 @@
     if (el) el.addEventListener('keydown', function(e){ if(e.key==='Enter'){e.preventDefault();doAddItem();} });
   });
  </script>
- <div style="margin-top:6px">
-  <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.08);color:#f85149;border:1px solid rgba(248,81,73,.2);font-size:13px;padding:4px 12px">🔄 Reset All Items</button>
-  <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);padding:6px 12px;font-size:13px;border-radius:6px;cursor:pointer;font-weight:600;margin-left:6px" onclick="cleanJunkItems()">🧹 Clean Junk Items</button>
+ <!-- ── Utility Actions Row ── -->
+ <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding:10px 0;border-top:1px solid var(--bd)">
+  <button type="button" onclick="resetItems()" class="btn btn-sm" style="background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px" title="Clear all line item prices and markups">🔄 Reset All Items</button>
+  <button class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px;cursor:pointer" onclick="cleanJunkItems()" title="Remove empty and junk line items">🧹 Clean Junk Items</button>
   {% if r.get('pricing_snapshot') %}
-  <button type="button" onclick="revertPricing()" class="btn btn-sm" style="background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:13px;padding:4px 12px;margin-left:6px" title="Revert all prices to {{ r.pricing_snapshot.quote_number }} generated {{ r.pricing_snapshot.snapshot_at[:10] }}">↩ Revert to {{ r.pricing_snapshot.quote_number }}</button>
-  <span style="font-size:11px;color:#484f58;margin-left:6px">Last quoted: {{ r.pricing_snapshot.get('quote_number','') }} · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total', 0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}</span>
+  <button type="button" onclick="revertPricing()" class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:13px;padding:6px 14px;font-weight:600;border-radius:6px" title="Revert all prices to {{ r.pricing_snapshot.quote_number }} · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total',0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}">↩ Revert to {{ r.pricing_snapshot.quote_number }}</button>
+  <span style="font-size:12px;color:#6e7681;margin-left:2px">Last quoted: <strong style="color:#8b949e">{{ r.pricing_snapshot.get('quote_number','') }}</strong> · ${{ '{:,.2f}'.format(r.pricing_snapshot.get('total', 0)) }} · {{ r.pricing_snapshot.get('snapshot_at','')[:10] }}</span>
   {% endif %}
  </div>
 
- <div style="margin-top:14px;margin-bottom:6px">
-  <label style="font-size:13px;color:var(--tx2);display:block;margin-bottom:4px;font-weight:600">Notes to Buyer <span style="font-weight:400;opacity:.7">(printed on quote)</span></label>
-  <textarea name="quote_notes" rows="3" class="text-in" style="width:100%;font-size:13px;padding:8px;resize:vertical;border-radius:6px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx)" placeholder="e.g. Line items 1-4 are on allocation, separate deliveries may be required to deliver full quantities requested...">{{ r.get('quote_notes', '') }}</textarea>
+ <!-- ── Notes to Buyer ── -->
+ <div style="margin-top:16px;margin-bottom:4px">
+  <label style="font-size:14px;color:var(--tx);display:block;margin-bottom:6px;font-weight:600">📝 Notes to Buyer <span style="font-size:12px;font-weight:400;color:var(--tx2);margin-left:6px">Printed on generated quote</span></label>
+  <textarea name="quote_notes" rows="4" class="text-in" oninput="triggerAutosave()" style="width:100%;font-size:14px;line-height:1.5;padding:10px 12px;resize:vertical;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);min-height:90px" placeholder="e.g. Line items 1-4 are on allocation. Separate deliveries may be required to deliver full quantities requested.">{{ r.get('quote_notes', '') }}</textarea>
  </div>
 
- <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
-  <div>
-   <span style="color:var(--tx2);font-size:13px">Revenue: </span><span id="tot" style="font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700">$0</span>
+ <!-- ── Revenue + Profit Summary ── -->
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding:12px 16px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
+  <div style="display:flex;align-items:baseline;gap:10px">
+   <span style="color:var(--tx2);font-size:13px;font-weight:500">Revenue</span>
+   <span id="tot" style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">$0</span>
   </div>
-  <div id="pft" style="font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:600">—</div>
+  <div id="pft" style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:600;color:#8b949e">—</div>
  </div>
 
- <div class="bg">
-  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()">✅ Finalize Pricing</button>
-  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd)" onclick="showRfqPreview()" aria-label="Preview Quote">👁️ Preview Quote</button>
-  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px" aria-label="Generate RFP Package">📦 Generate RFP Package</button>
-  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3)" onclick="sendQuoteEmail()" aria-label="Send Quote">📧 Send Quote</button>
-  <button type="button" class="btn" style="background:rgba(34,197,94,.12);color:#22c55e;border:1px solid rgba(34,197,94,.3)" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (OBS 1600)">🌾 Food Cert</button>
-  <button type="button" class="btn" style="background:rgba(168,85,247,.12);color:#a855f7;border:1px solid rgba(168,85,247,.3)" onclick="fillBidPackage()" title="Fill ALL forms in bid package (CUF, Darfur, DVBE, CalRecycle, OBS 1600, etc.)">📋 Fill All Forms</button>
-  {% if r.get('reytech_quote_number') %}
-  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
-   <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 16px;font-weight:600" title="Regenerate only the quote PDF with current pricing — keeps all compliance docs">✏️ Revise Quote</button>
-   <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 16px;font-weight:600" title="Download current quote PDF — {{ r.get('reytech_quote_number','') }}{% if r.get('quote_revision') %} Rev {{ r.quote_revision }}{% endif %}">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
-  </div>
+ <!-- ── Primary Actions ── -->
+ <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:10px 24px;font-weight:700">✅ Finalize Pricing</button>
+  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:10px 18px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote">👁️ Preview</button>
+  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
+  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:10px 18px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send Quote">📧 Send Quote</button>
+  <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:13px;padding:8px 14px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification">🌾 Food Cert</button>
+  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:13px;padding:8px 14px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package">📋 Fill All Forms</button>
+ </div>
+
+ <!-- ── Quote Management (visible after first generation) ── -->
+ {% if r.get('reytech_quote_number') %}
+ <div style="margin-top:12px;padding:12px 16px;background:rgba(88,166,255,.05);border:1px solid rgba(88,166,255,.15);border-radius:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+  <span style="font-size:13px;color:#8b949e;font-weight:600">{{ r.reytech_quote_number }}{% if r.get('quote_revision') %} · Rev {{ r.quote_revision }}{% endif %}{% if r.get('quote_revised_at') %} · {{ r.quote_revised_at[:10] }}{% endif %}</span>
+  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing — keeps all compliance docs">✏️ Revise Quote</button>
+  <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Download current quote PDF">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
+  {% if r.get('quote_revision') %}
+  <a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;font-size:13px;margin-left:4px">📋 View revision history</a>
   {% endif %}
  </div>
  {% if r.get('quote_revision') %}
- <div style="margin-top:6px;font-size:12px;color:#8b949e">
-  {{ r.reytech_quote_number }} · Rev {{ r.quote_revision }} · {{ r.get('quote_revised_at','')[:10] }}{% if r.get('quote_revision_reason') %} · <em>{{ r.quote_revision_reason }}</em>{% endif %}
-  <a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;margin-left:8px;font-size:11px">View history</a>
- </div>
- <div id="revision-history-panel" style="display:none;margin-top:6px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:12px">Loading...</div>
+ <div id="revision-history-panel" style="display:none;margin-top:6px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:13px">Loading...</div>
+ {% endif %}
  {% endif %}
  </form>
 </div>
