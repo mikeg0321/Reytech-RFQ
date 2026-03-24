@@ -836,6 +836,16 @@ def _pricecheck_detail_inner(pcid):
     for _i, _item in enumerate(items, start=1):
         _item["line_number"] = _i
 
+    # Resolve existing generated PDF URLs for inline preview
+    _existing_704_url = ""
+    _existing_quote_url = ""
+    _op = pc.get("original_pdf") or pc.get("output_pdf") or ""
+    if _op and os.path.exists(_op):
+        _existing_704_url = f"/api/pricecheck/download/{os.path.basename(_op)}"
+    _qp = pc.get("reytech_quote_pdf") or ""
+    if _qp and os.path.exists(_qp):
+        _existing_quote_url = f"/api/pricecheck/download/{os.path.basename(_qp)}"
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
@@ -846,6 +856,8 @@ def _pricecheck_detail_inner(pcid):
         crm_json=crm_json, history_json=history_json,
         tax_rate=tax_rate, tax_source=tax_source,
         catalog_count=catalog_count,
+        existing_704_url=_existing_704_url,
+        existing_quote_url=_existing_quote_url,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")

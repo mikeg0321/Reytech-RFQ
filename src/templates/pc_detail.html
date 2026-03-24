@@ -211,10 +211,10 @@
 
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
-      <button class="btn" onclick="showPreview()" aria-label="Preview quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
+      <button type="button" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);border:1px solid rgba(79,140,255,.3);color:#58a6ff;border-radius:6px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Preview filled AMS 704 government form">👁 Preview 704</button>
+      <button class="btn" onclick="showPreview()" aria-label="Preview internal quote layout" style="background:rgba(139,148,158,.1);border:1px solid #30363d;color:#8b949e;font-size:13px;padding:8px 16px">📊 Quote Preview</button>
       <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
       {{ download_html | default('') | safe }}
-      <button type="button" onclick="previewPcPdf()" class="btn btn-sm" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);font-size:13px;padding:6px 14px;font-weight:600;margin-left:6px" title="Preview generated 704 PDF">👁️ Preview 704</button>
       <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
       <details style="position:relative;display:inline-block" id="priceDropdown">
@@ -481,6 +481,8 @@
     _log('init-ok: tax+delivery');
 
     var _pcid={{ pcid|tojson }};
+    var _existing704Url={{ existing_704_url|default('')|tojson }};
+    var _existingQuoteUrl={{ existing_quote_url|default('')|tojson }};
 
     // Auto-save ship-to on blur so it persists before PDF upload
     function saveShipTo(val) {
@@ -2605,29 +2607,55 @@
     }, 60000);
 
     function previewPcPdf() {
-      var fname = ''; // try to find the generated PDF filename
-      var dlLinks = document.querySelectorAll('a[href*="/api/pricecheck/download/"]');
-      if (dlLinks.length > 0) {
-        fname = dlLinks[0].href;
-      } else {
-        alert('No generated PDF found — click Save & Generate first');
+      if (_existing704Url) {
+        _openPdfPreview(_existing704Url, 'AMS 704 \u2014 ' + (window.PC_META && PC_META.institution ? PC_META.institution : 'Price Check'));
         return;
       }
+      var btn = document.querySelector('[onclick*="previewPcPdf"]');
+      if (btn) { btn.textContent = '\u23F3 Generating\u2026'; btn.disabled = true; }
+      doPcAutosave();
+      setTimeout(function() {
+        fetch('/pricecheck/' + _pcid + '/generate-original', {
+          method: 'POST', credentials: 'same-origin'
+        }).then(function(r) { return r.json(); }).then(function(d) {
+          if (btn) { btn.textContent = '\uD83D\uDC41 Preview 704'; btn.disabled = false; }
+          if (d.ok && d.download) {
+            _existing704Url = d.download;
+            _openPdfPreview(d.download, 'AMS 704 \u2014 ' + (PC_META && PC_META.institution ? PC_META.institution : 'Price Check'));
+          } else { alert('Generate failed: ' + (d.error || 'unknown')); }
+        }).catch(function(e) {
+          if (btn) { btn.textContent = '\uD83D\uDC41 Preview 704'; btn.disabled = false; }
+          alert('Error: ' + e);
+        });
+      }, 800);
+    }
+    function _openPdfPreview(url, title) {
       var modal = document.getElementById('pcPdfPreviewModal');
       var frame = document.getElementById('pcPdfPreviewFrame');
+      var titleEl = document.getElementById('pcPdfPreviewTitle');
+      if (titleEl) titleEl.textContent = title || 'AMS 704 Preview';
       frame.src = '';
       modal.style.display = 'flex';
-      setTimeout(function() { frame.src = fname; }, 50);
+      setTimeout(function() { frame.src = url; }, 50);
+      var dlBtn = document.getElementById('pcPdfPreviewDownload');
+      if (dlBtn) { dlBtn.href = url; dlBtn.style.display = 'inline-flex'; }
     }
     </script>
 
-<div id="pcPdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10000;justify-content:center;align-items:center">
-  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:95%;max-width:900px;height:90vh;display:flex;flex-direction:column">
-    <div style="padding:12px 18px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
-      <span style="font-size:15px;font-weight:600;color:#e6edf3">📄 PDF Preview</span>
-      <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none'" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+<div id="pcPdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:10000;justify-content:center;align-items:center">
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:96%;max-width:1100px;height:92vh;display:flex;flex-direction:column">
+    <div style="padding:12px 20px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:16px">📄</span>
+        <span id="pcPdfPreviewTitle" style="font-size:15px;font-weight:600;color:#e6edf3">AMS 704 Preview</span>
+        <span style="font-size:12px;color:#8b949e">Verify company info, prices and extensions before sending</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <a id="pcPdfPreviewDownload" href="#" download style="display:none;background:#238636;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-items:center;gap:6px">📥 Download</a>
+        <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none';document.getElementById('pcPdfPreviewFrame').src=''" style="background:rgba(139,148,158,.15);border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer">✕ Close</button>
+      </div>
     </div>
-    <iframe id="pcPdfPreviewFrame" style="flex:1;border:none;background:#fff" title="PDF Preview"></iframe>
+    <iframe id="pcPdfPreviewFrame" style="flex:1;border:none;background:#fff" allow="fullscreen" title="AMS 704 PDF Preview"></iframe>
   </div>
 </div>
 
