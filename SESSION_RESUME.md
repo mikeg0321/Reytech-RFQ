@@ -1,6 +1,6 @@
 # SESSION_RESUME.md — Instant Context Recovery
 
-**Last updated:** 2026-03-23
+**Last updated:** 2026-03-24
 
 ## WHAT THIS APP IS
 
@@ -24,6 +24,7 @@ All commits pushed and deployed. No pending local changes.
 6. **Vision key stale** — module-level `ANTHROPIC_API_KEY` → live `_get_api_key()` at call time
 7. **Pre-deploy false positives** — UTF-8 encoding + globals whitelist + Windows console fix
 8. **Due date reminder crash** — same bare `get_db()` pattern → context manager
+9. **Henry Schein URL hang** — login-required domains fast-fail + 15s client-side timeout on all lookups
 
 ## KNOWN REMAINING ISSUES
 
