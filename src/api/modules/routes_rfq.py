@@ -2764,6 +2764,26 @@ def rfq_upload_supplier_quote(rid):
                 except Exception as _ce:
                     log.debug("Catalog update (unmatched): %s", _ce)
 
+    # Auto-detect supplier from the PDF text/filename
+    try:
+        from src.agents.item_link_lookup import detect_supplier
+        _sq_filename = f.filename or ""
+        _sq_supplier = detect_supplier(_sq_filename) or ""
+        if not _sq_supplier:
+            # Try to detect from parsed text
+            _sq_text = " ".join(str(v) for v in parsed.values() if isinstance(v, str))[:500]
+            for _test_name in ["Henry Schein", "McKesson", "Medline", "Cardinal", "Grainger", "Amazon", "Bound Tree"]:
+                if _test_name.lower() in _sq_text.lower():
+                    _sq_supplier = _test_name
+                    break
+        if _sq_supplier:
+            for item in r.get("line_items", []):
+                if item.get("supplier_cost") and not item.get("item_supplier"):
+                    item["item_supplier"] = _sq_supplier
+                    item["cost_source"] = f"Supplier Quote ({_sq_supplier})"
+    except Exception:
+        pass
+
     # Save RFQ
     r["_last_supplier_quote"] = {
         "supplier": supplier,
@@ -3798,6 +3818,14 @@ def generate_rfq_package(rid):
     
     # ── Step 6: Save, transition, create draft email ──
     _transition_status(r, "generated", actor="user", notes=f"Package: {len(final_output_files)} files")
+
+    # Notify: package ready to review
+    try:
+        from src.agents.notify_agent import notify_package_ready
+        notify_package_ready(r, result)
+    except Exception:
+        pass
+
     r["output_files"] = final_output_files
 
     # Learn which forms were used for this agency/buyer (improves future matching)
@@ -3925,6 +3953,14 @@ def generate(rid):
             return redirect(f"/rfq/{rid}")
         
         _transition_status(r, "generated", actor="system", notes="Bid package filled")
+
+        # Notify: package ready to review
+        try:
+            from src.agents.notify_agent import notify_package_ready
+            notify_package_ready(r, {})
+        except Exception:
+            pass
+
         r["output_files"] = output_files
         r["generated_at"] = datetime.now().isoformat()
         

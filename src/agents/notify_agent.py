@@ -677,3 +677,37 @@ def notify_new_rfq_sms(rfq_data: dict) -> None:
         log.info("SMS sent for new RFQ %s to %s", sol, NOTIFY_PHONE)
     except Exception as e:
         log.warning("SMS for new RFQ failed (non-blocking): %s", e)
+
+
+def notify_package_ready(rfq, result=None):
+    """Internal notification when RFP package is generated and ready to send."""
+    sol = rfq.get("solicitation_number", "unknown")
+    qn = rfq.get("reytech_quote_number", "")
+    agency = rfq.get("agency_name", "") or rfq.get("institution", "")
+    total = result.get("total", 0) if result else 0
+    items = len(rfq.get("line_items", []))
+    rid = rfq.get("id", "")
+
+    msg = f"📦 Package {qn} ready — {agency} #{sol} — ${total:,.2f} ({items} items)"
+    log.info("NOTIFY: %s", msg)
+
+    # Log to activity feed
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "package_ready", msg, actor="system")
+    except Exception:
+        pass
+
+    # Webhook (Slack/Teams/custom)
+    try:
+        from src.core.webhooks import fire_webhook
+        fire_webhook("package.ready", {
+            "quote_number": qn,
+            "solicitation": sol,
+            "agency": agency,
+            "total": total,
+            "items": items,
+            "url": f"/rfq/{rid}/review-package",
+        })
+    except Exception:
+        pass

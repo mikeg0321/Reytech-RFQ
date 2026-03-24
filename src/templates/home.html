@@ -393,8 +393,9 @@ function sortTable(th, col) {
   <!-- PC Bulk Action Bar -->
   <div class="bulk-bar" id="pc-bulk-bar">
    <span class="bulk-count"><span id="pc-bulk-count">0</span> selected</span>
-   <button class="btn btn-sm btn-s" onclick="bulkAction('pc','dismiss')" aria-label="Dismiss Selected">Dismiss</button>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('pc','dismiss')" aria-label="Dismiss Selected">Dismiss Selected</button>
    <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:var(--gn)" onclick="bulkGenerate()" aria-label="Bulk Generate">📄 Generate All</button>
+   <button onclick="batchClearSelection()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:13px;margin-left:auto" aria-label="Clear selection">Clear selection</button>
   </div>
   {% if price_checks %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -474,9 +475,10 @@ function sortTable(th, col) {
   <!-- E11: Bulk Action Bar -->
   <div class="bulk-bar" id="rfq-bulk-bar">
    <span class="bulk-count"><span id="rfq-bulk-count">0</span> selected</span>
-   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','dismiss')" aria-label="Dismiss">Dismiss</button>
+   <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','dismiss')" aria-label="Dismiss">Dismiss Selected</button>
    <button class="btn btn-sm btn-s" onclick="bulkAction('rfq','archive')" aria-label="Archive">Archive</button>
    <button class="btn btn-sm" style="background:rgba(251,191,36,.15);color:var(--yl)" onclick="bulkAction('rfq','markup')" aria-label="20 Markup">+20% Markup</button>
+   <button onclick="batchClearSelection()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:13px;margin-left:auto" aria-label="Clear selection">Clear selection</button>
   </div>
   {% if rfqs %}
   <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
@@ -862,8 +864,9 @@ document.querySelectorAll('details').forEach(d=>{
     function bulkAction(type, action){
       var ids=[];
       document.querySelectorAll('.'+type+'-check:checked').forEach(function(c){ids.push(c.value);});
-      if(!ids.length){alert('No items selected');return;}
-      if(action==='dismiss'&&!confirm('Dismiss '+ids.length+' items?'))return;
+      if(!ids.length){showMsg('No items selected','warn');return;}
+      if(action==='dismiss'&&!confirm('Dismiss '+ids.length+' selected items?'))return;
+      if(action==='archive'&&!confirm('Archive '+ids.length+' selected items?'))return;
       var body={ids:ids,action:action,type:type};
       if(action==='markup'){
         var pct=prompt('Markup percentage:','20');
@@ -872,9 +875,30 @@ document.querySelectorAll('details').forEach(d=>{
       }
       fetch('/api/bulk/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json();}).then(function(d){
-        if(d.ok){alert('Applied to '+d.applied+' items');location.reload();}
-        else{alert('Error: '+(d.error||'unknown'));}
-      });
+        if(d.ok){showMsg('Applied to '+d.applied+' items','ok');setTimeout(function(){location.reload();},1000);}
+        else{showMsg('Error: '+(d.error||'unknown'),'err');}
+      }).catch(function(e){showMsg('Request failed: '+e.message,'err');});
+    }
+    function batchDismiss() {
+      var checked = document.querySelectorAll('.rfq-check:checked');
+      if (!checked.length) { showMsg('No items selected', 'warn'); return; }
+      if (!confirm('Dismiss ' + checked.length + ' selected items?')) return;
+      var ids = [];
+      checked.forEach(function(cb) { ids.push(cb.value); });
+      fetch('/api/bulk/action', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: ids, action: 'dismiss', type: 'rfq'})
+      }).then(function(r) { return r.json(); }).then(function(d) {
+        if (d.ok) { showMsg('Dismissed ' + d.applied + ' items', 'ok'); setTimeout(function(){ location.reload(); }, 1000); }
+        else { showMsg('Error: ' + (d.error || 'unknown'), 'err'); }
+      }).catch(function(e) { showMsg('Request failed: ' + e.message, 'err'); });
+    }
+    function batchClearSelection() {
+      document.querySelectorAll('.rfq-check:checked').forEach(function(cb) { cb.checked = false; });
+      updateBulkBar('rfq');
+      document.querySelectorAll('.pc-check:checked').forEach(function(cb) { cb.checked = false; });
+      updateBulkBar('pc');
     }
     function bulkGenerate(){
       var ids=[];
