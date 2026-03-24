@@ -2297,14 +2297,14 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
         "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
         "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
-        "Ship to":                            (277.6, 74.2, 526.1, 89.2),
+        "Ship to":                            (277.6, 99.0, 465.0, 119.0),
     }
     NOTES_FIELD = ("Supplier andor Requestor Notes", 32.6, 41.9, 237.2, 118.9)
     TOTALS = {
-        "fill_70": (696.0, 113.8, 760.0, 134.0),
-        "fill_71": (694.9, 89.9, 760.0, 112.3),
-        "fill_72": (695.4, 67.4, 760.0, 88.6),
-        "fill_73": (695.5, 41.9, 760.0, 66.0),
+        "fill_70": (696.0, 145.0, 760.0, 165.0),  # Merchandise Subtotal, pdf_y~155
+        "fill_71": (694.9, 122.0, 760.0, 142.0),  # Freight row, pdf_y~132
+        "fill_72": (695.4, 96.0,  760.0, 115.0),  # Tax, pdf_y~106
+        "fill_73": (695.5, 75.0,  760.0, 94.0),   # Total Price, pdf_y~85
     }
     CHECKBOX = ("Check Box4", 244.5, 95.1, 257.6, 106.7)
 
@@ -2312,10 +2312,22 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     PRICE_X = (637.0, 686.0)   # inset 2pt from annotation edges to avoid border overlap
     EXT_X = (691.0, 754.0)     # inset 2pt from annotation edges to avoid border overlap
 
-    # Page-1-format: 8 rows starting at y=300
-    PG1_ROWS = [(300.1 - i * 22.5, 321.2 - i * 22.5) for i in range(8)]
-    # Continuation-format: 11 rows starting at y=459
-    PG2_ROWS = [(459.0 - i * 22.5, 480.0 - i * 22.5) for i in range(11)]
+    # Page-1-format: 3 item rows — exact Y from pdfplumber on real CCHCS AMS 704
+    # Measured row centers: item1=311.4, item2=257.1, item3=212.2 (step ~54px)
+    PG1_ROWS = [
+        (300.0, 322.0),  # row 1
+        (246.0, 268.0),  # row 2
+        (201.0, 223.0),  # row 3
+    ]
+    # Continuation-format: 5 item rows — items 4-8 on page 2
+    # Measured row centers: 478.9, 425.4, 366.8, 308.5, 263.6 (step ~58px)
+    PG2_ROWS = [
+        (468.0, 490.0),  # row 4
+        (414.0, 436.0),  # row 5
+        (355.0, 377.0),  # row 6
+        (297.0, 319.0),  # row 7
+        (252.0, 274.0),  # row 8
+    ]
     # Continuation header: SUPPLIER NAME area
     PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
 
@@ -2497,7 +2509,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     check_row = 1
     for pg_idx in range(len(reader.pages)):
         is_pg1 = (pg_idx % 2 == 0)
-        rows_on_page = 8 if is_pg1 else 11
+        rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
         page_first = check_row
         page_last = check_row + rows_on_page - 1
         has_items = False
