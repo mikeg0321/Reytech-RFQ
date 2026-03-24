@@ -786,8 +786,12 @@ def api_pricecheck_view_pdf(filename):
     for d in search_dirs:
         candidate = os.path.join(d, safe)
         if os.path.exists(candidate):
-            return send_file(candidate, mimetype="application/pdf", download_name=safe)
-    
+            from flask import Response as _Resp
+            with open(candidate, 'rb') as _f:
+                _data = _f.read()
+            return _Resp(_data, mimetype='application/pdf',
+                headers={'Content-Disposition': 'inline', 'Cache-Control': 'no-store'})
+
     # Fallback: check DB (rfq_files) — survives redeploys
     try:
         from src.core.db import get_db
@@ -796,15 +800,12 @@ def api_pricecheck_view_pdf(filename):
                 "SELECT data, filename FROM rfq_files WHERE filename=? ORDER BY id DESC LIMIT 1",
                 (safe,)).fetchone()
             if row and row["data"]:
-                restore_dir = os.path.join(DATA_DIR, "output", "_restored")
-                os.makedirs(restore_dir, exist_ok=True)
-                restore_path = os.path.join(restore_dir, safe)
-                with open(restore_path, "wb") as _fw:
-                    _fw.write(row["data"])
-                return send_file(restore_path, mimetype="application/pdf", download_name=safe)
+                from flask import Response as _Resp
+                return _Resp(row["data"], mimetype='application/pdf',
+                    headers={'Content-Disposition': 'inline', 'Cache-Control': 'no-store'})
     except Exception as _e:
         log.debug("DB PDF lookup failed: %s", _e)
-    
+
     return jsonify({"error": f"PDF not found: {safe}"}), 404
 
 

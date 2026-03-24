@@ -211,8 +211,8 @@
 
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
-      <button type="button" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);border:1px solid rgba(79,140,255,.3);color:#58a6ff;border-radius:6px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Preview filled AMS 704 government form">👁 Preview 704</button>
-      <button class="btn" onclick="showPreview()" aria-label="Preview internal quote layout" style="background:rgba(139,148,158,.1);border:1px solid #30363d;color:#8b949e;font-size:13px;padding:8px 16px">📊 Quote Preview</button>
+      <button class="btn" onclick="previewPcPdf()" id="preview704Btn" aria-label="Preview AMS 704 PDF" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px;font-weight:600" title="View the actual AMS 704 form you'll submit to the buyer">👁 Preview 704</button>
+      <button class="btn" onclick="showPreview()" aria-label="Reytech quote layout" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Internal pricing summary (not the government form)">📊 Quote</button>
       <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
       {{ download_html | default('') | safe }}
       <!-- Pricing: consolidated into dropdown -->
@@ -2639,6 +2639,20 @@
       setTimeout(function() { frame.src = url; }, 50);
       var dlBtn = document.getElementById('pcPdfPreviewDownload');
       if (dlBtn) { dlBtn.href = url; dlBtn.style.display = 'inline-flex'; }
+      var tabBtn = document.getElementById('pcPdfOpenTab');
+      if (tabBtn) tabBtn.href = url;
+      // Fallback: if iframe fails after 3s, highlight Open in Tab
+      var _fbTimer = setTimeout(function() {
+        try {
+          var fd = frame.contentDocument || frame.contentWindow.document;
+          if (!fd || !fd.body || fd.body.innerHTML === '') {
+            if (tabBtn) { tabBtn.style.background = 'rgba(52,211,153,.15)'; tabBtn.style.color = '#3fb950'; tabBtn.textContent = '\u2197 Click to Open PDF'; }
+          }
+        } catch(e) {
+          if (tabBtn) { tabBtn.style.background = 'rgba(52,211,153,.15)'; tabBtn.style.color = '#3fb950'; tabBtn.textContent = '\u2197 Click to Open PDF'; }
+        }
+      }, 3000);
+      frame.onload = function() { clearTimeout(_fbTimer); };
     }
     </script>
 
@@ -2651,6 +2665,7 @@
         <span style="font-size:12px;color:#8b949e">Verify company info, prices and extensions before sending</span>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
+        <a id="pcPdfOpenTab" href="#" target="_blank" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none">↗ Open in Tab</a>
         <a id="pcPdfPreviewDownload" href="#" download style="display:none;background:#238636;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-items:center;gap:6px">📥 Download</a>
         <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none';document.getElementById('pcPdfPreviewFrame').src=''" style="background:rgba(139,148,158,.15);border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer">✕ Close</button>
       </div>
