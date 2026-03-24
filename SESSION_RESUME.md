@@ -33,15 +33,15 @@ All commits pushed and deployed. No pending local changes.
 
 ## KNOWN REMAINING ISSUES
 
-### Needs Railway Env Vars (Mike action, not code)
-- **mike@ inbox not polled:** Set `GMAIL_ADDRESS_2` + `GMAIL_PASSWORD_2` in Railway vars
-- **Vision AI not running:** Confirm `ANTHROPIC_API_KEY` or `AGENT_ITEM_ID_KEY` exists in Railway vars
+### Railway Env Vars — SET (2026-03-24)
+- mike@ inbox: `GMAIL_ADDRESS_2` + `GMAIL_PASSWORD_2` — configured
+- Vision AI: `ANTHROPIC_API_KEY` — configured
 
-### Medium Priority (Code)
-- Race condition in load/modify/save pattern (no optimistic locking) — dashboard.py:312,378
-- JSON file writes without locks in email_poller.py and growth_agent.py
-- Global status dicts mutated without thread locks in growth_agent.py
-- Uploaded files never cleaned up (disk leak) — routes_rfq.py:575
+### Medium Priority — ALL RESOLVED (2026-03-24)
+- ~~Race condition in load/modify/save~~ → save locks (_save_rfqs_lock, _save_pcs_lock)
+- ~~JSON file writes without locks~~ → _json_write_lock in growth_agent + email_poller
+- ~~Global status dicts without locks~~ → _status_lock wrapping all 15 .update() calls
+- ~~Upload files disk leak~~ → try/finally cleanup in upload-parse-doc
 
 ### Low Priority
 - Open redirect in email tracking — routes_prd28.py:149
