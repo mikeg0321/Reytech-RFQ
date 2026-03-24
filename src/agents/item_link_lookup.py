@@ -372,11 +372,24 @@ def _lookup_amazon(url: str) -> dict:
 
             # Structured description: "{Title}, MFG# {mfg}, ASIN: {asin}"
             mfg = r.get("mfg_number", "") or r.get("part_number", "") or ""
+            # Description = clean title only. No ASIN — procurement doesn't want it.
+            # MFG# stored in part_number field, ASIN in asin field only.
             structured_desc = title
-            if mfg:
-                structured_desc += f", MFG# {mfg}"
-            if asin:
-                structured_desc += f", ASIN: {asin}"
+
+            # If no MFG# from title, try product page specs
+            if not mfg and asin:
+                try:
+                    _page = _scrape_generic(f"https://www.amazon.com/dp/{asin}")
+                    import re as _re_mfg
+                    _page_text = str(_page.get("raw_text", "") or _page.get("meta_description", ""))
+                    _model_match = _re_mfg.search(
+                        r'(?:Item model number|Part Number|Model Number|Manufacturer Part Number)'
+                        r'[:\s]+([A-Z0-9][A-Z0-9\-/]{2,25})',
+                        _page_text, _re_mfg.IGNORECASE)
+                    if _model_match:
+                        mfg = _model_match.group(1).strip()
+                except Exception:
+                    pass
 
             clean_url = _normalize_amazon_url(url)
 
@@ -405,9 +418,10 @@ def _lookup_amazon(url: str) -> dict:
         scraped["supplier"] = "Amazon"
         scraped["asin"] = asin
         scraped["url"] = _normalize_amazon_url(url)
+        # Description = title only, no ASIN appended
         _title = scraped.get("title") or scraped.get("description") or ""
-        if _title and asin:
-            scraped["description"] = f"{_title}, ASIN: {asin}"
+        if _title:
+            scraped["description"] = _title
         return scraped
     except Exception as e:
         return {"error": str(e), "supplier": "Amazon", "asin": asin}

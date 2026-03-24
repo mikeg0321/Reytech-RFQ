@@ -217,11 +217,12 @@ def _extract_mfg_info(title: str, asin: str = "") -> dict:
         words = parts.split()[:2]
         mfg["manufacturer"] = " ".join(words)
     
-    if not mfg["mfg_number"]:
-        mfg["item_number"] = asin
-    else:
+    # NEVER use ASIN as a part/MFG number — procurement requires real MFG#
+    if mfg["mfg_number"]:
         mfg["item_number"] = mfg["mfg_number"]
-    
+    else:
+        mfg["item_number"] = ""  # blank — not ASIN
+
     return mfg
 
 

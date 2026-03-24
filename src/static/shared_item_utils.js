@@ -164,22 +164,29 @@ function _applyLinkData(idx, d, mode) {
   var descEl = document.querySelector('[name="desc_' + idx + '"]');
   if (descEl && d.description) {
     var cur = (descEl.value || '').trim();
-    // PC: only fill if substitute mode OR field is truly empty
-    // RFQ: Amazon overwrites, others only if empty
-    if (isPC ? (isSubstitute || !cur || cur.length < 3) : (isAmazon || !cur || cur.length < 5)) {
+    // PC: only fill if substitute mode OR field is truly empty (buyer's 704 is sacred)
+    // RFQ: always overwrite when lookup returns longer/better description
+    var shouldUpdateDesc = isPC
+      ? (isSubstitute || !cur || cur.length < 3)
+      : (!cur || cur.length < 5 || d.description.length > cur.length || isAmazon);
+    if (shouldUpdateDesc) {
       descEl.value = d.description;
       filled.push('desc');
       if (descEl.tagName === 'TEXTAREA') { descEl.style.height = 'auto'; descEl.style.height = Math.min(descEl.scrollHeight, 120) + 'px'; }
     }
   }
 
-  // MFG#: PC preserves unless substitute, RFQ lets Amazon overwrite
+  // MFG#: never use ASIN (B0XXXXXXXX) as part number — procurement requires real MFG#
+  // PC: only fill if substitute mode or empty. RFQ: always overwrite with real MFG#.
   var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]') || document.querySelector('[name="part_' + idx + '"]');
-  var mfgVal = d.mfg_number || d.part_number || '';
+  var mfgVal = (d.mfg_number || d.part_number || '').trim();
   if (mfgEl && mfgVal) {
-    var curMfg = (mfgEl.value || '').trim();
-    if (isPC ? (isSubstitute || !curMfg) : (isAmazon || !curMfg)) {
-      mfgEl.value = mfgVal; filled.push('mfg#');
+    var isAsin = /^B0[A-Z0-9]{8}$/.test(mfgVal);
+    if (!isAsin) {
+      var curMfg = (mfgEl.value || '').trim();
+      if (isPC ? (isSubstitute || !curMfg) : true) {
+        mfgEl.value = mfgVal; filled.push('MFG# ' + mfgVal);
+      }
     }
   }
 
@@ -207,11 +214,18 @@ function _applyLinkData(idx, d, mode) {
   if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
 
   // Status message
+  var statusHtml = '';
   if (metaEl && filled.length) {
-    metaEl.innerHTML = '<span style="color:#3fb950">' + filled.join(', ') + ' filled</span>';
+    statusHtml = '<span style="color:#3fb950">' + filled.join(', ') + ' filled</span>';
   } else if (metaEl && d.ok === false) {
-    metaEl.innerHTML = '<span style="color:#f85149">' + (d.error || 'Lookup failed') + '</span>';
+    statusHtml = '<span style="color:#f85149">' + (d.error || 'Lookup failed') + '</span>';
   }
+  // ASIN: informational badge only — NEVER in description or part# field
+  if (d.asin) {
+    statusHtml += ' <span style="font-size:11px;background:rgba(255,153,0,.12);color:#ff9900;padding:2px 6px;border-radius:3px;margin-left:4px">' +
+      'ASIN: <a href="https://www.amazon.com/dp/' + d.asin + '" target="_blank" style="color:#ff9900">' + d.asin + ' ↗</a></span>';
+  }
+  if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
 
   // Autosave + recalc
   if (filled.length) {
