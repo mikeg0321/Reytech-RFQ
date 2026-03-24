@@ -852,7 +852,13 @@ function saveField(el,field){
   }
   if(d.ok){
    el.style.borderColor='#16a34a';setTimeout(function(){el.style.borderColor='transparent'},1500);
-   if(d.link_result&&d.link_result.linked){alert('Linked to PC #'+d.link_result.pc_number+'! Reload to see imported pricing.');location.reload();}
+   if(d.link_result&&d.link_result.linked){
+    // Don't auto-reload — it kills unsaved data. Show banner instead.
+    var _lb=document.createElement('div');_lb.style.cssText='background:rgba(63,185,80,.1);border:1px solid rgba(63,185,80,.3);border-radius:6px;padding:6px 12px;font-size:13px;color:#3fb950;margin:8px 0';
+    _lb.innerHTML='🔗 Linked to PC #'+d.link_result.pc_number+' — <a href="#" onclick="location.reload()" style="color:#58a6ff">reload to sync pricing</a>';
+    var _tgt=document.getElementById('margin-summary')||document.querySelector('.card');
+    if(_tgt&&_tgt.parentNode)_tgt.parentNode.insertBefore(_lb,_tgt);
+   }
    else if(d.link_result&&!d.link_result.linked){console.log('Re-link attempted, no match found',d.link_result);}
   }
   else{el.style.borderColor='#f85149'}
@@ -1182,7 +1188,7 @@ document.addEventListener('DOMContentLoaded',function(){
     var _ageS=Math.round((Date.now()-_b.ts)/1000);
     var _bar=document.createElement('div');_bar.id='rfq-backup-bar';
     _bar.style.cssText='background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:14px;color:#d29922;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
-    _bar.innerHTML='<span>\u26A0\uFE0F <strong>Unsaved session recovered</strong> \u2014 browser backup from '+_ageS+'s ago</span><button onclick="try{var d=JSON.parse(localStorage.getItem(\'rfq_autosave_\'+RID)).data;if(d){var p=JSON.parse(d);if(p.items)p.items.forEach(function(it,i){[\'qty\',\'uom\',\'description\',\'item_number\',\'item_link\',\'supplier_cost\',\'price_per_unit\',\'markup_pct\'].forEach(function(f){var el=document.querySelector(\'[name=\'+f.replace(\'description\',\'desc\').replace(\'item_number\',\'part\').replace(\'item_link\',\'link\').replace(\'supplier_cost\',\'cost\').replace(\'price_per_unit\',\'price\').replace(\'markup_pct\',\'markup\')+\'_\'+i+\']\');if(el)el.value=it[f]||\'\'});});if(typeof recalc===\'function\')recalc();_doAutosave();}document.getElementById(\'rfq-backup-bar\').remove()}catch(e){alert(\'Restore failed: \'+e)}" style="background:rgba(210,153,34,.2);border:1px solid rgba(210,153,34,.4);color:#d29922;border-radius:6px;padding:5px 14px;font-size:13px;font-weight:700;cursor:pointer">\u21A9 Restore & Save</button><button onclick="localStorage.removeItem(\'rfq_autosave_\'+RID);document.getElementById(\'rfq-backup-bar\').remove()" style="background:none;border:none;color:#d29922;cursor:pointer;font-size:18px;padding:2px 8px">\u2715</button>';
+    _bar.innerHTML='<span>\u26A0\uFE0F <strong>Unsaved session recovered</strong> \u2014 browser backup from '+_ageS+'s ago</span><button onclick="try{var d=JSON.parse(localStorage.getItem(\'rfq_autosave_\'+RID)).data;if(d){var p=JSON.parse(d);if(p.items)p.items.forEach(function(it,i){[\'qty\',\'uom\',\'description\',\'item_number\',\'item_link\',\'supplier_cost\',\'price_per_unit\',\'markup_pct\'].forEach(function(f){var el=document.querySelector(\'[name=\'+f.replace(\'description\',\'desc\').replace(\'item_number\',\'part\').replace(\'item_link\',\'link\').replace(\'supplier_cost\',\'cost\').replace(\'price_per_unit\',\'price\').replace(\'markup_pct\',\'markup\')+\'_\'+i+\']\');if(el)el.value=it[f]||\'\'});});if(p.quote_notes){var qn=document.querySelector(\'[name=quote_notes]\');if(qn)qn.value=p.quote_notes;}if(p.tax_rate){var tr=document.getElementById(\'tax-rate\');if(tr)tr.value=p.tax_rate;}if(typeof recalc===\'function\')recalc();_doAutosave();}document.getElementById(\'rfq-backup-bar\').remove()}catch(e){alert(\'Restore failed: \'+e)}" style="background:rgba(210,153,34,.2);border:1px solid rgba(210,153,34,.4);color:#d29922;border-radius:6px;padding:5px 14px;font-size:13px;font-weight:700;cursor:pointer">\u21A9 Restore & Save</button><button onclick="localStorage.removeItem(\'rfq_autosave_\'+RID);document.getElementById(\'rfq-backup-bar\').remove()" style="background:none;border:none;color:#d29922;cursor:pointer;font-size:18px;padding:2px 8px">\u2715</button>';
     var _ref=document.getElementById('margin-summary')||document.querySelector('.card');
     if(_ref&&_ref.parentNode)_ref.parentNode.insertBefore(_bar,_ref);
    }
