@@ -5802,6 +5802,19 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     try:
         from src.core.db import get_db as _get_db
         with _get_db() as _db:
+            # Ensure table exists before querying
+            _db.execute("""CREATE TABLE IF NOT EXISTS scprs_catalog (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description TEXT NOT NULL,
+                last_unit_price REAL,
+                last_quantity INTEGER DEFAULT 1,
+                last_supplier TEXT DEFAULT '',
+                last_department TEXT DEFAULT '',
+                last_po_number TEXT DEFAULT '',
+                last_date TEXT DEFAULT '',
+                times_seen INTEGER DEFAULT 1,
+                updated_at TEXT DEFAULT ''
+            )""")
             _cat = _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
             if _cat == 0:
                 log.info("Catalog empty — populating from won_quotes...")

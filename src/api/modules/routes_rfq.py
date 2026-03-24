@@ -1782,8 +1782,8 @@ def update(rid):
         if cat_added or cat_updated:
             log.info("Finalize catalog sync: +%d new, ~%d updated", cat_added, cat_updated)
     except Exception as _ce:
-        log.debug("Finalize catalog sync: %s", _ce)
-    
+        log.warning("Finalize catalog sync failed: %s", _ce)
+
     # Auto-learn item mappings + lock costs from user pricing
     try:
         from src.core.pricing_oracle_v2 import auto_learn_mapping, lock_cost
@@ -2202,7 +2202,10 @@ def api_rfq_autosave(rid):
 
     # Write priced items to catalog (same as full save does)
     try:
+        from src.agents.product_catalog import add_to_catalog, init_catalog_db
+        init_catalog_db()
         sol = r.get("solicitation_number", "")
+        _cat_saved = 0
         for update in items_data:
             idx = update.get("idx")
             if idx is None or idx >= len(r["line_items"]):
@@ -2212,19 +2215,23 @@ def api_rfq_autosave(rid):
             bid = item.get("price_per_unit") or 0
             desc = item.get("description", "")
             if desc and (cost > 0 or bid > 0):
-                from src.agents.product_catalog import add_to_catalog, init_catalog_db
-                init_catalog_db()
-                add_to_catalog(
-                    description=desc,
-                    part_number=item.get("item_number", ""),
-                    cost=float(cost) if cost else 0,
-                    sell_price=float(bid) if bid else 0,
-                    source=f"rfq_autosave_{sol}",
-                    supplier_name=item.get("item_supplier", ""),
-                    supplier_url=item.get("item_link", ""),
-                )
-    except Exception:
-        pass
+                try:
+                    add_to_catalog(
+                        description=desc,
+                        part_number=item.get("item_number", ""),
+                        cost=float(cost) if cost else 0,
+                        sell_price=float(bid) if bid else 0,
+                        source=f"rfq_autosave_{sol}",
+                        supplier_name=item.get("item_supplier", ""),
+                        supplier_url=item.get("item_link", ""),
+                    )
+                    _cat_saved += 1
+                except Exception as _ce:
+                    log.debug("Catalog save item %d: %s", idx, _ce)
+        if _cat_saved:
+            log.info("Autosave catalog: %d items saved for %s", _cat_saved, rid)
+    except Exception as _ce:
+        log.warning("Catalog autosave failed: %s", _ce)
 
     return jsonify({
         "ok": True, "saved": len(items_data),
