@@ -781,6 +781,26 @@
      recalcPC();
     }
 
+    function toggleSubstitute(idx, cb) {
+     var row = document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
+     var descEl = row ? row.querySelector('[name="desc_'+idx+'"]') : null;
+     if (cb.checked) {
+       // Substitute mode: highlight row amber, unlock description for editing
+       if (row) row.style.borderLeft = '3px solid #d29922';
+       if (descEl) {
+         descEl.style.borderColor = '#d29922';
+         descEl.placeholder = 'Replacement item description — buyer will see this';
+       }
+     } else {
+       // Normal mode: remove highlight
+       if (row) row.style.borderLeft = '';
+       if (descEl) {
+         descEl.style.borderColor = '';
+         descEl.placeholder = 'Enter description or paste URL';
+       }
+     }
+    }
+
     function toggleAllNotes() {
      var rows = document.querySelectorAll('.notes-row');
      var anyHidden = false;
@@ -869,9 +889,7 @@
         if(openBtn) { openBtn.style.display='none'; openBtn.href=''; }
         return;
       }
-      // Auto-prepend https:// if looks like URL but missing protocol
       if (!url.startsWith('http') && _isUrl(url)) { url='https://'+url; inp.value=url; }
-      // Update the open-link button
       if (openBtn && _isUrl(url)) { openBtn.href=url; openBtn.style.display='flex'; }
       else if (openBtn) { openBtn.style.display='none'; }
       const supplier = _detectSupplierJS(url);
@@ -879,7 +897,37 @@
       else if (metaEl && _isUrl(url)) metaEl.innerHTML='<span style="color:#d29922">⏳ Looking up…</span>';
       if (!_isUrl(url)) return;
       clearTimeout(_linkDebounce[idx]);
-      _linkDebounce[idx] = setTimeout(() => _fireLinkLookup(idx, url, 'pc'), 600);
+      _linkDebounce[idx] = setTimeout(function() {
+        _fireLinkLookup(idx, url, 'pc');
+        // After URL lookup, auto-save + run background SCPRS/catalog check
+        // Delay to let link lookup finish and autosave fire first
+        setTimeout(function() {
+          _backgroundEnrichItem(idx);
+        }, 3000);
+      }, url.indexOf('amazon.com')>=0?400:600);
+    }
+
+    // Background SCPRS + catalog enrichment for a single item after URL paste
+    function _backgroundEnrichItem(idx) {
+      var desc = (document.querySelector('[name="desc_'+idx+'"]') || {}).value || '';
+      if (!desc || desc.length < 5) return;
+      // Save current prices first so the backend has the latest data
+      fetch('/pricecheck/'+_pcid+'/save-prices', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(collectPrices()), credentials:'same-origin'
+      }).then(function(r){return r.json()}).then(function(d) {
+        if (!d.ok) return;
+        // Now run auto-price for just this item's SCPRS + catalog matches
+        fetch('/api/pricecheck/'+_pcid+'/retry-auto-price', {
+          method:'POST', credentials:'same-origin'
+        }).then(function(r){return r.json()}).then(function(d2) {
+          if (d2.ok) {
+            // Reload sources column silently — page doesn't need full reload
+            var srcEl = document.querySelector('tr[data-row="'+idx+'"] td:nth-child(9)');
+            if (srcEl && d2.sources_html) srcEl.innerHTML = d2.sources_html;
+          }
+        }).catch(function(){});
+      }).catch(function(){});
     }
 
     // ── Reverse URL Parsing: detect URL pasted in ANY field ──────────────────

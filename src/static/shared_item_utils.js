@@ -149,24 +149,38 @@ function _applyLinkData(idx, d, mode) {
   var filled = [];
   var metaId = (mode === 'pc') ? 'link_meta_' + idx : 'rfq_link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
+  var isPC = (mode === 'pc');
   var isAmazon = d.supplier === 'Amazon';
 
-  // Description: Amazon always overwrites (structured format), others only if empty
+  // On PC: NEVER overwrite description or MFG# — buyer's 704 data is sacred.
+  // Only overwrite if substitute checkbox is checked (replacement item mode).
+  // On RFQ: Amazon overwrites (structured format), others only if empty.
+  var isSubstitute = false;
+  if (isPC) {
+    var subEl = document.querySelector('[name="substitute_' + idx + '"]');
+    isSubstitute = subEl && subEl.checked;
+  }
+
   var descEl = document.querySelector('[name="desc_' + idx + '"]');
   if (descEl && d.description) {
     var cur = (descEl.value || '').trim();
-    if (isAmazon || !cur || cur.length < 5) {
+    // PC: only fill if substitute mode OR field is truly empty
+    // RFQ: Amazon overwrites, others only if empty
+    if (isPC ? (isSubstitute || !cur || cur.length < 3) : (isAmazon || !cur || cur.length < 5)) {
       descEl.value = d.description;
       filled.push('desc');
       if (descEl.tagName === 'TEXTAREA') { descEl.style.height = 'auto'; descEl.style.height = Math.min(descEl.scrollHeight, 120) + 'px'; }
     }
   }
 
-  // MFG#: Amazon always overwrites, others only if empty
+  // MFG#: PC preserves unless substitute, RFQ lets Amazon overwrite
   var mfgEl = document.querySelector('[name="itemnum_' + idx + '"]') || document.querySelector('[name="part_' + idx + '"]');
   var mfgVal = d.mfg_number || d.part_number || '';
   if (mfgEl && mfgVal) {
-    if (isAmazon || !(mfgEl.value || '').trim()) { mfgEl.value = mfgVal; filled.push('mfg#'); }
+    var curMfg = (mfgEl.value || '').trim();
+    if (isPC ? (isSubstitute || !curMfg) : (isAmazon || !curMfg)) {
+      mfgEl.value = mfgVal; filled.push('mfg#');
+    }
   }
 
   // Cost: always update when new URL pasted — old cost is stale
@@ -175,11 +189,12 @@ function _applyLinkData(idx, d, mode) {
     costEl.value = d.price.toFixed(2);
     filled.push('cost $' + d.price.toFixed(2));
     if (typeof recalcFromMarkup === 'function') recalcFromMarkup(idx);
+    else if (typeof recalcRow === 'function') recalcRow(idx, true);
     else if (typeof recalc === 'function') recalc();
-    // Warn if sale ≠ list (Amazon)
     if (d.list_price && d.sale_price && d.list_price !== d.sale_price && metaEl) {
       metaEl.innerHTML = '<span style="color:#d29922">Using list $' + parseFloat(d.list_price).toFixed(2) + ' (sale: $' + parseFloat(d.sale_price).toFixed(2) + ')</span>';
       if (typeof triggerAutosave === 'function') triggerAutosave();
+      if (typeof savePricesQuiet === 'function') savePricesQuiet();
       return;
     }
   }
