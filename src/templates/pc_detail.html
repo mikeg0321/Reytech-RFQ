@@ -109,7 +109,7 @@
 
      <!-- Pipeline Status Tracker -->
      <div style="margin:12px 0;display:flex;align-items:center;gap:0;font-size:14px;font-weight:600">
-      {{ pipeline_html | safe }}
+      {{ pipeline_html | default('') | safe }}
      </div>
 
      {% if pc.get('status') == 'sent' %}
@@ -203,7 +203,7 @@
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
       <button class="btn" onclick="showPreview()" aria-label="Preview quote" style="background:#21262d;color:#c9d1d9;border:1px solid #484f58;font-size:14px;padding:8px 20px">👁️ Preview</button>
       <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
-      {{ download_html | safe }}
+      {{ download_html | default('') | safe }}
       <!-- Pricing: consolidated into dropdown -->
       <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
       <details style="position:relative;display:inline-block" id="priceDropdown">
@@ -320,7 +320,7 @@
       </div>
      </div>
      <!-- Margin Summary Bar -->
-     <div id="pc-margin-summary" style="display:none;padding:8px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+     <div id="pc-margin-summary" style="display:none;padding:8px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
       <span style="color:#8b949e">Margin:</span>
       <span id="pc-ms-cost"></span>
       <span id="pc-ms-revenue"></span>
@@ -331,7 +331,7 @@
      <div class="pc-table-wrap">
      <table id="itemsTable">
       <tr><th style="width:28px">Bid</th><th style="width:40px">Line#</th><th>MFG#</th><th>Qty</th><th>UOM</th><th style="min-width:250px">Description</th><th style="width:36px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:160px">Item Link</th><th style="min-width:160px">Sources</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
-      {{ items_html | safe }}
+      {{ items_html | default('') | safe }}
      </table>
      </div>
      <div style="margin-top:8px">

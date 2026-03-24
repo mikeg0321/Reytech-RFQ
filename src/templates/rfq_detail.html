@@ -56,7 +56,7 @@
   <span style="color:{% if _amazon %}#f0883e{% else %}#8b949e{% endif %}">Amazon: {{ _amazon }}/{{ _total }}</span>
   <span style="color:{% if _catalog %}#a78bfa{% else %}#8b949e{% endif %}">Catalog: {{ _catalog }}/{{ _total }}</span>
   <span style="color:{% if ns.priced %}#3fb950{% else %}#f85149{% endif %};font-weight:600">{{ ns.priced }}/{{ _total }} priced</span>
-  {% if lookup.ran_at %}<span style="color:#484f58;font-size:13px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
+  {% if lookup.ran_at %}<span style="color:#8b949e;font-size:13px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
  </div>
  {% endif %}
 </div>
@@ -76,15 +76,15 @@
  <div class="markup-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
   <span>Quick Markup:</span>
   <span id="mk-buttons-container"></span>
-  <div style="display:flex;align-items:center;gap:4px;margin-left:6px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
+  <div style="display:flex;align-items:center;gap:4px;margin-left:6px;background:var(--sf2,#21262d);padding:6px 12px;border-radius:6px;border:1px solid var(--bd,#30363d)">
    <input type="number" id="custom-markup-pct" step="1" min="0" max="200" placeholder="%" style="width:72px;background:transparent;border:none;color:#e6edf3;font-size:16px;font-weight:700;text-align:center;outline:none" title="Markup % — click a button or type any value, then Apply or use arrows">
    <span style="color:#8b949e;font-size:14px;font-weight:600">%</span>
-   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:6px 16px;font-size:15px;background:#238636;color:#fff;border:none;font-weight:600" aria-label="Apply markup">Apply</button>
+   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:6px 12px;font-size:15px;background:#238636;color:#fff;border:none;font-weight:600" aria-label="Apply markup">Apply</button>
   </div>
-  <div style="display:flex;align-items:center;gap:4px;background:var(--sf2,#21262d);padding:4px 8px;border-radius:6px;border:1px solid var(--bd,#30363d)">
+  <div style="display:flex;align-items:center;gap:4px;background:var(--sf2,#21262d);padding:6px 12px;border-radius:6px;border:1px solid var(--bd,#30363d)">
    <span style="color:#8b949e;font-size:14px">$</span>
    <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="Flat $" style="width:70px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none" title="Flat dollar markup per item">
-   <button class="btn btn-sm" onclick="applyFlatMarkup()" style="padding:3px 10px;font-size:13px;background:#21262d;color:#58a6ff;border:1px solid #30363d" aria-label="Apply flat $">+$</button>
+   <button class="btn btn-sm" onclick="applyFlatMarkup()" style="padding:6px 12px;font-size:13px;background:#21262d;color:#58a6ff;border:1px solid #30363d" aria-label="Apply flat $">+$</button>
   </div>
   <span style="margin-left:8px">SCPRS Undercut:</span>
   <span id="uc-buttons-container"></span>
@@ -100,7 +100,7 @@
   <span style="color:#8b949e">|</span>
   <span style="color:#8b949e">Tax:
    <input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.25" style="width:50px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()">%
-   <button onclick="lookupTaxRate(event)" class="btn btn-sm" style="font-size:12px;padding:3px 10px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);margin-left:4px;border-radius:5px;font-weight:600" title="Auto-lookup from CDTFA">🔍 Verify</button>
+   <button onclick="lookupTaxRate(event)" class="btn btn-sm" style="font-size:12px;padding:3px 10px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);margin-left:4px;border-radius:5px;font-weight:600" title="Auto-lookup from CDTFA" aria-label="Verify tax rate">🔍 Verify</button>
    <span id="tax-validation" style="font-size:10px;margin-left:4px">
      {% if r.get('tax_validated') %}
        {% if r.get('tax_source') in ('default', 'fallback_table', 'fallback') %}
@@ -136,7 +136,7 @@
   <button class="btn btn-sm" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="uploadDoc()" aria-label="Upload any PDF, image, or screenshot to parse items">📄 Upload & Parse</button>
   <input type="file" id="doc-upload-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff" onchange="handleDocUpload(this)">
   <button class="btn btn-sm" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="applyRecommendations()" aria-label="Auto-price all items using SCPRS, catalog, Amazon, and cost data">💡 Auto-Price All</button>
-  <button class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="openBulkPaste()" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
+  <button class="btn btn-sm" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:6px;font-size:14px;padding:8px 18px;font-weight:600" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
@@ -175,8 +175,8 @@
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
    <td style="font-size:13px">{{i.line_number}}</td>
-   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()"></td>
-   <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6"></td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity"></td>
+   <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
    <td style="min-width:220px">
@@ -206,7 +206,7 @@
     {% elif i.get('catalog_match') %}
      <span style="color:#3fb950">📦</span>
     {% else %}
-     <span style="color:#484f58">—</span>
+     <span style="color:#8b949e">—</span>
     {% endif %}
    </td>
    <td>
@@ -220,7 +220,7 @@
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td style="position:relative">
-    <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:16px;padding:2px 6px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})">⋯</button>
+    <button type="button" class="btn btn-sm" style="background:none;border:none;color:#8b949e;font-size:16px;padding:2px 6px;cursor:pointer" onclick="toggleItemMenu(event,{{loop.index0}})" aria-label="Item options">⋯</button>
     <div id="item-menu-{{loop.index0}}" class="item-menu" style="display:none;position:fixed;z-index:999;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:4px 0;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
      <button type="button" onclick="lookupSingleItem({{loop.index0}})" style="display:block;width:100%;text-align:left;background:none;border:none;color:#58a6ff;padding:6px 14px;font-size:13px;cursor:pointer;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Price Lookup</button>
      <hr style="border:none;border-top:1px solid #21262d;margin:4px 0">
@@ -1123,7 +1123,7 @@ function _showGuardrails(warnings){
   var wc=w.level==='critical'?'#f85149':w.level==='warn'?'#d29922':'#8b949e';
   h+='<div style="color:'+wc+';font-size:14px">• '+w.desc+': '+w.msg+'</div>';
  });
- if(warnings.length>4) h+='<div style="color:#484f58;font-size:14px">+'+(warnings.length-4)+' more</div>';
+ if(warnings.length>4) h+='<div style="color:#8b949e;font-size:14px">+'+(warnings.length-4)+' more</div>';
  bar.innerHTML=h;
  document.body.appendChild(bar);
  setTimeout(function(){var b=document.getElementById('guardrail-bar');if(b)b.remove();},8000);
@@ -2462,7 +2462,7 @@ function showIntel(idx){
    html+='</table>';
   }
  }else{
-  html+='<div style="text-align:center;padding:16px;color:#484f58;font-size:13px">No price history yet. Prices will be recorded as you quote this item.</div>';
+  html+='<div style="text-align:center;padding:16px;color:#8b949e;font-size:13px">No price history yet. Prices will be recorded as you quote this item.</div>';
  }
  // Freshness section
  if(info.freshness){
@@ -2488,7 +2488,7 @@ function showIntel(idx){
     html+='<span style="color:#8b949e">'+k+'</span> <span style="font-weight:700;color:#f0f6fc">$'+v.toFixed(2)+'</span></div>';
    });
    html+='</div>';
-   if(s._from_pc) html+='<div style="font-size:13px;color:#484f58;margin-top:4px">Ported from PC '+s._from_pc+'</div>';
+   if(s._from_pc) html+='<div style="font-size:13px;color:#8b949e;margin-top:4px">Ported from PC '+s._from_pc+'</div>';
   }
  }
  // F9: Recent quotes for same item
@@ -2504,7 +2504,7 @@ function showIntel(idx){
  if(info.recommendation){
   var r=info.recommendation;
   html+='<div style="margin-top:10px;padding:8px 10px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.15);border-radius:6px;font-size:14px">';
-  html+='<div style="font-weight:600;color:#58a6ff;margin-bottom:6px">💡 Pricing Tiers <span style="color:#484f58;font-weight:400">('+r.reason+')</span></div>';
+  html+='<div style="font-weight:600;color:#58a6ff;margin-bottom:6px">💡 Pricing Tiers <span style="color:#8b949e;font-weight:400">('+r.reason+')</span></div>';
   html+='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">';
   html+='<div style="text-align:center;padding:4px;background:#21262d;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive+';recalc();triggerAutosave()"><div style="font-size:13px;color:#f85149">Aggressive</div><div style="font-weight:700;color:#f0f6fc">$'+r.aggressive.toFixed(2)+'</div></div>';
   html+='<div style="text-align:center;padding:4px;background:#1f6feb22;border:1px solid #1f6feb;border-radius:4px;cursor:pointer" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.recommended+';recalc();triggerAutosave()"><div style="font-size:13px;color:#58a6ff">Recommended</div><div style="font-weight:700;color:#f0f6fc">$'+r.recommended.toFixed(2)+'</div></div>';
@@ -2517,7 +2517,7 @@ function showIntel(idx){
   info.audit.forEach(function(a){
    html+='<div style="font-size:14px;color:#8b949e;margin-left:8px;border-left:2px solid #21262d;padding-left:8px;margin-top:4px">';
    html+=a.field+': '+(a.old!=null?'$'+a.old.toFixed(2):'—')+' → '+(a.new!=null?'$'+a.new.toFixed(2):'—');
-   html+=' <span style="color:#484f58">· '+a.source+' · '+a.ts+'</span></div>';
+   html+=' <span style="color:#8b949e">· '+a.source+' · '+a.ts+'</span></div>';
   });
  }
  html+='</div><div id="intel-backdrop" onclick="document.getElementById(\'intel-popup\').remove();this.remove()" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,.4)"></div>';

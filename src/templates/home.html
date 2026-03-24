@@ -71,7 +71,7 @@ setTimeout(function(){
    document.getElementById('health-msg').textContent=d.failed+' check(s) failed: '+names;
    el.style.display='block';
   }
- }).catch(function(){});
+ }).catch(function(e){console.debug('fetch error:',e)});
 },3000);
 </script>
 
@@ -85,7 +85,7 @@ fetch('/api/awards/pending').then(r=>r.json()).then(d=>{
   var details = d.pending.map(function(p){ return 'PO#' + (p.po_number || '?') + ' $' + (p.total || 0).toFixed(2); }).join(' · ');
   document.getElementById('po-banner-detail').textContent = details + ' — Click to review';
  }
-}).catch(function(){});
+}).catch(function(e){console.debug('fetch error:',e)});
 </script>
 
 <!-- ═══ Compliance Alerts — Phase 3 ═══ -->
@@ -111,7 +111,7 @@ setTimeout(function(){ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then
     }
   });
   el.innerHTML=html;
-}).catch(function(){}); },5000);
+}).catch(function(e){console.debug('fetch error:',e)}); },5000);
 </script>
 
 <!-- ═══ Agent Status Card — Layer 2 ═══ -->
@@ -170,7 +170,7 @@ function _refreshAgentStatus(){
     mikeTxt.textContent='Active — '+(mkd.addr||'mike@')+(mkd.emails_returned?' ('+mkd.emails_returned+' found)':'');
    }
   }).catch(function(){mikeTxt.textContent='unknown';});
- }).catch(()=>{});
+ }).catch(function(e){console.debug('fetch error:',e)});
 }
 setTimeout(_refreshAgentStatus,4000);
 setInterval(_refreshAgentStatus,300000); // 5 min (was 60s)
@@ -216,7 +216,7 @@ var _dashData = null;
 fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   _dashData = d;
   // Also fetch /api/manager/metrics for manager-specific KPIs
-  fetch('/api/manager/metrics').then(r=>r.json()).then(m=>{if(m&&m.ok)Object.assign(_dashData,{manager_metrics:m});}).catch(()=>{});
+  fetch('/api/manager/metrics').then(r=>r.json()).then(m=>{if(m&&m.ok)Object.assign(_dashData,{manager_metrics:m});}).catch(function(e){console.debug('fetch error:',e)});
   // ── Actions widget ──
   if(d.actions && d.actions.ok){
     function renderItems(items,el){
@@ -242,7 +242,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   if(d.qa) _renderQA(d.qa);
   // ── Manager metrics ──
   if(d.metrics && d.metrics.ok) _renderMetrics(d.metrics);
-}).catch(()=>{});
+}).catch(function(e){console.debug('fetch error:',e)});
 </script>
 
 <!-- ═══ Action Bar ═══ -->
@@ -1025,7 +1025,7 @@ setTimeout(function(){
   });
   if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:14px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
   document.getElementById('stale-items').innerHTML=html;
- }).catch(function(){});
+ }).catch(function(e){console.debug('fetch error:',e)});
 },6000);
 function sendQuickFollowUp(type,id,email,num){
  if(!confirm('Send follow-up to '+email+'?'))return;
@@ -1223,7 +1223,7 @@ setTimeout(loadFeed,5000); // defer — not needed for initial render
     </div>
    </div>
    <div id="np-msg" style="font-size:13px;display:none"></div>
-   <button onclick="createPc()" style="width:100%;padding:12px;background:#3fb950;color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create Price Check →</button>
+   <button onclick="createPc()" style="width:100%;padding:12px;background:var(--gn);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px">Create Price Check →</button>
   </div>
  </div>
 </div>
@@ -1258,7 +1258,8 @@ function createRfq() {
    msg.style.color='#3fb950'; msg.textContent='✅ Created!';
    setTimeout(function() { window.location.href = '/rfq/' + d.rfq_id; }, 500);
   } else { msg.style.color='#f85149'; msg.textContent='❌ ' + (d.error || 'Failed'); }
- });
+ })
+ .catch(function(e){msg.style.display='block';msg.style.color='#f85149';msg.textContent='Network error: '+e.message;});
 }
 
 function createPc() {
@@ -1284,7 +1285,8 @@ function createPc() {
    msg.style.color='#3fb950'; msg.textContent='✅ Created!';
    setTimeout(function() { window.location.href = '/pricecheck/' + d.pc_id; }, 500);
   } else { msg.style.color='#f85149'; msg.textContent='❌ ' + (d.error || 'Failed'); }
- });
+ })
+ .catch(function(e){msg.style.display='block';msg.style.color='#f85149';msg.textContent='Network error: '+e.message;});
 }
 </script>
 
