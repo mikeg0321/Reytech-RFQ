@@ -578,169 +578,176 @@ def api_rfq_upload_parse_doc(rid):
     save_path = os.path.join(upload_dir, save_name)
     f.save(save_path)
 
-    items = []
-    parser_used = ""
-    header = {}
-    vision_error = None
-
-    if is_pdf:
-        # Try 1: AMS 704
-        try:
-            from src.forms.price_check import parse_ams704
-            parsed = parse_ams704(save_path)
-            if not parsed.get("error") and parsed.get("line_items"):
-                items = parsed["line_items"]
-                header = parsed.get("header", {})
-                parser_used = "AMS 704"
-                log.info("Upload parse: AMS 704 found %d items", len(items))
-        except Exception as e:
-            log.debug("704 parse failed: %s", e)
-
-        # Try 2: Generic RFQ parser
-        if not items:
-            try:
-                from src.forms.generic_rfq_parser import parse_generic_rfq
-                parsed = parse_generic_rfq([save_path],
-                    subject=r.get("email_subject", ""),
-                    sender_email=r.get("requestor_email", ""),
-                    body=r.get("body_text", ""))
-                if parsed.get("items"):
-                    items = parsed["items"]
-                    header = parsed.get("header", {})
-                    parser_used = "Generic RFQ"
-                    log.info("Upload parse: Generic found %d items", len(items))
-            except Exception as e:
-                log.debug("Generic parse failed: %s", e)
-
-        # Try 3: Vision parser (PDF -> image -> Claude)
-        if not items:
-            try:
-                from src.forms.vision_parser import parse_with_vision
-                parsed = parse_with_vision(save_path)
-                _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
-                if _vitems:
-                    items = _vitems
-                    header = parsed.get("header", {})
-                    parser_used = "Vision AI"
-                    log.info("Upload parse: Vision found %d items", len(items))
-            except Exception as e:
-                log.debug("Vision parse failed: %s", e)
-
-    elif is_image:
-        # Image: go straight to vision parser
-        vision_error = None
-        try:
-            from src.forms.vision_parser import parse_with_vision, is_available
-            if not is_available():
-                vision_error = "Vision AI unavailable (API key not set — check ANTHROPIC_API_KEY or AGENT_ITEM_ID_KEY env var)"
-                log.warning("Upload parse: %s", vision_error)
-            else:
-                parsed = parse_with_vision(save_path)
-                _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
-                if _vitems:
-                    items = _vitems
-                    header = parsed.get("header", {})
-                    parser_used = "Vision AI"
-                    log.info("Upload parse: Vision (image) found %d items", len(items))
-                else:
-                    vision_error = "Vision AI returned no items from image"
-                    log.warning("Upload parse: %s", vision_error)
-        except Exception as e:
-            vision_error = f"Vision AI error: {e}"
-            log.warning("Vision image parse failed: %s", e)
-
-        # Fallback: try OCR -> text -> generic parser
-        if not items:
-            try:
-                import subprocess
-                ocr_result = subprocess.run(["tesseract", save_path, "stdout"],
-                    capture_output=True, text=True, timeout=30)
-                if ocr_result.returncode == 0 and ocr_result.stdout.strip():
-                    from src.forms.generic_rfq_parser import parse_line_items_from_text
-                    items = parse_line_items_from_text(ocr_result.stdout)
-                    if items:
-                        parser_used = "OCR + Text"
-                        log.info("Upload parse: OCR found %d items", len(items))
-            except Exception as e:
-                log.debug("OCR parse failed: %s", e)
-
-    if not items:
-        err_detail = vision_error or "No items could be extracted"
-        return jsonify({
-            "ok": False,
-            "error": f"Could not extract items. {err_detail}",
-            "parser_tried": ["AMS 704", "Generic RFQ", "Vision AI"] if is_pdf else ["Vision AI", "OCR"],
-        })
-
-    # Merge header info into RFQ if available
-    if header:
-        if header.get("institution") and not r.get("agency_name"):
-            r["agency_name"] = header["institution"]
-        if header.get("ship_to_address") and not r.get("delivery_location"):
-            r["delivery_location"] = header["ship_to_address"]
-        if header.get("price_check_number") and not r.get("linked_pc_id"):
-            r["linked_pc_number"] = header["price_check_number"]
-
-    # Build RFQ line items
-    existing_items = r.get("line_items", r.get("items", []))
-    added = 0
-
-    for it in items:
-        desc = it.get("description", "") or it.get("name", "") or ""
-        if not desc or len(desc.strip()) < 3:
-            continue
-
-        qty = it.get("qty", 1) or it.get("quantity", 1) or 1
-        try:
-            qty = int(float(qty))
-        except (ValueError, TypeError):
-            qty = 1
-
-        uom = it.get("uom", "EA") or it.get("unit_of_measure", "EA") or "EA"
-        # item_number from vision parser is sequential (1,2,3) — NOT a part number
-        part = it.get("mfg_number", "") or it.get("part_number", "") or ""
-        if not part:
-            raw_inum = str(it.get("item_number", "")).strip()
-            if raw_inum and not raw_inum.isdigit():
-                part = raw_inum
-        cost = it.get("price", 0) or it.get("unit_price", 0) or it.get("cost", 0) or 0
-        try:
-            cost = float(cost)
-        except (ValueError, TypeError):
-            cost = 0
-
-        rfq_item = {
-            "description": desc,
-            "qty": qty,
-            "uom": uom,
-            "part_number": part,
-            "item_number": part,
-        }
-        if cost > 0:
-            rfq_item["supplier_cost"] = cost
-            rfq_item["cost_source"] = f"Uploaded ({parser_used})"
-
-        existing_items.append(rfq_item)
-        added += 1
-
-    r["line_items"] = existing_items
-    save_rfqs(rfqs)
-
     try:
-        from src.core.dal import log_lifecycle_event
-        log_lifecycle_event("rfq", rid, "doc_uploaded",
-            f"Uploaded {f.filename}: {added} items parsed via {parser_used}",
-            actor="user", detail={"filename": f.filename, "parser": parser_used, "items": added})
-    except Exception:
-        pass
+        items = []
+        parser_used = ""
+        header = {}
+        vision_error = None
 
-    return jsonify({
-        "ok": True,
-        "items_found": len(items),
-        "items_added": added,
-        "parser": parser_used,
-        "header": header,
-    })
+        if is_pdf:
+            # Try 1: AMS 704
+            try:
+                from src.forms.price_check import parse_ams704
+                parsed = parse_ams704(save_path)
+                if not parsed.get("error") and parsed.get("line_items"):
+                    items = parsed["line_items"]
+                    header = parsed.get("header", {})
+                    parser_used = "AMS 704"
+                    log.info("Upload parse: AMS 704 found %d items", len(items))
+            except Exception as e:
+                log.debug("704 parse failed: %s", e)
+
+            # Try 2: Generic RFQ parser
+            if not items:
+                try:
+                    from src.forms.generic_rfq_parser import parse_generic_rfq
+                    parsed = parse_generic_rfq([save_path],
+                        subject=r.get("email_subject", ""),
+                        sender_email=r.get("requestor_email", ""),
+                        body=r.get("body_text", ""))
+                    if parsed.get("items"):
+                        items = parsed["items"]
+                        header = parsed.get("header", {})
+                        parser_used = "Generic RFQ"
+                        log.info("Upload parse: Generic found %d items", len(items))
+                except Exception as e:
+                    log.debug("Generic parse failed: %s", e)
+
+            # Try 3: Vision parser (PDF -> image -> Claude)
+            if not items:
+                try:
+                    from src.forms.vision_parser import parse_with_vision
+                    parsed = parse_with_vision(save_path)
+                    _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
+                    if _vitems:
+                        items = _vitems
+                        header = parsed.get("header", {})
+                        parser_used = "Vision AI"
+                        log.info("Upload parse: Vision found %d items", len(items))
+                except Exception as e:
+                    log.debug("Vision parse failed: %s", e)
+
+        elif is_image:
+            # Image: go straight to vision parser
+            vision_error = None
+            try:
+                from src.forms.vision_parser import parse_with_vision, is_available
+                if not is_available():
+                    vision_error = "Vision AI unavailable (API key not set — check ANTHROPIC_API_KEY or AGENT_ITEM_ID_KEY env var)"
+                    log.warning("Upload parse: %s", vision_error)
+                else:
+                    parsed = parse_with_vision(save_path)
+                    _vitems = parsed.get("line_items") or parsed.get("items") if parsed else None
+                    if _vitems:
+                        items = _vitems
+                        header = parsed.get("header", {})
+                        parser_used = "Vision AI"
+                        log.info("Upload parse: Vision (image) found %d items", len(items))
+                    else:
+                        vision_error = "Vision AI returned no items from image"
+                        log.warning("Upload parse: %s", vision_error)
+            except Exception as e:
+                vision_error = f"Vision AI error: {e}"
+                log.warning("Vision image parse failed: %s", e)
+
+            # Fallback: try OCR -> text -> generic parser
+            if not items:
+                try:
+                    import subprocess
+                    ocr_result = subprocess.run(["tesseract", save_path, "stdout"],
+                        capture_output=True, text=True, timeout=30)
+                    if ocr_result.returncode == 0 and ocr_result.stdout.strip():
+                        from src.forms.generic_rfq_parser import parse_line_items_from_text
+                        items = parse_line_items_from_text(ocr_result.stdout)
+                        if items:
+                            parser_used = "OCR + Text"
+                            log.info("Upload parse: OCR found %d items", len(items))
+                except Exception as e:
+                    log.debug("OCR parse failed: %s", e)
+
+        if not items:
+            err_detail = vision_error or "No items could be extracted"
+            return jsonify({
+                "ok": False,
+                "error": f"Could not extract items. {err_detail}",
+                "parser_tried": ["AMS 704", "Generic RFQ", "Vision AI"] if is_pdf else ["Vision AI", "OCR"],
+            })
+
+        # Merge header info into RFQ if available
+        if header:
+            if header.get("institution") and not r.get("agency_name"):
+                r["agency_name"] = header["institution"]
+            if header.get("ship_to_address") and not r.get("delivery_location"):
+                r["delivery_location"] = header["ship_to_address"]
+            if header.get("price_check_number") and not r.get("linked_pc_id"):
+                r["linked_pc_number"] = header["price_check_number"]
+
+        # Build RFQ line items
+        existing_items = r.get("line_items", r.get("items", []))
+        added = 0
+
+        for it in items:
+            desc = it.get("description", "") or it.get("name", "") or ""
+            if not desc or len(desc.strip()) < 3:
+                continue
+
+            qty = it.get("qty", 1) or it.get("quantity", 1) or 1
+            try:
+                qty = int(float(qty))
+            except (ValueError, TypeError):
+                qty = 1
+
+            uom = it.get("uom", "EA") or it.get("unit_of_measure", "EA") or "EA"
+            # item_number from vision parser is sequential (1,2,3) — NOT a part number
+            part = it.get("mfg_number", "") or it.get("part_number", "") or ""
+            if not part:
+                raw_inum = str(it.get("item_number", "")).strip()
+                if raw_inum and not raw_inum.isdigit():
+                    part = raw_inum
+            cost = it.get("price", 0) or it.get("unit_price", 0) or it.get("cost", 0) or 0
+            try:
+                cost = float(cost)
+            except (ValueError, TypeError):
+                cost = 0
+
+            rfq_item = {
+                "description": desc,
+                "qty": qty,
+                "uom": uom,
+                "part_number": part,
+                "item_number": part,
+            }
+            if cost > 0:
+                rfq_item["supplier_cost"] = cost
+                rfq_item["cost_source"] = f"Uploaded ({parser_used})"
+
+            existing_items.append(rfq_item)
+            added += 1
+
+        r["line_items"] = existing_items
+        save_rfqs(rfqs)
+
+        try:
+            from src.core.dal import log_lifecycle_event
+            log_lifecycle_event("rfq", rid, "doc_uploaded",
+                f"Uploaded {f.filename}: {added} items parsed via {parser_used}",
+                actor="user", detail={"filename": f.filename, "parser": parser_used, "items": added})
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": True,
+            "items_found": len(items),
+            "items_added": added,
+            "parser": parser_used,
+            "header": header,
+        })
+    finally:
+        # Clean up uploaded file after parsing
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
 
 
 @bp.route("/upload", methods=["POST"])

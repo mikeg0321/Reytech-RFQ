@@ -156,6 +156,8 @@ def _add_pending_po(po_data):
 _poll_status_lock   = threading.Lock()
 _rate_limiter_lock  = threading.Lock()
 _json_cache_lock    = threading.Lock()
+_save_rfqs_lock     = threading.Lock()
+_save_pcs_lock      = threading.Lock()
 
 # ── TTL JSON cache — eliminates redundant disk reads on hot routes ───────────
 _json_cache: dict = {}   # path → {"data": ..., "mtime": float, "ts": float}
@@ -376,51 +378,52 @@ def load_rfqs():
     return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
 
 def save_rfqs(rfqs):
-    import traceback
-    p = rfq_db_path()
-    _invalidate_cache(p)
-    # ── PRIMARY: Write to SQLite ──────────────────────────────────
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            for rid, r in rfqs.items():
-                conn.execute("""
-                    INSERT OR REPLACE INTO rfqs
-                    (id, received_at, agency, institution, requestor_name, requestor_email,
-                     rfq_number, items, status, source, email_uid, notes,
-                     solicitation_number, due_date, email_subject, body_text, form_type,
-                     reytech_quote_number, shipping_option, shipping_amount, delivery_location,
-                     updated_at, data_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
-                """, (
-                    rid, r.get("received_at", ""), r.get("agency", ""),
-                    r.get("institution", ""), r.get("requestor_name", ""),
-                    r.get("requestor_email", ""),
-                    r.get("rfq_number", "") or r.get("solicitation_number", ""),
-                    json.dumps(r.get("line_items", r.get("items", [])), default=str),
-                    r.get("status", "new"), r.get("source", ""),
-                    r.get("email_uid", ""), r.get("notes", ""),
-                    r.get("solicitation_number", "") or r.get("rfq_number", ""),
-                    r.get("due_date", ""),
-                    r.get("email_subject", ""),
-                    (r.get("body_text", "") or "")[:3000],
-                    r.get("form_type", ""),
-                    r.get("reytech_quote_number", ""),
-                    r.get("shipping_option", "included"),
-                    r.get("shipping_amount", 0),
-                    r.get("delivery_location", ""),
-                    json.dumps(r, default=str),
-                ))
-    except Exception as e:
-        log.error("SQLite write failed for rfqs: %s", str(e)[:200])
-    # ── BACKUP: Write JSON cache with data guard ──────────────────
-    try:
-        caller = traceback.extract_stack()[-2]
-        reason = f"{caller.filename.split('/')[-1]}:{caller.lineno} {caller.name}"
-        from src.core.data_guard import safe_save_json
-        safe_save_json(p, rfqs, reason=reason)
-    except Exception as e:
-        log.warning("JSON backup write failed for rfqs: %s", e)
+    with _save_rfqs_lock:
+        import traceback
+        p = rfq_db_path()
+        _invalidate_cache(p)
+        # ── PRIMARY: Write to SQLite ──────────────────────────────────
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for rid, r in rfqs.items():
+                    conn.execute("""
+                        INSERT OR REPLACE INTO rfqs
+                        (id, received_at, agency, institution, requestor_name, requestor_email,
+                         rfq_number, items, status, source, email_uid, notes,
+                         solicitation_number, due_date, email_subject, body_text, form_type,
+                         reytech_quote_number, shipping_option, shipping_amount, delivery_location,
+                         updated_at, data_json)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                    """, (
+                        rid, r.get("received_at", ""), r.get("agency", ""),
+                        r.get("institution", ""), r.get("requestor_name", ""),
+                        r.get("requestor_email", ""),
+                        r.get("rfq_number", "") or r.get("solicitation_number", ""),
+                        json.dumps(r.get("line_items", r.get("items", [])), default=str),
+                        r.get("status", "new"), r.get("source", ""),
+                        r.get("email_uid", ""), r.get("notes", ""),
+                        r.get("solicitation_number", "") or r.get("rfq_number", ""),
+                        r.get("due_date", ""),
+                        r.get("email_subject", ""),
+                        (r.get("body_text", "") or "")[:3000],
+                        r.get("form_type", ""),
+                        r.get("reytech_quote_number", ""),
+                        r.get("shipping_option", "included"),
+                        r.get("shipping_amount", 0),
+                        r.get("delivery_location", ""),
+                        json.dumps(r, default=str),
+                    ))
+        except Exception as e:
+            log.error("SQLite write failed for rfqs: %s", str(e)[:200])
+        # ── BACKUP: Write JSON cache with data guard ──────────────────
+        try:
+            caller = traceback.extract_stack()[-2]
+            reason = f"{caller.filename.split('/')[-1]}:{caller.lineno} {caller.name}"
+            from src.core.data_guard import safe_save_json
+            safe_save_json(p, rfqs, reason=reason)
+        except Exception as e:
+            log.warning("JSON backup write failed for rfqs: %s", e)
 
 def backfill_rfq_metadata(dry_run=False):
     """Extract solicitation numbers and due dates from existing RFQs that are missing them.
@@ -1239,71 +1242,72 @@ def _load_price_checks(include_items=True):
 
 def _save_price_checks(pcs):
     """Save price checks to SQLite (primary) + JSON backup cache."""
-    global _pc_cache, _pc_cache_time
-    _pc_cache = None  # Invalidate cache
-    _pc_cache_time = 0
-    # ── PRIMARY: Write to SQLite ──────────────────────────────────
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            # Ensure dynamic columns exist (covers DBs created before schema updates)
-            for col, default in [
-                ("institution", "''"), ("pc_number", "''"),
-                ("status", "'parsed'"), ("email_uid", "''"),
-                ("email_subject", "''"), ("due_date", "''"),
-                ("pc_data", "'{}'"), ("ship_to", "''"),
-            ]:
-                try:
-                    conn.execute(f"SELECT {col} FROM price_checks LIMIT 0")
-                except Exception:
+    with _save_pcs_lock:
+        global _pc_cache, _pc_cache_time
+        _pc_cache = None  # Invalidate cache
+        _pc_cache_time = 0
+        # ── PRIMARY: Write to SQLite ──────────────────────────────────
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                # Ensure dynamic columns exist (covers DBs created before schema updates)
+                for col, default in [
+                    ("institution", "''"), ("pc_number", "''"),
+                    ("status", "'parsed'"), ("email_uid", "''"),
+                    ("email_subject", "''"), ("due_date", "''"),
+                    ("pc_data", "'{}'"), ("ship_to", "''"),
+                ]:
                     try:
-                        conn.execute(f"ALTER TABLE price_checks ADD COLUMN {col} TEXT DEFAULT {default}")
+                        conn.execute(f"SELECT {col} FROM price_checks LIMIT 0")
                     except Exception:
-                        pass
+                        try:
+                            conn.execute(f"ALTER TABLE price_checks ADD COLUMN {col} TEXT DEFAULT {default}")
+                        except Exception:
+                            pass
 
-            for pc_id, pc in pcs.items():
-                items_json = json.dumps(pc.get("items", []), default=str)
-                # Store full PC blob for lossless round-trip (strip pc_data to prevent recursive nesting)
-                _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
-                pc_blob = json.dumps(_pc_clean, default=str)
-                conn.execute("""
-                    INSERT OR REPLACE INTO price_checks
-                    (id, created_at, requestor, agency, institution, items, source_file,
-                     quote_number, pc_number, total_items, status,
-                     email_uid, email_subject, due_date, pc_data, ship_to, data_json)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    pc_id,
-                    pc.get("created_at", ""),
-                    pc.get("requestor", ""),
-                    pc.get("institution", "") or pc.get("agency", ""),
-                    pc.get("institution", "") or pc.get("agency", ""),
-                    items_json,
-                    pc.get("source_pdf", ""),
-                    pc.get("reytech_quote_number", ""),
-                    pc.get("pc_number", ""),
-                    len(pc.get("items", [])),
-                    pc.get("status", "parsed"),
-                    pc.get("email_uid", ""),
-                    pc.get("email_subject", ""),
-                    pc.get("due_date", ""),
-                    pc_blob,
-                    pc.get("ship_to", ""),
-                    json.dumps(pc, default=str),
-                ))
-    except Exception as e:
-        log.error("DB save failed for price_checks: %s", e)
+                for pc_id, pc in pcs.items():
+                    items_json = json.dumps(pc.get("items", []), default=str)
+                    # Store full PC blob for lossless round-trip (strip pc_data to prevent recursive nesting)
+                    _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
+                    pc_blob = json.dumps(_pc_clean, default=str)
+                    conn.execute("""
+                        INSERT OR REPLACE INTO price_checks
+                        (id, created_at, requestor, agency, institution, items, source_file,
+                         quote_number, pc_number, total_items, status,
+                         email_uid, email_subject, due_date, pc_data, ship_to, data_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        pc_id,
+                        pc.get("created_at", ""),
+                        pc.get("requestor", ""),
+                        pc.get("institution", "") or pc.get("agency", ""),
+                        pc.get("institution", "") or pc.get("agency", ""),
+                        items_json,
+                        pc.get("source_pdf", ""),
+                        pc.get("reytech_quote_number", ""),
+                        pc.get("pc_number", ""),
+                        len(pc.get("items", [])),
+                        pc.get("status", "parsed"),
+                        pc.get("email_uid", ""),
+                        pc.get("email_subject", ""),
+                        pc.get("due_date", ""),
+                        pc_blob,
+                        pc.get("ship_to", ""),
+                        json.dumps(pc, default=str),
+                    ))
+        except Exception as e:
+            log.error("DB save failed for price_checks: %s", e)
 
-    # ── BACKUP: Write JSON cache with data guard ──────────────────
-    try:
-        import traceback
-        from src.core.data_guard import safe_save_json
-        caller = traceback.extract_stack()[-2]
-        reason = f"{caller.filename.split('/')[-1]}:{caller.lineno}"
-        path = os.path.join(DATA_DIR, "price_checks.json")
-        safe_save_json(path, pcs, reason=reason)
-    except Exception as e:
-        log.warning("JSON backup write failed for price_checks: %s", e)
+        # ── BACKUP: Write JSON cache with data guard ──────────────────
+        try:
+            import traceback
+            from src.core.data_guard import safe_save_json
+            caller = traceback.extract_stack()[-2]
+            reason = f"{caller.filename.split('/')[-1]}:{caller.lineno}"
+            path = os.path.join(DATA_DIR, "price_checks.json")
+            safe_save_json(path, pcs, reason=reason)
+        except Exception as e:
+            log.warning("JSON backup write failed for price_checks: %s", e)
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):

@@ -28,6 +28,10 @@ except ImportError:
 
 log = logging.getLogger("growth")
 
+# ── Thread-safety locks ──
+_json_write_lock = threading.Lock()
+_status_lock = threading.Lock()
+
 try:
     from src.core.db import (get_all_customers, get_intel_agencies, 
                                get_all_leads, get_growth_outreach, save_growth_campaign)
@@ -61,9 +65,10 @@ def _load_json(path):
         return []
 
 def _save_json(path, data):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+    with _json_write_lock:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2, default=str)
 
 
 def _load_prospects_list():
@@ -140,17 +145,19 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
     if not to_date:
         to_date = datetime.now().strftime("%m/%d/%Y")
 
-    PULL_STATUS.update({
-        "running": True, "phase": "searching",
-        "progress": f"Searching SCPRS for Reytech ({from_date} to {to_date})...",
-        "pos_found": 0, "pos_detailed": 0, "items_total": 0,
-        "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
-    })
+    with _status_lock:
+        PULL_STATUS.update({
+            "running": True, "phase": "searching",
+            "progress": f"Searching SCPRS for Reytech ({from_date} to {to_date})...",
+            "pos_found": 0, "pos_detailed": 0, "items_total": 0,
+            "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
+        })
 
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
-            PULL_STATUS.update({"running": False, "phase": "error"})
+            with _status_lock:
+                PULL_STATUS.update({"running": False, "phase": "error"})
             return {"ok": False, "error": "SCPRS session init failed"}
 
         results = session.search(supplier_name="Reytech", from_date=from_date, to_date=to_date)
@@ -213,11 +220,12 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
 
         categories = _categorize_history(history)
 
-        PULL_STATUS.update({
-            "running": False, "phase": "complete",
-            "progress": f"Done: {len(history)} POs, {PULL_STATUS['items_total']} items, {len(categories)} categories",
-            "finished_at": datetime.now().isoformat(),
-        })
+        with _status_lock:
+            PULL_STATUS.update({
+                "running": False, "phase": "complete",
+                "progress": f"Done: {len(history)} POs, {PULL_STATUS['items_total']} items, {len(categories)} categories",
+                "finished_at": datetime.now().isoformat(),
+            })
 
         return {
             "ok": True, "total_pos": len(history),
@@ -227,7 +235,8 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
         }
 
     except Exception as e:
-        PULL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
+        with _status_lock:
+            PULL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
         return {"ok": False, "error": str(e)}
 
 
@@ -281,12 +290,14 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 
     cats = sorted(cat_data["categories"].items(), key=lambda x: x[1].get("total_value", 0), reverse=True)[:max_categories]
 
-    BUYER_STATUS.update({"running": True, "phase": "searching", "progress": "Starting...", "prospects_found": 0, "errors": []})
+    with _status_lock:
+        BUYER_STATUS.update({"running": True, "phase": "searching", "progress": "Starting...", "prospects_found": 0, "errors": []})
 
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
-            BUYER_STATUS.update({"running": False})
+            with _status_lock:
+                BUYER_STATUS.update({"running": False})
             return {"ok": False, "error": "SCPRS session init failed"}
 
         to_date = datetime.now().strftime("%m/%d/%Y")
@@ -373,7 +384,8 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
             "prospects": prospect_list,
         })
 
-        BUYER_STATUS.update({"running": False, "phase": "complete", "prospects_found": len(prospect_list)})
+        with _status_lock:
+            BUYER_STATUS.update({"running": False, "phase": "complete", "prospects_found": len(prospect_list)})
 
         return {
             "ok": True, "prospects_found": len(prospect_list),
@@ -382,7 +394,8 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
         }
 
     except Exception as e:
-        BUYER_STATUS.update({"running": False, "phase": "error"})
+        with _status_lock:
+            BUYER_STATUS.update({"running": False, "phase": "error"})
         return {"ok": False, "error": str(e)}
 
 
@@ -448,18 +461,20 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
     from_date = f"01/01/{year_from}"
     to_date = f"12/31/{year_to}"
 
-    INTEL_STATUS.update({
-        "running": True, "phase": "init", "phase_num": 0,
-        "progress": "Initializing SCPRS session...",
-        "started_at": datetime.now().isoformat(), "finished_at": None,
-        "p1_buyers": 0, "p2_crosssell": 0, "p3_opportunities": 0,
-        "errors": [],
-    })
+    with _status_lock:
+        INTEL_STATUS.update({
+            "running": True, "phase": "init", "phase_num": 0,
+            "progress": "Initializing SCPRS session...",
+            "started_at": datetime.now().isoformat(), "finished_at": None,
+            "p1_buyers": 0, "p2_crosssell": 0, "p3_opportunities": 0,
+            "errors": [],
+        })
 
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
-            INTEL_STATUS.update({"running": False, "phase": "error"})
+            with _status_lock:
+                INTEL_STATUS.update({"running": False, "phase": "error"})
             return {"ok": False, "error": "SCPRS session init failed"}
 
         # Load existing Reytech intel
@@ -478,8 +493,9 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         }
 
         # ── PHASE 1: Same-Agency New Buyers ──────────────────────────
-        INTEL_STATUS.update({"phase": "phase_1", "phase_num": 1,
-                             "progress": f"Phase 1: Scanning {len(served_agencies)} agencies for new buyers..."})
+        with _status_lock:
+            INTEL_STATUS.update({"phase": "phase_1", "phase_num": 1,
+                                 "progress": f"Phase 1: Scanning {len(served_agencies)} agencies for new buyers..."})
 
         p1_prospects = {}
         searches_done = 0
@@ -558,8 +574,9 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         INTEL_STATUS["p1_buyers"] = len(p1_list)
 
         # ── PHASE 2: Cross-Sell (Same Items, Other Buyers) ───────────
-        INTEL_STATUS.update({"phase": "phase_2", "phase_num": 2,
-                             "progress": f"Phase 2: Searching for buyers of {len(reytech_items)} item types..."})
+        with _status_lock:
+            INTEL_STATUS.update({"phase": "phase_2", "phase_num": 2,
+                                 "progress": f"Phase 2: Searching for buyers of {len(reytech_items)} item types..."})
 
         p2_prospects = {}
         p2_item_matches = []
@@ -647,8 +664,9 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         INTEL_STATUS["p2_crosssell"] = len(p2_list)
 
         # ── PHASE 3: New Product Opportunities ───────────────────────
-        INTEL_STATUS.update({"phase": "phase_3", "phase_num": 3,
-                             "progress": "Phase 3: Scanning medical & commodity opportunities..."})
+        with _status_lock:
+            INTEL_STATUS.update({"phase": "phase_3", "phase_num": 3,
+                                 "progress": "Phase 3: Scanning medical & commodity opportunities..."})
 
         p3_medical = []
         p3_commodity = []
@@ -758,11 +776,12 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         # Save full intel results
         _save_json(INTEL_FILE, results)
 
-        INTEL_STATUS.update({
-            "running": False, "phase": "complete",
-            "progress": f"Done: {len(p1_list)} same-agency, {len(p2_list)} cross-sell, {len(p3_medical)+len(p3_commodity)} opportunities",
-            "finished_at": datetime.now().isoformat(),
-        })
+        with _status_lock:
+            INTEL_STATUS.update({
+                "running": False, "phase": "complete",
+                "progress": f"Done: {len(p1_list)} same-agency, {len(p2_list)} cross-sell, {len(p3_medical)+len(p3_commodity)} opportunities",
+                "finished_at": datetime.now().isoformat(),
+            })
 
         return {
             "ok": True,
@@ -774,7 +793,8 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
 
     except Exception as e:
         log.error("Buyer intelligence error: %s", e, exc_info=True)
-        INTEL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
+        with _status_lock:
+            INTEL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
         return {"ok": False, "error": str(e)}
 
 

@@ -11,10 +11,13 @@ robust reconnection, manual trigger support.
 import imaplib
 import email
 from email.header import decode_header
-import os, time, json, re, logging
+import os, time, json, re, logging, threading
 from datetime import datetime, timedelta
 
 log = logging.getLogger("email_poller")
+
+# ── Thread-safety lock for JSON file writes ──
+_json_write_lock = threading.Lock()
 
 # ── Shared DB Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
 # Full access to live CRM, quotes, revenue, price history, voice calls from SQLite.
@@ -1519,27 +1522,28 @@ class EmailPoller:
                                 log.info("🏆 Auto-marking quote %s as WON (PO: %s)", matched_quote, po_number)
                                 # Update quotes_log.json
                                 try:
-                                    with open(os.path.join(DATA_DIR, "quotes_log.json")) as _qf2:
-                                        _all_quotes = _json.load(_qf2)
-                                    for q in _all_quotes:
-                                        if q.get("quote_number") == matched_quote:
-                                            q["status"] = "won"
-                                            q["won_at"] = datetime.now().isoformat()
-                                            q["po_number"] = po_number or ""
-                                            q["won_source"] = "email_auto"
-                                            # Get items from quote if PO parse didn't yield any
-                                            if not po_items:
-                                                po_items = q.get("items_detail", q.get("items", []))
-                                            if not po_total:
-                                                po_total = q.get("total", 0)
-                                            if not po_agency:
-                                                po_agency = q.get("agency", "")
-                                            if not po_institution:
-                                                po_institution = q.get("institution", "") or q.get("ship_to_name", "")
-                                            break
-                                    with open(os.path.join(DATA_DIR, "quotes_log.json"), "w") as _qf3:
-                                        _json.dump(_all_quotes, _qf3, indent=2, default=str)
-                                    log.info("Quote %s marked WON in quotes_log.json", matched_quote)
+                                    with _json_write_lock:
+                                        with open(os.path.join(DATA_DIR, "quotes_log.json")) as _qf2:
+                                            _all_quotes = _json.load(_qf2)
+                                        for q in _all_quotes:
+                                            if q.get("quote_number") == matched_quote:
+                                                q["status"] = "won"
+                                                q["won_at"] = datetime.now().isoformat()
+                                                q["po_number"] = po_number or ""
+                                                q["won_source"] = "email_auto"
+                                                # Get items from quote if PO parse didn't yield any
+                                                if not po_items:
+                                                    po_items = q.get("items_detail", q.get("items", []))
+                                                if not po_total:
+                                                    po_total = q.get("total", 0)
+                                                if not po_agency:
+                                                    po_agency = q.get("agency", "")
+                                                if not po_institution:
+                                                    po_institution = q.get("institution", "") or q.get("ship_to_name", "")
+                                                break
+                                        with open(os.path.join(DATA_DIR, "quotes_log.json"), "w") as _qf3:
+                                            _json.dump(_all_quotes, _qf3, indent=2, default=str)
+                                        log.info("Quote %s marked WON in quotes_log.json", matched_quote)
                                 except Exception as _qe:
                                     log.error("Failed to update quote status: %s", _qe)
                                 
