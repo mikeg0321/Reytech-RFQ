@@ -6064,7 +6064,7 @@ def api_rfq_revise_quote(rid):
         "quote_number": locked_qn,
         "revision": rev_num,
         "total": new_total,
-        "download": f"/download/{sol}/{fname}",
+        "download": f"/api/download/{sol}/{fname}",
     })
 
 
