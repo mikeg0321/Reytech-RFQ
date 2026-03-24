@@ -15,14 +15,15 @@ Reytech RFQ — end-to-end RFQ automation for Reytech Inc., a California SB/DVBE
 
 All commits pushed and deployed. No pending local changes.
 
-### Recent Fixes (This Session)
+### Recent Fixes (2026-03-23, all pushed and deployed)
 1. **Vision parser NameError** — `pdf_path` → `file_path` (was crashing all image parsing)
 2. **Add-item autosave race condition** — cancel timer + sync flush before add POST
 3. **7 audit fixes** — data wipe, XSS, GET-writes, PDF crashes, stale DOM count
 4. **Text parser dedup** — 40-char prefix truncation dropped similar items → full description dedup
 5. **Catalog boot crash** — bare `_get_db()` call → `with _get_db() as _db:` context manager
 6. **Vision key stale** — module-level `ANTHROPIC_API_KEY` → live `_get_api_key()` at call time
-7. **Pre-deploy false positives** — UTF-8 encoding + globals whitelist
+7. **Pre-deploy false positives** — UTF-8 encoding + globals whitelist + Windows console fix
+8. **Due date reminder crash** — same bare `get_db()` pattern → context manager
 
 ## KNOWN REMAINING ISSUES
 
