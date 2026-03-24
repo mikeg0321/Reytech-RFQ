@@ -301,8 +301,8 @@
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
      <!-- Lock Toggle + Bulk Paste -->
      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
-      <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
+      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
+      <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
      </div>
      <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;font-size:14px">
@@ -748,11 +748,12 @@
      const markup=parseFloat(markupEl.value.replace(/[^0-9]/g,''))||0;
      const currentPrice=parseFloat(priceField.value.replace(/[^0-9.\-]/g,''))||0;
      const computedPrice=parseFloat((cost*(1+markup/100)).toFixed(2));
-     // Only overwrite price if:
-     // 1. forceOverwrite is true (explicit markup change, Apply All, etc.)
-     // 2. Price field is empty (no user value yet)
-     // 3. Cost is zero (clearing)
-     if(forceOverwrite || currentPrice===0 || cost===0) {
+     // Compute price if:
+     // - forceOverwrite (explicit user action)
+     // - price field empty or zero (never been set)
+     // - cost just changed and we have a markup to work with
+     var priceIsEmpty = !priceField.value || priceField.value.trim()==='' || currentPrice===0;
+     if(forceOverwrite || priceIsEmpty || cost===0) {
       priceField.value=computedPrice>0?computedPrice.toFixed(2):'';
       if(computedPrice>0) {
        priceField.style.transition='background .3s';
@@ -982,7 +983,16 @@
       totalCost+=costExt;
       totalProfit+=profit;
 
-      if(extCells[0]) extCells[0].textContent=ext>0?'$'+ext.toFixed(2):'—';
+      if(extCells[0]) {
+       if(ext > 0) {
+        extCells[0].textContent = '$' + ext.toFixed(2);
+        extCells[0].style.color = '';
+       } else if(p > 0 || c > 0) {
+        extCells[0].innerHTML = '<span style="color:#f85149" title="Price is $0 — check markup">$0.00 ⚠️</span>';
+       } else {
+        extCells[0].textContent = '—';
+       }
+      }
 
       if(profitCells[0]) {
        if(c>0 && p>0) {
@@ -2335,8 +2345,13 @@
      fieldsLocked = !fieldsLocked;
      applyLockState();
      var btn = document.getElementById('lockToggleBtn');
-     if(fieldsLocked){btn.textContent='🔒 Line# + MFG# + URLs Locked';btn.style.background='#21262d';btn.style.borderColor='#30363d';btn.style.color='#8b949e';}
-     else{btn.textContent='🔓 EDIT MODE';btn.style.background='rgba(240,136,62,0.12)';btn.style.borderColor='#f0883e';btn.style.color='#f0883e';}
+     if(fieldsLocked){
+       btn.innerHTML='🔒 Line# + MFG# + URLs Locked';
+       btn.style.cssText='background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer';
+     } else {
+       btn.innerHTML='🔓 EDIT MODE <span style="font-size:11px;opacity:.7">— click to re-lock</span>';
+       btn.style.cssText='background:rgba(240,136,62,0.12);border:1px solid #f0883e;color:#f0883e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer';
+     }
     }
     function applyLockState(){
      document.querySelectorAll('.lockable-field').forEach(function(el){

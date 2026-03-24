@@ -170,7 +170,10 @@ function _applyLinkData(idx, d, mode) {
       ? (isSubstitute || !cur || cur.length < 3)
       : (!cur || cur.length < 5 || d.description.length > cur.length || isAmazon);
     if (shouldUpdateDesc) {
+      var descWasReadOnly = descEl.readOnly;
+      descEl.readOnly = false; // temporarily unlock for auto-fill
       descEl.value = d.description;
+      descEl.readOnly = descWasReadOnly; // restore lock state
       filled.push('desc');
       if (descEl.tagName === 'TEXTAREA') { descEl.style.height = 'auto'; descEl.style.height = Math.min(descEl.scrollHeight, 120) + 'px'; }
     }
@@ -185,7 +188,11 @@ function _applyLinkData(idx, d, mode) {
     if (!isAsin) {
       var curMfg = (mfgEl.value || '').trim();
       if (isPC ? (isSubstitute || !curMfg) : true) {
-        mfgEl.value = mfgVal; filled.push('MFG# ' + mfgVal);
+        var mfgWasLocked = mfgEl.readOnly;
+        mfgEl.readOnly = false; // unlock for auto-fill from lookup
+        mfgEl.value = mfgVal;
+        mfgEl.readOnly = mfgWasLocked; // restore
+        filled.push('MFG# ' + mfgVal);
       }
     }
   }
