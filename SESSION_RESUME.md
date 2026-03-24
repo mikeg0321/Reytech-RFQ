@@ -30,6 +30,11 @@ All commits pushed and deployed. No pending local changes.
 12. **PC upload overwrites** — protected ship_to/delivery fields from PDF merge + onblur auto-save
 13. **PC URL paste blocked** — removed lockable-field from link inputs so URLs always pasteable
 14. **CRM autocomplete** — buyer name autocomplete on New PC, New RFQ, and RFQ detail from CRM + SCPRS
+15. **Thread locks** — JSON write locks, status dict locks, save_rfqs/save_pcs locks, upload cleanup
+16. **Quote notes PDF** — coordinate system bug fixed (rl_y direct instead of stale ty→Y conversion)
+17. **Quote number rollback** — failed generates no longer waste numbers
+18. **DVBE cert off Bidder Declaration** — Certification fields cleared (were showing 2002605)
+19. **Quote notes autosave** — quote_notes now included in _getFormData + autosave route
 
 ## KNOWN REMAINING ISSUES
 
