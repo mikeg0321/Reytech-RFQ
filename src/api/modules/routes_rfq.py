@@ -2153,6 +2153,12 @@ def api_rfq_autosave(rid):
     if data.get("delivery_location"):
         r["delivery_location"] = str(data["delivery_location"])[:500]
 
+    # Save quote notes if provided
+    if "quote_notes" in data:
+        from src.core.validation import validate_text
+        _qn_val, _ = validate_text(data["quote_notes"], max_len=2000)
+        r["quote_notes"] = _qn_val
+
     save_rfqs(rfqs)
 
     try:

@@ -1037,6 +1037,9 @@ function _getFormData(){
  if(shipAmt)payload.shipping_amount=parseFloat(shipAmt.value)||0;
  var delEl=document.getElementById('delivery-input');
  if(delEl&&delEl.value)payload.delivery_location=delEl.value;
+ // Quote notes
+ var notesEl=document.querySelector('[name=quote_notes]');
+ if(notesEl)payload.quote_notes=notesEl.value;
  // Package form checklist
  var pkgForms={};
  document.querySelectorAll('.pkg-form').forEach(function(cb){pkgForms[cb.dataset.form]=cb.checked;});

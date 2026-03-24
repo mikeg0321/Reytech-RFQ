@@ -1654,8 +1654,10 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
 
     values = {
         "Solicitaion #": sol,
-        "Certification": company.get("cert_number", ""),
-        "Certification #": company.get("cert_number", ""),
+        # Certification fields are for listing OTHER certifications/subcontractors —
+        # NOT for Reytech's own DVBE cert number. Leave blank.
+        "Certification": "",
+        "Certification #": "",
         "Certification 2": "",
         "Certification 3": "",
         "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
