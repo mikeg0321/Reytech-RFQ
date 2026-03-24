@@ -739,7 +739,9 @@ function _loadSource(){
 // Save restored templates/files via POST (not in GET handler — Law 14)
 fetch('/rfq/'+RID+'/save-restore',{method:'POST',credentials:'same-origin'}).catch(function(){});
 const items={{r.get("line_items",[])|tojson}};
-const n=items.length;
+// n must be dynamic — after item delete, DOM has fewer rows than initial count
+function _itemCount(){return document.querySelectorAll('tbody tr [name^="qty_"]').length;}
+var n=items.length;
 
 // ── Location autocomplete ──
 var _locTimer=null;
@@ -753,11 +755,13 @@ function searchLocations(el){
   .then(function(r){return r.json()}).then(function(d){
    if(!d.ok||!d.data||!d.data.results||d.data.results.length===0){dd.style.display='none';return;}
    var html='';
+   function _escA(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
    d.data.results.forEach(function(loc){
-    html+='<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #21262d;font-size:13px" onmousedown="selectLocation(\''+loc.name.replace(/'/g,"\\'")+'\',\''+loc.address.replace(/'/g,"\\'")+'\',\''+(loc.agency||'').replace(/'/g,"\\'")+'\')" onmouseover="this.style.background=\'#30363d\'" onmouseout="this.style.background=\'transparent\'">';
-    html+='<div style="font-weight:600;color:#e6edf3">'+loc.name+'</div>';
-    if(loc.address)html+='<div style="color:#8b949e;font-size:12px">'+loc.address+'</div>';
-    if(loc.agency)html+='<div style="color:#58a6ff;font-size:11px">'+loc.agency+'</div>';
+    var _n=_escA(loc.name),_a=_escA(loc.address||''),_ag=_escA(loc.agency||'');
+    html+='<div style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #21262d;font-size:13px" onmousedown="selectLocation(&#39;'+_n+'&#39;,&#39;'+_a+'&#39;,&#39;'+_ag+'&#39;)" onmouseover="this.style.background=&#39;#30363d&#39;" onmouseout="this.style.background=&#39;transparent&#39;">';
+    html+='<div style="font-weight:600;color:#e6edf3">'+_n+'</div>';
+    if(loc.address)html+='<div style="color:#8b949e;font-size:12px">'+_a+'</div>';
+    if(loc.agency)html+='<div style="color:#58a6ff;font-size:11px">'+_ag+'</div>';
     html+='</div>';
    });
    dd.innerHTML=html;dd.style.display='block';
@@ -997,10 +1001,13 @@ let _lastSaveData='';
 
 function _getFormData(){
  const items=[];
- for(let i=0;i<n;i++){
+ var _n=_itemCount(); // dynamic count — survives item deletes
+ for(let i=0;i<_n;i++){
+  var _qEl=document.querySelector('[name=qty_'+i+']');
+  if(!_qEl)continue; // row deleted from DOM
   items.push({
    idx:i,
-   qty:parseFloat(document.querySelector('[name=qty_'+i+']').value)||0,
+   qty:parseFloat(_qEl.value)||0,
    uom:(document.querySelector('[name=uom_'+i+']').value||'').trim().toUpperCase(),
    description:document.querySelector('[name=desc_'+i+']').value||'',
    item_number:(document.querySelector('[name=part_'+i+']').value||'').trim(),

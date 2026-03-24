@@ -1855,7 +1855,7 @@
      }).then(d=>{
       if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
       btn.textContent='⏳ Generating PDF...';
-      return fetch('/pricecheck/'+_pcid+'/generate');
+      return fetch('/pricecheck/'+_pcid+'/generate',{method:'POST',credentials:'same-origin'});
      }).then(r=>{
       if(!r||!r.json) return; // save failed, chain stopped
       if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});
@@ -1889,7 +1889,7 @@
      }).then(d=>{
       if(!d.ok){btn.textContent=origText;btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
       btn.textContent='⏳ Generating Original 704...';
-      return fetch('/pricecheck/'+_pcid+'/generate-original');
+      return fetch('/pricecheck/'+_pcid+'/generate-original',{method:'POST',credentials:'same-origin'});
      }).then(r=>{
       if(!r||!r.json) return;
       if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});

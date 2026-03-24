@@ -844,8 +844,23 @@ def parse_ams704(pdf_path: str) -> dict:
         "parse_method": "fillable",
     }
 
-    reader = PdfReader(pdf_path)
-    fields = reader.get_fields()
+    if not os.path.exists(pdf_path):
+        result["error"] = f"File not found: {os.path.basename(pdf_path)}"
+        return result
+
+    try:
+        reader = PdfReader(pdf_path)
+    except Exception as e:
+        log.warning("parse_ams704: corrupt/unreadable PDF %s: %s", os.path.basename(pdf_path), e)
+        result["error"] = f"Cannot read PDF: {e}"
+        return result
+
+    try:
+        fields = reader.get_fields()
+    except Exception as e:
+        log.warning("parse_ams704: failed to extract fields from %s: %s", os.path.basename(pdf_path), e)
+        result["parse_method"] = "ocr"
+        return _parse_ams704_ocr(pdf_path, result)
 
     if not fields:
         # Try OCR fallback

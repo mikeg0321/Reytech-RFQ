@@ -1907,10 +1907,10 @@ def pricecheck_upload_pdf(pcid):
     return redirect(f"/pricecheck/{pcid}")
 
 
-@bp.route("/pricecheck/<pcid>/generate", methods=["GET", "POST"])
+@bp.route("/pricecheck/<pcid>/generate", methods=["POST"])
 @auth_required
 def pricecheck_generate(pcid):
-    """Generate completed Price Check PDF and ingest into Won Quotes KB."""
+    """Generate completed Price Check PDF and ingest into Won Quotes KB (POST only — writes data)."""
     try:
         return _do_generate(pcid)
     except Exception as e:
@@ -2064,10 +2064,10 @@ def _do_generate(pcid):
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 
-@bp.route("/pricecheck/<pcid>/generate-original", methods=["GET", "POST"])
+@bp.route("/pricecheck/<pcid>/generate-original", methods=["POST"])
 @auth_required
 def pricecheck_generate_original(pcid):
-    """Generate 'Original 704' — company info + pricing only, buyer fields untouched."""
+    """Generate 'Original 704' — company info + pricing only, buyer fields untouched (POST only — writes data)."""
     try:
         return _do_generate_original(pcid)
     except Exception as e:
@@ -2178,10 +2178,10 @@ def _do_generate_original(pcid):
 # (broader search with subdirectory scan + DB fallback)
 
 
-@bp.route("/pricecheck/<pcid>/generate-quote")
+@bp.route("/pricecheck/<pcid>/generate-quote", methods=["POST"])
 @auth_required
 def pricecheck_generate_quote(pcid):
-    """Generate a standalone Reytech-branded quote PDF from a Price Check."""
+    """Generate a standalone Reytech-branded quote PDF from a Price Check (POST only — writes data)."""
     from src.api.trace import Trace
     t = Trace("quote_generation", pc_id=pcid)
     
@@ -2724,12 +2724,18 @@ def api_force_recapture():
     })
 
 
-@bp.route("/api/clear-queue")
+@bp.route("/api/clear-queue", methods=["POST"])
 @auth_required
 def api_clear_queue():
-    """Clear all RFQs from the queue."""
-    save_rfqs({})
-    return jsonify({"ok": True, "message": "Queue cleared"})
+    """Clear all RFQs from the queue (POST only — destructive operation)."""
+    rfqs = load_rfqs()
+    count = len(rfqs)
+    if not count:
+        return jsonify({"ok": True, "message": "Queue already empty"})
+    rfqs.clear()
+    save_rfqs(rfqs)
+    log.warning("Queue cleared: %d RFQs removed by user", count)
+    return jsonify({"ok": True, "message": f"Queue cleared ({count} RFQs removed)"})
 
 
 @bp.route("/dl/<rid>/<fname>")

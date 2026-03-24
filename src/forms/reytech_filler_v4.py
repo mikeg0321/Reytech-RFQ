@@ -325,7 +325,14 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
 
 def fill_and_sign_pdf(input_path, field_values, output_path,
                        default_font=11, tight_font=9, sig_image=None, sign_date=None):
-    reader = PdfReader(input_path)
+    import os as _os
+    if not _os.path.exists(input_path):
+        raise FileNotFoundError(f"Template PDF not found: {input_path}")
+    _os.makedirs(_os.path.dirname(output_path) or ".", exist_ok=True)
+    try:
+        reader = PdfReader(input_path)
+    except Exception as e:
+        raise ValueError(f"Cannot read template PDF {_os.path.basename(input_path)}: {e}") from e
     writer = PdfWriter()
     writer.append(reader)
 

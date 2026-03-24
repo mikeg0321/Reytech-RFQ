@@ -1977,7 +1977,7 @@ def api_webhooks_test():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/rfq/<rid>/retry-auto-price", methods=["POST", "GET"])
+@bp.route("/api/rfq/<rid>/retry-auto-price", methods=["POST"])
 @auth_required
 def rfq_retry_auto_price(rid):
     """Inline auto-price for an RFQ — runs synchronously, returns results."""

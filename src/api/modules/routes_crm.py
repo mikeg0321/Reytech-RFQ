@@ -616,16 +616,14 @@ def api_debug_env_check():
     })
 
 
-@bp.route("/api/config/set-serpapi-key", methods=["GET", "POST"])
+@bp.route("/api/config/set-serpapi-key", methods=["POST"])
 @auth_required
 def api_set_serpapi_key():
-    """Store SerpApi key on persistent volume (bypasses Railway env var issues)."""
-    if request.method == "POST":
-        key = (request.get_json(force=True, silent=True) or {}).get("key", "") if request.is_json else request.args.get("key", "")
-    else:
-        key = request.args.get("key", "")
+    """Store SerpApi key on persistent volume (POST only — credentials must not appear in URLs/logs)."""
+    data = request.get_json(force=True, silent=True) or {}
+    key = data.get("key", "")
     if not key:
-        return jsonify({"error": "Add ?key=YOUR_KEY to the URL"}), 400
+        return jsonify({"ok": False, "error": "Send JSON body: {\"key\": \"YOUR_KEY\"}"}), 400
     key_file = os.path.join(DATA_DIR, ".serpapi_key")
     with open(key_file, "w") as f:
         f.write(key.strip())
