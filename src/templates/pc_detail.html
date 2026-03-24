@@ -146,7 +146,7 @@
       <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
       <b>Requestor:</b> {{ header.get('requestor',pc.get('requestor','')) }} &nbsp;|&nbsp;
       <b>Due:</b> {{ pc.get('due_date','') }} <span id="dueUrgency"></span> &nbsp;|&nbsp;
-      <b>Ship to:</b> <input type="text" id="shipToField" value="{{ pc.get('ship_to','').replace('"','&quot;') }}" class="text-in" style="width:220px;padding:2px 6px;font-size:14px"> &nbsp;|&nbsp;
+      <b>Ship to:</b> <input type="text" id="shipToField" value="{{ pc.get('ship_to','').replace('"','&quot;') }}" class="text-in" style="width:220px;padding:2px 6px;font-size:14px" onblur="saveShipTo(this.value)"> &nbsp;|&nbsp;
       <b>Today:</b> {{ today_date }}
      </div>
 
@@ -468,6 +468,15 @@
     _log('init-ok: tax+delivery');
 
     var _pcid={{ pcid|tojson }};
+
+    // Auto-save ship-to on blur so it persists before PDF upload
+    function saveShipTo(val) {
+      fetch('/pricecheck/'+_pcid+'/save-prices', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ship_to: val, items: []}),
+        credentials:'same-origin'
+      }).catch(function(){});
+    }
 
     function togglePriceHistory(pcId, itemNum, el) {
       var container = el.nextElementSibling;

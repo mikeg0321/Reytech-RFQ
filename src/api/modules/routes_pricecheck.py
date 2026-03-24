@@ -603,7 +603,7 @@ def _pricecheck_detail_inner(pcid):
          <td style="min-width:180px">
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
-            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in lockable-field" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste supplier URL…" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
             <a href="{item_link}" target="_blank" id="linkopen_{idx}" onclick="return !!this.href && this.href!==''" style="display:{'flex' if item_link else 'none'};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
            </div>
            <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}{ph_link}</div>
@@ -1879,10 +1879,17 @@ def pricecheck_upload_pdf(pcid):
     if items:
         pc["items"] = items
         pc["parsed"] = result
-        # Fill header fields if empty
+        # Fill header fields ONLY if user hasn't already entered data.
+        # Protect user-entered fields (ship_to, delivery_location, institution, requestor)
+        # from being overwritten by parsed PDF values.
+        _protected_fields = {"ship_to", "delivery_location", "delivery_zip"}
         for hk, hv in header.items():
-            if hv and not pc.get(hk):
+            if hv and not pc.get(hk) and hk not in _protected_fields:
                 pc[hk] = hv
+        # Only fill protected fields if they're truly empty (not user-entered)
+        for _pf in _protected_fields:
+            if header.get(_pf) and not pc.get(_pf):
+                pc[_pf] = header[_pf]
         if not pc.get("requestor") and header.get("requestor"):
             pc["requestor"] = header["requestor"]
         if not pc.get("institution") and header.get("institution"):
