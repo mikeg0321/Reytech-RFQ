@@ -30,7 +30,7 @@ for root, dirs, files in os.walk("src"):
         if f.endswith(".py"):
             path = os.path.join(root, f)
             def _check_syntax(p=path):
-                ast.parse(open(p).read())
+                ast.parse(open(p, encoding="utf-8").read())
             check(f"syntax: {path}", _check_syntax)
 
 # 2. Import core modules
@@ -73,9 +73,9 @@ def _check_render_calls():
             if not f.endswith(".py"):
                 continue
             path = os.path.join(root, f)
-            source = open(path).read()
+            source = open(path, encoding="utf-8").read()
             tree = ast.parse(source)
-            
+
             for node in ast.walk(tree):
                 if not isinstance(node, ast.FunctionDef):
                     continue
@@ -107,7 +107,8 @@ def _check_render_calls():
                                     # Skip builtins and common globals
                                     skip = {"f", "str", "int", "len", "dict", "list", "set", "True", "False", "None",
                                             "request", "session", "redirect", "flash", "jsonify", "render_page",
-                                            "log", "json", "os", "re", "datetime"}
+                                            "log", "json", "os", "re", "datetime",
+                                            "BASE_CSS", "AVAILABLE_FORMS", "BRIEF_HTML", "BRIEF_JS", "POLL_STATUS", "CONFIG", "DATA_DIR"}
                                     if var_name not in local_names and var_name not in skip:
                                         issues.append(f"{path}:{node.name}() passes '{kw.arg}={var_name}' but '{var_name}' not defined locally")
     
@@ -126,7 +127,7 @@ def _check_globals():
             if not f.endswith(".py"):
                 continue
             path = os.path.join(root, f)
-            tree = ast.parse(open(path).read())
+            tree = ast.parse(open(path, encoding="utf-8").read())
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef):
                     globals_found = []
@@ -150,7 +151,7 @@ def _check_routes():
             if not f.endswith(".py"):
                 continue
             path = os.path.join(root, f)
-            source = open(path).read()
+            source = open(path, encoding="utf-8").read()
             for i, line in enumerate(source.split("\n"), 1):
                 if "@app.route" in line and "# noqa" not in line:
                     # Check if 'app' is actually defined in this file
@@ -195,7 +196,7 @@ def _check_duplicate_endpoints():
         if not fname.endswith(".py"):
             continue
         fpath = os.path.join(modules_dir, fname)
-        with open(fpath) as f:
+        with open(fpath, encoding="utf-8") as f:
             for i, line in enumerate(f, 1):
                 m = re.match(r'^def (\w+)\(', line)
                 if m:

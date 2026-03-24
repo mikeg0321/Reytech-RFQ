@@ -526,11 +526,13 @@ def parse_line_items_from_text(text):
 
 def _extract_qty_from_text(text):
     """Extract quantity and UOM from text."""
-    uom_map = {"ea": "EA", "each": "EA", "bx": "BX", "box": "BX", "pk": "PK",
-               "pack": "PK", "cs": "CS", "case": "CS", "set": "SET", "pr": "PR",
-               "pair": "PR", "dz": "DZ", "dozen": "DZ", "bg": "BG", "bag": "BG",
-               "rl": "RL", "roll": "RL", "bt": "BT", "bottle": "BT", "ct": "CT"}
-    _uom_words = "EA|EACH|BX|BOX|PK|PACK|CS|CASE|SET|PR|PAIR|DZ|DOZEN|BG|BAG|RL|ROLL|BT|BOTTLE|CT"
+    uom_map = {"ea": "EA", "each": "EA", "bx": "BX", "box": "BX", "boxes": "BX",
+               "pk": "PK", "pack": "PK", "packs": "PK", "cs": "CS", "case": "CS",
+               "cases": "CS", "set": "SET", "sets": "SET", "pr": "PR", "pair": "PR",
+               "pairs": "PR", "dz": "DZ", "dozen": "DZ", "bg": "BG", "bag": "BG",
+               "bags": "BG", "rl": "RL", "roll": "RL", "rolls": "RL", "bt": "BT",
+               "bottle": "BT", "bottles": "BT", "ct": "CT"}
+    _uom_words = "EA|EACH|BX|BOX|BOXES|PK|PACK|PACKS|CS|CASE|CASES|SET|SETS|PR|PAIR|PAIRS|DZ|DOZEN|BG|BAG|BAGS|RL|ROLL|ROLLS|BT|BOTTLE|BOTTLES|CT"
 
     # Pattern: "Qty: 5 EA" or "Quantity: 5 PR" (qty label + number + optional UOM)
     qty_match = re.search(
@@ -605,13 +607,18 @@ def _is_header_text(text):
 
 
 def _deduplicate_items(items):
-    """Remove duplicate items based on description similarity."""
+    """Remove duplicate items based on exact description match.
+
+    Previous bug: truncating to 40 chars caused items with similar prefixes
+    (e.g. 'Nitrile Exam Gloves... Small' vs '...Medium') to be dropped.
+    Now uses full description for dedup key.
+    """
     if not items:
         return items
     seen = set()
     unique = []
     for item in items:
-        key = item.get("description", "").lower()[:40]
+        key = item.get("description", "").strip().lower()
         if key and key not in seen:
             seen.add(key)
             unique.append(item)

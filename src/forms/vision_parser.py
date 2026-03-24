@@ -150,7 +150,8 @@ Rules:
 def _call_vision_api(page_images: list) -> Optional[dict]:
     """Send page images to Claude API and get structured extraction.
     Returns parsed JSON dict or None."""
-    if not ANTHROPIC_API_KEY:
+    api_key = _get_api_key()  # re-read live — env var may be set after module load
+    if not api_key:
         log.debug("Vision parser: no API key")
         return None
     if not HAS_REQUESTS:
@@ -178,7 +179,7 @@ def _call_vision_api(page_images: list) -> Optional[dict]:
         resp = _requests.post(
             "https://api.anthropic.com/v1/messages",
             headers={
-                "x-api-key": ANTHROPIC_API_KEY,
+                "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
@@ -234,7 +235,7 @@ def parse_with_vision(file_path: str) -> Optional[dict]:
     }
     Or None if vision parsing is unavailable/fails.
     """
-    if not ANTHROPIC_API_KEY:
+    if not _get_api_key():
         return None
 
     ext = os.path.splitext(file_path)[1].lower()

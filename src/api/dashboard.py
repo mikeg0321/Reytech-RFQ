@@ -5718,38 +5718,38 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     # ── Auto-populate catalog on boot if empty ──────────────────
     try:
         from src.core.db import get_db as _get_db
-        _db = _get_db()
-        _cat = _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
-        if _cat == 0:
-            log.info("Catalog empty — populating from won_quotes...")
-            try:
-                from src.knowledge.won_quotes_db import get_db as _get_wq
-                _wq = _get_wq()
-                _rows = _wq.execute(
-                    "SELECT description, unit_price, quantity, supplier, "
-                    "department, po_number, award_date FROM won_quotes WHERE unit_price > 0"
-                ).fetchall()
-                for _r in _rows:
-                    _desc = (_r[0] or "")[:500]
-                    if not _desc or not _r[1] or _r[1] <= 0:
-                        continue
-                    try:
-                        _db.execute(
-                            "INSERT OR IGNORE INTO scprs_catalog "
-                            "(description, last_unit_price, last_quantity, "
-                            "last_supplier, last_department, last_po_number, "
-                            "last_date, times_seen, updated_at) "
-                            "VALUES (?,?,?,?,?,?,?,1,datetime('now'))",
-                            (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
-                    except Exception:
-                        pass
-                _db.commit()
-                log.info("Catalog populated: %d items",
-                         _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0])
-            except Exception as _e2:
-                log.warning("Catalog population failed: %s", _e2)
-        else:
-            log.info("Catalog has %d items", _cat)
+        with _get_db() as _db:
+            _cat = _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
+            if _cat == 0:
+                log.info("Catalog empty — populating from won_quotes...")
+                try:
+                    from src.knowledge.won_quotes_db import get_db as _get_wq
+                    _wq = _get_wq()
+                    _rows = _wq.execute(
+                        "SELECT description, unit_price, quantity, supplier, "
+                        "department, po_number, award_date FROM won_quotes WHERE unit_price > 0"
+                    ).fetchall()
+                    for _r in _rows:
+                        _desc = (_r[0] or "")[:500]
+                        if not _desc or not _r[1] or _r[1] <= 0:
+                            continue
+                        try:
+                            _db.execute(
+                                "INSERT OR IGNORE INTO scprs_catalog "
+                                "(description, last_unit_price, last_quantity, "
+                                "last_supplier, last_department, last_po_number, "
+                                "last_date, times_seen, updated_at) "
+                                "VALUES (?,?,?,?,?,?,?,1,datetime('now'))",
+                                (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
+                        except Exception:
+                            pass
+                    _db.commit()
+                    log.info("Catalog populated: %d items",
+                             _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0])
+                except Exception as _e2:
+                    log.warning("Catalog population failed: %s", _e2)
+            else:
+                log.info("Catalog has %d items", _cat)
     except Exception as _e:
         log.warning("Catalog check failed: %s", _e)
 
