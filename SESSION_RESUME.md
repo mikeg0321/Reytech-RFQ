@@ -25,6 +25,11 @@ All commits pushed and deployed. No pending local changes.
 7. **Pre-deploy false positives** — UTF-8 encoding + globals whitelist + Windows console fix
 8. **Due date reminder crash** — same bare `get_db()` pattern → context manager
 9. **Henry Schein URL hang** — login-required domains fast-fail + 15s client-side timeout on all lookups
+10. **Quote notes field** — "Notes to Buyer" textarea on RFQ, saved to rfq['quote_notes'], printed on PDF
+11. **Tax rate fallback** — CDTFA API fallback table + amber badge for fallback sources
+12. **PC upload overwrites** — protected ship_to/delivery fields from PDF merge + onblur auto-save
+13. **PC URL paste blocked** — removed lockable-field from link inputs so URLs always pasteable
+14. **CRM autocomplete** — buyer name autocomplete on New PC, New RFQ, and RFQ detail from CRM + SCPRS
 
 ## KNOWN REMAINING ISSUES
 
