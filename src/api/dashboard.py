@@ -1935,9 +1935,16 @@ def _link_rfq_to_pc(rfq_data, _trace):
 
         # Match 3: Same agency/institution + >=80% fuzzy item overlap
         if pc_items_list and rfq_items_list:
-            pc_inst = (pc.get("institution", "") or "").lower()
-            rfq_inst = (rfq_data.get("delivery_location", "") or rfq_data.get("agency_name", "") or "").lower()
-            if pc_inst and rfq_inst and len(pc_inst) >= 3 and len(rfq_inst) >= 3 and (pc_inst in rfq_inst or rfq_inst in pc_inst):
+            pc_inst = (pc.get("institution", "") or "").strip()
+            rfq_inst = (rfq_data.get("delivery_location", "") or rfq_data.get("agency_name", "") or "").strip()
+            _inst_match = False
+            if pc_inst and rfq_inst and len(pc_inst) >= 3 and len(rfq_inst) >= 3:
+                try:
+                    from src.core.institution_resolver import same_institution
+                    _inst_match = same_institution(pc_inst, rfq_inst)
+                except ImportError:
+                    _inst_match = pc_inst.lower() in rfq_inst.lower() or rfq_inst.lower() in pc_inst.lower()
+            if _inst_match:
                 overlap = _fuzzy_item_overlap(rfq_items_list, pc_items_list)
                 if overlap >= max(1, len(pc_items_list) * 0.8):
                     matched_pid, match_reason = pid, f"agency+{overlap}/{len(pc_items_list)}_items"

@@ -61,7 +61,10 @@ RFQ_STRONG = [
 PC_KNOWN_SENDERS = [
     "demidenko", "valentina.demidenko",   # Valentina Demidenko — CSP-Sacramento
     "delgado", "matt.delgado",            # Matt Delgado
-    "katrina.valencia",                   # Katrina Valencia — CDCR
+    "katrina.valencia",                   # Katrina Valencia — CDCR/CIW
+    "garrett.arase",                      # Garrett Arase — CCHCS/CDCR
+    "@cdcr.ca.gov",                       # Any CDCR buyer domain
+    "@cchcs.ca.gov",                      # Any CCHCS buyer domain
 ]
 
 # Subject patterns that indicate a Price Check (not an RFQ)
