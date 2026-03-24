@@ -48,12 +48,20 @@ def find_matching_pc(rfq_data, pcs):
             score += 40
             reasons.append("same_solicitation")
 
-        # Match by institution
-        rfq_inst = (rfq_data.get("institution") or "").lower()
-        pc_inst = (pc_data.get("institution", pc.get("institution", "")) or "").lower()
-        if rfq_inst and pc_inst and len(rfq_inst) >= 3 and len(pc_inst) >= 3 and (rfq_inst in pc_inst or pc_inst in rfq_inst):
-            score += 20
-            reasons.append("same_institution")
+        # Match by institution (uses resolver for canonical name comparison)
+        rfq_inst = (rfq_data.get("institution") or "").strip()
+        pc_inst = (pc_data.get("institution", pc.get("institution", "")) or "").strip()
+        if rfq_inst and pc_inst and len(rfq_inst) >= 3 and len(pc_inst) >= 3:
+            try:
+                from src.core.institution_resolver import same_institution
+                if same_institution(rfq_inst, pc_inst):
+                    score += 20
+                    reasons.append("same_institution")
+            except ImportError:
+                # Fallback to substring match if resolver unavailable
+                if rfq_inst.lower() in pc_inst.lower() or pc_inst.lower() in rfq_inst.lower():
+                    score += 20
+                    reasons.append("same_institution")
 
         # Match by item descriptions
         pc_items = pc_data.get("items", pc.get("items", []))
