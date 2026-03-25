@@ -2466,14 +2466,14 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 2, y1 + 1, w - 4, h - 2, fill=1, stroke=0)
+        c.rect(x1 + 3, y1 + 2, w - 6, h - 4, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
-        while c.stringWidth(text, "Helvetica", fs) > w - 2 and fs > 4.5:
+        while c.stringWidth(text, "Helvetica", fs) > w - 8 and fs > 4.5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
-        c.drawString(x1 + 1, y1 + (h - fs) / 2, text)
+        c.drawString(x1 + 4, y1 + (h - fs) / 2, text)
 
     def _cell_right(c, x1, y1, x2, y2, text, fs=9):
         """Draw RIGHT-ALIGNED text in a tight white-masked cell. For prices/currency."""
@@ -2485,15 +2485,15 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 2, y1 + 1, w - 4, h - 2, fill=1, stroke=0)
+        c.rect(x1 + 3, y1 + 2, w - 6, h - 4, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
-        while c.stringWidth(text, "Helvetica", fs) > w - 4 and fs > 4.5:
+        while c.stringWidth(text, "Helvetica", fs) > w - 8 and fs > 4.5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
         text_w = c.stringWidth(text, "Helvetica", fs)
-        c.drawString(x2 - text_w - 2, y1 + (h - fs) / 2, text)
+        c.drawString(x2 - text_w - 4, y1 + (h - fs) / 2, text)
 
     def _multiline(c, x1, y1, x2, y2, text, fs=8):
         """Draw multi-line text with white mask."""
@@ -2502,18 +2502,18 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         w, h = x2 - x1, y2 - y1
         c.saveState()
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 2, y1 + 1, w - 4, h - 2, fill=1, stroke=0)
+        c.rect(x1 + 3, y1 + 2, w - 6, h - 4, fill=1, stroke=0)
         c.restoreState()
         fs = min(fs, h * 0.6)
         c.setFont("Helvetica", fs)
         for i, line in enumerate(text.strip().split("\n")[:5]):
             ly = y2 - (fs + 2) - (i * (fs + 1.5))
-            if ly < y1:
+            if ly < y1 + 2:
                 break
             t = line.strip()
-            while c.stringWidth(t, "Helvetica", fs) > w - 2 and len(t) > 3:
+            while c.stringWidth(t, "Helvetica", fs) > w - 8 and len(t) > 3:
                 t = t[:-1]
-            c.drawString(x1 + 1, ly, t)
+            c.drawString(x1 + 4, ly, t)
 
     # Find highest priced row to skip empty trailing pages
     max_row = 0
@@ -2576,7 +2576,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 c.saveState()
                 # White background mask
                 c.setFillColorRGB(1, 1, 1)
-                c.rect(scx1 + 1, scy1 + 1, scx2 - scx1 - 2, scy2 - scy1 - 2, fill=1, stroke=0)
+                c.rect(scx1 + 2, scy1 + 2, scx2 - scx1 - 4, scy2 - scy1 - 4, fill=1, stroke=0)
                 # Draw X using vector lines — ZapfDingbats glyph "4" in DocuSign
                 # PDFs has inverted ascender (-22pt), making drawString unusable.
                 # c.line() uses coords directly with no font metric transforms.
