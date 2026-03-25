@@ -351,34 +351,37 @@
   <textarea name="quote_notes" rows="4" class="text-in" oninput="triggerAutosave()" style="width:100%;font-size:14px;line-height:1.5;padding:10px 12px;resize:vertical;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);min-height:90px" placeholder="e.g. Line items 1-4 are on allocation. Separate deliveries may be required to deliver full quantities requested.">{{ r.get('quote_notes', '') }}</textarea>
  </div>
 
- <!-- ── Revenue + Profit Summary ── -->
- <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding:12px 16px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
-  <div style="display:flex;align-items:baseline;gap:10px">
-   <span style="color:var(--tx2);font-size:13px;font-weight:500">Revenue</span>
-   <span id="tot" style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">$0</span>
-  </div>
-  <div id="pft" style="font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:600;color:#8b949e">—</div>
+ <!-- ── Revenue KPI Strip ── -->
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin-top:16px">
+  <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Revenue</div><div id="tot" style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--tx);margin-top:2px">$0.00</div></div>
+  <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Profit</div><div id="pft" style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;margin-top:2px">—</div></div>
+  <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Items Priced</div><div id="rfq-items-priced-kpi" style="font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:700;color:var(--tx);margin-top:2px">—</div></div>
+  <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Status</div><div id="rfq-status-kpi" style="font-size:14px;font-weight:700;color:#8b949e;margin-top:4px">{{ r.get('status','new')|title }}</div></div>
  </div>
 
  <!-- ── Primary Actions ── -->
- <div style="margin-top:16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:10px 24px;font-weight:700">✅ Finalize Pricing</button>
-  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:10px 18px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote">👁️ Preview</button>
-  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:14px;padding:10px 24px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
-  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:10px 18px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send Quote">📧 Send Quote</button>
-  <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:13px;padding:8px 14px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification">🌾 Food Cert</button>
-  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:13px;padding:8px 14px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package">📋 Fill All Forms</button>
+ <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700">✅ Finalize Pricing</button>
+  <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:12px 20px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote" title="Opens generated PDF if available, otherwise shows HTML preview">👁 Preview</button>
+  <button type="button" onclick="runQaCheck()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
+  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()">📧 Send Quote</button>
+  <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification">🌾 Food Cert</button>
+  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package">📋 Fill All Forms</button>
  </div>
 
- <!-- ── Quote Management (visible after first generation) ── -->
+ <!-- ── Quote Management ── -->
  {% if r.get('reytech_quote_number') %}
- <div style="margin-top:12px;padding:12px 16px;background:rgba(88,166,255,.05);border:1px solid rgba(88,166,255,.15);border-radius:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-  <span style="font-size:13px;color:#8b949e;font-weight:600">{{ r.reytech_quote_number }}{% if r.get('quote_revision') %} · Rev {{ r.quote_revision }}{% endif %}{% if r.get('quote_revised_at') %} · {{ r.quote_revised_at[:10] }}{% endif %}</span>
-  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing — keeps all compliance docs">✏️ Revise Quote</button>
+ <div style="margin-top:10px;padding:12px 18px;background:rgba(63,185,80,.04);border:1px solid rgba(63,185,80,.2);border-radius:10px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">
+  <div style="display:flex;align-items:center;gap:8px;margin-right:4px">
+   <span style="width:8px;height:8px;border-radius:50%;background:#3fb950;display:inline-block;box-shadow:0 0 6px rgba(63,185,80,.6)"></span>
+   <span style="font-size:14px;color:#3fb950;font-weight:700;font-family:'JetBrains Mono',monospace">{{ r.reytech_quote_number }}</span>
+   {% if r.get('quote_revision') %}<span style="background:rgba(88,166,255,.2);color:#58a6ff;border-radius:4px;padding:1px 8px;font-size:12px;font-weight:700">Rev {{ r.quote_revision }}</span>{% endif %}
+   {% if r.get('quote_revised_at') %}<span style="font-size:12px;color:#8b949e">{{ r.quote_revised_at[:10] }}</span>{% endif %}
+  </div>
+  <div style="width:1px;height:24px;background:rgba(63,185,80,.2)"></div>
+  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing">✏️ Revise Quote</button>
   <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Download current quote PDF">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
-  {% if r.get('quote_revision') %}
-  <a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;font-size:13px;margin-left:4px">📋 View revision history</a>
-  {% endif %}
+  {% if r.get('quote_revision') %}<a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;font-size:13px;margin-left:auto">📋 History</a>{% endif %}
  </div>
  {% if r.get('quote_revision') %}
  <div id="revision-history-panel" style="display:none;margin-top:6px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:13px">Loading...</div>
@@ -1504,6 +1507,33 @@ function showScprsResults(d){
 }
 
 function showRfqPreview(){
+ // If a generated PDF exists, show it directly — no stale HTML
+ var dlBtn=document.getElementById('download-quote-btn');
+ var pdfUrl=(dlBtn&&dlBtn._downloadUrl)?dlBtn._downloadUrl:null;
+ var serverPdfPath={{(r.get('reytech_quote_pdf') or '')|tojson}};
+ var quoteNum={{(r.get('reytech_quote_number') or '')|tojson}};
+ var sol={{(r.get('solicitation_number') or '')|tojson}};
+ if(!pdfUrl&&serverPdfPath){
+  var safeSol=sol.replace(/[^a-zA-Z0-9_-]/g,'_');
+  pdfUrl='/api/download/'+encodeURIComponent(sol)+'/'+encodeURIComponent(safeSol+'_Quote_Reytech.pdf');
+ }
+ if(pdfUrl){
+  var modal=document.getElementById('pdfPreviewModal');
+  var frame=document.getElementById('pdfPreviewFrame');
+  var title=document.getElementById('pdfPreviewTitle');
+  var dlLink=document.getElementById('pdfPreviewDownload');
+  var newTab=document.getElementById('pdfPreviewNewTab');
+  if(title)title.textContent='Quote '+(quoteNum||'')+' Preview';
+  if(dlLink)dlLink.href=pdfUrl;
+  if(newTab)newTab.href=pdfUrl;
+  if(frame){frame.src='about:blank';frame.style.display='none';}
+  var loader=document.getElementById('pdfPreviewLoading');
+  if(loader)loader.style.display='flex';
+  if(modal)modal.style.display='flex';
+  setTimeout(function(){if(frame)frame.src=pdfUrl;},50);
+  return;
+ }
+ // Fallback: no PDF yet — show HTML preview from DOM
  let rowsHtml='';
  let total=0;
  for(let i=0;i<n;i++){
@@ -2604,6 +2634,8 @@ function reviseQuote(){
     dlBtn.textContent='⬇ Download Quote (Rev '+d.revision+')';
     dlBtn.style.background='rgba(63,185,80,.25)';
    }
+   var pvBtn=document.querySelector('[data-testid="rfq-preview-quote"]');
+   if(pvBtn)pvBtn.title='Preview revised quote (Rev '+d.revision+')';
    var toast=document.createElement('div');
    toast.style.cssText='position:fixed;bottom:20px;right:20px;background:#0d1f0d;border:1px solid #3fb950;border-radius:8px;padding:12px 18px;z-index:9999;color:#3fb950;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.5);max-width:360px';
    toast.innerHTML='✅ '+d.quote_number+' Rev '+d.revision+' generated<br>'
