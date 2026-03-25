@@ -250,6 +250,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  <div style="display:flex;gap:8px">
   <button onclick="document.getElementById('new-rfq-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">+ New RFQ</button>
   <button onclick="document.getElementById('new-pc-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:8px;font-weight:600;cursor:pointer">+ New PC</button>
+  <button onclick="openMultiPcUpload()" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer">📑 Split Multi-PC</button>
  </div>
  <div style="display:flex;gap:8px">
   <button onclick="location.href='/awards'" class="btn" style="font-size:13px;padding:6px 14px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);border-radius:6px">🏆 Awards</button>
@@ -1340,6 +1341,91 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 });
+</script>
+
+<!-- Multi-PC Split Modal -->
+<div id="multiPcModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10001;justify-content:center;align-items:center">
+ <div style="background:#161b22;border:1px solid #30363d;border-radius:14px;width:680px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6)">
+  <div style="padding:18px 22px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center">
+   <div><div style="font-size:17px;font-weight:700;color:#e6edf3">📑 Split Multi-PC PDF</div><div style="font-size:13px;color:#8b949e;margin-top:2px">Upload a combined DocuSign PDF — auto-splits by institution</div></div>
+   <button onclick="closeMultiPcUpload()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">✕</button>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:22px">
+   <div id="mpc-step-upload">
+    <div style="border:2px dashed #30363d;border-radius:10px;padding:36px;text-align:center;cursor:pointer" onclick="document.getElementById('mpc-file-input').click()">
+     <div style="font-size:36px;margin-bottom:8px">📎</div>
+     <div style="font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:4px">Drop PDF here or click to browse</div>
+     <div style="font-size:13px;color:#8b949e">Combined AMS 704 PDF — any number of pages</div>
+    </div>
+    <input type="file" id="mpc-file-input" accept=".pdf" style="display:none" onchange="handleMpcFile(this.files[0])">
+    <div id="mpc-upload-status" style="margin-top:12px;font-size:14px;color:#8b949e;text-align:center"></div>
+   </div>
+   <div id="mpc-step-preview" style="display:none">
+    <div style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:12px" id="mpc-preview-title"></div>
+    <div id="mpc-sections-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div style="margin-top:16px;display:flex;gap:10px">
+     <button onclick="confirmMpcCreate()" id="mpc-create-btn" style="background:#238636;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer;flex:1">✅ Create All Price Checks</button>
+     <button onclick="document.getElementById('mpc-step-preview').style.display='none';document.getElementById('mpc-step-upload').style.display='block'" style="background:rgba(139,148,158,.1);border:1px solid #30363d;color:#8b949e;border-radius:8px;padding:10px 18px;font-size:14px;cursor:pointer">← Back</button>
+    </div>
+   </div>
+   <div id="mpc-step-results" style="display:none"><div id="mpc-results-html"></div></div>
+  </div>
+ </div>
+</div>
+<script>
+function openMultiPcUpload(){document.getElementById('multiPcModal').style.display='flex';document.getElementById('mpc-step-upload').style.display='block';document.getElementById('mpc-step-preview').style.display='none';document.getElementById('mpc-step-results').style.display='none';}
+function closeMultiPcUpload(){document.getElementById('multiPcModal').style.display='none';}
+function handleMpcFile(file){
+ if(!file||!file.name.toLowerCase().endsWith('.pdf')){alert('Please upload a PDF');return;}
+ var st=document.getElementById('mpc-upload-status');
+ st.innerHTML='<span style="color:#d29922">⏳ Analyzing PDF — detecting price check boundaries...</span>';
+ var fd=new FormData();fd.append('file',file);
+ fetch('/api/pricecheck/split-pdf',{method:'POST',body:fd,credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){st.innerHTML='<span style="color:#f85149">❌ '+(d.error||'Failed')+'</span>';return;}
+  st.innerHTML='';showMpcPreview(d);
+ }).catch(function(e){st.innerHTML='<span style="color:#f85149">❌ '+e.message+'</span>';});
+}
+function showMpcPreview(data){
+ document.getElementById('mpc-step-upload').style.display='none';
+ document.getElementById('mpc-step-preview').style.display='block';
+ document.getElementById('mpc-preview-title').textContent='✅ Found '+data.total+' Price Check'+(data.total!==1?'s':'')+' in "'+data.source_file+'"';
+ var list=document.getElementById('mpc-sections-list');list.innerHTML='';
+ var byInst=data.by_institution||{};
+ Object.keys(byInst).forEach(function(inst){
+  var pcs=byInst[inst];var el=document.createElement('div');
+  el.style.cssText='background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.2);border-radius:8px;padding:12px 16px';
+  var h='<div style="font-size:13px;font-weight:700;color:#a78bfa;margin-bottom:8px">🏛 '+inst+'</div>';
+  pcs.forEach(function(pc){
+   h+='<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid rgba(167,139,250,.1)">';
+   h+='<span style="font-size:13px;color:#e6edf3;flex:1">';
+   if(pc.pc_number)h+='<b>'+pc.pc_number+'</b> · ';
+   if(pc.requestor)h+=pc.requestor+' · ';
+   h+='<span style="color:#8b949e">'+pc.items+' items · pages '+pc.pages+'</span></span>';
+   h+='<span style="font-size:11px;background:rgba(52,211,153,.1);color:#3fb950;border-radius:4px;padding:2px 8px">will create</span></div>';
+  });
+  el.innerHTML=h;list.appendChild(el);
+ });
+ list.dataset.createData=JSON.stringify(data.pcs);
+}
+function confirmMpcCreate(){
+ var btn=document.getElementById('mpc-create-btn');btn.disabled=true;btn.textContent='⏳ Creating...';
+ var pcs=JSON.parse(document.getElementById('mpc-sections-list').dataset.createData||'[]');
+ document.getElementById('mpc-step-preview').style.display='none';
+ document.getElementById('mpc-step-results').style.display='block';
+ var h='<div style="font-size:15px;font-weight:700;color:#3fb950;margin-bottom:14px">✅ Created '+pcs.length+' Price Checks</div><div style="display:flex;flex-direction:column;gap:8px">';
+ pcs.forEach(function(pc){
+  h+='<a href="'+pc.url+'" target="_blank" style="display:flex;align-items:center;gap:12px;background:rgba(63,185,80,.06);border:1px solid rgba(63,185,80,.2);border-radius:8px;padding:12px 16px;text-decoration:none">';
+  h+='<span style="font-size:20px">📋</span><div style="flex:1"><div style="font-size:14px;font-weight:600;color:#e6edf3">'+pc.institution+'</div>';
+  h+='<div style="font-size:13px;color:#8b949e">';
+  if(pc.pc_number)h+=pc.pc_number+' · ';
+  if(pc.requestor)h+=pc.requestor+' · ';
+  h+=pc.items+' items · pages '+pc.pages+'</div></div>';
+  h+='<span style="font-size:13px;color:#58a6ff">Open →</span></a>';
+ });
+ h+='</div><div style="margin-top:14px;text-align:center"><button onclick="closeMultiPcUpload();location.reload()" style="background:rgba(79,140,255,.15);border:1px solid rgba(79,140,255,.3);color:#58a6ff;border-radius:8px;padding:8px 20px;font-size:14px;font-weight:600;cursor:pointer">↩ Dashboard</button></div>';
+ document.getElementById('mpc-results-html').innerHTML=h;
+}
 </script>
 
 {% endblock %}

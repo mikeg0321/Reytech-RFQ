@@ -2434,6 +2434,72 @@ def pricecheck_convert_to_quote(pcid):
 # (more thorough version that copies all fields, files, and PO screenshots)
 
 
+@bp.route("/api/pricecheck/split-pdf", methods=["POST"])
+@auth_required
+def api_pc_split_pdf():
+    """Upload a combined AMS 704 PDF containing multiple price checks.
+    Auto-detects boundaries, creates one PC record per section."""
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file uploaded"})
+    f = request.files["file"]
+    if not f.filename or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Must be a PDF file"})
+
+    import uuid as _uuid
+    upload_dir = os.path.join(DATA_DIR, "uploads", "multi_pc")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', f.filename)
+    pdf_path = os.path.join(upload_dir, f"{_uuid.uuid4().hex[:8]}_{safe_name}")
+    f.save(pdf_path)
+    log.info("SPLIT-PDF: saved %s (%d bytes)", safe_name, os.path.getsize(pdf_path))
+
+    try:
+        from src.forms.price_check import parse_multi_pc
+        sections = parse_multi_pc(pdf_path)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Parse failed: {e}"})
+    if not sections:
+        return jsonify({"ok": False, "error": "No PC sections found in PDF"})
+
+    created = []
+    for section in sections:
+        pc_id = "pc_" + _uuid.uuid4().hex[:8]
+        header = section.get("header", {})
+        institution = header.get("institution", "").strip()
+        requestor = header.get("requestor", "").strip()
+        pc_number = header.get("price_check_number", "").strip()
+        items = section.get("line_items", [])
+        pc = {
+            "id": pc_id,
+            "pc_number": pc_number or (f"PC-{institution[:12].replace(' ','-')}" if institution else pc_id),
+            "institution": institution, "requestor": requestor, "requestor_name": requestor,
+            "due_date": header.get("due_date", ""),
+            "ship_to": f"{institution}, {header.get('zip_code','')}" if institution else "",
+            "status": "parsed", "source": "multi_pc_upload", "source_pdf": pdf_path,
+            "created_at": datetime.now().isoformat(), "items": items,
+            "parsed": {"header": header, "line_items": items},
+            "page_start": section.get("page_start", 0), "page_end": section.get("page_end", 0),
+            "multi_pc_source": safe_name,
+        }
+        from src.api.dashboard import _save_single_pc
+        _save_single_pc(pc_id, pc)
+        created.append({
+            "pc_id": pc_id, "institution": institution or "Unknown",
+            "requestor": requestor, "pc_number": pc_number,
+            "items": len(items),
+            "pages": f"{section.get('page_start',0)+1}-{section.get('page_end',0)+1}",
+            "url": f"/pricecheck/{pc_id}",
+        })
+        log.info("SPLIT-PDF: created PC %s — %s — %d items (pages %d-%d)",
+                 pc_id, institution, len(items), section.get("page_start",0), section.get("page_end",0))
+
+    by_institution = {}
+    for pc in created:
+        by_institution.setdefault(pc["institution"], []).append(pc)
+    return jsonify({"ok": True, "total": len(created), "pcs": created,
+                    "by_institution": by_institution, "source_file": safe_name})
+
+
 @bp.route("/api/pricecheck/create-manual", methods=["POST"])
 @auth_required
 def api_pc_create_manual():

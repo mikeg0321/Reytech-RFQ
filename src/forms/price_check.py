@@ -1257,6 +1257,123 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
     return result
 
 
+def parse_multi_pc(pdf_path: str) -> list:
+    """Parse a combined DocuSign AMS 704 PDF containing multiple price checks.
+    Detects PC boundaries by looking for new header blocks.
+    Returns list of parsed PC dicts with page_start/page_end."""
+    import re as _re
+
+    if not os.path.exists(pdf_path):
+        return []
+
+    results = []
+    try:
+        try:
+            import pdfplumber
+        except ImportError:
+            log.warning("parse_multi_pc: pdfplumber not available, falling back to single parse")
+            result = parse_ams704(pdf_path)
+            result["page_start"] = 0
+            result["page_end"] = 0
+            return [result]
+
+        with pdfplumber.open(pdf_path) as pdf:
+            total_pages = len(pdf.pages)
+            log.info("parse_multi_pc: %d pages in %s", total_pages, os.path.basename(pdf_path))
+
+            page_texts = []
+            for page in pdf.pages:
+                page_texts.append(page.extract_text() or "")
+
+            BOUNDARY_PATTERNS = [
+                _re.compile(r'Institution or HQ Program', _re.IGNORECASE),
+                _re.compile(r'PRICE\s+CHECK\s+#', _re.IGNORECASE),
+                _re.compile(r'AMS\s*704', _re.IGNORECASE),
+            ]
+
+            boundary_pages = []
+            for i, text in enumerate(page_texts):
+                hit_count = sum(1 for pat in BOUNDARY_PATTERNS if pat.search(text))
+                if hit_count >= 2:
+                    boundary_pages.append(i)
+
+            if not boundary_pages:
+                log.info("parse_multi_pc: no boundaries found, treating as single PC")
+                result = parse_ams704(pdf_path)
+                result["page_start"] = 0
+                result["page_end"] = total_pages - 1
+                return [result]
+
+            log.info("parse_multi_pc: found %d PC boundaries at pages %s",
+                     len(boundary_pages), boundary_pages)
+
+            for section_idx, start_page in enumerate(boundary_pages):
+                end_page = boundary_pages[section_idx + 1] - 1 if section_idx + 1 < len(boundary_pages) else total_pages - 1
+                section_text = "\n".join(page_texts[start_page:end_page + 1])
+
+                header = {}
+                inst_m = _re.search(r'Institution or HQ Program\s*[\n:]+\s*([^\n]+)', section_text, _re.IGNORECASE)
+                if not inst_m:
+                    inst_m = _re.search(r'(?:Institution|HQ Program)[:\s]+([A-Z][^\n]{2,40})', section_text, _re.IGNORECASE)
+                if inst_m:
+                    header["institution"] = inst_m.group(1).strip()
+
+                req_m = _re.search(r'Requestor\s*[\n:]+\s*([^\n]+)', section_text, _re.IGNORECASE)
+                if req_m:
+                    header["requestor"] = req_m.group(1).strip()
+
+                pc_num_m = _re.search(r'PRICE\s+CHECK\s*#\s*([A-Z0-9\-]+)', section_text, _re.IGNORECASE)
+                if pc_num_m:
+                    header["price_check_number"] = pc_num_m.group(1).strip()
+
+                due_m = _re.search(r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', section_text)
+                if due_m:
+                    header["due_date"] = due_m.group(1).strip()
+
+                zip_m = _re.search(r'(?:Zip|Delivery Zip)[:\s]+(\d{5})', section_text, _re.IGNORECASE)
+                if zip_m:
+                    header["zip_code"] = zip_m.group(1)
+
+                section_result = {
+                    "header": header, "line_items": [], "existing_prices": {},
+                    "ship_to": "", "source_pdf": pdf_path, "field_count": 0,
+                    "parse_method": "multi_pc_text",
+                    "page_start": start_page, "page_end": end_page,
+                    "section_index": section_idx, "total_sections": len(boundary_pages),
+                }
+
+                ITEM_ROW = _re.compile(
+                    r'^\s*(\d{1,2})\s+(\d+)\s+(EA|BX|CS|PK|PKG|BAG|SET|DZ|PR|GL|LB|OZ|CASE|EACH)\s+'
+                    r'(?:(\d+)\s+)?(.+?)(?:\s+\$[\d,]+\.\d{2}\s+\$[\d,]+\.\d{2})?\s*$',
+                    _re.IGNORECASE | _re.MULTILINE)
+
+                items = []
+                for m in ITEM_ROW.finditer(section_text):
+                    desc = m.group(5).strip()
+                    if any(h in desc.upper() for h in ["ITEM DESCRIPTION", "INCLUDE MANUFACTURER", "NOUN FIRST"]):
+                        continue
+                    items.append({
+                        "item_number": int(m.group(1)), "row_index": int(m.group(1)),
+                        "qty": int(m.group(2)), "uom": m.group(3).upper(),
+                        "qty_per_uom": int(m.group(4)) if m.group(4) else 1,
+                        "description": desc[:200], "part_number": "", "pricing": {},
+                    })
+
+                section_result["line_items"] = items
+                log.info("parse_multi_pc: section %d (%s, pages %d-%d): %d items",
+                         section_idx, header.get("institution", "?"), start_page, end_page, len(items))
+                results.append(section_result)
+
+    except Exception as e:
+        log.error("parse_multi_pc %s: %s", os.path.basename(pdf_path), e, exc_info=True)
+        result = parse_ams704(pdf_path)
+        result["page_start"] = 0
+        result["page_end"] = 0
+        return [result]
+
+    return results
+
+
 def _extract_items_from_text(text: str, result: dict):
     """
     Extract line items from raw pypdf text of a flattened AMS 704.
