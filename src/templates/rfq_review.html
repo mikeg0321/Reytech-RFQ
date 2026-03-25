@@ -477,7 +477,7 @@ function finalizePackage(){
   var btn=document.getElementById('rv-finalize-btn');
   btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
   var _quoteFn = '';
-  {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}_quoteFn='{{ review.form_filename }}';{% endif %}{% endfor %}
+  {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}_quoteFn={{ review.form_filename|tojson }};{% endif %}{% endfor %}
   var _pkgFn = {{ (manifest.package_filename or '')|tojson }} || 'RFQ_Package_'+SOL+'_ReytechInc.pdf';
   var _dl = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
   if (_quoteFn) _dl += '<a href="/api/download/'+SOL+'/'+_quoteFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';

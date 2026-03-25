@@ -1938,7 +1938,9 @@
     // ── CRM Buyer Autocomplete ───────────────────────────
     if (typeof initCrmAutocomplete === 'function') {
       // Wire to the requestor text near the top of the page
-      var _reqEl = document.querySelector('input[value*="{{ pc.get("requestor","").replace('"','') }}"]');
+      var _reqName = {{ pc.get("requestor","")|tojson }};
+      var _reqEl = null;
+      if (_reqName) { document.querySelectorAll('input.text-in').forEach(function(inp){ if(inp.value && inp.value.indexOf(_reqName)>=0) _reqEl=_reqEl||inp; }); }
       if (!_reqEl) {
         // Fallback: find by proximity to "Requestor:" label
         document.querySelectorAll('input.text-in').forEach(function(inp) {
@@ -1978,7 +1980,7 @@
      quoteNum:{{ pc.get('reytech_quote_number','')|tojson }},
      expiry:document.getElementById('expiryDate')?.textContent||''
     };
-    const peek_next='{{ (next_quote_preview or "")|replace("'", "\\'") }}';
+    const peek_next={{ (next_quote_preview or "")|tojson }};
 
     function renamePc() {
       const newName = document.getElementById('pcNumInput').value.trim();

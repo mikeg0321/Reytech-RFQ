@@ -228,7 +228,7 @@
     // Order items data for JS functions
     var ORDER_ITEMS = [
       {% for it in items %}
-      {lid: "{{ it.get('line_id','') }}", pn: "{{ it.get('part_number','') }}", asin: "{{ it.get('asin','') }}", qty: {{ it.get('qty',0) }}, desc: "{{ it.get('description','')[:60]|e }}", supplier_url: "{{ it.get('supplier_url','') }}", supplier: "{{ it.get('supplier','') }}"},
+      {lid: {{ it.get('line_id','')|tojson }}, pn: {{ it.get('part_number','')|tojson }}, asin: {{ it.get('asin','')|tojson }}, qty: {{ it.get('qty',0)|tojson }}, desc: {{ it.get('description','')[:60]|tojson }}, supplier_url: {{ it.get('supplier_url','')|tojson }}, supplier: {{ it.get('supplier','')|tojson }}},
       {% endfor %}
     ];
 
