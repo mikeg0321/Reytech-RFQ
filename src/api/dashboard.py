@@ -384,7 +384,48 @@ def load_rfqs():
 
     return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
 
+def _save_single_rfq(rfq_id, r):
+    """Save a SINGLE RFQ to SQLite without touching any other RFQs.
+    Prevents background agents from overwriting user edits on other RFQs."""
+    with _save_rfqs_lock:
+        p = rfq_db_path()
+        _invalidate_cache(p)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO rfqs
+                    (id, received_at, agency, institution, requestor_name, requestor_email,
+                     rfq_number, items, status, source, email_uid, notes,
+                     solicitation_number, due_date, email_subject, body_text, form_type,
+                     reytech_quote_number, shipping_option, shipping_amount, delivery_location,
+                     updated_at, data_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                """, (
+                    rfq_id, r.get("received_at", ""), r.get("agency", ""),
+                    r.get("institution", ""), r.get("requestor_name", ""),
+                    r.get("requestor_email", ""),
+                    r.get("rfq_number", "") or r.get("solicitation_number", ""),
+                    json.dumps(r.get("line_items", r.get("items", [])), default=str),
+                    r.get("status", "new"), r.get("source", ""),
+                    r.get("email_uid", ""), r.get("notes", ""),
+                    r.get("solicitation_number", "") or r.get("rfq_number", ""),
+                    r.get("due_date", ""),
+                    r.get("email_subject", ""),
+                    (r.get("body_text", "") or "")[:3000],
+                    r.get("form_type", ""),
+                    r.get("reytech_quote_number", ""),
+                    r.get("shipping_option", "included"),
+                    r.get("shipping_amount", 0),
+                    r.get("delivery_location", ""),
+                    json.dumps(r, default=str),
+                ))
+        except Exception as e:
+            log.error("DB save_single_rfq failed for %s: %s", rfq_id, e)
+
+
 def save_rfqs(rfqs):
+    """Save ALL RFQs. WARNING: use _save_single_rfq() when modifying just one."""
     with _save_rfqs_lock:
         import traceback
         p = rfq_db_path()

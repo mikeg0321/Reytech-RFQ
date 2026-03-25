@@ -1728,7 +1728,8 @@ def update(rid):
     r["quote_notes"] = quote_notes_val
 
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
@@ -1861,7 +1862,8 @@ def rfq_update_field(rid):
                     except Exception:
                         pass
     if changed:
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         _log_rfq_activity(rid, "field_updated",
             "; ".join(changed), actor="user")
 
@@ -1872,7 +1874,8 @@ def rfq_update_field(rid):
             from src.api.dashboard import _link_rfq_to_pc
             _link_trace = []
             if _link_rfq_to_pc(r, _link_trace):
-                save_rfqs(rfqs)
+                from src.api.dashboard import _save_single_rfq
+                _save_single_rfq(rid, r)
                 link_result = {"linked": True, "trace": _link_trace,
                                "pc_id": r.get("linked_pc_id", ""),
                                "pc_number": r.get("linked_pc_number", "")}
@@ -2172,7 +2175,8 @@ def api_rfq_autosave(rid):
     # Save delivery_location — ensure it persists
     r.setdefault("delivery_location", "")
 
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
 
     try:
         from src.core.dal import log_lifecycle_event
@@ -2285,7 +2289,8 @@ def rfq_add_item(rid):
     }
 
     r["line_items"].append(new_item)
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     _log_rfq_activity(rid, "item_added",
         f"Line item #{next_num} added: {new_item['description'][:60]}",
         actor="user")
@@ -2307,7 +2312,8 @@ def rfq_remove_item(rid, idx):
     if 0 <= idx < len(items):
         removed = items.pop(idx)
         _renumber_items(items)
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         _log_rfq_activity(rid, "item_removed",
             f"Line item removed: {removed.get('description','')[:60]}",
             actor="user")
@@ -6087,7 +6093,8 @@ def api_rfq_revise_quote(rid):
         r["output_files"] = []
     if fname not in r["output_files"]:
         r["output_files"].append(fname)
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
 
     try:
         from src.core.dal import log_lifecycle_event
@@ -6171,7 +6178,8 @@ def api_rfq_revert_pricing(rid):
         item["supplier_cost"] = snap.get("supplier_cost", 0)
         item["price_per_unit"] = snap.get("price_per_unit", 0)
         item["markup_pct"] = snap.get("markup_pct", 0)
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     log.info("Reverted pricing on RFQ %s to snapshot %s", rid, snapshot.get("quote_number", ""))
     return jsonify({
         "ok": True,
