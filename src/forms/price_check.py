@@ -2414,16 +2414,18 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
         "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
         "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
-        "Ship to":                            (277.6, 99.0, 465.0, 119.0),
+        "Ship to":                            (280.0, 102.5, 525.0, 115.5),
     }
     NOTES_FIELD = ("Supplier andor Requestor Notes", 32.6, 41.9, 237.2, 118.9)
     TOTALS = {
-        "fill_70": (696.0, 145.0, 760.0, 165.0),  # Merchandise Subtotal, pdf_y~155
-        "fill_71": (694.9, 122.0, 760.0, 142.0),  # Freight row, pdf_y~132
-        "fill_72": (695.4, 96.0,  760.0, 115.0),  # Tax, pdf_y~106
-        "fill_73": (695.5, 75.0,  760.0, 94.0),   # Total Price, pdf_y~85
+        # Exact cell boundaries from pdfplumber rect extraction (vertical border at x=684)
+        "fill_70": (696.0, 141.0, 758.0, 159.0),  # Subtotal  cell=(139.8,160.9)
+        "fill_71": (694.9, 117.5, 758.0, 138.0),  # Freight   cell=(116.0,139.3)
+        "fill_72": (695.4, 94.5,  758.0, 114.5),  # Tax       cell=(93.6, 115.5)
+        "fill_73": (695.5, 69.0,  758.0, 92.0),   # Total     cell=(68.0,  93.2)
     }
-    CHECKBOX = ("Check Box4", 244.5, 95.1, 257.6, 106.7)
+    # FOB checkbox — measured at pdf_y≈127-139 (was 35px too low at y=95-107)
+    CHECKBOX = ("Check Box4", 241.0, 127.5, 256.0, 139.0)
 
     # Price + Extension column X ranges (tight — only these two columns)
     PRICE_X = (637.0, 686.0)   # inset 2pt from annotation edges to avoid border overlap
