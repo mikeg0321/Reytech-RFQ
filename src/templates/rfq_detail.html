@@ -1617,7 +1617,7 @@ function showRfqPreview(){
 
  document.getElementById('rfqPreviewBody').innerHTML=html;
  document.getElementById('rfqPreviewType').textContent='704B — '+(dept||sol);
- const modal=document.getElementById('previewModal');
+ var modal=document.getElementById('previewModal');
  modal.style.display='flex';
  modal.onclick=function(e){if(e.target===modal) modal.style.display='none';};
 }
