@@ -1276,6 +1276,7 @@ def generate_quote(
     totals_data = [
         ("SUBTOTAL",  f"${subtotal:,.2f}",  False),
         (_tax_label,  f"${tax:,.2f}",        False),
+        ("SHIPPING",  "$0.00",               False),
         ("TOTAL",     f"${total:,.2f}",      True),
     ]
 
