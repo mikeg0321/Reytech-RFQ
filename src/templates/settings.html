@@ -30,27 +30,78 @@
 </div>
 <script>
 (function(){
+ var _hdr={'X-Requested-With':'XMLHttpRequest'};
  function loadTmpls(){
-  fetch('/api/v1/system/templates',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+  fetch('/api/v1/system/templates',{credentials:'same-origin',headers:_hdr}).then(function(r){return r.json();}).then(function(d){
    if(!d.ok||!d.data)return;
    var t=d.data.templates||[];
    if(!t.length){document.getElementById('tmpl-list').innerHTML='<div style="color:var(--tx2)">No templates found</div>';return;}
-   var html='<table style="width:100%;font-size:13px"><thead><tr><th style="text-align:left;padding:4px 8px">Filename</th><th style="text-align:right;padding:4px 8px">Size</th></tr></thead><tbody>';
+   var html='<table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--bd)"><th style="text-align:left;padding:6px 8px">Filename</th><th style="text-align:right;padding:6px 8px;width:70px">Size</th><th style="text-align:right;padding:6px 8px;width:180px">Actions</th></tr></thead><tbody>';
    t.forEach(function(f){
-    html+='<tr><td style="padding:4px 8px;color:var(--tx)">'+f.filename+'</td><td style="padding:4px 8px;text-align:right;color:var(--tx2)">'+f.size_kb+'KB</td></tr>';
+    var esc=f.filename.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    var encName=encodeURIComponent(f.filename);
+    html+='<tr style="border-bottom:1px solid var(--sf2)" id="tmpl-row-'+encName+'">'
+     +'<td style="padding:6px 8px;color:var(--tx)" id="tmpl-name-'+encName+'"><span class="tmpl-display">'+esc+'</span>'
+     +'<span class="tmpl-edit" style="display:none"><input type="text" value="'+esc+'" style="background:var(--sf2);color:var(--tx);border:1px solid var(--ac);border-radius:4px;padding:2px 6px;font-size:13px;width:250px"> '
+     +'<button onclick="saveRename(\''+esc+'\')" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer">Save</button> '
+     +'<button onclick="cancelRename(\''+esc+'\')" style="background:none;border:1px solid var(--bd);color:var(--tx2);border-radius:4px;padding:2px 8px;font-size:12px;cursor:pointer">Cancel</button></span></td>'
+     +'<td style="padding:6px 8px;text-align:right;color:var(--tx2)">'+f.size_kb+'KB</td>'
+     +'<td style="padding:6px 8px;text-align:right;white-space:nowrap">'
+     +'<a href="/api/v1/system/templates/'+encName+'/download" style="color:#58a6ff;font-size:13px;text-decoration:none;margin-right:8px" title="Download">Download</a>'
+     +'<button onclick="startRename(\''+esc+'\')" style="background:none;border:none;color:#d29922;font-size:13px;cursor:pointer;margin-right:8px" title="Rename">Rename</button>'
+     +'<button onclick="deleteTmpl(\''+esc+'\')" style="background:none;border:none;color:#f85149;font-size:13px;cursor:pointer" title="Delete">Delete</button>'
+     +'</td></tr>';
    });
    html+='</tbody></table>';
    document.getElementById('tmpl-list').innerHTML=html;
   }).catch(function(){document.getElementById('tmpl-list').innerHTML='<div style="color:#f85149">Failed to load</div>';});
  }
  loadTmpls();
+ window.deleteTmpl=function(name){
+  if(!confirm('Delete template "'+name+'"? This cannot be undone.'))return;
+  fetch('/api/v1/system/templates/'+encodeURIComponent(name),{method:'DELETE',credentials:'same-origin',headers:_hdr})
+  .then(function(r){return r.json();}).then(function(d){
+   if(d.ok)loadTmpls();
+   else alert('Delete failed: '+(d.error||'unknown'));
+  }).catch(function(e){alert('Delete failed: '+e.message);});
+ };
+ window.startRename=function(name){
+  var encName=encodeURIComponent(name);
+  var row=document.getElementById('tmpl-name-'+encName);
+  if(!row)return;
+  row.querySelector('.tmpl-display').style.display='none';
+  row.querySelector('.tmpl-edit').style.display='inline';
+  row.querySelector('.tmpl-edit input').focus();
+ };
+ window.cancelRename=function(name){
+  var encName=encodeURIComponent(name);
+  var row=document.getElementById('tmpl-name-'+encName);
+  if(!row)return;
+  row.querySelector('.tmpl-display').style.display='';
+  row.querySelector('.tmpl-edit').style.display='none';
+ };
+ window.saveRename=function(name){
+  var encName=encodeURIComponent(name);
+  var row=document.getElementById('tmpl-name-'+encName);
+  if(!row)return;
+  var newName=row.querySelector('.tmpl-edit input').value.trim();
+  if(!newName||newName===name){cancelRename(name);return;}
+  fetch('/api/v1/system/templates/'+encodeURIComponent(name)+'/rename',{
+   method:'POST',credentials:'same-origin',
+   headers:Object.assign({'Content-Type':'application/json'},_hdr),
+   body:JSON.stringify({new_name:newName})
+  }).then(function(r){return r.json();}).then(function(d){
+   if(d.ok)loadTmpls();
+   else alert('Rename failed: '+(d.error||'unknown'));
+  }).catch(function(e){alert('Rename failed: '+e.message);});
+ };
  document.getElementById('tmpl-upload').addEventListener('submit',function(e){
   e.preventDefault();
   var fd=new FormData(this);
   var split=document.getElementById('split-mode').checked;
   var url='/api/v1/system/templates/upload'+(split?'?split=1':'');
-  fetch(url,{method:'POST',credentials:'same-origin',body:fd})
-  .then(r=>r.json()).then(d=>{
+  fetch(url,{method:'POST',credentials:'same-origin',headers:_hdr,body:fd})
+  .then(function(r){return r.json();}).then(function(d){
    if(d.ok&&d.data){
     var msg='Uploaded '+d.data.count+' file(s):\n';
     (d.data.uploaded||[]).forEach(function(f){

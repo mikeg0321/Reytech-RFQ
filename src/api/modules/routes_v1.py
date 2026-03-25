@@ -4019,6 +4019,66 @@ def api_v1_system_templates_upload():
     return api_response({"uploaded": results, "count": len(results)})
 
 
+@bp.route("/api/v1/system/templates/<path:filename>", methods=["DELETE"])
+@auth_required
+def api_v1_system_templates_delete(filename):
+    """Delete a master form template."""
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    tmpl_dir = os.path.join(_DATA_DIR, "templates")
+    safe_name = os.path.basename(filename)
+    fp = os.path.join(tmpl_dir, safe_name)
+    if not os.path.isfile(fp):
+        return api_response(error=f"Template not found: {safe_name}", status=404)
+    os.remove(fp)
+    log.info("Template deleted: %s", safe_name)
+    return api_response({"deleted": safe_name})
+
+
+@bp.route("/api/v1/system/templates/<path:filename>/rename", methods=["POST"])
+@auth_required
+def api_v1_system_templates_rename(filename):
+    """Rename a master form template."""
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    tmpl_dir = os.path.join(_DATA_DIR, "templates")
+    import shutil
+    old_name = os.path.basename(filename)
+    body = request.get_json(silent=True) or {}
+    new_name = os.path.basename(body.get("new_name", "").strip())
+    if not new_name:
+        return api_response(error="new_name is required", status=400)
+    if not new_name.lower().endswith(".pdf"):
+        new_name += ".pdf"
+    src = os.path.join(tmpl_dir, old_name)
+    dst = os.path.join(tmpl_dir, new_name)
+    if not os.path.isfile(src):
+        return api_response(error=f"Template not found: {old_name}", status=404)
+    if os.path.exists(dst):
+        return api_response(error=f"A template named '{new_name}' already exists", status=409)
+    shutil.move(src, dst)
+    log.info("Template renamed: %s -> %s", old_name, new_name)
+    return api_response({"renamed": {"from": old_name, "to": new_name}})
+
+
+@bp.route("/api/v1/system/templates/<path:filename>/download")
+@auth_required
+def api_v1_system_templates_download(filename):
+    """Download a master form template."""
+    try:
+        from src.core.paths import DATA_DIR as _DATA_DIR
+    except Exception:
+        _DATA_DIR = os.environ.get("DATA_DIR", "/data")
+    tmpl_dir = os.path.join(_DATA_DIR, "templates")
+    safe_name = os.path.basename(filename)
+    from flask import send_from_directory
+    return send_from_directory(tmpl_dir, safe_name, as_attachment=True)
+
+
 # ── Source Material Preview ───────────────────────────────────────────
 
 @bp.route("/api/v1/rfq/<rid>/source-material")
