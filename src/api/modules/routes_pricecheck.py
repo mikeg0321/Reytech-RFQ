@@ -1467,16 +1467,10 @@ def _do_save_prices(pcid):
     else:
         pc["parsed"]["line_items"] = items
 
-    # Only save the single PC that changed — not the entire collection
+    # Save ONLY this PC — prevents background agents from overwriting user edits on other PCs
     try:
-        from src.core.dal import save_pc as _dal_save_single
-        _dal_save_single(pc)
-        # Invalidate cache so next load picks up changes
-        import sys as _sys
-        _dash = _sys.modules.get('src.api.dashboard')
-        if _dash:
-            _dash._pc_cache = None
-            _dash._pc_cache_time = 0
+        from src.api.dashboard import _save_single_pc
+        _save_single_pc(pcid, pc)
     except Exception as _single_e:
         log.warning("Single-PC save failed, falling back to full save: %s", _single_e)
         _save_price_checks(pcs)

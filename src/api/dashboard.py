@@ -1247,6 +1247,48 @@ def _load_price_checks(include_items=True):
         _pc_cache_time = _t.time()
     return data
 
+def _save_single_pc(pc_id, pc):
+    """Save a SINGLE price check to SQLite without touching any other PCs.
+    This prevents background agents from overwriting user's edits on other PCs."""
+    with _save_pcs_lock:
+        global _pc_cache, _pc_cache_time
+        _pc_cache = None
+        _pc_cache_time = 0
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                items_json = json.dumps(pc.get("items", []), default=str)
+                _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
+                pc_blob = json.dumps(_pc_clean, default=str)
+                conn.execute("""
+                    INSERT OR REPLACE INTO price_checks
+                    (id, created_at, requestor, agency, institution, items, source_file,
+                     quote_number, pc_number, total_items, status,
+                     email_uid, email_subject, due_date, pc_data, ship_to, data_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    pc_id,
+                    pc.get("created_at", ""),
+                    pc.get("requestor", ""),
+                    pc.get("institution", "") or pc.get("agency", ""),
+                    pc.get("institution", "") or pc.get("agency", ""),
+                    items_json,
+                    pc.get("source_pdf", ""),
+                    pc.get("reytech_quote_number", ""),
+                    pc.get("pc_number", ""),
+                    len(pc.get("items", [])),
+                    pc.get("status", "parsed"),
+                    pc.get("email_uid", ""),
+                    pc.get("email_subject", ""),
+                    pc.get("due_date", ""),
+                    pc_blob,
+                    pc.get("ship_to", ""),
+                    json.dumps(pc, default=str),
+                ))
+        except Exception as e:
+            log.error("DB save_single_pc failed for %s: %s", pc_id, e)
+
+
 def _save_price_checks(pcs):
     """Save price checks to SQLite (primary) + JSON backup cache."""
     with _save_pcs_lock:
