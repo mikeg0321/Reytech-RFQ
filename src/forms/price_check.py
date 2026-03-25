@@ -2574,11 +2574,18 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
                 scx1, scy1, scx2, scy2 = _sc(cx1, cy1, cx2, cy2)
                 c.saveState()
+                # White background mask
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(scx1 + 1, scy1 + 1, scx2 - scx1 - 2, scy2 - scy1 - 2, fill=1, stroke=0)
+                # Draw X using vector lines — ZapfDingbats glyph "4" in DocuSign
+                # PDFs has inverted ascender (-22pt), making drawString unusable.
+                # c.line() uses coords directly with no font metric transforms.
+                _pad = 3
+                c.setStrokeColorRGB(0, 0, 0)
+                c.setLineWidth(1.5)
+                c.line(scx1 + _pad, scy1 + _pad, scx2 - _pad, scy2 - _pad)  # diagonal \
+                c.line(scx1 + _pad, scy2 - _pad, scx2 - _pad, scy1 + _pad)  # diagonal /
                 c.restoreState()
-                c.setFont("ZapfDingbats", 10)
-                c.drawString(scx1 + 1, scy1 + 1, "4")
                 drew = True
             # Totals (first page only)
             if pg_idx == 0:
