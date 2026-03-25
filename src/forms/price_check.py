@@ -2852,15 +2852,15 @@ def _add_signature_to_pdf(writer):
     import io
 
     # Signature field: Rect=[279.144, 388.486, 602.284, 412.005] on landscape page (792x612)
-    # But PDF coords have y=0 at bottom, so we need to flip for reportlab
-    SIG_LEFT = 279.0
-    SIG_BOTTOM = 386.0  # slight adjustment for visual centering
-    SIG_WIDTH = 160.0   # signature image width
-    SIG_HEIGHT = 28.0   # signature image height
+    # Field is 323pt wide × 23pt tall. Signature goes left, date right.
+    SIG_LEFT = 282.0
+    SIG_BOTTOM = 390.0  # keep within field (bottom=388.5)
+    SIG_WIDTH = 140.0   # signature image width
+    SIG_HEIGHT = 20.0   # fit within 23pt field height
 
-    # Date goes to the right of signature
-    DATE_X = 470.0
-    DATE_Y = 392.0
+    # Date goes far right of field to avoid "Signature and Date" label in center
+    DATE_X = 530.0
+    DATE_Y = 394.0
 
     # Find signature image
     sig_paths = [
