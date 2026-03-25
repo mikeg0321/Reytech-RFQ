@@ -692,7 +692,7 @@
    <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px">📦 Mark Generated</button>
   {% endif %}
   {% if r.status in ('generated', 'ready') %}
-   <button onclick="updateRfqStatus('sent')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);border-radius:6px">📨 Mark Sent</button>
+   <button onclick="updateRfqStatus('sent')" class="btn" style="font-size:15px;padding:10px 22px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)">📨 Mark Sent</button>
   {% endif %}
   {% if r.status in ('sent', 'generated') %}
    <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px">🏆 Won</button>
@@ -1951,31 +1951,54 @@ function runAutoLookup(){
 
 // AJAX Status Update
 function updateRfqStatus(newStatus) {
+  var btn = event && event.target ? event.target.closest('button') : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Updating...'; }
   var msg = document.getElementById('rfq-status-msg');
   msg.style.display = 'block';
-  msg.textContent = '⏳ Updating...';
+  msg.textContent = '⏳ Updating status to ' + newStatus + '...';
   msg.style.color = 'var(--tx2)';
 
   fetch('/api/rfq/' + RID + '/update-status', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json'},
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Origin': window.location.origin
+    },
     body: JSON.stringify({status: newStatus})
   })
   .then(function(r) { return r.json(); })
   .then(function(d) {
+    if (btn) btn.disabled = false;
     if (d.ok) {
-      msg.textContent = '✅ Status updated to ' + newStatus.toUpperCase();
+      msg.textContent = '✅ Status → ' + newStatus.toUpperCase();
       msg.style.color = '#3fb950';
-      setTimeout(function() { location.reload(); }, 800);
+      var toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#0d1f0d;border:1px solid #3fb950;border-radius:8px;padding:12px 18px;z-index:9999;color:#3fb950;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+      toast.textContent = '✅ Status updated → ' + newStatus.toUpperCase();
+      document.body.appendChild(toast);
+      setTimeout(function() { location.reload(); }, 900);
+      setTimeout(function() { if (toast.parentNode) toast.remove(); }, 4000);
     } else {
-      msg.textContent = '❌ ' + (d.error || 'Failed');
+      msg.textContent = '❌ ' + (d.error || 'Update failed');
       msg.style.color = '#f85149';
+      var toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1f0d0d;border:1px solid #f85149;border-radius:8px;padding:12px 18px;z-index:9999;color:#f85149;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+      toast.textContent = '❌ Status update failed: ' + (d.error || 'unknown');
+      document.body.appendChild(toast);
+      setTimeout(function() { if (toast.parentNode) toast.remove(); }, 6000);
     }
   })
   .catch(function(e) {
-    msg.textContent = '❌ Error';
+    if (btn) btn.disabled = false;
+    msg.textContent = '❌ Network error';
     msg.style.color = '#f85149';
+    var toast = document.createElement('div');
+    toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#1f0d0d;border:1px solid #f85149;border-radius:8px;padding:12px 18px;z-index:9999;color:#f85149;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+    toast.textContent = '❌ Network error: ' + e.message;
+    document.body.appendChild(toast);
+    setTimeout(function() { if (toast.parentNode) toast.remove(); }, 6000);
   });
 }
 
@@ -1992,7 +2015,11 @@ function recordRfqOutcome(outcome) {
   fetch('/api/rfq/' + RID + '/outcome', {
     method: 'POST',
     credentials: 'same-origin',
-    headers: {'Content-Type': 'application/json'},
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Origin': window.location.origin
+    },
     body: JSON.stringify({outcome: outcome, reason: reason})
   })
   .then(function(r) { return r.json(); })
