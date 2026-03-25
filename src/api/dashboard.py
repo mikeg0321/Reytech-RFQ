@@ -1295,7 +1295,8 @@ def _save_single_pc(pc_id, pc):
         global _pc_cache, _pc_cache_time
         _pc_cache = None
         _pc_cache_time = 0
-        try:
+
+        def _do():
             from src.core.db import get_db
             with get_db() as conn:
                 items_json = json.dumps(pc.get("items", []), default=str)
@@ -1326,6 +1327,10 @@ def _save_single_pc(pc_id, pc):
                     pc.get("ship_to", ""),
                     json.dumps(pc, default=str),
                 ))
+
+        try:
+            from src.core.db import db_retry
+            db_retry(_do, max_retries=5, delay=2.0)
         except Exception as e:
             log.error("DB save_single_pc failed for %s: %s", pc_id, e)
 

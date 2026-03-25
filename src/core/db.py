@@ -68,12 +68,12 @@ _db_lock = threading.RLock()   # RLock: allows same-thread reentry (boot sync �
 def get_db():
     """Thread-safe SQLite connection with WAL mode for 2-worker gunicorn."""
     with _db_lock:
-        conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+        conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA busy_timeout=30000")
         try:
             yield conn
             conn.commit()
@@ -82,6 +82,23 @@ def get_db():
             raise
         finally:
             conn.close()
+
+
+def db_retry(fn, max_retries=3, delay=1.0):
+    """Retry a DB operation that may hit 'database is locked'.
+    fn should be a callable that performs the DB work (using get_db() inside)."""
+    import time as _time
+    last_err = None
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as e:
+            if "database is locked" in str(e) and attempt < max_retries - 1:
+                last_err = e
+                _time.sleep(delay * (attempt + 1))
+            else:
+                raise
+    raise last_err
 
 # ── Schema ────────────────────────────────────────────────────────────────────
 SCHEMA = """
@@ -1487,7 +1504,7 @@ def record_price(description: str, unit_price: float, source: str,
     """Record a price observation. Called every time a price is found."""
     if not description or not unit_price or unit_price <= 0:
         return None
-    try:
+    def _do():
         with get_db() as conn:
             cur = conn.execute("""
                 INSERT INTO price_history
@@ -1503,6 +1520,8 @@ def record_price(description: str, unit_price: float, source: str,
                 notes[:500],
             ))
             return cur.lastrowid
+    try:
+        return db_retry(_do)
     except Exception as e:
         log.error("record_price '%s': %s", description[:40], e)
         return None

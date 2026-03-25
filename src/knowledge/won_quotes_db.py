@@ -63,9 +63,10 @@ CATEGORY_KEYWORDS = {
 def _get_db_conn():
     """Get a direct SQLite connection (not context manager)."""
     import sqlite3
-    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=15)
+    conn = sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -530,33 +531,42 @@ def ingest_scprs_result(
     }
 
     # ── Write to SQLite won_quotes (primary store) ────────────────────────────
-    try:
-        _ensure_won_quotes_table()
-        conn = _get_db_conn()
-        conn.execute("""
-            INSERT INTO won_quotes
-              (id, po_number, item_number, description, normalized_description,
-               tokens, category, supplier, department, unit_price, quantity,
-               total, award_date, source, confidence, ingested_at, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(id) DO UPDATE SET
-              unit_price=excluded.unit_price,
-              supplier=excluded.supplier,
-              department=excluded.department,
-              tokens=excluded.tokens,
-              updated_at=excluded.updated_at
-        """, (
-            record_id, po_number, item_number, description,
-            normalize_text(description), json.dumps(tokens), category,
-            supplier, department, float(unit_price or 0),
-            float(quantity or 1), record["total"],
-            award_date, source, record["confidence"], now, now,
-        ))
-        conn.commit()
-        conn.close()
-        log.debug("won_quotes SQLite: %s $%.2f (PO:%s)", description[:35], unit_price, po_number)
-    except Exception as e:
-        log.error("won_quotes SQLite write error: %s", e)
+    import time as _time
+    _wq_written = False
+    for _attempt in range(3):
+        try:
+            _ensure_won_quotes_table()
+            conn = _get_db_conn()
+            conn.execute("""
+                INSERT INTO won_quotes
+                  (id, po_number, item_number, description, normalized_description,
+                   tokens, category, supplier, department, unit_price, quantity,
+                   total, award_date, source, confidence, ingested_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                  unit_price=excluded.unit_price,
+                  supplier=excluded.supplier,
+                  department=excluded.department,
+                  tokens=excluded.tokens,
+                  updated_at=excluded.updated_at
+            """, (
+                record_id, po_number, item_number, description,
+                normalize_text(description), json.dumps(tokens), category,
+                supplier, department, float(unit_price or 0),
+                float(quantity or 1), record["total"],
+                award_date, source, record["confidence"], now, now,
+            ))
+            conn.commit()
+            conn.close()
+            _wq_written = True
+            log.debug("won_quotes SQLite: %s $%.2f (PO:%s)", description[:35], unit_price, po_number)
+            break
+        except Exception as e:
+            if "database is locked" in str(e) and _attempt < 2:
+                _time.sleep(1.0 * (_attempt + 1))
+            else:
+                log.error("won_quotes SQLite write error: %s", e)
+                break
 
     # ── Also cross-post to price_history so the pricing oracle sees it ────────
     try:

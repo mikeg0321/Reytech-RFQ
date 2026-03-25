@@ -450,7 +450,8 @@ async def _scrape_single_po(po_number):
 # ── 3-Layer Storage ─────────────────────────────────────────────
 
 def _store_results(batch, seen_pos):
-    """Store into 3 layers: raw FI$Cal DB, Reytech won quotes, catalog."""
+    """Store into 3 layers: raw FI$Cal DB, Reytech won quotes, catalog.
+    Commits per-PO to avoid holding the write lock for the entire batch."""
     stored_pos = 0
     stored_lines = 0
     won_quotes = 0
@@ -459,7 +460,9 @@ def _store_results(batch, seen_pos):
     try:
         import sqlite3
         from src.core.db import DB_PATH
-        db = sqlite3.connect(DB_PATH, timeout=30)
+        db = sqlite3.connect(DB_PATH, timeout=60)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=30000")
 
         for r in batch:
             header = r.get("header", {})
@@ -513,30 +516,7 @@ def _store_results(batch, seen_pos):
                 except Exception as e:
                     log.warning("Store line %s: %s", po, str(e)[:60])
 
-            # LAYER 2: Won Quotes — Reytech only
-            supplier = (header.get("supplier", "") or "").upper()
-            if "REYTECH" in supplier:
-                try:
-                    from src.knowledge.won_quotes_db import ingest_scprs_result
-                    for line in r.get("line_items", []):
-                        up = line.get("unit_price_num")
-                        if up and up > 0:
-                            ingest_scprs_result(
-                                po_number=po,
-                                item_number=line.get("item_id", ""),
-                                description=line.get("description", ""),
-                                unit_price=up,
-                                quantity=line.get("quantity_num", 1) or 1,
-                                supplier=header.get("supplier", ""),
-                                department=header.get("dept_name", ""),
-                                award_date=header.get("start_date", ""),
-                                source="scprs_browser_won",
-                            )
-                            won_quotes += 1
-                except Exception as e:
-                    log.warning("Won quotes %s: %s", po, str(e)[:60])
-
-            # LAYER 3: Product Catalog
+            # LAYER 3: Product Catalog (before commit so it's in the same txn)
             for line in r.get("line_items", []):
                 up = line.get("unit_price_num")
                 desc = line.get("description", "")
@@ -567,7 +547,35 @@ def _store_results(batch, seen_pos):
                     except Exception:
                         pass
 
-        db.commit()
+            # Commit after each PO to release the write lock promptly
+            try:
+                db.commit()
+            except Exception as e:
+                log.warning("Commit PO %s: %s", po, str(e)[:60])
+
+            # LAYER 2: Won Quotes — Reytech only (uses its own connection)
+            supplier = (header.get("supplier", "") or "").upper()
+            if "REYTECH" in supplier:
+                try:
+                    from src.knowledge.won_quotes_db import ingest_scprs_result
+                    for line in r.get("line_items", []):
+                        up = line.get("unit_price_num")
+                        if up and up > 0:
+                            ingest_scprs_result(
+                                po_number=po,
+                                item_number=line.get("item_id", ""),
+                                description=line.get("description", ""),
+                                unit_price=up,
+                                quantity=line.get("quantity_num", 1) or 1,
+                                supplier=header.get("supplier", ""),
+                                department=header.get("dept_name", ""),
+                                award_date=header.get("start_date", ""),
+                                source="scprs_browser_won",
+                            )
+                            won_quotes += 1
+                except Exception as e:
+                    log.warning("Won quotes %s: %s", po, str(e)[:60])
+
         db.close()
     except Exception as e:
         log.error("Store results DB error: %s", e)

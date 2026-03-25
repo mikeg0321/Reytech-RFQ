@@ -12,129 +12,151 @@ log = logging.getLogger("reytech.buyer_intelligence")
 
 
 def refresh_buyer_profiles():
-    """Rebuild all buyer profiles from scprs_po_master + scprs_po_lines."""
+    """Rebuild all buyer profiles from scprs_po_master + scprs_po_lines.
+    Uses batched commits (50 buyers per batch) to avoid holding the DB write
+    lock for minutes and blocking save/generate operations."""
     import sqlite3
+    import time as _time
     from src.core.db import DB_PATH
-    db = sqlite3.connect(DB_PATH, timeout=30)
-    db.row_factory = None
 
+    BATCH_SIZE = 50
+
+    # Read-only query to get buyer list (short-lived connection)
+    db = sqlite3.connect(DB_PATH, timeout=30)
+    db.execute("PRAGMA busy_timeout=30000")
+    db.row_factory = None
     buyers = db.execute("""
         SELECT DISTINCT buyer_email, buyer_name, dept_name, dept_code
         FROM scprs_po_master
         WHERE buyer_email IS NOT NULL AND buyer_email != ''
     """).fetchall()
+    db.close()
 
     log.info("Buyer refresh: processing %d unique buyers", len(buyers))
     updated = 0
 
-    for email, name, dept, dept_code in buyers:
-        if not email or "@" not in email:
-            continue
+    for batch_start in range(0, len(buyers), BATCH_SIZE):
+        batch = buyers[batch_start:batch_start + BATCH_SIZE]
+        db = sqlite3.connect(DB_PATH, timeout=60)
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=30000")
+        db.row_factory = None
+
+        for email, name, dept, dept_code in batch:
+            if not email or "@" not in email:
+                continue
+            try:
+                stats = db.execute("""
+                    SELECT COUNT(DISTINCT po_number) as total_pos,
+                           SUM(CAST(REPLACE(REPLACE(grand_total,'$',''),',','') AS REAL)) as total_spend,
+                           MIN(start_date) as first_date,
+                           MAX(start_date) as last_date
+                    FROM scprs_po_master WHERE buyer_email = ?
+                """, (email,)).fetchone()
+
+                line_count = db.execute("""
+                    SELECT COUNT(*) FROM scprs_po_lines l
+                    JOIN scprs_po_master m ON l.po_number = m.po_number
+                    WHERE m.buyer_email = ?
+                """, (email,)).fetchone()[0]
+
+                reytech = db.execute("""
+                    SELECT COUNT(DISTINCT po_number),
+                           SUM(CAST(REPLACE(REPLACE(grand_total,'$',''),',','') AS REAL)),
+                           MAX(start_date)
+                    FROM scprs_po_master
+                    WHERE buyer_email = ? AND UPPER(supplier) LIKE '%REYTECH%'
+                """, (email,)).fetchone()
+
+                rt_pos = reytech[0] or 0
+                rt_spend = reytech[1] or 0
+                rt_last = reytech[2] or ""
+
+                items = db.execute("""
+                    SELECT l.description FROM scprs_po_lines l
+                    JOIN scprs_po_master m ON l.po_number = m.po_number
+                    WHERE m.buyer_email = ?
+                """, (email,)).fetchall()
+
+                top_cats = _extract_categories([r[0] for r in items if r[0]])
+                status = "active_customer" if rt_pos > 0 else "prospect"
+
+                score = _calculate_prospect_score(
+                    total_pos=stats[0] or 0, total_spend=stats[1] or 0,
+                    last_date=stats[3] or "", line_items=line_count,
+                    buys_from_reytech=rt_pos > 0, reytech_spend=rt_spend,
+                    categories=top_cats,
+                )
+
+                db.execute("""
+                    INSERT INTO scprs_buyers
+                    (buyer_email, buyer_name, department, dept_code,
+                     total_pos, total_spend, total_line_items,
+                     first_po_date, last_po_date, top_categories,
+                     buys_from_reytech, reytech_spend, reytech_last_date,
+                     relationship_status, prospect_score, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                    ON CONFLICT(buyer_email) DO UPDATE SET
+                        buyer_name = COALESCE(NULLIF(excluded.buyer_name,''), scprs_buyers.buyer_name),
+                        department = COALESCE(NULLIF(excluded.department,''), scprs_buyers.department),
+                        total_pos = excluded.total_pos,
+                        total_spend = excluded.total_spend,
+                        total_line_items = excluded.total_line_items,
+                        first_po_date = excluded.first_po_date,
+                        last_po_date = excluded.last_po_date,
+                        top_categories = excluded.top_categories,
+                        buys_from_reytech = excluded.buys_from_reytech,
+                        reytech_spend = excluded.reytech_spend,
+                        reytech_last_date = excluded.reytech_last_date,
+                        relationship_status = CASE
+                            WHEN scprs_buyers.relationship_status IN ('outreach_sent','replied','meeting_scheduled')
+                            THEN scprs_buyers.relationship_status
+                            ELSE excluded.relationship_status END,
+                        prospect_score = excluded.prospect_score,
+                        updated_at = datetime('now')
+                """, (
+                    email, name or "", dept or "", dept_code or "",
+                    stats[0] or 0, stats[1] or 0, line_count,
+                    stats[2] or "", stats[3] or "",
+                    ", ".join(top_cats[:10]),
+                    1 if rt_pos > 0 else 0, rt_spend, rt_last,
+                    status, score,
+                ))
+
+                # Store buyer's item history
+                buyer_items = db.execute("""
+                    SELECT l.description, l.unit_price, l.quantity,
+                           m.supplier, m.start_date, m.po_number
+                    FROM scprs_po_lines l
+                    JOIN scprs_po_master m ON l.po_number = m.po_number
+                    WHERE m.buyer_email = ?
+                    ORDER BY m.start_date DESC
+                """, (email,)).fetchall()
+
+                for bi in buyer_items:
+                    try:
+                        db.execute("""
+                            INSERT OR IGNORE INTO scprs_buyer_items
+                            (buyer_email, po_number, description, unit_price,
+                             quantity, supplier, date)
+                            VALUES (?,?,?,?,?,?,?)
+                        """, (email, bi[5], bi[0], bi[1], bi[2], bi[3], bi[4]))
+                    except Exception:
+                        pass
+
+                updated += 1
+            except Exception as e:
+                log.warning("Buyer profile %s failed: %s", email, str(e)[:60])
+
+        # Commit and close after each batch — releases the write lock
         try:
-            stats = db.execute("""
-                SELECT COUNT(DISTINCT po_number) as total_pos,
-                       SUM(CAST(REPLACE(REPLACE(grand_total,'$',''),',','') AS REAL)) as total_spend,
-                       MIN(start_date) as first_date,
-                       MAX(start_date) as last_date
-                FROM scprs_po_master WHERE buyer_email = ?
-            """, (email,)).fetchone()
-
-            line_count = db.execute("""
-                SELECT COUNT(*) FROM scprs_po_lines l
-                JOIN scprs_po_master m ON l.po_number = m.po_number
-                WHERE m.buyer_email = ?
-            """, (email,)).fetchone()[0]
-
-            reytech = db.execute("""
-                SELECT COUNT(DISTINCT po_number),
-                       SUM(CAST(REPLACE(REPLACE(grand_total,'$',''),',','') AS REAL)),
-                       MAX(start_date)
-                FROM scprs_po_master
-                WHERE buyer_email = ? AND UPPER(supplier) LIKE '%REYTECH%'
-            """, (email,)).fetchone()
-
-            rt_pos = reytech[0] or 0
-            rt_spend = reytech[1] or 0
-            rt_last = reytech[2] or ""
-
-            items = db.execute("""
-                SELECT l.description FROM scprs_po_lines l
-                JOIN scprs_po_master m ON l.po_number = m.po_number
-                WHERE m.buyer_email = ?
-            """, (email,)).fetchall()
-
-            top_cats = _extract_categories([r[0] for r in items if r[0]])
-            status = "active_customer" if rt_pos > 0 else "prospect"
-
-            score = _calculate_prospect_score(
-                total_pos=stats[0] or 0, total_spend=stats[1] or 0,
-                last_date=stats[3] or "", line_items=line_count,
-                buys_from_reytech=rt_pos > 0, reytech_spend=rt_spend,
-                categories=top_cats,
-            )
-
-            db.execute("""
-                INSERT INTO scprs_buyers
-                (buyer_email, buyer_name, department, dept_code,
-                 total_pos, total_spend, total_line_items,
-                 first_po_date, last_po_date, top_categories,
-                 buys_from_reytech, reytech_spend, reytech_last_date,
-                 relationship_status, prospect_score, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-                ON CONFLICT(buyer_email) DO UPDATE SET
-                    buyer_name = COALESCE(NULLIF(excluded.buyer_name,''), scprs_buyers.buyer_name),
-                    department = COALESCE(NULLIF(excluded.department,''), scprs_buyers.department),
-                    total_pos = excluded.total_pos,
-                    total_spend = excluded.total_spend,
-                    total_line_items = excluded.total_line_items,
-                    first_po_date = excluded.first_po_date,
-                    last_po_date = excluded.last_po_date,
-                    top_categories = excluded.top_categories,
-                    buys_from_reytech = excluded.buys_from_reytech,
-                    reytech_spend = excluded.reytech_spend,
-                    reytech_last_date = excluded.reytech_last_date,
-                    relationship_status = CASE
-                        WHEN scprs_buyers.relationship_status IN ('outreach_sent','replied','meeting_scheduled')
-                        THEN scprs_buyers.relationship_status
-                        ELSE excluded.relationship_status END,
-                    prospect_score = excluded.prospect_score,
-                    updated_at = datetime('now')
-            """, (
-                email, name or "", dept or "", dept_code or "",
-                stats[0] or 0, stats[1] or 0, line_count,
-                stats[2] or "", stats[3] or "",
-                ", ".join(top_cats[:10]),
-                1 if rt_pos > 0 else 0, rt_spend, rt_last,
-                status, score,
-            ))
-
-            # Store buyer's item history
-            buyer_items = db.execute("""
-                SELECT l.description, l.unit_price, l.quantity,
-                       m.supplier, m.start_date, m.po_number
-                FROM scprs_po_lines l
-                JOIN scprs_po_master m ON l.po_number = m.po_number
-                WHERE m.buyer_email = ?
-                ORDER BY m.start_date DESC
-            """, (email,)).fetchall()
-
-            for bi in buyer_items:
-                try:
-                    db.execute("""
-                        INSERT OR IGNORE INTO scprs_buyer_items
-                        (buyer_email, po_number, description, unit_price,
-                         quantity, supplier, date)
-                        VALUES (?,?,?,?,?,?,?)
-                    """, (email, bi[5], bi[0], bi[1], bi[2], bi[3], bi[4]))
-                except Exception:
-                    pass
-
-            updated += 1
+            db.commit()
         except Exception as e:
-            log.warning("Buyer profile %s failed: %s", email, str(e)[:60])
+            log.warning("Buyer batch commit failed: %s", str(e)[:60])
+        db.close()
+        # Brief yield so other writers (save/generate) can acquire the lock
+        _time.sleep(0.1)
 
-    db.commit()
-    db.close()
     log.info("Buyer refresh complete: %d profiles updated", updated)
     return updated
 
