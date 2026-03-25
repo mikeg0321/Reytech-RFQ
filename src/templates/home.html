@@ -980,6 +980,7 @@ function _renderMetrics(data){
  bar.style.background=rev.goal_pct>=100?'var(--gn)':rev.goal_pct>=50?'var(--ac)':'var(--yl)';
 
  // Funnel — clean business pipeline
+ var fn=data.funnel||{};
  var funnelData=[
   {label:'Price Checks',value:fn.pcs_total||0,color:'var(--ac)'},
   {label:'Quoted',value:fn.quoted||0,color:'var(--yl)'},
