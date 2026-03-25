@@ -2429,21 +2429,27 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     PRICE_X = (637.0, 686.0)   # inset 2pt from annotation edges to avoid border overlap
     EXT_X = (691.0, 754.0)     # inset 2pt from annotation edges to avoid border overlap
 
-    # Page-1-format: 3 item rows — exact Y from pdfplumber on real CCHCS AMS 704
-    # Measured row centers: item1=311.4, item2=257.1, item3=212.2 (step ~54px)
+    # Page-1-format: 3 item rows
+    # Exact cell boundaries from pdfplumber rect extraction on CCHCS DocuSign AMS 704.
+    # Each item spans TWO rows: main (has price) + continuation (SKU/ref, no price).
+    # Measured MAIN row boundaries (vertical border rects at x=620 and x=689):
+    #   Item 1: bot=291.0  top=312.8    Item 2: bot=236.5  top=258.6    Item 3: bot=191.6  top=213.7
+    # Previous coords were 9px too high → white mask crossed cell top border → erased lines
     PG1_ROWS = [
-        (300.0, 322.0),  # row 1
-        (246.0, 268.0),  # row 2
-        (201.0, 223.0),  # row 3
+        (292.0, 311.5),  # row 1 — cell (291.0, 312.8), 1pt inset
+        (237.5, 257.5),  # row 2 — cell (236.5, 258.6)
+        (192.5, 212.5),  # row 3 — cell (191.6, 213.7)
     ]
-    # Continuation-format: 5 item rows — items 4-8 on page 2
-    # Measured row centers: 478.9, 425.4, 366.8, 308.5, 263.6 (step ~58px)
+    # Continuation-format: 5 item rows on page 2
+    # Measured MAIN row boundaries (rects at x=639 and x=689):
+    #   Item 4: bot=456.4 top=485.2   Item 5: bot=397.9 top=426.7
+    #   Item 6: bot=339.3 top=368.1   Item 7: bot=287.6 top=309.7   Item 8: bot=233.9 top=264.8
     PG2_ROWS = [
-        (468.0, 490.0),  # row 4
-        (414.0, 436.0),  # row 5
-        (355.0, 377.0),  # row 6
-        (297.0, 319.0),  # row 7
-        (252.0, 274.0),  # row 8
+        (457.5, 484.0),  # row 4 — cell (456.4, 485.2)
+        (399.0, 425.5),  # row 5 — cell (397.9, 426.7)
+        (340.5, 367.0),  # row 6 — cell (339.3, 368.1)
+        (288.7, 308.5),  # row 7 — cell (287.6, 309.7)
+        (235.0, 263.5),  # row 8 — cell (233.9, 264.8)
     ]
     # Continuation header: SUPPLIER NAME area
     PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
