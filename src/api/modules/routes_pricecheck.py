@@ -2094,11 +2094,18 @@ def _do_generate(pcid):
 
     output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech{suffix}.pdf")
 
+    # Tax: always use stored rate if > 0, not gated on tax_enabled
+    _gen_tax = 0.0
+    _sr = pc.get("tax_rate", 0)
+    if _sr and float(_sr) > 0:
+        _rv = float(_sr)
+        _gen_tax = _rv / 100.0 if _rv > 1.0 else _rv
+
     result = fill_ams704(
         source_pdf=source_pdf,
         parsed_pc=parsed,
         output_pdf=output_path,
-        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
     )
@@ -2218,11 +2225,34 @@ def _do_generate_original(pcid):
              pcid, len(parsed.get("line_items", [])), os.path.basename(source_pdf),
              os.path.basename(output_path))
 
+    # Tax: always use stored rate if > 0 — government 704 must show actual CA tax
+    _pc_tax_rate = 0.0
+    _stored_rate = pc.get("tax_rate", 0)
+    if _stored_rate and float(_stored_rate) > 0:
+        _r = float(_stored_rate)
+        _pc_tax_rate = _r / 100.0 if _r > 1.0 else _r
+    elif (pc.get("header") or {}).get("zip_code") or pc.get("ship_to"):
+        try:
+            from src.agents.tax_agent import get_tax_rate as _gtr
+            import re as _re_tax
+            _zip = ((pc.get("header") or {}).get("zip_code") or "").strip()
+            if not _zip:
+                _zm = _re_tax.search(r'\b(\d{5})\b', pc.get("ship_to", ""))
+                _zip = _zm.group(1) if _zm else ""
+            if _zip:
+                _tr = _gtr(zip_code=_zip)
+                if _tr and _tr.get("rate"):
+                    _pc_tax_rate = _tr["rate"]
+        except Exception:
+            pass
+    if _pc_tax_rate == 0.0:
+        log.warning("GENERATE-ORIGINAL %s: tax_rate=0 — no rate stored and lookup failed", pcid)
+
     result = fill_ams704(
         source_pdf=source_pdf,
         parsed_pc=parsed,
         output_pdf=output_path,
-        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        tax_rate=_pc_tax_rate,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
         original_mode=True,
@@ -4920,11 +4950,17 @@ def pricecheck_document_save(pcid):
     versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
     output_path = os.path.join(DATA_DIR, versioned_name)
     
+    _regen_tax = 0.0
+    _rsr = pc.get("tax_rate", 0)
+    if _rsr and float(_rsr) > 0:
+        _rrv = float(_rsr)
+        _regen_tax = _rrv / 100.0 if _rrv > 1.0 else _rrv
+
     result = fill_ams704(
         source_pdf=source_pdf,
         parsed_pc=pc.get("parsed", {}),
         output_pdf=output_path,
-        tax_rate=pc.get("tax_rate", 0) if pc.get("tax_enabled") else 0.0,
+        tax_rate=_regen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
     )
