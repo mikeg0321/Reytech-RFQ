@@ -62,7 +62,7 @@
     <div class="card" style="margin-bottom:14px">
      <div class="card-t">📄 Quote PDF Preview</div>
      <div id="pdf-preview-container">
-      <iframe id="pdf-iframe" src="/api/pricecheck/view-pdf/{{ fname }}" style="width:100%;height:700px;border:none;border-radius:8px;background:var(--sf2)" title="Quote PDF" onload="checkPdfLoad()" onerror="showPdfError()"></iframe>
+      <iframe id="pdf-iframe" src="/api/pricecheck/view-pdf/{{ fname }}" style="width:100%;height:700px;border:none;border-radius:8px;background:var(--sf2)" title="Quote PDF"></iframe>
      </div>
     </div>
     {% else %}
@@ -212,7 +212,7 @@
     }
 
     function loadAgencyIntel() {
-      const agency = {{ agency|tojson }} || '{{ institution }}'.split('-')[0].split(' ')[0];
+      const agency = {{ agency|tojson }} || {{ institution|tojson }}.split('-')[0].split(' ')[0];
       if (!agency) {
         document.getElementById('agency-intel').innerHTML = '<div style="color:var(--tx2)">No agency detected</div>';
         return;
