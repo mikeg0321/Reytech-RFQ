@@ -190,7 +190,7 @@ def rfq_auto_lookup(rid):
             }
             rfqs_fresh = load_rfqs()
             rfqs_fresh[rid] = r
-            save_rfqs(rfqs_fresh)
+            _save_single_rfq(rid, r)
             _emit_progress(task_id, "saved", "Results saved", done=True)
             try:
                 from src.core.dal import log_lifecycle_event
@@ -273,7 +273,7 @@ def apply_recommendations(rid):
 
     has_prices = sum(1 for i in r["line_items"] if i.get("price_per_unit"))
     r["status"] = "priced" if has_prices > 0 else r.get("status", "draft")
-    save_rfqs(rfqs)
+    _save_single_rfq(rid, r)
     return jsonify({"ok": True, "applied": applied, "total": len(r["line_items"])})
 
 
@@ -583,7 +583,7 @@ def send_quote_email(rid):
         r["sent_at"] = datetime.now().isoformat()
         r["sent_to"] = to_email
         rfqs[rid] = r
-        save_rfqs(rfqs)
+        _save_single_rfq(rid, r)
 
         # Log to email_log
         try:
@@ -1006,7 +1006,7 @@ def quick_price_save(entity_type, eid):
                 pc["items"][idx]["pricing"]["unit_price"] = float(price)
         pc["status"] = "priced"
         pc["quick_priced_at"] = datetime.now().isoformat()
-        _save_price_checks(pcs)
+        _save_single_pc(eid, pc)
         return jsonify({"ok": True, "priced": len(prices)})
 
     elif entity_type == "rfq":
@@ -1019,7 +1019,7 @@ def quick_price_save(entity_type, eid):
             if 0 <= idx < len(r.get("line_items", [])):
                 r["line_items"][idx]["price_per_unit"] = float(price)
         r["status"] = "priced"
-        save_rfqs(rfqs)
+        _save_single_rfq(eid, r)
         return jsonify({"ok": True, "priced": len(prices)})
 
     return jsonify({"ok": False, "error": "Unknown entity type"}), 400
@@ -1267,7 +1267,7 @@ Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
                 "to": to_email,
             })
             r["last_follow_up"] = datetime.now().isoformat()
-            save_rfqs(rfqs)
+            _save_single_rfq(eid, r)
         elif entity_type == "pc":
             pcs = _load_price_checks()
             pc = pcs.get(eid, {})
@@ -1276,7 +1276,7 @@ Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
                 "to": to_email,
             })
             pc["last_follow_up"] = datetime.now().isoformat()
-            _save_price_checks(pcs)
+            _save_single_pc(eid, pc)
 
         log.info("Follow-up sent for %s/%s to %s", entity_type, eid, to_email)
         return jsonify({"ok": True, "sent_to": to_email})
@@ -1439,7 +1439,7 @@ def link_pc_to_rfq(pcid):
         # Also backlink on the RFQ
         rfqs[rfq_id]["linked_pc_id"] = pcid
         rfqs[rfq_id]["linked_pc_number"] = pc.get("pc_number", "")
-        save_rfqs(rfqs)
+        _save_single_rfq(rfq_id, rfqs[rfq_id])
     else:
         # Auto-match: find RFQ with same solicitation/PC number
         sol = pc.get("pc_number", "").strip()
@@ -1466,12 +1466,12 @@ def link_pc_to_rfq(pcid):
             pc["linked_rfq_at"] = datetime.now().isoformat()
             rfqs[match]["linked_pc_id"] = pcid
             rfqs[match]["linked_pc_number"] = pc.get("pc_number", "")
-            save_rfqs(rfqs)
+            _save_single_rfq(match, rfqs[match])
         else:
-            _save_price_checks(pcs)
+            _save_single_pc(pcid, pc)
             return jsonify({"ok": True, "matched": False, "message": "No matching RFQ found"})
 
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     return jsonify({"ok": True, "matched": True, "rfq_id": pc.get("linked_rfq_id")})
 
 
@@ -1562,7 +1562,7 @@ def convert_pc_to_rfq(pcid):
 
     rfqs = load_rfqs()
     rfqs[rfq_id] = rfq_data
-    save_rfqs(rfqs)
+    _save_single_rfq(rfq_id, rfq_data)
 
     # Copy attachments/files from PC to RFQ
     files_copied = 0
@@ -1589,7 +1589,7 @@ def convert_pc_to_rfq(pcid):
     pc["linked_rfq_id"] = rfq_id
     pc["linked_rfq_at"] = now
     pc["converted_to_rfq"] = True
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     log.info("PC %s converted to RFQ %s with %d items, %d files", pcid, rfq_id, len(line_items), files_copied)
     return jsonify({"ok": True, "rfq_id": rfq_id, "items": len(line_items), "files_copied": files_copied})
@@ -2031,7 +2031,7 @@ def rfq_retry_auto_price(rid):
     try:
         rfqs_fresh = load_rfqs()
         rfqs_fresh[rid] = r
-        save_rfqs(rfqs_fresh)
+        _save_single_rfq(rid, r)
     except Exception as e:
         errors.append(f"save: {e}")
 
@@ -2075,7 +2075,7 @@ def rfq_relink_pc(rid):
 
     # Run the existing linkage function
     try:
-        from src.api.dashboard import _link_rfq_to_pc, _load_price_checks, _save_price_checks
+        from src.api.dashboard import _link_rfq_to_pc, _load_price_checks, _save_price_checks, _save_single_pc
         
         # First: ensure matching PC actually has prices
         # If PC items have empty pricing, price them NOW before porting
@@ -2134,7 +2134,7 @@ def rfq_relink_pc(rid):
                     if priced > 0:
                         pc["items"] = pc_items
                         pcs[pid] = pc
-                        _save_price_checks(pcs)
+                        _save_single_pc(pid, pc)
                 except Exception as pe:
                     trace.append(f"Inline pricing error: {pe}")
 
@@ -2173,7 +2173,7 @@ def rfq_relink_pc(rid):
             
             # Save
             rfqs[rid] = r
-            save_rfqs(rfqs)
+            _save_single_rfq(rid, r)
             diff = r.get("pc_diff", {})
             
             return jsonify({
@@ -2369,7 +2369,7 @@ def rfq_debug_link(rid):
 @auth_required
 def api_pcs_list():
     """List PCs for import picker. Pass ?rfq_id=<rid> for smart ranking."""
-    from src.api.dashboard import _load_price_checks, _save_price_checks
+    from src.api.dashboard import _load_price_checks, _save_price_checks, _save_single_pc, _save_single_rfq
     pcs = _load_price_checks()
     rfq_id = request.args.get("rfq_id", "")
     rfq = {}
@@ -2434,10 +2434,10 @@ def api_pcs_list():
                 _r = _rfqs.get(rfq_id, {})
                 _r["linked_pc_id"] = exact[0]["id"]
                 _r["linked_pc_number"] = exact[0]["pc_number"]
-                save_rfqs(_rfqs)
+                _save_single_rfq(rfq_id, _r)
                 _pc_obj = pcs.get(exact[0]["id"], {})
                 _pc_obj["linked_rfq_id"] = rfq_id
-                _save_price_checks(pcs)
+                _save_single_pc(exact[0]["id"], _pc_obj)
                 auto_linked = exact[0]["id"]
                 log.info("Auto-linked RFQ %s ↔ PC %s (sol=%s)", rfq_id, exact[0]["id"], rfq_sol)
             except Exception as _ale:
@@ -2533,7 +2533,7 @@ def api_rfq_import_from_pc(rid):
         r["source_file"] = source_file
         r["pc_pdf_path"] = source_file
 
-    save_rfqs(rfqs)
+    _save_single_rfq(rid, r)
 
     # Copy attachments/files from PC to RFQ
     files_copied = 0
@@ -2651,7 +2651,7 @@ def api_rfq_import_from_catalog(rid):
                            "catalog_name": best.get("name", "")[:60],
                            "filled": [], "note": "already had pricing"})
 
-    save_rfqs(rfqs)
+    _save_single_rfq(rid, r)
 
     return jsonify({
         "ok": True,
@@ -2770,7 +2770,7 @@ def api_rfq_upload_pc(rid):
     r["linked_pc_number"] = pc_number
     r["linked_pc_match_reason"] = "pdf_upload"
     r["uploaded_pc_pdf"] = pdf_path
-    save_rfqs(rfqs)
+    _save_single_rfq(rid, r)
 
     return jsonify({
         "ok": True,

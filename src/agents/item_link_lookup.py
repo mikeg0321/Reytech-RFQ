@@ -65,6 +65,7 @@ SUPPLIER_MAP = {
     "nambe.com":             "Nambé",
     "shoplet.com":           "Shoplet",
     "quill.com":             "Quill",
+    "ssww.com":              "S&S Worldwide",
     "aedstore.com":          "AED Store",
     "aed.com":               "AED Superstore",
     "aedbrands.com":         "AED Brands",
@@ -448,6 +449,59 @@ def _lookup_mcmaster(url: str) -> dict:
     return result
 
 
+def _extract_ssww_item(url: str):
+    """Extract S&S Worldwide item# and description from URL slug.
+    URL format: /item/{slug-with-dashes-ITEMNUM}/
+    Item# is the last segment matching [A-Z]{0,3}\\d{3,6} pattern."""
+    m = re.search(r'/item/([^/?#]+)', url)
+    if not m:
+        return "", ""
+    slug = m.group(1).rstrip("/")
+    parts = slug.split("-")
+    item_num = ""
+    desc_parts = parts
+    # Last segment is usually the item number
+    for i in range(len(parts) - 1, -1, -1):
+        p = parts[i]
+        if re.match(r'^[A-Z]{0,3}\d{3,6}$', p):
+            item_num = p
+            desc_parts = parts[:i]
+            break
+    desc = " ".join(w.capitalize() if len(w) > 2 else w for w in desc_parts).strip()
+    # Fix common words
+    desc = desc.replace(" X ", " x ").replace(" Of ", " of ").replace(" And ", " and ")
+    return item_num, desc
+
+
+def _normalize_ssww_url(url: str) -> str:
+    """Strip tracking params from S&S Worldwide URLs."""
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
+
+def _lookup_ssww(url: str) -> dict:
+    """S&S Worldwide: extract item# from URL, scrape price, stable description."""
+    item_num, desc_from_url = _extract_ssww_item(url)
+    clean_url = _normalize_ssww_url(url)
+    scraped = _scrape_generic(clean_url)
+    scraped["supplier"] = "S&S Worldwide"
+    scraped["url"] = clean_url
+    if item_num:
+        scraped["part_number"] = item_num
+        scraped["mfg_number"] = item_num
+    title = scraped.get("title") or scraped.get("description") or desc_from_url
+    if title:
+        scraped["description"] = title
+    elif desc_from_url:
+        scraped["description"] = desc_from_url
+    # Prefer list price
+    _list = scraped.get("list_price") or scraped.get("price")
+    if _list:
+        scraped["price"] = _list
+        scraped["cost"] = _list
+    return scraped
+
+
 def _lookup_aedstore(url: str) -> dict:
     """AED Store / AED Superstore: extract product details."""
     result = _scrape_generic(url)
@@ -544,6 +598,8 @@ def lookup_from_url(url: str) -> dict:
             result = _lookup_mcmaster(url)
         elif any(d in host for d in ("aedstore.com", "aed.com", "aedbrands.com", "buyaedsusa.com")):
             result = _lookup_aedstore(url)
+        elif "ssww.com" in host:
+            result = _lookup_ssww(url)
         else:
             # Generic HTML scrape for all other suppliers
             result = _scrape_generic(url)

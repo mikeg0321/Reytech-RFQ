@@ -131,7 +131,7 @@ def api_pc_revert(pcid):
 
         # Apply the revision
         pc["items"] = target["items"]
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
 
         return jsonify({"ok": True, "reverted_to": rev_num,
                         "items_count": len(target["items"])})
@@ -175,7 +175,7 @@ def pricecheck_trim_items(pcid):
     # Reset generate count so next generate starts fresh
     pc["_generate_count"] = 0
 
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     log.info("TRIM PC %s: kept %d, removed %d items", pcid, keep, removed)
     return jsonify({"ok": True, "kept": keep, "removed": removed})
@@ -287,7 +287,7 @@ def api_pc_merge_items(pcid):
         if "parsed" in pc:
             pc["parsed"]["line_items"] = items
 
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
         return jsonify({"ok": True, "merged_into": idx - 1, "remaining_items": len(items),
                         "description": merged_desc})
     except Exception as e:
@@ -329,7 +329,7 @@ def api_pc_change_status(pcid):
             if data.get("reason"):
                 pc["closed_reason"] = data["reason"]
 
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
         
         # Auto-save items to catalog on terminal states (sent, won, completed)
         # This is how the catalog grows organically from daily quoting
@@ -937,7 +937,7 @@ def pricecheck_lookup(pcid):
                     if "amazon.com" in best_url:
                         item["item_supplier"] = "Amazon"
         _transition_status(pc, "draft", actor="user", notes=f"Prices found via {source}")
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
 
     return jsonify({"ok": True, "found": found, "total": len(pc.get("items", [])),
                     "source": source})
@@ -1009,7 +1009,7 @@ def pricecheck_scprs_lookup(pcid):
                 log.error(f"SCPRS lookup error: {e}")
 
     _sync_pc_items(pc, items)
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     return jsonify({"ok": True, "found": found, "total": len(items)})
 
 
@@ -1059,7 +1059,7 @@ def pricecheck_rescan_mfg(pcid):
             updated += 1
 
     _sync_pc_items(pc, items)
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     return jsonify({"ok": True, "updated": updated, "total": len(items)})
 
@@ -1091,7 +1091,7 @@ def pricecheck_rename(pcid):
     if not new_name:
         return jsonify({"ok": False, "error": "Name cannot be empty"})
     pcs[pcid]["pc_number"] = new_name
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     log.info("RENAME PC %s → %s", pcid, new_name)
     return jsonify({"ok": True, "pc_number": new_name})
 
@@ -1578,7 +1578,7 @@ def _do_save_prices(pcid):
         if priced_items:
             _transition_status(pc, "draft", actor="user", 
                              notes=f"Saved: {len(priced_items)}/{len(bid_items)} items priced")
-            _save_price_checks(pcs)
+            _save_single_pc(pcid, pc)
 
     summary = pc.get("profit_summary", {})
     resp = {"ok": True, "profit_summary": summary}
@@ -1840,7 +1840,7 @@ def pricecheck_reparse(pcid):
     # Update PC with fresh parse
     pc["parsed"] = fresh
     _sync_pc_items(pc, fresh["line_items"])
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     log.info("REPARSE PC %s: %d items re-parsed from source PDF", pcid, len(fresh["line_items"]))
     return jsonify({"ok": True, "items": len(fresh["line_items"]),
@@ -1876,7 +1876,7 @@ def api_pc_lookup_tax_rate(pcid):
             pc["tax_rate"] = rate_pct
             pc["tax_validated"] = True
             pc["tax_source"] = result.get("source", "")
-            _save_price_checks(pcs)
+            _save_single_pc(pcid, pc)
             return jsonify({"ok": True, "rate": rate_pct,
                 "jurisdiction": result.get("jurisdiction", ""),
                 "source": result.get("source", "")})
@@ -1955,7 +1955,7 @@ def pricecheck_upload_pdf(pcid):
             pc["institution"] = header["institution"]
         pc["status"] = "parsed"
         _sync_pc_items(pc, items)
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
         try:
             from src.core.dal import save_pc as _dal_save_pc
             _dal_save_pc(pc)
@@ -1965,7 +1965,7 @@ def pricecheck_upload_pdf(pcid):
         from flask import flash
         flash(f"Parsed {len(items)} items from uploaded PDF", "success")
     else:
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
         log.warning("PC %s: uploaded PDF parsed 0 items", pcid)
         from flask import flash
         flash("PDF uploaded but no items found — try vision parse", "error")
@@ -2022,7 +2022,7 @@ def _do_generate(pcid):
             _auto_priced += 1
     if _auto_priced:
         log.info("GENERATE %s: auto-computed %d missing prices", pcid, _auto_priced)
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
 
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
@@ -2050,7 +2050,7 @@ def _do_generate(pcid):
                     with open(source_pdf, "wb") as _fw:
                         _fw.write(row["data"])
                     pc["source_pdf"] = source_pdf
-                    _save_price_checks(pcs)
+                    _save_single_pc(pcid, pc)
                     recovered = True
                     log.info("GENERATE %s: recovered PDF from DB (%d bytes)", pcid, len(row["data"]))
         except Exception as _dbe:
@@ -2118,7 +2118,7 @@ def _do_generate(pcid):
         else:
             _transition_status(pc, pc["status"], actor="system", notes="704 PDF revised (status preserved)")
         pc["summary"] = result.get("summary", {})
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
 
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
@@ -2172,7 +2172,7 @@ def _do_generate_original(pcid):
             _auto_priced += 1
     if _auto_priced:
         log.info("GENERATE-ORIGINAL %s: auto-computed %d missing prices", pcid, _auto_priced)
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
 
     parsed = pc.get("parsed", {})
     source_pdf = pc.get("source_pdf", "")
@@ -2200,7 +2200,7 @@ def _do_generate_original(pcid):
                     with open(source_pdf, "wb") as _fw:
                         _fw.write(row["data"])
                     pc["source_pdf"] = source_pdf
-                    _save_price_checks(pcs)
+                    _save_single_pc(pcid, pc)
                     recovered = True
                     log.info("GENERATE-ORIGINAL %s: recovered PDF from DB (%d bytes)", pcid, len(row["data"]))
         except Exception as _dbe:
@@ -2230,7 +2230,7 @@ def _do_generate_original(pcid):
 
     if result.get("ok"):
         pc["original_pdf"] = output_path
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
         log.info("GENERATE-ORIGINAL %s: SUCCESS \u2014 %d items priced, subtotal=$%.2f",
                  pcid, result.get("summary", {}).get("items_priced", 0),
                  result.get("summary", {}).get("subtotal", 0))
@@ -2282,7 +2282,7 @@ def pricecheck_generate_quote(pcid):
         from src.forms.quote_generator import _next_quote_number
         locked_qn = _next_quote_number()
         pc["reytech_quote_number"] = locked_qn
-        _save_price_checks(pcs)  # persist NOW
+        _save_single_pc(pcid, pc)
 
     result = generate_quote_from_pc(
         pc, output_path,
@@ -2294,7 +2294,7 @@ def pricecheck_generate_quote(pcid):
         pc["reytech_quote_pdf"] = output_path
         pc["reytech_quote_number"] = result.get("quote_number", locked_qn)
         pc["status"] = "draft"
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
         _enrich_catalog_from_pc(pc)
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
                           f"Quote {result.get('quote_number','')} generated — ${result.get('total',0):,.2f} for {pc.get('institution','')}",
@@ -2425,7 +2425,7 @@ def pricecheck_convert_to_quote(pcid):
     # Update PC status
     _transition_status(pc, "draft", actor="system", notes="Reytech quote generated")
     pc["converted_rfq_id"] = rfq_id
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     return jsonify({"ok": True, "rfq_id": rfq_id})
 
@@ -2463,7 +2463,7 @@ def api_pc_create_manual():
 
     pcs = _load_price_checks()
     pcs[pcid] = pc
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     return jsonify({"ok": True, "pc_id": pcid, "sol": sol or inst})
 
@@ -3974,7 +3974,7 @@ def api_pricecheck_dismiss(pcid):
     pc["dismissed_at"] = datetime.now().isoformat()
     pcs[pcid] = pc
 
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     log.info("PC %s dismissed: reason=%s pc_number=%s", pcid, reason, pc.get("pc_number","?"))
     
@@ -4015,7 +4015,7 @@ def api_pricecheck_delete(pcid):
 
     # Mark dismissed (Law 22: never truly delete)
     pcs[pcid]["status"] = "dismissed"
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     # Also remove from SQLite
     try:
@@ -4414,7 +4414,7 @@ def api_pricecheck_mark_sent(pcid):
         except Exception as e:
             log.warning("sent_document DB write failed: %s", e)
     
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     try:
         from src.core.dal import save_pc as _dal_save_pc
@@ -4555,7 +4555,7 @@ def api_pc_log_follow_up(pcid):
         "follow_up_number": pc["follow_up_count"],
     })
 
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
 
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "pc_follow_up",
         f"Follow-up #{pc['follow_up_count']} ({method}) on PC #{pc.get('pc_number','')} — {pc.get('institution','')}",
@@ -4575,7 +4575,7 @@ def api_pc_mark_no_response(pcid):
 
     _transition_status(pc, "not_responding", actor="user",
                        notes=f"No response after {pc.get('follow_up_count', 0)} follow-ups")
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     return jsonify({"ok": True, "status": "not_responding"})
 
 
@@ -4833,7 +4833,7 @@ def pricecheck_document_save(pcid):
         pc["parsed"] = {"header": {}, "line_items": items}
     else:
         pc["parsed"]["line_items"] = items
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     
     # Re-generate the PDF
     from src.forms.price_check import fill_ams704
@@ -4868,7 +4868,7 @@ def pricecheck_document_save(pcid):
     
     # Update the main output_pdf to this latest version
     pc["output_pdf"] = output_path
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     
     # Create document version record
     doc_id = create_sent_document(
@@ -4894,7 +4894,7 @@ def api_pc_mark_auto_priced(pcid):
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
     pc["auto_priced"] = True
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     return jsonify({"ok": True})
 
 
@@ -5064,11 +5064,11 @@ def api_pc_retry_auto_price(pcid):
             pc["auto_priced"] = True
             pc["auto_priced_count"] = found
         
-        # Use _save_price_checks for proper dual-write (DB + JSON) + cache invalidation
+        # Use _save_single_pc for proper dual-write (DB + JSON) + cache invalidation
         try:
             pcs = _load_price_checks()
             pcs[pcid] = pc
-            _save_price_checks(pcs)
+            _save_single_pc(pcid, pc)
             save_ok = True
         except Exception as e:
             errors.append(f"save: {e}")
@@ -5081,9 +5081,7 @@ def api_pc_retry_auto_price(pcid):
         
         # Also save via standard pipeline (SQLite + JSON + cache invalidation)
         try:
-            pcs_all = _load_price_checks()
-            pcs_all[pcid] = pc
-            _save_price_checks(pcs_all)
+            _save_single_pc(pcid, pc)
         except Exception as e:
             errors.append(f"save: {e}")
 
@@ -5124,7 +5122,7 @@ def api_pricecheck_mark_won(pcid):
     _transition_status(pc, "sent", actor="user", notes=data.get("notes", "Won"))
     pc.update({"award_status": "won",
         "closed_at": datetime.now().isoformat(), "closed_reason": data.get("notes", "Won")})
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     try:
         upsert_price_check(pcid, pc)
     except Exception as _e:
@@ -5181,7 +5179,7 @@ def api_pricecheck_mark_lost(pcid):
         "competitor_po": data.get("po_number", ""),
         "closed_at": datetime.now().isoformat(),
         "closed_reason": f"Lost to {comp_name}"})
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     try:
         upsert_price_check(pcid, pc)
     except Exception as _e:
@@ -6522,7 +6520,7 @@ def api_pricecheck_clear_quote(pcid):
     old_qnum = pcs[pcid].get("reytech_quote_number", "")
     pcs[pcid]["reytech_quote_number"] = ""
     pcs[pcid]["status"] = "parsed"  # Reset to parsed so it can be re-generated
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pcs[pcid])
     try:
         from src.core.dal import update_pc_status as _dal_update_pc
         _dal_update_pc(pcid, "parsed")
@@ -7818,7 +7816,7 @@ def api_bulk_scrape_urls(pcid):
         except Exception as e:
             results.append({"line": i + 1, "url": url[:60], "status": "error", "error": str(e)[:80]})
     if applied:
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
@@ -7906,7 +7904,7 @@ def api_pc_send_quote(pcid):
         pc["status"] = "sent"
         pc["sent_at"] = datetime.now().isoformat()
         pc["sent_to"] = to_email
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc)
 
         # Log activity
         try:
@@ -7942,7 +7940,7 @@ def api_pc_duplicate(pcid):
     new_pc["duplicated_from"] = pcid
     # Keep items, pricing, institution — user changes what they need
     pcs[new_id] = new_pc
-    _save_price_checks(pcs)
+    _save_single_pc(new_id, new_pc)
     log.info("Duplicated PC %s → %s", pcid, new_id)
     return jsonify({"ok": True, "new_id": new_id, "redirect": f"/pricecheck/{new_id}"})
 
@@ -7966,6 +7964,6 @@ def api_pc_update_status(pcid):
         pc["closed_at"] = datetime.now().isoformat()
         if data.get("reason"):
             pc["closed_reason"] = data["reason"]
-    _save_price_checks(pcs)
+    _save_single_pc(pcid, pc)
     log.info("PC %s status: %s → %s", pcid, old, new_status)
     return jsonify({"ok": True, "old": old, "new": new_status})

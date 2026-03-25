@@ -1677,7 +1677,7 @@ def _auto_price_new_pc(pc_id: str):
                 pcs[pc_id]["auto_priced_at"] = datetime.now().isoformat()
                 if pcs[pc_id].get("status") == "parsed":
                     pcs[pc_id]["status"] = "priced"
-                _save_price_checks(pcs)
+                _save_single_pc(pc_id, pcs[pc_id])
                 log.info("Auto-priced PC %s: %d/%d items found prices", pc_id, found_count, len(items))
                 try:
                     from src.agents.notify_agent import send_alert
@@ -2229,7 +2229,7 @@ def _link_rfq_to_pc(rfq_data, _trace):
     pc["converted_to_rfq"] = True
     pc["linked_rfq_id"] = rfq_data["id"]
     pc["linked_rfq_at"] = datetime.now().isoformat()
-    _save_price_checks(pcs)
+    _save_single_pc(matched_pid, pc)
 
     return True
 
@@ -2494,7 +2494,7 @@ def process_rfq_email(rfq_email):
             t.ok("Skipped: secure stub already exists")
             return None
         _rfq_store[_stub_id] = _stub
-        save_rfqs(_rfq_store)
+        _save_single_rfq(_stub_id, _stub)
         log.info("📧 Secure-message stub created: %s sol=%s from %s",
                  _stub_id, _sol, rfq_email.get("sender_email", ""))
         _trace.append(f"SECURE STUB: {_stub_id} sol={_sol}")
@@ -2624,7 +2624,7 @@ def process_rfq_email(rfq_email):
                                 "created_at": datetime.now().isoformat(),
                                 "reytech_quote_number": "", "linked_quote_number": "",
                             }
-                            _save_price_checks(pcs)
+                            _save_single_pc(pc_id, pcs[pc_id])
                             # Persist source PDF to DB so it survives redeploys
                             try:
                                 if pc_file and os.path.exists(pc_file):
@@ -2730,7 +2730,7 @@ def process_rfq_email(rfq_email):
                                             pass
                                     log.info("PC %s: split hint — %d items, splits at %s",
                                              pc_id, len(items), pcs[pc_id]["_split_hint"]["suggested_splits"])
-                                _save_price_checks(pcs)
+                                _save_single_pc(pc_id, pcs[pc_id])
                                 # Persist source PDF to DB so it survives redeploys
                                 try:
                                     if pc_file and os.path.exists(pc_file):
@@ -2754,7 +2754,7 @@ def process_rfq_email(rfq_email):
                         pcs[pc_id]["email_uid"] = email_uid
                         pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
-                        _save_price_checks(pcs)
+                        _save_single_pc(pc_id, pcs[pc_id])
                         _ensure_contact_from_email(rfq_email)
                         # Auto-price in background thread
                         threading.Thread(target=_auto_price_new_pc, args=(pc_id,), daemon=True).start()
@@ -2817,7 +2817,7 @@ def process_rfq_email(rfq_email):
                                 "source": "email_auto",
                                 "reytech_quote_number": "", "linked_quote_number": "",
                             }
-                            _save_price_checks(pcs)
+                            _save_single_pc(pc_id, pcs[pc_id])
                             # Persist source PDF to DB
                             try:
                                 _pc_pdf_path = pc_pdf if pc_pdf else ""
@@ -2862,7 +2862,7 @@ def process_rfq_email(rfq_email):
                         "source": "email_auto",
                         "reytech_quote_number": "", "linked_quote_number": "",
                     }
-                    _save_price_checks(pcs)
+                    _save_single_pc(_force_id, pcs[_force_id])
                     # Persist source PDF to DB
                     try:
                         _exc_pdf = pdf_paths[0] if pdf_paths else ""
@@ -3145,7 +3145,7 @@ def process_rfq_email(rfq_email):
         pass
 
     rfqs[rfq_data["id"]] = rfq_data
-    save_rfqs(rfqs)
+    _save_single_rfq(rfq_data["id"], rfq_data)
     POLL_STATUS["emails_found"] += 1
     # SMS + webhook notification for new RFQ
     try:
@@ -3170,7 +3170,7 @@ def process_rfq_email(rfq_email):
     if _link_rfq_to_pc(rfq_data, _trace):
         # Re-save with ported pricing
         rfqs[rfq_data["id"]] = rfq_data
-        save_rfqs(rfqs)
+        _save_single_rfq(rfq_data["id"], rfq_data)
     
     # ── Cross-queue cleanup: remove unlinked PCs with same sol# ──
     # Converted PCs are preserved (they have pricing history).
@@ -3292,7 +3292,7 @@ def process_rfq_email(rfq_email):
             rfq_data["auto_priced_count"] = _auto_priced
             rfq_data["status"] = "auto_priced"
             rfqs[rfq_data["id"]] = rfq_data
-            save_rfqs(rfqs)
+            _save_single_rfq(rfq_data["id"], rfq_data)
             log.info("F10: Auto-priced %d items for RFQ %s from catalog/history",
                      _auto_priced, rfq_data.get("solicitation_number", ""))
     except Exception as _ap_e:
@@ -3439,7 +3439,7 @@ def _auto_price_pipeline(rfq_data: dict):
             "total": len(pc.get("items", [])),
             "ran_at": datetime.now().isoformat(),
         }
-        save_rfqs(rfqs)
+        _save_single_rfq(rfq_id, rfqs[rfq_id])
 
     # Step 6: Log activity
     _log_crm_activity(

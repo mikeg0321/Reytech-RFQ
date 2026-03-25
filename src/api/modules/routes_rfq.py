@@ -454,8 +454,9 @@ def api_award_approve(idx):
                     r["outcome"] = "won"
                     r["outcome_date"] = datetime.now().isoformat()
                     r["po_number"] = po.get("po_number", "")
+                    from src.api.dashboard import _save_single_rfq
+                    _save_single_rfq(rid, r)
                     break
-            save_rfqs(rfqs)
 
         return jsonify({
             "ok": True,
@@ -530,9 +531,8 @@ def api_rfq_create_manual():
         "notes": data.get("notes", ""),
     }
 
-    rfqs = load_rfqs()
-    rfqs[rid] = rfq
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, rfq)
 
     try:
         from src.core.dal import log_lifecycle_event
@@ -725,9 +725,10 @@ def api_rfq_upload_parse_doc(rid):
         # Only update the RFQ after all items built successfully
         r["line_items"] = existing_items
         try:
-            save_rfqs(rfqs)
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
         except Exception as save_err:
-            log.error("upload-parse save_rfqs failed for %s: %s", rid, save_err, exc_info=True)
+            log.error("upload-parse _save_single_rfq failed for %s: %s", rid, save_err, exc_info=True)
             return jsonify({"ok": False, "error": f"Items parsed but could not save: {save_err}"})
 
         try:
@@ -837,9 +838,8 @@ def upload():
     else:
         _transition_status(rfq, "draft", actor="system", notes="Parsed from upload — no prices found yet")
     
-    rfqs = load_rfqs()
-    rfqs[rfq_id] = rfq
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rfq_id, rfq)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rfq_id, rfq.get("status", "draft"))
@@ -1531,7 +1531,8 @@ def api_lookup_tax_rate(rid):
             r["tax_validated"] = True
             r["tax_source"] = result.get("source", "cdtfa_api")
             r["tax_jurisdiction"] = result.get("jurisdiction", "")
-            save_rfqs(rfqs)
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
             return jsonify({"ok": True, "rate": rate_pct,
                 "jurisdiction": result.get("jurisdiction", ""),
                 "city": result.get("city", ""),
@@ -1671,7 +1672,8 @@ def rfq_save_restore(rid):
     if not r:
         return jsonify({"ok": False})
     if r.pop("_needs_save", False):
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         return jsonify({"ok": True, "saved": True})
     return jsonify({"ok": True, "saved": False})
 
@@ -1997,7 +1999,8 @@ def api_rfq_bulk_scrape_urls(rid):
             log.error("Bulk scrape URL error line %d: %s", i + 1, e, exc_info=True)
             results.append({"line": i + 1, "url": url[:60], "status": "error", "error": str(e)[:80]})
     if applied > 0:
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
@@ -2106,7 +2109,8 @@ def api_rfq_bulk_paste_data(rid):
             log.error("Bulk paste data error line %d: %s", i + 1, e, exc_info=True)
             results.append({"line": i + 1, "status": "error", "error": str(e)[:80]})
     if applied > 0:
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(rows)})
 
 
@@ -2338,7 +2342,8 @@ def rfq_duplicate_item(rid, idx):
         dupe.pop("_catalog_product_id", None)
         items.insert(idx + 1, dupe)
         _renumber_items(items)
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         return _item_response(rid, True, f"Item duplicated at #{idx + 2}")
     return _item_response(rid, False, "Invalid item index")
 
@@ -2362,7 +2367,8 @@ def rfq_move_item(rid, idx, direction):
         return _item_response(rid, False, "Cannot move")
 
     _renumber_items(items)
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     return _item_response(rid, True, f"Item moved {direction}")
 
 
@@ -2382,7 +2388,8 @@ def rfq_reset_items(rid):
     r.pop("linked_pc_number", None)
     r.pop("linked_pc_match_reason", None)
     r.pop("uploaded_pc_pdf", None)
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     _log_rfq_activity(rid, "items_reset",
         f"All {old_count} line items cleared for re-import",
         actor="user")
@@ -2482,7 +2489,8 @@ def rfq_lookup_single_item(rid, idx):
     except Exception as e:
         results["oracle"] = {"error": str(e)[:80]}
 
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
 
     # Build summary
     found = []
@@ -2608,8 +2616,9 @@ def rfq_upload_supplier_quote(rid):
             "items_parsed": len(quote_items), "items_matched": applied,
             "uploaded_at": __import__("datetime").datetime.now().isoformat(),
         }
-        save_rfqs(rfqs)
-        
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+
         try:
             from src.api.dashboard import save_rfq_file
             with open(pdf_path, "rb") as _qf:
@@ -2804,7 +2813,8 @@ def rfq_upload_supplier_quote(rid):
         "items_matched": applied,
         "uploaded_at": __import__("datetime").datetime.now().isoformat(),
     }
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
 
     # Save supplier quote PDF to rfq_files DB (persists across deploys)
     try:
@@ -2962,7 +2972,8 @@ def upload_templates(rid):
         except Exception as e:
             log.error(f"Re-parse error: {e}")
 
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
 
     found = [k for k in new_templates.keys()]
     _log_rfq_activity(rid, "templates_uploaded",
@@ -3473,7 +3484,8 @@ def generate_rfq_package(rid):
                 from src.forms.quote_generator import _next_quote_number
                 locked_qn = _next_quote_number()
                 r["reytech_quote_number"] = locked_qn
-                save_rfqs(rfqs)  # persist NOW so next generate sees it
+                from src.api.dashboard import _save_single_rfq
+                _save_single_rfq(rid, r)  # persist NOW so next generate sees it
                 t.step(f"Allocated new quote number: {locked_qn}")
 
             result = generate_quote_from_rfq(
@@ -3871,8 +3883,9 @@ def generate_rfq_package(rid):
         save_prices_from_rfq(r)
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
-    
-    save_rfqs(rfqs)
+
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "generated")
@@ -3988,8 +4001,9 @@ def generate(rid):
         
         # Save SCPRS prices
         save_prices_from_rfq(r)
-        
-        save_rfqs(rfqs)
+
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         try:
             from src.core.dal import update_rfq_status as _dal_ur
             _dal_ur(rid, "generated")
@@ -4060,7 +4074,8 @@ def rfq_generate_quote(rid):
         from src.forms.quote_generator import _next_quote_number
         locked_qn = _next_quote_number()
         r["reytech_quote_number"] = locked_qn
-        save_rfqs(rfqs)  # persist NOW to prevent duplicates
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)  # persist NOW to prevent duplicates
 
     result = generate_quote_from_rfq(r, output_path,
                                       quote_number=locked_qn)
@@ -4072,7 +4087,8 @@ def rfq_generate_quote(rid):
         if fname not in r["output_files"]:
             r["output_files"].append(fname)
         r["reytech_quote_number"] = result.get("quote_number", locked_qn)
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         t.ok("Quote generated", quote_number=result.get("quote_number",""), total=result.get("total",0))
         log.info("Quote #%s generated for RFQ %s — $%s", result.get("quote_number"), rid, f"{result['total']:,.2f}")
         flash(f"Reytech Quote #{result['quote_number']} generated — ${result['total']:,.2f}", "success")
@@ -4112,7 +4128,8 @@ def send_email(rid):
         sender.send(r["draft_email"])
         _transition_status(r, "sent", actor="user", notes="Email sent to buyer")
         r["sent_at"] = datetime.now().isoformat()
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         try:
             from src.core.dal import update_rfq_status as _dal_ur
             _dal_ur(rid, "sent")
@@ -4279,8 +4296,9 @@ def api_rfq_dismiss(rid):
     r["dismiss_reason"] = reason
     r["dismissed_at"] = datetime.now().isoformat()
     rfqs[rid] = r
-    save_rfqs(rfqs)
-    
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+
     # Also update SQLite status via DAL
     try:
         from src.core.dal import update_rfq_status as _dal_update_rfq
@@ -4392,7 +4410,8 @@ def rfq_reopen(rid):
     
     old_status = r.get("status", "?")
     _transition_status(r, "ready", actor="user", notes=f"Reopened from '{old_status}'")
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
@@ -4428,7 +4447,8 @@ def api_rfq_update_status_json(rid):
     r["status"] = new_status
     if notes:
         r["status_notes"] = notes
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
 
     try:
         from src.core.dal import update_rfq_status as _dal_ur
@@ -4467,7 +4487,8 @@ def rfq_update_status(rid):
     old_status = r.get("status", "?")
     notes = request.form.get("notes", "").strip()
     _transition_status(r, new_status, actor="user", notes=notes or f"Changed from {old_status}")
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, new_status)
@@ -4961,7 +4982,8 @@ def send_email_enhanced(rid):
         _transition_status(r, "sent", actor="user", notes=f"Email sent to {to_addr}")
         r["sent_at"] = datetime.now().isoformat()
         r["draft_email"] = {"to": to_addr, "subject": subject, "body": body, "cc": cc, "bcc": bcc}
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         try:
             from src.core.dal import update_rfq_status as _dal_ur
             _dal_ur(rid, "sent")
@@ -5972,8 +5994,9 @@ def api_rfq_clear_quote(rid):
     old_qn = r.get("reytech_quote_number", "")
     r["reytech_quote_number"] = ""
     r["linked_quote_number"] = ""
-    save_rfqs(rfqs)
-    
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+
     return jsonify({"ok": True, "cleared": old_qn, "message": f"Cleared {old_qn}. Regenerate to get a new number."})
 
 
@@ -5991,7 +6014,8 @@ def api_rfq_set_quote_number(rid):
         return jsonify({"ok": False, "error": "Provide quote_number"})
     old = r.get("reytech_quote_number", "")
     r["reytech_quote_number"] = qn
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     log.info("Force-set quote number on RFQ %s: %s → %s", rid, old, qn)
     return jsonify({"ok": True, "old": old, "new": qn})
 
@@ -6226,7 +6250,8 @@ def api_rfq_convert_to_pc(rid):
         _save_price_checks(pcs)
         r["status"] = "converted_to_pc"
         r["linked_pc_id"] = pc_id
-        save_rfqs(rfqs)
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
         log.info("RFQ %s converted to PC %s (sol=%s)", rid, pc_id, sol)
         return jsonify({"ok": True, "pc_id": pc_id, "redirect": f"/pricecheck/{pc_id}"})
     except Exception as e:
@@ -6249,8 +6274,8 @@ def api_admin_relink_rfq(rid):
         from src.api.dashboard import _link_rfq_to_pc
         linked = _link_rfq_to_pc(r, _trace)
         if linked:
-            rfqs[rid] = r
-            save_rfqs(rfqs)
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
             return jsonify({
                 "ok": True,
                 "linked": True,
@@ -6284,7 +6309,8 @@ def api_admin_fix_quote_number(rid, new_qn, counter_seq):
     # Also update in output files and generated package data
     if r.get("quote_number"):
         r["quote_number"] = new_qn
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     # Reset counter
     try:
         from src.forms.quote_generator import set_quote_counter, peek_next_quote_number
@@ -6349,7 +6375,8 @@ def api_rfq_clear_generated(rid):
     r.pop("draft_email", None)
     r.pop("generated_at", None)
     _transition_status(r, "ready", actor="user", notes="Cleared generated files for fresh regeneration")
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
@@ -6448,7 +6475,8 @@ def api_rfq_clean_slate(rid):
     r["output_files"] = []
     r["status"] = "ready"
 
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
@@ -6767,7 +6795,8 @@ def rfq_clean_items(rid):
     if "parsed" in rfq:
         rfq["parsed"]["line_items"] = cleaned
 
-    save_rfqs(rfqs)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, rfq)
 
     removed = original_count - len(cleaned)
     return jsonify({"ok": True, "removed": removed, "kept": len(cleaned), "original": original_count})
@@ -6889,7 +6918,8 @@ def api_rfq_remove_form(rid, manifest_id):
                 if filename in out_files:
                     out_files.remove(filename)
                     r["output_files"] = out_files
-                    save_rfqs(rfqs)
+                    from src.api.dashboard import _save_single_rfq
+                    _save_single_rfq(rid, r)
 
             # Log the removal
             from src.core.dal import log_lifecycle_event
