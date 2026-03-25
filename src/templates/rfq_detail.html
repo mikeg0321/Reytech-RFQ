@@ -72,71 +72,82 @@
  </div>
  {% endif %}
  
- <!-- Markup Buttons (loaded from settings) -->
- <div class="markup-bar" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">
-  <span>Quick Markup:</span>
+ <style>
+ .margin-strip{display:flex;align-items:center;gap:0;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;overflow:hidden;font-size:13px;margin-bottom:8px}
+ .margin-kpi{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 16px;border-right:1px solid var(--bd);flex:1;min-width:0;white-space:nowrap}
+ .margin-kpi:last-child{border-right:none}
+ .margin-kpi .kpi-label{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600}
+ .margin-kpi .kpi-val{font-size:15px;font-weight:700;color:var(--tx);margin-top:1px}
+ .markup-control-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;margin-bottom:8px}
+ .markup-control-bar .bar-label{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--tx2);font-weight:700;white-space:nowrap;margin-right:2px}
+ .markup-pct-btn{background:var(--sf);border:1px solid var(--bd);color:var(--tx);border-radius:6px;padding:5px 12px;font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
+ .markup-pct-btn:hover{background:rgba(79,140,255,.15);border-color:var(--ac);color:var(--ac)}
+ .markup-divider{width:1px;height:24px;background:var(--bd);flex-shrink:0;margin:0 4px}
+ .rfq-action-grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px}
+ .rfq-action-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 8px;border-radius:8px;cursor:pointer;border:1px solid transparent;font-weight:600;transition:all .15s;font-size:12px;text-align:center;background:var(--sf2);border-color:var(--bd);color:var(--tx2);min-height:58px}
+ .rfq-action-btn .ab-icon{font-size:20px;line-height:1}
+ .rfq-action-btn .ab-label{font-size:12px;font-weight:700;white-space:nowrap}
+ .rfq-action-btn .ab-sub{font-size:10px;font-weight:400;opacity:.75}
+ .rfq-action-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
+ .ab-scprs{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3);color:#58a6ff}
+ .ab-amazon{background:rgba(255,153,0,.1);border-color:rgba(255,153,0,.3);color:#ff9900}
+ .ab-auto{background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.3);color:#a78bfa}
+ .ab-catalog{background:rgba(56,189,248,.1);border-color:rgba(56,189,248,.3);color:#38bdf8}
+ .ab-import{background:rgba(63,185,80,.1);border-color:rgba(63,185,80,.3);color:#3fb950}
+ .ab-supplier{background:rgba(251,146,60,.1);border-color:rgba(251,146,60,.3);color:#fb923c}
+ .ab-upload{background:rgba(210,153,34,.1);border-color:rgba(210,153,34,.3);color:#d29922}
+ .ab-bulk{background:rgba(88,166,255,.08);border-color:rgba(88,166,255,.2);color:#58a6ff}
+ .ab-autoall{background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.35);color:#3fb950}
+ .ab-autoall .ab-icon{font-size:22px}.ab-autoall .ab-label{font-size:13px}
+ @media(max-width:900px){.rfq-action-grid{grid-template-columns:1fr 1fr 1fr}.margin-strip{flex-wrap:wrap}.margin-kpi{min-width:80px}}
+ </style>
+
+ <!-- ── Margin KPI Strip ── -->
+ <div id="margin-summary" class="margin-strip" style="display:none">
+  <div class="margin-kpi"><span class="kpi-label">Cost</span><span class="kpi-val" id="ms-total-cost">—</span></div>
+  <div class="margin-kpi"><span class="kpi-label">Bid</span><span class="kpi-val" id="ms-total-bid">—</span></div>
+  <div class="margin-kpi"><span class="kpi-label">Profit</span><span class="kpi-val" id="ms-margin-dollars">—</span></div>
+  <div class="margin-kpi"><span class="kpi-label">Margin</span><span class="kpi-val" id="ms-margin-pct">—</span></div>
+  <div class="margin-kpi" style="flex:0 0 auto;min-width:200px"><span class="kpi-label">Tax</span><span class="kpi-val" style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.25" style="width:44px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()">%<button onclick="lookupTaxRate(event)" class="markup-pct-btn" style="padding:3px 8px;font-size:12px" title="Auto-lookup from CDTFA" aria-label="Verify tax rate">🔍</button><span id="tax-validation" style="font-size:10px">{% if r.get('tax_validated') %}{% if r.get('tax_source') in ('default','fallback_table','fallback') %}<span style="color:#d29922" title="{{r.get('tax_source','')}}·{{r.get('tax_jurisdiction','')}}">⚠️ {{r.get('tax_jurisdiction','')}}</span>{% else %}<span style="color:#3fb950" title="{{r.get('tax_source','CDTFA')}}·{{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>{% endif %}{% elif r.get('tax_rate') and r.get('tax_rate')>0 %}<span style="color:#d29922">⚠️</span>{% else %}<span style="color:#f85149">❌</span>{% endif %}</span></span></div>
+  <div class="margin-kpi" style="flex:0 0 auto;min-width:130px"><span class="kpi-label">Ship</span><span class="kpi-val" style="display:flex;align-items:center;gap:4px;font-size:13px"><select id="shipping-option" onchange="recalc();triggerAutosave()" style="background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px"><option value="included"{% if r.get('shipping_option')=='included' %} selected{% endif %}>Included</option><option value="fob_dest"{% if r.get('shipping_option')=='fob_dest' %} selected{% endif %}>FOB Dest</option><option value="custom"{% if r.get('shipping_option')=='custom' %} selected{% endif %}>Custom</option></select><input type="number" id="shipping-amount" value="{{r.get('shipping_amount',0)}}" min="0" step="0.01" style="width:52px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px;text-align:center;display:{% if r.get('shipping_option')=='custom' %}inline{% else %}none{% endif %}" onchange="recalc();triggerAutosave()"></span></div>
+  <div class="margin-kpi" style="flex:0 0 auto;padding:8px 20px;background:rgba(79,140,255,.06);border-left:1px solid rgba(79,140,255,.2)"><span class="kpi-label">Total</span><span class="kpi-val" id="ms-grand-total" style="color:var(--ac);font-size:17px">—</span></div>
+  <div class="margin-kpi" style="flex:0 0 auto;min-width:80px;border-left:1px solid var(--bd)"><span class="kpi-label">Priced</span><span class="kpi-val" id="ms-items-priced" style="font-size:13px">—</span></div>
+  <span id="ms-tax" style="display:none"></span><span id="ms-shipping" style="display:none"></span>
+ </div>
+
+ <!-- ── Markup Control Bar ── -->
+ <div class="markup-control-bar">
+  <span class="bar-label">Markup</span>
   <span id="mk-buttons-container"></span>
-  <div style="display:flex;align-items:center;gap:4px;margin-left:6px;background:var(--sf2,#21262d);padding:6px 12px;border-radius:6px;border:1px solid var(--bd,#30363d)">
-   <input type="number" id="custom-markup-pct" step="1" min="0" max="200" placeholder="%" style="width:72px;background:transparent;border:none;color:#e6edf3;font-size:16px;font-weight:700;text-align:center;outline:none" title="Markup % — click a button or type any value, then Apply or use arrows">
-   <span style="color:#8b949e;font-size:14px;font-weight:600">%</span>
-   <button class="btn btn-sm" onclick="applyCustomMarkup()" style="padding:6px 12px;font-size:15px;background:#238636;color:#fff;border:none;font-weight:600" aria-label="Apply markup">Apply</button>
+  <div class="markup-divider"></div>
+  <div style="display:flex;align-items:center;gap:3px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:3px 8px">
+   <input type="number" id="custom-markup-pct" step="1" min="0" max="200" placeholder="%" style="width:52px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:700;text-align:center;outline:none">
+   <span style="color:#8b949e;font-size:13px">%</span>
+   <button class="markup-pct-btn" onclick="applyCustomMarkup()" style="background:#238636;color:#fff;border:none;padding:4px 10px" aria-label="Apply markup">Apply</button>
   </div>
-  <div style="display:flex;align-items:center;gap:4px;background:var(--sf2,#21262d);padding:6px 12px;border-radius:6px;border:1px solid var(--bd,#30363d)">
-   <span style="color:#8b949e;font-size:14px">$</span>
-   <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="Flat $" style="width:70px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none" title="Flat dollar markup per item">
-   <button class="btn btn-sm" onclick="applyFlatMarkup()" style="padding:6px 12px;font-size:13px;background:#21262d;color:#58a6ff;border:1px solid #30363d" aria-label="Apply flat $">+$</button>
+  <div style="display:flex;align-items:center;gap:3px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:3px 8px">
+   <span style="color:#8b949e;font-size:13px">$</span>
+   <input type="number" id="custom-markup-flat" step="0.01" min="0" placeholder="Flat $" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:14px;font-weight:600;text-align:center;outline:none">
+   <button class="markup-pct-btn" onclick="applyFlatMarkup()" style="color:#58a6ff;padding:4px 10px" aria-label="Apply flat $">+$</button>
   </div>
-  <span style="margin-left:8px">SCPRS Undercut:</span>
+  <div class="markup-divider"></div>
+  <span class="bar-label">SCPRS Undercut</span>
   <span id="uc-buttons-container"></span>
  </div>
- <!-- Margin Summary Bar -->
- <div id="margin-summary" style="display:none;margin-top:6px;padding:10px 14px;background:var(--sf2,#21262d);border:1px solid var(--bd,#30363d);border-radius:8px;font-size:15px;display:flex;gap:16px;flex-wrap:wrap;align-items:center">
-  <span style="color:#8b949e">Margin Summary:</span>
-  <span id="ms-total-cost" style="color:#e6edf3"></span>
-  <span id="ms-total-bid" style="color:#e6edf3"></span>
-  <span id="ms-margin-dollars" style="font-weight:700"></span>
-  <span id="ms-margin-pct" style="font-weight:700"></span>
-  <span id="ms-items-priced" style="color:#8b949e"></span>
-  <span style="color:#8b949e">|</span>
-  <span style="color:#8b949e">Tax:
-   <input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.25" style="width:50px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()">%
-   <button onclick="lookupTaxRate(event)" class="btn btn-sm" style="font-size:12px;padding:3px 10px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);margin-left:4px;border-radius:5px;font-weight:600" title="Auto-lookup from CDTFA" aria-label="Verify tax rate">🔍 Verify</button>
-   <span id="tax-validation" style="font-size:10px;margin-left:4px">
-     {% if r.get('tax_validated') %}
-       {% if r.get('tax_source') in ('default', 'fallback_table', 'fallback') %}
-         <span style="color:#d29922" title="Source: {{r.get('tax_source','')}} · {{r.get('tax_jurisdiction','')}} — CDTFA API unavailable, using fallback table. Click Verify to retry.">⚠️ {{r.get('tax_jurisdiction','')}} (fallback — verify)</span>
-       {% else %}
-         <span style="color:#3fb950" title="Source: {{r.get('tax_source','CDTFA')}} · {{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>
-       {% endif %}
-     {% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ unverified</span>
-     {% else %}<span style="color:#f85149">❌ not set</span>{% endif %}
-   </span>
-  </span>
-  <span id="ms-tax" style="color:#d29922"></span>
-  <span style="color:#8b949e">|</span>
-  <span style="color:#8b949e">Ship:
-   <select id="shipping-option" onchange="recalc();triggerAutosave()" style="background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px">
-    <option value="included"{% if r.get('shipping_option')=='included' %} selected{% endif %}>Included</option>
-    <option value="fob_dest"{% if r.get('shipping_option')=='fob_dest' %} selected{% endif %}>FOB Dest</option>
-    <option value="custom"{% if r.get('shipping_option')=='custom' %} selected{% endif %}>Custom</option>
-   </select>
-   <input type="number" id="shipping-amount" value="{{r.get('shipping_amount',0)}}" min="0" step="0.01" style="width:60px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center;display:{% if r.get('shipping_option')=='custom' %}inline{% else %}none{% endif %}" onchange="recalc();triggerAutosave()">
-  </span>
-  <span id="ms-shipping" style="color:#58a6ff"></span>
-  <span id="ms-grand-total" style="font-weight:700;color:#e6edf3"></span>
- </div>
- <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
-  <button class="btn btn-p" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" style="margin-left:8px;font-size:14px;padding:9px 18px;font-weight:600" aria-label="SCPRS Lookup">🔍 SCPRS Lookup</button>
-  <button class="btn btn-o" data-testid="rfq-amazon-lookup" onclick="researchPrices()" style="margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" aria-label="Amazon Lookup">🔬 Amazon Lookup</button>
-  <button class="btn" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="runAutoLookup()" aria-label="Full Auto-Lookup">🤖 Full Auto-Lookup</button>
-  <button class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="importFromPC(this)" aria-label="Import items and prices from a Price Check">📥 Import from PC</button>
-  <button class="btn" style="background:rgba(56,189,248,.15);color:#38bdf8;border:1px solid rgba(56,189,248,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="importFromCatalog(this)" aria-label="Match items against product catalog and auto-fill pricing">📦 Catalog Match</button>
-  <button class="btn" style="background:rgba(251,146,60,.15);color:#fb923c;border:1px solid rgba(251,146,60,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="uploadSupplierQuote()" aria-label="Upload supplier quote PDF to fill costs">🏷️ Supplier Quote</button>
+
+ <!-- ── Action Grid ── -->
+ <div class="rfq-action-grid">
+  <button class="rfq-action-btn ab-scprs" data-testid="rfq-scprs-lookup" onclick="lookupScprs()" aria-label="SCPRS Lookup"><span class="ab-icon">🔍</span><span class="ab-label">SCPRS Lookup</span><span class="ab-sub">State contracts</span></button>
+  <button class="rfq-action-btn ab-amazon" data-testid="rfq-amazon-lookup" onclick="researchPrices()" aria-label="Amazon Lookup"><span class="ab-icon">🛒</span><span class="ab-label">Amazon Lookup</span><span class="ab-sub">Live pricing</span></button>
+  <button class="rfq-action-btn ab-auto" onclick="runAutoLookup()" aria-label="Full Auto-Lookup"><span class="ab-icon">🤖</span><span class="ab-label">Full Auto-Lookup</span><span class="ab-sub">All sources</span></button>
+  <button class="rfq-action-btn ab-catalog" onclick="importFromCatalog(this)" aria-label="Catalog Match"><span class="ab-icon">📦</span><span class="ab-label">Catalog Match</span><span class="ab-sub">Our products</span></button>
+  <button class="rfq-action-btn ab-autoall" onclick="applyRecommendations()" aria-label="Auto-Price All"><span class="ab-icon">⚡</span><span class="ab-label">Auto-Price All</span><span class="ab-sub">Smart fill</span></button>
+  <button class="rfq-action-btn ab-import" onclick="importFromPC(this)" aria-label="Import from PC"><span class="ab-icon">📥</span><span class="ab-label">Import from PC</span><span class="ab-sub">Price check data</span></button>
+  <button class="rfq-action-btn ab-supplier" onclick="uploadSupplierQuote()" aria-label="Supplier Quote"><span class="ab-icon">🏷️</span><span class="ab-label">Supplier Quote</span><span class="ab-sub">Upload PDF</span></button>
   <input type="file" id="sq-upload-input" accept=".pdf" style="display:none" onchange="handleSQUpload(this)">
-  <button class="btn" style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="uploadDoc()" aria-label="Upload any PDF, image, or screenshot to parse items">📄 Upload & Parse</button>
+  <button class="rfq-action-btn ab-upload" onclick="uploadDoc()" aria-label="Upload & Parse"><span class="ab-icon">📄</span><span class="ab-label">Upload & Parse</span><span class="ab-sub">PDF / image</span></button>
   <input type="file" id="doc-upload-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff" onchange="handleDocUpload(this)">
-  <button class="btn" style="background:rgba(52,211,153,.15);color:#3fb950;border:1px solid rgba(52,211,153,.3);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="applyRecommendations()" aria-label="Auto-price all items using SCPRS, catalog, Amazon, and cost data">💡 Auto-Price All</button>
-  <button class="btn" style="background:rgba(88,166,255,.12);color:#58a6ff;border:1px solid rgba(88,166,255,.25);margin-left:6px;font-size:14px;padding:9px 18px;font-weight:600" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk paste URLs to fill costs">📋 Bulk Paste URLs</button>
+  <button class="rfq-action-btn ab-bulk" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk Paste URLs"><span class="ab-icon">📋</span><span class="ab-label">Bulk Paste URLs</span><span class="ab-sub">Multi-item</span></button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
