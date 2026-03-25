@@ -811,10 +811,10 @@ function _loadSource(){
 
 // Save restored templates/files via POST (not in GET handler — Law 14)
 fetch('/rfq/'+RID+'/save-restore',{method:'POST',credentials:'same-origin'}).catch(function(){});
-const items={{r.get("line_items",[])|tojson}};
+const items={{(r.get("line_items") or r.get("items") or [])|tojson}};
 // n must be dynamic — after item delete, DOM has fewer rows than initial count
 function _itemCount(){return document.querySelectorAll('tbody tr [name^="qty_"]').length;}
-var n=items.length;
+var n=_itemCount()||items.length;
 
 // ── Location autocomplete ──
 var _locTimer=null;
@@ -1222,19 +1222,25 @@ function recalc(){
  if(recalc._running)return;
  recalc._running=true;
  try{
+ n=_itemCount(); // re-count DOM rows in case items were added/deleted
  let tb=0,tc=0,itemsPriced=0,itemsTotal=0;
  for(let i=0;i<n;i++){
-  const q=parseFloat(document.querySelector(`[name=qty_${i}]`).value)||0;
-  const c=parseFloat(document.querySelector(`[name=cost_${i}]`).value)||0;
-  const p=parseFloat(document.querySelector(`[name=price_${i}]`).value)||0;
+  const qEl=document.querySelector(`[name=qty_${i}]`);
+  const cEl=document.querySelector(`[name=cost_${i}]`);
+  const pEl=document.querySelector(`[name=price_${i}]`);
+  if(!qEl||!pEl)continue;
+  const q=parseFloat(qEl.value)||0;
+  const c=cEl?parseFloat(cEl.value)||0:0;
+  const p=parseFloat(pEl.value)||0;
   const s=p*q; tb+=s; tc+=c*q;
   itemsTotal++;
   if(p>0)itemsPriced++;
-  document.getElementById(`sub_${i}`).textContent=s?`$${s.toFixed(2)}`:'—';
+  const subEl=document.getElementById(`sub_${i}`);
+  if(subEl)subEl.textContent=s?`$${s.toFixed(2)}`:'—';
   const m=p>0&&c>0?((p-c)/p*100):null;
   const el=document.getElementById(`mg_${i}`);
-  if(m!==null){el.textContent=m.toFixed(1)+'%';el.style.color=m>=20?'#3fb950':m>=10?'#d29922':'#f85149'}
-  else{el.textContent='—';el.style.color='#8b949e'}
+  if(el){if(m!==null){el.textContent=m.toFixed(1)+'%';el.style.color=m>=20?'#3fb950':m>=10?'#d29922':'#f85149'}
+  else{el.textContent='—';el.style.color='#8b949e'}}
   const pf=document.getElementById(`pf_${i}`);
   if(pf){
    const ip=(p-c)*q;
