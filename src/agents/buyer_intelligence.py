@@ -19,7 +19,7 @@ def refresh_buyer_profiles():
     import time as _time
     from src.core.db import DB_PATH
 
-    BATCH_SIZE = 50
+    BATCH_SIZE = 10  # Small batches — yield DB lock frequently for critical operations
 
     # Read-only query to get buyer list (short-lived connection)
     db = sqlite3.connect(DB_PATH, timeout=30)
@@ -37,9 +37,10 @@ def refresh_buyer_profiles():
 
     for batch_start in range(0, len(buyers), BATCH_SIZE):
         batch = buyers[batch_start:batch_start + BATCH_SIZE]
-        db = sqlite3.connect(DB_PATH, timeout=60)
+        # Short timeout — yield to package generation and other critical writes
+        db = sqlite3.connect(DB_PATH, timeout=5)
         db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA busy_timeout=30000")
+        db.execute("PRAGMA busy_timeout=2000")  # 2s max wait, not 30s
         db.row_factory = None
 
         for email, name, dept, dept_code in batch:
@@ -154,8 +155,9 @@ def refresh_buyer_profiles():
         except Exception as e:
             log.warning("Buyer batch commit failed: %s", str(e)[:60])
         db.close()
-        # Brief yield so other writers (save/generate) can acquire the lock
-        _time.sleep(0.1)
+        # Yield for 2 seconds between batches so critical operations
+        # (package generation, save, approve) can acquire the DB lock
+        _time.sleep(2.0)
 
     log.info("Buyer refresh complete: %d profiles updated", updated)
     return updated
