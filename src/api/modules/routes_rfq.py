@@ -3499,7 +3499,14 @@ def generate_rfq_package(rid):
             _703_label = "703C" if _703_key == "703c" else "703B"
             if _703_key in tmpl and os.path.exists(tmpl[_703_key]):
                 try:
-                    fill_703b(tmpl[_703_key], r, CONFIG, f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
+                    _fill_fn = fill_703b
+                    if _703_key == "703c":
+                        try:
+                            from src.forms.reytech_filler_v4 import fill_703c
+                            _fill_fn = fill_703c
+                        except ImportError:
+                            pass
+                    _fill_fn(tmpl[_703_key], r, CONFIG, f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
                     output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
                     t.step(f"{_703_label} filled")
                 except Exception as e:

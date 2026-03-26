@@ -463,8 +463,68 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 # ═══════════════════════════════════════════════════════════════════════
 
 def fill_703c(input_path, rfq_data, config, output_path):
-    """Fill AMS 703C (Fair and Reasonable / Exempt). Same fields as 703B."""
-    return fill_703b(input_path, rfq_data, config, output_path)
+    """Fill AMS 703C (Fair and Reasonable / Exempt).
+    Tries 703B field names first, then 703C-prefixed names, then un-prefixed."""
+    from pypdf import PdfReader as _PR703c
+    reader = _PR703c(input_path)
+    fields = reader.get_fields() or {}
+    field_names = set(fields.keys())
+
+    # Detect which prefix the form uses
+    has_703b_prefix = any(f.startswith("703B_") for f in field_names)
+    has_703c_prefix = any(f.startswith("703C_") for f in field_names)
+
+    if has_703b_prefix:
+        # Same field names as 703B — delegate directly
+        return fill_703b(input_path, rfq_data, config, output_path)
+
+    # Build values with 703C prefix or un-prefixed
+    company = config["company"]
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    try:
+        gen_date = datetime.strptime(sign_date, "%m/%d/%Y")
+    except Exception:
+        gen_date = datetime.now()
+    bid_exp = (gen_date + timedelta(days=45)).strftime("%m/%d/%Y")
+
+    # Map of logical name → value
+    field_map = {
+        "Business Name": company["name"],
+        "Address": company["address"],
+        "Contact Person": company["owner"],
+        "Title": company["title"],
+        "Phone": company["phone"],
+        "Email": company["email"],
+        "Federal Employer Identification Number FEIN": company["fein"],
+        "Retailers CA Sellers Permit Number": company["sellers_permit"],
+        "Solicitation Number": rfq_data.get("solicitation_number", ""),
+        "Due Date": rfq_data.get("due_date", ""),
+        "BidExpirationDate": bid_exp,
+        "Sign_Date": sign_date,
+        "Name": rfq_data.get("requestor_name", ""),
+        "Email_2": rfq_data.get("requestor_email", ""),
+        "Phone_2": rfq_data.get("requestor_phone", ""),
+    }
+
+    values = {}
+    prefix = "703C_" if has_703c_prefix else ""
+    for key, val in field_map.items():
+        values[f"{prefix}{key}"] = val
+
+    # Also try matching any field name that contains the key (fuzzy field match)
+    for fn in field_names:
+        fn_clean = fn.replace("703C_", "").replace("703B_", "")
+        if fn_clean in field_map and fn not in values:
+            values[fn] = field_map[fn_clean]
+
+    fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
+
+    try:
+        _703b_overlay_signature(output_path, sign_date)
+    except Exception as _se:
+        print(f"  ⚠ 703C positional sig overlay failed: {_se}")
+
+    print(f"  ✓ 703C filled + signed ({sign_date})")
 
 
 def fill_703b(input_path, rfq_data, config, output_path):
