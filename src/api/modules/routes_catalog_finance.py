@@ -31,6 +31,7 @@ try:
         get_freshness_report, dedup_catalog,
         # QuoteWerks import
         import_quotewerks_csv,
+        import_qw_documents_report,
     )
     CATALOG_AVAILABLE = True
 except ImportError:
@@ -73,6 +74,32 @@ def catalog_page():
         except Exception:
             products = []
 
+    # Enrich products with primary supplier URL + last_checked
+    if products:
+        try:
+            from src.agents.product_catalog import _get_conn as _cat_conn
+            _conn = _cat_conn()
+            pids = [p["id"] for p in products]
+            placeholders = ",".join("?" * len(pids))
+            url_rows = _conn.execute(f"""
+                SELECT product_id, supplier_url, last_checked, supplier_name
+                FROM product_suppliers
+                WHERE product_id IN ({placeholders}) AND supplier_url IS NOT NULL AND supplier_url != ''
+                ORDER BY last_checked DESC
+            """, pids).fetchall()
+            _conn.close()
+            url_map = {}
+            for r in url_rows:
+                pid = r["product_id"]
+                if pid not in url_map:
+                    url_map[pid] = {"url": r["supplier_url"], "last_checked": r["last_checked"], "supplier": r["supplier_name"]}
+            for p in products:
+                info = url_map.get(p["id"], {})
+                p["primary_url"] = info.get("url", "")
+                p["last_price_checked"] = info.get("last_checked", "")
+        except Exception:
+            pass
+
     # Macro stats bento
     tp = stats["total_products"]
     am = stats["avg_margin"]
@@ -102,6 +129,9 @@ def catalog_page():
         strat = p.get("price_strategy", "")
         strat_badge = {"loss_leader": "🔴", "margin_protect": "🟡", "competitive": "🟢", "premium": "🔵"}.get(strat, "")
         desc_short = (p.get("description", "") or "")[:60].replace("\n", " ")
+        p_url = p.get("primary_url", "")
+        url_icon = f'<a href="{p_url}" target="_blank" style="color:var(--ac)" onclick="event.stopPropagation()">🔗</a>' if p_url else '<span style="color:var(--tx2)">—</span>'
+        checked_date = (p.get("last_price_checked", "") or "")[:10]
         rows += f"""<tr onclick="location.href='/catalog/{p['id']}'" style="cursor:pointer">
          <td class="mono" style="font-weight:600;color:var(--ac)">{p.get('name','')[:25]}</td>
          <td style="font-size:14px;color:var(--tx2)">{desc_short}</td>
@@ -111,6 +141,8 @@ def catalog_page():
          <td class="mono" style="text-align:right">${p.get('cost',0):,.2f}</td>
          <td class="mono" style="text-align:right;color:{mc};font-weight:700">{margin:.1f}%</td>
          <td style="text-align:center">{strat_badge}</td>
+         <td style="text-align:center">{url_icon}</td>
+         <td class="mono" style="font-size:13px;color:var(--tx2)">{checked_date}</td>
         </tr>"""
 
     # Negative margin alerts
@@ -139,10 +171,11 @@ def catalog_page():
       <button onclick="document.getElementById('import-qw').click()" class="btn btn-s" style="font-size:14px;background:#21262d;color:#58a6ff;border:1px solid #58a6ff44">📋 Import QuoteWerks</button>
       <input type="file" id="import-qw" accept=".csv,.tsv,.txt" style="display:none" onchange="importQW(this)">
       <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
+      <button onclick="bulkCheckPrices(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#3fb950;border:1px solid #3fb95044">🔄 Check All Prices</button>
      </div>
     </div>
 
-    <div class="bento bento-4" style="margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{tp}</div>
       <div style="font-size:14px;color:var(--tx2)">Products</div>
@@ -159,6 +192,11 @@ def catalog_page():
      <div class="card" style="text-align:center">
       <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${stats['total_sell_value']:,.0f}</div>
       <div style="font-size:14px;color:var(--tx2)">Catalog Value</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#58a6ff">{stats.get('products_with_urls', 0)}</div>
+      <div style="font-size:14px;color:var(--tx2)">With URLs</div>
+      <div style="font-size:13px;color:#d29922">{stats.get('stale_price_checks', 0)} need check</div>
      </div>
     </div>
 
@@ -223,6 +261,7 @@ def catalog_page():
        <th style="width:100px">Category</th>
        <th style="width:80px;text-align:right">Price</th><th style="width:80px;text-align:right">Cost</th>
        <th style="width:70px;text-align:right">Margin</th><th style="width:30px"></th>
+       <th style="width:30px">URL</th><th style="width:80px">Checked</th>
       </tr></thead>
       <tbody>{rows}</tbody>
      </table>
@@ -270,7 +309,10 @@ def catalog_page():
             msg += 'New products: '+d.imported+'\\n';
             msg += 'Updated existing: '+d.updated+'\\n';
             msg += 'Skipped: '+d.skipped+'\\n';
+            if(d.urls_stored) msg += 'Supplier URLs stored: '+d.urls_stored+'\\n';
             if(d.dupes_merged) msg += 'Dupes merged: '+d.dupes_merged+'\\n';
+            if(d.qa_flags && d.qa_flags.length) msg += 'QA flags: '+d.qa_flags.length+'\\n';
+            if(d.dedup_stats) msg += 'Dedup: '+JSON.stringify(d.dedup_stats)+'\\n';
             if(d.errors && d.errors.length) msg += '\\nErrors: '+d.errors.length;
             const cols = d.columns_found || {{}};
             msg += '\\n\\nColumns matched:\\n';
@@ -280,6 +322,28 @@ def catalog_page():
         }}).catch(e=>{{
           if(btn) {{ btn.textContent='📋 Import QuoteWerks'; btn.disabled=false; }}
           alert('Import failed: '+e.message);
+        }});
+    }}
+    function bulkCheckPrices(btn) {{
+      btn.disabled=true; btn.textContent='⏳ Starting...';
+      fetch('/api/catalog/bulk-check-prices', {{method:'POST'}})
+        .then(r=>r.json()).then(d=>{{
+          if(!d.ok) {{ btn.disabled=false; btn.textContent='🔄 Check All Prices'; alert('Error: '+(d.error||'unknown')); return; }}
+          btn.textContent='⏳ Checking '+d.total+' URLs...';
+          var poll = setInterval(function() {{
+            fetch('/api/catalog/bulk-check-status').then(r=>r.json()).then(s=>{{
+              btn.textContent='⏳ '+s.checked+'/'+s.total+' checked ('+s.price_changes+' changes)';
+              if(!s.running) {{
+                clearInterval(poll);
+                btn.disabled=false; btn.textContent='🔄 Check All Prices';
+                alert('✅ Done! Checked '+s.checked+' URLs.\\n'+s.price_changes+' price changes found.\\n'+s.errors+' errors.');
+                location.reload();
+              }}
+            }});
+          }}, 3000);
+        }}).catch(function(e) {{
+          btn.disabled=false; btn.textContent='🔄 Check All Prices';
+          alert('Error: '+e.message);
         }});
     }}
     // Predictive search
@@ -359,13 +423,18 @@ def catalog_product_detail(pid):
         url_cell = f'<a href="{url}" target="_blank" style="color:var(--ac);word-break:break-all;font-size:14px">{url_display}</a>' if url else '<span style="color:var(--tx2)">—</span>'
         rel_pct = int((s.get('reliability', 0.5) or 0.5) * 100)
         rel_color = '#3fb950' if rel_pct >= 80 else '#d29922' if rel_pct >= 50 else '#f85149'
-        sup_rows += f"""<tr>
+        sid = s.get('id', '')
+        safe_url = url.replace("'", "\\'").replace('"', '&quot;')
+        check_btn = f'''<button onclick="checkSupplierPrice({sid},'{safe_url}',{pid})" class="btn btn-s" style="font-size:12px;padding:2px 8px">Check</button>''' if url else ''
+        sup_rows += f"""<tr id="sup-row-{sid}">
          <td style="font-size:14px;font-weight:600">{s.get('supplier_name','')}</td>
-         <td class="mono" style="text-align:right">${s.get('last_price',0) or 0:,.2f}</td>
+         <td class="mono" style="text-align:right" id="sup-price-{sid}">${s.get('last_price',0) or 0:,.2f}</td>
          <td style="font-size:14px">{url_cell}</td>
-         <td class="mono" style="font-size:14px">{(s.get('last_checked','') or '')[:10]}</td>
+         <td class="mono" style="font-size:14px" id="sup-checked-{sid}">{(s.get('last_checked','') or '')[:10]}</td>
          <td style="text-align:center"><span style="color:{rel_color}">{rel_pct}%</span></td>
          <td style="text-align:center">{'✅' if s.get('in_stock') else '❌'}</td>
+         <td id="sup-delta-{sid}"></td>
+         <td>{check_btn}</td>
         </tr>"""
 
     content = f"""
@@ -432,9 +501,12 @@ def catalog_product_detail(pid):
     </div>
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
-     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd)">🏪 Suppliers & Source URLs</div>
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
+      <span>🏪 Suppliers & Source URLs</span>
+      <button onclick="checkAllSupplierPrices()" class="btn btn-s" style="font-size:12px;background:#21262d;color:#3fb950;border:1px solid #3fb95044">Check All Prices</button>
+     </div>
      <table class="home-tbl"><thead><tr>
-      <th>Supplier</th><th style="text-align:right">Price</th><th>URL</th><th>Last Checked</th><th>Reliability</th><th>Stock</th>
+      <th>Supplier</th><th style="text-align:right">Price</th><th>URL</th><th>Last Checked</th><th>Reliability</th><th>Stock</th><th>Change</th><th></th>
      </tr></thead><tbody>{sup_rows}</tbody></table>
     </div>''' if sup_rows else ''}
 
@@ -445,7 +517,53 @@ def catalog_product_detail(pid):
      </tr></thead><tbody>{ph_rows}</tbody></table>
     </div>''' if ph_rows else ''}
 
+    <style>
+    @keyframes flashGreen {{ 0%{{background:#3fb95030}} 50%{{background:#3fb95060}} 100%{{background:#3fb95020}} }}
+    @keyframes flashRed {{ 0%{{background:#f8514930}} 50%{{background:#f8514960}} 100%{{background:#f8514920}} }}
+    .price-flash-green {{ animation: flashGreen 1.5s ease-in-out; border-radius:4px; padding:2px 8px; }}
+    .price-flash-red {{ animation: flashRed 1.5s ease-in-out; border-radius:4px; padding:2px 8px; }}
+    </style>
     <script>
+    function checkSupplierPrice(supId, url, pid) {{
+      var btn = event.target;
+      btn.disabled = true; btn.textContent = '...';
+      var deltaEl = document.getElementById('sup-delta-' + supId);
+      fetch('/api/catalog/check-price', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{supplier_id: supId, url: url, product_id: pid}})
+      }})
+      .then(function(r) {{ return r.json(); }})
+      .then(function(d) {{
+        btn.disabled = false; btn.textContent = 'Check';
+        if (!d.ok) {{ deltaEl.innerHTML = '<span style="color:#f85149;font-size:13px">'+d.error+'</span>'; return; }}
+        var oldP = d.old_price, newP = d.new_price;
+        var delta = newP - oldP;
+        var pctC = oldP > 0 ? ((delta / oldP) * 100).toFixed(1) : '0';
+        var priceEl = document.getElementById('sup-price-' + supId);
+        if (priceEl) priceEl.textContent = '$' + newP.toFixed(2);
+        var checkedEl = document.getElementById('sup-checked-' + supId);
+        if (checkedEl) checkedEl.textContent = new Date().toISOString().slice(0,10);
+        if (Math.abs(delta) > 0.01) {{
+          var color = delta < 0 ? '#3fb950' : '#f85149';
+          var cls = delta < 0 ? 'price-flash-green' : 'price-flash-red';
+          var sign = delta < 0 ? '' : '+';
+          deltaEl.innerHTML = '<span class="'+cls+'" style="color:'+color+';font-weight:700;font-size:13px">'
+            + sign + '$' + delta.toFixed(2) + ' (' + sign + pctC + '%)</span>';
+        }} else {{
+          deltaEl.innerHTML = '<span style="color:var(--tx2);font-size:13px">No change</span>';
+        }}
+      }})
+      .catch(function() {{
+        btn.disabled = false; btn.textContent = 'Check';
+        deltaEl.innerHTML = '<span style="color:#f85149;font-size:13px">Error</span>';
+      }});
+    }}
+    function checkAllSupplierPrices() {{
+      var btns = document.querySelectorAll('[id^="sup-row-"] button');
+      var delay = 0;
+      btns.forEach(function(btn) {{ if (btn.textContent === 'Check') {{ setTimeout(function() {{ btn.click(); }}, delay); delay += 2000; }} }});
+    }}
     function runPricingAnalysis(pid) {{
       fetch('/api/catalog/'+pid+'/pricing').then(r=>r.json()).then(d=>{{
         if (d.error) {{ alert(d.error); return; }}
@@ -559,7 +677,16 @@ def api_catalog_import_quotewerks():
     try:
         init_catalog_db()
         replace = request.form.get("replace", "").lower() in ("true", "1", "yes")
-        result = import_quotewerks_csv(path, replace=replace)
+
+        # Auto-detect Documents Report format (DocumentItems_ / DocumentHeaders_ columns)
+        with open(path, 'r', encoding='utf-8-sig') as _f:
+            header_line = _f.readline()
+        is_documents_report = 'DocumentItems_' in header_line or 'DocumentHeaders_' in header_line
+
+        if is_documents_report:
+            result = import_qw_documents_report(path, replace=replace)
+        else:
+            result = import_quotewerks_csv(path, replace=replace)
 
         # Run dedup after import
         try:
@@ -768,6 +895,140 @@ def api_catalog_add_supplier(pid):
         in_stock=data.get("in_stock", True),
     )
     return jsonify({"ok": True, "msg": f"Supplier {supplier} price ${price:.2f} recorded"})
+
+
+@bp.route("/api/catalog/check-price", methods=["POST"])
+@auth_required
+def api_catalog_check_price():
+    """Scrape a supplier URL for current pricing, update catalog, return delta."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get("url") or "").strip()
+    product_id = data.get("product_id")
+    supplier_id = data.get("supplier_id")
+
+    if not url:
+        return jsonify({"ok": False, "error": "No URL provided"})
+
+    try:
+        from src.agents.item_link_lookup import lookup_from_url
+    except ImportError:
+        return jsonify({"ok": False, "error": "Link lookup module not available"})
+
+    result = lookup_from_url(url)
+
+    if not result.get("price"):
+        error_msg = result.get("error", "Could not scrape price from URL")
+        if result.get("login_required"):
+            error_msg = f"{result.get('supplier', 'Supplier')} requires login"
+        return jsonify({"ok": False, "error": error_msg})
+
+    new_price = float(result["price"])
+    old_price = 0
+
+    # Get old price from product_suppliers
+    if supplier_id:
+        try:
+            from src.agents.product_catalog import _get_conn
+            conn = _get_conn()
+            row = conn.execute("SELECT last_price FROM product_suppliers WHERE id=?", (supplier_id,)).fetchone()
+            if row:
+                old_price = row["last_price"] or 0
+            conn.close()
+        except Exception:
+            pass
+
+    # Update supplier record + record price history
+    if product_id:
+        try:
+            supplier_name = result.get("supplier", "Web")
+            add_supplier_price(product_id, supplier_name, new_price, url=url)
+            from src.agents.product_catalog import record_catalog_quote
+            record_catalog_quote(product_id, "web_check", new_price,
+                                 source="price_check_button", supplier_url=url)
+        except Exception as e:
+            log.debug("check-price update error: %s", e)
+
+    return jsonify({
+        "ok": True,
+        "old_price": old_price,
+        "new_price": new_price,
+        "supplier": result.get("supplier", ""),
+        "title": result.get("title", ""),
+    })
+
+
+# Background status for bulk price checks
+_BULK_CHECK_STATUS = {"running": False, "checked": 0, "total": 0, "price_changes": 0, "errors": 0}
+
+
+@bp.route("/api/catalog/bulk-check-prices", methods=["POST"])
+@auth_required
+def api_catalog_bulk_check_prices():
+    """Check all supplier URLs for current pricing. Runs in background thread."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+
+    if _BULK_CHECK_STATUS["running"]:
+        return jsonify({"ok": False, "error": "Bulk check already running",
+                        "status": _BULK_CHECK_STATUS})
+
+    try:
+        from src.agents.item_link_lookup import lookup_from_url, _is_login_required
+    except ImportError:
+        return jsonify({"ok": False, "error": "Link lookup module not available"})
+
+    from src.agents.product_catalog import _get_conn, record_catalog_quote
+    import threading, time
+
+    conn = _get_conn()
+    suppliers = conn.execute(
+        "SELECT id, product_id, supplier_name, supplier_url, last_price FROM product_suppliers "
+        "WHERE supplier_url IS NOT NULL AND supplier_url != '' ORDER BY last_checked ASC NULLS FIRST"
+    ).fetchall()
+    conn.close()
+    suppliers = [dict(s) for s in suppliers]
+
+    _BULK_CHECK_STATUS.update({"running": True, "checked": 0, "total": len(suppliers),
+                                "price_changes": 0, "errors": 0})
+
+    def _run_bulk():
+        for s in suppliers:
+            url = s["supplier_url"]
+            try:
+                if _is_login_required(url):
+                    _BULK_CHECK_STATUS["checked"] += 1
+                    continue
+                result = lookup_from_url(url)
+                if result.get("price"):
+                    new_price = float(result["price"])
+                    old_price = s.get("last_price") or 0
+                    add_supplier_price(s["product_id"], s["supplier_name"], new_price, url=url)
+                    if old_price > 0 and abs(new_price - old_price) > 0.01:
+                        _BULK_CHECK_STATUS["price_changes"] += 1
+                    record_catalog_quote(s["product_id"], "web_check", new_price,
+                                         source="bulk_price_check", supplier_url=url)
+                else:
+                    _BULK_CHECK_STATUS["errors"] += 1
+            except Exception:
+                _BULK_CHECK_STATUS["errors"] += 1
+            _BULK_CHECK_STATUS["checked"] += 1
+            time.sleep(1.5)  # Rate limit
+        _BULK_CHECK_STATUS["running"] = False
+
+    t = threading.Thread(target=_run_bulk, daemon=True)
+    t.start()
+
+    return jsonify({"ok": True, "msg": f"Bulk check started for {len(suppliers)} suppliers",
+                    "total": len(suppliers)})
+
+
+@bp.route("/api/catalog/bulk-check-status")
+@auth_required
+def api_catalog_bulk_check_status():
+    """Poll bulk price check progress."""
+    return jsonify({"ok": True, **_BULK_CHECK_STATUS})
 
 
 @bp.route("/api/catalog/rebuild-tokens", methods=["POST"])

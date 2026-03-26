@@ -615,57 +615,111 @@ def import_qb_csv(csv_path: str, replace: bool = False) -> dict:
 
 _QW_COL_MAP = {
     "description": [
+        "DocumentItems_Description",
         "ItemDescription", "Description", "Item Description", "Product",
         "ProductDescription", "Product Description", "LineItemDescription",
         "Sales Description", "SalesDescription", "Desc",
     ],
     "part_number": [
+        "DocumentItems_ManufacturerPartNumber",
         "ManufacturerPartNumber", "Manufacturer Part Number", "MfgPartNumber",
         "PartNumber", "Part Number", "Part#", "ItemNumber", "Item Number",
-        "SKU", "Item#", "ProductCode", "Product Code", "VendorPartNumber",
+        "SKU", "Item#", "ProductCode", "Product Code",
     ],
     "cost": [
+        "DocumentItems_UnitCost",
         "ItemCost", "Item Cost", "Cost", "UnitCost", "Unit Cost",
         "VendorCost", "Vendor Cost", "PurchaseCost", "Purchase Cost",
         "CostEach", "Cost Each",
     ],
     "price": [
+        "DocumentItems_UnitPrice",
         "ItemPrice", "Item Price", "Price", "SellPrice", "Sell Price",
         "UnitPrice", "Unit Price", "SalesPrice", "Sales Price",
         "ExtendedPrice", "QuotePrice", "ListPrice", "List Price",
     ],
     "qty": [
+        "DocumentItems_QtyTotal", "DocumentItems_QtyBase",
         "Quantity", "Qty", "ItemQuantity", "Item Quantity", "OrderQty",
     ],
     "uom": [
+        "DocumentItems_UnitOfMeasure",
         "UnitOfMeasure", "Unit Of Measure", "UOM", "Unit",
     ],
     "customer": [
+        "DocumentHeaders_SoldToCompany",
         "SoldToCompany", "Sold To Company", "Company", "CompanyName",
         "Company Name", "Customer", "CustomerName", "Customer Name",
         "SoldToContact", "ContactName",
     ],
     "quote_number": [
+        "DocumentHeaders_DocNo",
         "DocNumber", "Document Number", "QuoteNumber", "Quote Number",
         "Quote#", "DocNo", "DocumentNumber",
     ],
     "date": [
+        "DocumentHeaders_DocDate", "DocumentHeaders_Created",
         "DocDate", "Document Date", "QuoteDate", "Quote Date", "Date",
         "CreateDate", "Created", "OrderDate", "CreatedDate",
     ],
     "manufacturer": [
+        "DocumentItems_Manufacturer",
         "Manufacturer", "Mfg", "Brand", "MfgName", "Manufacturer Name",
+    ],
+    # --- New fields for Documents Report format ---
+    "item_url": [
+        "DocumentItems_ItemURL",
+        "ItemURL", "Item URL", "ProductURL", "SupplierURL",
+    ],
+    "vendor": [
+        "DocumentItems_Vendor",
+        "Vendor", "VendorName", "Vendor Name",
+    ],
+    "vendor_part_number": [
+        "DocumentItems_VendorPartNumber",
+        "VendorPartNumber", "Vendor Part Number", "VendorPN",
+    ],
+    "category": [
+        "DocumentItems_Category",
+        "Category", "ItemCategory",
+    ],
+    "internal_part_number": [
+        "DocumentItems_InternalPartNumber",
+        "InternalPartNumber", "Internal Part Number",
+    ],
+    "list_price": [
+        "DocumentItems_UnitList",
+        "UnitList", "ListPrice", "List Price",
+    ],
+    "doc_status": [
+        "DocumentHeaders_DocStatus",
+        "DocStatus", "Status",
+    ],
+    "doc_type": [
+        "DocumentHeaders_DocType",
+        "DocType", "Type",
     ],
 }
 
 
 def _find_qw_column(headers: list, field: str) -> str:
-    """Find the best matching column header for a QuoteWerks field."""
+    """Find the best matching column header for a QuoteWerks field.
+
+    Tries exact match first, then suffix match for DocumentItems_/DocumentHeaders_
+    prefixed columns (e.g. DocumentItems_Description matches 'Description' pattern).
+    """
     patterns = _QW_COL_MAP.get(field, [])
     header_lower = {h.lower().strip(): h for h in headers}
+    # Exact match first
     for pat in patterns:
         if pat.lower() in header_lower:
             return header_lower[pat.lower()]
+    # Suffix match: check if any header ends with _PatternName
+    for pat in patterns:
+        pat_low = pat.lower()
+        for h_low, h_orig in header_lower.items():
+            if h_low.endswith("_" + pat_low):
+                return h_orig
     return ""
 
 
@@ -955,6 +1009,439 @@ def import_quotewerks_csv(csv_path: str, replace: bool = False) -> dict:
     log.info("QuoteWerks import: %d imported, %d updated, %d skipped from %d rows (%d errors)",
              stats["imported"], stats["updated"], stats["skipped"],
              stats["total_rows"], len(stats["errors"]))
+    return stats
+
+
+def import_qw_documents_report(csv_path: str, replace: bool = False) -> dict:
+    """
+    Import QuoteWerks Documents Report CSV (310-column full export).
+
+    This handles the DocumentItems_ / DocumentHeaders_ prefixed format from
+    QuoteWerks Web Reports > Documents Report > TextFile export.
+
+    Two-pass dedup:
+      Pass 1: Group rows by ManufacturerPartNumber → one product per MFG Part#.
+      Pass 2: Items without MFG Part# get Jaccard-matched against grouped items.
+
+    Stores supplier URLs in product_suppliers table, records price history
+    with customer + quote context, and returns QA/QC flags.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+
+    stats = {
+        "imported": 0, "updated": 0, "skipped": 0,
+        "urls_stored": 0, "errors": [], "qa_flags": [],
+        "total_rows": 0, "columns_found": {},
+        "dedup_stats": {"by_part_number": 0, "by_similarity": 0},
+    }
+
+    # Read CSV
+    with open(csv_path, 'r', encoding='utf-8-sig') as f:
+        sample = f.read(2048)
+    delimiter = '\t' if sample.count('\t') > sample.count(',') else ','
+
+    with open(csv_path, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        headers = reader.fieldnames or []
+        rows = list(reader)
+
+    stats["total_rows"] = len(rows)
+
+    # Map columns
+    col_desc = _find_qw_column(headers, "description")
+    col_pn = _find_qw_column(headers, "part_number")
+    col_cost = _find_qw_column(headers, "cost")
+    col_price = _find_qw_column(headers, "price")
+    col_qty = _find_qw_column(headers, "qty")
+    col_uom = _find_qw_column(headers, "uom")
+    col_customer = _find_qw_column(headers, "customer")
+    col_quote = _find_qw_column(headers, "quote_number")
+    col_date = _find_qw_column(headers, "date")
+    col_mfg = _find_qw_column(headers, "manufacturer")
+    col_url = _find_qw_column(headers, "item_url")
+    col_vendor = _find_qw_column(headers, "vendor")
+    col_vpn = _find_qw_column(headers, "vendor_part_number")
+    col_cat = _find_qw_column(headers, "category")
+    col_list = _find_qw_column(headers, "list_price")
+    col_ipn = _find_qw_column(headers, "internal_part_number")
+
+    stats["columns_found"] = {
+        "description": col_desc, "part_number": col_pn,
+        "cost": col_cost, "price": col_price, "qty": col_qty,
+        "uom": col_uom, "customer": col_customer, "quote_number": col_quote,
+        "date": col_date, "manufacturer": col_mfg, "item_url": col_url,
+        "vendor": col_vendor, "vendor_part_number": col_vpn,
+        "category": col_cat, "list_price": col_list,
+    }
+
+    if not col_desc and not col_pn:
+        stats["errors"].append(
+            f"Could not find description or part number columns. "
+            f"Headers (first 10): {headers[:10]}"
+        )
+        conn.close()
+        return stats
+
+    log.info("QW Documents Report import: %d rows, desc='%s', pn='%s', url='%s', vendor='%s'",
+             len(rows), col_desc, col_pn, col_url, col_vendor)
+
+    # ── Helper to parse numeric fields ──
+    def _pnum(row, col):
+        if not col:
+            return 0
+        val = (row.get(col, "") or "").strip().replace(",", "").replace("$", "")
+        try:
+            return float(val) if val else 0
+        except ValueError:
+            return 0
+
+    def _pstr(row, col):
+        if not col:
+            return ""
+        return (row.get(col, "") or "").strip()
+
+    # ── Pass 1: Group by ManufacturerPartNumber ──
+    # Key = MFG Part# (uppercase, stripped). Value = aggregated product data.
+    products = {}       # key -> product dict
+    no_pn_rows = []     # rows without a part number
+
+    for row in rows:
+        desc = _pstr(row, col_desc)
+        pn = _pstr(row, col_pn)
+        cost = _pnum(row, col_cost)
+        sell_price = _pnum(row, col_price)
+        url = _pstr(row, col_url)
+        vendor = _pstr(row, col_vendor)
+        mfg = _pstr(row, col_mfg)
+        uom = _pstr(row, col_uom)
+        customer = _pstr(row, col_customer)
+        quote_num = _pstr(row, col_quote)
+        date_str = _pstr(row, col_date)
+        vpn = _pstr(row, col_vpn)
+        cat = _pstr(row, col_cat)
+
+        # Skip blank rows and zero-value items
+        if not desc and not pn:
+            stats["skipped"] += 1
+            continue
+        if sell_price <= 0 and cost <= 0:
+            stats["skipped"] += 1
+            continue
+
+        key = pn.upper() if pn and len(pn) >= 3 else ""
+
+        item = {
+            "desc": desc, "pn": pn, "cost": cost, "sell_price": sell_price,
+            "url": url, "vendor": vendor, "mfg": mfg, "uom": uom,
+            "customer": customer, "quote_num": quote_num, "date": date_str,
+            "vpn": vpn, "cat": cat,
+        }
+
+        if not key:
+            no_pn_rows.append(item)
+            continue
+
+        if key in products:
+            p = products[key]
+            # Keep the best (most complete) data
+            if cost > 0 and (p["cost"] == 0 or cost < p["cost"]):
+                p["cost"] = cost
+            if sell_price > 0 and (p["sell_price"] == 0 or sell_price > p["sell_price"]):
+                p["sell_price"] = sell_price
+            if desc and len(desc) > len(p.get("desc", "")):
+                p["desc"] = desc
+            if mfg and not p.get("mfg"):
+                p["mfg"] = mfg
+            if uom and not p.get("uom"):
+                p["uom"] = uom
+            if cat and not p.get("cat"):
+                p["cat"] = cat
+            if url and url not in p["urls"]:
+                p["urls"].append(url)
+            if vendor and vendor not in p["vendors"]:
+                p["vendors"].append(vendor)
+            if quote_num:
+                p["quotes"].add(quote_num)
+            if customer:
+                p["customers"].add(customer)
+            p["count"] += 1
+            stats["dedup_stats"]["by_part_number"] += 1
+        else:
+            products[key] = {
+                **item,
+                "urls": [url] if url else [],
+                "vendors": [vendor] if vendor else [],
+                "quotes": {quote_num} if quote_num else set(),
+                "customers": {customer} if customer else set(),
+                "count": 1,
+            }
+
+    # ── Pass 2: Match no-PN rows against existing products by Jaccard ──
+    product_tokens = {}
+    for key, p in products.items():
+        tokens = _tokenize(f"{p['desc']} {p['pn']} {p['mfg']}")
+        product_tokens[key] = set(tokens.split())
+
+    for item in no_pn_rows:
+        item_tokens = set(_tokenize(f"{item['desc']} {item['mfg']}").split())
+        if len(item_tokens) < 2:
+            stats["skipped"] += 1
+            continue
+
+        best_key = None
+        best_overlap = 0
+        for key, ptokens in product_tokens.items():
+            if not ptokens:
+                continue
+            overlap = len(item_tokens & ptokens) / max(len(item_tokens | ptokens), 1)
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_key = key
+
+        if best_key and best_overlap >= 0.60:
+            p = products[best_key]
+            if item["cost"] > 0 and (p["cost"] == 0 or item["cost"] < p["cost"]):
+                p["cost"] = item["cost"]
+            if item["sell_price"] > 0 and p["sell_price"] == 0:
+                p["sell_price"] = item["sell_price"]
+            if item["url"] and item["url"] not in p["urls"]:
+                p["urls"].append(item["url"])
+            if item["vendor"] and item["vendor"] not in p["vendors"]:
+                p["vendors"].append(item["vendor"])
+            if item["quote_num"]:
+                p["quotes"].add(item["quote_num"])
+            if item["customer"]:
+                p["customers"].add(item["customer"])
+            p["count"] += 1
+            stats["dedup_stats"]["by_similarity"] += 1
+        else:
+            # New unique product from description only
+            desc_key = f"_DESC_{item['desc'][:60].upper()}"
+            if desc_key in products:
+                p = products[desc_key]
+                p["count"] += 1
+                if item["url"] and item["url"] not in p["urls"]:
+                    p["urls"].append(item["url"])
+                if item["quote_num"]:
+                    p["quotes"].add(item["quote_num"])
+            else:
+                products[desc_key] = {
+                    **item,
+                    "urls": [item["url"]] if item["url"] else [],
+                    "vendors": [item["vendor"]] if item["vendor"] else [],
+                    "quotes": {item["quote_num"]} if item["quote_num"] else set(),
+                    "customers": {item["customer"]} if item["customer"] else set(),
+                    "count": 1,
+                }
+                # Build tokens for future matching
+                product_tokens[desc_key] = set(
+                    _tokenize(f"{item['desc']} {item['mfg']}").split()
+                )
+
+    log.info("QW Documents Report: %d unique products from %d rows (dedup: %d by PN, %d by similarity)",
+             len(products), len(rows),
+             stats["dedup_stats"]["by_part_number"],
+             stats["dedup_stats"]["by_similarity"])
+
+    # ── Import each unique product into catalog ──
+    try:
+        from src.agents.item_link_lookup import detect_supplier
+    except ImportError:
+        def detect_supplier(url):
+            return "Web"
+
+    for key, p in products.items():
+        try:
+            desc = p.get("desc", "")
+            pn = p.get("pn", "")
+            cost = p.get("cost", 0)
+            sell_price = p.get("sell_price", 0)
+            mfg = p.get("mfg", "")
+            raw_uom = (p.get("uom", "") or "").upper()
+            uom = UOM_MAP.get(raw_uom, "EA") if raw_uom else "EA"
+            cat = p.get("cat", "")
+
+            # Build catalog name
+            name = pn if pn and len(pn) >= 3 else desc[:60].strip()
+            if not name:
+                stats["skipped"] += 1
+                continue
+
+            clean_desc = _clean_description(desc) if desc else name
+            category = cat if cat else auto_categorize(name, clean_desc)
+            margin_pct = round((sell_price - cost) / sell_price * 100, 2) \
+                if sell_price > 0 and cost > 0 else 0
+            search_tokens = _tokenize(f"{name} {clean_desc} {pn} {mfg}")
+
+            if margin_pct < 0:
+                strategy = "loss_leader"
+            elif margin_pct < 5:
+                strategy = "margin_protect"
+            elif margin_pct > 25:
+                strategy = "premium"
+            else:
+                strategy = "competitive"
+
+            notes_parts = []
+            quotes_list = sorted(p.get("quotes", set()))
+            customers_list = sorted(p.get("customers", set()))
+            if quotes_list:
+                notes_parts.append(f"qw_quotes={','.join(quotes_list[:5])}")
+            if customers_list:
+                notes_parts.append(f"customers={','.join(customers_list[:3])}")
+            notes_parts.append(f"qw_count={p.get('count', 1)}")
+            notes = "; ".join(notes_parts)
+
+            # ── Upsert into product_catalog ──
+            existing = conn.execute(
+                "SELECT id, cost, sell_price, times_quoted FROM product_catalog WHERE name = ?",
+                (name,)
+            ).fetchone()
+
+            if existing:
+                pid = existing["id"]
+                old_cost = existing["cost"] or 0
+                old_sell = existing["sell_price"] or 0
+                tq = existing["times_quoted"] or 0
+                update_cost = cost if cost > 0 and (old_cost == 0 or replace) else old_cost
+                update_sell = sell_price if sell_price > 0 and (old_sell == 0 or replace) else old_sell
+                update_margin = round((update_sell - update_cost) / update_sell * 100, 2) \
+                    if update_sell > 0 and update_cost > 0 else 0
+
+                conn.execute("""
+                    UPDATE product_catalog SET
+                        cost = ?, sell_price = ?, margin_pct = ?,
+                        best_cost = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END,
+                        description = COALESCE(NULLIF(?, ''), description),
+                        category = COALESCE(NULLIF(?, ''), category),
+                        uom = COALESCE(NULLIF(?, ''), uom),
+                        manufacturer = COALESCE(NULLIF(?, ''), manufacturer),
+                        mfg_number = COALESCE(NULLIF(?, ''), mfg_number),
+                        search_tokens = ?,
+                        times_quoted = ?,
+                        notes = CASE WHEN notes IS NULL OR notes = '' THEN ? ELSE notes || '; ' || ? END,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (update_cost, update_sell, update_margin,
+                      cost, cost, cost,
+                      clean_desc, category, uom, mfg, pn,
+                      search_tokens, tq + p.get("count", 1),
+                      notes, notes, now, pid))
+
+                if sell_price > 0:
+                    conn.execute(
+                        "INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at) VALUES (?, 'sell', ?, 'quotewerks_doc_report', ?)",
+                        (pid, sell_price, now))
+                stats["updated"] += 1
+            else:
+                # Check for near-duplicate by token overlap
+                desc_tokens = set(search_tokens.split())
+                is_dupe = False
+                if desc_tokens and len(desc_tokens) >= 2:
+                    try:
+                        search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
+                        conditions = " AND ".join(["search_tokens LIKE ?" for _ in search_terms])
+                        params = [f"%{t}%" for t in search_terms]
+                        candidate = conn.execute(
+                            f"SELECT id, search_tokens, cost, sell_price, times_quoted FROM product_catalog WHERE {conditions} LIMIT 1",
+                            params
+                        ).fetchone()
+                        if candidate:
+                            prod_tokens = set((candidate["search_tokens"] or "").split())
+                            overlap = len(desc_tokens & prod_tokens) / max(len(desc_tokens | prod_tokens), 1)
+                            if overlap >= 0.60:
+                                pid = candidate["id"]
+                                tq = candidate["times_quoted"] or 0
+                                if cost > 0:
+                                    conn.execute(
+                                        "UPDATE product_catalog SET cost=?, best_cost=CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END, times_quoted=?, updated_at=? WHERE id=?",
+                                        (cost, cost, cost, cost, tq + p.get("count", 1), now, pid))
+                                if sell_price > 0:
+                                    conn.execute(
+                                        "UPDATE product_catalog SET sell_price=?, times_quoted=?, updated_at=? WHERE id=? AND (sell_price IS NULL OR sell_price=0)",
+                                        (sell_price, tq + p.get("count", 1), now, pid))
+                                stats["updated"] += 1
+                                is_dupe = True
+                    except Exception:
+                        pass
+
+                if not is_dupe:
+                    cursor = conn.execute("""
+                        INSERT INTO product_catalog (
+                            name, sku, description, category, item_type, uom,
+                            sell_price, cost, margin_pct, search_tokens,
+                            price_strategy, manufacturer, mfg_number,
+                            best_cost, best_supplier, times_quoted, notes,
+                            created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (name, pn, clean_desc, category, "Non-Inventory", uom,
+                          sell_price, cost, margin_pct, search_tokens,
+                          strategy, mfg, pn,
+                          cost if cost > 0 else None, None,
+                          p.get("count", 1), notes, now, now))
+                    pid = cursor.lastrowid
+                    if sell_price > 0:
+                        conn.execute(
+                            "INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at) VALUES (?, 'sell', ?, 'quotewerks_doc_report', ?)",
+                            (pid, sell_price, now))
+                    if cost > 0:
+                        conn.execute(
+                            "INSERT INTO catalog_price_history (product_id, price_type, price, source, recorded_at) VALUES (?, 'cost', ?, 'quotewerks_doc_report', ?)",
+                            (pid, cost, now))
+                    stats["imported"] += 1
+
+            # ── Store supplier URLs in product_suppliers ──
+            for url in p.get("urls", []):
+                if not url:
+                    continue
+                try:
+                    supplier_name = detect_supplier(url)
+                    conn.execute("""INSERT INTO product_suppliers
+                        (product_id, supplier_name, supplier_url, sku, last_price, last_checked, created_at, updated_at)
+                        VALUES (?,?,?,?,?,?,?,?)
+                        ON CONFLICT(product_id, supplier_name) DO UPDATE SET
+                            supplier_url=COALESCE(NULLIF(excluded.supplier_url,''),supplier_url),
+                            sku=COALESCE(NULLIF(excluded.sku,''),sku),
+                            last_price=CASE WHEN excluded.last_price > 0 THEN excluded.last_price ELSE last_price END,
+                            last_checked=excluded.last_checked,
+                            updated_at=excluded.updated_at""",
+                        (pid, supplier_name, url, p.get("vpn", ""),
+                         cost if cost > 0 else sell_price, now, now, now))
+                    stats["urls_stored"] += 1
+                except Exception as e:
+                    log.debug("Supplier URL insert error: %s", e)
+
+            # ── QA/QC flags ──
+            if cost > 0 and not p.get("urls"):
+                stats["qa_flags"].append({"product": name, "flag": "no_url",
+                                          "msg": "Has cost but no supplier URL"})
+            if p.get("urls") and cost <= 0:
+                stats["qa_flags"].append({"product": name, "flag": "no_cost",
+                                          "msg": "Has URL but no cost"})
+            if cost > 0 and sell_price > 0 and cost > sell_price:
+                stats["qa_flags"].append({"product": name, "flag": "negative_margin",
+                                          "msg": f"Cost ${cost:.2f} > sell ${sell_price:.2f}"})
+
+        except Exception as e:
+            stats["errors"].append(f"Product '{key[:30]}': {e}")
+            if len(stats["errors"]) > 100:
+                stats["errors"].append("... (truncated)")
+                break
+
+    conn.commit()
+    conn.close()
+
+    # Truncate QA flags for response size
+    if len(stats["qa_flags"]) > 50:
+        stats["qa_flags"] = stats["qa_flags"][:50]
+        stats["qa_flags"].append({"product": "...", "flag": "truncated",
+                                  "msg": f"Showing 50 of {len(stats['qa_flags'])} flags"})
+
+    log.info("QW Documents Report: %d imported, %d updated, %d skipped, %d URLs stored, %d QA flags",
+             stats["imported"], stats["updated"], stats["skipped"],
+             stats["urls_stored"], len(stats["qa_flags"]))
     return stats
 
 
@@ -1845,7 +2332,24 @@ def get_catalog_stats() -> dict:
         ORDER BY margin_pct ASC
     """).fetchall()
     stats["negative_margin_items"] = [dict(l) for l in losers]
-    
+
+    # Products with supplier URLs
+    try:
+        url_count = conn.execute(
+            "SELECT COUNT(DISTINCT product_id) FROM product_suppliers WHERE supplier_url IS NOT NULL AND supplier_url != ''"
+        ).fetchone()[0]
+        stats["products_with_urls"] = url_count
+
+        thirty_days_ago = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        stale_count = conn.execute(
+            "SELECT COUNT(DISTINCT product_id) FROM product_suppliers WHERE supplier_url IS NOT NULL AND supplier_url != '' AND (last_checked IS NULL OR last_checked < ?)",
+            (thirty_days_ago,)
+        ).fetchone()[0]
+        stats["stale_price_checks"] = stale_count
+    except Exception:
+        stats["products_with_urls"] = 0
+        stats["stale_price_checks"] = 0
+
     conn.close()
     return stats
 
