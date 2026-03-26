@@ -2090,11 +2090,58 @@ def _link_rfq_to_pc(rfq_data, _trace):
     _trace.append(f"PC LINKED: {matched_pid} ({match_reason})")
     log.info("Auto-linked RFQ %s → PC %s (%s)", rfq_data["id"], matched_pid, match_reason)
 
-    # ── Port ALL fields from PC items to RFQ items (full transfer, not cherry-pick) ──
+    # ── Enrich RFQ items from catalog (populated during PC work) ──
+    # RFQ items stay as-is (formal 704B descriptions, qty, uom, item numbers).
+    # Pricing comes from catalog, NOT from importing PC items.
     pc_items = _get_pc_items(pc)
     ported = 0
     diff_added, diff_removed, diff_qty = [], [], []
 
+    # Run catalog matching on each RFQ item to pull pricing
+    try:
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+        for rfq_item in rfq_data.get("line_items", []):
+            desc = (rfq_item.get("description", "") or "").strip()
+            pn = (rfq_item.get("item_number", "") or "").strip()
+            if not desc and not pn:
+                continue
+            # Skip items that already have pricing
+            if rfq_item.get("supplier_cost") or rfq_item.get("price_per_unit"):
+                ported += 1
+                continue
+            matches = match_item(desc, pn, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.4:
+                best = matches[0]
+                cat_cost = best.get("best_cost") or best.get("cost") or 0
+                cat_price = best.get("recommended_price") or best.get("sell_price") or 0
+                cat_supplier = best.get("best_supplier", "")
+                cat_url = best.get("best_supplier_url") or best.get("product_url", "")
+                cat_mfg = best.get("mfg_number") or best.get("sku", "")
+                if cat_cost and not rfq_item.get("supplier_cost"):
+                    rfq_item["supplier_cost"] = round(float(cat_cost), 2)
+                    rfq_item["cost_source"] = "Catalog"
+                if cat_price and not rfq_item.get("price_per_unit"):
+                    rfq_item["price_per_unit"] = round(float(cat_price), 2)
+                elif cat_cost and not rfq_item.get("price_per_unit"):
+                    markup = rfq_data.get("default_markup") or 25
+                    rfq_item["price_per_unit"] = round(float(cat_cost) * (1 + float(markup) / 100), 2)
+                if cat_supplier and not rfq_item.get("item_supplier"):
+                    rfq_item["item_supplier"] = cat_supplier
+                if cat_url and not rfq_item.get("item_link"):
+                    rfq_item["item_link"] = cat_url
+                if cat_mfg and not rfq_item.get("item_number"):
+                    rfq_item["item_number"] = cat_mfg
+                rfq_item["_catalog_match"] = best.get("name", "")[:60]
+                rfq_item["_catalog_confidence"] = round(best.get("match_confidence", 0), 2)
+                rfq_item["source_pc"] = matched_pid
+                ported += 1
+        _trace.append(f"CATALOG PRICING: {ported}/{len(rfq_data.get('line_items',[]))} items priced from catalog")
+    except Exception as _cat_e:
+        log.warning("Catalog pricing during PC link failed: %s", _cat_e)
+        _trace.append(f"CATALOG PRICING ERROR: {_cat_e}")
+
+    # Also try direct PC item matching for items catalog didn't cover
     for rfq_item in rfq_data.get("line_items", []):
         from difflib import SequenceMatcher as _SM
         rd = (rfq_item.get("description", "") or "").lower().strip()
@@ -2214,7 +2261,8 @@ def _link_rfq_to_pc(rfq_data, _trace):
         except Exception:
             pass
 
-    # Items in PC but not in RFQ — add them (RFQ parse missed items)
+    # Items in PC but not in RFQ — log as diff but DON'T add them
+    # RFQ items are authoritative (from the formal 704B). Pricing comes from catalog.
     for pci in pc_items:
         pd = (pci.get("description", pci.get("desc", "")) or "").lower().strip()
         if not pd or len(pd) < 5:
@@ -2227,58 +2275,6 @@ def _link_rfq_to_pc(rfq_data, _trace):
                 break
         if not found:
             diff_removed.append(pci.get("description", pci.get("desc", ""))[:50])
-            # Add missing PC item to the RFQ so no items are lost
-            new_item = {}
-            for key, val in pci.items():
-                new_item[key] = val
-            # Map PC field names to RFQ field names
-            new_item.setdefault("description", pci.get("desc", ""))
-            new_item.setdefault("item_number", pci.get("mfg_number") or pci.get("part_number", ""))
-            new_item.setdefault("supplier_cost", pci.get("vendor_cost") or pci.get("cost") or pci.get("unit_cost", 0))
-            new_item.setdefault("price_per_unit", pci.get("unit_price") or pci.get("bid_price") or pci.get("sell_price", 0))
-            new_item.setdefault("item_link", pci.get("url") or pci.get("product_url", ""))
-            new_item.setdefault("item_supplier", pci.get("supplier", ""))
-            new_item["source_pc"] = matched_pid
-            new_item["imported_from_pc"] = True
-            new_item["_added_from_pc"] = True
-            new_item["imported_at"] = datetime.now(timezone.utc).isoformat()
-            rfq_data.get("line_items", []).append(new_item)
-            ported += 1
-
-    # Remove unmatched RFQ items that are clearly bad parses (no pricing, no PC match)
-    # This handles cases where the 704B parser extracted generic descriptions
-    # while the PC has the correct sized/specific variants
-    _cleaned_items = []
-    for ri in rfq_data.get("line_items", []):
-        if ri.get("source_pc") or ri.get("imported_from_pc"):
-            _cleaned_items.append(ri)  # Keep PC-sourced items
-        elif ri.get("supplier_cost") or ri.get("price_per_unit") or ri.get("vendor_cost"):
-            _cleaned_items.append(ri)  # Keep items with pricing
-        elif ri.get("_added_from_pc"):
-            _cleaned_items.append(ri)  # Keep items added from PC
-        else:
-            # Unmatched, no pricing — check if it's a duplicate of a PC item
-            rd = (ri.get("description", "") or "").lower().strip()
-            is_dup = False
-            for pi in pc_items:
-                pd = (pi.get("description", pi.get("desc", "")) or "").lower().strip()
-                # Check if RFQ desc is a substring of PC desc or shares significant words
-                if rd and pd:
-                    rd_words = set(rd.split())
-                    pd_words = set(pd.split())
-                    common = rd_words & pd_words
-                    if len(common) >= max(2, len(rd_words) * 0.4):
-                        is_dup = True
-                        break
-            if is_dup:
-                _trace.append(f"REMOVED DUP: '{rd[:40]}' (unpriced, overlaps PC item)")
-            else:
-                _cleaned_items.append(ri)  # Keep non-duplicate items
-    if len(_cleaned_items) < len(rfq_data.get("line_items", [])):
-        removed = len(rfq_data.get("line_items", [])) - len(_cleaned_items)
-        rfq_data["line_items"] = _cleaned_items
-        _trace.append(f"CLEANUP: removed {removed} unmatched/unpriced duplicate items")
-        log.info("PC link cleanup: removed %d unmatched items from RFQ %s", removed, rfq_data["id"])
 
     # Copy PC-level metadata to the RFQ
     rfq_data["source_pc"] = matched_pid
