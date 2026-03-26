@@ -466,26 +466,19 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 # ═══════════════════════════════════════════════════════════════════════
 
 def fill_703c(input_path, rfq_data, config, output_path):
-    """Fill AMS 703C (Fair and Reasonable / Exempt).
-    Reads actual PDF field names and maps values to whatever prefix is used."""
+    """Fill AMS 703C Rev 03/2025 (Fair and Reasonable / Exempt).
+    Field names use '703C_' prefix. Verified from actual PDF field dump."""
     from pypdf import PdfReader as _PR703c
     reader = _PR703c(input_path)
     fields = reader.get_fields() or {}
     field_names = set(fields.keys())
 
-    # Log all field names for debugging
-    print(f"  703C template fields ({len(field_names)}): {sorted(field_names)[:30]}")
-
-    # Detect which prefix the form uses
     has_703b_prefix = any(f.startswith("703B_") for f in field_names)
     has_703c_prefix = any(f.startswith("703C_") for f in field_names)
-    print(f"  703C prefix detection: 703B_={has_703b_prefix}, 703C_={has_703c_prefix}")
 
     if has_703b_prefix and not has_703c_prefix:
-        # Same field names as 703B — delegate directly
         return fill_703b(input_path, rfq_data, config, output_path)
 
-    # Build values with 703C prefix or un-prefixed
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
     try:
@@ -494,54 +487,54 @@ def fill_703c(input_path, rfq_data, config, output_path):
         gen_date = datetime.now()
     bid_exp = (gen_date + timedelta(days=45)).strftime("%m/%d/%Y")
 
-    # Map of logical name → value
-    field_map = {
-        "Business Name": company["name"],
-        "Address": company["address"],
-        "Contact Person": company["owner"],
-        "Title": company["title"],
-        "Phone": company["phone"],
-        "Email": company["email"],
-        "Federal Employer Identification Number FEIN": company["fein"],
-        "Retailers CA Sellers Permit Number": company["sellers_permit"],
-        "Solicitation Number": rfq_data.get("solicitation_number", ""),
-        "Due Date": rfq_data.get("due_date", ""),
-        "BidExpirationDate": bid_exp,
-        "Sign_Date": sign_date,
-        "Name": rfq_data.get("requestor_name", ""),
-        "Email_2": rfq_data.get("requestor_email", ""),
-        "Phone_2": rfq_data.get("requestor_phone", ""),
+    p = "703C_" if has_703c_prefix else ""
+
+    values = {
+        # Company info
+        f"{p}Business Name": company["name"],
+        f"{p}Address": company["address"],
+        f"{p}Contact Person": company["owner"],
+        f"{p}Title": company["title"],
+        f"{p}Phone": company["phone"],
+        f"{p}Email": company["email"],
+        f"{p}Federal Employer Identification Number FEIN": company["fein"],
+        f"{p}Retailers CA Sellers Permit Number": company["sellers_permit"],
+        f"{p}SBMBDVBE Certification.0": company["cert_number"],
+        f"{p}Certification Expiration Date": company["cert_expiration"],
+        f"{p}BidExpirationDate": bid_exp,
+        f"{p}Date": sign_date,
+        # Solicitation
+        f"{p}Solicitation Number": rfq_data.get("solicitation_number", ""),
+        f"{p}Release Date": rfq_data.get("release_date", ""),
+        f"{p}Due Date": rfq_data.get("due_date", ""),
+        f"{p}Deliveries must be completed within": rfq_data.get("delivery_days", "30"),
+        # Payment discount
+        f"{p}Payment discount offered on invoices to be paid within": "N/A",
+        f"{p}days of receipt": "0",
+        # Requestor
+        f"{p}Name": rfq_data.get("requestor_name", ""),
+        f"{p}Email_2": rfq_data.get("requestor_email", ""),
+        f"{p}Phone_2": rfq_data.get("requestor_phone", ""),
+        # Checkboxes — manufacturer: No, non-small business: No
+        f"{p}Check Box2": "/Yes",  # Manufacturer: No
+        f"{p}Check Box4": "/Yes",  # Non-small business claiming: No
+        f"{p}Check Box5": "/Yes",
+        f"{p}Check Box7": "/Yes",
+        # Response list checkboxes (page 8)
+        f"{p}ResponseList.0": "/Yes", f"{p}ResponseList.1": "/Yes",
+        f"{p}ResponseList.2": "/Yes", f"{p}ResponseList.3": "/Yes",
+        f"{p}ResponseList.4": "/Yes", f"{p}ResponseList.5": "/Yes",
+        f"{p}ResponseList.6": "/Yes", f"{p}ResponseList.7": "/Yes",
+        f"{p}ResponseList.8": "/Yes", f"{p}ResponseList.9": "/Yes",
+        f"{p}ResponseList.14": "/Yes",
+        f"{p}ResponseList.16": "/Yes",
     }
 
-    values = {}
-    prefix = "703C_" if has_703c_prefix else ""
-    for key, val in field_map.items():
-        values[f"{prefix}{key}"] = val
-
-    # Also try matching any field name that contains the key (fuzzy field match)
-    for fn in field_names:
-        fn_clean = fn.replace("703C_", "").replace("703B_", "")
-        if fn_clean in field_map and fn not in values:
-            values[fn] = field_map[fn_clean]
-
-    # Check if template has /Sig fields
-    _has_sig = False
-    for _pg in reader.pages:
-        if "/Annots" in _pg:
-            for _ann in _pg["/Annots"]:
-                _obj = _ann.get_object()
-                if str(_obj.get("/FT", "")) == "/Sig":
-                    _has_sig = True
-                    break
+    if rfq_data.get("delivery_location"):
+        values[f"{p}Dropdown2"] = rfq_data["delivery_location"]
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-
-    if not _has_sig:
-        try:
-            _703b_overlay_signature(output_path, sign_date)
-        except Exception as _se:
-            print(f"  ⚠ 703C positional sig overlay failed: {_se}")
-
+    # 703C has Signature1 as /Sig — fill_and_sign_pdf handles it. No overlay needed.
     print(f"  ✓ 703C filled + signed ({sign_date})")
 
 
