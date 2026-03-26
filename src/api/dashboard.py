@@ -2090,58 +2090,113 @@ def _link_rfq_to_pc(rfq_data, _trace):
     _trace.append(f"PC LINKED: {matched_pid} ({match_reason})")
     log.info("Auto-linked RFQ %s → PC %s (%s)", rfq_data["id"], matched_pid, match_reason)
 
-    # ── Port pricing from PC items to RFQ items ──
-    # Same solicitation = same items in same order. Match by position.
-    # RFQ keeps its descriptions/MFG#/item numbers untouched — only pricing is ported.
+    # ── Match RFQ items to PC items by description, port PC pricing ──
+    # 704 and 704B use same descriptions/item numbers — buyer doesn't change them.
+    # PC pricing is authoritative (catalog may have older prices from other quotes).
+    # Catalog provides enrichment (URLs, ASIN, supplier).
     pc_items = _get_pc_items(pc)
     ported = 0
     diff_added, diff_removed, diff_qty = [], [], []
     rfq_items = rfq_data.get("line_items", [])
 
-    # Step 1: Match by position (most reliable for same-sol items)
-    for idx, rfq_item in enumerate(rfq_items):
-        if idx < len(pc_items):
-            pci = pc_items[idx]
-            _pricing = pci.get("pricing", {}) or {}
-            # Port cost
-            _pc_cost = (pci.get("vendor_cost") or _pricing.get("unit_cost")
-                        or pci.get("cost") or pci.get("unit_cost") or 0)
-            if _pc_cost and not rfq_item.get("supplier_cost"):
-                rfq_item["supplier_cost"] = _pc_cost
-                rfq_item["cost_source"] = "PC"
-            # Port bid price
-            _pc_price = (pci.get("unit_price") or _pricing.get("recommended_price")
-                         or pci.get("bid_price") or pci.get("sell_price") or 0)
-            if _pc_price and not rfq_item.get("price_per_unit"):
-                rfq_item["price_per_unit"] = _pc_price
-            # Port markup
-            _pc_markup = pci.get("markup_pct") or _pricing.get("markup_pct")
-            if _pc_markup and not rfq_item.get("markup_pct"):
-                rfq_item["markup_pct"] = _pc_markup
-            # Port supplier URL (don't overwrite RFQ's item_number/description)
-            _pc_link = (pci.get("item_link") or pci.get("url")
-                        or pci.get("product_url") or pci.get("amazon_url") or "")
-            if _pc_link and not rfq_item.get("item_link"):
-                rfq_item["item_link"] = _pc_link
-            _pc_supplier = pci.get("item_supplier") or pci.get("supplier") or ""
-            if _pc_supplier and not rfq_item.get("item_supplier"):
-                rfq_item["item_supplier"] = _pc_supplier
-            # SCPRS data
-            if _pricing.get("scprs_price") and not rfq_item.get("scprs_last_price"):
-                rfq_item["scprs_last_price"] = _pricing["scprs_price"]
-                if _pricing.get("scprs_po"):
-                    rfq_item["scprs_po"] = _pricing["scprs_po"]
-                if _pricing.get("scprs_match"):
-                    rfq_item["scprs_vendor"] = _pricing["scprs_match"]
-            rfq_item["source_pc"] = matched_pid
-            rfq_item["_from_pc"] = pc.get("pc_number", "")
+    def _port_pc_pricing(rfq_item, pci):
+        """Port pricing from PC item to RFQ item. Never touch descriptions/MFG#."""
+        _pricing = pci.get("pricing", {}) or {}
+        _pc_cost = (pci.get("vendor_cost") or _pricing.get("unit_cost")
+                    or pci.get("cost") or pci.get("unit_cost") or 0)
+        if _pc_cost and not rfq_item.get("supplier_cost"):
+            rfq_item["supplier_cost"] = _pc_cost
+            rfq_item["cost_source"] = "PC"
+        _pc_price = (pci.get("unit_price") or _pricing.get("recommended_price")
+                     or pci.get("bid_price") or pci.get("sell_price") or 0)
+        if _pc_price and not rfq_item.get("price_per_unit"):
+            rfq_item["price_per_unit"] = _pc_price
+        _pc_markup = pci.get("markup_pct") or _pricing.get("markup_pct")
+        if _pc_markup and not rfq_item.get("markup_pct"):
+            rfq_item["markup_pct"] = _pc_markup
+        _pc_link = (pci.get("item_link") or pci.get("url")
+                    or pci.get("product_url") or pci.get("amazon_url") or "")
+        if _pc_link and not rfq_item.get("item_link"):
+            rfq_item["item_link"] = _pc_link
+        _pc_supplier = pci.get("item_supplier") or pci.get("supplier") or ""
+        if _pc_supplier and not rfq_item.get("item_supplier"):
+            rfq_item["item_supplier"] = _pc_supplier
+        if _pricing.get("scprs_price") and not rfq_item.get("scprs_last_price"):
+            rfq_item["scprs_last_price"] = _pricing["scprs_price"]
+            if _pricing.get("scprs_po"):
+                rfq_item["scprs_po"] = _pricing["scprs_po"]
+            if _pricing.get("scprs_match"):
+                rfq_item["scprs_vendor"] = _pricing["scprs_match"]
+        rfq_item["source_pc"] = matched_pid
+        rfq_item["_from_pc"] = pc.get("pc_number", "")
+
+    # Step 1: Match by description (704B uses same descriptions as 704)
+    _used_pc = set()
+    for rfq_item in rfq_items:
+        from difflib import SequenceMatcher as _SM
+        rd = (rfq_item.get("description", "") or "").lower().strip()
+        if not rd:
+            continue
+        best_match = None
+        best_sim = 0
+        best_idx = -1
+        for pi, pci in enumerate(pc_items):
+            if pi in _used_pc:
+                continue
+            pd = (pci.get("description", pci.get("desc", "")) or "").lower().strip()
+            if not pd:
+                continue
+            sim = _SM(None, rd[:100], pd[:100]).ratio()
+            if sim > best_sim:
+                best_sim = sim
+                best_match = pci
+                best_idx = pi
+        if best_match and best_sim >= 0.5:
+            _port_pc_pricing(rfq_item, best_match)
+            _used_pc.add(best_idx)
             ported += 1
 
-    _trace.append(f"POSITIONAL MATCH: ported pricing for {ported}/{len(rfq_items)} items from {len(pc_items)} PC items")
+    # Step 2: Positional fallback for unmatched items (same order assumption)
+    for idx, rfq_item in enumerate(rfq_items):
+        if rfq_item.get("source_pc"):
+            continue  # Already matched
+        if idx < len(pc_items) and idx not in _used_pc:
+            _port_pc_pricing(rfq_item, pc_items[idx])
+            _used_pc.add(idx)
+            ported += 1
 
-    # Step 2: Fallback — fuzzy match for any remaining unpriced items
+    _trace.append(f"PC PRICING: {ported}/{len(rfq_items)} items priced (desc match + positional fallback)")
+
+    # Step 3: Catalog enrichment for remaining product data (URLs, ASIN, supplier)
+    try:
+        from src.agents.product_catalog import match_item, init_catalog_db
+        init_catalog_db()
+        _cat_enriched = 0
+        for rfq_item in rfq_items:
+            desc = (rfq_item.get("description", "") or "").strip()
+            pn = (rfq_item.get("item_number", "") or "").strip()
+            if not desc and not pn:
+                continue
+            matches = match_item(desc, pn, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.4:
+                best = matches[0]
+                # Only enrich supplementary data — never overwrite PC pricing
+                if not rfq_item.get("item_link"):
+                    cat_url = best.get("best_supplier_url") or best.get("product_url", "")
+                    if cat_url:
+                        rfq_item["item_link"] = cat_url
+                if not rfq_item.get("item_supplier"):
+                    cat_sup = best.get("best_supplier", "")
+                    if cat_sup:
+                        rfq_item["item_supplier"] = cat_sup
+                rfq_item["_catalog_match"] = best.get("name", "")[:60]
+                _cat_enriched += 1
+        _trace.append(f"CATALOG ENRICH: {_cat_enriched} items enriched with URLs/supplier")
+    except Exception as _ce:
+        _trace.append(f"CATALOG ENRICH ERROR: {_ce}")
+
+    # Step 4: Fuzzy diff logging (no item additions)
     for rfq_item in rfq_items:
-        # Skip items already priced by positional match
         if rfq_item.get("source_pc"):
             continue
         from difflib import SequenceMatcher as _SM
