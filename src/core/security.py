@@ -277,7 +277,10 @@ _RBAC_FILE = None  # Set during init
 def _get_rbac_file():
     global _RBAC_FILE
     if _RBAC_FILE is None:
-        data_dir = os.environ.get("DATA_DIR", "data")
+        try:
+            from src.core.paths import DATA_DIR as data_dir
+        except ImportError:
+            data_dir = os.environ.get("DATA_DIR", "data")
         _RBAC_FILE = os.path.join(data_dir, "rbac_roles.json")
     return _RBAC_FILE
 

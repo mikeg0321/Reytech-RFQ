@@ -3639,7 +3639,14 @@ def do_poll_check():
     mike_addr = os.environ.get("GMAIL_ADDRESS_2", "")
     mike_pwd = os.environ.get("GMAIL_PASSWORD_2", "")
     POLL_STATUS["_mike_diag"] = {"configured": bool(mike_addr and mike_pwd), "addr": mike_addr}
-    if mike_addr and mike_pwd:
+    # Skip after 3 consecutive auth failures to avoid log spam
+    _mike_fails = POLL_STATUS.get("_mike_consecutive_failures", 0)
+    if _mike_fails >= 3:
+        if _mike_fails == 3:
+            log.warning("Second inbox %s: disabled after 3 consecutive auth failures — fix GMAIL_PASSWORD_2 env var", mike_addr)
+            POLL_STATUS["_mike_consecutive_failures"] = 4  # only log once
+        POLL_STATUS["_mike_diag"]["disabled"] = True
+    elif mike_addr and mike_pwd:
         try:
             mike_cfg = dict(email_cfg)
             mike_cfg["email"] = mike_addr
@@ -3651,6 +3658,7 @@ def do_poll_check():
             log.info("Polling second inbox: %s (%d processed UIDs)",
                      mike_addr, len(mike_poller._processed))
             if mike_poller.connect():
+                POLL_STATUS["_mike_consecutive_failures"] = 0
                 POLL_STATUS["_mike_diag"]["connected"] = True
                 mike_emails = mike_poller.check_for_rfqs(save_dir=_UPLOAD_DIR)
                 POLL_STATUS["_mike_diag"]["emails_returned"] = len(mike_emails)
@@ -3697,7 +3705,9 @@ def do_poll_check():
                             mike_poller._processed.discard(failed_uid)
             else:
                 POLL_STATUS["_mike_diag"]["connected"] = False
-                log.warning("IMAP connect failed for %s", mike_addr)
+                POLL_STATUS["_mike_consecutive_failures"] = POLL_STATUS.get("_mike_consecutive_failures", 0) + 1
+                log.warning("IMAP connect failed for %s (attempt %d/3)",
+                            mike_addr, POLL_STATUS["_mike_consecutive_failures"])
         except Exception as e:
             POLL_STATUS["_mike_diag"]["exception"] = str(e)
             log.error("Second inbox poll error: %s", e, exc_info=True)
@@ -3837,7 +3847,12 @@ def _load_orders() -> dict:
         from src.core.dal import list_orders as _dal_list
         rows = _dal_list(limit=10000)
         if rows:
-            return {r["id"]: r for r in rows}
+            result = {}
+            for r in rows:
+                oid = r.get("id", r.get("order_id", ""))
+                r["order_id"] = oid  # ensure order_id always present
+                result[oid] = r
+            return result
     except Exception as e:
         log.warning("DAL list_orders failed, falling back to JSON: %s", str(e)[:200])
     return _cached_json_load(ORDERS_FILE, fallback={})
