@@ -4078,20 +4078,39 @@ def generate_rfq_package(rid):
         except Exception as _sv_e:
             log.debug("Source validation: %s", _sv_e)
 
-        # ── Field audit: verify each generated form ──
+        # ── Form QA: comprehensive field, signature, and package verification ──
         _field_audits = {}
         try:
-            from src.forms.price_check import audit_generated_form
-            _expected = {"company_name": CONFIG.get("company", {}).get("name", "Reytech"), "solicitation": sol}
-            for _gf in _gen_forms:
-                _gf_path = os.path.join(out_dir, _gf.get("filename", ""))
-                if os.path.exists(_gf_path):
-                    _audit = audit_generated_form(_gf_path, _gf["form_id"], _expected)
-                    _field_audits[_gf["form_id"]] = _audit
-                    if not _audit.get("ok"):
-                        log.warning("Field audit FAIL %s: %s", _gf["form_id"], _audit.get("errors", []))
+            from src.forms.form_qa import run_form_qa
+            _qa_report = run_form_qa(
+                out_dir=out_dir,
+                output_files=output_files,
+                form_id_map=_gen_forms,
+                rfq_data=r,
+                config=CONFIG,
+                agency_key=_agency_key,
+                required_forms=_req_forms,
+            )
+            _field_audits = _qa_report
+            if _qa_report.get("critical_issues"):
+                for _qi in _qa_report["critical_issues"]:
+                    errors.append(f"QA: {_qi}")
+                t.warn("Form QA found issues", detail=_qa_report)
+            else:
+                t.step(f"Form QA PASSED: {_qa_report['forms_checked']} forms, {_qa_report['duration_ms']}ms")
         except Exception as _fa_e:
-            log.debug("Field audit: %s", _fa_e)
+            log.warning("Form QA error: %s", _fa_e)
+            # Fallback to shallow audit
+            try:
+                from src.forms.price_check import audit_generated_form
+                _expected = {"company_name": CONFIG.get("company", {}).get("name", "Reytech"), "solicitation": sol}
+                for _gf in _gen_forms:
+                    _gf_path = os.path.join(out_dir, _gf.get("filename", ""))
+                    if os.path.exists(_gf_path):
+                        _audit = audit_generated_form(_gf_path, _gf["form_id"], _expected)
+                        _field_audits[_gf["form_id"]] = _audit
+            except Exception:
+                pass
 
         _qtotal = 0
         _qnum = r.get("reytech_quote_number", "")
