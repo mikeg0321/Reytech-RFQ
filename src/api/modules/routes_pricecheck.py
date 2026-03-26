@@ -8115,6 +8115,94 @@ def api_quote_set_counter(num):
                     "note": "All counter keys synced (quote_counter, quote_counter_seq, quote_counter_year)"})
 
 
+@bp.route("/api/pricecheck/<pcid>/rescrape-unpriced", methods=["POST"])
+@auth_required
+def api_rescrape_unpriced(pcid):
+    """Re-scrape items that have a URL but no price."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items", [])
+    attempted = 0
+    priced = 0
+    for i, item in enumerate(items):
+        url = (item.get("item_link") or "").strip()
+        existing_cost = item.get("vendor_cost") or item.get("unit_price") or 0
+        try:
+            existing_cost = float(existing_cost)
+        except (ValueError, TypeError):
+            existing_cost = 0
+        if not url or existing_cost > 0:
+            continue
+        attempted += 1
+        try:
+            from src.agents.item_link_lookup import lookup_from_url
+            r = lookup_from_url(url)
+            price = r.get("price") or r.get("list_price") or r.get("cost")
+            if price:
+                try:
+                    price = float(price)
+                except (ValueError, TypeError):
+                    price = 0
+            else:
+                price = 0
+            # Amazon fallback for non-Amazon URLs
+            if price <= 0 and "amazon.com" not in url.lower():
+                _search_q = r.get("title") or r.get("description") or item.get("description", "")
+                if _search_q and len(_search_q) >= 8:
+                    try:
+                        from src.agents.product_research import search_amazon
+                        amz = search_amazon(_search_q, max_results=1)
+                        if amz and amz[0].get("price", 0) > 0:
+                            price = float(amz[0]["price"])
+                            _amz_asin = amz[0].get("asin", "")
+                            if _amz_asin:
+                                item["item_link"] = amz[0].get("url", "") or f"https://www.amazon.com/dp/{_amz_asin}"
+                                item["item_supplier"] = "Amazon"
+                                if not item.get("pricing"):
+                                    item["pricing"] = {}
+                                item["pricing"]["amazon_asin"] = _amz_asin
+                    except Exception:
+                        pass
+            # Update MFG#/description from scrape
+            _pn = r.get("mfg_number") or r.get("part_number") or ""
+            if _pn and not item.get("item_number"):
+                item["item_number"] = _pn
+                item["mfg_number"] = _pn
+            _title = r.get("title") or r.get("description") or ""
+            if _title and (not item.get("description") or len(item.get("description", "")) < 10):
+                item["description"] = _title
+            if price > 0:
+                if not item.get("pricing"):
+                    item["pricing"] = {}
+                item["pricing"]["unit_cost"] = price
+                item["pricing"]["source"] = "rescrape"
+                item["vendor_cost"] = price
+                markup = item.get("markup_pct") or pc.get("default_markup") or 25
+                try:
+                    markup = float(markup)
+                except (ValueError, TypeError):
+                    markup = 25
+                item["markup_pct"] = markup
+                unit_price = round(price * (1 + markup / 100), 2)
+                item["unit_price"] = unit_price
+                item["pricing"]["recommended_price"] = unit_price
+                qty = item.get("qty", 1) or 1
+                try:
+                    qty = float(qty)
+                except (ValueError, TypeError):
+                    qty = 1
+                item["extension"] = round(unit_price * qty, 2)
+                priced += 1
+        except Exception as e:
+            log.error("Rescrape error line %d: %s", i + 1, e, exc_info=True)
+    if priced > 0 or attempted > 0:
+        _save_single_pc(pcid, pc)
+    return jsonify({"ok": True, "attempted": attempted, "priced": priced,
+                    "total_items": len(items)})
+
+
 @bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls", methods=["POST"])
 @auth_required
 def api_bulk_scrape_urls(pcid):

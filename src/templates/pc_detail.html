@@ -321,6 +321,7 @@
      <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
       <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
       <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
+      <button onclick="rescrapeUnpriced(this)" style="background:#21262d;border:1px solid #30363d;color:#d29922;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer" title="Re-scrape items that have URLs but no price">🔄 Re-scrape Missing</button>
      </div>
      <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;font-size:14px">
@@ -2587,6 +2588,17 @@
       document.getElementById('bulkResults').innerHTML=html;
       if(d.applied>0)setTimeout(function(){location.reload()},2000);
      }).catch(function(e){btn.disabled=false;btn.textContent='Scrape & Apply Prices';prog.style.display='none';alert('Error: '+e.message);});
+    }
+
+    function rescrapeUnpriced(btn) {
+     btn.disabled=true;btn.textContent='🔄 Re-scraping...';
+     fetch('/api/pricecheck/'+_pcid+'/rescrape-unpriced',{method:'POST',credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;btn.textContent='🔄 Re-scrape Missing';
+      if(!d.ok){alert(d.error||'Failed');return;}
+      showMsg('Re-scraped: '+d.priced+'/'+d.attempted+' now priced','ok');
+      if(d.priced>0)setTimeout(function(){location.reload()},2000);
+     }).catch(function(e){btn.disabled=false;btn.textContent='🔄 Re-scrape Missing';alert('Error: '+e.message);});
     }
 
     // ── AUTOSAVE — every 60 seconds if changes detected ──
