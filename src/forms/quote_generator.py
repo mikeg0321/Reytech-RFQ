@@ -330,64 +330,68 @@ def _should_reset_counter(stored_year: int) -> bool:
     return stored_year != now.year
 
 def _next_quote_number() -> str:
-    """R{YY}Q{seq} — sequential, collision-safe, syncs to highest existing.
+    """R{YY}Q{seq} — sequential, collision-safe.
 
-    Uses BEGIN IMMEDIATE on SQLite to prevent race conditions between
-    concurrent requests reading/incrementing the same counter.
+    Uses a single DB connection with a short exclusive lock.
+    No nested connections — that was causing 2+ minute DB lock cascades.
     """
     import sqlite3
-    from src.core.db import get_db
+    from src.core.paths import DATA_DIR as _DD
+    import os as _os
+
+    _db_path = _os.path.join(_DD, "reytech.db") if _os.path.exists(_os.path.join(_DD, "reytech.db")) else _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))), "data", "reytech.db")
 
     year = datetime.now().year
     yy = str(year)[-2:]
     prefix = f"R{yy}Q"
 
-    # Acquire an exclusive SQLite lock for the entire read-modify-write cycle
-    with get_db() as conn:
+    conn = sqlite3.connect(_db_path, timeout=5)  # Short timeout — fail fast, don't block
+    try:
         conn.execute("BEGIN IMMEDIATE")
-        try:
-            data = _load_counter()
 
-            if _should_reset_counter(data.get("year", 0)):
-                log.info("New year detected — resetting quote counter from seq=%d (year=%d) to seq=1 (year=%d)",
-                         data.get("seq", 0), data.get("year", 0), year)
-                data = {"year": year, "seq": 0}
+        # Read counter directly — no nested get_setting() calls
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='quote_counter_seq'"
+        ).fetchone()
+        stored_seq = int(row[0]) if row else 0
 
-            # Quick collision check — only query SQLite (fast), skip full quote scan
-            highest = data.get("seq", 0)
-            try:
-                row = conn.execute(
-                    "SELECT quote_number FROM quotes WHERE quote_number LIKE ? ORDER BY quote_number DESC LIMIT 1",
-                    (f"{prefix}%",)
-                ).fetchone()
-                if row:
-                    try:
-                        num = int(row[0][len(prefix):])
-                        if num > highest:
-                            highest = num
-                    except (ValueError, IndexError):
-                        pass
-            except Exception:
-                pass
+        # Year check
+        yr_row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='quote_counter_year'"
+        ).fetchone()
+        stored_year = int(yr_row[0]) if yr_row else year
+        if stored_year != year:
+            log.info("New year — resetting quote counter from %d to 1", stored_seq)
+            stored_seq = 0
 
-            # Use the stored counter — don't let scan results override a manual set
-            # The counter is authoritative. Only bump if scan shows a collision.
-            stored_seq = data.get("seq", 0)
-            if highest > stored_seq:
-                # Only allow +1 jump from stored, not a wild jump from scan
-                log.warning("Quote scan found %s%d but counter is at %d — using counter + 1",
-                           prefix, highest, stored_seq)
-            next_seq = stored_seq + 1
-            data["seq"] = next_seq
-            data["year"] = year
-            _save_counter(data)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        next_seq = stored_seq + 1
+
+        # Write counter directly — no nested set_setting() calls
+        now = datetime.now().isoformat()
+        for key, val in [("quote_counter_seq", next_seq), ("quote_counter", next_seq),
+                         ("quote_counter_year", year), ("quote_counter_last_good", next_seq)]:
+            conn.execute("""
+                INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """, (key, str(val), now))
+
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        log.error("_next_quote_number error: %s", e)
+        # Fallback: use timestamp
+        return f"R{yy}Q{datetime.now().strftime('%H%M%S')}"
+    finally:
+        conn.close()
+
+    # Also save JSON backup (non-blocking, outside DB lock)
+    try:
+        _save_counter({"year": year, "seq": next_seq})
+    except Exception:
+        pass
 
     new_number = f"{prefix}{next_seq}"
-    log.info("Quote number: %s (synced to %d)", new_number, next_seq)
+    log.info("Quote number: %s (seq=%d)", new_number, next_seq)
     return new_number
 
 def _rollback_quote_number(quote_number: str):
