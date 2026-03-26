@@ -350,10 +350,21 @@ def _lookup_amazon(url: str) -> dict:
     if not asin:
         return {"error": "Could not extract ASIN from Amazon URL", "supplier": "Amazon"}
 
+    # Detect ISBN (starts with digit, not B0-style ASIN) — use as MFG# for books
+    _is_isbn = asin and asin[0].isdigit()
+
     try:
-        from src.agents.product_research import search_amazon
-        # Use ASIN as the search query for a direct hit
-        results = search_amazon(f"ASIN {asin}", max_results=1)
+        from src.agents.product_research import search_amazon, lookup_amazon_product
+        # Try direct product lookup first (most reliable for ASIN/ISBN)
+        direct = lookup_amazon_product(asin)
+        results = []
+        if direct and direct.get("price") and direct["price"] > 0:
+            results = [direct]
+        else:
+            # Fallback to search
+            results = search_amazon(f"ASIN {asin}", max_results=1)
+            if (not results or not results[0].get("price")) and _is_isbn:
+                results = search_amazon(f"ISBN {asin}", max_results=1)
         if results:
             r = results[0]
             title = r.get("title", "")
@@ -371,14 +382,16 @@ def _lookup_amazon(url: str) -> dict:
             _sale = r.get("price")
             _use_price = _list or _sale
 
-            # Structured description: "{Title}, MFG# {mfg}, ASIN: {asin}"
+            # MFG#: use scraped MFG#, or ISBN for books
             mfg = r.get("mfg_number", "") or r.get("part_number", "") or ""
+            if not mfg and _is_isbn:
+                mfg = asin  # ISBN-10 serves as MFG# for books
             # Description = clean title only. No ASIN — procurement doesn't want it.
             # MFG# stored in part_number field, ASIN in asin field only.
             structured_desc = title
 
-            # If no MFG# from title, try product page specs
-            if not mfg and asin:
+            # If no MFG# yet, try product page specs
+            if not mfg and asin and not _is_isbn:
                 try:
                     _page = _scrape_generic(f"https://www.amazon.com/dp/{asin}")
                     import re as _re_mfg

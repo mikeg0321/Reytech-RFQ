@@ -309,6 +309,90 @@ def search_amazon(query: str, max_results: int = 5) -> list:
     return results
 
 
+def lookup_amazon_product(asin: str) -> Optional[dict]:
+    """Direct ASIN/ISBN product lookup via SerpApi amazon_product engine.
+    Returns dict with title, price, asin, url, etc. or None."""
+    if not HAS_REQUESTS:
+        return None
+    api_key = _get_api_key()
+    if not api_key:
+        return None
+
+    params = {
+        "engine": "amazon_product",
+        "product_id": asin,
+        "amazon_domain": "amazon.com",
+        "api_key": api_key,
+        "output": "json",
+    }
+    try:
+        url = f"{SERPAPI_BASE}?{urlencode(params)}"
+        log.info(f"SerpApi product lookup: ASIN/ISBN {asin}")
+        resp = requests.get(url, timeout=30)
+        if resp.status_code != 200:
+            log.warning(f"SerpApi product lookup {resp.status_code}: {resp.text[:200]}")
+            return None
+        data = resp.json()
+        if "error" in data:
+            log.warning(f"SerpApi product error: {data['error']}")
+            return None
+
+        product = data.get("product_results", {})
+        if not product:
+            return None
+
+        title = product.get("title", "")
+        # Extract price from buybox or price field
+        price = None
+        buybox = data.get("buybox", [])
+        if buybox and isinstance(buybox, list):
+            for bb in buybox:
+                bp = bb.get("price", {})
+                if isinstance(bp, dict):
+                    val = bp.get("value") or bp.get("raw", "")
+                    if val:
+                        try:
+                            price = float(str(val).replace("$", "").replace(",", ""))
+                        except (ValueError, TypeError):
+                            pass
+                elif isinstance(bp, (int, float)):
+                    price = float(bp)
+                if price and price > 0:
+                    break
+        if not price:
+            pp = product.get("price")
+            if isinstance(pp, dict):
+                val = pp.get("value") or pp.get("raw", "")
+                if val:
+                    try:
+                        price = float(str(val).replace("$", "").replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
+            elif isinstance(pp, (int, float)):
+                price = float(pp)
+            elif isinstance(pp, str):
+                try:
+                    price = float(pp.replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    pass
+
+        mfg_info = _extract_mfg_info(title, asin)
+        result = {
+            "title": title[:200],
+            "price": price,
+            "asin": asin,
+            "url": f"https://www.amazon.com/dp/{asin}",
+            "source": "amazon_product",
+            "manufacturer": mfg_info.get("manufacturer", ""),
+            "mfg_number": mfg_info.get("mfg_number", ""),
+        }
+        log.info(f"SerpApi product lookup: {asin} → ${price} '{title[:50]}'")
+        return result
+    except Exception as e:
+        log.error(f"SerpApi product lookup error: {e}", exc_info=True)
+        return None
+
+
 # ─── Product Research (main entry point) ─────────────────────────────────────
 
 def research_product(
