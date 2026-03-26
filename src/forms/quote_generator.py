@@ -315,6 +315,12 @@ def set_quote_counter(seq: int, year: int = None):
     if year is None:
         year = datetime.now().year
     _save_counter({"year": year, "seq": seq})
+    # Also update the guardrail so auto-increment knows this is the trusted value
+    try:
+        from src.core.db import set_setting
+        set_setting("quote_counter_last_good", str(seq))
+    except Exception:
+        pass
     log.info("Quote counter set to seq=%d year=%d → next will be R%sQ%d",
              seq, year, str(year)[-2:], seq + 1)
 

@@ -2925,6 +2925,27 @@ def next_quote_number() -> str:
             log.info("Quote counter initialized from scan: max=%d, next=R%sQ%d", max_num, year, max_num + 1)
         
         next_val = current + 1
+
+        # ── GUARDRAIL: prevent counter jumps ──
+        # If counter was just initialized from scan and jumped wildly,
+        # cap it. The counter should never jump more than 5 from the
+        # last manually-set or known-good value.
+        _last_good_row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='quote_counter_last_good'"
+        ).fetchone()
+        if _last_good_row:
+            _last_good = int(_last_good_row[0])
+            _max_allowed = _last_good + 5
+            if next_val > _max_allowed:
+                log.warning("Quote counter jump blocked: %d → %d (max allowed: %d). Using %d.",
+                           current, next_val, _max_allowed, _last_good + 1)
+                next_val = _last_good + 1
+        # Track the value we're about to use as last-good
+        conn.execute("""
+            INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter_last_good',?,datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        """, (str(next_val),))
+
         conn.execute("""
             INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter',?,datetime('now'))
             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
@@ -2932,7 +2953,7 @@ def next_quote_number() -> str:
         conn.commit()
         year = datetime.now().strftime("%y")
         quote_num = f"R{year}Q{next_val}"
-        
+
         # Verify no collision (belt + suspenders)
         existing = conn.execute("SELECT 1 FROM quotes WHERE quote_number=?", (quote_num,)).fetchone()
         if existing:
@@ -2940,6 +2961,7 @@ def next_quote_number() -> str:
             next_val += 1
             quote_num = f"R{year}Q{next_val}"
             conn.execute("UPDATE app_settings SET value=?, updated_at=datetime('now') WHERE key='quote_counter'", (str(next_val),))
+            conn.execute("UPDATE app_settings SET value=?, updated_at=datetime('now') WHERE key='quote_counter_last_good'", (str(next_val),))
             conn.commit()
         
         return quote_num
