@@ -398,10 +398,14 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 
     for page in writer.pages:
         try:
-            # Always use auto_regenerate=True — pypdf needs to generate
-            # appearance streams for field values to render correctly,
-            # including on rotated pages (GSPD-05-105 Bidder Declaration).
-            writer.update_page_form_field_values(page, clean_values, auto_regenerate=True)
+            # Rotated pages (e.g. GSPD-05-105 Bidder Declaration with /Rotate=90):
+            # auto_regenerate=True generates appearance streams in pre-rotation space,
+            # causing text to render at wrong angles and bleed through page content.
+            # Use auto_regenerate=False — PDF viewers apply /Rotate uniformly and
+            # will render field values correctly from the /V entry.
+            page_rotate = int(page.get("/Rotate", 0))
+            use_auto_regen = (page_rotate == 0)
+            writer.update_page_form_field_values(page, clean_values, auto_regenerate=use_auto_regen)
         except Exception:
             try:
                 writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
