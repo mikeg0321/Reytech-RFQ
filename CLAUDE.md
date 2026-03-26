@@ -115,6 +115,38 @@ Before pushing any change:
 4. If data structure changed: check all templates that consume it for type assumptions
 5. `git diff --stat` to verify only intended files are modified
 
+## Form Filling Guard Rails (CRITICAL — Production Incidents 2026-03-26)
+
+### Package Generation
+- **CCHCS package = 703B/C + 704B + Bid Package + Quote ONLY.** DVBE 843, seller's permit, CalRecycle are INSIDE the bid package. Never generate standalone.
+- **Optional forms are OPTIONAL.** Never auto-include based on item count or heuristics. Only generate if user explicitly checks them.
+- **703C vs 703B:** If buyer provides 703C template, use `fill_703c()`. Never include both.
+- **Before changing `agency_config.py` required_forms:** Verify the form isn't already inside the bid package PDF.
+
+### Signature Placement
+- **Generic fields (Signature1, Signature):** Only sign if in the lower 40% of the page. Certification sigs are always at the bottom.
+- **Never double-sign:** If PDF has `/Sig` form field, `fill_and_sign_pdf` handles it. `_703b_overlay_signature` only runs when NO `/Sig` field exists.
+- **New forms:** Use form-specific field names in `SIGN_FIELDS` (e.g., `Signature_formname`), not generic names.
+
+### Quote Counter
+- **Stored counter is authoritative.** Scans of existing quotes NEVER override a manual set.
+- **Max jump = 5.** Counter blocked if it tries to jump more than 5 from last known value.
+- **No nested DB connections inside `BEGIN IMMEDIATE`.** Use single connection with direct SQL. Nested connections cause cascading locks (2+ minute hangs).
+- **`set_quote_counter()` must update `quote_counter_last_good`.**
+
+### PC → RFQ Workflow
+- **704 (PC)** = market test. Buyer's descriptions unchanged. Only pricing added.
+- **704B (RFQ)** = Reytech's response. Use catalog descriptions, proper MFG#, ASIN in description.
+- **PC pricing is authoritative** for that quote. Catalog pricing may be older.
+- **Match items by description** (should be near-identical), positional fallback.
+- **Never import PC items into RFQ.** RFQ items from 704B are authoritative.
+- **Catalog provides enrichment** (URLs, ASIN, supplier) but NOT pricing.
+- **Cross-queue dedup:** If PC exists for an email, don't also create an RFQ.
+
+### 703C Form Filling
+- Read actual PDF field names before filling. Detect prefix (703B_, 703C_, or none).
+- Log field names for debugging: `print(f"703C fields: {sorted(field_names)}")`
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
