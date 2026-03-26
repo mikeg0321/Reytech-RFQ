@@ -1996,6 +1996,19 @@ def _link_rfq_to_pc(rfq_data, _trace):
     for pid, pc in pcs.items():
         if pc.get("status") in ("dismissed", "cancelled"):
             continue
+
+        # Date check: only match PCs created within 90 days
+        try:
+            pc_created = pc.get("created_at", "")
+            if pc_created:
+                from datetime import datetime as _dt_check
+                pc_dt = _dt_check.fromisoformat(pc_created.replace("Z", "+00:00")).replace(tzinfo=None)
+                days_old = (_dt_check.now() - pc_dt).days
+                if days_old > 90:
+                    continue
+        except Exception:
+            pass  # If date parse fails, still try matching
+
         pc_sol = (pc.get("pc_number", "") or "").replace("AD-", "").strip()
         pc_items_list = _get_pc_items(pc)
 
@@ -2028,10 +2041,14 @@ def _link_rfq_to_pc(rfq_data, _trace):
                 matched_pid, match_reason = pid, f"requestor+{overlap}/{len(pc_items_list)}_items"
                 break
 
-        # Match 3: Same agency/institution + >=80% fuzzy item overlap
+        # Match 3: Same agency/institution + >=40% fuzzy item overlap
+        # Lowered from 80% — RFQ parse may miss items, but agency + partial match is enough
         if pc_items_list and rfq_items_list:
             pc_inst = (pc.get("institution", "") or "").strip()
-            rfq_inst = (rfq_data.get("delivery_location", "") or rfq_data.get("agency_name", "") or "").strip()
+            rfq_inst = (rfq_data.get("delivery_location", "")
+                        or rfq_data.get("institution", "")
+                        or rfq_data.get("institution_name", "")
+                        or rfq_data.get("agency_name", "") or "").strip()
             _inst_match = False
             if pc_inst and rfq_inst and len(pc_inst) >= 3 and len(rfq_inst) >= 3:
                 try:
@@ -2041,8 +2058,26 @@ def _link_rfq_to_pc(rfq_data, _trace):
                     _inst_match = pc_inst.lower() in rfq_inst.lower() or rfq_inst.lower() in pc_inst.lower()
             if _inst_match:
                 overlap = _fuzzy_item_overlap(rfq_items_list, pc_items_list)
-                if overlap >= max(1, len(pc_items_list) * 0.8):
+                if overlap >= max(1, len(pc_items_list) * 0.4):
                     matched_pid, match_reason = pid, f"agency+{overlap}/{len(pc_items_list)}_items"
+                    break
+
+        # Match 4: Institution match alone (no item overlap required)
+        # For cases where RFQ parse missed most items but agency is clearly the same
+        if pc_items_list and not matched_pid:
+            pc_inst = (pc.get("institution", "") or "").strip()
+            rfq_inst = (rfq_data.get("delivery_location", "")
+                        or rfq_data.get("institution", "")
+                        or rfq_data.get("institution_name", "")
+                        or rfq_data.get("agency_name", "") or "").strip()
+            if pc_inst and rfq_inst and len(pc_inst) >= 3 and len(rfq_inst) >= 3:
+                try:
+                    from src.core.institution_resolver import same_institution
+                    _inst_match = same_institution(pc_inst, rfq_inst)
+                except ImportError:
+                    _inst_match = pc_inst.lower() in rfq_inst.lower() or rfq_inst.lower() in pc_inst.lower()
+                if _inst_match and len(pc_items_list) >= 3:
+                    matched_pid, match_reason = pid, f"agency_only({pc_inst[:30]})+{len(pc_items_list)}_pc_items"
                     break
 
     if not matched_pid:
@@ -2179,7 +2214,7 @@ def _link_rfq_to_pc(rfq_data, _trace):
         except Exception:
             pass
 
-    # Items in PC but not in RFQ (fuzzy)
+    # Items in PC but not in RFQ — add them (RFQ parse missed items)
     for pci in pc_items:
         pd = (pci.get("description", pci.get("desc", "")) or "").lower().strip()
         if not pd or len(pd) < 5:
@@ -2192,6 +2227,23 @@ def _link_rfq_to_pc(rfq_data, _trace):
                 break
         if not found:
             diff_removed.append(pci.get("description", pci.get("desc", ""))[:50])
+            # Add missing PC item to the RFQ so no items are lost
+            new_item = {}
+            for key, val in pci.items():
+                new_item[key] = val
+            # Map PC field names to RFQ field names
+            new_item.setdefault("description", pci.get("desc", ""))
+            new_item.setdefault("item_number", pci.get("mfg_number") or pci.get("part_number", ""))
+            new_item.setdefault("supplier_cost", pci.get("vendor_cost") or pci.get("cost") or pci.get("unit_cost", 0))
+            new_item.setdefault("price_per_unit", pci.get("unit_price") or pci.get("bid_price") or pci.get("sell_price", 0))
+            new_item.setdefault("item_link", pci.get("url") or pci.get("product_url", ""))
+            new_item.setdefault("item_supplier", pci.get("supplier", ""))
+            new_item["source_pc"] = matched_pid
+            new_item["imported_from_pc"] = True
+            new_item["_added_from_pc"] = True
+            new_item["imported_at"] = datetime.now(timezone.utc).isoformat()
+            rfq_data.get("line_items", []).append(new_item)
+            ported += 1
 
     # Copy PC-level metadata to the RFQ
     rfq_data["source_pc"] = matched_pid
