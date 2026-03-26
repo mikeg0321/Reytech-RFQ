@@ -2090,59 +2090,60 @@ def _link_rfq_to_pc(rfq_data, _trace):
     _trace.append(f"PC LINKED: {matched_pid} ({match_reason})")
     log.info("Auto-linked RFQ %s → PC %s (%s)", rfq_data["id"], matched_pid, match_reason)
 
-    # ── Enrich RFQ items from catalog (populated during PC work) ──
-    # RFQ items stay as-is (formal 704B descriptions, qty, uom, item numbers).
-    # Pricing comes from catalog, NOT from importing PC items.
+    # ── Port pricing from PC items to RFQ items ──
+    # Same solicitation = same items in same order. Match by position.
+    # RFQ keeps its descriptions/MFG#/item numbers untouched — only pricing is ported.
     pc_items = _get_pc_items(pc)
     ported = 0
     diff_added, diff_removed, diff_qty = [], [], []
+    rfq_items = rfq_data.get("line_items", [])
 
-    # Run catalog matching on each RFQ item to pull pricing
-    try:
-        from src.agents.product_catalog import match_item, init_catalog_db
-        init_catalog_db()
-        for rfq_item in rfq_data.get("line_items", []):
-            desc = (rfq_item.get("description", "") or "").strip()
-            pn = (rfq_item.get("item_number", "") or "").strip()
-            if not desc and not pn:
-                continue
-            # Skip items that already have pricing
-            if rfq_item.get("supplier_cost") or rfq_item.get("price_per_unit"):
-                ported += 1
-                continue
-            matches = match_item(desc, pn, top_n=1)
-            if matches and matches[0].get("match_confidence", 0) >= 0.4:
-                best = matches[0]
-                cat_cost = best.get("best_cost") or best.get("cost") or 0
-                cat_price = best.get("recommended_price") or best.get("sell_price") or 0
-                cat_supplier = best.get("best_supplier", "")
-                cat_url = best.get("best_supplier_url") or best.get("product_url", "")
-                cat_mfg = best.get("mfg_number") or best.get("sku", "")
-                if cat_cost and not rfq_item.get("supplier_cost"):
-                    rfq_item["supplier_cost"] = round(float(cat_cost), 2)
-                    rfq_item["cost_source"] = "Catalog"
-                if cat_price and not rfq_item.get("price_per_unit"):
-                    rfq_item["price_per_unit"] = round(float(cat_price), 2)
-                elif cat_cost and not rfq_item.get("price_per_unit"):
-                    markup = rfq_data.get("default_markup") or 25
-                    rfq_item["price_per_unit"] = round(float(cat_cost) * (1 + float(markup) / 100), 2)
-                if cat_supplier and not rfq_item.get("item_supplier"):
-                    rfq_item["item_supplier"] = cat_supplier
-                if cat_url and not rfq_item.get("item_link"):
-                    rfq_item["item_link"] = cat_url
-                if cat_mfg and not rfq_item.get("item_number"):
-                    rfq_item["item_number"] = cat_mfg
-                rfq_item["_catalog_match"] = best.get("name", "")[:60]
-                rfq_item["_catalog_confidence"] = round(best.get("match_confidence", 0), 2)
-                rfq_item["source_pc"] = matched_pid
-                ported += 1
-        _trace.append(f"CATALOG PRICING: {ported}/{len(rfq_data.get('line_items',[]))} items priced from catalog")
-    except Exception as _cat_e:
-        log.warning("Catalog pricing during PC link failed: %s", _cat_e)
-        _trace.append(f"CATALOG PRICING ERROR: {_cat_e}")
+    # Step 1: Match by position (most reliable for same-sol items)
+    for idx, rfq_item in enumerate(rfq_items):
+        if idx < len(pc_items):
+            pci = pc_items[idx]
+            _pricing = pci.get("pricing", {}) or {}
+            # Port cost
+            _pc_cost = (pci.get("vendor_cost") or _pricing.get("unit_cost")
+                        or pci.get("cost") or pci.get("unit_cost") or 0)
+            if _pc_cost and not rfq_item.get("supplier_cost"):
+                rfq_item["supplier_cost"] = _pc_cost
+                rfq_item["cost_source"] = "PC"
+            # Port bid price
+            _pc_price = (pci.get("unit_price") or _pricing.get("recommended_price")
+                         or pci.get("bid_price") or pci.get("sell_price") or 0)
+            if _pc_price and not rfq_item.get("price_per_unit"):
+                rfq_item["price_per_unit"] = _pc_price
+            # Port markup
+            _pc_markup = pci.get("markup_pct") or _pricing.get("markup_pct")
+            if _pc_markup and not rfq_item.get("markup_pct"):
+                rfq_item["markup_pct"] = _pc_markup
+            # Port supplier URL (don't overwrite RFQ's item_number/description)
+            _pc_link = (pci.get("item_link") or pci.get("url")
+                        or pci.get("product_url") or pci.get("amazon_url") or "")
+            if _pc_link and not rfq_item.get("item_link"):
+                rfq_item["item_link"] = _pc_link
+            _pc_supplier = pci.get("item_supplier") or pci.get("supplier") or ""
+            if _pc_supplier and not rfq_item.get("item_supplier"):
+                rfq_item["item_supplier"] = _pc_supplier
+            # SCPRS data
+            if _pricing.get("scprs_price") and not rfq_item.get("scprs_last_price"):
+                rfq_item["scprs_last_price"] = _pricing["scprs_price"]
+                if _pricing.get("scprs_po"):
+                    rfq_item["scprs_po"] = _pricing["scprs_po"]
+                if _pricing.get("scprs_match"):
+                    rfq_item["scprs_vendor"] = _pricing["scprs_match"]
+            rfq_item["source_pc"] = matched_pid
+            rfq_item["_from_pc"] = pc.get("pc_number", "")
+            ported += 1
 
-    # Also try direct PC item matching for items catalog didn't cover
-    for rfq_item in rfq_data.get("line_items", []):
+    _trace.append(f"POSITIONAL MATCH: ported pricing for {ported}/{len(rfq_items)} items from {len(pc_items)} PC items")
+
+    # Step 2: Fallback — fuzzy match for any remaining unpriced items
+    for rfq_item in rfq_items:
+        # Skip items already priced by positional match
+        if rfq_item.get("source_pc"):
+            continue
         from difflib import SequenceMatcher as _SM
         rd = (rfq_item.get("description", "") or "").lower().strip()
         match = None
