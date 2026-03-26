@@ -3428,7 +3428,7 @@ def generate_rfq_package(rid):
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
-            _req_forms = {"703b", "703c", "704b", "bidpkg", "quote", "sellers_permit"}
+            _req_forms = {"703b", "704b", "bidpkg", "quote"}
             _opt_forms = set()
             _agency_key = "cchcs"
         
@@ -3493,8 +3493,8 @@ def generate_rfq_package(rid):
             pass
 
         # ── Template-based forms (only if agency requires them) ──
-        if _include("703b") or _include("703c"):
-            # Handle both 703B and 703C (Fair & Reasonable) — same fill logic
+        # 703B or 703C — use whichever template was provided by the buyer
+        if _include("703b") or _include("703c") or "703c" in tmpl or "703b" in tmpl:
             _703_key = "703c" if "703c" in tmpl else "703b"
             _703_label = "703C" if _703_key == "703c" else "703B"
             if _703_key in tmpl and os.path.exists(tmpl[_703_key]):
