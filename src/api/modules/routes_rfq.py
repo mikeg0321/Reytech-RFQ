@@ -2114,6 +2114,236 @@ def api_rfq_bulk_paste_data(rid):
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(rows)})
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Screenshot URL Parser — parse screenshot → dedup → scrape → enrich
+# ═══════════════════════════════════════════════════════════════════════
+
+def _description_similarity(a: str, b: str) -> float:
+    """Jaccard similarity of word tokens for dedup."""
+    def _tokens(s):
+        return set(_re_mod.sub(r'[^a-z0-9\s]', '', s.lower()).split())
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _is_duplicate_item(new_item: dict, existing_items: list) -> tuple:
+    """Check if new_item duplicates an existing RFQ item.
+    Returns (is_dup: bool, reason: str or None)."""
+    new_url = (new_item.get("item_link") or "").strip().lower()
+    new_desc = (new_item.get("description") or "").strip()
+
+    for idx, ex in enumerate(existing_items):
+        # URL match
+        ex_url = (ex.get("item_link") or "").strip().lower()
+        if new_url and ex_url and new_url == ex_url:
+            return (True, f"URL match: item #{idx + 1}")
+        # Description similarity
+        ex_desc = (ex.get("description") or "").strip()
+        if new_desc and ex_desc:
+            sim = _description_similarity(new_desc, ex_desc)
+            if sim >= 0.6:
+                return (True, f"Similar to item #{idx + 1} ({int(sim * 100)}% match)")
+    return (False, None)
+
+
+def _enrich_description_with_asin(description: str, asin: str) -> str:
+    """Append ASIN to description if not already present."""
+    if not asin:
+        return description
+    if asin in description:
+        return description
+    return f"{description} (ASIN: {asin})"
+
+
+@bp.route("/api/rfq/<rid>/parse-screenshot", methods=["POST"])
+@auth_required
+def api_rfq_parse_screenshot(rid):
+    """Upload a screenshot → parse URLs + descriptions → dedup → scrape → enrich → preview."""
+    import os, tempfile
+    bad = _validate_rid(rid)
+    if bad:
+        return bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    ext = os.path.splitext(f.filename)[1].lower()
+    allowed = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
+    if ext not in allowed:
+        return jsonify({"ok": False, "error": f"Unsupported format: {ext}. Use PNG, JPG, etc."}), 400
+
+    # Save to temp file
+    try:
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=ext,
+                                          dir=str(UPLOAD_DIR) if UPLOAD_DIR.exists() else None)
+        f.save(tmp)
+        tmp_path = tmp.name
+        tmp.close()
+    except Exception as e:
+        log.error("Screenshot save error: %s", e)
+        return jsonify({"ok": False, "error": "Failed to save uploaded file"}), 500
+
+    # Parse with vision (URL-focused mode)
+    try:
+        from src.forms.vision_parser import parse_with_vision
+        result = parse_with_vision(tmp_path, mode="screenshot_urls")
+    except Exception as e:
+        log.error("Vision parse error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": f"Vision parse failed: {str(e)[:80]}"}), 500
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    if not result or not result.get("line_items"):
+        return jsonify({"ok": False, "error": "No items extracted from screenshot"}), 400
+
+    parsed_items = result["line_items"]
+    existing_items = r.get("line_items", [])
+
+    # Dedup + scrape + enrich each item
+    preview = []
+    for item in parsed_items:
+        entry = {
+            "description": item.get("description", ""),
+            "item_link": item.get("item_link", ""),
+            "qty": item.get("qty", 1),
+            "uom": item.get("uom", "each"),
+            "part_number": item.get("part_number", ""),
+            "mfg_number": "",
+            "asin": "",
+            "supplier": "",
+            "price": None,
+            "is_duplicate": False,
+            "duplicate_reason": None,
+            "scrape_status": "no_url",
+            "scrape_error": None,
+        }
+
+        # Dedup check
+        is_dup, dup_reason = _is_duplicate_item(item, existing_items)
+        entry["is_duplicate"] = is_dup
+        entry["duplicate_reason"] = dup_reason
+
+        # Scrape URL if present
+        url = (item.get("item_link") or "").strip()
+        if url:
+            try:
+                from src.agents.item_link_lookup import lookup_from_url, detect_supplier
+                res = lookup_from_url(url)
+                if res.get("ok"):
+                    entry["scrape_status"] = "ok"
+                    entry["supplier"] = res.get("supplier") or detect_supplier(url)
+                    entry["price"] = res.get("price") or res.get("list_price") or res.get("cost")
+                    entry["mfg_number"] = res.get("mfg_number") or res.get("part_number") or ""
+                    entry["asin"] = res.get("asin", "")
+                    # Use scraped description if parsed one is too short
+                    scraped_desc = res.get("title") or res.get("description") or ""
+                    if scraped_desc and len(entry["description"]) < 10:
+                        entry["description"] = scraped_desc
+                    # Enrich description with ASIN
+                    entry["description"] = _enrich_description_with_asin(
+                        entry["description"], entry["asin"])
+                    # Use MFG# from scrape if we don't have one
+                    if not entry["part_number"] and entry["mfg_number"]:
+                        entry["part_number"] = entry["mfg_number"]
+                elif res.get("login_required"):
+                    entry["scrape_status"] = "login_required"
+                    entry["supplier"] = res.get("supplier", "")
+                else:
+                    entry["scrape_status"] = "no_price"
+                    entry["supplier"] = res.get("supplier") or ""
+            except Exception as e:
+                log.error("Screenshot scrape error for %s: %s", url[:60], e, exc_info=True)
+                entry["scrape_status"] = "error"
+                entry["scrape_error"] = str(e)[:80]
+
+        if entry["price"]:
+            try:
+                entry["price"] = round(float(entry["price"]), 2)
+            except (ValueError, TypeError):
+                entry["price"] = None
+
+        preview.append(entry)
+
+    duplicates_found = sum(1 for p in preview if p["is_duplicate"])
+    scrape_failures = sum(1 for p in preview if p["scrape_status"] in ("error", "login_required"))
+
+    return jsonify({
+        "ok": True,
+        "items": preview,
+        "duplicates_found": duplicates_found,
+        "scrape_failures": scrape_failures,
+        "total": len(preview),
+    })
+
+
+@bp.route("/api/rfq/<rid>/screenshot-confirm", methods=["POST"])
+@auth_required
+def api_rfq_screenshot_confirm(rid):
+    """Confirm and add screenshot-parsed items to RFQ line items."""
+    bad = _validate_rid(rid)
+    if bad:
+        return bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    new_items = data.get("items", [])
+    if not new_items:
+        return jsonify({"ok": False, "error": "No items to add"})
+
+    existing = r.get("line_items", [])
+    added = 0
+    for item in new_items:
+        line_item = {
+            "description": item.get("description", ""),
+            "item_number": item.get("part_number") or item.get("mfg_number") or "",
+            "qty": item.get("qty", 1),
+            "uom": item.get("uom", "each"),
+            "item_link": item.get("item_link", ""),
+            "item_supplier": item.get("supplier", ""),
+            "mfg_number": item.get("mfg_number", ""),
+        }
+        # Set pricing if available — never overwrite existing
+        price = item.get("price")
+        if price:
+            try:
+                cost = float(price)
+                line_item["supplier_cost"] = cost
+                line_item["cost_source"] = "Screenshot Scrape"
+                line_item["cost_supplier_name"] = item.get("supplier", "")
+                markup = r.get("default_markup") or 25
+                try:
+                    markup = float(markup)
+                except (ValueError, TypeError):
+                    markup = 25
+                line_item["markup_pct"] = markup
+                line_item["price_per_unit"] = round(cost * (1 + markup / 100), 2)
+            except (ValueError, TypeError):
+                pass
+        existing.append(line_item)
+        added += 1
+
+    r["line_items"] = existing
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+
+    return jsonify({"ok": True, "added": added, "total_items": len(existing)})
+
+
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
 @auth_required
 def api_rfq_autosave(rid):

@@ -130,7 +130,8 @@ JSON structure:
       "uom": "each",
       "qty_per_uom": 1,
       "description": "Item description here",
-      "part_number": "manufacturer or UPC number"
+      "part_number": "manufacturer or UPC number",
+      "item_link": "full URL if visible (https://...)"
     }
   ]
 }
@@ -139,6 +140,7 @@ Rules:
 - Extract EVERY line item — count them first, then extract that exact count
 - Works for ANY document layout: tables, numbered lists, handwritten lists, screenshots
 - part_number = UPC, manufacturer part number, SKU, or catalog number (if visible)
+- item_link = any full URL visible alongside the item (http:// or https://). Extract the COMPLETE URL — do not truncate.
 - Strip the part number from the description — put it in part_number only
 - uom = unit of measure (each, pack, set, box, case, etc.)
 - qty_per_uom = number of items per unit (e.g. "2 Pack" means qty_per_uom=2)
@@ -147,7 +149,44 @@ Rules:
 - Return ONLY the JSON object, no markdown fences, no explanation"""
 
 
-def _call_vision_api(page_images: list) -> Optional[dict]:
+_VISION_SYSTEM_URLS = """You are a precise data extractor for screenshots containing product URLs and descriptions — browser tabs, spreadsheets, emails, web pages, or any image with supplier links.
+
+FIRST: Count how many distinct products/items you see. State the count to yourself before extracting.
+
+Your PRIMARY goal is to extract URLs. Look for URLs in:
+- Browser address bars
+- Hyperlink text (blue/underlined text)
+- Visible URL strings in table cells, spreadsheet columns, or text
+- Partial URLs — reconstruct the full URL if possible
+
+Extract ALL data and return ONLY valid JSON with no other text.
+
+JSON structure:
+{
+  "items": [
+    {
+      "description": "Product description or title",
+      "item_link": "https://full-url-here.com/product/...",
+      "qty": 1,
+      "uom": "each",
+      "part_number": "manufacturer or SKU number if visible"
+    }
+  ]
+}
+
+Rules:
+- Extract EVERY item with a URL — count them first, then extract that exact count
+- item_link = the COMPLETE URL. Do NOT truncate. Include full path and query parameters.
+- If a URL is partially visible (cut off by screenshot edge), extract what you can see
+- description = the product name/description associated with that URL
+- part_number = any visible SKU, MFG#, part number, or catalog number
+- qty defaults to 1 if not visible
+- uom defaults to "each" if not visible
+- If you see items WITHOUT URLs, still extract them (leave item_link empty)
+- Return ONLY the JSON object, no markdown fences, no explanation"""
+
+
+def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[dict]:
     """Send page images to Claude API and get structured extraction.
     Returns parsed JSON dict or None."""
     api_key = _get_api_key()  # re-read live — env var may be set after module load
@@ -186,7 +225,7 @@ def _call_vision_api(page_images: list) -> Optional[dict]:
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 4096,
-                "system": _VISION_SYSTEM,
+                "system": system_prompt or _VISION_SYSTEM,
                 "messages": [{"role": "user", "content": content}],
             },
             timeout=60,
@@ -218,11 +257,16 @@ def _call_vision_api(page_images: list) -> Optional[dict]:
 # Main Parser
 # ═══════════════════════════════════════════════════════════════════════
 
-def parse_with_vision(file_path: str) -> Optional[dict]:
+def parse_with_vision(file_path: str, mode: str = "standard") -> Optional[dict]:
     """
     Parse a PDF or image using Claude's vision capabilities.
 
     Accepts: PDF files, PNG, JPG, JPEG, GIF, WEBP, BMP, TIFF.
+
+    Args:
+        file_path: Path to the file to parse.
+        mode: "standard" (default) for procurement docs,
+              "screenshot_urls" for screenshots with supplier URLs.
 
     Returns dict:
     {
@@ -258,7 +302,8 @@ def parse_with_vision(file_path: str) -> Optional[dict]:
         log.info("Vision parser: %d page images from %s", len(page_images), os.path.basename(file_path))
 
     # Call API
-    vision_result = _call_vision_api(page_images)
+    sys_prompt = _VISION_SYSTEM_URLS if mode == "screenshot_urls" else None
+    vision_result = _call_vision_api(page_images, system_prompt=sys_prompt)
     if not vision_result:
         return None
 
@@ -275,6 +320,7 @@ def parse_with_vision(file_path: str) -> Optional[dict]:
             "qty_per_uom": int(item.get("qty_per_uom", 1)),
             "description": str(item.get("description", "")),
             "part_number": str(item.get("part_number", "")),
+            "item_link": str(item.get("item_link", "")),
             "row_index": i,
         })
 

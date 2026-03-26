@@ -401,6 +401,7 @@
   <div style="display:flex;gap:4px;margin-bottom:10px">
    <button id="bulkModeUrl" onclick="setBulkMode('url')" style="padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#238636;color:#fff">URLs (Scrape Prices)</button>
    <button id="bulkModeData" onclick="setBulkMode('data')" style="padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e">Multi-Column (Tab-Separated)</button>
+   <button id="bulkModeScreenshot" onclick="setBulkMode('screenshot')" style="padding:5px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#8b949e">Screenshot (Extract URLs)</button>
   </div>
   <div id="bulkHintUrl" style="font-size:13px;color:#8b949e;margin-bottom:8px">Paste one URL per line. Line 1 → Item 1, Line 2 → Item 2, etc. URLs are scraped for pricing.</div>
   <div id="bulkHintData" style="display:none;font-size:13px;color:#8b949e;margin-bottom:8px">
@@ -408,7 +409,17 @@
    <span style="color:#58a6ff;font-size:12px">Columns: Description &nbsp;|&nbsp; MFG# &nbsp;|&nbsp; URL &nbsp;|&nbsp; Cost &nbsp;|&nbsp; Markup%</span><br>
    <span style="font-size:11px;color:#6e7681">Skip columns with empty values. Partial rows are fine — only non-empty fields are applied.</span>
   </div>
+  <div id="bulkHintScreenshot" style="display:none;font-size:13px;color:#8b949e;margin-bottom:8px">
+   Upload a screenshot containing supplier URLs and product descriptions. URLs will be extracted, scraped for MFG#/ASIN/pricing, and previewed before adding.
+  </div>
   <textarea id="bulkUrlsInput" style="width:100%;min-height:120px;max-height:40vh;flex:1 1 180px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;padding:10px;resize:vertical" placeholder="https://www.amazon.com/dp/B00IGU9BRY&#10;https://www.amazon.com/dp/B078PJCVSQ&#10;..."></textarea>
+  <div id="bulkScreenshotZone" style="display:none;width:100%;min-height:140px;background:#0d1117;border:2px dashed #30363d;border-radius:8px;color:#8b949e;font-size:14px;cursor:pointer;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:20px" onclick="document.getElementById('screenshotUpload').click()" ondragover="event.preventDefault();this.style.borderColor='#58a6ff'" ondragleave="this.style.borderColor='#30363d'" ondrop="event.preventDefault();this.style.borderColor='#30363d';var f=event.dataTransfer.files[0];if(f){document.getElementById('screenshotUpload').files=event.dataTransfer.files;_onScreenshotSelected(f)}">
+   <div style="font-size:28px">&#128247;</div>
+   <div>Drop a screenshot or click to upload</div>
+   <div style="font-size:11px;color:#6e7681">PNG, JPG, GIF, WebP, BMP</div>
+   <img id="screenshotPreviewImg" style="display:none;max-height:160px;border-radius:6px;border:1px solid #30363d;margin-top:8px">
+   <input type="file" id="screenshotUpload" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff,.tif" style="display:none" onchange="if(this.files[0])_onScreenshotSelected(this.files[0])">
+  </div>
   <div id="bulkDetect" style="display:none;font-size:11px;color:#d29922;margin-top:4px"></div>
   <div id="bulkPreview" style="display:none;margin-top:8px;max-height:20vh;overflow:auto;border:1px solid #30363d;border-radius:6px"></div>
   <div id="bulkProgress" style="display:none;margin-top:8px;height:4px;background:#30363d;border-radius:2px;overflow:hidden"><div style="width:100%;height:100%;background:#58a6ff;animation:bulkPulse 1.5s infinite"></div></div>
@@ -939,22 +950,33 @@ function handleRfqLinkInput(idx, inp){
 var _bulkMode='url';
 function setBulkMode(mode){
  _bulkMode=mode;
- var urlBtn=document.getElementById('bulkModeUrl'),dataBtn=document.getElementById('bulkModeData');
- var hintUrl=document.getElementById('bulkHintUrl'),hintData=document.getElementById('bulkHintData');
+ var urlBtn=document.getElementById('bulkModeUrl'),dataBtn=document.getElementById('bulkModeData'),ssBtn=document.getElementById('bulkModeScreenshot');
+ var hintUrl=document.getElementById('bulkHintUrl'),hintData=document.getElementById('bulkHintData'),hintSs=document.getElementById('bulkHintScreenshot');
  var ta=document.getElementById('bulkUrlsInput');
+ var ssZone=document.getElementById('bulkScreenshotZone');
  var applyBtn=document.getElementById('bulkScrapeBtn');
+ // Reset all tabs
+ urlBtn.style.background='#21262d';urlBtn.style.color='#8b949e';
+ dataBtn.style.background='#21262d';dataBtn.style.color='#8b949e';
+ ssBtn.style.background='#21262d';ssBtn.style.color='#8b949e';
+ hintUrl.style.display='none';hintData.style.display='none';hintSs.style.display='none';
+ ta.style.display='';ssZone.style.display='none';
  if(mode==='url'){
   urlBtn.style.background='#238636';urlBtn.style.color='#fff';
-  dataBtn.style.background='#21262d';dataBtn.style.color='#8b949e';
-  hintUrl.style.display='';hintData.style.display='none';
+  hintUrl.style.display='';
   ta.placeholder='https://www.amazon.com/dp/B00IGU9BRY\nhttps://www.amazon.com/dp/B078PJCVSQ\n...';
   applyBtn.textContent='Scrape & Apply Prices';
- } else {
+ } else if(mode==='data'){
   dataBtn.style.background='#238636';dataBtn.style.color='#fff';
-  urlBtn.style.background='#21262d';urlBtn.style.color='#8b949e';
-  hintUrl.style.display='none';hintData.style.display='';
+  hintData.style.display='';
   ta.placeholder='Description\tMFG#\tURL\tCost\tMarkup%\nWidget Assembly Kit\tWDG-100\thttps://supplier.com/wdg100\t45.99\t25\n...';
   applyBtn.textContent='Apply Data';
+ } else if(mode==='screenshot'){
+  ssBtn.style.background='#238636';ssBtn.style.color='#fff';
+  hintSs.style.display='';
+  ta.style.display='none';
+  ssZone.style.display='flex';
+  applyBtn.textContent='Parse & Scrape';
  }
  document.getElementById('bulkDetect').style.display='none';
  document.getElementById('bulkPreview').style.display='none';
@@ -1013,6 +1035,7 @@ function _showBulkPreview(text){
 
 function startBulkApply(){
  if(_bulkMode==='url') return _startBulkScrapeRfq();
+ if(_bulkMode==='screenshot') return _startBulkScreenshotRfq();
  return _startBulkDataRfq();
 }
 
@@ -1074,6 +1097,99 @@ function _showBulkResults(d){
  html+='<div style="margin-top:8px;font-weight:600;color:#3fb950">'+d.applied+'/'+d.total+' items updated</div></div>';
  document.getElementById('bulkResults').innerHTML=html;
  if(d.applied>0)setTimeout(function(){location.reload()},2000);
+}
+
+// ── Screenshot Parse ──
+var _screenshotPreviewItems=null;
+
+function _onScreenshotSelected(file){
+ var img=document.getElementById('screenshotPreviewImg');
+ var reader=new FileReader();
+ reader.onload=function(e){img.src=e.target.result;img.style.display='block';};
+ reader.readAsDataURL(file);
+}
+
+function _startBulkScreenshotRfq(){
+ var fileInput=document.getElementById('screenshotUpload');
+ if(!fileInput.files||!fileInput.files[0]){alert('Select a screenshot first');return;}
+ var fd=new FormData();
+ fd.append('file',fileInput.files[0]);
+ var btn=document.getElementById('bulkScrapeBtn');
+ btn.disabled=true;btn.textContent='Parsing screenshot...';
+ var prog=document.getElementById('bulkProgress');prog.style.display='block';
+ document.getElementById('bulkResults').innerHTML='';
+ fetch('/api/rfq/'+RID+'/parse-screenshot',{method:'POST',body:fd,credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  btn.disabled=false;prog.style.display='none';
+  if(!d.ok){btn.textContent='Parse & Scrape';alert(d.error||'Failed');return;}
+  _screenshotPreviewItems=d.items;
+  btn.textContent='Confirm & Add Items';
+  btn.onclick=function(){_confirmScreenshotItems()};
+  _showScreenshotPreview(d);
+ }).catch(function(e){btn.disabled=false;btn.textContent='Parse & Scrape';prog.style.display='none';alert('Error: '+e.message);});
+}
+
+function _showScreenshotPreview(d){
+ var html='<div style="margin-top:10px;font-size:13px;color:#e6edf3">';
+ html+='<div style="margin-bottom:8px;color:#8b949e">Found <b style="color:#e6edf3">'+d.total+'</b> items';
+ if(d.duplicates_found)html+=' &middot; <span style="color:#d29922">'+d.duplicates_found+' duplicates</span>';
+ if(d.scrape_failures)html+=' &middot; <span style="color:#f85149">'+d.scrape_failures+' scrape issues</span>';
+ html+='</div>';
+ html+='<table style="width:100%;font-size:12px;border-collapse:collapse;color:#e6edf3">';
+ html+='<thead><tr style="background:#21262d"><th style="padding:5px;text-align:center;width:30px"></th>';
+ html+='<th style="padding:5px;text-align:left;color:#8b949e;font-size:11px">Description</th>';
+ html+='<th style="padding:5px;text-align:left;color:#8b949e;font-size:11px">MFG#</th>';
+ html+='<th style="padding:5px;text-align:left;color:#8b949e;font-size:11px">Supplier</th>';
+ html+='<th style="padding:5px;text-align:right;color:#8b949e;font-size:11px">Price</th>';
+ html+='<th style="padding:5px;text-align:center;color:#8b949e;font-size:11px">Status</th>';
+ html+='</tr></thead><tbody>';
+ (d.items||[]).forEach(function(item,i){
+  var isDup=item.is_duplicate;
+  var rowStyle=isDup?'opacity:0.5;':'';
+  html+='<tr style="border-top:1px solid #21262d;'+rowStyle+'">';
+  html+='<td style="padding:4px;text-align:center"><input type="checkbox" data-ss-idx="'+i+'" '+(isDup?'':'checked')+' style="accent-color:#238636"></td>';
+  var desc=item.description||'(no description)';
+  if(desc.length>60)desc=desc.substring(0,57)+'...';
+  html+='<td style="padding:4px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+(item.description||'').replace(/"/g,'&quot;')+'">'+desc;
+  if(item.asin)html+=' <span style="background:#1f6feb;color:#fff;font-size:9px;padding:1px 4px;border-radius:3px">ASIN</span>';
+  html+='</td>';
+  html+='<td style="padding:4px;color:#58a6ff;font-size:11px">'+(item.mfg_number||item.part_number||'—')+'</td>';
+  html+='<td style="padding:4px;font-size:11px">'+(item.supplier||'—')+'</td>';
+  html+='<td style="padding:4px;text-align:right;color:#3fb950">'+(item.price?'$'+Number(item.price).toFixed(2):'—')+'</td>';
+  var statusHtml='';
+  if(isDup)statusHtml='<span style="color:#d29922" title="'+(item.duplicate_reason||'')+'">Dup</span>';
+  else if(item.scrape_status==='ok')statusHtml='<span style="color:#3fb950">OK</span>';
+  else if(item.scrape_status==='login_required')statusHtml='<span style="color:#d29922">Login req</span>';
+  else if(item.scrape_status==='error')statusHtml='<span style="color:#f85149" title="'+(item.scrape_error||'')+'">Error</span>';
+  else if(item.scrape_status==='no_url')statusHtml='<span style="color:#8b949e">No URL</span>';
+  else statusHtml='<span style="color:#8b949e">'+item.scrape_status+'</span>';
+  html+='<td style="padding:4px;text-align:center;font-size:11px">'+statusHtml+'</td>';
+  html+='</tr>';
+ });
+ html+='</tbody></table></div>';
+ document.getElementById('bulkResults').innerHTML=html;
+}
+
+function _confirmScreenshotItems(){
+ if(!_screenshotPreviewItems||!_screenshotPreviewItems.length){alert('No items to add');return;}
+ var checkboxes=document.querySelectorAll('[data-ss-idx]');
+ var selected=[];
+ checkboxes.forEach(function(cb){
+  if(cb.checked){
+   var idx=parseInt(cb.getAttribute('data-ss-idx'));
+   if(_screenshotPreviewItems[idx])selected.push(_screenshotPreviewItems[idx]);
+  }
+ });
+ if(!selected.length){alert('Select at least one item to add');return;}
+ var btn=document.getElementById('bulkScrapeBtn');
+ btn.disabled=true;btn.textContent='Adding '+selected.length+' items...';
+ fetch('/api/rfq/'+RID+'/screenshot-confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:selected}),credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  btn.disabled=false;
+  if(!d.ok){btn.textContent='Confirm & Add Items';alert(d.error||'Failed');return;}
+  btn.textContent='Added '+d.added+' items!';
+  setTimeout(function(){location.reload()},1500);
+ }).catch(function(e){btn.disabled=false;btn.textContent='Confirm & Add Items';alert('Error: '+e.message);});
 }
 
 // ── Auto-Save ──
