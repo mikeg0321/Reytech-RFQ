@@ -713,6 +713,13 @@ def api_catalog_dedup():
     """Find and merge duplicate products."""
     if not CATALOG_AVAILABLE:
         return jsonify({"ok": False, "error": "Catalog not available"})
+    try:
+        dry_run = request.args.get("dry_run", "false").lower() in ("true", "1", "yes")
+        result = dedup_catalog(dry_run=dry_run)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.error("Catalog dedup error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/catalog/import-quotewerks", methods=["POST"])
@@ -2448,65 +2455,84 @@ def api_catalog_top_quoted():
 @auth_required
 def api_catalog_quick_quote():
     """Search catalog for quick quote pricing."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
     q = request.args.get("q", "")
     if not q:
         return jsonify({"ok": False, "error": "?q= search term required"})
-    db_path = os.path.join(DATA_DIR, "catalog.db")
-    if not os.path.exists(db_path):
-        return jsonify({"ok": True, "matches": []})
     try:
-        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
-        conn.row_factory = sqlite3.Row
-        items = conn.execute("""
-            SELECT name, sell_price, cost_price, margin_pct, category, item_number,
-                   times_quoted, last_quoted
-            FROM products WHERE name LIKE ? OR item_number LIKE ? OR category LIKE ?
-            ORDER BY times_quoted DESC LIMIT 10
-        """, (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
-        conn.close()
-        matches = [{"name": i["name"], "price": float(i["sell_price"] or 0),
-                     "cost": float(i["cost_price"] or 0), "margin": round(float(i["margin_pct"] or 0), 1),
-                     "item_number": i["item_number"] or "", "category": i["category"] or "",
-                     "times_quoted": i["times_quoted"] or 0} for i in items]
+        init_catalog_db()
+        items = search_products(q, limit=10)
+        matches = [{"name": i["name"], "price": float(i.get("sell_price") or 0),
+                     "cost": float(i.get("cost") or 0),
+                     "margin": round(float(i.get("margin_pct") or 0), 1),
+                     "sku": i.get("sku") or i.get("mfg_number") or "",
+                     "category": i.get("category") or "",
+                     "times_quoted": i.get("times_quoted") or 0,
+                     "recommended_price": float(i.get("recommended_price") or 0)}
+                    for i in items]
         return jsonify({"ok": True, "query": q, "matches": matches, "count": len(matches)})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        log.error("Quick quote error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/catalog/price-history")
 @auth_required
 def api_catalog_price_history():
-    """Get price history for a catalog item. ?q=description or ?id=catalog_id"""
+    """Get price history for a catalog item. ?pid=product_id or ?q=keyword"""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
     try:
-        conn = _get_db()
+        import sqlite3 as _sql
+        from src.agents.product_catalog import DB_PATH as _CAT_DB, init_catalog_db
+        init_catalog_db()
+        conn = _sql.connect(_CAT_DB, timeout=10)
+        conn.row_factory = _sql.Row
+
+        pid = request.args.get("pid", "")
         q = request.args.get("q", "")
-        cid = request.args.get("id", "")
-        if cid:
-            row = conn.execute("SELECT * FROM catalog WHERE id = ?", (cid,)).fetchone()
+        days = int(request.args.get("days", 90))
+
+        if pid:
+            product = conn.execute("SELECT * FROM product_catalog WHERE id = ?", (pid,)).fetchone()
         elif q:
-            row = conn.execute("SELECT * FROM catalog WHERE description LIKE ? LIMIT 1", (f"%{q}%",)).fetchone()
+            product = conn.execute(
+                "SELECT * FROM product_catalog WHERE name LIKE ? OR sku LIKE ? OR mfg_number LIKE ? LIMIT 1",
+                (f"%{q}%", f"%{q}%", f"%{q}%")).fetchone()
         else:
-            return jsonify({"ok": False, "error": "Provide ?q=keyword or ?id=catalog_id"})
-        if not row:
+            conn.close()
+            return jsonify({"ok": False, "error": "Provide ?pid=product_id or ?q=keyword"})
+
+        if not product:
+            conn.close()
             return jsonify({"ok": False, "error": "Item not found"})
-        item = dict(row)
-        # Parse price history from JSON field
-        history = []
-        try:
-            ph = json.loads(item.get("price_history", "[]"))
-            if isinstance(ph, list):
-                history = ph
-        except Exception:
-            pass
+
+        p = dict(product)
+        history = conn.execute("""
+            SELECT price_type, price, quantity, source, agency, institution,
+                   quote_number, pc_id, supplier_url, recorded_at
+            FROM catalog_price_history
+            WHERE product_id = ?
+            ORDER BY recorded_at DESC LIMIT 50
+        """, (p["id"],)).fetchall()
         conn.close()
-        return jsonify({"ok": True, "item": item.get("description", ""),
-                         "current_price": float(item.get("unit_price", 0) or 0),
-                         "cost": float(item.get("supplier_cost", 0) or 0),
-                         "margin_pct": float(item.get("margin_pct", 0) or 0),
-                         "times_quoted": int(item.get("times_quoted", 0) or 0),
-                         "history": history[-20:], "history_points": len(history)})
+
+        return jsonify({
+            "ok": True,
+            "product_id": p["id"],
+            "name": p.get("name", ""),
+            "current_price": float(p.get("sell_price") or 0),
+            "cost": float(p.get("cost") or 0),
+            "margin_pct": float(p.get("margin_pct") or 0),
+            "times_quoted": int(p.get("times_quoted") or 0),
+            "times_won": int(p.get("times_won") or 0),
+            "history": [dict(h) for h in history],
+            "history_points": len(history),
+        })
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        log.error("Price history error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── From routes_features2.py ───────────────────────────────────────────────
