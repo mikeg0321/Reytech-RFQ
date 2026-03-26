@@ -2388,7 +2388,7 @@ def api_rfq_screenshot_confirm(rid):
 @bp.route("/api/rfq/<rid>/relink-pc", methods=["POST"])
 @auth_required
 def api_rfq_relink_pc(rid):
-    """Re-run PC auto-linking for an existing RFQ. Replaces items with PC data."""
+    """Re-run PC auto-linking for an existing RFQ. Cleans duplicates and replaces with PC data."""
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
@@ -2396,8 +2396,16 @@ def api_rfq_relink_pc(rid):
     try:
         from src.api.dashboard import _link_rfq_to_pc, _load_price_checks
         _trace = []
+        # Strip out previously PC-linked items so we start fresh
+        original_items = r.get("line_items", [])
+        clean_items = [i for i in original_items if not i.get("imported_from_pc") and not i.get("_added_from_pc")]
+        r["line_items"] = clean_items
+        _trace.append(f"Stripped {len(original_items) - len(clean_items)} old PC items, {len(clean_items)} remain")
         # Clear existing PC link so it can re-match
-        old_pc = r.get("linked_pc_id", "")
+        r.pop("linked_pc_id", None)
+        r.pop("linked_pc_number", None)
+        r.pop("linked_pc_match_reason", None)
+        r.pop("source_pc", None)
         # Re-run linking
         linked = _link_rfq_to_pc(r, _trace)
         if linked:
