@@ -2481,7 +2481,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         if mask_top_pct < 1.0:
-            # Labeled cell: clip to bottom portion only, smaller bottom pad
+            # Labeled cell: data goes below the label.
+            # Clip from bottom border (+2pt) up to mask_top_pct of cell height.
             clip_bottom = y1 + 2
             clip_top = y1 + h * mask_top_pct
             clip_h = clip_top - clip_bottom
@@ -2490,13 +2491,14 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             c.clipPath(p, stroke=0)
             c.setFillColorRGB(1, 1, 1)
             c.rect(x1 + _PAD, clip_bottom, w - _PAD * 2, clip_h, fill=1, stroke=0)
-            fs = min(fs, clip_h * 0.85)
+            # Use requested font size — don't shrink below 7pt
             c.setFont("Helvetica", fs)
             c.setFillColorRGB(0, 0, 0)
-            while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
+            while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 5.5:
                 fs -= 0.5
                 c.setFont("Helvetica", fs)
-            c.drawString(x1 + _PAD + 1, clip_bottom + (clip_h - fs) / 2, text)
+            # Position text near bottom of clip area, 2pt above border
+            c.drawString(x1 + _PAD + 1, clip_bottom + 1, text)
         else:
             # Full cell: clip to padded interior
             p = c.beginPath()
@@ -2606,8 +2608,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 val = fv_map.get(fname, "")
                 if val:
                     sx1, sy1, sx2, sy2 = _sc(x1, y1, x2, y2)
-                    mtp = 0.5 if fname in _LABELED_FIELDS else 1.0
-                    _cell(c, sx1, sy1, sx2, sy2, val, fs=10 if mtp == 1.0 else 8, mask_top_pct=mtp)
+                    mtp = 0.65 if fname in _LABELED_FIELDS else 1.0
+                    _cell(c, sx1, sy1, sx2, sy2, val, fs=10, mask_top_pct=mtp)
                     drew = True
             # Notes
             nf, nx1, ny1, nx2, ny2 = NOTES_FIELD
