@@ -244,7 +244,7 @@ def _match_cdcr(text: str) -> dict:
         # Generic CSP with location
         return {"canonical": f"California State Prison, {suffix.title()}", "agency": "cchcs", "facility_code": "CSP"}
 
-    # Check for exact abbreviation
+    # Check for exact abbreviation (with optional unit/program suffix like "ML EOP")
     words = text.split()
     if words:
         first = words[0].upper()

@@ -729,9 +729,22 @@ def _pricecheck_detail_inner(pcid):
                 if expanded != institution:
                     exp_upper = expanded.upper()
                     for c in customers:
-                        if exp_upper in c.get("display_name", "").upper():
+                        c_name = c.get("display_name", "").upper()
+                        # Match if expanded name contains the customer name OR vice versa
+                        if c_name and (c_name in exp_upper or exp_upper in c_name):
                             crm_data = {"matched": True, "customer": c, "is_new": False}
                             break
+                    # Also try matching just the base facility name (without suffix)
+                    if not crm_data["matched"]:
+                        for abbr, full in _ABBR.items():
+                            if inst_upper.startswith(abbr + "-") or inst_upper.startswith(abbr + " "):
+                                base_upper = full.upper()
+                                for c in customers:
+                                    c_name = c.get("display_name", "").upper()
+                                    if c_name and (base_upper in c_name or c_name in base_upper):
+                                        crm_data = {"matched": True, "customer": c, "is_new": False}
+                                        break
+                                break
             # Fuzzy fallback
             if not crm_data["matched"]:
                 q_tokens = set(inst_upper.split())
@@ -760,6 +773,7 @@ def _pricecheck_detail_inner(pcid):
         _resolved = resolve(institution)
         if _resolved.get("canonical"):
             institution = _resolved["canonical"]
+            inst_upper = institution.upper()
     except ImportError:
         pass
     quote_history = []
