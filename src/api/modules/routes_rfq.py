@@ -3667,7 +3667,7 @@ def generate_rfq_package(rid):
                 t.warn("Darfur Act failed", error=str(e))
         
         # CalRecycle 74
-        if _include("calrecycle74") or ("calrecycle74" in _opt_forms and len(r.get("line_items", [])) > 6):
+        if _include("calrecycle74"):
             try:
                 from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
                 cr_tmpl = os.path.join(DATA_DIR, "templates", "calrecycle_74_blank.pdf")

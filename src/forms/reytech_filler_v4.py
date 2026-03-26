@@ -2549,6 +2549,27 @@ def _calrecycle_fix_date(pdf_path, sign_date):
                     if rect:
                         date_fields.append((pg_idx, [float(x) for x in rect]))
 
+        # Also search for date fields with different names
+        if not date_fields:
+            for pg_idx, pg in enumerate(reader.pages):
+                annots = pg.get("/Annots", []) or []
+                for a in annots:
+                    obj = a.get_object() if hasattr(a, "get_object") else a
+                    name = str(obj.get("/T", "")).lower()
+                    # Match any date-like field near CalRecycle content
+                    if "date" in name and "calrecycle" not in name.lower():
+                        rect = obj.get("/Rect")
+                        if rect:
+                            date_fields.append((pg_idx, [float(x) for x in rect]))
+        if not date_fields:
+            # Last resort: find the CalRecycle page and overlay date at known position
+            for pg_idx, pg in enumerate(reader.pages):
+                txt = (pg.extract_text() or "").upper()
+                if "CALRECYCLE" in txt or "RECYCLED CONTENT" in txt or "POSTCONSUMER" in txt:
+                    # Standard CalRecycle 74 date position: near signature, right side
+                    date_fields.append((pg_idx, [505, 95, 580, 110]))
+                    print(f"  ℹ CalRecycle date: using fallback position on page {pg_idx}")
+                    break
         if not date_fields:
             print(f"  ⚠ CalRecycle date: could not find any Date fields")
             return
