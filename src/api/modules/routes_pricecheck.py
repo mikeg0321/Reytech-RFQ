@@ -2094,6 +2094,27 @@ def _do_generate(pcid):
 
     output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech{suffix}.pdf")
 
+    # ── Multi-PC source: extract only this PC's pages from the combined PDF ──
+    if pc.get("multi_pc_source") and pc.get("page_start") is not None:
+        try:
+            from pypdf import PdfReader as _ExtractReader, PdfWriter as _ExtractWriter
+            _r = _ExtractReader(source_pdf)
+            _ps = int(pc["page_start"])
+            _pe = int(pc.get("page_end", _ps))
+            if _pe >= _ps and _pe < len(_r.pages) and len(_r.pages) > _pe + 1:
+                _w = _ExtractWriter()
+                for _pi in range(_ps, _pe + 1):
+                    _w.add_page(_r.pages[_pi])
+                _extracted_path = os.path.join(DATA_DIR, f"pc_pdfs/{pcid}_pages_{_ps+1}-{_pe+1}.pdf")
+                os.makedirs(os.path.dirname(_extracted_path), exist_ok=True)
+                with open(_extracted_path, "wb") as _ef:
+                    _w.write(_ef)
+                source_pdf = _extracted_path
+                log.info("GENERATE %s: extracted pages %d-%d from multi-PC PDF → %s",
+                         pcid, _ps + 1, _pe + 1, os.path.basename(_extracted_path))
+        except Exception as _ex:
+            log.warning("GENERATE %s: page extraction failed, using full PDF: %s", pcid, _ex)
+
     # Tax: use stored rate only if tax_enabled is true (or not explicitly false)
     _gen_tax = 0.0
     _tax_enabled = pc.get("tax_enabled", False)

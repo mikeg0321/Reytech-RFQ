@@ -1343,7 +1343,7 @@ def parse_multi_pc(pdf_path: str) -> list:
                 }
 
                 ITEM_ROW = _re.compile(
-                    r'^\s*(\d{1,2})\s+(\d+)\s+(EA|BX|CS|PK|PKG|BAG|SET|DZ|PR|GL|LB|OZ|CASE|EACH)\s+'
+                    r'^\s*(\d{1,2})\s+(\d+)\s+(EA|BX|CS|PK|PKG|PCK|BAG|SET|DZ|PR|GL|LB|OZ|CASE|EACH|CTN|RL|BT|TB|JR|CT|CA)\s+'
                     r'(?:(\d+)\s+)?(.+?)(?:\s+\$[\d,]+\.\d{2}\s+\$[\d,]+\.\d{2})?\s*$',
                     _re.IGNORECASE | _re.MULTILINE)
 
