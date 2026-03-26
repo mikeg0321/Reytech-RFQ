@@ -843,8 +843,6 @@
      });
     }
 
-    function changeStatus(newStatus) {
-
     function retryAutoPrice(btn) {
      btn.disabled=true;btn.textContent='⏳ Running...';
      fetch('/api/pricecheck/'+_pcid+'/retry-auto-price',{method:'POST'})
@@ -859,6 +857,8 @@
       }
      }).catch(function(e){btn.disabled=false;btn.textContent='🔄 Retry';showMsg('❌ '+e.message,'err')});
     }
+
+    function changeStatus(newStatus) {
      var pcid=_pcid;
      fetch('/api/pricecheck/'+pcid+'/status',{
       method:'POST',headers:{'Content-Type':'application/json'},
