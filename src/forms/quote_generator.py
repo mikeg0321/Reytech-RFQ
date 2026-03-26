@@ -353,33 +353,31 @@ def _next_quote_number() -> str:
                          data.get("seq", 0), data.get("year", 0), year)
                 data = {"year": year, "seq": 0}
 
-            # Sync to highest existing quote number to prevent collisions
+            # Quick collision check — only query SQLite (fast), skip full quote scan
             highest = data.get("seq", 0)
             try:
-                for q in get_all_quotes():
-                    qn = q.get("quote_number", "")
-                    if qn.startswith(prefix):
-                        try:
-                            num = int(qn[len(prefix):])
-                            if num > highest:
-                                highest = num
-                        except (ValueError, IndexError):
-                            pass
-                # Also check SQLite quotes table
-                try:
-                    for r in conn.execute("SELECT quote_number FROM quotes WHERE quote_number LIKE ?", (f"{prefix}%",)).fetchall():
-                        try:
-                            num = int(r[0][len(prefix):])
-                            if num > highest:
-                                highest = num
-                        except (ValueError, IndexError):
-                            pass
-                except Exception:
-                    pass
-            except Exception as e:
-                log.warning("Counter sync: %s", e)
+                row = conn.execute(
+                    "SELECT quote_number FROM quotes WHERE quote_number LIKE ? ORDER BY quote_number DESC LIMIT 1",
+                    (f"{prefix}%",)
+                ).fetchone()
+                if row:
+                    try:
+                        num = int(row[0][len(prefix):])
+                        if num > highest:
+                            highest = num
+                    except (ValueError, IndexError):
+                        pass
+            except Exception:
+                pass
 
-            next_seq = max(data.get("seq", 0), highest) + 1
+            # Use the stored counter — don't let scan results override a manual set
+            # The counter is authoritative. Only bump if scan shows a collision.
+            stored_seq = data.get("seq", 0)
+            if highest > stored_seq:
+                # Only allow +1 jump from stored, not a wild jump from scan
+                log.warning("Quote scan found %s%d but counter is at %d — using counter + 1",
+                           prefix, highest, stored_seq)
+            next_seq = stored_seq + 1
             data["seq"] = next_seq
             data["year"] = year
             _save_counter(data)
