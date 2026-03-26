@@ -410,27 +410,30 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
         if "/Annots" not in page:
             continue
         sig_entries = []
+        _page_mb = page.get("/MediaBox", [0, 0, 612, 792])
+        _page_h = float(_page_mb[3])
         for annot in page["/Annots"]:
             obj = annot.get_object()
             ft = str(obj.get("/FT", ""))
             name = str(obj.get("/T", ""))
             if "/Rect" not in obj:
                 continue
-            # Overlay signature on /Sig fields — but ONLY if whitelisted
-            # (PD 843 has Signature1-4_PD843 as /Sig, only #1 should be signed)
-            if ft == "/Sig" and name in SIGN_FIELDS:
-                try:
-                    r = [float(x) for x in obj["/Rect"]]
-                    sig_entries.append((name, r, True))
-                except Exception:
-                    pass
-            # Also overlay on text fields that are in the SIGN_FIELDS whitelist
-            elif name in SIGN_FIELDS:
-                try:
-                    r = [float(x) for x in obj["/Rect"]]
-                    sig_entries.append((name, r, False))
-                except Exception:
-                    pass
+            if name not in SIGN_FIELDS:
+                continue
+            try:
+                r = [float(x) for x in obj["/Rect"]]
+            except Exception:
+                continue
+            # For generic field names (Signature1, Signature), only sign if
+            # the field is in the lower 40% of the page — signature lines
+            # are always near the bottom, never in the header/body area.
+            if name in ("Signature1", "Signature"):
+                field_y = r[1]  # bottom of field rect
+                if field_y > _page_h * 0.4:
+                    # Field is in the upper 60% — skip (not a certification sig line)
+                    continue
+            is_sig = ft == "/Sig"
+            sig_entries.append((name, r, is_sig))
 
         if sig_entries:
             mediabox = page.get("/MediaBox", [0, 0, 612, 792])
