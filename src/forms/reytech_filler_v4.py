@@ -321,7 +321,9 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
         # Don't draw date next to signature if there's a separate Date field on the same page
         # (CalRecycle 74 has both Signature1 and Date fields — _calrecycle_fix_date handles Date)
         _is_calrecycle_sig = (name == "Signature1" or name == "Signature")
-        has_room_for_date = 120 < field_w < 250 and sign_date and not is_separate_date_field and not _is_calrecycle_sig
+        # NEVER draw combo dates — all forms have separate date fields.
+        # Dates are filled by fill_bid_package/fill_703b/fill_703c values dict.
+        has_room_for_date = False
 
         # PRIMARY: size by width (fill the signature line)
         # Real signatures span most of the line, not a tiny portion
