@@ -117,7 +117,7 @@
         {% endfor %}
         <div style="font-size:11px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;margin-top:8px;margin-bottom:2px;border-top:1px solid var(--bd);padding-top:8px">📋 Compliance Forms</div>
         {% for review in manifest.reviews %}
-        {% if review.form_id != 'quote' %}
+        {% if review.form_id != 'quote' and review.form_id != 'sellers_permit' and review.form_id != 'dvbe843' and review.form_filename %}
         <div class="rv-form-item"
              data-form-id="{{ review.form_id }}"
              data-filename="{{ review.form_filename }}"
