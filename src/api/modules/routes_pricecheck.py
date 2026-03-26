@@ -2522,12 +2522,31 @@ def api_pc_split_pdf():
         requestor = header.get("requestor", "").strip()
         pc_number = header.get("price_check_number", "").strip()
         items = section.get("line_items", [])
+        # ── Resolve institution → agency using the resolver ──
+        agency_name = ""
+        agency_key = ""
+        canonical_inst = institution
+        try:
+            from src.core.institution_resolver import resolve as _resolve_inst
+            _resolved = _resolve_inst(institution)
+            if _resolved.get("agency"):
+                agency_key = _resolved["agency"]
+                agency_name = _resolved.get("canonical", institution)
+                canonical_inst = agency_name
+                log.info("SPLIT-PDF: resolved '%s' → agency=%s canonical='%s'",
+                         institution, agency_key, canonical_inst)
+        except Exception as _re:
+            log.debug("Institution resolve failed: %s", _re)
+
         pc = {
             "id": pc_id,
             "pc_number": pc_number or (f"PC-{institution[:12].replace(' ','-')}" if institution else pc_id),
-            "institution": institution, "requestor": requestor, "requestor_name": requestor,
+            "institution": canonical_inst, "requestor": requestor, "requestor_name": requestor,
+            "requestor_email": "", "agency": agency_key, "agency_name": agency_name or agency_key,
             "due_date": header.get("due_date", ""),
-            "ship_to": f"{institution}, {header.get('zip_code','')}" if institution else "",
+            "ship_to": f"{canonical_inst}, {header.get('zip_code','')}" if canonical_inst else "",
+            "zip_code": header.get("zip_code", ""),
+            "phone": header.get("phone", ""),
             "status": "parsed", "source": "multi_pc_upload", "source_pdf": pdf_path,
             "created_at": datetime.now().isoformat(), "items": items,
             "parsed": {"header": header, "line_items": items},
