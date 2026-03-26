@@ -2430,7 +2430,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         # Exact cell boundaries from pdfplumber rect extraction (vertical border at x=684)
         "fill_70": (696.0, 141.0, 758.0, 159.0),  # Subtotal  cell=(139.8,160.9)
         "fill_71": (694.9, 117.5, 758.0, 138.0),  # Freight   cell=(116.0,139.3)
-        "fill_72": (695.4, 94.5,  758.0, 114.5),  # Tax       cell=(93.6, 115.5)
+        "fill_72": (685.0, 93.6,  758.0, 115.5),  # Tax — widened to fully cover baked-in values
         "fill_73": (695.5, 69.0,  758.0, 92.0),   # Total     cell=(68.0,  93.2)
     }
     # FOB checkbox — measured at pdf_y≈127-139 (was 35px too low at y=95-107)
