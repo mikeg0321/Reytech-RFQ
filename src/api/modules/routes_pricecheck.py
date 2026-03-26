@@ -1962,6 +1962,11 @@ def pricecheck_upload_pdf(pcid):
         except Exception as _e:
             log.debug("DAL save_pc: %s", _e)
         log.info("PC %s: uploaded PDF parsed → %d items", pcid, len(items))
+        # Auto-enrich with catalog, SCPRS, URL extraction
+        try:
+            _auto_enrich_pc(pcid)
+        except Exception as _ae:
+            log.warning("PC %s: auto-enrich failed: %s", pcid, _ae)
         from flask import flash
         flash(f"Parsed {len(items)} items from uploaded PDF", "success")
     else:
@@ -2555,15 +2560,20 @@ def api_pc_split_pdf():
         }
         from src.api.dashboard import _save_single_pc
         _save_single_pc(pc_id, pc)
+        # Auto-enrich with catalog, SCPRS, URL extraction
+        try:
+            _auto_enrich_pc(pc_id)
+        except Exception as _ae:
+            log.warning("SPLIT-PDF %s: auto-enrich failed: %s", pc_id, _ae)
         created.append({
-            "pc_id": pc_id, "institution": institution or "Unknown",
+            "pc_id": pc_id, "institution": canonical_inst or institution or "Unknown",
             "requestor": requestor, "pc_number": pc_number,
             "items": len(items),
             "pages": f"{section.get('page_start',0)+1}-{section.get('page_end',0)+1}",
             "url": f"/pricecheck/{pc_id}",
         })
         log.info("SPLIT-PDF: created PC %s — %s — %d items (pages %d-%d)",
-                 pc_id, institution, len(items), section.get("page_start",0), section.get("page_end",0))
+                 pc_id, canonical_inst or institution, len(items), section.get("page_start",0), section.get("page_end",0))
 
     by_institution = {}
     for pc in created:
@@ -5041,6 +5051,176 @@ def api_pc_mark_auto_priced(pcid):
     pc["auto_priced"] = True
     _save_single_pc(pcid, pc)
     return jsonify({"ok": True})
+
+
+# ── Auto-Enrich Pipeline ─────────────────────────────────────────────────────
+
+def _auto_enrich_pc(pc_id: str):
+    """Auto-enrich a freshly-created PC with catalog, SCPRS, and URL data.
+    Called immediately after PC creation (upload, split, email, manual).
+    Never overwrites user-entered prices — only populates item['pricing'] dict.
+    Runs synchronously (<5s for typical 10-item PC)."""
+    try:
+        from src.api.dashboard import _load_price_checks, _save_single_pc
+        pcs = _load_price_checks()
+        pc = pcs.get(pc_id)
+        if not pc:
+            log.warning("AUTO-ENRICH %s: PC not found", pc_id)
+            return
+        items = pc.get("items", [])
+        if not items:
+            items = pc.get("parsed", {}).get("line_items", [])
+        if not items:
+            log.info("AUTO-ENRICH %s: no items to enrich", pc_id)
+            return
+
+        # Ensure each item has a pricing dict
+        for it in items:
+            if "pricing" not in it:
+                it["pricing"] = {}
+
+        catalog_matched = 0
+        scprs_matched = 0
+        urls_extracted = 0
+        institution = pc.get("institution", "")
+
+        # ── Step 1: Extract URLs from descriptions ──
+        try:
+            urls_extracted = _extract_urls_from_items(items)
+        except Exception as e:
+            log.debug("AUTO-ENRICH %s: URL extraction error: %s", pc_id, e)
+
+        # ── Step 2: Catalog batch match ──
+        try:
+            from src.agents.product_catalog import match_items_batch
+            batch_input = [{"idx": i, "description": it.get("description", ""),
+                            "part_number": it.get("mfg_number", "") or it.get("part_number", "")}
+                           for i, it in enumerate(items)]
+            batch_results = match_items_batch(batch_input)
+            for r in (batch_results or []):
+                idx = r.get("idx", -1)
+                if idx < 0 or idx >= len(items):
+                    continue
+                if not r.get("matched") or r.get("confidence", 0) < 0.50:
+                    continue
+                it = items[idx]
+                it["pricing"]["catalog_match"] = r.get("canonical_name", r.get("catalog_match", ""))
+                it["pricing"]["catalog_cost"] = r.get("best_cost") or r.get("last_cost", 0)
+                it["pricing"]["catalog_confidence"] = r.get("confidence", 0)
+                if r.get("recommended_price"):
+                    it["pricing"]["catalog_recommended"] = r["recommended_price"]
+                if not it.get("mfg_number") and r.get("mfg_number"):
+                    it["mfg_number"] = r["mfg_number"]
+                if not it.get("item_link") and r.get("supplier_url"):
+                    it["item_link"] = r["supplier_url"]
+                    it["item_supplier"] = r.get("supplier_name", "")
+                catalog_matched += 1
+        except Exception as e:
+            log.warning("AUTO-ENRICH %s: catalog match error: %s", pc_id, e)
+
+        # ── Step 3: SCPRS lookup ──
+        try:
+            from src.knowledge.won_quotes_db import find_similar_items
+            for i, it in enumerate(items):
+                if it["pricing"].get("scprs_price"):
+                    scprs_matched += 1
+                    continue  # already has SCPRS data
+                desc = it.get("description", "")
+                pn = it.get("mfg_number", "") or it.get("part_number", "")
+                matches = find_similar_items(pn, desc, max_results=1, min_confidence=0.30)
+                if matches:
+                    best = matches[0]
+                    q = best.get("quote", {})
+                    it["pricing"]["scprs_price"] = q.get("unit_price", 0)
+                    it["pricing"]["scprs_match"] = (q.get("description", "") or "")[:60]
+                    it["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
+                    it["pricing"]["scprs_source"] = "scprs_kb"
+                    it["pricing"]["scprs_po"] = q.get("po_number", "")
+                    scprs_matched += 1
+        except Exception as e:
+            log.warning("AUTO-ENRICH %s: SCPRS lookup error: %s", pc_id, e)
+
+        # ── Step 4: Pricing recommendations ──
+        try:
+            from src.knowledge.pricing_oracle import recommend_price
+            for it in items:
+                if it.get("unit_price") or it["pricing"].get("recommended_price"):
+                    continue  # already priced
+                desc = it.get("description", "")
+                pn = it.get("mfg_number", "") or it.get("part_number", "")
+                cost = it["pricing"].get("catalog_cost") or it["pricing"].get("unit_cost") or 0
+                scprs = it["pricing"].get("scprs_price") or 0
+                rec = recommend_price(pn, desc, supplier_cost=cost if cost > 0 else None,
+                                      scprs_price=scprs if scprs > 0 else None,
+                                      agency=institution)
+                if rec:
+                    if rec.get("recommended_price"):
+                        it["pricing"]["recommended_price"] = rec["recommended_price"]
+                    if rec.get("aggressive_price"):
+                        it["pricing"]["aggressive_price"] = rec["aggressive_price"]
+                    if rec.get("safe_price"):
+                        it["pricing"]["safe_price"] = rec["safe_price"]
+                    if rec.get("data_quality"):
+                        it["pricing"]["data_quality"] = rec["data_quality"]
+        except Exception as e:
+            log.warning("AUTO-ENRICH %s: pricing oracle error: %s", pc_id, e)
+
+        # ── Save enriched PC ──
+        pc["items"] = items
+        if "parsed" in pc and pc["parsed"].get("line_items"):
+            pc["parsed"]["line_items"] = items
+        pc["enrichment_status"] = "complete"
+        pc["enrichment_at"] = datetime.now().isoformat()
+        pc["enrichment_summary"] = {
+            "catalog_matched": catalog_matched,
+            "scprs_matched": scprs_matched,
+            "urls_extracted": urls_extracted,
+            "total_items": len(items),
+        }
+        _save_single_pc(pc_id, pc)
+
+        log.info("AUTO-ENRICH %s: %d/%d catalog, %d/%d SCPRS, %d URLs extracted",
+                 pc_id, catalog_matched, len(items), scprs_matched, len(items), urls_extracted)
+
+    except Exception as e:
+        log.error("AUTO-ENRICH %s FAILED: %s", pc_id, e, exc_info=True)
+
+
+def _extract_urls_from_items(items: list) -> int:
+    """Extract supplier URLs embedded in item descriptions.
+    Many DocuSign 704s have URLs like 'Toothpaste https://www.dollartree.com/...'
+    Sets item['item_link'] and item['item_supplier']. Returns count extracted."""
+    import re as _re
+    extracted = 0
+    try:
+        from src.agents.item_link_lookup import SUPPLIER_MAP
+    except ImportError:
+        SUPPLIER_MAP = {}
+
+    _url_re = _re.compile(r'(https?://[^\s"\'<>)\]]+)')
+
+    for it in items:
+        if it.get("item_link"):
+            continue  # already has a link
+        desc = it.get("description", "")
+        m = _url_re.search(desc)
+        if m:
+            url = m.group(1).rstrip(".,;:")
+            it["item_link"] = url
+            # Detect supplier from domain
+            try:
+                from urllib.parse import urlparse
+                domain = urlparse(url).netloc.lower().replace("www.", "")
+                for map_domain, supplier_name in SUPPLIER_MAP.items():
+                    if map_domain in domain:
+                        it["item_supplier"] = supplier_name
+                        break
+                else:
+                    it["item_supplier"] = domain.split(".")[0].title()
+            except Exception:
+                it["item_supplier"] = ""
+            extracted += 1
+    return extracted
 
 
 @bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
