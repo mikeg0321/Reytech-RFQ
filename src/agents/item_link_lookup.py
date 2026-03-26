@@ -502,7 +502,56 @@ def _lookup_ssww(url: str) -> dict:
     if item_num:
         scraped["part_number"] = item_num
         scraped["mfg_number"] = item_num
-    title = scraped.get("title") or scraped.get("description") or desc_from_url
+
+    title = scraped.get("title") or scraped.get("description") or ""
+
+    # Cloudflare block detection — use SerpApi Amazon to identify product,
+    # but keep SSWW as the supplier (quote direct from S&S, not Amazon)
+    _blocked = not title or "just a moment" in title.lower() or "cloudflare" in title.lower()
+    if _blocked and item_num:
+        log.info("SSWW Cloudflare blocked — searching Amazon for product info: %s", item_num)
+        try:
+            from src.agents.product_research import search_amazon
+            search_query = f"{item_num} {desc_from_url}" if desc_from_url else item_num
+            results = search_amazon(search_query, max_results=1)
+            if results:
+                r = results[0]
+                scraped["title"] = r.get("title", desc_from_url)
+                scraped["description"] = r.get("title", desc_from_url)
+                scraped["manufacturer"] = r.get("manufacturer", "")
+                # Use Amazon price as cost reference (SSWW is typically similar)
+                if r.get("price"):
+                    scraped["price"] = r["price"]
+                    scraped["cost"] = r["price"]
+                log.info("SSWW→Amazon product info: %s → '%s' $%s",
+                         item_num, r.get("title", "")[:50], r.get("price"))
+                # Keep SSWW as supplier and URL — we quote direct S&S
+                return scraped
+        except Exception as e:
+            log.warning("SSWW→Amazon lookup failed: %s", e)
+
+        # Second fallback: catalog lookup
+        try:
+            from src.agents.product_catalog import match_item, init_catalog_db
+            init_catalog_db()
+            matches = match_item(item_num, part_number=item_num, top_n=1)
+            if matches and matches[0].get("confidence", 0) >= 0.80:
+                m = matches[0]
+                scraped["title"] = m.get("name", desc_from_url)
+                scraped["description"] = m.get("name", desc_from_url)
+                scraped["price"] = m.get("cost") or m.get("sell_price")
+                scraped["cost"] = m.get("cost") or m.get("sell_price")
+                scraped["manufacturer"] = m.get("manufacturer", "")
+                log.info("SSWW catalog fallback: %s → $%s", item_num, scraped.get("price"))
+                return scraped
+        except Exception as e:
+            log.warning("SSWW catalog fallback failed: %s", e)
+
+        # Last resort: use description from URL slug
+        scraped["title"] = desc_from_url
+        scraped["description"] = desc_from_url
+        return scraped
+
     if title:
         scraped["description"] = title
     elif desc_from_url:

@@ -179,6 +179,24 @@ def _extract_price(item: dict) -> Optional[float]:
                 except (ValueError, TypeError):
                     pass
 
+    # Try list_price / typical_price (SerpApi organic results)
+    for field in ("list_price", "typical_price"):
+        lp = item.get(field)
+        if isinstance(lp, dict):
+            val = lp.get("value") or lp.get("raw") or lp.get("extracted_price")
+            if val:
+                try:
+                    return float(str(val).replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    pass
+        elif isinstance(lp, (int, float)) and lp > 0:
+            return float(lp)
+        elif isinstance(lp, str) and lp:
+            try:
+                return float(lp.replace("$", "").replace(",", ""))
+            except (ValueError, TypeError):
+                pass
+
     return None
 
 
@@ -278,6 +296,9 @@ def search_amazon(query: str, max_results: int = 5) -> list:
 
             price = _extract_price(item)
             if price is None or price <= 0 or price > 100000:
+                log.debug("SerpApi: skipping '%s' — price=%s (keys: %s)",
+                          title[:40], price,
+                          [k for k in item.keys() if 'price' in k.lower()])
                 continue
 
             link = item.get("link", "")
@@ -320,6 +341,7 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
 
     params = {
         "engine": "amazon_product",
+        "asin": asin,
         "product_id": asin,
         "amazon_domain": "amazon.com",
         "api_key": api_key,
