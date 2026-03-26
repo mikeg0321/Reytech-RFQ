@@ -2593,8 +2593,9 @@ def _calrecycle_clean_desc(item):
 
 def _calrecycle_fix_date(pdf_path, sign_date):
     """
-    Overlay the date onto ALL CalRecycle 74 Date fields (every page).
-    Finds every annotation named "Date" and overlays text at its rect.
+    Overlay the date onto CalRecycle 74 Date fields ONLY.
+    The CalRecycle 74 has an unnamed "Date" field that can't be filled via the values dict.
+    IMPORTANT: Only overlay on CalRecycle pages — never on Darfur, DVBE, CUF, PD802, etc.
     """
     import io as _io
     from pypdf import PdfReader as _PR, PdfWriter as _PW
@@ -2604,42 +2605,41 @@ def _calrecycle_fix_date(pdf_path, sign_date):
         writer = _PW()
         writer.append(reader)
 
-        # Find ALL "Date" fields across all pages
-        date_fields = []  # [(page_idx, rect), ...]
+        # Find CalRecycle pages first, then look for "Date" fields ONLY on those pages
+        cr_pages = set()
         for pg_idx, pg in enumerate(reader.pages):
+            try:
+                txt = (pg.extract_text() or "").upper()
+            except Exception:
+                txt = ""
+            if "CALRECYCLE" in txt or "POSTCONSUMER RECYCLED" in txt:
+                cr_pages.add(pg_idx)
+
+        if not cr_pages:
+            return  # No CalRecycle pages in this PDF
+
+        date_fields = []  # [(page_idx, rect), ...]
+        for pg_idx in cr_pages:
+            pg = reader.pages[pg_idx]
             annots = pg.get("/Annots", []) or []
             for a in annots:
                 obj = a.get_object() if hasattr(a, "get_object") else a
                 name = str(obj.get("/T", ""))
+                # Only match exact "Date" field (CalRecycle's unnamed date field)
+                # Never match Date_CUF, Date__darfur, Date1_PD843, Date_PD802, etc.
                 if name == "Date":
                     rect = obj.get("/Rect")
                     if rect:
                         date_fields.append((pg_idx, [float(x) for x in rect]))
 
-        # Also search for date fields with different names
         if not date_fields:
-            for pg_idx, pg in enumerate(reader.pages):
-                annots = pg.get("/Annots", []) or []
-                for a in annots:
-                    obj = a.get_object() if hasattr(a, "get_object") else a
-                    name = str(obj.get("/T", "")).lower()
-                    # Match any date-like field near CalRecycle content
-                    if "date" in name and "calrecycle" not in name.lower():
-                        rect = obj.get("/Rect")
-                        if rect:
-                            date_fields.append((pg_idx, [float(x) for x in rect]))
+            # Fallback: overlay at known CalRecycle date position
+            for pg_idx in cr_pages:
+                date_fields.append((pg_idx, [460, 148, 540, 166]))
+                print(f"  ℹ CalRecycle date: using fallback position on page {pg_idx}")
+                break
+
         if not date_fields:
-            # Last resort: find the CalRecycle page and overlay date at known position
-            for pg_idx, pg in enumerate(reader.pages):
-                txt = (pg.extract_text() or "").upper()
-                if "CALRECYCLE" in txt or "RECYCLED CONTENT" in txt or "POSTCONSUMER" in txt:
-                    # CalRecycle 74 date position: right of Title field, same row as signature
-                    # Signature1 is at [219, 148, 379, 166], Date is to the right at ~[460, 148]
-                    date_fields.append((pg_idx, [460, 148, 540, 166]))
-                    print(f"  ℹ CalRecycle date: using fallback position on page {pg_idx}")
-                    break
-        if not date_fields:
-            print(f"  ⚠ CalRecycle date: could not find any Date fields")
             return
 
         for pg_idx, date_rect in date_fields:
