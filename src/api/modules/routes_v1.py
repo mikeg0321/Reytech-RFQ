@@ -597,8 +597,9 @@ def api_v1_harvest_federal():
 
 
 @bp.route("/api/v1/harvest/status")
+@auth_required
 def api_v1_harvest_status():
-    """Current connector status. No auth — read only."""
+    """Current connector status."""
     try:
         from src.core.pull_orchestrator import PullOrchestrator
         return api_response(PullOrchestrator().get_status())
@@ -2196,6 +2197,7 @@ def api_v1_validate_data():
 
 
 @bp.route("/api/v1/usage/track", methods=["POST"])
+@auth_required
 def api_v1_usage_track():
     """Receive usage tracking beacons from frontend."""
     try:

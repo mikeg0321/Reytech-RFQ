@@ -590,79 +590,76 @@ def api_buyers():
     """Get all SCPRS buyers with spend, items, and catalog overlap."""
     try:
         agency_filter = request.args.get("agency", "")
-        conn = get_db()
+        with get_db() as conn:
+            if agency_filter:
+                buyers = conn.execute("""
+                    SELECT p.buyer_name, p.buyer_email, p.institution,
+                           COALESCE(p.agency_key, p.dept_name) as agency,
+                           COUNT(DISTINCT p.po_number) as po_count,
+                           SUM(p.grand_total) as total_spend,
+                           GROUP_CONCAT(DISTINCT p.supplier) as suppliers
+                    FROM scprs_po_master p
+                    WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
+                    AND p.agency_key = ?
+                    GROUP BY LOWER(p.buyer_email)
+                    ORDER BY total_spend DESC
+                """, (agency_filter,)).fetchall()
+            else:
+                buyers = conn.execute("""
+                    SELECT p.buyer_name, p.buyer_email, p.institution,
+                           COALESCE(p.agency_key, p.dept_name) as agency,
+                           COUNT(DISTINCT p.po_number) as po_count,
+                           SUM(p.grand_total) as total_spend,
+                           GROUP_CONCAT(DISTINCT p.supplier) as suppliers
+                    FROM scprs_po_master p
+                    WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
+                    GROUP BY LOWER(p.buyer_email)
+                    ORDER BY total_spend DESC
+                """).fetchall()
 
-        if agency_filter:
-            buyers = conn.execute("""
-                SELECT p.buyer_name, p.buyer_email, p.institution,
-                       COALESCE(p.agency_key, p.dept_name) as agency,
-                       COUNT(DISTINCT p.po_number) as po_count,
-                       SUM(p.grand_total) as total_spend,
-                       GROUP_CONCAT(DISTINCT p.supplier) as suppliers
-                FROM scprs_po_master p
-                WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
-                AND p.agency_key = ?
-                GROUP BY LOWER(p.buyer_email)
-                ORDER BY total_spend DESC
-            """, (agency_filter,)).fetchall()
-        else:
-            buyers = conn.execute("""
-                SELECT p.buyer_name, p.buyer_email, p.institution,
-                       COALESCE(p.agency_key, p.dept_name) as agency,
-                       COUNT(DISTINCT p.po_number) as po_count,
-                       SUM(p.grand_total) as total_spend,
-                       GROUP_CONCAT(DISTINCT p.supplier) as suppliers
-                FROM scprs_po_master p
-                WHERE p.buyer_email IS NOT NULL AND p.buyer_email != ''
-                GROUP BY LOWER(p.buyer_email)
-                ORDER BY total_spend DESC
-            """).fetchall()
+            # Get catalog categories for overlap detection
+            catalog_tokens = set()
+            for row in conn.execute("""
+                SELECT DISTINCT LOWER(category) as cat FROM product_catalog
+                WHERE category IS NOT NULL AND category != ''
+            """).fetchall():
+                catalog_tokens.add(row["cat"])
 
-        # Get catalog categories for overlap detection
-        catalog_tokens = set()
-        for row in conn.execute("""
-            SELECT DISTINCT LOWER(category) as cat FROM product_catalog
-            WHERE category IS NOT NULL AND category != ''
-        """).fetchall():
-            catalog_tokens.add(row["cat"])
+            # Get items each buyer purchases
+            buyer_list = []
+            overlap_count = 0
+            agencies_seen = set()
 
-        # Get items each buyer purchases
-        buyer_list = []
-        overlap_count = 0
-        agencies_seen = set()
+            for b in buyers:
+                email = b["buyer_email"]
+                agencies_seen.add(b["agency"] or "")
 
-        for b in buyers:
-            email = b["buyer_email"]
-            agencies_seen.add(b["agency"] or "")
+                # Get their line items
+                items = conn.execute("""
+                    SELECT DISTINCT SUBSTR(l.description, 1, 50) as item,
+                           l.category, l.reytech_sells
+                    FROM scprs_po_lines l
+                    JOIN scprs_po_master p ON l.po_id = p.id
+                    WHERE LOWER(p.buyer_email) = LOWER(?)
+                    ORDER BY l.line_total DESC LIMIT 15
+                """, (email,)).fetchall()
 
-            # Get their line items
-            items = conn.execute("""
-                SELECT DISTINCT SUBSTR(l.description, 1, 50) as item,
-                       l.category, l.reytech_sells
-                FROM scprs_po_lines l
-                JOIN scprs_po_master p ON l.po_id = p.id
-                WHERE LOWER(p.buyer_email) = LOWER(?)
-                ORDER BY l.line_total DESC LIMIT 15
-            """, (email,)).fetchall()
+                top_items = ", ".join(i["item"] for i in items if i["item"])[:200]
+                overlap = [i["item"] for i in items if i["reytech_sells"]]
+                if overlap:
+                    overlap_count += 1
 
-            top_items = ", ".join(i["item"] for i in items if i["item"])[:200]
-            overlap = [i["item"] for i in items if i["reytech_sells"]]
-            if overlap:
-                overlap_count += 1
-
-            buyer_list.append({
-                "buyer_name": b["buyer_name"] or "",
-                "buyer_email": email,
-                "institution": b["institution"] or "",
-                "agency": b["agency"] or "",
-                "po_count": b["po_count"],
-                "total_spend": b["total_spend"] or 0,
-                "suppliers": (b["suppliers"] or "")[:100],
-                "top_items": top_items,
-                "overlap_items": overlap[:5],
-            })
-
-        conn.close()
+                buyer_list.append({
+                    "buyer_name": b["buyer_name"] or "",
+                    "buyer_email": email,
+                    "institution": b["institution"] or "",
+                    "agency": b["agency"] or "",
+                    "po_count": b["po_count"],
+                    "total_spend": b["total_spend"] or 0,
+                    "suppliers": (b["suppliers"] or "")[:100],
+                    "top_items": top_items,
+                    "overlap_items": overlap[:5],
+                })
 
         return jsonify({
             "ok": True,

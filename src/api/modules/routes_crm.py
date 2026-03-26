@@ -864,8 +864,9 @@ def api_health():
 
 
 @bp.route("/api/build")
+@auth_required
 def api_build_version():
-    """Quick build version check (no auth) to verify deploys."""
+    """Build version check to verify deploys."""
     try:
         from src.core.paths import DATA_DIR, _USING_VOLUME
         vol = "persistent" if _USING_VOLUME else "ephemeral"
