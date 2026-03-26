@@ -150,14 +150,22 @@ def rfq_auto_lookup(rid):
                 init_catalog_db()
                 for item in r["line_items"]:
                     matches = match_item(item.get("description", ""), item.get("item_number", ""))
+                    best = None
                     if matches and isinstance(matches, list) and len(matches) > 0:
-                        best = matches[0]
-                        if best.get("confidence", 0) > 0.5:
-                            item["catalog_match"] = best
-                            catalog_found += 1
+                        if matches[0].get("confidence", 0) > 0.5:
+                            best = matches[0]
                     elif matches and isinstance(matches, dict) and matches.get("confidence", 0) > 0.5:
-                        item["catalog_match"] = matches
+                        best = matches
+                    if best:
+                        item["catalog_match"] = best
                         catalog_found += 1
+                        # Auto-fill supplier URL from catalog if not already set
+                        if not item.get("item_link"):
+                            for url_field in ["best_supplier_url", "product_url", "url", "amazon_url", "item_link"]:
+                                cat_url = best.get(url_field, "")
+                                if cat_url:
+                                    item["item_link"] = cat_url
+                                    break
                 _emit_progress(task_id, "catalog_done", f"Catalog: {catalog_found}/{total} found")
             except Exception as e:
                 log.error("Auto-lookup Catalog error: %s", e, exc_info=True)
