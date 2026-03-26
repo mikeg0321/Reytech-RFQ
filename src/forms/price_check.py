@@ -2480,24 +2480,37 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         if w <= 0 or h <= 0:
             return
         c.saveState()
-        # Clip to cell interior — nothing we draw can touch the borders
-        p = c.beginPath()
-        p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
-        c.clipPath(p, stroke=0)
-        # White fill — optionally only mask bottom portion to preserve labels
-        mask_h = (h - _PAD * 2) * mask_top_pct
-        c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, mask_h, fill=1, stroke=0)
-        # Draw text in the bottom portion
-        text_area_h = h * mask_top_pct
-        fs = min(fs, text_area_h * 0.8)
-        c.setFont("Helvetica", fs)
-        c.setFillColorRGB(0, 0, 0)
-        while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
-            fs -= 0.5
+        if mask_top_pct < 1.0:
+            # Labeled cell: clip to bottom portion only, smaller bottom pad
+            clip_bottom = y1 + 2
+            clip_top = y1 + h * mask_top_pct
+            clip_h = clip_top - clip_bottom
+            p = c.beginPath()
+            p.rect(x1 + _PAD, clip_bottom, w - _PAD * 2, clip_h)
+            c.clipPath(p, stroke=0)
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(x1 + _PAD, clip_bottom, w - _PAD * 2, clip_h, fill=1, stroke=0)
+            fs = min(fs, clip_h * 0.85)
             c.setFont("Helvetica", fs)
-        text_y = y1 + (text_area_h - fs) / 2
-        c.drawString(x1 + _PAD + 1, text_y, text)
+            c.setFillColorRGB(0, 0, 0)
+            while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
+                fs -= 0.5
+                c.setFont("Helvetica", fs)
+            c.drawString(x1 + _PAD + 1, clip_bottom + (clip_h - fs) / 2, text)
+        else:
+            # Full cell: clip to padded interior
+            p = c.beginPath()
+            p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
+            c.clipPath(p, stroke=0)
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
+            fs = min(fs, h * 0.75)
+            c.setFont("Helvetica", fs)
+            c.setFillColorRGB(0, 0, 0)
+            while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
+                fs -= 0.5
+                c.setFont("Helvetica", fs)
+            c.drawString(x1 + _PAD + 1, y1 + (h - fs) / 2, text)
         c.restoreState()
 
     def _cell_right(c, x1, y1, x2, y2, text, fs=9):
