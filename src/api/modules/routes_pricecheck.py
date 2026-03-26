@@ -2094,10 +2094,11 @@ def _do_generate(pcid):
 
     output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech{suffix}.pdf")
 
-    # Tax: always use stored rate if > 0, not gated on tax_enabled
+    # Tax: use stored rate only if tax_enabled is true (or not explicitly false)
     _gen_tax = 0.0
+    _tax_enabled = pc.get("tax_enabled", False)
     _sr = pc.get("tax_rate", 0)
-    if _sr and float(_sr) > 0:
+    if _tax_enabled and _sr and float(_sr) > 0:
         _rv = float(_sr)
         _gen_tax = _rv / 100.0 if _rv > 1.0 else _rv
 

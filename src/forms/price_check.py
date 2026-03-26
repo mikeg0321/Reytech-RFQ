@@ -2404,23 +2404,26 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
 
     # ═══ COORDINATES from PC_Karaoke_Reytech.pdf (real AMS 704 template) ═══
     SUPPLIER_FIELDS = {
-        # Row 1: full-height cells (no baked-in labels in these cells)
+        # Row 1: full-height cells (no baked-in labels)
         "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
         "COMPANY REPRESENTATIVE print name":  (280.1, 421.3, 602.4, 441.4),
         "Delivery Date and Time ARO":         (604.3, 421.3, 754.9, 441.4),
         # Row 2: full-height cells
         "Address":                            (33.1, 389.9, 278.3, 412.1),
         "Discount Offered":                   (604.3, 389.9, 754.9, 412.1),
-        # Row 3: cells have baked-in labels at top ("Certified SB/MB #", etc.)
-        # Only mask the BOTTOM 55% of the cell to preserve the label text.
-        # Full cell y-range is 362.8–380.8 (18pt). Data area: 362.8–372.0
-        "Certified SBMB":                     (33.0, 362.8, 156.8, 372.8),
-        "Certified DVBE":                     (158.4, 362.8, 278.4, 372.8),
-        "Phone Number_2":                     (280.0, 362.8, 445.0, 372.8),
-        "EMail Address":                      (446.5, 362.8, 602.5, 372.8),
-        "Date Price Check Expires":           (604.2, 362.8, 755.0, 372.8),
-        # Ship to: widen slightly and lower to avoid cutting off text
+        # Row 3: full cell coords — have baked-in labels at top
+        "Certified SBMB":                     (33.0, 362.8, 156.8, 380.8),
+        "Certified DVBE":                     (158.4, 362.8, 278.4, 380.8),
+        "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
+        "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
+        "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
+        # Ship to
         "Ship to":                            (278.0, 101.0, 530.0, 114.0),
+    }
+    # Fields with baked-in labels at top — only mask bottom 50% to preserve labels
+    _LABELED_FIELDS = {
+        "Certified SBMB", "Certified DVBE", "Phone Number_2",
+        "EMail Address", "Date Price Check Expires",
     }
     NOTES_FIELD = ("Supplier andor Requestor Notes", 32.6, 41.9, 237.2, 118.9)
     TOTALS = {
@@ -2465,9 +2468,11 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     # ── Border-safe inset: white mask stays well inside cell borders ──
     _PAD = 4  # px inset from each cell edge — keeps 0.5-1pt border lines intact
 
-    def _cell(c, x1, y1, x2, y2, text, fs=9):
+    def _cell(c, x1, y1, x2, y2, text, fs=9, mask_top_pct=1.0):
         """Draw text in a clipped cell. White mask clears baked-in text
-        but stays _PAD pts inside cell edges to preserve border lines."""
+        but stays _PAD pts inside cell edges to preserve border lines.
+        mask_top_pct: fraction of cell height to mask (1.0=all, 0.5=bottom half only).
+        Use <1.0 for cells with baked-in labels at top that must be preserved."""
         if not text or not text.strip():
             return
         text = text.strip()
@@ -2479,17 +2484,20 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         p = c.beginPath()
         p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
         c.clipPath(p, stroke=0)
-        # White fill to clear any baked-in label text
+        # White fill — optionally only mask bottom portion to preserve labels
+        mask_h = (h - _PAD * 2) * mask_top_pct
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
-        # Draw text
-        fs = min(fs, h * 0.75)
+        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, mask_h, fill=1, stroke=0)
+        # Draw text in the bottom portion
+        text_area_h = h * mask_top_pct
+        fs = min(fs, text_area_h * 0.8)
         c.setFont("Helvetica", fs)
         c.setFillColorRGB(0, 0, 0)
         while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
-        c.drawString(x1 + _PAD + 1, y1 + (h - fs) / 2, text)
+        text_y = y1 + (text_area_h - fs) / 2
+        c.drawString(x1 + _PAD + 1, text_y, text)
         c.restoreState()
 
     def _cell_right(c, x1, y1, x2, y2, text, fs=9):
@@ -2585,7 +2593,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 val = fv_map.get(fname, "")
                 if val:
                     sx1, sy1, sx2, sy2 = _sc(x1, y1, x2, y2)
-                    _cell(c, sx1, sy1, sx2, sy2, val, fs=10)
+                    mtp = 0.5 if fname in _LABELED_FIELDS else 1.0
+                    _cell(c, sx1, sy1, sx2, sy2, val, fs=10 if mtp == 1.0 else 8, mask_top_pct=mtp)
                     drew = True
             # Notes
             nf, nx1, ny1, nx2, ny2 = NOTES_FIELD
