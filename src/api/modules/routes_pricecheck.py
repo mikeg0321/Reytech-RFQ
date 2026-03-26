@@ -3785,6 +3785,73 @@ def api_diag_find_rfq():
     })
 
 
+@bp.route("/api/diag/rfq-inspect/<rid>")
+@auth_required
+def api_diag_rfq_inspect(rid):
+    """Inspect RFQ data + find matching PCs for debugging."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found", "available_ids": list(rfqs.keys())[:20]})
+    items = r.get("line_items", [])
+    item_summary = []
+    for i, item in enumerate(items):
+        item_summary.append({
+            "idx": i + 1,
+            "qty": item.get("qty", ""),
+            "description": (item.get("description", "") or "")[:60],
+            "item_number": item.get("item_number", "") or item.get("part_number", ""),
+            "supplier_cost": item.get("supplier_cost", "") or item.get("vendor_cost", ""),
+            "price_per_unit": item.get("price_per_unit", ""),
+            "item_link": (item.get("item_link", "") or "")[:50],
+            "source_pc": item.get("source_pc", "") or item.get("_from_pc", ""),
+        })
+    # Find matching PCs
+    pcs = _load_price_checks()
+    matching_pcs = []
+    rfq_inst = (r.get("delivery_location", "") or r.get("institution", "") or r.get("institution_name", "") or "").lower()
+    rfq_sol = (r.get("solicitation_number", "") or "").strip()
+    for pid, pc in pcs.items():
+        pc_inst = (pc.get("institution", "") or "").lower()
+        pc_sol = (pc.get("pc_number", "") or "").strip()
+        match_reasons = []
+        if rfq_sol and pc_sol and rfq_sol == pc_sol:
+            match_reasons.append("sol_match")
+        if pc_inst and rfq_inst and (pc_inst in rfq_inst or rfq_inst in pc_inst):
+            match_reasons.append("inst_match")
+        if match_reasons or pc.get("email_uid") == r.get("email_uid"):
+            matching_pcs.append({
+                "pc_id": pid,
+                "pc_number": pc.get("pc_number", ""),
+                "institution": pc.get("institution", ""),
+                "items": len(pc.get("items", [])),
+                "status": pc.get("status", ""),
+                "created": pc.get("created_at", "")[:10],
+                "match_reasons": match_reasons,
+            })
+    return jsonify({
+        "ok": True,
+        "rfq": {
+            "id": rid,
+            "solicitation_number": r.get("solicitation_number", ""),
+            "institution": r.get("delivery_location", "") or r.get("institution", ""),
+            "agency": r.get("agency", ""),
+            "source": r.get("source", ""),
+            "email_subject": r.get("email_subject", ""),
+            "email_sender": r.get("email_sender", ""),
+            "form_type": r.get("form_type", ""),
+            "linked_pc": r.get("linked_pc_id", ""),
+            "status": r.get("status", ""),
+            "created": r.get("created_at", ""),
+            "item_count": len(items),
+            "templates": list(r.get("templates", {}).keys()),
+        },
+        "items": item_summary,
+        "matching_pcs": matching_pcs,
+        "body_preview": (r.get("body_text", "") or "")[:500],
+    })
+
+
 @bp.route("/api/diag")
 @auth_required
 def api_diag():
