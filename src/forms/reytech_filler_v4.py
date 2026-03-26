@@ -920,6 +920,71 @@ def fill_704b(input_path, rfq_data, config, output_path):
         except Exception:
             pass
 
+    # ── 704B signature overlay — "SIGNATURE / DATE" is printed text, not a form field ──
+    try:
+        from pypdf import PdfReader as _PR704s, PdfWriter as _PW704s
+        _reader_sig = _PR704s(output_path)
+        _writer_sig = _PW704s()
+        _writer_sig.append(_reader_sig)
+        _signed_704b = False
+        for _pg_idx, _pg in enumerate(_reader_sig.pages):
+            _txt = (_pg.extract_text() or "").upper()
+            if "VENDOR INFORMATION" in _txt and "COMPANY NAME" in _txt:
+                # This is the 704B vendor page — overlay signature at SIGNATURE/DATE area
+                _mb = _pg.get("/MediaBox", [0, 0, 612, 792])
+                _pw, _ph = float(_mb[2]), float(_mb[3])
+                # SIGNATURE / DATE is in the VENDOR INFORMATION header row, right column
+                # Standard position: right third of vendor header, y near top of item table
+                import io as _io704
+                from reportlab.pdfgen import canvas as _rl704
+                _packet = _io704.BytesIO()
+                _c = _rl704.Canvas(_packet, pagesize=(_pw, _ph))
+                if os.path.exists(SIGNATURE_PATH):
+                    from reportlab.lib.utils import ImageReader as _IR704
+                    from PIL import Image as _Img704
+                    _sig = _Img704.open(SIGNATURE_PATH)
+                    _ir = _IR704(_sig)
+                    # Find "SIGNATURE" text Y position using pdfminer
+                    _sig_y = None
+                    try:
+                        from pdfminer.high_level import extract_pages as _ep704
+                        from pdfminer.layout import LTTextBox, LTTextLine
+                        for _layout in _ep704(output_path, page_numbers=[_pg_idx]):
+                            for _elem in _layout:
+                                if not isinstance(_elem, LTTextBox): continue
+                                for _line in _elem:
+                                    if not isinstance(_line, LTTextLine): continue
+                                    if "SIGNATURE" in _line.get_text().upper() and "DATE" in _line.get_text().upper():
+                                        _sig_y = _line.y0
+                                        _sig_x = _line.x0
+                                        break
+                                if _sig_y: break
+                    except Exception:
+                        pass
+                    if _sig_y:
+                        # Draw signature above the SIGNATURE/DATE label
+                        _draw_h = 22
+                        _draw_w = _draw_h * (_sig.size[0] / _sig.size[1])
+                        _c.drawImage(_ir, _sig_x + 2, _sig_y + 2, _draw_w, _draw_h, mask='auto')
+                        # Draw date next to signature
+                        _c.setFont("Helvetica", 10)
+                        _c.drawString(_sig_x + _draw_w + 12, _sig_y + 6, sign_date)
+                        _signed_704b = True
+                _c.save()
+                _packet.seek(0)
+                if _signed_704b:
+                    _overlay = _PR704s(_packet)
+                    _writer_sig.pages[_pg_idx].merge_page(_overlay.pages[0])
+                break
+        if _signed_704b:
+            with open(output_path, "wb") as _f704:
+                _writer_sig.write(_f704)
+            print(f"  ✓ 704B signature overlaid at SIGNATURE/DATE")
+        else:
+            print(f"  ⚠ 704B: could not locate SIGNATURE/DATE area")
+    except Exception as _704sig_e:
+        print(f"  ⚠ 704B signature overlay failed: {_704sig_e}")
+
     print(f"  ✓ 704B filled + signed — ${merchandise_subtotal:,.2f}")
 
 
