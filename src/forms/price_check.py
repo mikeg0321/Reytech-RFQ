@@ -2663,7 +2663,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                  len(writer.pages), len(trimmed_writer.pages), sorted(pages_with_items))
         writer = trimmed_writer
 
-    _add_signature_to_pdf(writer)
+    _add_signature_to_pdf(writer, source_pdf_path=source_pdf)
     with open(output_pdf, "wb") as f:
         writer.write(f)
     log.info("Filled AMS 704 (OVERLAY) to %s — %d pages", output_pdf, len(writer.pages))
@@ -2839,7 +2839,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             except Exception:
                 pass
 
-    _add_signature_to_pdf(writer)
+    _add_signature_to_pdf(writer, source_pdf_path=source_pdf)
 
     with open(output_pdf, "wb") as f:
         writer.write(f)
@@ -2847,20 +2847,88 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     log.info(f"Filled AMS 704 saved to {output_pdf}")
 
 
-def _add_signature_to_pdf(writer):
-    """Overlay signature image and date onto the Signature field."""
+def _detect_sig_field_rect(source_pdf_or_writer):
+    """Detect the Signature field /Rect from the PDF.
+    Returns (left, bottom, right, top) or None.
+    Works with both PdfReader and PdfWriter objects."""
+    try:
+        pages = source_pdf_or_writer.pages if hasattr(source_pdf_or_writer, 'pages') else []
+        if not pages:
+            return None
+        page = pages[0]
+        for annot_ref in (page.get("/Annots") or []):
+            try:
+                annot = annot_ref.get_object()
+                name = str(annot.get("/T", ""))
+                # Match any signature-like field in the supplier row
+                if name.lower() in ("signature1", "signature", "sig") or (
+                        annot.get("/FT") == "/Sig" and "envelope" not in name.lower()):
+                    rect = annot.get("/Rect")
+                    if rect:
+                        r = [float(x) for x in rect]
+                        # Sanity: field should be >100pt wide and in the middle band
+                        if r[2] - r[0] > 100 and r[3] - r[1] > 10:
+                            log.info("_detect_sig_field_rect: found '%s' Rect=%s", name, r)
+                            return tuple(r)
+            except Exception:
+                pass
+    except Exception as e:
+        log.debug("_detect_sig_field_rect: %s", e)
+    return None
+
+
+def _add_signature_to_pdf(writer, source_pdf_path=None):
+    """Overlay signature image and date onto the Signature field.
+
+    Uses dynamic field detection when possible, falls back to reference
+    coordinates from AMS 704 Rev 1/2019 landscape (792×612).
+    White-masks the entire signature cell first to clear any baked-in
+    label text (e.g. 'Signature and Date') from DocuSign-flattened PDFs.
+    """
     import io
 
-    # Signature field: Rect=[279.144, 388.486, 602.284, 412.005] on landscape page (792x612)
-    # Field is 323pt wide × 23pt tall. Signature goes left, date right.
-    SIG_LEFT = 282.0
-    SIG_BOTTOM = 390.0  # keep within field (bottom=388.5)
-    SIG_WIDTH = 140.0   # signature image width
-    SIG_HEIGHT = 20.0   # fit within 23pt field height
+    # ── Detect actual field boundaries ──
+    sig_rect = _detect_sig_field_rect(writer)
+    if not sig_rect and source_pdf_path:
+        try:
+            sig_rect = _detect_sig_field_rect(PdfReader(source_pdf_path))
+        except Exception:
+            pass
 
-    # Date goes far right of field to avoid "Signature and Date" label in center
-    DATE_X = 530.0
-    DATE_Y = 394.0
+    # Fallback: reference coords from AMS 704 Rev 1/2019
+    # Signature field: Rect=[279.144, 388.486, 602.284, 412.005]
+    if not sig_rect:
+        sig_rect = (279.144, 388.486, 602.284, 412.005)
+
+    field_left, field_bot, field_right, field_top = sig_rect
+    field_w = field_right - field_left
+    field_h = field_top - field_bot
+
+    # Scale-aware: detect actual page size
+    page_width, page_height = 792.0, 612.0
+    try:
+        mb = writer.pages[0].mediabox
+        page_width, page_height = float(mb.width), float(mb.height)
+    except Exception:
+        pass
+
+    # Scale factors (reference coords are for 792×612)
+    sx = page_width / 792.0
+    sy = page_height / 612.0
+
+    # Apply scaling to field rect
+    fl = field_left * sx
+    fb = field_bot * sy
+    fr = field_right * sx
+    ft = field_top * sy
+    fw = fr - fl
+    fh = ft - fb
+
+    # Layout: signature image takes left 50%, date in right 25%
+    sig_w = min(fw * 0.45, 160)
+    sig_h = fh - 4  # 2pt padding top/bottom
+    date_x = fr - fw * 0.22  # right quarter
+    date_y = fb + (fh - 9) / 2  # vertically centered for ~9pt font
 
     # Find signature image
     sig_paths = [
@@ -2875,28 +2943,33 @@ def _add_signature_to_pdf(writer):
             break
 
     try:
-        from reportlab.lib.pagesizes import landscape, letter
         from reportlab.pdfgen import canvas as rl_canvas
         from reportlab.lib.utils import ImageReader
 
-        # Create overlay page matching AMS 704 dimensions (landscape letter)
-        page_width, page_height = 792.0, 612.0
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(page_width, page_height))
 
-        # Draw signature image if available
+        # ── White-mask the entire signature cell ──
+        # This clears baked-in label text like "Signature and Date"
+        c.saveState()
+        c.setFillColorRGB(1, 1, 1)
+        c.rect(fl + 2, fb + 1, fw - 4, fh - 2, fill=1, stroke=0)
+        c.restoreState()
+
+        # ── Draw signature image (left portion of cell) ──
         if sig_path:
             try:
                 img = ImageReader(sig_path)
-                c.drawImage(img, SIG_LEFT, SIG_BOTTOM, width=SIG_WIDTH, height=SIG_HEIGHT,
+                c.drawImage(img, fl + 4, fb + 2, width=sig_w, height=sig_h,
                            mask='auto', preserveAspectRatio=True, anchor='sw')
             except Exception as e:
-                log.warning(f"Could not draw signature image: {e}")
+                log.warning("Could not draw signature image: %s", e)
 
-        # Draw today's date
+        # ── Draw date (right portion of cell) ──
         today = datetime.now().strftime("%-m/%-d/%Y")
-        c.setFont("Helvetica", 10)
-        c.drawString(DATE_X, DATE_Y, today)
+        date_fs = min(9, fh * 0.55)
+        c.setFont("Helvetica", date_fs)
+        c.drawString(date_x, date_y, today)
 
         c.save()
         buf.seek(0)
@@ -2906,14 +2979,16 @@ def _add_signature_to_pdf(writer):
         overlay_page = overlay_reader.pages[0]
         writer.pages[0].merge_page(overlay_page)
 
+        log.info("_add_signature_to_pdf: field=(%d,%d,%d,%d) page=%dx%d sig_w=%.0f date_x=%.0f",
+                 field_left, field_bot, field_right, field_top, page_width, page_height, sig_w, date_x)
+
     except ImportError:
-        # reportlab not available — just set text field
         log.warning("reportlab not available, setting Signature1 as text")
         today = datetime.now().strftime("%-m/%-d/%Y")
         text_values = {"Signature1": f"Michael Guadan  {today}"}
         writer.update_page_form_field_values(writer.pages[0], text_values, auto_regenerate=False)
     except Exception as e:
-        log.error(f"Signature overlay error: {e}")
+        log.error("Signature overlay error: %s", e)
 
 
 def _expiry_date() -> str:
