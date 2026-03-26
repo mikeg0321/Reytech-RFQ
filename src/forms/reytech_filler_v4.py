@@ -464,17 +464,21 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 
 def fill_703c(input_path, rfq_data, config, output_path):
     """Fill AMS 703C (Fair and Reasonable / Exempt).
-    Tries 703B field names first, then 703C-prefixed names, then un-prefixed."""
+    Reads actual PDF field names and maps values to whatever prefix is used."""
     from pypdf import PdfReader as _PR703c
     reader = _PR703c(input_path)
     fields = reader.get_fields() or {}
     field_names = set(fields.keys())
 
+    # Log all field names for debugging
+    print(f"  703C template fields ({len(field_names)}): {sorted(field_names)[:30]}")
+
     # Detect which prefix the form uses
     has_703b_prefix = any(f.startswith("703B_") for f in field_names)
     has_703c_prefix = any(f.startswith("703C_") for f in field_names)
+    print(f"  703C prefix detection: 703B_={has_703b_prefix}, 703C_={has_703c_prefix}")
 
-    if has_703b_prefix:
+    if has_703b_prefix and not has_703c_prefix:
         # Same field names as 703B — delegate directly
         return fill_703b(input_path, rfq_data, config, output_path)
 
@@ -517,12 +521,23 @@ def fill_703c(input_path, rfq_data, config, output_path):
         if fn_clean in field_map and fn not in values:
             values[fn] = field_map[fn_clean]
 
+    # Check if template has /Sig fields
+    _has_sig = False
+    for _pg in reader.pages:
+        if "/Annots" in _pg:
+            for _ann in _pg["/Annots"]:
+                _obj = _ann.get_object()
+                if str(_obj.get("/FT", "")) == "/Sig":
+                    _has_sig = True
+                    break
+
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
 
-    try:
-        _703b_overlay_signature(output_path, sign_date)
-    except Exception as _se:
-        print(f"  ⚠ 703C positional sig overlay failed: {_se}")
+    if not _has_sig:
+        try:
+            _703b_overlay_signature(output_path, sign_date)
+        except Exception as _se:
+            print(f"  ⚠ 703C positional sig overlay failed: {_se}")
 
     print(f"  ✓ 703C filled + signed ({sign_date})")
 
@@ -580,14 +595,26 @@ def fill_703b(input_path, rfq_data, config, output_path):
     if rfq_data.get("delivery_location"):
         values["703B_Dropdown2"] = rfq_data["delivery_location"]
 
+    # Check if template has /Sig fields (if so, fill_and_sign_pdf handles signature)
+    _reader_check = PdfReader(input_path)
+    _has_sig_field = False
+    for _pg in _reader_check.pages:
+        if "/Annots" in _pg:
+            for _ann in _pg["/Annots"]:
+                _obj = _ann.get_object()
+                if str(_obj.get("/FT", "")) == "/Sig" and str(_obj.get("/T", "")) in SIGN_FIELDS:
+                    _has_sig_field = True
+                    break
+
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
 
-    # AMS 703B Rev 03/2025 has no /Sig field — signature line is a printed line.
-    # Overlay signature image at its fixed position on the last content page.
-    try:
-        _703b_overlay_signature(output_path, sign_date)
-    except Exception as _se:
-        print(f"  ⚠ 703B positional sig overlay failed: {_se}")
+    # Only overlay positional signature if the template has NO /Sig field
+    # (703B Rev 03/2025 uses a printed line, not a form field)
+    if not _has_sig_field:
+        try:
+            _703b_overlay_signature(output_path, sign_date)
+        except Exception as _se:
+            print(f"  ⚠ 703B positional sig overlay failed: {_se}")
 
     print(f"  ✓ 703B filled + signed ({sign_date})")
 
