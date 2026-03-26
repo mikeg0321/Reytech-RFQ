@@ -539,6 +539,7 @@
     function _fetchWithRetry(url, opts, retries) {
      retries = retries || 2;
      return fetch(url, opts).then(function(r) {
+      if (r.status === 401) { alert('Session expired — reloading page'); location.reload(); throw new Error('Session expired'); }
       if (r.ok || r.status < 500) return r;
       if (retries <= 0) return r;
       return new Promise(function(resolve) {
