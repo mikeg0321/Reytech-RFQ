@@ -2481,24 +2481,18 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         if mask_top_pct < 1.0:
-            # Labeled cell: data goes below the label.
-            # Clip from bottom border (+2pt) up to mask_top_pct of cell height.
-            clip_bottom = y1 + 2
-            clip_top = y1 + h * mask_top_pct
-            clip_h = clip_top - clip_bottom
-            p = c.beginPath()
-            p.rect(x1 + _PAD, clip_bottom, w - _PAD * 2, clip_h)
-            c.clipPath(p, stroke=0)
-            c.setFillColorRGB(1, 1, 1)
-            c.rect(x1 + _PAD, clip_bottom, w - _PAD * 2, clip_h, fill=1, stroke=0)
-            # Use requested font size — don't shrink below 7pt
+            # Labeled cell (row 3): has baked-in labels at top ("Certified SB/MB #" etc.)
+            # and empty data area below. NO white mask — just draw text directly
+            # at the measured data position (pdf_y ≈ y1 + 1, baseline of 10pt text).
+            # Measured from real AMS 704 via pdfplumber:
+            #   Labels: y1+7.2 to y1+16.5 (top of cell)
+            #   Data:   y1+0.9 to y1+10.9 (bottom of cell)
             c.setFont("Helvetica", fs)
             c.setFillColorRGB(0, 0, 0)
-            while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 5.5:
+            while c.stringWidth(text, "Helvetica", fs) > w - 8 and fs > 5.5:
                 fs -= 0.5
                 c.setFont("Helvetica", fs)
-            # Position text near bottom of clip area, 2pt above border
-            c.drawString(x1 + _PAD + 1, clip_bottom + 1, text)
+            c.drawString(x1 + 4, y1 + 1, text)
         else:
             # Full cell: clip to padded interior
             p = c.beginPath()
