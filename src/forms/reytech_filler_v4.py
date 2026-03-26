@@ -398,12 +398,10 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
 
     for page in writer.pages:
         try:
-            # Rotated pages (e.g. GSPD-05-105 Bidder Declaration with /Rotate=90)
-            # must NOT use auto_regenerate — it generates appearance streams in
-            # pre-rotation space, making text appear sideways.
-            page_rotate = int(page.get("/Rotate", 0))
-            use_auto_regen = (page_rotate == 0)
-            writer.update_page_form_field_values(page, clean_values, auto_regenerate=use_auto_regen)
+            # Always use auto_regenerate=True — pypdf needs to generate
+            # appearance streams for field values to render correctly,
+            # including on rotated pages (GSPD-05-105 Bidder Declaration).
+            writer.update_page_form_field_values(page, clean_values, auto_regenerate=True)
         except Exception:
             try:
                 writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
@@ -2635,8 +2633,9 @@ def _calrecycle_fix_date(pdf_path, sign_date):
             for pg_idx, pg in enumerate(reader.pages):
                 txt = (pg.extract_text() or "").upper()
                 if "CALRECYCLE" in txt or "RECYCLED CONTENT" in txt or "POSTCONSUMER" in txt:
-                    # Standard CalRecycle 74 date position: near signature, right side
-                    date_fields.append((pg_idx, [505, 95, 580, 110]))
+                    # CalRecycle 74 date position: right of Title field, same row as signature
+                    # Signature1 is at [219, 148, 379, 166], Date is to the right at ~[460, 148]
+                    date_fields.append((pg_idx, [460, 148, 540, 166]))
                     print(f"  ℹ CalRecycle date: using fallback position on page {pg_idx}")
                     break
         if not date_fields:
