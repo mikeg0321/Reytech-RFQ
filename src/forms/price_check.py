@@ -2076,12 +2076,13 @@ def fill_ams704(
         else:
             log.info("fill_ams704: Ship to already has value '%s' — not overwriting", _existing_ship[:40])
 
-    # FOB Destination, Freight Prepaid checkbox
-    field_values.append({
-        "field_id": "Check Box4",
-        "page": 1,
-        "value": "/Yes",
-    })
+    # FOB Destination, Freight Prepaid checkbox — try both field name variants
+    for _fob_name in ("Check Box4", "FOB Destination Freight Prepaid"):
+        field_values.append({
+            "field_id": _fob_name,
+            "page": 1,
+            "value": "/Yes",
+        })
 
     # Line items with pricing
     subtotal = 0.0

@@ -2247,13 +2247,14 @@ def _do_generate_original(pcid):
              pcid, len(parsed.get("line_items", [])), os.path.basename(source_pdf),
              os.path.basename(output_path))
 
-    # Tax: always use stored rate if > 0 — government 704 must show actual CA tax
+    # Tax: respect tax_enabled flag — default off for government price checks
     _pc_tax_rate = 0.0
+    _tax_enabled = pc.get("tax_enabled", False)
     _stored_rate = pc.get("tax_rate", 0)
-    if _stored_rate and float(_stored_rate) > 0:
+    if _tax_enabled and _stored_rate and float(_stored_rate) > 0:
         _r = float(_stored_rate)
         _pc_tax_rate = _r / 100.0 if _r > 1.0 else _r
-    elif (pc.get("header") or {}).get("zip_code") or pc.get("ship_to"):
+    elif _tax_enabled and ((pc.get("header") or {}).get("zip_code") or pc.get("ship_to")):
         try:
             from src.agents.tax_agent import get_tax_rate as _gtr
             import re as _re_tax
@@ -4973,10 +4974,11 @@ def pricecheck_document_save(pcid):
     output_path = os.path.join(DATA_DIR, versioned_name)
     
     _regen_tax = 0.0
-    _rsr = pc.get("tax_rate", 0)
-    if _rsr and float(_rsr) > 0:
-        _rrv = float(_rsr)
-        _regen_tax = _rrv / 100.0 if _rrv > 1.0 else _rrv
+    if pc.get("tax_enabled", False):
+        _rsr = pc.get("tax_rate", 0)
+        if _rsr and float(_rsr) > 0:
+            _rrv = float(_rsr)
+            _regen_tax = _rrv / 100.0 if _rrv > 1.0 else _rrv
 
     result = fill_ams704(
         source_pdf=source_pdf,
