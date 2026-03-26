@@ -2404,17 +2404,23 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
 
     # ═══ COORDINATES from PC_Karaoke_Reytech.pdf (real AMS 704 template) ═══
     SUPPLIER_FIELDS = {
+        # Row 1: full-height cells (no baked-in labels in these cells)
         "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
         "COMPANY REPRESENTATIVE print name":  (280.1, 421.3, 602.4, 441.4),
         "Delivery Date and Time ARO":         (604.3, 421.3, 754.9, 441.4),
+        # Row 2: full-height cells
         "Address":                            (33.1, 389.9, 278.3, 412.1),
         "Discount Offered":                   (604.3, 389.9, 754.9, 412.1),
-        "Certified SBMB":                     (33.0, 362.8, 156.8, 380.8),
-        "Certified DVBE":                     (158.4, 362.8, 278.4, 380.8),
-        "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
-        "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
-        "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
-        "Ship to":                            (280.0, 102.5, 525.0, 115.5),
+        # Row 3: cells have baked-in labels at top ("Certified SB/MB #", etc.)
+        # Only mask the BOTTOM 55% of the cell to preserve the label text.
+        # Full cell y-range is 362.8–380.8 (18pt). Data area: 362.8–372.0
+        "Certified SBMB":                     (33.0, 362.8, 156.8, 372.8),
+        "Certified DVBE":                     (158.4, 362.8, 278.4, 372.8),
+        "Phone Number_2":                     (280.0, 362.8, 445.0, 372.8),
+        "EMail Address":                      (446.5, 362.8, 602.5, 372.8),
+        "Date Price Check Expires":           (604.2, 362.8, 755.0, 372.8),
+        # Ship to: widen slightly and lower to avoid cutting off text
+        "Ship to":                            (278.0, 101.0, 530.0, 114.0),
     }
     NOTES_FIELD = ("Supplier andor Requestor Notes", 32.6, 41.9, 237.2, 118.9)
     TOTALS = {
