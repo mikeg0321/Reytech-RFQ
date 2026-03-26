@@ -8090,6 +8090,9 @@ def api_bulk_scrape_urls(pcid):
     applied = 0
     for i, url in enumerate(urls):
         url = (url or "").strip()
+        # Strip numbered prefixes like "1. " or "19. "
+        import re as _re_temp
+        url = _re_temp.sub(r'^\d+\.\s*', '', url)
         if not url or i >= len(items):
             results.append({"line": i + 1, "url": url[:60], "status": "skipped"})
             continue

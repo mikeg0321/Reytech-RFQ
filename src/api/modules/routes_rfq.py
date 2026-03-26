@@ -1959,6 +1959,8 @@ def api_rfq_bulk_scrape_urls(rid):
     applied = 0
     for i, url in enumerate(urls):
         url = (url or "").strip()
+        # Strip numbered prefixes like "1. " or "19. "
+        url = _re_mod.sub(r'^\d+\.\s*', '', url)
         if not url:
             results.append({"line": i + 1, "url": "", "status": "skipped"})
             continue
