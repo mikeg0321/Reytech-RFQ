@@ -3529,6 +3529,7 @@ def generate_rfq_package(rid):
                 t.step("704B skipped — no template")
                 errors.append("704B: no template uploaded — upload 704B PDF on this RFQ page")
         
+        _843_in_bidpkg = False  # Track if 843 was already handled inside bid package
         if _include("bidpkg"):
             if "bidpkg" in tmpl and os.path.exists(tmpl["bidpkg"]):
                 try:
@@ -3548,7 +3549,10 @@ def generate_rfq_package(rid):
                         _bp_writer = _PW843()
                         _replaced = False
                         for _bp_page in _bp_reader.pages:
-                            _ptxt = (_bp_page.extract_text() or "").upper()
+                            try:
+                                _ptxt = (_bp_page.extract_text() or "").upper()
+                            except Exception:
+                                _ptxt = ""
                             if ("DVBE DECLARATIONS" in _ptxt or "DGS PD 843" in _ptxt) and not _replaced:
                                 for _843p in _843_reader.pages:
                                     _bp_writer.add_page(_843p)
@@ -3558,10 +3562,11 @@ def generate_rfq_package(rid):
                         if _replaced:
                             with open(_bidpkg_path, "wb") as _bpf:
                                 _bp_writer.write(_bpf)
+                            _843_in_bidpkg = True
                             t.step("843 replaced with master template in bid package")
                         os.remove(_843_tmp)
                     except Exception as _843e:
-                        log.debug("843 replacement in bid package: %s", _843e)
+                        log.warning("843 replacement in bid package failed: %s", _843e)
                 except Exception as e:
                     errors.append(f"Bid Package: {e}")
                     t.warn("Bid Package fill failed", error=str(e))
@@ -3595,15 +3600,17 @@ def generate_rfq_package(rid):
             except Exception as e:
                 t.warn("Seller's Permit copy failed", error=str(e))
         
-        # DVBE 843
-        if _include("dvbe843"):
+        # DVBE 843 — skip standalone if already inside bid package
+        if _include("dvbe843") and not _843_in_bidpkg:
             try:
                 from src.forms.reytech_filler_v4 import generate_dvbe_843
                 generate_dvbe_843(r, CONFIG, f"{out_dir}/{sol}_DVBE843_Reytech.pdf")
                 output_files.append(f"{sol}_DVBE843_Reytech.pdf")
-                t.step("DVBE 843 generated")
+                t.step("DVBE 843 generated (standalone)")
             except Exception as e:
                 errors.append(f"DVBE 843: {e}")
+        elif _843_in_bidpkg and _include("dvbe843"):
+            t.step("DVBE 843 skipped — already inside bid package")
         
         # CV 012 CUF (Cal Vet)
         if _include("cv012_cuf"):
