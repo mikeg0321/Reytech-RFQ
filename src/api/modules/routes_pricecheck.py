@@ -2178,6 +2178,34 @@ def _do_generate(pcid):
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 
+@bp.route("/pricecheck/<pcid>/source-pdf")
+@auth_required
+def pricecheck_source_pdf(pcid):
+    """Serve the original source PDF for inline viewing."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return "PC not found", 404
+    source_pdf = pc.get("source_pdf", "")
+    if source_pdf and os.path.exists(source_pdf):
+        return send_file(source_pdf, mimetype="application/pdf",
+                         download_name=os.path.basename(source_pdf))
+    # Fallback: try rfq_files DB
+    try:
+        from src.core.db import list_rfq_files
+        files = list_rfq_files(pcid, category="template")
+        if files:
+            from src.core.db import get_rfq_file
+            f = get_rfq_file(files[0]["id"])
+            if f and f.get("data"):
+                from flask import Response
+                return Response(f["data"], mimetype="application/pdf",
+                    headers={"Content-Disposition": f"inline; filename=\"{f.get('filename', 'source.pdf')}\""})
+    except Exception as e:
+        log.debug("Source PDF DB fallback error: %s", e)
+    return "Source PDF not found", 404
+
+
 @bp.route("/pricecheck/<pcid>/generate-original", methods=["POST"])
 @auth_required
 def pricecheck_generate_original(pcid):

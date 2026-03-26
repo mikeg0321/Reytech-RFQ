@@ -218,6 +218,7 @@
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
       <button class="btn" onclick="previewPcPdf()" id="preview704Btn" aria-label="Preview AMS 704 PDF" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px;font-weight:600" title="View the actual AMS 704 form you'll submit to the buyer">👁 Preview 704</button>
+      <button class="btn" onclick="viewOriginalPc()" aria-label="View original source PC" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="View the buyer's original PC document">📄 View Original</button>
       <button class="btn" onclick="showPreview()" aria-label="Reytech quote layout" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Internal pricing summary (not the government form)">📊 Quote</button>
       <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
       {{ download_html | default('') | safe }}
@@ -2613,6 +2614,10 @@
             }
         } catch(e) {}
     }, 60000);
+
+    function viewOriginalPc() {
+      _openPdfPreview('/pricecheck/' + _pcid + '/source-pdf', 'Original PC — ' + (PC_META && PC_META.institution ? PC_META.institution : 'Source Document'));
+    }
 
     function previewPcPdf() {
       if (_existing704Url) {
