@@ -2385,6 +2385,37 @@ def api_rfq_screenshot_confirm(rid):
     return jsonify({"ok": True, "added": added, "total_items": len(existing)})
 
 
+@bp.route("/api/rfq/<rid>/relink-pc", methods=["POST"])
+@auth_required
+def api_rfq_relink_pc(rid):
+    """Re-run PC auto-linking for an existing RFQ. Replaces items with PC data."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    try:
+        from src.api.dashboard import _link_rfq_to_pc, _load_price_checks
+        _trace = []
+        # Clear existing PC link so it can re-match
+        old_pc = r.get("linked_pc_id", "")
+        # Re-run linking
+        linked = _link_rfq_to_pc(r, _trace)
+        if linked:
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rid, r)
+            return jsonify({
+                "ok": True,
+                "linked_pc": r.get("linked_pc_id", ""),
+                "items": len(r.get("line_items", [])),
+                "trace": _trace,
+            })
+        else:
+            return jsonify({"ok": False, "error": "No matching PC found", "trace": _trace})
+    except Exception as e:
+        log.error("Relink PC error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
 @auth_required
 def api_rfq_autosave(rid):

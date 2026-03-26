@@ -2245,6 +2245,41 @@ def _link_rfq_to_pc(rfq_data, _trace):
             rfq_data.get("line_items", []).append(new_item)
             ported += 1
 
+    # Remove unmatched RFQ items that are clearly bad parses (no pricing, no PC match)
+    # This handles cases where the 704B parser extracted generic descriptions
+    # while the PC has the correct sized/specific variants
+    _cleaned_items = []
+    for ri in rfq_data.get("line_items", []):
+        if ri.get("source_pc") or ri.get("imported_from_pc"):
+            _cleaned_items.append(ri)  # Keep PC-sourced items
+        elif ri.get("supplier_cost") or ri.get("price_per_unit") or ri.get("vendor_cost"):
+            _cleaned_items.append(ri)  # Keep items with pricing
+        elif ri.get("_added_from_pc"):
+            _cleaned_items.append(ri)  # Keep items added from PC
+        else:
+            # Unmatched, no pricing — check if it's a duplicate of a PC item
+            rd = (ri.get("description", "") or "").lower().strip()
+            is_dup = False
+            for pi in pc_items:
+                pd = (pi.get("description", pi.get("desc", "")) or "").lower().strip()
+                # Check if RFQ desc is a substring of PC desc or shares significant words
+                if rd and pd:
+                    rd_words = set(rd.split())
+                    pd_words = set(pd.split())
+                    common = rd_words & pd_words
+                    if len(common) >= max(2, len(rd_words) * 0.4):
+                        is_dup = True
+                        break
+            if is_dup:
+                _trace.append(f"REMOVED DUP: '{rd[:40]}' (unpriced, overlaps PC item)")
+            else:
+                _cleaned_items.append(ri)  # Keep non-duplicate items
+    if len(_cleaned_items) < len(rfq_data.get("line_items", [])):
+        removed = len(rfq_data.get("line_items", [])) - len(_cleaned_items)
+        rfq_data["line_items"] = _cleaned_items
+        _trace.append(f"CLEANUP: removed {removed} unmatched/unpriced duplicate items")
+        log.info("PC link cleanup: removed %d unmatched items from RFQ %s", removed, rfq_data["id"])
+
     # Copy PC-level metadata to the RFQ
     rfq_data["source_pc"] = matched_pid
     rfq_data["source_pc_number"] = pc.get("pc_number", "")
@@ -3179,10 +3214,39 @@ def process_rfq_email(rfq_email):
             rfq_data["form_type"] = "ams_704"
             rfq_data["quote_type"] = "704b_fill"
     
-    # ── Fallback: extract solicitation + due date from email text ──────────
+    # ── Extract institution/delivery location from email body ──────────
     _email_subject = rfq_email.get("subject", "")
     _email_body = rfq_email.get("body_text", rfq_email.get("body", rfq_email.get("body_preview", "")))
     _combined_text = f"{_email_subject} {_email_body}"
+    if not rfq_data.get("delivery_location") or not rfq_data.get("institution"):
+        # Common pattern: "following location:\n\nCA State Prison Sacramento: 100 Prison Road..."
+        _loc_match = re.search(
+            r'(?:following\s+location|deliver\s+to|ship\s+to)\s*:?\s*\n*\s*([A-Z][A-Za-z\s]+(?:Prison|Institution|Facility|Center|Hospital|Home)[A-Za-z\s,]*?)(?:\s*:\s*|\s*\n)',
+            _email_body or "", re.IGNORECASE
+        )
+        if _loc_match:
+            _inst = _loc_match.group(1).strip()
+            if _inst and len(_inst) >= 5:
+                if not rfq_data.get("delivery_location"):
+                    rfq_data["delivery_location"] = _inst
+                rfq_data["institution"] = _inst
+                _trace.append(f"INSTITUTION FROM BODY: {_inst}")
+                log.info("Extracted institution from email body: %s", _inst)
+        # Also try: "Location Name: Address"
+        if not rfq_data.get("institution"):
+            _loc2 = re.search(
+                r'((?:CA\s+)?(?:State\s+)?(?:Prison|Institution|Facility)\s+[\w\s]+?)(?:\s*:\s*\d)',
+                _email_body or "", re.IGNORECASE
+            )
+            if _loc2:
+                _inst2 = _loc2.group(1).strip()
+                if _inst2 and len(_inst2) >= 5:
+                    rfq_data["institution"] = _inst2
+                    if not rfq_data.get("delivery_location"):
+                        rfq_data["delivery_location"] = _inst2
+                    _trace.append(f"INSTITUTION FROM BODY (pattern2): {_inst2}")
+
+    # ── Fallback: extract solicitation + due date from email text ──────────
     if not rfq_data.get("solicitation_number") or rfq_data.get("solicitation_number") == "unknown":
         _sol = _extract_solicitation(_combined_text)
         if _sol:
