@@ -215,6 +215,125 @@ def _check_duplicate_endpoints():
 
 check("no duplicate endpoint functions", _check_duplicate_endpoints)
 
+# 9. Package generation smoke test — actually generate PDFs from templates
+print("\n[9] Package generation smoke test...")
+
+def _check_form_fillers():
+    """Generate each form from templates — catches field name mismatches,
+    missing imports, signature bugs, and PDF corruption BEFORE deploy."""
+    import tempfile, shutil
+    tmpdir = tempfile.mkdtemp(prefix="predeploy_pkg_")
+    try:
+        from src.forms.reytech_filler_v4 import (
+            fill_std204, fill_calrecycle_standalone, fill_cv012_cuf,
+            fill_bidder_declaration, fill_darfur_standalone, fill_std1000,
+            generate_dvbe_843, generate_darfur_act, generate_bidder_declaration,
+            generate_drug_free, fill_and_sign_pdf, _sanitize_for_pdf, SIGN_FIELDS,
+        )
+        from src.forms.quote_generator import generate_quote, peek_next_quote_number
+        from pypdf import PdfReader
+
+        config = {
+            "company": {
+                "name": "Reytech Inc.", "address": "PO Box 1234, San Diego, CA 92101",
+                "owner": "Michael Gutierrez", "title": "President",
+                "phone": "(619) 555-1234", "email": "sales@reytechinc.com",
+                "fein": "12-3456789", "sellers_permit": "SR ABC 12-345678",
+                "cert_number": "2012345", "cert_expiration": "12/31/2026",
+                "sb_cert": "2012345", "dvbe_cert": "2012345",
+            }
+        }
+        rfq = {
+            "solicitation_number": "PREDEPLOY-001", "sign_date": "03/10/2026",
+            "release_date": "03/01/2026", "due_date": "03/15/2026",
+            "delivery_days": "30", "delivery_location": "CIW, Corona, CA 92878",
+            "requestor_name": "Test User", "requestor_email": "test@cdcr.ca.gov",
+            "line_items": [
+                {"description": "Test Item", "quantity": 10, "uom": "EA",
+                 "unit_price": 5.00, "bid_price": 7.50, "supplier_cost": 5.00},
+            ],
+        }
+        template_dir = os.path.join("data", "templates")
+        generated = 0
+        # Template-based fillers
+        fillers = [
+            ("std204", fill_std204, "std204_blank.pdf"),
+            ("calrecycle", fill_calrecycle_standalone, "calrecycle_74_blank.pdf"),
+            ("cv012_cuf", fill_cv012_cuf, "cv012_cuf_blank.pdf"),
+            ("bidder_decl", fill_bidder_declaration, "bidder_declaration_blank.pdf"),
+            ("darfur", fill_darfur_standalone, "darfur_act_blank.pdf"),
+            ("std1000", fill_std1000, "std1000_blank.pdf"),
+        ]
+        for name, fn, template_name in fillers:
+            tpl = os.path.join(template_dir, template_name)
+            if not os.path.exists(tpl):
+                continue
+            out = os.path.join(tmpdir, f"{name}.pdf")
+            fn(tpl, rfq, config, out)
+            assert os.path.exists(out), f"{name} PDF not created"
+            r = PdfReader(out)
+            assert len(r.pages) >= 1, f"{name} PDF has 0 pages"
+            generated += 1
+
+        # ReportLab generators (no template needed)
+        generators = [
+            ("dvbe843", generate_dvbe_843),
+            ("darfur_gen", generate_darfur_act),
+            ("bidder_gen", generate_bidder_declaration),
+            ("drug_free", generate_drug_free),
+        ]
+        for name, fn in generators:
+            out = os.path.join(tmpdir, f"{name}.pdf")
+            fn(rfq, config, out)
+            assert os.path.exists(out), f"{name} PDF not created"
+            generated += 1
+
+        # Quote
+        out = os.path.join(tmpdir, "quote.pdf")
+        result = generate_quote(rfq, out, agency="CDCR", quote_number="R26QPREDEPLOY")
+        assert result.get("ok"), f"Quote failed: {result}"
+        assert os.path.exists(out), "Quote PDF not created"
+        generated += 1
+
+        # Sanitizer
+        s = _sanitize_for_pdf("He said \u201cyes\u201d \u2014 it\u2019s fine")
+        assert "\u201c" not in s, "Smart quotes not sanitized"
+
+        # SIGN_FIELDS
+        assert len(SIGN_FIELDS) >= 5, "SIGN_FIELDS whitelist too small"
+
+        # peek idempotent
+        q1 = peek_next_quote_number()
+        q2 = peek_next_quote_number()
+        assert q1 == q2, f"Peek burned counter: {q1} → {q2}"
+
+        print(f"    Generated {generated} PDFs successfully")
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+check("form fillers + quote generation", _check_form_fillers)
+
+def _check_agency_configs():
+    """Verify agency form sets are correct (CCHCS/CDCR are minimal)."""
+    from src.core.agency_config import load_agency_configs
+    configs = load_agency_configs()
+    issues = []
+    for agency in ("cchcs", "cdcr"):
+        cfg = configs.get(agency, {})
+        forms = cfg.get("required_forms", [])
+        for bad in ("dvbe843", "calrecycle74", "sellers_permit"):
+            if bad in forms:
+                issues.append(f"{agency.upper()} has standalone '{bad}' — should be inside bid package")
+    # All agencies must have quote
+    for key, cfg in configs.items():
+        forms = cfg.get("required_forms", [])
+        if "quote" not in forms:
+            issues.append(f"Agency '{key}' missing 'quote' in required_forms")
+    if issues:
+        raise ValueError("\n  ".join(issues))
+
+check("agency config form sets", _check_agency_configs)
+
 # Summary
 print(f"\n{'═'*40}")
 if ERRORS:
