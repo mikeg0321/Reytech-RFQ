@@ -172,6 +172,7 @@ def catalog_page():
       <input type="file" id="import-qw" accept=".csv,.tsv,.txt" style="display:none" onchange="importQW(this)">
       <button onclick="runCatalogFixes(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#d2a8ff;border:1px solid #d2a8ff44">🔧 Run Fixes</button>
       <button onclick="bulkCheckPrices(this)" class="btn btn-s" style="font-size:14px;background:#21262d;color:#3fb950;border:1px solid #3fb95044">🔄 Check All Prices</button>
+      <a href="/catalog/price-alerts" class="btn btn-s" style="font-size:14px;background:#21262d;color:#d29922;border:1px solid #d2992244;text-decoration:none">💰 Price Alerts</a>
      </div>
     </div>
 
@@ -396,6 +397,37 @@ def catalog_product_detail(pid):
     margin_color = "#f85149" if p["margin_pct"] < 0 else "#d29922" if p["margin_pct"] < 10 else "#3fb950"
     strat_map = {"loss_leader": "🔴 Loss Leader", "margin_protect": "🟡 Margin Protect", "competitive": "🟢 Competitive", "premium": "🔵 Premium"}
 
+    # ── Feature 2: Price Trend Sparkline ──
+    sparkline_svg = ""
+    price_history = p.get("price_history", [])
+    sell_prices = [h.get("price", 0) for h in reversed(price_history) if h.get("price_type") in ("sell", "quoted", "web_check") and h.get("price", 0) > 0]
+    if len(sell_prices) >= 2:
+        # Build SVG sparkline (120x30)
+        min_p = min(sell_prices)
+        max_p = max(sell_prices)
+        rng = max_p - min_p if max_p != min_p else 1
+        w, h_svg = 120, 30
+        step = w / max(len(sell_prices) - 1, 1)
+        points = []
+        for i, price in enumerate(sell_prices):
+            x = round(i * step, 1)
+            y = round(h_svg - ((price - min_p) / rng) * (h_svg - 4) - 2, 1)
+            points.append(f"{x},{y}")
+        polyline = " ".join(points)
+        trend_color = "#3fb950" if sell_prices[-1] <= sell_prices[0] else "#f85149"
+        sparkline_svg = f'<svg width="{w}" height="{h_svg}" style="vertical-align:middle"><polyline points="{polyline}" fill="none" stroke="{trend_color}" stroke-width="1.5"/></svg>'
+
+    # ── Feature 8: Reorder link ──
+    reorder_btn = ""
+    primary_url = ""
+    for s in p.get("suppliers", []):
+        url = s.get("supplier_url", "") or ""
+        if url:
+            primary_url = url
+            supplier_name = s.get("supplier_name", "Supplier")
+            reorder_btn = f'<a href="{url}" target="_blank" class="btn btn-s" style="font-size:14px;background:#238636;color:#fff;text-decoration:none">🛒 Order from {supplier_name}</a>'
+            break
+
     # Price history rows (with qty + institution context)
     ph_rows = ""
     for h in p.get("price_history", [])[:30]:
@@ -443,8 +475,12 @@ def catalog_product_detail(pid):
       <a href="/catalog" style="color:var(--tx2);text-decoration:none;font-size:14px">← Catalog</a>
       <h2 style="margin:4px 0 0;font-size:18px;font-weight:700">{p['name']}</h2>
       <div style="font-size:14px;color:var(--tx2);margin-top:2px">{(p.get('description','') or '')[:200]}</div>
+      {f'<div style="margin-top:6px">{sparkline_svg} <span style="font-size:12px;color:var(--tx2)">Price trend ({len(sell_prices)} data points)</span></div>' if sparkline_svg else ''}
      </div>
-     <span style="padding:4px 12px;border-radius:12px;font-size:14px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
+     <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+      <span style="padding:4px 12px;border-radius:12px;font-size:14px;font-weight:600;background:var(--sf)">{strat_map.get(p.get('price_strategy',''), p.get('price_strategy',''))}</span>
+      {reorder_btn}
+     </div>
     </div>
 
     <div class="bento bento-4" style="margin-bottom:16px">
@@ -496,9 +532,12 @@ def catalog_product_detail(pid):
       <div style="margin-top:12px;display:flex;gap:6px;flex-wrap:wrap">
        <button onclick="runPricingAnalysis({pid})" class="btn btn-s" style="font-size:14px">🧮 Run Pricing Analysis</button>
        <button onclick="updatePrice({pid})" class="btn btn-s" style="font-size:14px">✏️ Update Pricing</button>
+       {'<button onclick="enrichFromUrl()" class="btn btn-s" style="font-size:14px;background:#21262d;color:#58a6ff;border:1px solid #58a6ff44">🔍 Enrich from URL</button>' if primary_url else ''}
       </div>
      </div>
     </div>
+
+    {f'<div class="card" style="margin-bottom:12px;padding:10px 16px;background:#f8514915;border:1px solid #f8514944"><span style="font-weight:700;color:#f85149">⚠️ Competitive Risk:</span> <span style="font-size:14px">A supplier has this at <b>${min(s.get("last_price",0) or 9999999 for s in p.get("suppliers",[]) if s.get("last_price")):.2f}</b> — below your sell price of <b>${p["sell_price"]:.2f}</b></span></div>' if p.get("suppliers") and p["sell_price"] > 0 and any(s.get("last_price") and s["last_price"] < p["sell_price"] for s in p.get("suppliers", [])) else ''}
 
     {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
      <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center">
@@ -563,6 +602,32 @@ def catalog_product_detail(pid):
       var btns = document.querySelectorAll('[id^="sup-row-"] button');
       var delay = 0;
       btns.forEach(function(btn) {{ if (btn.textContent === 'Check') {{ setTimeout(function() {{ btn.click(); }}, delay); delay += 2000; }} }});
+    }}
+    var ENRICH_PID = {pid};
+    var ENRICH_URL = '{primary_url.replace(chr(39), "")}';
+    function enrichFromUrl() {{
+      var btn = event.target;
+      btn.disabled = true; btn.textContent = '⏳ Enriching...';
+      fetch('/api/catalog/'+ENRICH_PID+'/enrich-from-url', {{
+        method: 'POST', headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{url: ENRICH_URL}})
+      }}).then(r=>r.json()).then(d=>{{
+        btn.disabled = false; btn.textContent = '🔍 Enrich from URL';
+        if(d.ok) {{
+          let msg = '✅ Enriched from URL\\n\\n';
+          msg += 'Fields updated: ' + (d.fields_updated||[]).join(', ') + '\\n';
+          if(d.scraped) {{
+            if(d.scraped.title) msg += 'Title: ' + d.scraped.title + '\\n';
+            if(d.scraped.mfg_number) msg += 'MFG#: ' + d.scraped.mfg_number + '\\n';
+            if(d.scraped.manufacturer) msg += 'Manufacturer: ' + d.scraped.manufacturer + '\\n';
+            if(d.scraped.price) msg += 'Price: $' + d.scraped.price + '\\n';
+          }}
+          alert(msg);
+          location.reload();
+        }} else alert('Error: ' + (d.error||'unknown'));
+      }}).catch(function() {{
+        btn.disabled = false; btn.textContent = '🔍 Enrich from URL';
+      }});
     }}
     function runPricingAnalysis(pid) {{
       fetch('/api/catalog/'+pid+'/pricing').then(r=>r.json()).then(d=>{{
@@ -2877,6 +2942,349 @@ def api_pricing_suggestion():
         "suggestions": suggestions[:20],
         "count": len(suggestions),
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature 1: Price Change Dashboard
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/catalog/price-alerts")
+@auth_required
+def catalog_price_alerts():
+    """Dashboard showing products where web price differs from catalog price."""
+    if not CATALOG_AVAILABLE:
+        return _wrap_page("<div class='card'><p>Catalog not available.</p></div>", "Price Alerts")
+
+    from src.agents.product_catalog import _get_conn as _cat_conn
+    conn = _cat_conn()
+
+    # Find products with supplier price != catalog sell/cost, ordered by dollar impact
+    alerts = conn.execute("""
+        SELECT pc.id, pc.name, pc.sell_price, pc.cost, pc.margin_pct, pc.category,
+               pc.mfg_number, pc.manufacturer,
+               ps.supplier_name, ps.last_price as web_price, ps.supplier_url,
+               ps.last_checked, ps.id as supplier_id
+        FROM product_suppliers ps
+        JOIN product_catalog pc ON pc.id = ps.product_id
+        WHERE ps.supplier_url IS NOT NULL AND ps.supplier_url != ''
+          AND ps.last_price IS NOT NULL AND ps.last_price > 0
+          AND (pc.cost > 0 OR pc.sell_price > 0)
+        ORDER BY ABS(ps.last_price - CASE WHEN pc.cost > 0 THEN pc.cost ELSE pc.sell_price END) DESC
+        LIMIT 200
+    """).fetchall()
+    conn.close()
+
+    # Split into: price increased, price decreased, competitive risk
+    increased = []
+    decreased = []
+    competitive_risk = []
+    for a in alerts:
+        a = dict(a)
+        ref_price = a["cost"] if a["cost"] > 0 else a["sell_price"]
+        a["delta"] = a["web_price"] - ref_price
+        a["delta_pct"] = round(a["delta"] / ref_price * 100, 1) if ref_price > 0 else 0
+        if abs(a["delta"]) < 0.02:
+            continue
+        if a["delta"] > 0:
+            increased.append(a)
+        else:
+            decreased.append(a)
+        # Competitive risk: web price < our sell price
+        if a["sell_price"] > 0 and a["web_price"] < a["sell_price"]:
+            competitive_risk.append(a)
+
+    def _alert_rows(items, show_action=True):
+        rows = ""
+        for a in items[:50]:
+            dc = "#f85149" if a["delta"] > 0 else "#3fb950"
+            sign = "+" if a["delta"] > 0 else ""
+            url_short = (a.get("supplier_url", "") or "")[:45]
+            action = ""
+            if show_action:
+                action = f'''<td><button onclick="updateCostFromAlert({a['id']},{a['web_price']:.2f})" class="btn btn-s" style="font-size:12px;padding:2px 8px">Update Cost</button></td>'''
+            rows += f"""<tr>
+             <td><a href="/catalog/{a['id']}" style="color:var(--ac);font-weight:600">{a['name'][:30]}</a></td>
+             <td class="mono" style="text-align:right">${a.get('cost',0):,.2f}</td>
+             <td class="mono" style="text-align:right">${a.get('sell_price',0):,.2f}</td>
+             <td class="mono" style="text-align:right">${a['web_price']:,.2f}</td>
+             <td class="mono" style="text-align:right;color:{dc};font-weight:700">{sign}${a['delta']:,.2f} ({sign}{a['delta_pct']}%)</td>
+             <td style="font-size:13px">{a.get('supplier_name','')}</td>
+             <td style="font-size:13px"><a href="{a.get('supplier_url','')}" target="_blank" style="color:var(--ac)">{url_short}</a></td>
+             {action}
+            </tr>"""
+        return rows
+
+    content = f"""
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+     <h2 style="margin:0;font-size:20px;font-weight:700">💰 Price Change Alerts</h2>
+     <a href="/catalog" class="btn btn-s" style="font-size:14px">← Catalog</a>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px">
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{len(increased)}</div>
+      <div style="font-size:14px;color:var(--tx2)">Price Increased</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{len(decreased)}</div>
+      <div style="font-size:14px;color:var(--tx2)">Price Decreased</div>
+     </div>
+     <div class="card" style="text-align:center">
+      <div style="font-size:28px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{len(competitive_risk)}</div>
+      <div style="font-size:14px;color:var(--tx2)">Competitive Risk</div>
+      <div style="font-size:13px;color:#d29922">Web price &lt; our sell price</div>
+     </div>
+    </div>
+
+    {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);color:#d29922">⚠️ Competitive Risk — Web Price Below Our Sell Price ({len(competitive_risk)})</div>
+     <table class="home-tbl"><thead><tr>
+      <th>Product</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Sell</th><th style="text-align:right">Web Price</th><th style="text-align:right">Delta</th><th>Supplier</th><th>URL</th><th></th>
+     </tr></thead><tbody>{_alert_rows(competitive_risk)}</tbody></table>
+    </div>''' if competitive_risk else ''}
+
+    {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);color:#f85149">📈 Price Increased ({len(increased)})</div>
+     <table class="home-tbl"><thead><tr>
+      <th>Product</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Sell</th><th style="text-align:right">Web Price</th><th style="text-align:right">Delta</th><th>Supplier</th><th>URL</th><th></th>
+     </tr></thead><tbody>{_alert_rows(increased)}</tbody></table>
+    </div>''' if increased else ''}
+
+    {f'''<div class="card" style="margin-bottom:16px;padding:0;overflow-x:auto">
+     <div style="padding:10px 12px;font-weight:600;font-size:13px;border-bottom:1px solid var(--bd);color:#3fb950">📉 Price Decreased — Opportunities ({len(decreased)})</div>
+     <table class="home-tbl"><thead><tr>
+      <th>Product</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Sell</th><th style="text-align:right">Web Price</th><th style="text-align:right">Delta</th><th>Supplier</th><th>URL</th><th></th>
+     </tr></thead><tbody>{_alert_rows(decreased)}</tbody></table>
+    </div>''' if decreased else ''}
+
+    {'<div class="card" style="padding:24px;text-align:center;color:var(--tx2)">No price alerts. Run "Check All Prices" from the catalog page first.</div>' if not increased and not decreased else ''}
+
+    <script>
+    function updateCostFromAlert(pid, newCost) {{
+      if(!confirm('Update product cost to $'+newCost.toFixed(2)+'?')) return;
+      fetch('/api/catalog/'+pid+'/update', {{
+        method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{cost: newCost}})
+      }}).then(r=>r.json()).then(d=>{{
+        if(d.ok) location.reload();
+        else alert('Error: '+(d.error||'unknown'));
+      }});
+    }}
+    </script>
+    """
+    return _wrap_page(content, "Price Change Alerts")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature 3: Auto-enrich product from URL scrape
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/catalog/<int:pid>/enrich-from-url", methods=["POST"])
+@auth_required
+def api_catalog_enrich_from_url(pid):
+    """Scrape supplier URL and fill missing catalog fields (title, description, MFG#, manufacturer)."""
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog not available"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"ok": False, "error": "No URL provided"})
+
+    try:
+        from src.agents.item_link_lookup import lookup_from_url
+    except ImportError:
+        return jsonify({"ok": False, "error": "Link lookup module not available"})
+
+    result = lookup_from_url(url)
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error", "Scrape failed")})
+
+    # Update product catalog with enriched data (only fill gaps, don't overwrite)
+    from src.agents.product_catalog import _get_conn as _cat_conn
+    from datetime import datetime, timezone
+    conn = _cat_conn()
+    now = datetime.now(timezone.utc).isoformat()
+
+    fields_updated = []
+    updates = []
+    params = []
+
+    scraped_desc = (result.get("description") or result.get("title") or "").strip()
+    scraped_mfg = (result.get("mfg_number") or result.get("part_number") or "").strip()
+    scraped_manufacturer = (result.get("manufacturer") or "").strip()
+
+    if scraped_desc:
+        updates.append("description = CASE WHEN description IS NULL OR description = '' OR LENGTH(description) < 10 THEN ? ELSE description END")
+        params.append(scraped_desc[:500])
+        fields_updated.append("description")
+    if scraped_mfg:
+        updates.append("mfg_number = COALESCE(NULLIF(mfg_number, ''), ?)")
+        params.append(scraped_mfg)
+        fields_updated.append("mfg_number")
+    if scraped_manufacturer:
+        updates.append("manufacturer = COALESCE(NULLIF(manufacturer, ''), ?)")
+        params.append(scraped_manufacturer)
+        fields_updated.append("manufacturer")
+    if result.get("price"):
+        new_price = float(result["price"])
+        updates.append("best_cost = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END")
+        params.extend([new_price, new_price, new_price])
+        updates.append("best_supplier = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_supplier END")
+        supplier_name = result.get("supplier", "Web")
+        params.extend([new_price, new_price, supplier_name])
+
+    if updates:
+        updates.append("updated_at = ?")
+        params.append(now)
+        params.append(pid)
+        sql = f"UPDATE product_catalog SET {', '.join(updates)} WHERE id = ?"
+        conn.execute(sql, params)
+        conn.commit()
+
+    conn.close()
+
+    return jsonify({
+        "ok": True,
+        "fields_updated": fields_updated,
+        "scraped": {
+            "title": result.get("title", ""),
+            "description": scraped_desc[:100],
+            "mfg_number": scraped_mfg,
+            "manufacturer": scraped_manufacturer,
+            "price": result.get("price"),
+            "supplier": result.get("supplier", ""),
+        }
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Feature 4: Scheduled Weekly Price Checks with Digest
+# ═══════════════════════════════════════════════════════════════════════
+
+_PRICE_CHECK_SCHEDULE = {"last_run": None, "interval_hours": 168}  # 168 = weekly
+
+
+def _run_scheduled_price_check():
+    """Background task: check all supplier URLs, send digest of changes."""
+    import time as _time
+    try:
+        from src.agents.item_link_lookup import lookup_from_url, _is_login_required
+        from src.agents.product_catalog import _get_conn as _cat_conn, record_catalog_quote
+    except ImportError:
+        log.error("Scheduled price check: missing dependencies")
+        return
+
+    conn = _cat_conn()
+    suppliers = conn.execute(
+        "SELECT id, product_id, supplier_name, supplier_url, last_price FROM product_suppliers "
+        "WHERE supplier_url IS NOT NULL AND supplier_url != '' ORDER BY last_checked ASC NULLS FIRST"
+    ).fetchall()
+    conn.close()
+    suppliers = [dict(s) for s in suppliers]
+
+    changes = []
+    checked = 0
+    errors = 0
+
+    for s in suppliers:
+        url = s["supplier_url"]
+        try:
+            if _is_login_required(url):
+                checked += 1
+                continue
+            result = lookup_from_url(url)
+            if result.get("price"):
+                new_price = float(result["price"])
+                old_price = s.get("last_price") or 0
+                add_supplier_price(s["product_id"], s["supplier_name"], new_price, url=url)
+                if old_price > 0 and abs(new_price - old_price) > 0.01:
+                    delta = new_price - old_price
+                    delta_pct = round(delta / old_price * 100, 1)
+                    changes.append({
+                        "product_id": s["product_id"],
+                        "supplier": s["supplier_name"],
+                        "old": old_price, "new": new_price,
+                        "delta": delta, "delta_pct": delta_pct,
+                    })
+                record_catalog_quote(s["product_id"], "web_check", new_price,
+                                     source="scheduled_price_check", supplier_url=url)
+            else:
+                errors += 1
+        except Exception:
+            errors += 1
+        checked += 1
+        _time.sleep(1.5)
+
+    _PRICE_CHECK_SCHEDULE["last_run"] = datetime.now(timezone.utc).isoformat()
+
+    # Send digest via notify_agent
+    if changes:
+        try:
+            from src.agents.notify_agent import send_alert
+            increases = [c for c in changes if c["delta"] > 0]
+            decreases = [c for c in changes if c["delta"] < 0]
+            body = f"Checked {checked} supplier URLs.\n\n"
+            if increases:
+                body += f"📈 {len(increases)} PRICE INCREASES:\n"
+                for c in increases[:10]:
+                    body += f"  • {c['supplier']}: ${c['old']:.2f} → ${c['new']:.2f} (+{c['delta_pct']}%)\n"
+            if decreases:
+                body += f"\n📉 {len(decreases)} PRICE DECREASES:\n"
+                for c in decreases[:10]:
+                    body += f"  • {c['supplier']}: ${c['old']:.2f} → ${c['new']:.2f} ({c['delta_pct']}%)\n"
+            body += f"\n{errors} errors. View details: /catalog/price-alerts"
+
+            send_alert(
+                event_type="price_check_digest",
+                title=f"💰 Price Check: {len(changes)} changes found",
+                body=body,
+                urgency="info",
+                channels=["email", "bell"],
+                cooldown_key="price_check_digest_weekly",
+            )
+        except Exception as e:
+            log.error("Price check digest notification error: %s", e)
+
+    log.info("Scheduled price check: %d checked, %d changes, %d errors", checked, len(changes), errors)
+
+
+def _price_check_scheduler():
+    """Background thread that runs price checks on schedule."""
+    import time as _time
+    while True:
+        try:
+            interval = _PRICE_CHECK_SCHEDULE.get("interval_hours", 168) * 3600
+            _time.sleep(interval)
+            log.info("Starting scheduled price check...")
+            _run_scheduled_price_check()
+        except Exception as e:
+            log.error("Price check scheduler error: %s", e)
+            _time.sleep(3600)  # Wait 1h on error
+
+
+@bp.route("/api/catalog/schedule-price-check", methods=["POST"])
+@auth_required
+def api_catalog_schedule_price_check():
+    """Manually trigger a scheduled price check, or update the schedule interval."""
+    data = request.get_json(force=True, silent=True) or {}
+    if data.get("run_now"):
+        import threading
+        t = threading.Thread(target=_run_scheduled_price_check, daemon=True, name="manual-price-check")
+        t.start()
+        return jsonify({"ok": True, "msg": "Price check started in background"})
+
+    if data.get("interval_hours"):
+        _PRICE_CHECK_SCHEDULE["interval_hours"] = int(data["interval_hours"])
+        return jsonify({"ok": True, "interval_hours": _PRICE_CHECK_SCHEDULE["interval_hours"]})
+
+    return jsonify({"ok": True, "schedule": _PRICE_CHECK_SCHEDULE})
+
+
+# Start the scheduler thread on app boot
+import threading as _sched_threading
+_sched_t = _sched_threading.Thread(target=_price_check_scheduler, daemon=True, name="price-check-scheduler")
+_sched_t.start()
 
 
 # Start polling on import (for gunicorn) and on direct run
