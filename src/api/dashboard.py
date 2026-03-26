@@ -2899,6 +2899,32 @@ def process_rfq_email(rfq_email):
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
     
+    # Block: cross-queue — if a PC already exists for this email, don't create an RFQ
+    # This prevents the same 704 form from appearing in both PC and RFQ queues
+    try:
+        _xq_pcs = _load_price_checks()
+        _email_uid_xq = rfq_email.get("email_uid", "")
+        _sol_hint_xq = rfq_email.get("solicitation_hint", "")
+        for _xq_pid, _xq_pc in _xq_pcs.items():
+            # Match by email UID
+            if _email_uid_xq and _xq_pc.get("email_uid") == _email_uid_xq:
+                _trace.append(f"SKIP RFQ: email_uid {_email_uid_xq} already exists as PC {_xq_pid}")
+                log.info("Cross-queue dedup: email UID %s already processed as PC %s — skipping RFQ", _email_uid_xq, _xq_pid)
+                POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                t.ok("Skipped: email already processed as PC", pc_id=_xq_pid)
+                return None
+            # Match by solicitation/PC number
+            if _sol_hint_xq and _sol_hint_xq not in ("", "unknown"):
+                _xq_pcnum = (_xq_pc.get("pc_number") or "").strip()
+                if _xq_pcnum and _xq_pcnum == _sol_hint_xq:
+                    _trace.append(f"SKIP RFQ: sol_hint '{_sol_hint_xq}' matches PC {_xq_pid} pc_number")
+                    log.info("Cross-queue dedup: sol %s matches PC %s — skipping RFQ", _sol_hint_xq, _xq_pid)
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("Skipped: solicitation matches existing PC", pc_id=_xq_pid)
+                    return None
+    except Exception as _xq_e:
+        log.debug("Cross-queue PC check: %s", _xq_e)
+
     # Block: self-email (our own sent replies picked up by poller)
     # EXCEPTION: forwarded emails from our own domain are valid (user forwarding an RFQ)
     _sender_email = rfq_email.get("sender_email", rfq_email.get("sender", "")).lower()
