@@ -430,10 +430,13 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             # For generic field names (Signature1, Signature), only sign if
             # the field is in the lower 40% of the page — signature lines
             # are always near the bottom, never in the header/body area.
+            # Skip Signature29 (Bidder Declaration GSPD-05-105) — rotated form,
+            # coordinates don't map correctly. The 703C signature covers this.
+            if name == "Signature29":
+                continue
             if name in ("Signature1", "Signature"):
                 field_y = r[1]  # bottom of field rect
                 if field_y > _page_h * 0.4:
-                    # Field is in the upper 60% — skip (not a certification sig line)
                     continue
             is_sig = ft == "/Sig"
             sig_entries.append((name, r, is_sig))
@@ -962,13 +965,13 @@ def fill_704b(input_path, rfq_data, config, output_path):
                     except Exception:
                         pass
                     if _sig_y:
-                        # Draw signature above the SIGNATURE/DATE label
+                        # Draw signature BELOW the SIGNATURE/DATE label (in the cell)
                         _draw_h = 22
                         _draw_w = _draw_h * (_sig.size[0] / _sig.size[1])
-                        _c.drawImage(_ir, _sig_x + 2, _sig_y + 2, _draw_w, _draw_h, mask='auto')
-                        # Draw date next to signature
+                        _c.drawImage(_ir, _sig_x + 2, _sig_y - _draw_h - 2, _draw_w, _draw_h, mask='auto')
+                        # Draw date to the right of signature
                         _c.setFont("Helvetica", 10)
-                        _c.drawString(_sig_x + _draw_w + 12, _sig_y + 6, sign_date)
+                        _c.drawString(_sig_x + _draw_w + 12, _sig_y - _draw_h + 4, sign_date)
                         _signed_704b = True
                 _c.save()
                 _packet.seek(0)
