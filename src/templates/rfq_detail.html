@@ -2281,12 +2281,19 @@ function regeneratePackage(){
  form.submit();
 }
 
-// ── F3: QA Gate ──
+// ── F3: QA Gate — ALWAYS show approval popup before generating ──
 function runQaCheck(){
- fetch('/api/rfq/'+RID+'/qa-check',{credentials:'same-origin'}).then(r=>r.json()).then(function(d){
-  if(!d.ok){_doGenerate();return;}
+ fetch('/api/rfq/'+RID+'/qa-check',{credentials:'same-origin'}).then(r=>{
+  if(r.status===401){alert('Session expired — reloading');location.reload();return;}
+  return r.json();
+ }).then(function(d){
+  if(!d) return;
   _showQaPopup(d);
- }).catch(function(){_doGenerate();});
+ }).catch(function(e){
+  // Even on error, show a minimal approval popup — never skip approval
+  _showQaPopup({ok:true, overall:'warn', total:0, failures:0, warnings:1,
+    checks:[{name:'QA Check Unavailable', status:'warn', detail:'Could not run QA: '+e.message+'. Review manually before generating.'}]});
+ });
 }
 function _doGenerate(){
  if(!confirm('Generate the full RFQ package?\n\nThis will fill all state forms, generate a quote, and create a merged PDF package.'))return;
