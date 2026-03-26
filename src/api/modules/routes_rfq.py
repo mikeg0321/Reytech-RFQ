@@ -1970,12 +1970,26 @@ def api_rfq_bulk_scrape_urls(rid):
         try:
             from src.agents.item_link_lookup import lookup_from_url, detect_supplier
             res = lookup_from_url(url)
+            item = items[i]
+            # Always apply URL, supplier, MFG#, description — even without price
+            item["item_link"] = url
+            item["item_supplier"] = detect_supplier(url)
+            _pn = res.get("mfg_number") or res.get("part_number") or ""
+            if _pn:
+                item["item_number"] = _pn
+            _desc = res.get("title") or res.get("description") or ""
+            if _desc and (not item.get("description") or len(item.get("description", "")) < 10):
+                item["description"] = _desc
+            # Apply pricing if found
             price = res.get("price") or res.get("list_price") or res.get("cost")
-            if price and float(price) > 0:
-                price = float(price)
-                item = items[i]
-                item["item_link"] = url
-                item["item_supplier"] = detect_supplier(url)
+            if price:
+                try:
+                    price = float(price)
+                except (ValueError, TypeError):
+                    price = 0
+            else:
+                price = 0
+            if price > 0:
                 item["supplier_cost"] = price
                 item["cost_source"] = "Supplier URL"
                 item["cost_supplier_name"] = item.get("item_supplier", "")
@@ -1986,17 +2000,12 @@ def api_rfq_bulk_scrape_urls(rid):
                     markup = 25
                 item["markup_pct"] = markup
                 item["price_per_unit"] = round(price * (1 + markup / 100), 2)
-                _pn = res.get("mfg_number") or res.get("part_number") or ""
-                if _pn:
-                    item["item_number"] = _pn
-                _desc = res.get("title") or res.get("description") or ""
-                if _desc and (not item.get("description") or len(item.get("description", "")) < 10):
-                    item["description"] = _desc
                 results.append({"line": i + 1, "url": url[:60], "status": "ok",
                                "price": price, "supplier": item["item_supplier"]})
-                applied += 1
             else:
-                results.append({"line": i + 1, "url": url[:60], "status": "no_price"})
+                results.append({"line": i + 1, "url": url[:60], "status": "linked",
+                               "supplier": item.get("item_supplier", ""), "note": "URL linked, no price found"})
+            applied += 1
         except Exception as e:
             log.error("Bulk scrape URL error line %d: %s", i + 1, e, exc_info=True)
             results.append({"line": i + 1, "url": url[:60], "status": "error", "error": str(e)[:80]})
