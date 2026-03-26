@@ -1312,27 +1312,65 @@ def parse_multi_pc(pdf_path: str) -> list:
                 section_text = "\n".join(page_texts[start_page:end_page + 1])
 
                 header = {}
-                inst_m = _re.search(r'Institution or HQ Program\s*[\n:]+\s*([^\n]+)', section_text, _re.IGNORECASE)
-                if not inst_m:
-                    inst_m = _re.search(r'(?:Institution|HQ Program)[:\s]+([A-Z][^\n]{2,40})', section_text, _re.IGNORECASE)
-                if inst_m:
-                    header["institution"] = inst_m.group(1).strip()
 
-                req_m = _re.search(r'Requestor\s*[\n:]+\s*([^\n]+)', section_text, _re.IGNORECASE)
-                if req_m:
-                    header["requestor"] = req_m.group(1).strip()
+                # ── Parse header from the line AFTER the column headers ──
+                # DocuSign 704 text comes as:
+                #   "Requestor Institution or HQ Program Delivery Zip Code Phone Number Date of Request"
+                #   "Magana- CIW ML EOP 92880 909 597-1771 3/24/2026"
+                # The data line has: requestor, institution, zip, phone, date — all concatenated.
+                _hdr_m = _re.search(
+                    r'Requestor\s+Institution.*?Date of Request\s*\n\s*(.+)',
+                    section_text, _re.IGNORECASE)
+                if _hdr_m:
+                    _data_line = _hdr_m.group(1).strip()
+                    # Extract zip code (5 digits) — anchor for splitting
+                    _zip_m = _re.search(r'\b(\d{5})\b', _data_line)
+                    if _zip_m:
+                        header["zip_code"] = _zip_m.group(1)
+                        _before_zip = _data_line[:_zip_m.start()].strip()
+                        _after_zip = _data_line[_zip_m.end():].strip()
+                        # Before zip: "Requestor Institution" — split on double-space or known patterns
+                        _parts = _re.split(r'\s{2,}', _before_zip)
+                        if len(_parts) >= 2:
+                            header["requestor"] = _parts[0].strip()
+                            header["institution"] = " ".join(_parts[1:]).strip()
+                        elif _before_zip:
+                            # Try splitting at transition from name to institution code
+                            _inst_m = _re.search(r'(.*?)\s+((?:CIW|CHCF|CMF|CSP|CCWF|SATF|MCSP|HDSP|KVSP|RJD|SCC|LAC|SVSP|CTF|COR|SOL|SAC|WSP|ISP|CIM|CAL|DVI|SQ|NKSP|FSP|CCI|PBSP|VSP|ASP|CMC)\b.+)', _before_zip)
+                            if _inst_m:
+                                header["requestor"] = _inst_m.group(1).strip()
+                                header["institution"] = _inst_m.group(2).strip()
+                            else:
+                                header["institution"] = _before_zip
+                        # After zip: phone and date
+                        _phone_m = _re.search(r'(\d{3}[\s\-]?\d{3}[\s\-]?\d{4}(?:\s*(?:x|ext)\.?\s*\d+)?)', _after_zip)
+                        if _phone_m:
+                            header["phone"] = _phone_m.group(1).strip()
+                        _date_m = _re.search(r'(\d{1,2}/\d{1,2}/\d{2,4})', _after_zip)
+                        if _date_m:
+                            header["due_date"] = _date_m.group(1).strip()
+                else:
+                    # Fallback: try individual field patterns
+                    inst_m = _re.search(r'Institution or HQ Program\s*[\n:]+\s*([^\n]+)', section_text, _re.IGNORECASE)
+                    if inst_m:
+                        header["institution"] = inst_m.group(1).strip()
+                    req_m = _re.search(r'Requestor\s*[\n:]+\s*([^\n]+)', section_text, _re.IGNORECASE)
+                    if req_m:
+                        header["requestor"] = req_m.group(1).strip()
+                    zip_m = _re.search(r'(?:Zip|Delivery Zip)[:\s]+(\d{5})', section_text, _re.IGNORECASE)
+                    if zip_m:
+                        header["zip_code"] = zip_m.group(1)
 
                 pc_num_m = _re.search(r'PRICE\s+CHECK\s*#\s*([A-Z0-9\-]+)', section_text, _re.IGNORECASE)
                 if pc_num_m:
                     header["price_check_number"] = pc_num_m.group(1).strip()
 
-                due_m = _re.search(r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', section_text)
-                if due_m:
-                    header["due_date"] = due_m.group(1).strip()
-
-                zip_m = _re.search(r'(?:Zip|Delivery Zip)[:\s]+(\d{5})', section_text, _re.IGNORECASE)
-                if zip_m:
-                    header["zip_code"] = zip_m.group(1)
+                if "due_date" not in header:
+                    due_m = _re.search(r'Date of Request\s*\n.*?(\d{1,2}/\d{1,2}/\d{2,4})', section_text)
+                    if not due_m:
+                        due_m = _re.search(r'(\d{1,2}/\d{1,2}/\d{4})', section_text)
+                    if due_m:
+                        header["due_date"] = due_m.group(1).strip()
 
                 section_result = {
                     "header": header, "line_items": [], "existing_prices": {},
