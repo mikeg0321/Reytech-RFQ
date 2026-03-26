@@ -2003,6 +2003,14 @@ def api_rfq_bulk_scrape_urls(rid):
     if applied > 0:
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
+        # Auto-confirm scraped items to catalog
+        try:
+            from src.agents.product_catalog import save_pc_items_to_catalog
+            cat_result = save_pc_items_to_catalog({"items": r.get("line_items", [])})
+            log.info("RFQ bulk-scrape catalog sync: added=%d existing=%d",
+                     cat_result.get("added", 0), cat_result.get("existing", 0))
+        except Exception as e:
+            log.error("RFQ bulk-scrape catalog sync error: %s", e, exc_info=True)
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 

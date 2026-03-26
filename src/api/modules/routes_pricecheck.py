@@ -8145,6 +8145,14 @@ def api_bulk_scrape_urls(pcid):
             results.append({"line": i + 1, "url": url[:60], "status": "error", "error": str(e)[:80]})
     if applied:
         _save_single_pc(pcid, pc)
+        # Auto-confirm scraped items to catalog
+        try:
+            from src.agents.product_catalog import save_pc_items_to_catalog
+            cat_result = save_pc_items_to_catalog(pc)
+            log.info("Bulk-scrape catalog sync: added=%d existing=%d skipped=%d",
+                     cat_result.get("added", 0), cat_result.get("existing", 0), cat_result.get("skipped", 0))
+        except Exception as e:
+            log.error("Bulk-scrape catalog sync error: %s", e, exc_info=True)
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
