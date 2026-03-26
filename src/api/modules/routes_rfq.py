@@ -1989,9 +1989,29 @@ def api_rfq_bulk_scrape_urls(rid):
                     price = 0
             else:
                 price = 0
+            # Amazon fallback: if non-Amazon URL has no price, search Amazon by description
+            amazon_fallback = False
+            if price <= 0 and "amazon.com" not in url.lower():
+                _search_q = _desc or item.get("description", "")
+                if _search_q and len(_search_q) >= 8:
+                    try:
+                        from src.agents.product_research import search_amazon
+                        amz = search_amazon(_search_q, max_results=1)
+                        if amz and amz[0].get("price", 0) > 0:
+                            price = float(amz[0]["price"])
+                            amazon_fallback = True
+                            _amz_asin = amz[0].get("asin", "")
+                            if _amz_asin:
+                                # Switch entire item to Amazon source
+                                item["item_link"] = amz[0].get("url", "") or f"https://www.amazon.com/dp/{_amz_asin}"
+                                item["item_supplier"] = "Amazon"
+                                url = item["item_link"]
+                            log.info("Amazon fallback for RFQ line %d: %s → $%.2f", i + 1, _search_q[:40], price)
+                    except Exception as e:
+                        log.debug("Amazon fallback error line %d: %s", i + 1, e)
             if price > 0:
                 item["supplier_cost"] = price
-                item["cost_source"] = "Supplier URL"
+                item["cost_source"] = "Amazon" if amazon_fallback else "Supplier URL"
                 item["cost_supplier_name"] = item.get("item_supplier", "")
                 markup = item.get("markup_pct") or r.get("default_markup") or 25
                 try:
@@ -2000,8 +2020,10 @@ def api_rfq_bulk_scrape_urls(rid):
                     markup = 25
                 item["markup_pct"] = markup
                 item["price_per_unit"] = round(price * (1 + markup / 100), 2)
-                results.append({"line": i + 1, "url": url[:60], "status": "ok",
-                               "price": price, "supplier": item["item_supplier"]})
+                _status = "ok" if not amazon_fallback else "ok_amazon"
+                results.append({"line": i + 1, "url": url[:60], "status": _status,
+                               "price": price, "supplier": item["item_supplier"],
+                               "note": "Price from Amazon" if amazon_fallback else ""})
             else:
                 results.append({"line": i + 1, "url": url[:60], "status": "linked",
                                "supplier": item.get("item_supplier", ""), "note": "URL linked, no price found"})

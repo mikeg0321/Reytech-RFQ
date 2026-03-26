@@ -8133,12 +8133,38 @@ def api_bulk_scrape_urls(pcid):
                     price = 0
             else:
                 price = 0
+            # Amazon fallback: if non-Amazon URL has no price, search Amazon by description
+            amazon_fallback = False
+            if price <= 0 and "amazon.com" not in url.lower():
+                _search_q = _title or item.get("description", "")
+                if _search_q and len(_search_q) >= 8:
+                    try:
+                        from src.agents.product_research import search_amazon
+                        amz = search_amazon(_search_q, max_results=1)
+                        if amz and amz[0].get("price", 0) > 0:
+                            price = float(amz[0]["price"])
+                            amazon_fallback = True
+                            # Store Amazon ASIN for reference
+                            _amz_asin = amz[0].get("asin", "")
+                            if _amz_asin:
+                                if not item.get("pricing"):
+                                    item["pricing"] = {}
+                                item["pricing"]["amazon_asin"] = _amz_asin
+                                item["pricing"]["amazon_url"] = amz[0].get("url", "")
+                                # Switch entire item to Amazon source for easier ordering
+                                item["item_link"] = amz[0].get("url", "") or f"https://www.amazon.com/dp/{_amz_asin}"
+                                item["item_supplier"] = "Amazon"
+                                url = item["item_link"]  # update url for pricing source_url
+                            log.info("Amazon fallback for line %d: %s → $%.2f (ASIN: %s)",
+                                     i + 1, _search_q[:40], price, _amz_asin)
+                    except Exception as e:
+                        log.debug("Amazon fallback error line %d: %s", i + 1, e)
             if price > 0:
                 if not item.get("pricing"):
                     item["pricing"] = {}
                 item["pricing"]["unit_cost"] = price
                 item["pricing"]["source_url"] = url
-                item["pricing"]["source"] = "bulk_scrape"
+                item["pricing"]["source"] = "amazon_fallback" if amazon_fallback else "bulk_scrape"
                 item["vendor_cost"] = price
                 markup = item.get("markup_pct") or pc.get("default_markup") or 25
                 try:
@@ -8155,8 +8181,10 @@ def api_bulk_scrape_urls(pcid):
                 except (ValueError, TypeError):
                     qty = 1
                 item["extension"] = round(unit_price * qty, 2)
-                results.append({"line": i + 1, "url": url[:60], "status": "ok",
-                               "price": price, "supplier": r.get("supplier", "")})
+                _status = "ok" if not amazon_fallback else "ok_amazon"
+                results.append({"line": i + 1, "url": url[:60], "status": _status,
+                               "price": price, "supplier": r.get("supplier", ""),
+                               "note": "Price from Amazon" if amazon_fallback else ""})
             else:
                 results.append({"line": i + 1, "url": url[:60], "status": "linked",
                                "supplier": r.get("supplier", ""), "note": "URL linked, no price found"})
