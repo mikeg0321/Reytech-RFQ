@@ -311,7 +311,12 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
             "708_Signature" in name or
             "_PD843" in name or
             "DVBEowner" in name or  # DVBE 843 has separate date fields
-            name == "Signature1"
+            "_CUF" in name or       # CUF has Date_CUF
+            "_darfur" in name or    # Darfur has Date__darfur
+            "_std21" in name or     # STD 21 has date fields
+            "_PD802" in name or     # PD 802 has Date_PD802
+            name == "Signature1" or
+            name == "Signature29"   # Bidder Dec — no combo date
         )
         # Don't draw date next to signature if there's a separate Date field on the same page
         # (CalRecycle 74 has both Signature1 and Date fields — _calrecycle_fix_date handles Date)
@@ -349,8 +354,6 @@ def create_signature_overlay(sig_entries, page_width, page_height, sig_image_pat
             date_x = x + draw_w + 8
             date_y = rect[1] + (field_h / 2) - 5
             c.setFont("Helvetica", 10)
-            c.setFillColorRGB(0, 0, 0)
-            c.drawString(date_x, date_y, sign_date)
             c.setFillColorRGB(0, 0, 0)
             c.drawString(date_x, date_y, sign_date)
 
