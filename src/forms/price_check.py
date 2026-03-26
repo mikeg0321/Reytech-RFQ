@@ -2456,8 +2456,12 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     # Continuation header: SUPPLIER NAME area
     PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
 
+    # ── Border-safe inset: white mask stays well inside cell borders ──
+    _PAD = 4  # px inset from each cell edge — keeps 0.5-1pt border lines intact
+
     def _cell(c, x1, y1, x2, y2, text, fs=9):
-        """Draw text in a tight white-masked cell."""
+        """Draw text in a clipped cell. White mask clears baked-in text
+        but stays _PAD pts inside cell edges to preserve border lines."""
         if not text or not text.strip():
             return
         text = text.strip()
@@ -2465,18 +2469,25 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         if w <= 0 or h <= 0:
             return
         c.saveState()
+        # Clip to cell interior — nothing we draw can touch the borders
+        p = c.beginPath()
+        p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
+        c.clipPath(p, stroke=0)
+        # White fill to clear any baked-in label text
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 3, y1 + 2, w - 6, h - 4, fill=1, stroke=0)
-        c.restoreState()
+        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
+        # Draw text
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
-        while c.stringWidth(text, "Helvetica", fs) > w - 8 and fs > 4.5:
+        c.setFillColorRGB(0, 0, 0)
+        while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
-        c.drawString(x1 + 4, y1 + (h - fs) / 2, text)
+        c.drawString(x1 + _PAD + 1, y1 + (h - fs) / 2, text)
+        c.restoreState()
 
     def _cell_right(c, x1, y1, x2, y2, text, fs=9):
-        """Draw RIGHT-ALIGNED text in a tight white-masked cell. For prices/currency."""
+        """Draw RIGHT-ALIGNED text in a clipped cell. For prices/currency."""
         if not text or not text.strip():
             return
         text = text.strip()
@@ -2484,36 +2495,44 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         if w <= 0 or h <= 0:
             return
         c.saveState()
+        p = c.beginPath()
+        p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
+        c.clipPath(p, stroke=0)
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 3, y1 + 2, w - 6, h - 4, fill=1, stroke=0)
-        c.restoreState()
+        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
-        while c.stringWidth(text, "Helvetica", fs) > w - 8 and fs > 4.5:
+        c.setFillColorRGB(0, 0, 0)
+        while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
             fs -= 0.5
             c.setFont("Helvetica", fs)
         text_w = c.stringWidth(text, "Helvetica", fs)
-        c.drawString(x2 - text_w - 4, y1 + (h - fs) / 2, text)
+        c.drawString(x2 - _PAD - text_w - 1, y1 + (h - fs) / 2, text)
+        c.restoreState()
 
     def _multiline(c, x1, y1, x2, y2, text, fs=8):
-        """Draw multi-line text with white mask."""
+        """Draw multi-line text in a clipped cell."""
         if not text or not text.strip():
             return
         w, h = x2 - x1, y2 - y1
         c.saveState()
+        p = c.beginPath()
+        p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
+        c.clipPath(p, stroke=0)
         c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + 3, y1 + 2, w - 6, h - 4, fill=1, stroke=0)
-        c.restoreState()
+        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
         fs = min(fs, h * 0.6)
         c.setFont("Helvetica", fs)
+        c.setFillColorRGB(0, 0, 0)
         for i, line in enumerate(text.strip().split("\n")[:5]):
-            ly = y2 - (fs + 2) - (i * (fs + 1.5))
-            if ly < y1 + 2:
+            ly = y2 - _PAD - (fs + 2) - (i * (fs + 1.5))
+            if ly < y1 + _PAD:
                 break
             t = line.strip()
-            while c.stringWidth(t, "Helvetica", fs) > w - 8 and len(t) > 3:
+            while c.stringWidth(t, "Helvetica", fs) > w - _PAD * 2 - 4 and len(t) > 3:
                 t = t[:-1]
-            c.drawString(x1 + 4, ly, t)
+            c.drawString(x1 + _PAD + 1, ly, t)
+        c.restoreState()
 
     # Find highest priced row to skip empty trailing pages
     max_row = 0
@@ -2949,27 +2968,33 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(page_width, page_height))
 
-        # ── White-mask the entire signature cell ──
-        # This clears baked-in label text like "Signature and Date"
+        # ── Clip + white-mask the signature cell ──
+        # clipPath prevents ANY drawing from touching cell borders.
+        # White fill clears baked-in "Signature and Date" label text.
+        _SP = 4  # inset from cell edge to preserve border lines
         c.saveState()
+        clip = c.beginPath()
+        clip.rect(fl + _SP, fb + _SP, fw - _SP * 2, fh - _SP * 2)
+        c.clipPath(clip, stroke=0)
         c.setFillColorRGB(1, 1, 1)
-        c.rect(fl + 2, fb + 1, fw - 4, fh - 2, fill=1, stroke=0)
-        c.restoreState()
+        c.rect(fl + _SP, fb + _SP, fw - _SP * 2, fh - _SP * 2, fill=1, stroke=0)
 
         # ── Draw signature image (left portion of cell) ──
         if sig_path:
             try:
                 img = ImageReader(sig_path)
-                c.drawImage(img, fl + 4, fb + 2, width=sig_w, height=sig_h,
+                c.drawImage(img, fl + _SP + 1, fb + _SP, width=sig_w, height=sig_h - _SP,
                            mask='auto', preserveAspectRatio=True, anchor='sw')
             except Exception as e:
                 log.warning("Could not draw signature image: %s", e)
 
         # ── Draw date (right portion of cell) ──
         today = datetime.now().strftime("%-m/%-d/%Y")
-        date_fs = min(9, fh * 0.55)
+        date_fs = min(9, (fh - _SP * 2) * 0.6)
         c.setFont("Helvetica", date_fs)
+        c.setFillColorRGB(0, 0, 0)
         c.drawString(date_x, date_y, today)
+        c.restoreState()
 
         c.save()
         buf.seek(0)
