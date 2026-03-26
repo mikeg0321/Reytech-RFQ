@@ -2167,7 +2167,8 @@ def _link_rfq_to_pc(rfq_data, _trace):
 
     _trace.append(f"PC PRICING: {ported}/{len(rfq_items)} items priced (desc match + positional fallback)")
 
-    # Step 3: Catalog enrichment for remaining product data (URLs, ASIN, supplier)
+    # Step 3: Catalog enrichment — better descriptions, proper MFG#, ASIN, URLs
+    # The 704B is Reytech's response, so we use catalog's proper product data.
     try:
         from src.agents.product_catalog import match_item, init_catalog_db
         init_catalog_db()
@@ -2180,18 +2181,33 @@ def _link_rfq_to_pc(rfq_data, _trace):
             matches = match_item(desc, pn, top_n=1)
             if matches and matches[0].get("match_confidence", 0) >= 0.4:
                 best = matches[0]
-                # Only enrich supplementary data — never overwrite PC pricing
-                if not rfq_item.get("item_link"):
-                    cat_url = best.get("best_supplier_url") or best.get("product_url", "")
-                    if cat_url:
-                        rfq_item["item_link"] = cat_url
-                if not rfq_item.get("item_supplier"):
-                    cat_sup = best.get("best_supplier", "")
-                    if cat_sup:
-                        rfq_item["item_supplier"] = cat_sup
-                rfq_item["_catalog_match"] = best.get("name", "")[:60]
+                # Use catalog's better description
+                cat_name = (best.get("name", "") or "").strip()
+                if cat_name and len(cat_name) >= 10:
+                    rfq_item["description"] = cat_name
+                # Use catalog's proper MFG#/unit number
+                cat_mfg = best.get("mfg_number") or best.get("sku", "")
+                if cat_mfg:
+                    rfq_item["item_number"] = cat_mfg
+                # URL and supplier
+                cat_url = best.get("best_supplier_url") or best.get("product_url", "")
+                if cat_url:
+                    rfq_item["item_link"] = cat_url
+                cat_sup = best.get("best_supplier", "")
+                if cat_sup:
+                    rfq_item["item_supplier"] = cat_sup
+                # If Amazon product, include ASIN in description
+                _item_link = rfq_item.get("item_link", "")
+                if "amazon.com" in (_item_link or "").lower():
+                    import re as _asin_re
+                    _asin_m = _asin_re.search(r'/dp/([A-Z0-9]{10})', _item_link)
+                    if _asin_m:
+                        _asin = _asin_m.group(1)
+                        if _asin not in rfq_item.get("description", ""):
+                            rfq_item["description"] = f"{rfq_item.get('description', '')} (ASIN: {_asin})"
+                rfq_item["_catalog_match"] = cat_name[:60]
                 _cat_enriched += 1
-        _trace.append(f"CATALOG ENRICH: {_cat_enriched} items enriched with URLs/supplier")
+        _trace.append(f"CATALOG ENRICH: {_cat_enriched} items — descriptions, MFG#, URLs updated")
     except Exception as _ce:
         _trace.append(f"CATALOG ENRICH ERROR: {_ce}")
 
