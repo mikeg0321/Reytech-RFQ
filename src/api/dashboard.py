@@ -4642,19 +4642,33 @@ def api_circuit_breaker_status():
 def api_sync_scprs():
     """Force sync SCPRS harvest data → won_quotes KB. Safe to call repeatedly."""
     try:
+        from src.core.db import get_db
+        # Diagnostic: check how many lines are eligible
+        with get_db() as conn:
+            total_lines = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+            eligible = conn.execute("SELECT COUNT(*) FROM scprs_po_lines WHERE unit_price > 0 AND description != ''").fetchone()[0]
+            zero_price = conn.execute("SELECT COUNT(*) FROM scprs_po_lines WHERE unit_price = 0 OR unit_price IS NULL").fetchone()[0]
+            no_master = conn.execute("""
+                SELECT COUNT(*) FROM scprs_po_lines l
+                LEFT JOIN scprs_po_master p ON l.po_id = p.id
+                WHERE p.id IS NULL
+            """).fetchone()[0]
+
         from src.knowledge.won_quotes_db import sync_from_scprs_tables
         result = sync_from_scprs_tables()
-        # Also check counts after sync
-        from src.core.db import get_db
+
         with get_db() as conn:
             wq = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
-            lines = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
         result["won_quotes_total"] = wq
-        result["scprs_po_lines_total"] = lines
-        result["coverage_pct"] = round(wq / max(lines, 1) * 100, 1)
+        result["scprs_po_lines_total"] = total_lines
+        result["eligible_lines"] = eligible
+        result["zero_price_lines"] = zero_price
+        result["orphan_lines"] = no_master
+        result["coverage_pct"] = round(wq / max(eligible, 1) * 100, 1)
         return jsonify({"ok": True, **result})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        import traceback
+        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]})
 
 
 @bp.route("/api/system/pipeline-health")
