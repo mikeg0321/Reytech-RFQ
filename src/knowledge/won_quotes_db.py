@@ -69,6 +69,9 @@ def _get_db_conn():
     conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
+# Public alias — used by dashboard.py and app.py for catalog population
+get_db = _get_db_conn
+
 
 def _ensure_won_quotes_table():
     """Create won_quotes table if it doesn't exist (idempotent)."""

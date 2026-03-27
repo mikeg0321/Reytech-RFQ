@@ -1434,7 +1434,16 @@ def _is_user_facing_pc(pc: dict) -> bool:
 _shared_poller = None  # Shared poller instance for manual checks
 
 def _auto_price_new_pc(pc_id: str):
-    """Auto-price a newly created PC: catalog match → SCPRS → apply best prices.
+    """DEPRECATED — use src.agents.pc_enrichment_pipeline.enrich_pc() instead.
+    Kept as fallback; delegates to new unified pipeline."""
+    from src.agents.pc_enrichment_pipeline import enrich_pc
+    enrich_pc(pc_id)
+    return
+
+
+def _auto_price_new_pc_DEAD(pc_id: str):
+    """DEAD CODE — original implementation before unification.
+    Auto-price a newly created PC: catalog match → SCPRS → apply best prices.
     Runs in background thread so email processing isn't blocked."""
     _ap_status = {"pc_id": pc_id, "started": datetime.now().isoformat(), "steps": [], "error": None}
     try:
@@ -2900,8 +2909,12 @@ def process_rfq_email(rfq_email):
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
                         _save_single_pc(pc_id, pcs[pc_id])
                         _ensure_contact_from_email(rfq_email)
-                        # Auto-price in background thread
-                        threading.Thread(target=_auto_price_new_pc, args=(pc_id,), daemon=True).start()
+                        # Auto-enrich in background thread (unified pipeline)
+                        try:
+                            from src.agents.pc_enrichment_pipeline import enrich_pc_background
+                            enrich_pc_background(pc_id)
+                        except Exception as _enrich_err:
+                            log.warning("PC %s: enrichment failed to start: %s", pc_id, _enrich_err)
                         _trace.append(f"PC CREATED: {pc_id} (auto-pricing started)")
                         log.info("PC %s created successfully from email %s", pc_id, email_uid)
                         try:
@@ -6116,7 +6129,8 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
             if _cat == 0:
                 log.info("Catalog empty — populating from won_quotes...")
                 try:
-                    from src.knowledge.won_quotes_db import get_db as _get_wq
+                    from src.knowledge.won_quotes_db import get_db as _get_wq, _ensure_won_quotes_table
+                    _ensure_won_quotes_table()
                     _wq = _get_wq()
                     _rows = _wq.execute(
                         "SELECT description, unit_price, quantity, supplier, "

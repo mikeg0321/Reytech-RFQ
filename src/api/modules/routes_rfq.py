@@ -7176,6 +7176,20 @@ def api_rfq_approve_package(rid, manifest_id):
         log_lifecycle_event("rfq", rid, "package_approved",
             f"Package v{manifest.get('version', '?')} approved ({manifest.get('total_forms', 0)} forms)",
             actor="user", detail={"manifest_id": manifest_id, "version": manifest.get("version")})
+        # Update RFQ status to ready_to_send
+        try:
+            rfqs = load_rfqs()
+            r = rfqs.get(rid, {})
+            r["status"] = "ready_to_send"
+            if not r.get("draft_email"):
+                r["draft_email"] = {
+                    "to": r.get("requestor_email", ""),
+                    "subject": f"Reytech Inc. — RFQ Response #{r.get('solicitation_number', '')}",
+                    "body": "Please find attached our bid response package.",
+                }
+            _save_single_rfq(rid, r)
+        except Exception as _e:
+            log.warning("approve_package: status update failed: %s", _e)
     return jsonify({"ok": ok, "status": "approved"})
 
 

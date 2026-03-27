@@ -296,7 +296,8 @@ def create_app():
             if _cat_count == 0:
                 logging.getLogger("reytech").info("Catalog empty — populating from won_quotes...")
                 try:
-                    from src.knowledge.won_quotes_db import get_db as _get_wq
+                    from src.knowledge.won_quotes_db import get_db as _get_wq, _ensure_won_quotes_table
+                    _ensure_won_quotes_table()
                     _wq = _get_wq()
                     _rows = _wq.execute(
                         "SELECT description, unit_price, quantity, supplier, "

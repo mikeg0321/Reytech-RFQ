@@ -147,10 +147,26 @@
      {% elif pc.get('status') == 'new' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#4f8cff;margin-bottom:10px"><span style="font-size:18px">📋</span><div><b>New</b> — run SCPRS/Amazon/Catalog to find prices, then Save.</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Retry automatic pricing">🔄 Auto-Price Now</button></div>
-     {% elif pc.get('status') == 'parsed' %}
-     {% if pc.get('enrichment_status') == 'complete' %}
+     {% elif pc.get('status') == 'parsed' or pc.get('status') == 'priced' %}
+     {% if pc.get('enrichment_status') == 'enriching' %}
+     <div id="enrichingBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(56,139,253,.08);border:1px solid rgba(56,139,253,.25);color:#388bfd;margin-bottom:10px">
+      <span class="spinner" style="display:inline-block;width:18px;height:18px;border:2px solid rgba(56,139,253,.3);border-top-color:#388bfd;border-radius:50%;animation:spin 1s linear infinite"></span>
+      <div><b>Enriching...</b> <span id="enrichPhase">searching catalog, SCPRS, and web prices</span></div>
+     </div>
+     <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+     <script>
+     (function(){var _intv=setInterval(function(){
+       fetch('/api/pricecheck/{{pcid}}/enrichment-status').then(function(r){return r.json()}).then(function(d){
+         if(!d.running&&d.status!=='enriching'){clearInterval(_intv);location.reload();return}
+         var ph=d.phase||'';var pr=d.progress||'';
+         var el=document.getElementById('enrichPhase');
+         if(el)el.textContent=ph+(pr?' — '+pr:'');
+       }).catch(function(){});
+     },3000)})();
+     </script>
+     {% elif pc.get('enrichment_status') == 'complete' %}
      {% set es = pc.get('enrichment_summary', {}) %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">✅</span><div><b>Enriched</b> — {{es.get('catalog_matched',0)}}/{{es.get('total_items',0)}} catalog, {{es.get('scprs_matched',0)}}/{{es.get('total_items',0)}} SCPRS{% if es.get('urls_extracted',0) %}, {{es.get('urls_extracted',0)}} URLs extracted{% endif %}</div>
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">✅</span><div><b>Enriched</b> — {{es.get('catalog_matched',0)}}/{{es.get('total_items',0)}} catalog, {{es.get('scprs_matched',0)}}/{{es.get('total_items',0)}} SCPRS{% if es.get('identifiers_extracted',0) %}, {{es.get('identifiers_extracted',0)}} IDs{% endif %}{% if es.get('urls_extracted',0) %}, {{es.get('urls_extracted',0)}} URLs{% endif %}{% if es.get('web_prices_found',0) %}, {{es.get('web_prices_found',0)}} web prices{% endif %}</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Re-run enrichment">🔄 Re-enrich</button></div>
      {% else %}
      <div id="autoStatusBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — no enrichment yet. Click to search Catalog + SCPRS.</div>

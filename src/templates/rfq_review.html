@@ -258,6 +258,7 @@
   <div class="rv-floating-bar" id="rv-floating-bar">
     <div style="display:flex;gap:6px;overflow-x:auto;flex:1;align-items:center">
       {% for review in manifest.reviews %}
+      {% if review.form_id not in bidpkg_internal|default(set()) and review.form_filename %}
       <div class="rv-float-form {% if loop.first %}active{% endif %} {% if review.verdict == 'approved' %}v-approved{% elif review.verdict == 'rejected' %}v-rejected{% endif %}"
            data-form-id="{{ review.form_id }}"
            data-filename="{{ review.form_filename }}"
@@ -265,6 +266,7 @@
         {% if review.verdict == 'approved' %}✅{% elif review.verdict == 'rejected' %}❌{% else %}⏳{% endif %}
         {{ review.form_id|replace('_',' ')|title }}
       </div>
+      {% endif %}
       {% endfor %}
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-shrink:0">
@@ -425,7 +427,7 @@ function removeCurrentForm() {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({form_id: _currentFormId})
   })
-  .then(function(r) { return r.json(); })
+  .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
   .then(function(d) {
     if (!d.ok) { alert('Remove failed: ' + (d.error || 'unknown')); return; }
 
@@ -433,9 +435,13 @@ function removeCurrentForm() {
     var item = document.querySelector('.rv-form-item[data-form-id="' + _currentFormId + '"]');
     if (item) item.remove();
 
+    // Remove from floating bar
+    var floatItem = document.querySelector('.rv-float-form[data-form-id="' + _currentFormId + '"]');
+    if (floatItem) floatItem.remove();
+
     // Clear preview
-    document.getElementById('rv-preview-frame').data = '';
-    document.getElementById('rv-preview-frame').style.display = 'none';
+    var frame = document.getElementById('rv-preview-frame');
+    if (frame) { frame.src = 'about:blank'; frame.style.display = 'none'; }
     document.getElementById('rv-preview-empty').style.display = 'flex';
     document.getElementById('rv-preview-empty').innerHTML = '<div style="text-align:center"><div style="font-size:32px;margin-bottom:8px">🗑️</div><div>Form removed from package</div></div>';
 
@@ -445,7 +451,8 @@ function removeCurrentForm() {
     // Select next form
     var next = document.querySelector('.rv-form-item');
     if (next) next.click();
-  });
+  })
+  .catch(function(e) { alert('Remove error: ' + e.message); });
 }
 
 function updateProgress(){
@@ -471,7 +478,7 @@ function updateProgress(){
 function finalizePackage(){
  if(!confirm('Finalize this package? All forms approved.'))return;
  fetch('/api/rfq/'+RID+'/manifest/'+MANIFEST_ID+'/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'}})
- .then(function(r){return r.json()}).then(function(d){
+ .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){
   if(!d.ok){alert('Approval failed: '+(d.error||'unknown'));return;}
   document.getElementById('rv-status-badge').textContent='APPROVED';
   document.getElementById('rv-status-badge').style.background='rgba(63,185,80,.15)';
@@ -487,7 +494,7 @@ function finalizePackage(){
   _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
   _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
   document.getElementById('rv-finalize-hint').innerHTML = _dl;
- });
+ }).catch(function(e){alert('Finalize error: '+e.message);});
 }
 
 function downloadAllForms() {
@@ -594,6 +601,12 @@ function submitRefill() {
      if (badge) { badge.textContent = 'PENDING'; badge.className = 'rv-badge rv-badge-pending'; }
      item.setAttribute('data-verdict', 'pending');
      item.click(); // Refresh preview
+   }
+   // Sync floating bar badge to pending
+   var floatItem = document.querySelector('.rv-float-form[data-form-id="'+_editFormId+'"]');
+   if (floatItem) {
+     floatItem.className = floatItem.className.replace(/v-approved|v-rejected/g, '').trim();
+     floatItem.innerHTML = floatItem.innerHTML.replace(/[✅❌]/g, '⏳');
    }
    updateProgress();
    // Update line items in memory for subsequent edits
