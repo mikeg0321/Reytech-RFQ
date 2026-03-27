@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Upload PO — Reytech{% endblock %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto">
+ <h2 style="margin:0 0 16px;font-size:20px;font-weight:700">📦 Upload Purchase Order</h2>
+
+ <!-- Upload -->
+ <div class="card" style="margin-bottom:16px">
+  <div class="card-t">Step 1: Upload PO PDF</div>
+  <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+   <input type="file" id="poFile" accept=".pdf" style="flex:1;font-size:14px">
+   <button onclick="parsePO()" id="parseBtn" class="btn" style="background:var(--ac);color:#fff;padding:10px 20px;font-size:14px;font-weight:600">Parse PO</button>
+  </div>
+  <div id="parseStatus" style="margin-top:8px;font-size:13px;color:var(--tx2)"></div>
+ </div>
+
+ <!-- Preview (hidden until parsed) -->
+ <div id="previewSection" style="display:none">
+  <div class="card" style="margin-bottom:16px">
+   <div class="card-t">Step 2: Review Parsed Data</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+    <div>
+     <label style="font-size:13px;color:var(--tx2)">PO Number</label>
+     <input type="text" id="poNumber" class="text-in" style="width:100%;margin-top:4px">
+    </div>
+    <div>
+     <label style="font-size:13px;color:var(--tx2)">Agency</label>
+     <input type="text" id="poAgency" class="text-in" style="width:100%;margin-top:4px">
+    </div>
+    <div>
+     <label style="font-size:13px;color:var(--tx2)">Institution</label>
+     <input type="text" id="poInstitution" class="text-in" style="width:100%;margin-top:4px">
+    </div>
+    <div>
+     <label style="font-size:13px;color:var(--tx2)">Total</label>
+     <input type="text" id="poTotal" class="text-in" style="width:100%;margin-top:4px">
+    </div>
+    <div>
+     <label style="font-size:13px;color:var(--tx2)">Match to Quote # (optional)</label>
+     <input type="text" id="poQuote" class="text-in" style="width:100%;margin-top:4px" placeholder="R26Q...">
+    </div>
+   </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+   <div class="card-t">Line Items <span id="itemCount" style="color:var(--tx2);font-weight:400"></span></div>
+   <table style="width:100%;font-size:14px;margin-top:10px;border-collapse:collapse" id="itemsTable">
+    <thead>
+     <tr style="border-bottom:1px solid var(--bd)">
+      <th style="padding:6px 8px;text-align:left;color:var(--tx2)">#</th>
+      <th style="padding:6px 8px;text-align:left;color:var(--tx2)">Description</th>
+      <th style="padding:6px 8px;text-align:right;color:var(--tx2)">Qty</th>
+      <th style="padding:6px 8px;text-align:right;color:var(--tx2)">Unit Price</th>
+      <th style="padding:6px 8px;text-align:right;color:var(--tx2)">Extended</th>
+     </tr>
+    </thead>
+    <tbody id="itemsBody"></tbody>
+   </table>
+  </div>
+
+  <div style="display:flex;gap:10px;justify-content:flex-end">
+   <a href="/orders" class="btn" style="padding:10px 20px;font-size:14px">Cancel</a>
+   <button onclick="createOrder()" id="createBtn" class="btn" style="background:#3fb950;color:#fff;padding:10px 24px;font-size:14px;font-weight:600">Create Order</button>
+  </div>
+ </div>
+</div>
+
+<script>
+var _parsedData = null;
+var _pdfPath = '';
+
+function parsePO() {
+ var file = document.getElementById('poFile').files[0];
+ if (!file) { alert('Select a PDF file first'); return; }
+ var btn = document.getElementById('parseBtn');
+ btn.disabled = true; btn.textContent = 'Parsing...';
+ document.getElementById('parseStatus').textContent = 'Uploading and parsing PDF...';
+
+ var fd = new FormData();
+ fd.append('file', file);
+ fetch('/api/po/upload-parse', {method:'POST', credentials:'same-origin', body:fd})
+ .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+ .then(function(d){
+  btn.disabled = false; btn.textContent = 'Parse PO';
+  if (!d.ok) { document.getElementById('parseStatus').innerHTML = '<span style="color:#f85149">Parse failed: '+d.error+'</span>'; return; }
+  _parsedData = d;
+  _pdfPath = d.pdf_path || '';
+  document.getElementById('parseStatus').innerHTML = '<span style="color:#3fb950">Parsed successfully</span>';
+  document.getElementById('poNumber').value = d.po_number || '';
+  document.getElementById('poAgency').value = d.agency || '';
+  document.getElementById('poInstitution').value = d.institution || '';
+  document.getElementById('poTotal').value = d.total || '';
+  document.getElementById('itemCount').textContent = '(' + (d.items||[]).length + ' items)';
+
+  var tbody = document.getElementById('itemsBody');
+  tbody.innerHTML = '';
+  (d.items||[]).forEach(function(it, i){
+   var tr = document.createElement('tr');
+   tr.style.borderBottom = '1px solid rgba(139,148,158,.1)';
+   tr.innerHTML = '<td style="padding:6px 8px">'+(i+1)+'</td>'+
+    '<td style="padding:6px 8px">'+((it.description||it.desc||'').substring(0,80))+'</td>'+
+    '<td style="padding:6px 8px;text-align:right">'+(it.qty||it.quantity||1)+'</td>'+
+    '<td style="padding:6px 8px;text-align:right;font-family:JetBrains Mono,monospace">$'+(parseFloat(it.unit_price||0)).toFixed(2)+'</td>'+
+    '<td style="padding:6px 8px;text-align:right;font-family:JetBrains Mono,monospace">$'+(parseFloat(it.extended||it.line_total||(it.qty||1)*(it.unit_price||0))).toFixed(2)+'</td>';
+   tbody.appendChild(tr);
+  });
+  document.getElementById('previewSection').style.display = 'block';
+ })
+ .catch(function(e){ btn.disabled=false; btn.textContent='Parse PO'; alert('Error: '+e.message); });
+}
+
+function createOrder() {
+ var btn = document.getElementById('createBtn');
+ btn.disabled = true; btn.textContent = 'Creating...';
+ var data = {
+  po_number: document.getElementById('poNumber').value,
+  agency: document.getElementById('poAgency').value,
+  institution: document.getElementById('poInstitution').value,
+  total: parseFloat(document.getElementById('poTotal').value) || 0,
+  quote_number: document.getElementById('poQuote').value,
+  items: (_parsedData||{}).items || [],
+ };
+ fetch('/api/order/create', {
+  method:'POST', credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify(data)
+ })
+ .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+ .then(function(d){
+  if (!d.ok) { btn.disabled=false; btn.textContent='Create Order'; alert('Failed: '+(d.error||'unknown')); return; }
+  window.location = '/orders';
+ })
+ .catch(function(e){ btn.disabled=false; btn.textContent='Create Order'; alert('Error: '+e.message); });
+}
+</script>
+{% endblock %}

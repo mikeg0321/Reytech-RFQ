@@ -425,6 +425,51 @@ def _render_order_detail(order, oid):
 
 # ─── Order API Routes ──────────────────────────────────────────────────────
 
+@bp.route("/po-upload")
+@auth_required
+def po_upload_page():
+    """Manual PO upload page — parse PDF, preview items, create order."""
+    return render_page("po_upload.html", active_page="Orders")
+
+
+@bp.route("/api/po/upload-parse", methods=["POST"])
+@auth_required
+def api_po_upload_parse():
+    """Upload a PO PDF, parse it, return extracted data for preview."""
+    import tempfile, os as _os, re as _re
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "Upload a PDF file"})
+    if not f.filename.lower().endswith(".pdf"):
+        return jsonify({"ok": False, "error": "File must be a PDF"})
+
+    # Save to temp
+    safe_fn = _re.sub(r'[^a-zA-Z0-9._-]', '_', _os.path.basename(f.filename))
+    upload_dir = _os.path.join(DATA_DIR, "uploads", "po_uploads")
+    _os.makedirs(upload_dir, exist_ok=True)
+    pdf_path = _os.path.join(upload_dir, f"po_{safe_fn}")
+    f.save(pdf_path)
+
+    # Parse
+    try:
+        from src.agents.email_poller import _parse_po_pdf
+        result = _parse_po_pdf(pdf_path)
+        return jsonify({
+            "ok": True,
+            "po_number": result.get("po_number", ""),
+            "agency": result.get("agency", ""),
+            "institution": result.get("institution", ""),
+            "items": result.get("items", []),
+            "total": result.get("total", 0),
+            "subtotal": result.get("subtotal", 0),
+            "tax": result.get("tax", 0),
+            "pdf_path": pdf_path,
+        })
+    except Exception as e:
+        log.error("PO parse error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e), "pdf_path": pdf_path})
+
+
 @bp.route("/api/order/create", methods=["POST"])
 @auth_required
 @rate_limit("api")

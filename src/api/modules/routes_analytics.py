@@ -3625,10 +3625,34 @@ def api_business_intel():
         bi = {}
 
         # ── 1. Cost of Sales / Bid-to-Win Ratio ──
+        # Revenue from BOTH quotes (status=won) AND orders (paid/invoiced/delivered)
         total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0] or 0
         won_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0
         lost_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='lost'").fetchone()[0] or 0
-        won_revenue = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0)
+        won_revenue_quotes = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0)
+        # Also check orders table (primary revenue source)
+        won_revenue_orders = 0
+        try:
+            won_revenue_orders = float(conn.execute(
+                "SELECT COALESCE(SUM(total),0) FROM orders WHERE status IN ('paid','invoiced','delivered','shipped','active')"
+            ).fetchone()[0] or 0)
+        except Exception:
+            pass
+        # Also check revenue_log
+        revenue_logged = 0
+        try:
+            revenue_logged = float(conn.execute(
+                "SELECT COALESCE(SUM(amount),0) FROM revenue_log WHERE logged_at >= strftime('%Y-01-01', 'now')"
+            ).fetchone()[0] or 0)
+        except Exception:
+            pass
+        won_revenue = max(won_revenue_quotes, won_revenue_orders, revenue_logged)
+        # Count won from orders too
+        try:
+            orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','')").fetchone()[0] or 0
+            won_quotes = max(won_quotes, orders_count)
+        except Exception:
+            pass
         pipeline_revenue = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced')").fetchone()[0] or 0)
         bi["bid_to_win"] = {
             "total_bids": total_quotes,
@@ -3688,6 +3712,31 @@ def api_business_intel():
                     "first_seen": r[4],
                     "last_seen": r[5],
                 })
+            # Fallback: if won_quotes has no competitor data, try scprs_po_master directly
+            if not bi["competitors"]:
+                try:
+                    comp_rows2 = conn.execute("""
+                        SELECT supplier, COUNT(DISTINCT po_number) as po_count,
+                               SUM(grand_total) as total_value,
+                               COUNT(DISTINCT agency_key) as agencies_served,
+                               MIN(start_date) as first_seen, MAX(start_date) as last_seen
+                        FROM scprs_po_master
+                        WHERE supplier IS NOT NULL AND supplier != ''
+                          AND LOWER(supplier) NOT LIKE '%reytech%'
+                        GROUP BY LOWER(supplier) ORDER BY total_value DESC LIMIT 15
+                    """).fetchall()
+                    for r in comp_rows2:
+                        bi["competitors"].append({
+                            "vendor": r[0],
+                            "po_count": r[1],
+                            "total_value": float(r[2] or 0),
+                            "agencies_served": r[3],
+                            "avg_price": 0,
+                            "first_seen": r[4],
+                            "last_seen": r[5],
+                        })
+                except Exception:
+                    pass
         except Exception:
             pass
 
