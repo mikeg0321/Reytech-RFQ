@@ -1399,12 +1399,14 @@ def _is_user_facing_pc(pc: dict) -> bool:
     Simplified status model: new, draft, sent, not_responding.
     Only new + draft show in active queue. Sent + not_responding → archive only.
     Used by: home page, manager brief, workflow tester, pipeline summary."""
-    if pc.get("source") == "email_auto_draft":
-        return False
-    if pc.get("is_auto_draft"):
-        return False
+    # Only hide email-created PCs if they're linked to an RFQ (auto-drafts that
+    # belong to the RFQ row). Standalone email PCs with items SHOULD show.
     if pc.get("rfq_id"):
         return False
+    if (pc.get("source") == "email_auto_draft" or pc.get("is_auto_draft")):
+        # Still show if PC has items (it's a real standalone PC from email)
+        if not pc.get("items"):
+            return False
     # Terminal / inactive statuses — only in archive
     status = pc.get("status", "new")
     if status in ("dismissed", "archived", "deleted", "duplicate", "no_response", "not_responding"):
