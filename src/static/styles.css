@@ -292,6 +292,33 @@ table.it .text-in:focus{border-color:var(--ac);outline:none}
   nav{margin:0 -12px;padding-left:12px;padding-right:12px}
 }
 
+/* ═══ Mobile: Force inline grids to stack ═══════════════════════════════════ */
+@media(max-width:768px){
+  /* Tables: horizontal scroll instead of overflow */
+  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* Grid columns: stack on mobile */
+  [style*="grid-template-columns"]{grid-template-columns:1fr!important}
+  /* 3-col layouts (review page, detail pages) */
+  .rv-3col{grid-template-columns:1fr!important;min-height:auto!important}
+  .rv-3col .rv-checklist{max-height:200px}
+  .rv-3col .rv-preview iframe{min-height:400px}
+  .rv-floating-bar{flex-direction:column;gap:8px;padding:8px}
+  .rv-floating-bar>div{overflow-x:auto;flex-wrap:wrap}
+  /* Side-by-side flex layouts */
+  [style*="display:flex"][style*="gap"]{flex-wrap:wrap}
+  /* Meta info rows */
+  .meta{font-size:13px}
+  .meta b{display:block;margin-top:6px}
+  /* KPI cards */
+  [style*="repeat(auto-fit"]{grid-template-columns:1fr 1fr!important}
+}
+@media(max-width:480px){
+  [style*="repeat(auto-fit"]{grid-template-columns:1fr!important}
+  /* Touch targets: minimum 44px */
+  .btn,.hdr-btn,button{min-height:44px}
+  select,input[type="text"],input[type="number"]{min-height:44px;font-size:16px}
+}
+
 /* ═══ E11: Bulk Action Styles ══════════════════════════════════════════════ */
 .bulk-bar{display:none;padding:10px 16px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.2);border-radius:8px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap}
 .bulk-bar.active{display:flex}

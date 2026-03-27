@@ -181,6 +181,15 @@
      </div>
      {% endif %}
 
+     {% if pc.get('trend_alerts') %}
+     <div style="padding:8px 16px;border-radius:8px;font-size:13px;background:rgba(79,140,255,.06);border:1px solid rgba(79,140,255,.2);color:#4f8cff;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">📉</span><b>Price Trend Alerts</b></div>
+      {% for alert in pc.trend_alerts[:5] %}
+      <div style="margin-top:4px;padding-left:24px">{{ alert }}</div>
+      {% endfor %}
+     </div>
+     {% endif %}
+
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
       <b>Requestor:</b> {{ header.get('requestor',pc.get('requestor','')) }} &nbsp;|&nbsp;

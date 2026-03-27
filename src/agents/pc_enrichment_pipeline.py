@@ -409,6 +409,44 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("ENRICH %s: oracle v2 error: %s", pc_id, e)
     ENRICHMENT_STATUS[pc_id]["steps_done"].append("oracle_v2")
 
+    # ── Step 8: Price trend detection (flag items with falling/rising prices) ─
+    _update_status(pc_id, "trends", "analyzing price trends")
+    trend_alerts = []
+    try:
+        from src.knowledge.won_quotes_db import get_price_history
+        for it in items[:15]:  # Limit to avoid slow lookups
+            desc = it.get("description", "")
+            pn = it.get("mfg_number", "") or it.get("part_number", "")
+            if not desc:
+                continue
+            # Only check items that have SCPRS pricing data
+            if not it["pricing"].get("scprs_price"):
+                continue
+            try:
+                history = get_price_history(pn, desc, months=6)
+                if history.get("trend") in ("rising", "falling") and history.get("matches", 0) >= 3:
+                    it["pricing"]["price_trend"] = history["trend"]
+                    it["pricing"]["trend_data"] = {
+                        "avg": history.get("avg_price"),
+                        "recent_avg": history.get("recent_avg"),
+                        "min": history.get("min_price"),
+                        "max": history.get("max_price"),
+                        "matches": history.get("matches"),
+                    }
+                    if history["trend"] == "falling":
+                        trend_alerts.append(f"{desc[:40]}: prices FALLING (avg ${history.get('avg_price', 0):.2f} → recent ${history.get('recent_avg', 0):.2f})")
+                    elif history["trend"] == "rising":
+                        trend_alerts.append(f"{desc[:40]}: prices RISING (avg ${history.get('avg_price', 0):.2f} → recent ${history.get('recent_avg', 0):.2f})")
+            except Exception:
+                pass
+    except ImportError:
+        pass
+    except Exception as e:
+        log.debug("ENRICH %s: trend detection error: %s", pc_id, e)
+    if trend_alerts:
+        log.info("ENRICH %s: %d price trend alerts", pc_id, len(trend_alerts))
+    ENRICHMENT_STATUS[pc_id]["steps_done"].append("trends")
+
     # ── Save enriched PC ─────────────────────────────────────────────────
     _update_status(pc_id, "saving", "persisting results")
     pc["items"] = items
@@ -416,7 +454,10 @@ def _run_pipeline(pc_id: str, force: bool):
         pc["parsed"]["line_items"] = items
     pc["enrichment_status"] = "complete"
     pc["enrichment_at"] = datetime.now().isoformat()
+    counters["trend_alerts"] = len(trend_alerts)
     pc["enrichment_summary"] = counters
+    if trend_alerts:
+        pc["trend_alerts"] = trend_alerts
     pc["auto_priced"] = True
     pc["auto_priced_count"] = counters["catalog_matched"] + counters["scprs_matched"] + counters["oracle_priced"]
     pc["auto_priced_at"] = datetime.now().isoformat()

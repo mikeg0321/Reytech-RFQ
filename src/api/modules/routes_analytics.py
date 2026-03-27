@@ -3593,6 +3593,28 @@ def api_dashboard_kpis():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/business-intel")
+@auth_required
+def business_intel_page():
+    """Business Intelligence dashboard — visual metrics page."""
+    from datetime import datetime as _dt
+    try:
+        # Reuse the API function's logic
+        resp = api_business_intel()
+        bi = json.loads(resp.get_data(as_text=True))
+        if not bi.get("ok"):
+            bi = {"bid_to_win": {"revenue_won": 0, "win_rate_pct": 0, "pipeline_value": 0, "avg_deal_size": 0, "total_bids": 0, "won": 0, "lost": 0, "cost_per_quote_est": 0},
+                  "customer_ltv": [], "competitors": [], "top_products": [],
+                  "time_to_quote": {"avg_days": 0, "min_days": 0, "max_days": 0, "sample_size": 0},
+                  "monthly_trend": []}
+    except Exception:
+        bi = {"bid_to_win": {"revenue_won": 0, "win_rate_pct": 0, "pipeline_value": 0, "avg_deal_size": 0, "total_bids": 0, "won": 0, "lost": 0, "cost_per_quote_est": 0},
+              "customer_ltv": [], "competitors": [], "top_products": [],
+              "time_to_quote": {"avg_days": 0, "min_days": 0, "max_days": 0, "sample_size": 0},
+              "monthly_trend": []}
+    return render_page("business_intel.html", active_page="BI", bi=bi, now=_dt.now().strftime("%Y-%m-%d %H:%M"))
+
+
 @bp.route("/api/analytics/business-intel")
 @auth_required
 def api_business_intel():
