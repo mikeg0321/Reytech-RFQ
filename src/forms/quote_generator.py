@@ -281,7 +281,7 @@ def _load_counter():
         return {}
 
 def _save_counter(data):
-    """Save counter to SQLite (primary) and JSON (backup)."""
+    """Save counter to SQLite — the single source of truth."""
     try:
         from src.core.db import set_setting
         set_setting("quote_counter_year", data.get("year", datetime.now().year))
@@ -289,14 +289,6 @@ def _save_counter(data):
         set_setting("quote_counter", data.get("seq", 16))  # legacy key compat
     except Exception as _e:
         log.warning("Counter SQLite save failed: %s", _e)
-    # Also write JSON as belt-and-suspenders backup
-    os.makedirs(DATA_DIR, exist_ok=True)
-    path = os.path.join(DATA_DIR, "quote_counter.json")
-    try:
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
-    except Exception:
-        pass
 
 def set_quote_counter(seq: int, year: int = None):
     """Manually set the quote counter (e.g., to sync with QuoteWerks)."""

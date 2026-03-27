@@ -2400,45 +2400,6 @@ def api_rfq_screenshot_confirm(rid):
     return jsonify({"ok": True, "added": added, "total_items": len(existing)})
 
 
-@bp.route("/api/rfq/<rid>/relink-pc", methods=["POST"])
-@auth_required
-def api_rfq_relink_pc(rid):
-    """Re-run PC auto-linking for an existing RFQ. Cleans duplicates and replaces with PC data."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"}), 404
-    try:
-        from src.api.dashboard import _link_rfq_to_pc, _load_price_checks
-        _trace = []
-        # Strip out previously PC-linked items so we start fresh
-        original_items = r.get("line_items", [])
-        clean_items = [i for i in original_items if not i.get("imported_from_pc") and not i.get("_added_from_pc")]
-        r["line_items"] = clean_items
-        _trace.append(f"Stripped {len(original_items) - len(clean_items)} old PC items, {len(clean_items)} remain")
-        # Clear existing PC link so it can re-match
-        r.pop("linked_pc_id", None)
-        r.pop("linked_pc_number", None)
-        r.pop("linked_pc_match_reason", None)
-        r.pop("source_pc", None)
-        # Re-run linking
-        linked = _link_rfq_to_pc(r, _trace)
-        if linked:
-            from src.api.dashboard import _save_single_rfq
-            _save_single_rfq(rid, r)
-            return jsonify({
-                "ok": True,
-                "linked_pc": r.get("linked_pc_id", ""),
-                "items": len(r.get("line_items", [])),
-                "trace": _trace,
-            })
-        else:
-            return jsonify({"ok": False, "error": "No matching PC found", "trace": _trace})
-    except Exception as e:
-        log.error("Relink PC error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
 @auth_required
 def api_rfq_autosave(rid):
@@ -7289,6 +7250,140 @@ def api_rfq_remove_form(rid, manifest_id):
     except Exception as e:
         log.error("Remove form failed: %s", e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/rfq/<rid>/refill/<form_id>", methods=["POST"])
+@auth_required
+def api_rfq_refill_form(rid, form_id):
+    """Refill a single form with updated data — inline editing from review page.
+
+    Accepts field_overrides in JSON body, merges into RFQ data, regenerates
+    only the specified form, runs QA, and resets verdict to pending.
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    data = request.get_json(force=True, silent=True) or {}
+    overrides = data.get("field_overrides", {})
+
+    # ── Merge overrides into RFQ ──
+    # Line item overrides: [{index: 0, price_per_unit: 123.45}, ...]
+    items = r.get("line_items", r.get("items", []))
+    for item_override in overrides.get("line_items", []):
+        idx = item_override.get("index")
+        if idx is not None and 0 <= idx < len(items):
+            for k, v in item_override.items():
+                if k == "index":
+                    continue
+                # 704B guard: block buyer-field changes
+                if form_id == "704b" and k in ("description", "qty", "uom", "department"):
+                    continue
+                items[idx][k] = v
+    r["line_items"] = items
+    r["items"] = items
+
+    # Top-level overrides (solicitation_number, custom_notes, etc.)
+    for k, v in overrides.items():
+        if k == "line_items":
+            continue
+        r[k] = v
+
+    # Update sign date
+    try:
+        from src.forms.reytech_filler_v4 import get_pst_date
+        r["sign_date"] = get_pst_date()
+    except ImportError:
+        from datetime import datetime as _dt
+        r["sign_date"] = _dt.now().strftime("%m/%d/%Y")
+
+    # Save updated RFQ
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+
+    # ── Find output path and template for this form ──
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out_dir, exist_ok=True)
+    tmpl = r.get("templates", {})
+
+    # Map form_id → fill function + template + output filename
+    TEMPLATE_DIR = os.path.join(DATA_DIR, "templates")
+    FORM_MAP = {
+        "703b":         {"fn": "fill_703b",    "tmpl_key": "703b",    "filename": f"{sol}_703B_Reytech.pdf"},
+        "703c":         {"fn": "fill_703c",    "tmpl_key": "703c",    "filename": f"{sol}_703C_Reytech.pdf"},
+        "704b":         {"fn": "fill_704b",    "tmpl_key": "704b",    "filename": f"{sol}_704B_Reytech.pdf"},
+        "bidpkg":       {"fn": "fill_bid_package", "tmpl_key": "bidpkg", "filename": f"{sol}_BidPackage_Reytech.pdf"},
+        "calrecycle74": {"fn": "fill_calrecycle_standalone", "tmpl_file": "calrecycle_74_blank.pdf", "filename": f"{sol}_CalRecycle74_Reytech.pdf"},
+        "darfur":       {"fn": "fill_darfur_standalone", "tmpl_file": "darfur_act_blank.pdf", "filename": f"{sol}_DarfurAct_Reytech.pdf"},
+        "cv012_cuf":    {"fn": "fill_cv012_cuf", "tmpl_file": "cv012_cuf_blank.pdf", "filename": f"{sol}_CV012_CUF_Reytech.pdf"},
+        "std204":       {"fn": "fill_std204",  "tmpl_file": "std204_blank.pdf", "filename": f"{sol}_STD204_Reytech.pdf"},
+        "std1000":      {"fn": "fill_std1000", "tmpl_file": "std1000_blank.pdf", "filename": f"{sol}_STD1000_Reytech.pdf"},
+        "bidder_decl":  {"fn": "fill_bidder_declaration", "tmpl_file": "bidder_declaration_blank.pdf", "filename": f"{sol}_BidderDecl_Reytech.pdf"},
+    }
+
+    if form_id == "quote":
+        # Quote uses a separate generation path
+        try:
+            from src.forms.quote_generator import generate_quote_from_rfq
+            locked_qn = r.get("reytech_quote_number", "")
+            _q_output = os.path.join(out_dir, f"{sol}_Quote_Reytech.pdf")
+            result = generate_quote_from_rfq(r, _q_output, quote_number=locked_qn)
+            if not result.get("ok"):
+                return jsonify({"ok": False, "error": f"Quote refill failed: {result.get('error')}"})
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Quote refill error: {e}"}), 500
+    elif form_id in FORM_MAP:
+        fm = FORM_MAP[form_id]
+        # Resolve template path
+        if "tmpl_key" in fm:
+            template_path = tmpl.get(fm["tmpl_key"], "")
+        else:
+            template_path = os.path.join(TEMPLATE_DIR, fm["tmpl_file"])
+        if not template_path or not os.path.exists(template_path):
+            return jsonify({"ok": False, "error": f"Template not found for {form_id}"}), 400
+
+        # Call the fill function
+        try:
+            import src.forms.reytech_filler_v4 as filler
+            fill_fn = getattr(filler, fm["fn"])
+            output_path = os.path.join(out_dir, fm["filename"])
+            fill_fn(template_path, r, CONFIG, output_path)
+        except Exception as e:
+            log.error("Refill %s failed: %s", form_id, e, exc_info=True)
+            return jsonify({"ok": False, "error": f"Fill failed: {e}"}), 500
+    else:
+        return jsonify({"ok": False, "error": f"Unknown form_id: {form_id}"}), 400
+
+    # ── Run QA on refilled form ──
+    _qa_result = {}
+    try:
+        from src.forms.form_qa import verify_single_form
+        _out_file = os.path.join(out_dir, FORM_MAP.get(form_id, {}).get("filename", ""))
+        if form_id == "quote":
+            _out_file = os.path.join(out_dir, f"{sol}_Quote_Reytech.pdf")
+        _qa_result = verify_single_form(_out_file, form_id, r, CONFIG)
+    except Exception as _qe:
+        log.debug("Refill QA skipped: %s", _qe)
+
+    # ── Reset verdict to pending ──
+    try:
+        from src.core.dal import get_latest_manifest, reset_form_verdict
+        manifest = get_latest_manifest(rid)
+        if manifest:
+            reset_form_verdict(manifest["id"], form_id)
+    except Exception as _rv:
+        log.warning("Verdict reset failed: %s", _rv)
+
+    log.info("REFILL %s/%s: success (overrides: %s)", rid, form_id,
+             list(overrides.keys()) if overrides else "none")
+
+    return jsonify({
+        "ok": True,
+        "form_id": form_id,
+        "qa": _qa_result,
+    })
 
 
 @bp.route("/api/rfq/<rid>/timeline")

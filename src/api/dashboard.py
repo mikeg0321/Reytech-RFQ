@@ -464,14 +464,7 @@ def save_rfqs(rfqs):
                     ))
         except Exception as e:
             log.error("SQLite write failed for rfqs: %s", str(e)[:200])
-        # ── BACKUP: Write JSON cache with data guard ──────────────────
-        try:
-            caller = traceback.extract_stack()[-2]
-            reason = f"{caller.filename.split('/')[-1]}:{caller.lineno} {caller.name}"
-            from src.core.data_guard import safe_save_json
-            safe_save_json(p, rfqs, reason=reason)
-        except Exception as e:
-            log.warning("JSON backup write failed for rfqs: %s", e)
+        # JSON backup writes removed — SQLite with data_json blob is authoritative
 
 def backfill_rfq_metadata(dry_run=False):
     """Extract solicitation numbers and due dates from existing RFQs that are missing them.
@@ -1393,16 +1386,7 @@ def _save_price_checks(pcs):
         except Exception as e:
             log.error("DB save failed for price_checks: %s", e)
 
-        # ── BACKUP: Write JSON cache with data guard ──────────────────
-        try:
-            import traceback
-            from src.core.data_guard import safe_save_json
-            caller = traceback.extract_stack()[-2]
-            reason = f"{caller.filename.split('/')[-1]}:{caller.lineno}"
-            path = os.path.join(DATA_DIR, "price_checks.json")
-            safe_save_json(path, pcs, reason=reason)
-        except Exception as e:
-            log.warning("JSON backup write failed for price_checks: %s", e)
+        # JSON backup writes removed — SQLite with data_json blob is authoritative
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):

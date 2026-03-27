@@ -1635,6 +1635,27 @@ def review_form(manifest_id, form_id, verdict, reviewed_by="user", notes=""):
         return False
 
 
+def reset_form_verdict(manifest_id, form_id):
+    """Reset a form's review verdict to 'pending' after a refill/edit."""
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                UPDATE package_review
+                SET verdict = 'pending', reviewed_at = NULL, reviewed_by = NULL,
+                    notes = COALESCE(notes, '') || ' [refilled ' || ? || ']'
+                WHERE manifest_id = ? AND form_id = ?
+            """, (datetime.now().strftime("%Y-%m-%d %H:%M"), manifest_id, form_id))
+            # Also reset manifest status back to draft if it was reviewed/approved
+            conn.execute("""
+                UPDATE package_manifest SET overall_status = 'draft'
+                WHERE id = ? AND overall_status IN ('reviewed', 'approved')
+            """, (manifest_id,))
+            return True
+    except Exception as e:
+        log.error("reset_form_verdict failed: %s", e)
+        return False
+
+
 def record_package_delivery(manifest_id, rfq_id, recipient_email, recipient_name="",
                             email_subject="", email_log_id=None, package_hash=""):
     """Record that a package was sent."""
