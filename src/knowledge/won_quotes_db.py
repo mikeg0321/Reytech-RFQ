@@ -694,8 +694,8 @@ def sync_from_scprs_tables() -> dict:
 
         # Read lines joined with master for supplier/agency/date
         rows = conn.execute("""
-            SELECT l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
-                   p.supplier, p.agency_key, p.start_date, l.category, l.line_num
+            SELECT l.id, l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
+                   p.supplier, p.agency_key, p.start_date, l.category
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id = p.id
             WHERE l.unit_price > 0 AND l.description != ''
@@ -703,23 +703,22 @@ def sync_from_scprs_tables() -> dict:
 
         now = datetime.now(timezone.utc).isoformat()
         for r in rows:
-            po_num = r[0] or ""
-            item_num = r[1] or ""
-            desc = r[2] or ""
-            price = float(r[3] or 0)
-            qty = float(r[4] or 1)
-            supplier = r[5] or ""
-            dept = r[6] or ""
-            award_date = r[7] or ""
-            line_num = r[9] if len(r) > 9 else 0
+            line_id = r[0]  # Unique PK from scprs_po_lines
+            po_num = r[1] or ""
+            item_num = r[2] or ""
+            desc = r[3] or ""
+            price = float(r[4] or 0)
+            qty = float(r[5] or 1)
+            supplier = r[6] or ""
+            dept = r[7] or ""
+            award_date = r[8] or ""
 
             if price <= 0 or not desc:
                 stats["skipped"] += 1
                 continue
 
-            # Use line_num in ID to prevent collisions when item_id is empty
-            item_key = item_num or str(line_num)
-            record_id = generate_record_id(po_num, item_key, desc)
+            # Use scprs_po_lines.id as unique key — prevents ALL collisions
+            record_id = f"wq_scprs_{line_id}"
             try:
                 conn.execute("""
                     INSERT OR IGNORE INTO won_quotes
