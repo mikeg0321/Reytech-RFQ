@@ -1393,36 +1393,41 @@ def _merge_save_pc(pc_id: str, pc_data: dict):
 
 
 def _is_user_facing_pc(pc: dict) -> bool:
-    """Canonical filter: is this PC for the standalone PC queue?
-    Auto-price PCs (created from RFQ imports) belong to the RFQ row, not the PC queue.
-    Standalone email PCs (Valentina's 704s) DO belong in the PC queue.
-    Simplified status model: new, draft, sent, not_responding.
-    Only new + draft show in active queue. Sent + not_responding → archive only.
-    Used by: home page, manager brief, workflow tester, pipeline summary."""
-    # Only hide email-created PCs if they're linked to an RFQ (auto-drafts that
-    # belong to the RFQ row). Standalone email PCs with items SHOULD show.
+    """Should this PC show in the PC queue on the homepage?
+
+    SHOW if: has items OR has a real solicitation/pc_number, AND not terminal.
+    HIDE if: linked to an RFQ (rfq_id set), OR terminal status, OR empty ghost.
+    """
+    # Hide PCs that belong to an RFQ row
     if pc.get("rfq_id"):
         return False
-    if (pc.get("source") == "email_auto_draft" or pc.get("is_auto_draft")):
-        # Still show if PC has items (it's a real standalone PC from email)
-        if not pc.get("items"):
-            return False
-    # Terminal / inactive statuses — only in archive
+
+    # Hide terminal statuses
     status = pc.get("status", "new")
-    if status in ("dismissed", "archived", "deleted", "duplicate", "no_response", "not_responding"):
+    if status in ("dismissed", "archived", "deleted", "duplicate",
+                  "no_response", "not_responding", "expired"):
         return False
-    if status in ("sent", "pending_award", "won", "lost", "expired"):
-        return False
-    # Parse errors with 0 items — nothing actionable
-    if status == "parse_error" and not pc.get("items"):
-        return False
-    # Ghost PCs: 0 items + draft/new status + no real solicitation
+
+    # Count items — handle both list and JSON string
     items = pc.get("items", [])
-    if len(items) == 0 and status in ("new", "draft", "parsed", ""):
-        sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
-        if not sol or sol == "unknown":
-            return False
-    return True
+    if isinstance(items, str):
+        try:
+            import json as _json
+            items = _json.loads(items)
+        except Exception:
+            items = []
+    item_count = len(items) if isinstance(items, list) else 0
+
+    # Has items → always show (regardless of source/auto_draft)
+    if item_count > 0:
+        return True
+
+    # No items — only show if has a real solicitation number
+    sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
+    if sol and sol != "unknown":
+        return True
+
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════
