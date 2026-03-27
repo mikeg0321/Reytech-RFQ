@@ -4067,7 +4067,34 @@ def generate_rfq_package(rid):
                 agency_key=_agency_key,
                 required_forms=_req_forms,
             )
-            _field_audits = _qa_report
+            # Transform QA report into flat per-form structure for the review template
+            # Template expects: audits[form_id] = {checks: [], warnings: [], errors: [], page_count, field_count}
+            _field_audits = {}
+            for _fid, _fr in _qa_report.get("form_results", {}).items():
+                _checks = []
+                _warnings = list(_fr.get("fields", {}).get("warnings", []))
+                _errors = list(_fr.get("fields", {}).get("issues", []))
+                _warnings.extend(_fr.get("signatures", {}).get("warnings", []))
+                _errors.extend(_fr.get("signatures", {}).get("issues", []))
+                if _fr.get("passed"):
+                    _checks.append("All fields verified")
+                if _fr.get("signatures", {}).get("passed"):
+                    _checks.append("Signature present")
+                _field_audits[_fid] = {
+                    "checks": _checks,
+                    "warnings": _warnings,
+                    "errors": _errors,
+                    "passed": _fr.get("passed", True),
+                    "page_count": _fr.get("fields", {}).get("page_count", 0),
+                    "field_count": _fr.get("fields", {}).get("field_count", 0),
+                }
+            # Store overall QA pass/fail for blocking
+            _field_audits["_qa_passed"] = _qa_report.get("passed", True)
+            _field_audits["_qa_summary"] = {
+                "forms_checked": _qa_report.get("forms_checked", 0),
+                "critical_issues": _qa_report.get("critical_issues", []),
+                "duration_ms": _qa_report.get("duration_ms", 0),
+            }
             if _qa_report.get("critical_issues"):
                 for _qi in _qa_report["critical_issues"]:
                     errors.append(f"QA: {_qi}")
@@ -7171,6 +7198,18 @@ def api_rfq_approve_package(rid, manifest_id):
     if rejected:
         return jsonify({"ok": False, "error": f"{len(rejected)} forms rejected",
                         "rejected": [r["form_id"] for r in rejected]})
+    # Block if Form QA failed
+    field_audit = manifest.get("field_audit") or {}
+    if isinstance(field_audit, str):
+        try:
+            field_audit = json.loads(field_audit)
+        except Exception:
+            field_audit = {}
+    if field_audit.get("_qa_passed") is False:
+        qa_issues = field_audit.get("_qa_summary", {}).get("critical_issues", [])
+        return jsonify({"ok": False,
+                        "error": f"Form QA failed with {len(qa_issues)} critical issue(s). Regenerate the package to fix.",
+                        "qa_issues": qa_issues[:5]})
     ok = update_manifest_status(manifest_id, "approved")
     if ok:
         log_lifecycle_event("rfq", rid, "package_approved",

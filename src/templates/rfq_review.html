@@ -91,6 +91,19 @@
   </div>
   {% endif %}
 
+  {% if manifest.field_audit and manifest.field_audit.get('_qa_passed') == false %}
+  <div class="rv-error" style="margin-bottom:12px">
+    <b>Form QA Failed</b> — {{ manifest.field_audit.get('_qa_summary', {}).get('critical_issues', [])|length }} critical issue(s) found. Fix errors before finalizing.
+    {% for issue in manifest.field_audit.get('_qa_summary', {}).get('critical_issues', [])[:5] %}
+    <div style="margin-top:4px">❌ {{ issue }}</div>
+    {% endfor %}
+  </div>
+  {% elif manifest.field_audit and manifest.field_audit.get('_qa_passed') == true %}
+  <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#3fb950;margin-bottom:8px">
+    ✅ <b>Form QA Passed</b> — {{ manifest.field_audit.get('_qa_summary', {}).get('forms_checked', 0) }} forms verified ({{ manifest.field_audit.get('_qa_summary', {}).get('duration_ms', 0) }}ms)
+  </div>
+  {% endif %}
+
   <div class="rv-3col">
     <!-- LEFT: Form Checklist -->
     <div class="rv-checklist">
@@ -463,7 +476,11 @@ function updateProgress(){
  document.getElementById('rv-progress-bar').style.width=(total>0?Math.round(reviewed/total*100):0)+'%';
  var btn=document.getElementById('rv-finalize-btn'),hint=document.getElementById('rv-finalize-hint');
  var rej=document.querySelectorAll('.rv-form-item[data-verdict="rejected"]').length;
- if(reviewed>=total&&total>0){
+ // Check QA blocking
+ var _qaBlocked=false;
+ try{var _audits={{ manifest.field_audit|tojson if manifest.field_audit else '{}' }};if(typeof _audits==='string')_audits=JSON.parse(_audits);_qaBlocked=(_audits._qa_passed===false);}catch(e){}
+ if(_qaBlocked){btn.disabled=true;btn.style.background='#f85149';btn.style.color='#fff';btn.textContent='❌ QA Failed — Cannot Finalize';hint.innerHTML='<div style="font-size:12px;color:#f85149;margin-top:4px">Fix QA errors above, then <a href="/rfq/'+RID+'" style="color:#f85149">regenerate the package</a>.</div>';}
+ else if(reviewed>=total&&total>0){
   if(rej>0){btn.disabled=true;btn.style.background='#d29922';btn.textContent='⚠️ '+rej+' form(s) rejected';hint.innerHTML='<div style="font-size:12px;margin-top:4px"><b>Options:</b></div><div style="font-size:12px;color:var(--tx2);margin-top:2px">1. Click the rejected form → change to ✅ Approve (with override note)</div><div style="font-size:12px;color:var(--tx2);margin-top:2px">2. <a href="/rfq/'+RID+'" style="color:#d29922">Return to RFQ</a> → fix data → Generate again</div>';}
   else{btn.disabled=false;btn.style.background='var(--gn)';btn.style.color='#fff';btn.textContent='✅ Finalize Package ('+approved+' forms)';hint.textContent='Ready to finalize';hint.style.color='#3fb950';}
  } else {btn.disabled=true;btn.style.background='rgba(139,148,158,.2)';btn.textContent='🔒 Finalize Package';hint.textContent=(total-reviewed)+' form(s) still need review';hint.style.color='var(--tx2)';}

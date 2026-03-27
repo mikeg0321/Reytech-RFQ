@@ -268,6 +268,57 @@ def _run_pipeline(pc_id: str, force: bool):
         log.warning("ENRICH %s: web lookup error: %s", pc_id, e)
     ENRICHMENT_STATUS[pc_id]["steps_done"].append("web_lookup")
 
+    # ── Step 5b: Claude web search for unpriced items (max 5) ────────────
+    _update_status(pc_id, "web_search", "searching web for unpriced items")
+    try:
+        from src.agents.web_price_research import search_product_price
+        ws_count = 0
+        for it in items:
+            if ws_count >= 5:
+                break  # Limit API calls
+            # Skip items that already have pricing data
+            if it.get("unit_price") and it["unit_price"] > 0:
+                continue
+            if it["pricing"].get("unit_cost") or it["pricing"].get("recommended_price"):
+                continue
+            desc = it.get("description", "")
+            pn = it.get("mfg_number", "") or it.get("part_number", "")
+            if not desc and not pn:
+                continue
+            try:
+                result = search_product_price(
+                    description=desc, part_number=pn,
+                    qty=it.get("qty", 1), uom=it.get("uom", "EA"),
+                )
+                if result.get("found") and result.get("price", 0) > 0:
+                    it["pricing"]["web_price"] = result["price"]
+                    it["pricing"]["web_source"] = result.get("source", "")
+                    it["pricing"]["web_url"] = result.get("url", "")
+                    it["pricing"]["unit_cost"] = result["price"]
+                    web_url = result.get("url", "")
+                    if web_url and not it.get("item_link"):
+                        it["item_link"] = web_url
+                        try:
+                            from src.agents.item_link_lookup import detect_supplier
+                            it["item_supplier"] = detect_supplier(web_url)
+                        except Exception:
+                            it["item_supplier"] = result.get("source", "Web")
+                    web_pn = result.get("part_number", "")
+                    if web_pn and not it.get("mfg_number"):
+                        it["mfg_number"] = web_pn
+                    counters["web_prices_found"] += 1
+                    ws_count += 1
+                    log.debug("ENRICH %s: web search found %s → $%.2f via %s",
+                              pc_id, desc[:40], result["price"], result.get("source", ""))
+                time.sleep(1.0)  # Rate limit
+            except Exception as e:
+                log.debug("ENRICH %s: web search error for '%s': %s", pc_id, desc[:40], e)
+    except ImportError:
+        log.debug("web_price_research not available")
+    except Exception as e:
+        log.debug("ENRICH %s: web search error: %s", pc_id, e)
+    ENRICHMENT_STATUS[pc_id]["steps_done"].append("web_search")
+
     # ── Step 6: Pricing oracle recommendations ───────────────────────────
     _update_status(pc_id, "pricing_oracle", f"0/{total} items")
     try:
