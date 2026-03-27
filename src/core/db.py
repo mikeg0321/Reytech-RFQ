@@ -2875,16 +2875,18 @@ def next_quote_number() -> str:
     then starts from max+1. No hardcoded defaults. No random fallback.
     """
     conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     try:
         conn.execute("BEGIN EXCLUSIVE")
-        
+
         # Ensure app_settings table exists
         conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (
             key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system'
         )""")
-        
+
         row = conn.execute("SELECT value FROM app_settings WHERE key='quote_counter'").fetchone()
-        
+
         if row:
             current = int(row[0])
         else:
@@ -2893,7 +2895,7 @@ def next_quote_number() -> str:
             max_num = 0
             year = datetime.now().strftime("%y")
             pattern = _re.compile(rf'^R{year}Q(\d+)$')
-            
+
             # Scan quotes table only — source of truth for issued quote numbers
             try:
                 for qrow in conn.execute("SELECT quote_number FROM quotes").fetchall():
@@ -2902,7 +2904,7 @@ def next_quote_number() -> str:
                         max_num = max(max_num, int(m.group(1)))
             except Exception:
                 pass
-            
+
             # Also scan rfq_data JSON files to catch quotes issued before DB existed
             try:
                 import os as _os, json as _json
@@ -2920,16 +2922,13 @@ def next_quote_number() -> str:
                                 pass
             except Exception:
                 pass
-            
+
             current = max_num
             log.info("Quote counter initialized from scan: max=%d, next=R%sQ%d", max_num, year, max_num + 1)
-        
+
         next_val = current + 1
 
         # ── GUARDRAIL: prevent counter jumps ──
-        # If counter was just initialized from scan and jumped wildly,
-        # cap it. The counter should never jump more than 5 from the
-        # last manually-set or known-good value.
         _last_good_row = conn.execute(
             "SELECT value FROM app_settings WHERE key='quote_counter_last_good'"
         ).fetchone()
@@ -2940,34 +2939,35 @@ def next_quote_number() -> str:
                 log.warning("Quote counter jump blocked: %d → %d (max allowed: %d). Using %d.",
                            current, next_val, _max_allowed, _last_good + 1)
                 next_val = _last_good + 1
-        # Track the value we're about to use as last-good
-        conn.execute("""
-            INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter_last_good',?,datetime('now'))
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
-        """, (str(next_val),))
 
-        conn.execute("""
-            INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter',?,datetime('now'))
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
-        """, (str(next_val),))
-        conn.commit()
         year = datetime.now().strftime("%y")
         quote_num = f"R{year}Q{next_val}"
 
-        # Verify no collision (belt + suspenders)
+        # Collision check INSIDE the exclusive transaction (prevents race)
         existing = conn.execute("SELECT 1 FROM quotes WHERE quote_number=?", (quote_num,)).fetchone()
         if existing:
             log.warning("Quote number collision: %s already exists! Incrementing.", quote_num)
             next_val += 1
             quote_num = f"R{year}Q{next_val}"
-            conn.execute("UPDATE app_settings SET value=?, updated_at=datetime('now') WHERE key='quote_counter'", (str(next_val),))
-            conn.execute("UPDATE app_settings SET value=?, updated_at=datetime('now') WHERE key='quote_counter_last_good'", (str(next_val),))
-            conn.commit()
-        
+
+        # Persist counter + last-good in single commit
+        conn.execute("""
+            INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter_last_good',?,datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        """, (str(next_val),))
+        conn.execute("""
+            INSERT INTO app_settings (key, value, updated_at) VALUES ('quote_counter',?,datetime('now'))
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+        """, (str(next_val),))
+        conn.commit()
+
         return quote_num
     except Exception as e:
         log.error("next_quote_number: %s", e)
-        conn.rollback()
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         # Last resort: timestamp-based (unique, never collides)
         ts = datetime.now().strftime("%H%M%S")
         return f"R{datetime.now().strftime('%y')}Q{ts}"

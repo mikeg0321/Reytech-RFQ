@@ -2819,7 +2819,8 @@ def rfq_upload_supplier_quote(rid):
     # Save uploaded file
     upload_dir = os.path.join(DATA_DIR, "uploads", "supplier_quotes")
     os.makedirs(upload_dir, exist_ok=True)
-    pdf_path = os.path.join(upload_dir, f"sq_{rid}_{f.filename}")
+    _safe_fn = _re_mod.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(f.filename or 'upload.pdf'))
+    pdf_path = os.path.join(upload_dir, f"sq_{rid}_{_safe_fn}")
     f.save(pdf_path)
 
     # Parse the quote
@@ -4706,6 +4707,58 @@ def delete_rfq(rid):
         _log_rfq_activity(rid, "deleted", f"RFQ #{sol} deleted", actor="user")
         flash(f"Deleted RFQ #{sol}", "success")
     return redirect("/")
+
+
+@bp.route("/api/rfq/<rid>/cancel", methods=["POST"])
+@auth_required
+def api_rfq_cancel(rid):
+    """Cancel an RFQ — preserves record for tracking but stops follow-ups.
+    Unlike delete, cancelled RFQs remain visible in analytics and can be reactivated."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    reason = data.get("reason", "Cancelled by user")
+    prev_status = r.get("status", "")
+    r["status"] = "cancelled"
+    r["cancelled_at"] = datetime.now().isoformat()
+    r["cancelled_reason"] = reason
+    r["_prev_status"] = prev_status  # For reactivation
+    _save_single_rfq(rid, r)
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "cancelled", f"Cancelled: {reason} (was: {prev_status})",
+                            actor="user", detail={"reason": reason, "prev_status": prev_status})
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
+    log.info("Cancelled RFQ %s (sol=%s): %s", rid, r.get("solicitation_number", "?"), reason)
+    return jsonify({"ok": True, "status": "cancelled", "prev_status": prev_status})
+
+
+@bp.route("/api/rfq/<rid>/reactivate", methods=["POST"])
+@auth_required
+def api_rfq_reactivate(rid):
+    """Reactivate a cancelled RFQ — restores previous status."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"})
+    if r.get("status") != "cancelled":
+        return jsonify({"ok": False, "error": f"RFQ is not cancelled (status: {r.get('status')})"})
+    prev = r.pop("_prev_status", "new")
+    r["status"] = prev
+    r.pop("cancelled_at", None)
+    r.pop("cancelled_reason", None)
+    _save_single_rfq(rid, r)
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "reactivated", f"Reactivated: restored to {prev}",
+                            actor="user")
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
+    log.info("Reactivated RFQ %s (sol=%s) → %s", rid, r.get("solicitation_number", "?"), prev)
+    return jsonify({"ok": True, "status": prev})
 
 
 # ═══════════════════════════════════════════════════════════════════════

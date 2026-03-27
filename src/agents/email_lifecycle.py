@@ -96,7 +96,7 @@ def bulk_approve(email_ids: list = None) -> dict:
         with get_db() as conn:
             if email_ids:
                 placeholders = ",".join("?" for _ in email_ids)
-                conn.execute("""
+                conn.execute(f"""
                     UPDATE email_outbox SET status = 'approved', approved_at = ?
                     WHERE id IN ({placeholders}) AND status = 'draft'
                 """, [now] + list(email_ids))
@@ -105,8 +105,8 @@ def bulk_approve(email_ids: list = None) -> dict:
                     UPDATE email_outbox SET status = 'approved', approved_at = ?
                     WHERE status = 'draft'
                 """, (now,))
-    except Exception:
-        pass  # DB is secondary
+    except Exception as e:
+        log.warning("Bulk approve DB sync failed: %s", e)
 
     log.info("Bulk approved %d emails", approved)
     return {"ok": True, "approved": approved}
@@ -189,8 +189,7 @@ def retry_failed_emails() -> dict:
             log.info("Re-queued email %s for retry (attempt %d)", email.get("id"), email.get("retry_count", 0))
 
     if retried:
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        _save_outbox_json(outbox)
 
     return {"ok": True, "retried": retried}
 

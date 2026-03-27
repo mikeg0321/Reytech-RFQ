@@ -2693,7 +2693,9 @@ def api_rfq_upload_pc(rid):
     # Save uploaded file
     upload_dir = os.path.join(DATA_DIR, "uploads")
     os.makedirs(upload_dir, exist_ok=True)
-    pdf_path = os.path.join(upload_dir, f"pc_import_{rid}_{f.filename}")
+    import re as _re_safe
+    _safe_fn = _re_safe.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(f.filename or 'upload.pdf'))
+    pdf_path = os.path.join(upload_dir, f"pc_import_{rid}_{_safe_fn}")
     f.save(pdf_path)
 
     # Parse the 704

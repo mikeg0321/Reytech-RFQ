@@ -63,30 +63,35 @@ def _save_pc_revisions(revisions):
         json.dump(revisions, f, indent=2, default=str)
 
 def _save_pc_revision(pcid, pc, reason="edit"):
-    """Snapshot current PC state before changes are applied."""
-    from datetime import datetime as _dt
-    revisions = _load_pc_revisions()
-    if pcid not in revisions:
-        revisions[pcid] = []
+    """Snapshot current PC state before changes are applied.
+    Safe to call without try/except — logs errors internally."""
+    try:
+        from datetime import datetime as _dt
+        revisions = _load_pc_revisions()
+        if pcid not in revisions:
+            revisions[pcid] = []
 
-    # Create snapshot — just items + metadata (not the full parsed object)
-    snapshot = {
-        "revision": len(revisions[pcid]) + 1,
-        "saved_at": _dt.now().isoformat(),
-        "reason": reason,
-        "items": json.loads(json.dumps(pc.get("items", []), default=str)),
-        "status": pc.get("status", ""),
-        "pc_number": pc.get("pc_number", ""),
-    }
-    revisions[pcid].append(snapshot)
+        # Create snapshot — just items + metadata (not the full parsed object)
+        snapshot = {
+            "revision": len(revisions[pcid]) + 1,
+            "saved_at": _dt.now().isoformat(),
+            "reason": reason,
+            "items": json.loads(json.dumps(pc.get("items", []), default=str)),
+            "status": pc.get("status", ""),
+            "pc_number": pc.get("pc_number", ""),
+        }
+        revisions[pcid].append(snapshot)
 
-    # Keep last 20 revisions per PC
-    if len(revisions[pcid]) > 20:
-        revisions[pcid] = revisions[pcid][-20:]
+        # Keep last 20 revisions per PC
+        if len(revisions[pcid]) > 20:
+            revisions[pcid] = revisions[pcid][-20:]
 
-    _save_pc_revisions(revisions)
-    log.info("PC revision saved: %s rev#%d (%s)", pcid, snapshot["revision"], reason)
-    return snapshot
+        _save_pc_revisions(revisions)
+        log.info("PC revision saved: %s rev#%d (%s)", pcid, snapshot["revision"], reason)
+        return snapshot
+    except Exception as e:
+        log.warning("PC revision save failed for %s (%s): %s", pcid, reason, e)
+        return None
 
 
 @bp.route("/api/pricecheck/<pcid>/revisions")
@@ -162,8 +167,8 @@ def pricecheck_trim_items(pcid):
     # Save revision before trimming
     try:
         _save_pc_revision(pcid, pc, reason="trim")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     removed = len(items) - keep
     pc["items"] = items[:keep]
@@ -202,8 +207,8 @@ def pricecheck_split(pcid):
 
     try:
         _save_pc_revision(pcid, pc, reason="split")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     import uuid as _uuid
     new_id = f"pc_{str(_uuid.uuid4())[:8]}"
@@ -498,8 +503,8 @@ def _pricecheck_detail_inner(pcid):
                 try:
                     from urllib.parse import urlparse
                     _domain = urlparse(a_url).hostname or ""
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
                 if "walmart" in _domain: a_source = "Walmart"
                 elif "ebay" in _domain: a_source = "eBay"
                 elif "staples" in _domain: a_source = "Staples"
@@ -860,6 +865,28 @@ def _pricecheck_detail_inner(pcid):
     if _qp and os.path.exists(_qp):
         _existing_quote_url = f"/api/pricecheck/download/{os.path.basename(_qp)}"
 
+    # SCPRS data staleness check
+    _scprs_staleness = None
+    try:
+        from src.core.institution_resolver import resolve_agency
+        _agency_key = resolve_agency(pc.get("institution", "") or header.get("institution", ""))
+        if _agency_key:
+            from src.core.db import get_db as _sdb
+            with _sdb() as _sconn:
+                _srow = _sconn.execute(
+                    "SELECT last_pull, pull_interval_hours FROM scprs_pull_schedule WHERE agency_key=?",
+                    (_agency_key,)
+                ).fetchone()
+                if _srow and _srow[0]:
+                    from datetime import datetime as _sdt
+                    _last = _sdt.fromisoformat(_srow[0].replace("Z", "+00:00") if "Z" in _srow[0] else _srow[0])
+                    _age_hrs = (datetime.now() - _last.replace(tzinfo=None)).total_seconds() / 3600
+                    _interval = _srow[1] or 24
+                    if _age_hrs > _interval * 1.5:
+                        _scprs_staleness = {"agency": _agency_key, "hours_old": round(_age_hrs, 1), "interval": _interval}
+    except Exception:
+        pass
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
@@ -872,6 +899,7 @@ def _pricecheck_detail_inner(pcid):
         catalog_count=catalog_count,
         existing_704_url=_existing_704_url,
         existing_quote_url=_existing_quote_url,
+        scprs_staleness=_scprs_staleness,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")
@@ -1016,8 +1044,8 @@ def pricecheck_scprs_lookup(pcid):
                                 sell_price=0,
                                 source="scprs_kb_match",
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                     found += 1
             except Exception as e:
                 log.error(f"SCPRS lookup error: {e}")
@@ -1525,8 +1553,8 @@ def _do_save_prices(pcid):
                                 "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
                                 (_url, pid))
                             conn.commit(); conn.close()
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("Suppressed: %s", _e)
                     _cat_updated += 1
                 else:
                     pid = add_to_catalog(
@@ -1790,8 +1818,8 @@ def pricecheck_reparse(pcid):
                             "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
                             (pcid,)
                         ).fetchone()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
                 if row and row["data"]:
                     restore_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
                     os.makedirs(restore_dir, exist_ok=True)
@@ -2061,8 +2089,8 @@ def _do_generate(pcid):
                             "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
                             (pcid,)
                         ).fetchone()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
                 if row and row["data"]:
                     restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
                     os.makedirs(restore_dir, exist_ok=True)
@@ -2282,8 +2310,8 @@ def _do_generate_original(pcid):
                             "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
                             (pcid,)
                         ).fetchone()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
                 if row and row["data"]:
                     restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
                     os.makedirs(restore_dir, exist_ok=True)
@@ -2328,8 +2356,8 @@ def _do_generate_original(pcid):
                 _tr = _gtr(zip_code=_zip)
                 if _tr and _tr.get("rate"):
                     _pc_tax_rate = _tr["rate"]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     if _pc_tax_rate == 0.0:
         log.warning("GENERATE-ORIGINAL %s: tax_rate=0 — no rate stored and lookup failed", pcid)
 
@@ -2397,8 +2425,8 @@ def pricecheck_generate_quote(pcid):
         if not validation["ok"]:
             t.fail("Validation failed", errors=validation["errors"])
             return jsonify({"ok": False, "error": f"Cannot generate: {'; '.join(validation['errors'])}"})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     pc_num = pc.get("pc_number", "") or ""
     t.step("Starting", pc_number=pc_num, institution=pc.get("institution",""), items=len(pc.get("items",[])))
@@ -2780,10 +2808,10 @@ def api_resync():
                 conn.execute("DELETE FROM processed_emails")
                 try:
                     conn.execute("DELETE FROM email_fingerprints")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         log.info("Resync: cleared processed_emails (JSON + SQLite + fingerprints)")
         
         # ── 4. Reset poller + re-poll ──
@@ -2846,8 +2874,8 @@ def api_email_debug():
             with open(proc_file) as f:
                 proc_data = json.load(f)
                 proc_count = len(proc_data) if isinstance(proc_data, (list, dict)) else 0
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     # Get poller diagnostics
     diag = {}
@@ -3204,8 +3232,8 @@ def api_scprs(rid):
                                         # Re-init session after detail (state is fragile)
                                         try:
                                             session.init_session()
-                                        except Exception:
-                                            pass
+                                        except Exception as _e:
+                                            log.debug("Suppressed: %s", _e)
                                 except Exception as _de:
                                     log.debug("Detail attempt: %s", _de)
                             
@@ -3236,8 +3264,8 @@ def api_scprs(rid):
                             # Try to recover session
                             try:
                                 session.init_session()
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("Suppressed: %s", _e)
                     
                     if best_result:
                         results[idx] = best_result
@@ -3254,8 +3282,8 @@ def api_scprs(rid):
                                     po_number=best_result.get("po_number", ""),
                                     source="fiscal_scprs"
                                 )
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("Suppressed: %s", _e)
                     else:
                         results[idx] = {
                             "price": None,
@@ -3303,8 +3331,8 @@ def api_scprs(rid):
                     award_date=res.get("date", ""),
                     source=res.get("source", "scprs_live"),
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
         
         try:
             from src.core.db import record_price as _rp_scprs
@@ -3315,8 +3343,8 @@ def api_scprs(rid):
                 agency=res.get("department", ""),
                 notes=f"SCPRS vendor: {res.get('vendor', '')}"
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         try:
             from src.agents.product_catalog import add_to_catalog, init_catalog_db
@@ -3327,8 +3355,8 @@ def api_scprs(rid):
                 source="scprs_live",
                 supplier_name=res.get("vendor", ""),
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     
     found = sum(1 for r in results if r and r.get("price"))
     log.info("SCPRS batch: %d/%d prices found for RFQ %s", found, len(items), rid)
@@ -3397,8 +3425,8 @@ def api_scprs_bulk(rid):
                     log.debug("Bulk SCPRS search '%s': %s", term, e)
                     try:
                         session.init_session()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
             
             # Extract best result
             best = None
@@ -3569,10 +3597,10 @@ def api_poll_reset_processed():
             conn.execute("DELETE FROM processed_emails")
             try:
                 conn.execute("DELETE FROM email_fingerprints")
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
     
     # Step 2: Kill the shared poller so a fresh one gets created
     _shared_poller = None
@@ -3623,8 +3651,8 @@ def api_inbox_peek():
                 import json as _j
                 with open(proc_file) as f:
                     processed_json = set(str(x) for x in _j.load(f))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         # Load processed UIDs from SQLite
         processed_db = set()
@@ -3633,8 +3661,8 @@ def api_inbox_peek():
             with get_db() as conn:
                 rows = conn.execute("SELECT uid FROM processed_emails").fetchall()
                 processed_db = set(str(r[0]) for r in rows)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         all_processed = processed_json | processed_db
         
@@ -3718,8 +3746,8 @@ def api_nuke_and_poll():
         _old_poller._processed.clear()
         try:
             _old_poller._save_processed()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
     
     # Kill dashboard's poller (this is the one _safe_do_poll_check uses)
     _dash._shared_poller = None
@@ -4528,8 +4556,8 @@ def pricechecks_archive():
                 elif _dd < 30: sent_elapsed = f"{_dd}d ago"
                 elif _dd < 60: sent_elapsed = "1mo ago"
                 else: sent_elapsed = f"{_dd // 30}mo ago"
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
         # Build rich search index with all visible fields
         search_index = f"{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()} {p['display_status']} {badge_label.lower()} {due_str} {date_str}"
         # Overdue detection
@@ -4537,8 +4565,8 @@ def pricechecks_archive():
         try:
             if p.get("due_date") and p["due_date"][:10] < datetime.now().strftime("%Y-%m-%d") and st not in ('sent','won','lost','archived','no_response','duplicate','dismissed'):
                 is_overdue = True
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         overdue_style = "border-left:3px solid #f85149;" if is_overdue else ""
         due_color = "#f85149;font-weight:700" if is_overdue else "var(--tx2)"
         rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" data-id="{p['id']}" style="cursor:pointer;{overdue_style}" onclick="if(!event.target.closest('input,button'))location.href='/pricecheck/{p['id']}'">
@@ -5228,8 +5256,8 @@ def api_pc_retry_auto_price(pcid):
     try:
         from src.core.db import init_db
         init_db()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     # Try 1: DB with pc_data blob
     try:
@@ -5262,8 +5290,8 @@ def api_pc_retry_auto_price(pcid):
             if pcid in pcs:
                 pc = pcs[pcid]
                 source = "load_func"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     if not pc:
         return jsonify({"ok": False, "error": "PC not found in DB, JSON, or load function", "pc_id": pcid})
@@ -7606,8 +7634,8 @@ def api_diag_pc(pcid):
         except Exception:
             result["pc_data_column"] = False
         conn.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
 
     result["diagnosis"] = "PC not found anywhere" if not result["found_in"] else f"Found in: {', '.join(result['found_in'])}"
     return jsonify(result)
@@ -7919,8 +7947,8 @@ def api_quote_fix():
                     if m:
                         max_num = max(max_num, int(m.group(1)))
                     result["fixes"].append(f"PC {pc['id'][:20]} has quote {pc['quote_number']}")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
             
             # 4. Also scan rfqs.json for quote numbers
             try:
@@ -7933,8 +7961,8 @@ def api_quote_fix():
                         if m:
                             max_num = max(max_num, int(m.group(1)))
                         result["fixes"].append(f"RFQ {rid[:25]} has quote {qn}")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
             
             # 5. Set counter to max
             conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (
@@ -8078,8 +8106,8 @@ def api_rescrape_unpriced(pcid):
                                 if not item.get("pricing"):
                                     item["pricing"] = {}
                                 item["pricing"]["amazon_asin"] = _amz_asin
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("Suppressed: %s", _e)
             # Update MFG#/description from scrape
             _pn = r.get("mfg_number") or r.get("part_number") or ""
             if _pn and not item.get("item_number"):
@@ -8279,8 +8307,8 @@ def api_pc_send_quote(pcid):
                     tmp.write(full["data"])
                     tmp.close()
                     pdf_path = tmp.name
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
     if not pdf_path:
         return jsonify({"ok": False, "error": "No generated PDF found — generate first"})
@@ -8326,8 +8354,8 @@ def api_pc_send_quote(pcid):
             _log_crm_activity(pcid, "pc_quote_sent",
                 f"Quote {qn} sent to {to_email} for PC #{pc_num}",
                 actor="user")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
 
         return jsonify({"ok": True, "sent_to": to_email, "quote": qn})
     except Exception as e:
