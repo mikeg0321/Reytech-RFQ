@@ -49,6 +49,26 @@
  <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
  <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
 </div>
+<!-- ═══ Action Items Panel ═══ -->
+{% if action_items|default([])|length > 0 %}
+<div style="margin-bottom:14px;padding:14px 18px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+  <div style="font-size:15px;font-weight:700;color:var(--tx)">Action Items <span style="font-size:13px;color:var(--tx2);font-weight:400">({{ action_items|length }})</span></div>
+  <button onclick="this.closest('div[style]').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:16px;padding:2px 6px">×</button>
+ </div>
+ {% for item in action_items[:8] %}
+ <a href="{{ item.url }}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;text-decoration:none;color:var(--tx);font-size:14px;border-bottom:1px solid rgba(139,148,158,.08){% if item.type == 'overdue' %};background:rgba(248,81,73,.06){% elif item.type == 'critical' %};background:rgba(210,153,34,.06){% elif item.type == 'circuit' %};background:rgba(248,81,73,.06){% endif %}" onmouseover="this.style.background='rgba(79,140,255,.06)'" onmouseout="this.style.background=''">
+  <span style="font-size:18px;flex-shrink:0">{{ item.icon }}</span>
+  <span style="flex:1">{{ item.text }}</span>
+  <span style="color:var(--tx2);font-size:13px;flex-shrink:0">→</span>
+ </a>
+ {% endfor %}
+ {% if action_items|length > 8 %}
+ <div style="text-align:center;padding:6px;font-size:13px;color:var(--tx2)">+{{ action_items|length - 8 }} more</div>
+ {% endif %}
+</div>
+{% endif %}
+
 <script>
 // Toast notification — replaces alert() for non-blocking feedback
 function showMsg(msg, type) {

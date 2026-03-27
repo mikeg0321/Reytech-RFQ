@@ -3672,7 +3672,8 @@ def api_business_intel():
                 SELECT supplier, COUNT(*) as po_count,
                        SUM(quantity * unit_price) as total_value,
                        COUNT(DISTINCT department) as agencies_served,
-                       MIN(award_date) as first_seen, MAX(award_date) as last_seen
+                       MIN(award_date) as first_seen, MAX(award_date) as last_seen,
+                       ROUND(AVG(unit_price), 2) as avg_price
                 FROM won_quotes
                 WHERE supplier IS NOT NULL AND supplier != '' AND source != 'pc_vendor_cost'
                 GROUP BY supplier ORDER BY total_value DESC LIMIT 15
@@ -3683,8 +3684,44 @@ def api_business_intel():
                     "po_count": r[1],
                     "total_value": float(r[2] or 0),
                     "agencies_served": r[3],
+                    "avg_price": float(r[6] or 0),
                     "first_seen": r[4],
                     "last_seen": r[5],
+                })
+        except Exception:
+            pass
+
+        # ── 3b. Win/Loss Against Competitors ──
+        # Cross-reference our lost quotes with SCPRS awards to find who beat us
+        bi["head_to_head"] = []
+        try:
+            # Find departments where we lost, then see who won the award
+            h2h_rows = conn.execute("""
+                SELECT wq.supplier as winner, COUNT(DISTINCT q.quote_number) as times_beat_us,
+                       ROUND(AVG(wq.unit_price), 2) as their_avg_price,
+                       ROUND(AVG(q.total / NULLIF(q.items_count, 0)), 2) as our_avg_price,
+                       GROUP_CONCAT(DISTINCT wq.department) as departments
+                FROM quotes q
+                JOIN won_quotes wq ON (
+                    wq.department = q.agency
+                    AND wq.award_date >= q.created_date
+                    AND wq.award_date <= date(q.created_date, '+60 days')
+                    AND wq.source != 'pc_vendor_cost'
+                )
+                WHERE q.is_test = 0 AND q.status = 'lost'
+                  AND wq.supplier IS NOT NULL AND wq.supplier != ''
+                  AND wq.supplier NOT LIKE '%reytech%'
+                GROUP BY wq.supplier
+                HAVING times_beat_us >= 1
+                ORDER BY times_beat_us DESC LIMIT 10
+            """).fetchall()
+            for r in h2h_rows:
+                bi["head_to_head"].append({
+                    "competitor": r[0],
+                    "times_beat_us": r[1],
+                    "their_avg_price": float(r[2] or 0),
+                    "our_avg_price": float(r[3] or 0),
+                    "departments": (r[4] or "")[:60],
                 })
         except Exception:
             pass

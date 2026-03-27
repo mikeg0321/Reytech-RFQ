@@ -109,6 +109,35 @@
  </div>
 </div>
 
+<!-- Row 3b: Head-to-Head Competitor Analysis -->
+{% if bi.head_to_head %}
+<div class="card" style="margin-bottom:20px">
+ <div class="card-t">Head-to-Head: Who Beats Us?</div>
+ <table style="width:100%;font-size:14px;margin-top:10px;border-collapse:collapse">
+  <thead>
+   <tr style="border-bottom:1px solid var(--bd);text-align:left">
+    <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Competitor</th>
+    <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Times Beat Us</th>
+    <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Their Avg Price</th>
+    <th style="padding:6px 8px;color:var(--tx2);font-weight:600;text-align:right">Our Avg Price</th>
+    <th style="padding:6px 8px;color:var(--tx2);font-weight:600">Agencies</th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for h in bi.head_to_head %}
+   <tr style="border-bottom:1px solid rgba(139,148,158,.1)">
+    <td style="padding:6px 8px;font-weight:500">{{ h.competitor[:30] }}</td>
+    <td style="padding:6px 8px;text-align:right;color:#f85149;font-weight:700">{{ h.times_beat_us }}</td>
+    <td style="padding:6px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#3fb950">${{ "%.2f"|format(h.their_avg_price) }}</td>
+    <td style="padding:6px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#f85149">${{ "%.2f"|format(h.our_avg_price) }}</td>
+    <td style="padding:6px 8px;color:var(--tx2);font-size:13px">{{ h.departments }}</td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+</div>
+{% endif %}
+
 <!-- Row 4: Top Products + SLA -->
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;margin-bottom:20px">
  <div class="card">

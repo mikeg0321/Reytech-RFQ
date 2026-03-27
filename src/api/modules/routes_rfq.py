@@ -401,9 +401,55 @@ def home():
         3 if x[1].get("status") in ("sent","generated") else 0 if x[1].get("_urgency") in ("overdue","critical") else 1,
         x[1].get("due_date", "9999"),
     )))
-    log.info("HOME: rendering template, %d PCs + %d RFQs, total %.0fms", 
-             len(sorted_pcs), len(active_rfqs), (_ht.time()-_t0)*1000)
-    return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs, sent_rfqs=sent_rfqs, sent_pcs=sent_pcs)
+    # ── Build action items panel ──
+    action_items = []
+    # Overdue PCs
+    for pid, pc in sorted_pcs.items():
+        if pc.get("_urgency") == "overdue":
+            action_items.append({"type": "overdue", "icon": "🔴", "text": f"PC #{pc.get('pc_number', pid[:8])} OVERDUE — {pc.get('institution', 'Unknown')}", "url": f"/pricecheck/{pid}", "priority": 0})
+        elif pc.get("_urgency") == "critical":
+            action_items.append({"type": "critical", "icon": "🟡", "text": f"PC #{pc.get('pc_number', pid[:8])} due TOMORROW — {pc.get('institution', 'Unknown')}", "url": f"/pricecheck/{pid}", "priority": 1})
+    # PCs priced >48h ago without conversion (suggest RFQ)
+    for pid, pc in all_pcs.items():
+        if pc.get("status") == "priced" and pc.get("auto_priced_at"):
+            try:
+                priced_at = datetime.fromisoformat(pc["auto_priced_at"])
+                hours_old = (_today - priced_at.replace(tzinfo=None)).total_seconds() / 3600
+                if hours_old > 48:
+                    action_items.append({"type": "convert", "icon": "📤", "text": f"PC #{pc.get('pc_number', pid[:8])} priced {int(hours_old)}h ago — ready to convert to RFQ?", "url": f"/pricecheck/{pid}", "priority": 2})
+            except Exception:
+                pass
+    # Trend alerts from enriched PCs
+    for pid, pc in all_pcs.items():
+        for alert in (pc.get("trend_alerts") or [])[:2]:
+            action_items.append({"type": "trend", "icon": "📉", "text": alert, "url": f"/pricecheck/{pid}", "priority": 3})
+    # Expiring quotes (sent >25 days ago)
+    try:
+        from src.core.db import get_db as _hdb
+        with _hdb() as _hconn:
+            _exp_rows = _hconn.execute(
+                "SELECT quote_number, agency, total, contact_email, JULIANDAY('now') - JULIANDAY(sent_at) as days "
+                "FROM quotes WHERE is_test=0 AND status='sent' AND sent_at IS NOT NULL "
+                "AND JULIANDAY('now') - JULIANDAY(sent_at) BETWEEN 25 AND 30 "
+                "ORDER BY sent_at LIMIT 5"
+            ).fetchall()
+            for r in _exp_rows:
+                action_items.append({"type": "expiring", "icon": "⏰", "text": f"Quote {r[0]} ({r[1]}) expires in {30 - int(r[4] or 0)}d — ${float(r[2] or 0):,.0f}", "url": f"/quotes", "priority": 2})
+    except Exception:
+        pass
+    # Circuit breaker alerts
+    try:
+        from src.core.circuit_breaker import all_status as _cb_status
+        for cb in _cb_status():
+            if cb["state"] == "open":
+                action_items.append({"type": "circuit", "icon": "⚡", "text": f"{cb['name']} API circuit OPEN — {cb['failure_count']} failures", "url": "/api/system/circuits", "priority": 1})
+    except Exception:
+        pass
+    action_items.sort(key=lambda x: x.get("priority", 9))
+
+    log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
+             len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
+    return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs, sent_rfqs=sent_rfqs, sent_pcs=sent_pcs, action_items=action_items)
 
 @bp.route("/growth")
 @auth_required
