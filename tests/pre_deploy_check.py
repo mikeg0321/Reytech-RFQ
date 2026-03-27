@@ -340,7 +340,7 @@ if ERRORS:
     print(f"❌ {len(ERRORS)} ISSUES FOUND — DO NOT DEPLOY")
     for label, err in ERRORS:
         print(f"  • {label}")
-    sys.exit(1)
+    os._exit(1)  # Force exit — background daemon threads from app import would hang sys.exit
 else:
     print("✅ ALL CHECKS PASSED — safe to deploy")
-    sys.exit(0)
+    os._exit(0)  # Force exit — background daemon threads from app import would hang sys.exit
