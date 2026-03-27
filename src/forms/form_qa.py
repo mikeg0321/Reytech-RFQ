@@ -131,6 +131,75 @@ FORM_FIELD_REGISTRY = {
         "signature_fields": [],
         "pricing_required": True,
     },
+    # ── Standalone forms (field names from actual template PDF dumps) ──
+    "calrecycle74": {
+        "prefix_detect": False,
+        "required_fields": {
+            "ContractorCompany Name": "company.name",
+            "Address": "company.address",
+            "Phone": "company.phone",
+            "Email": "company.email",
+            "Print Name": "company.owner",
+            "Title": "company.title",
+            "State Agency": "rfq.agency",
+        },
+        "date_fields": ["Date"],
+        "signature_fields": ["Signature"],
+    },
+    "darfur": {
+        "prefix_detect": False,
+        "required_fields": {
+            "CompanyVendor Name": "company.name",
+            "Federal ID Number": "company.fein",
+            "Printed Name and Title of Person Signing": "company.owner",
+        },
+        "date_fields": ["Date of signature"],
+        "signature_fields": ["Authorized Signature"],
+    },
+    "cv012_cuf": {
+        "prefix_detect": False,
+        "required_fields": {
+            "form1[0].#subform[0].DoingBusinessAs[0]": "company.name",
+            "form1[0].#subform[0].OSDSRefNumber[0]": "company.cert_number",
+            "form1[0].#subform[0].SolicitationNumber[0]": "rfq.solicitation_number",
+            "form1[0].#subform[1].PrintedName[0]": "company.owner",
+            "form1[0].#subform[1].Title[0]": "company.title",
+        },
+        "date_fields": ["form1[0].#subform[1].Date[0]"],
+        "signature_fields": ["form1[0].#subform[1].AuthorizedRepresentative[0]"],
+    },
+    "std204": {
+        "prefix_detect": False,
+        "required_fields": {
+            "NAME (This is required. Do not leave this line blank. Must match the payee\u2019s federal tax return)": "company.name",
+            "Federal Employer Identification Number (FEIN)": "company.fein",
+            "MAILING ADDRESS (number, street, apt. or suite no.) (See instructions on Page 2)": "company.address",
+            "NAME OF AUTHORIZED PAYEE REPRESENTATIVE": "company.owner",
+            "TITLE": "company.title",
+        },
+        "date_fields": ["DATE"],
+        "signature_fields": ["Signature4"],
+    },
+    "std1000": {
+        "prefix_detect": False,
+        "required_fields": {
+            "Business Name": "company.name",
+            "Business Address": "company.address",
+            "Business Telephone Number": "company.phone",
+            "Solicitation  Contract Number": "rfq.solicitation_number",
+        },
+        "date_fields": ["Date"],
+        "signature_fields": ["Signature"],
+    },
+    "bidder_decl": {
+        "prefix_detect": False,
+        "required_fields": {
+            "Solicitaion #": "rfq.solicitation_number",
+            "Text1": "static:SB/DVBE",
+        },
+        "date_fields": [],
+        "signature_fields": [],  # Sig is on rotated page — skip for QA
+    },
 }
 
 # Forms that are INSIDE the bid package — never generate standalone for CCHCS
@@ -525,3 +594,50 @@ def run_form_qa(
             log.warning("Form QA ISSUE: %s", issue)
 
     return report
+
+
+def verify_single_form(pdf_path: str, form_id: str, data: dict = None, config: dict = None) -> dict:
+    """Lightweight QA for a single generated PDF (used by PC generation paths).
+
+    Args:
+        pdf_path: Path to the generated PDF
+        form_id: Registry key (e.g. "704b", "quote")
+        data: RFQ/PC data dict (optional — used for expected-value checks)
+        config: App config with company info (optional)
+
+    Returns: {
+        "passed": bool,
+        "form_id": str,
+        "issues": [str],
+        "warnings": [str],
+    }
+    """
+    result = {"passed": True, "form_id": form_id, "issues": [], "warnings": []}
+
+    if not pdf_path or not os.path.exists(pdf_path):
+        result["passed"] = False
+        result["issues"].append(f"PDF file not found: {pdf_path}")
+        return result
+
+    # Field verification (skipped if form_id not in registry — just warns)
+    if form_id in FORM_FIELD_REGISTRY:
+        field_check = verify_filled_form(pdf_path, form_id, data or {}, config or {})
+        sig_check = verify_signatures(pdf_path, form_id)
+
+        if not field_check["passed"]:
+            result["passed"] = False
+            result["issues"].extend(field_check.get("issues", []))
+        result["warnings"].extend(field_check.get("warnings", []))
+
+        if not sig_check["passed"]:
+            result["passed"] = False
+            result["issues"].extend(sig_check.get("issues", []))
+        result["warnings"].extend(sig_check.get("warnings", []))
+    else:
+        result["warnings"].append(f"No QA registry for form_id '{form_id}' — skipping field checks")
+
+    status = "PASS" if result["passed"] else "FAIL"
+    log.info("Form QA [single] %s: %s — %d issues, %d warnings",
+             status, form_id, len(result["issues"]), len(result["warnings"]))
+
+    return result

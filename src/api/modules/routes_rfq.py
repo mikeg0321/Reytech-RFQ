@@ -1397,12 +1397,27 @@ def review_package(rid):
         except Exception:
             pass
 
+    # Determine which forms are hidden (inside bid package, not standalone)
+    _has_bidpkg = any(
+        f.get("form_id") == "bidpkg" or "bidpackage" in (f.get("filename") or "").lower()
+        for f in (manifest.get("generated_forms") or [])
+    )
+    _bidpkg_internal = set()
+    if _has_bidpkg:
+        try:
+            from src.forms.form_qa import BID_PACKAGE_INTERNAL_FORMS
+            _bidpkg_internal = BID_PACKAGE_INTERNAL_FORMS
+        except ImportError:
+            _bidpkg_internal = {"dvbe843", "sellers_permit", "calrecycle74", "darfur_act",
+                                "bidder_decl", "std21", "genai_708"}
+
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
         manifest=manifest,
         prev_manifest=prev_manifest,
         buyer_prefs=buyer_prefs,
         timeline=timeline,
+        bidpkg_internal=_bidpkg_internal,
         active_page="Home")
 
 

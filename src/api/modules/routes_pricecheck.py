@@ -2168,13 +2168,27 @@ def _do_generate(pcid):
         pc["summary"] = result.get("summary", {})
         _save_single_pc(pcid, pc)
 
+        # Run Form QA on generated 704
+        _qa_warnings = []
+        try:
+            from src.forms.form_qa import verify_single_form
+            _qa = verify_single_form(output_path, "704b", pc, CONFIG)
+            if not _qa["passed"]:
+                log.warning("GENERATE %s: Form QA FAIL — %s", pcid, "; ".join(_qa["issues"]))
+            _qa_warnings = _qa.get("warnings", [])
+        except Exception as _qe:
+            log.debug("GENERATE %s: Form QA skipped: %s", pcid, _qe)
+
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
 
         # Catalog all line items for future matching
         _enrich_catalog_from_pc(pc)
 
-        return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
+        resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
+        if _qa_warnings:
+            resp["qa_warnings"] = _qa_warnings
+        return jsonify(resp)
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
 
@@ -2334,7 +2348,22 @@ def _do_generate_original(pcid):
         log.info("GENERATE-ORIGINAL %s: SUCCESS \u2014 %d items priced, subtotal=$%.2f",
                  pcid, result.get("summary", {}).get("items_priced", 0),
                  result.get("summary", {}).get("subtotal", 0))
-        return jsonify({"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"})
+
+        # Run Form QA on generated original 704
+        _qa_warnings = []
+        try:
+            from src.forms.form_qa import verify_single_form
+            _qa = verify_single_form(output_path, "704b", pc, CONFIG)
+            if not _qa["passed"]:
+                log.warning("GENERATE-ORIGINAL %s: Form QA FAIL — %s", pcid, "; ".join(_qa["issues"]))
+            _qa_warnings = _qa.get("warnings", [])
+        except Exception as _qe:
+            log.debug("GENERATE-ORIGINAL %s: Form QA skipped: %s", pcid, _qe)
+
+        resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
+        if _qa_warnings:
+            resp["qa_warnings"] = _qa_warnings
+        return jsonify(resp)
 
     log.error("GENERATE-ORIGINAL %s FAILED: %s", pcid, result.get("error"))
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
@@ -2399,12 +2428,27 @@ def pricecheck_generate_quote(pcid):
         _log_crm_activity(result.get("quote_number", ""), "quote_generated",
                           f"Quote {result.get('quote_number','')} generated — ${result.get('total',0):,.2f} for {pc.get('institution','')}",
                           actor="user", metadata={"institution": pc.get("institution",""), "agency": result.get("agency","")})
+
+        # Run Form QA on generated quote
+        _qa_warnings = []
+        try:
+            from src.forms.form_qa import verify_single_form
+            _qa = verify_single_form(output_path, "quote", pc, CONFIG)
+            if not _qa["passed"]:
+                log.warning("GENERATE-QUOTE %s: Form QA FAIL — %s", pcid, "; ".join(_qa["issues"]))
+            _qa_warnings = _qa.get("warnings", [])
+        except Exception as _qe:
+            log.debug("GENERATE-QUOTE %s: Form QA skipped: %s", pcid, _qe)
+
         t.ok("Quote generated", quote_number=result.get("quote_number",""), total=result.get("total",0))
-        return jsonify({
+        resp = {
             "ok": True,
             "download": f"/api/pricecheck/download/{os.path.basename(output_path)}",
             "quote_number": result.get("quote_number"),
-        })
+        }
+        if _qa_warnings:
+            resp["qa_warnings"] = _qa_warnings
+        return jsonify(resp)
     t.fail("Quote generation failed", error=result.get("error", "Unknown"))
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 

@@ -271,26 +271,14 @@ def _parse_address_parts(raw: str) -> tuple:
     return raw.strip(), []
 
 def _load_counter():
-    """Load counter from SQLite (primary) with JSON fallback."""
+    """Load counter from SQLite — the single source of truth."""
     try:
         from src.core.db import get_setting
         year_val = get_setting("quote_counter_year", datetime.now().year)
         seq_val = get_setting("quote_counter_seq", get_setting("quote_counter", 16))
         return {"year": int(year_val), "seq": int(seq_val)}
     except Exception:
-        pass
-    # JSON fallback
-    path = os.path.join(DATA_DIR, "quote_counter.json")
-    try:
-        with open(path) as f:
-            raw = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
         return {}
-    if "counter" in raw and "seq" not in raw:
-        migrated = {"year": datetime.now().year, "seq": raw["counter"]}
-        _save_counter(migrated)
-        return migrated
-    return raw
 
 def _save_counter(data):
     """Save counter to SQLite (primary) and JSON (backup)."""
@@ -366,6 +354,16 @@ def _next_quote_number() -> str:
 
         next_seq = stored_seq + 1
 
+        # +5 jump guardrail: prevent counter from jumping wildly
+        lg_row = conn.execute(
+            "SELECT value FROM app_settings WHERE key='quote_counter_last_good'"
+        ).fetchone()
+        last_good = int(lg_row[0]) if lg_row else next_seq
+        if next_seq - last_good > 5:
+            log.warning("Quote counter jump blocked: seq=%d but last_good=%d — capping at %d",
+                        next_seq, last_good, last_good + 1)
+            next_seq = last_good + 1
+
         # Write counter directly — no nested set_setting() calls
         now = datetime.now().isoformat()
         for key, val in [("quote_counter_seq", next_seq), ("quote_counter", next_seq),
@@ -383,12 +381,6 @@ def _next_quote_number() -> str:
         return f"R{yy}Q{datetime.now().strftime('%H%M%S')}"
     finally:
         conn.close()
-
-    # Also save JSON backup (non-blocking, outside DB lock)
-    try:
-        _save_counter({"year": year, "seq": next_seq})
-    except Exception:
-        pass
 
     new_number = f"{prefix}{next_seq}"
     log.info("Quote number: %s (seq=%d)", new_number, next_seq)
