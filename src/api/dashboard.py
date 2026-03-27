@@ -1396,12 +1396,10 @@ def _is_user_facing_pc(pc: dict) -> bool:
     """Should this PC show in the PC queue on the homepage?
 
     SHOW if: has items OR has a real solicitation/pc_number, AND not terminal.
-    HIDE if: linked to an RFQ (rfq_id set), OR terminal status, OR empty ghost.
+    HIDE if: terminal status OR empty ghost.
+    Note: PCs linked to RFQs (rfq_id set) still show — user prices PCs first,
+    then the RFQ uses those prices for the formal response.
     """
-    # Hide PCs that belong to an RFQ row
-    if pc.get("rfq_id"):
-        return False
-
     # Hide terminal statuses
     status = pc.get("status", "new")
     if status in ("dismissed", "archived", "deleted", "duplicate",
