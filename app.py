@@ -295,6 +295,15 @@ def create_app():
         except ImportError:
             pass
 
+        # Sync SCPRS harvest data → won_quotes KB (bridge between tables)
+        try:
+            from src.knowledge.won_quotes_db import sync_from_scprs_tables
+            sync_result = sync_from_scprs_tables()
+            if sync_result.get("synced", 0) > 0:
+                logging.getLogger("reytech").info("SCPRS→won_quotes sync: %d items", sync_result["synced"])
+        except Exception as _sync_e:
+            logging.getLogger("reytech").debug("SCPRS sync: %s", _sync_e)
+
         # Auto-populate catalog from won_quotes if empty
         try:
             from src.core.db import get_db

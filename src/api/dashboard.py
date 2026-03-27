@@ -4632,6 +4632,91 @@ def api_circuit_breaker_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/pipeline-health")
+@auth_required
+def api_pipeline_health():
+    """Self-diagnosis: checks every stage of the data pipeline for issues."""
+    from src.core.db import get_db
+    issues = []
+    stats = {}
+    try:
+        with get_db() as conn:
+            # 1. SCPRS data freshness
+            stats["scprs_po_lines"] = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+            stats["scprs_po_master"] = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+            if stats["scprs_po_lines"] == 0:
+                issues.append({"level": "critical", "area": "SCPRS", "msg": "No SCPRS PO data — run harvest first"})
+
+            # 2. Won Quotes KB
+            stats["won_quotes"] = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+            if stats["won_quotes"] == 0 and stats["scprs_po_lines"] > 0:
+                issues.append({"level": "critical", "area": "won_quotes", "msg": f"SCPRS has {stats['scprs_po_lines']} lines but won_quotes KB is empty — sync needed"})
+
+            # 3. Product catalog
+            stats["product_catalog"] = conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
+            if stats["product_catalog"] == 0:
+                issues.append({"level": "warning", "area": "catalog", "msg": "Product catalog empty — enrichment matches will fail"})
+
+            # 4. Price checks
+            stats["price_checks"] = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+            try:
+                stuck_pcs = conn.execute(
+                    "SELECT COUNT(*) FROM price_checks WHERE status IN ('new','parsed') AND created_at < datetime('now', '-7 days')"
+                ).fetchone()[0]
+                if stuck_pcs > 0:
+                    issues.append({"level": "warning", "area": "price_checks", "msg": f"{stuck_pcs} PCs stuck in new/parsed for >7 days"})
+            except Exception:
+                pass
+
+            # 5. Quotes
+            try:
+                pending_old = conn.execute(
+                    "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='pending' AND created_date < date('now', '-7 days')"
+                ).fetchone()[0]
+                if pending_old > 0:
+                    issues.append({"level": "warning", "area": "quotes", "msg": f"{pending_old} quotes stuck as pending for >7 days — never sent?"})
+                sent_no_followup = conn.execute(
+                    "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='sent' AND follow_up_count=0 AND sent_at < datetime('now', '-7 days')"
+                ).fetchone()[0]
+                if sent_no_followup > 0:
+                    issues.append({"level": "info", "area": "quotes", "msg": f"{sent_no_followup} sent quotes with 0 follow-ups after 7+ days"})
+            except Exception:
+                pass
+
+            # 6. SCPRS pull schedule
+            try:
+                overdue_pulls = conn.execute("""
+                    SELECT agency_key, last_pull, pull_interval_hours,
+                           ROUND((JULIANDAY('now') - JULIANDAY(last_pull)) * 24, 1) as hours_since
+                    FROM scprs_pull_schedule
+                    WHERE last_pull IS NOT NULL
+                      AND (JULIANDAY('now') - JULIANDAY(last_pull)) * 24 > pull_interval_hours * 2
+                """).fetchall()
+                for r in overdue_pulls:
+                    issues.append({"level": "warning", "area": "SCPRS", "msg": f"{r[0]} pull overdue ({r[3]}h since last, expected every {r[2]}h)"})
+            except Exception:
+                pass
+
+            # 7. Circuit breakers
+            try:
+                from src.core.circuit_breaker import all_status
+                for cb in all_status():
+                    if cb["state"] == "open":
+                        issues.append({"level": "critical", "area": "circuits", "msg": f"{cb['name']} circuit OPEN ({cb['failure_count']} failures)"})
+            except Exception:
+                pass
+
+            stats["issues_count"] = len(issues)
+            stats["critical"] = sum(1 for i in issues if i["level"] == "critical")
+            stats["warnings"] = sum(1 for i in issues if i["level"] == "warning")
+
+    except Exception as e:
+        issues.append({"level": "critical", "area": "database", "msg": str(e)})
+
+    health = "healthy" if not issues else ("degraded" if all(i["level"] != "critical" for i in issues) else "unhealthy")
+    return jsonify({"ok": True, "health": health, "issues": issues, "stats": stats})
+
+
 @bp.route("/api/admin/backups")
 @auth_required
 def admin_backups():

@@ -206,6 +206,13 @@ def _run_pipeline(pc_id: str, force: bool):
         log.warning("ENRICH %s: catalog match error: %s", pc_id, e)
     ENRICHMENT_STATUS[pc_id]["steps_done"].append("catalog_match")
 
+    # ── Step 3b: Ensure won_quotes KB is populated from SCPRS harvest ──
+    try:
+        from src.knowledge.won_quotes_db import sync_from_scprs_tables
+        sync_from_scprs_tables()
+    except Exception:
+        pass
+
     # ── Step 4: SCPRS KB lookup ──────────────────────────────────────────
     _update_status(pc_id, "scprs_lookup", f"0/{total} items")
     try:

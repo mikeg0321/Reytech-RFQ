@@ -671,6 +671,83 @@ def ingest_scprs_bulk(results: list) -> dict:
     return stats
 
 
+def sync_from_scprs_tables() -> dict:
+    """Populate won_quotes from scprs_po_lines + scprs_po_master.
+
+    The SCPRS harvest writes to scprs_po_master/lines tables directly,
+    but the enrichment pipeline reads from won_quotes. This function
+    bridges the gap by copying line items into won_quotes.
+
+    Safe to call multiple times — uses INSERT OR IGNORE with record IDs.
+    """
+    _ensure_won_quotes_table()
+    conn = _get_db_conn()
+    stats = {"synced": 0, "skipped": 0, "errors": 0}
+    try:
+        # Check if source tables exist
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('scprs_po_master','scprs_po_lines')"
+        ).fetchall()]
+        if "scprs_po_master" not in tables or "scprs_po_lines" not in tables:
+            log.debug("sync_from_scprs_tables: source tables don't exist yet")
+            return stats
+
+        # Read lines joined with master for supplier/agency/date
+        rows = conn.execute("""
+            SELECT l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
+                   p.supplier, p.agency_key, p.start_date, l.category
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id = p.id
+            WHERE l.unit_price > 0 AND l.description != ''
+        """).fetchall()
+
+        now = datetime.now(timezone.utc).isoformat()
+        for r in rows:
+            po_num = r[0] or ""
+            item_num = r[1] or ""
+            desc = r[2] or ""
+            price = float(r[3] or 0)
+            qty = float(r[4] or 1)
+            supplier = r[5] or ""
+            dept = r[6] or ""
+            award_date = r[7] or ""
+
+            if price <= 0 or not desc:
+                stats["skipped"] += 1
+                continue
+
+            record_id = generate_record_id(po_num, item_num, desc)
+            try:
+                conn.execute("""
+                    INSERT OR IGNORE INTO won_quotes
+                    (id, po_number, item_number, description, normalized_description,
+                     tokens, category, supplier, department, unit_price, quantity,
+                     total, award_date, source, confidence, ingested_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (
+                    record_id, po_num, item_num, desc,
+                    normalize_text(desc),
+                    ",".join(tokenize(desc)),
+                    r[8] or classify_category(desc),
+                    supplier, dept, price, qty,
+                    round(price * qty, 2),
+                    award_date, "scprs_sync", 1.0, now,
+                ))
+                stats["synced"] += 1
+            except Exception:
+                stats["errors"] += 1
+
+        conn.commit()
+        log.info("SCPRS→won_quotes sync: %d synced, %d skipped, %d errors (from %d lines)",
+                 stats["synced"], stats["skipped"], stats["errors"], len(rows))
+    except Exception as e:
+        log.error("sync_from_scprs_tables failed: %s", e)
+        stats["errors"] += 1
+    finally:
+        conn.close()
+    return stats
+
+
 # ─── Win Probability ─────────────────────────────────────────────────────────
 
 def win_probability(
