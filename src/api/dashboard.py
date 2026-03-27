@@ -4634,6 +4634,26 @@ def api_circuit_breaker_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/sync-scprs", methods=["POST", "GET"])
+@auth_required
+def api_sync_scprs():
+    """Force sync SCPRS harvest data → won_quotes KB. Safe to call repeatedly."""
+    try:
+        from src.knowledge.won_quotes_db import sync_from_scprs_tables
+        result = sync_from_scprs_tables()
+        # Also check counts after sync
+        from src.core.db import get_db
+        with get_db() as conn:
+            wq = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+            lines = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+        result["won_quotes_total"] = wq
+        result["scprs_po_lines_total"] = lines
+        result["coverage_pct"] = round(wq / max(lines, 1) * 100, 1)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/system/pipeline-health")
 @auth_required
 def api_pipeline_health():

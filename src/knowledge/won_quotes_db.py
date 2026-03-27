@@ -695,7 +695,7 @@ def sync_from_scprs_tables() -> dict:
         # Read lines joined with master for supplier/agency/date
         rows = conn.execute("""
             SELECT l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
-                   p.supplier, p.agency_key, p.start_date, l.category
+                   p.supplier, p.agency_key, p.start_date, l.category, l.line_num
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id = p.id
             WHERE l.unit_price > 0 AND l.description != ''
@@ -711,12 +711,15 @@ def sync_from_scprs_tables() -> dict:
             supplier = r[5] or ""
             dept = r[6] or ""
             award_date = r[7] or ""
+            line_num = r[9] if len(r) > 9 else 0
 
             if price <= 0 or not desc:
                 stats["skipped"] += 1
                 continue
 
-            record_id = generate_record_id(po_num, item_num, desc)
+            # Use line_num in ID to prevent collisions when item_id is empty
+            item_key = item_num or str(line_num)
+            record_id = generate_record_id(po_num, item_key, desc)
             try:
                 conn.execute("""
                     INSERT OR IGNORE INTO won_quotes
