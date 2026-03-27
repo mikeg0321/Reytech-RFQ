@@ -4676,17 +4676,25 @@ def pricechecks_archive():
 @bp.route("/api/pricechecks")
 @auth_required
 def api_pricechecks_list():
-    """API: List all PCs with optional status filter."""
+    """API: List all PCs with optional status filter. Add ?debug=1 for filter diagnostics."""
     pcs = _load_price_checks()
     status_filter = request.args.get("status", "")
+    debug = request.args.get("debug", "")
+    from src.api.dashboard import _is_user_facing_pc
     result = []
     for pcid, pc in pcs.items():
         if status_filter and pc.get("status", "new") != status_filter:
             continue
-        result.append({"id": pcid, "pc_number": pc.get("pc_number", "?"),
+        entry = {"id": pcid, "pc_number": pc.get("pc_number", "?"),
             "institution": pc.get("institution", ""), "status": pc.get("status", "new"),
             "items_count": len(pc.get("items", [])), "quote_number": pc.get("reytech_quote_number", ""),
-            "created_at": pc.get("created_at", ""), "competitor_name": pc.get("competitor_name", "")})
+            "created_at": pc.get("created_at", ""), "competitor_name": pc.get("competitor_name", "")}
+        if debug:
+            entry["_source"] = pc.get("source", "")
+            entry["_is_auto_draft"] = pc.get("is_auto_draft", False)
+            entry["_rfq_id"] = pc.get("rfq_id", "")
+            entry["_user_facing"] = _is_user_facing_pc(pc)
+        result.append(entry)
     result.sort(key=lambda x: x["created_at"], reverse=True)
     return jsonify({"ok": True, "pcs": result, "count": len(result)})
 
