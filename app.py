@@ -160,6 +160,13 @@ def create_app():
     app.register_blueprint(bp)
     print(f"[BOOT] Routes registered ({time.time()-t0:.1f}s)", flush=True)
 
+    # ── Request tracing ──
+    try:
+        from src.core.tracing import install_tracing
+        install_tracing()
+    except Exception as e:
+        logging.getLogger("reytech").debug("Tracing init: %s", e)
+
     # ── Security middleware ──
     try:
         from src.core.security import init_security

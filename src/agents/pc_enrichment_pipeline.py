@@ -42,6 +42,13 @@ def enrich_pc(pc_id: str, force: bool = False):
         pc_id: Price check ID (e.g. "pc_abc12345")
         force: If True, re-enrich even if already complete
     """
+    # Set trace context for this enrichment run
+    try:
+        from src.core.tracing import set_trace_id
+        set_trace_id(operation=f"enrich-{pc_id}")
+    except Exception:
+        pass
+
     # Guard against double-runs
     with _LOCK:
         if ENRICHMENT_STATUS.get(pc_id, {}).get("running"):
@@ -237,6 +244,8 @@ def _run_pipeline(pc_id: str, force: bool):
     _update_status(pc_id, "web_lookup", "checking supplier URLs")
     try:
         from src.agents.item_link_lookup import lookup_from_url
+        from src.core.circuit_breaker import get_breaker, CircuitOpenError
+        _web_breaker = get_breaker("web_search")
         web_count = 0
         for it in items:
             if web_count >= 3:
@@ -247,7 +256,7 @@ def _run_pipeline(pc_id: str, force: bool):
             if it["pricing"].get("web_price"):
                 continue  # already has web price
             try:
-                result = lookup_from_url(url)
+                result = _web_breaker.call(lookup_from_url, url)
                 if result.get("ok") and result.get("price"):
                     it["pricing"]["web_price"] = result["price"]
                     it["pricing"]["web_source"] = result.get("supplier", "")
@@ -272,6 +281,8 @@ def _run_pipeline(pc_id: str, force: bool):
     _update_status(pc_id, "web_search", "searching web for unpriced items")
     try:
         from src.agents.web_price_research import search_product_price
+        from src.core.circuit_breaker import get_breaker as _gb2, CircuitOpenError as _coe2
+        _api_breaker = _gb2("web_search")
         ws_count = 0
         for it in items:
             if ws_count >= 5:
@@ -286,7 +297,8 @@ def _run_pipeline(pc_id: str, force: bool):
             if not desc and not pn:
                 continue
             try:
-                result = search_product_price(
+                result = _api_breaker.call(
+                    search_product_price,
                     description=desc, part_number=pn,
                     qty=it.get("qty", 1), uom=it.get("uom", "EA"),
                 )

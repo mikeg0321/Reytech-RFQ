@@ -1,0 +1,102 @@
+name: CI — Pre-Deploy Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet flask pypdf reportlab jinja2 pdfplumber
+
+      - name: Syntax check (all Python files)
+        run: |
+          python -c "
+          import ast, sys, os
+          errors = []
+          for root, dirs, files in os.walk('src'):
+              dirs[:] = [d for d in dirs if d != '__pycache__']
+              for f in files:
+                  if f.endswith('.py'):
+                      path = os.path.join(root, f)
+                      try:
+                          ast.parse(open(path, encoding='utf-8').read())
+                      except SyntaxError as e:
+                          errors.append(f'{path}: {e}')
+          if errors:
+              for e in errors:
+                  print(f'FAIL: {e}')
+              sys.exit(1)
+          print(f'OK: all Python files compile clean')
+          "
+
+      - name: Import check (core modules)
+        env:
+          SECRET_KEY: test
+          FLASK_ENV: testing
+        run: |
+          python -c "
+          import importlib, sys
+          for mod in ['src.core.paths', 'src.core.db', 'src.core.dal']:
+              try:
+                  importlib.import_module(mod)
+                  print(f'OK: {mod}')
+              except Exception as e:
+                  print(f'FAIL: {mod}: {e}')
+                  sys.exit(1)
+          "
+
+      - name: Template compilation check
+        run: |
+          python -c "
+          from jinja2 import Environment, FileSystemLoader
+          env = Environment(loader=FileSystemLoader('src/templates'))
+          errors = []
+          import os
+          for f in os.listdir('src/templates'):
+              if f.endswith('.html'):
+                  try:
+                      env.get_template(f)
+                  except Exception as e:
+                      errors.append(f'{f}: {e}')
+          if errors:
+              for e in errors:
+                  print(f'FAIL: {e}')
+              import sys; sys.exit(1)
+          print(f'OK: all templates compile')
+          "
+
+      - name: Duplicate endpoint check
+        run: |
+          python -c "
+          import os, re, sys
+          from collections import defaultdict
+          funcs = defaultdict(list)
+          modules_dir = 'src/api/modules'
+          for fname in sorted(os.listdir(modules_dir)):
+              if not fname.endswith('.py'): continue
+              with open(os.path.join(modules_dir, fname), encoding='utf-8') as f:
+                  for i, line in enumerate(f, 1):
+                      m = re.match(r'^def (\w+)\(', line)
+                      if m: funcs[m.group(1)].append(f'{fname}:{i}')
+          dupes = {k: v for k, v in funcs.items() if len(v) > 1}
+          if dupes:
+              for name, locs in sorted(dupes.items()):
+                  print(f'DUPLICATE: def {name}() in: {\", \".join(locs)}')
+              sys.exit(1)
+          print('OK: no duplicate endpoints')
+          "

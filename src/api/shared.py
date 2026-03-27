@@ -102,6 +102,17 @@ def auth_required(f):
     return decorated
 
 
+# ── Request tracing (before_request) ──────────────────────────────────────────
+@bp.before_request
+def _set_request_trace():
+    """Assign a trace ID to every request for log correlation."""
+    try:
+        from src.core.tracing import set_trace_id
+        set_trace_id(operation=request.endpoint or request.path)
+    except Exception:
+        pass
+
+
 # ── Global auth guard (before_request) ───────────────────────────────────────
 @bp.before_request
 def _global_auth_guard():

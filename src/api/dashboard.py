@@ -4619,6 +4619,19 @@ def scheduler_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/circuits")
+@auth_required
+def api_circuit_breaker_status():
+    """Returns status of all circuit breakers for external API monitoring."""
+    try:
+        from src.core.circuit_breaker import all_status
+        circuits = all_status()
+        open_count = sum(1 for c in circuits if c["state"] == "open")
+        return jsonify({"ok": True, "circuits": circuits, "total": len(circuits), "open_count": open_count})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/admin/backups")
 @auth_required
 def admin_backups():
