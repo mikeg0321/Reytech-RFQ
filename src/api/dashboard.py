@@ -4637,6 +4637,27 @@ def api_circuit_breaker_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/system/resync-scprs", methods=["POST", "GET"])
+@auth_required
+def api_resync_scprs():
+    """Drop all won_quotes and re-sync from SCPRS with corrected per-unit prices."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            old_count = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+            conn.execute("DELETE FROM won_quotes")
+            log.info("Cleared %d old won_quotes for clean re-sync", old_count)
+        from src.knowledge.won_quotes_db import sync_from_scprs_tables
+        result = sync_from_scprs_tables()
+        with get_db() as conn:
+            new_count = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+        result["cleared"] = old_count
+        result["won_quotes_total"] = new_count
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/system/sync-scprs", methods=["POST", "GET"])
 @auth_required
 def api_sync_scprs():
