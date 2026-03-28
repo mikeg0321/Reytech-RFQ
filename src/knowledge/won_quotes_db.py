@@ -695,9 +695,12 @@ def sync_from_scprs_tables() -> dict:
         # Read lines joined with master for supplier/agency/date
         rows = conn.execute("""
             SELECT l.id, l.po_number, l.item_id, l.description, l.unit_price, l.quantity,
-                   p.supplier, p.agency_key, p.start_date, l.category
+                   COALESCE(p.supplier, '') as supplier,
+                   COALESCE(p.agency_key, '') as agency_key,
+                   COALESCE(p.start_date, '') as start_date,
+                   l.category
             FROM scprs_po_lines l
-            JOIN scprs_po_master p ON l.po_id = p.id
+            LEFT JOIN scprs_po_master p ON l.po_id = p.id
             WHERE l.unit_price > 0 AND l.description != ''
         """).fetchall()
 
