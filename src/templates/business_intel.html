@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Business Intelligence — Reytech{% endblock %}
 {% block content %}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
- <h2 style="margin:0;font-size:20px;font-weight:700">📈 Business Intelligence</h2>
- <div style="color:var(--tx2);font-size:14px">Updated: {{ now }}</div>
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+ <a href="/analytics" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">📊 Pipeline</a>
+ <a href="/business-intel" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">📈 Business Intel</a>
+ <a href="/suppliers/performance" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">🏭 Suppliers</a>
+ <a href="/pricing" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">💰 Pricing</a>
+ <div style="flex:1"></div>
+ <div style="padding:10px 0;color:var(--tx2);font-size:14px">Updated: {{ now }}</div>
 </div>
 
 <!-- Row 1: KPI Cards -->
