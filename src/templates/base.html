@@ -56,45 +56,38 @@
   </div>
  </div>
  {# ── Nav: dynamically loaded from settings, Home always first ── #}
+ {# ── Nav: Core pages in top bar, extras in More dropdown ── #}
  {% set default_top = [
+   ('/', '🏠 Home', 'Home'),
    ('/pricechecks', '📋 PCs', 'PCs'),
    ('/quotes', '📋 Quotes', 'Quotes'),
    ('/orders', '📦 Orders', 'Orders'),
    ('/po-tracking', '📍 PO Track', 'PO Track'),
-   ('/follow-ups', '📬 Follow-Up', 'Follow-Up'),
    ('/contacts', '👥 CRM', 'CRM'),
-   ('/catalog', '📦 Catalog', 'Catalog'),
+   ('/catalog-legacy', '📦 Catalog', 'Catalog'),
    ('/analytics', '📊 Analytics', 'Analytics'),
    ('/business-intel', '📈 BI', 'BI'),
-   ('/pipeline', '🔄 Pipeline', 'Pipeline'),
    ('/awards', '🏆 Awards', 'Awards'),
  ] %}
  {% set all_pages = [
+   ('/', '🏠 Home', 'Home'),
    ('/pricechecks', '📋 PCs', 'PCs'),
    ('/quotes', '📋 Quotes', 'Quotes'),
    ('/orders', '📦 Orders', 'Orders'),
    ('/po-tracking', '📍 PO Track', 'PO Track'),
-   ('/follow-ups', '📬 Follow-Up', 'Follow-Up'),
+   ('/po-upload', '📦 Upload PO', 'PO Upload'),
    ('/contacts', '👥 CRM', 'CRM'),
-   ('/catalog', '📦 Catalog', 'Catalog'),
+   ('/catalog-legacy', '📦 Catalog', 'Catalog'),
    ('/analytics', '📊 Analytics', 'Analytics'),
    ('/business-intel', '📈 BI', 'BI'),
-   ('/pipeline', '🔄 Pipeline', 'Pipeline'),
    ('/search', '🔍 Search', 'Search'),
-   ('/buyers', '🎯 Buyers', 'Buyers'),
-   ('/intel/competitors', '🏢 Competitor Intel', 'CompetitorIntel'),
-   ('/intel/growth-discovery', '🚀 Growth', 'Growth'),
-   ('/vendors', '🏭 Vendors', 'Vendors'),
    ('/suppliers/performance', '🏭 Suppliers', 'Suppliers'),
-   ('/shipping', '🚚 Shipping', 'Shipping'),
    ('/pricing', '💰 Pricing', 'Pricing'),
-   ('/revenue', '💰 Revenue', 'Revenue'),
-   ('/quickbooks', '💰 QuickBooks', 'QuickBooks'),
-   ('/analytics/win-loss', '📈 Win/Loss', 'Win/Loss'),
+   ('/follow-ups', '📬 Follow-Up', 'Follow-Up'),
+   ('/outbox', '📧 Outbox', 'Outbox'),
    ('/agents', '🤖 Agents', 'Agents'),
-   ('/form-filler', '📋 Forms', 'Forms'),
-   ('/brief', '☀️ Brief', 'Brief'),
    ('/awards', '🏆 Awards', 'Awards'),
+   ('/settings', '⚙️ Settings', 'Settings'),
  ] %}
  {# Build top + more from nav_config setting (JSON array of names for top row) #}
  {% set nav_config = config.get('nav_top_items', '') %}
