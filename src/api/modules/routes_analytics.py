@@ -3497,7 +3497,7 @@ def api_diagnostic_sweep():
 
     # Database
     try:
-        conn = _get_db()
+        import sqlite3 as _sq; from src.core.db import DB_PATH as _dbp; conn = _sq.connect(_dbp, timeout=30); conn.row_factory = _sq.Row
         tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
         results["checks"]["database"] = {"ok": True, "tables": len(tables), "table_list": tables}
         counts = {}
@@ -3560,7 +3560,7 @@ def api_diagnostic_sweep():
 def api_dashboard_kpis():
     """Key performance indicators -- single-call business health."""
     try:
-        conn = _get_db()
+        import sqlite3 as _sq; from src.core.db import DB_PATH as _dbp; conn = _sq.connect(_dbp, timeout=30); conn.row_factory = _sq.Row
         kpis = {}
         kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
         kpis["quotes_this_month"] = conn.execute(
@@ -3621,7 +3621,10 @@ def api_business_intel():
     """Comprehensive business intelligence metrics — cost-of-sales, customer LTV,
     competitor profiles, DVBE tracking, time-to-quote SLA."""
     try:
-        conn = _get_db()
+        import sqlite3 as _bi_sqlite3
+        from src.core.db import DB_PATH as _bi_db_path
+        conn = _bi_sqlite3.connect(_bi_db_path, timeout=30)
+        conn.row_factory = _bi_sqlite3.Row
         bi = {}
 
         # ── 1. Cost of Sales / Bid-to-Win Ratio ──
