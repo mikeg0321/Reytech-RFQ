@@ -1,13 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Supplier Performance — Reytech{% endblock %}
 {% block content %}
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+ <a href="/analytics" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">📊 Pipeline</a>
+ <a href="/business-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">📈 Business Intel</a>
+ <a href="/suppliers/performance" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">🏭 Suppliers</a>
+ <a href="/pricing" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">💰 Pricing</a>
+</div>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
  <div>
   <h2 style="margin:0;font-size:22px;font-weight:700">🏭 Supplier Performance</h2>
   <div style="font-size:14px;color:var(--tx2);margin-top:4px">Compare suppliers by price, reliability, speed, and catalog coverage</div>
  </div>
  <div style="display:flex;gap:8px">
-  <a href="/vendors" class="btn btn-s" style="font-size:13px">← Vendors</a>
+  <a href="/catalog-legacy" class="btn btn-s" style="font-size:13px">← Catalog</a>
   <a href="/catalog" class="btn btn-s" style="font-size:13px">📦 Catalog</a>
   <input id="search-input" type="text" placeholder="Filter suppliers..." oninput="filterTable()" style="padding:8px 14px;border-radius:8px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;width:180px">
  </div>

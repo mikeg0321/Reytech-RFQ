@@ -5251,6 +5251,25 @@ def api_pc_mark_auto_priced(pcid):
 # src/agents/pc_enrichment_pipeline.py (unified pipeline)
 
 
+@bp.route("/api/pricechecks/bulk-reenrich", methods=["POST", "GET"])
+@auth_required
+def api_pc_bulk_reenrich():
+    """Re-enrich ALL price checks with corrected SCPRS prices. Runs in background."""
+    import threading
+    pcs = _load_price_checks()
+    pc_ids = [pcid for pcid, pc in pcs.items() if len(pc.get("items", [])) > 0]
+    def _run():
+        from src.agents.pc_enrichment_pipeline import enrich_pc
+        for pcid in pc_ids:
+            try:
+                enrich_pc(pcid, force=True)
+                log.info("BULK RE-ENRICH: %s complete", pcid)
+            except Exception as e:
+                log.warning("BULK RE-ENRICH: %s failed: %s", pcid, e)
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({"ok": True, "pcs_queued": len(pc_ids), "message": f"Re-enriching {len(pc_ids)} PCs in background"})
+
+
 @bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
 @auth_required
 def api_pc_retry_auto_price(pcid):

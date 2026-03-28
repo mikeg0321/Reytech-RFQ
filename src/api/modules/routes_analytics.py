@@ -3603,234 +3603,239 @@ def business_intel_page():
               "time_to_quote": {"avg_days": 0, "min_days": 0, "max_days": 0, "sample_size": 0},
               "monthly_trend": []}
     try:
-        resp = api_business_intel()
-        bi = json.loads(resp.get_data(as_text=True))
-        if not bi.get("ok"):
-            # Log the error so we can debug
-            log.warning("BI page: API returned error: %s", bi.get("error", "unknown"))
-            bi = _empty
+        import sqlite3 as _bsq
+        from src.core.db import DB_PATH as _bdbp
+        _bconn = _bsq.connect(_bdbp, timeout=30)
+        _bconn.row_factory = _bsq.Row
+        bi = _build_bi_data(_bconn)
+        _bconn.close()
     except Exception as _bi_err:
-        log.error("BI page render failed: %s", _bi_err, exc_info=True)
+        log.error("BI page failed: %s", _bi_err, exc_info=True)
         bi = _empty
     return render_page("business_intel.html", active_page="BI", bi=bi, now=_dt.now().strftime("%Y-%m-%d %H:%M"))
+
+
+def _build_bi_data(conn):
+    """Build BI metrics dict from a DB connection. Used by both page and API."""
+    bi = {}
+
+    # ── 1. Cost of Sales / Bid-to-Win Ratio ──
+    # Revenue from BOTH quotes (status=won) AND orders (paid/invoiced/delivered)
+    total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0] or 0
+    won_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0
+    lost_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='lost'").fetchone()[0] or 0
+    won_revenue_quotes = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0)
+    # Also check orders table (primary revenue source)
+    won_revenue_orders = 0
+    try:
+        won_revenue_orders = float(conn.execute(
+            "SELECT COALESCE(SUM(total),0) FROM orders WHERE status IN ('paid','invoiced','delivered','shipped','active')"
+        ).fetchone()[0] or 0)
+    except Exception:
+        pass
+    # Also check revenue_log
+    revenue_logged = 0
+    try:
+        revenue_logged = float(conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM revenue_log WHERE logged_at >= strftime('%Y-01-01', 'now')"
+        ).fetchone()[0] or 0)
+    except Exception:
+        pass
+    won_revenue = max(won_revenue_quotes, won_revenue_orders, revenue_logged)
+    # Count won from orders too
+    try:
+        orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','')").fetchone()[0] or 0
+        won_quotes = max(won_quotes, orders_count)
+    except Exception:
+        pass
+    pipeline_revenue = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced')").fetchone()[0] or 0)
+    bi["bid_to_win"] = {
+        "total_bids": total_quotes,
+        "won": won_quotes,
+        "lost": lost_quotes,
+        "win_rate_pct": round(won_quotes / (won_quotes + lost_quotes) * 100, 1) if (won_quotes + lost_quotes) > 0 else 0,
+        "revenue_won": won_revenue,
+        "pipeline_value": pipeline_revenue,
+        "avg_deal_size": round(won_revenue / won_quotes, 2) if won_quotes > 0 else 0,
+        "cost_per_quote_est": round(won_revenue * 0.05 / total_quotes, 2) if total_quotes > 0 else 0,  # ~5% overhead estimate
+    }
+
+    # ── 2. Customer Lifetime Value (by agency/institution) ──
+    agency_rows = conn.execute("""
+        SELECT agency, COUNT(*) as cnt, SUM(total) as rev,
+               MIN(created_at) as first_quote, MAX(created_at) as last_quote,
+               SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as losses
+        FROM quotes WHERE is_test=0 AND agency IS NOT NULL AND agency != ''
+        GROUP BY agency ORDER BY rev DESC LIMIT 20
+    """).fetchall()
+    bi["customer_ltv"] = []
+    for r in agency_rows:
+        decided = (r[5] or 0) + (r[6] or 0)
+        bi["customer_ltv"].append({
+            "agency": r[0],
+            "total_quotes": r[1],
+            "total_revenue": float(r[2] or 0),
+            "first_quote": r[3],
+            "last_quote": r[4],
+            "wins": r[5] or 0,
+            "losses": r[6] or 0,
+            "win_rate_pct": round((r[5] or 0) / decided * 100, 1) if decided > 0 else 0,
+            "avg_deal": round(float(r[2] or 0) / r[1], 2) if r[1] > 0 else 0,
+        })
+
+    # ── 3. Competitor Profiles (from SCPRS vendor data) ──
+    bi["competitors"] = []
+    try:
+        comp_rows = conn.execute("""
+            SELECT supplier, COUNT(*) as po_count,
+                   SUM(quantity * unit_price) as total_value,
+                   COUNT(DISTINCT department) as agencies_served,
+                   MIN(award_date) as first_seen, MAX(award_date) as last_seen,
+                   ROUND(AVG(unit_price), 2) as avg_price
+            FROM won_quotes
+            WHERE supplier IS NOT NULL AND supplier != '' AND source != 'pc_vendor_cost'
+            GROUP BY supplier ORDER BY total_value DESC LIMIT 15
+        """).fetchall()
+        for r in comp_rows:
+            bi["competitors"].append({
+                "vendor": r[0],
+                "po_count": r[1],
+                "total_value": float(r[2] or 0),
+                "agencies_served": r[3],
+                "avg_price": float(r[6] or 0),
+                "first_seen": r[4],
+                "last_seen": r[5],
+            })
+        # Fallback: if won_quotes has no competitor data, try scprs_po_master directly
+        if not bi["competitors"]:
+            try:
+                comp_rows2 = conn.execute("""
+                    SELECT supplier, COUNT(DISTINCT po_number) as po_count,
+                           SUM(grand_total) as total_value,
+                           COUNT(DISTINCT agency_key) as agencies_served,
+                           MIN(start_date) as first_seen, MAX(start_date) as last_seen
+                    FROM scprs_po_master
+                    WHERE supplier IS NOT NULL AND supplier != ''
+                      AND LOWER(supplier) NOT LIKE '%reytech%'
+                    GROUP BY LOWER(supplier) ORDER BY total_value DESC LIMIT 15
+                """).fetchall()
+                for r in comp_rows2:
+                    bi["competitors"].append({
+                        "vendor": r[0],
+                        "po_count": r[1],
+                        "total_value": float(r[2] or 0),
+                        "agencies_served": r[3],
+                        "avg_price": 0,
+                        "first_seen": r[4],
+                        "last_seen": r[5],
+                    })
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # ── 3b. Win/Loss Against Competitors ──
+    # Cross-reference our lost quotes with SCPRS awards to find who beat us
+    bi["head_to_head"] = []
+    try:
+        # Find departments where we lost, then see who won the award
+        h2h_rows = conn.execute("""
+            SELECT wq.supplier as winner, COUNT(DISTINCT q.quote_number) as times_beat_us,
+                   ROUND(AVG(wq.unit_price), 2) as their_avg_price,
+                   ROUND(AVG(q.total / NULLIF(q.items_count, 0)), 2) as our_avg_price,
+                   GROUP_CONCAT(DISTINCT wq.department) as departments
+            FROM quotes q
+            JOIN won_quotes wq ON (
+                wq.department = q.agency
+                AND wq.award_date >= q.created_at
+                AND wq.award_date <= date(q.created_at, '+60 days')
+                AND wq.source != 'pc_vendor_cost'
+            )
+            WHERE q.is_test = 0 AND q.status = 'lost'
+              AND wq.supplier IS NOT NULL AND wq.supplier != ''
+              AND wq.supplier NOT LIKE '%reytech%'
+            GROUP BY wq.supplier
+            HAVING times_beat_us >= 1
+            ORDER BY times_beat_us DESC LIMIT 10
+        """).fetchall()
+        for r in h2h_rows:
+            bi["head_to_head"].append({
+                "competitor": r[0],
+                "times_beat_us": r[1],
+                "their_avg_price": float(r[2] or 0),
+                "our_avg_price": float(r[3] or 0),
+                "departments": (r[4] or "")[:60],
+            })
+    except Exception:
+        pass
+
+    # ── 4. Time-to-Quote SLA ──
+    ttq_rows = conn.execute("""
+        SELECT
+            ROUND(AVG(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as avg_days,
+            ROUND(MIN(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as min_days,
+            ROUND(MAX(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as max_days,
+            COUNT(*) as count
+        FROM quotes
+        WHERE is_test=0 AND sent_at IS NOT NULL AND sent_at != ''
+          AND created_at IS NOT NULL AND created_at != ''
+    """).fetchone()
+    bi["time_to_quote"] = {
+        "avg_days": float(ttq_rows[0] or 0),
+        "min_days": float(ttq_rows[1] or 0),
+        "max_days": float(ttq_rows[2] or 0),
+        "sample_size": ttq_rows[3] or 0,
+    }
+
+    # ── 5. Monthly Revenue Trend ──
+    trend_rows = conn.execute("""
+        SELECT strftime('%Y-%m', created_at) as month,
+               COUNT(*) as quotes,
+               SUM(CASE WHEN status='won' THEN total ELSE 0 END) as won_rev,
+               SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as wins,
+               SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as losses
+        FROM quotes WHERE is_test=0 AND created_at >= date('now', '-12 months')
+        GROUP BY month ORDER BY month
+    """).fetchall()
+    bi["monthly_trend"] = [
+        {"month": r[0], "quotes": r[1], "won_revenue": float(r[2] or 0),
+         "wins": r[3] or 0, "losses": r[4] or 0}
+        for r in trend_rows
+    ]
+
+    # ── 6. Top Products (from won quotes) ──
+    try:
+        prod_rows = conn.execute("""
+            SELECT description, COUNT(*) as times_won,
+                   ROUND(AVG(unit_price), 2) as avg_price,
+                   SUM(quantity) as total_qty
+            FROM won_quotes
+            WHERE unit_price > 0 AND source = 'pc_vendor_cost'
+            GROUP BY SUBSTR(description, 1, 60)
+            ORDER BY times_won DESC LIMIT 10
+        """).fetchall()
+        bi["top_products"] = [
+            {"description": r[0][:60], "times_won": r[1],
+             "avg_price": float(r[2] or 0), "total_qty": r[3] or 0}
+            for r in prod_rows
+        ]
+    except Exception:
+        bi["top_products"] = []
+
+    return bi
 
 
 @bp.route("/api/analytics/business-intel")
 @auth_required
 def api_business_intel():
-    """Comprehensive business intelligence metrics — cost-of-sales, customer LTV,
-    competitor profiles, DVBE tracking, time-to-quote SLA."""
+    """Comprehensive business intelligence metrics API."""
     try:
-        import sqlite3 as _bi_sqlite3
-        from src.core.db import DB_PATH as _bi_db_path
-        conn = _bi_sqlite3.connect(_bi_db_path, timeout=30)
-        conn.row_factory = _bi_sqlite3.Row
-        bi = {}
-
-        # ── 1. Cost of Sales / Bid-to-Win Ratio ──
-        # Revenue from BOTH quotes (status=won) AND orders (paid/invoiced/delivered)
-        total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0] or 0
-        won_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0
-        lost_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='lost'").fetchone()[0] or 0
-        won_revenue_quotes = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0] or 0)
-        # Also check orders table (primary revenue source)
-        won_revenue_orders = 0
-        try:
-            won_revenue_orders = float(conn.execute(
-                "SELECT COALESCE(SUM(total),0) FROM orders WHERE status IN ('paid','invoiced','delivered','shipped','active')"
-            ).fetchone()[0] or 0)
-        except Exception:
-            pass
-        # Also check revenue_log
-        revenue_logged = 0
-        try:
-            revenue_logged = float(conn.execute(
-                "SELECT COALESCE(SUM(amount),0) FROM revenue_log WHERE logged_at >= strftime('%Y-01-01', 'now')"
-            ).fetchone()[0] or 0)
-        except Exception:
-            pass
-        won_revenue = max(won_revenue_quotes, won_revenue_orders, revenue_logged)
-        # Count won from orders too
-        try:
-            orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','')").fetchone()[0] or 0
-            won_quotes = max(won_quotes, orders_count)
-        except Exception:
-            pass
-        pipeline_revenue = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced')").fetchone()[0] or 0)
-        bi["bid_to_win"] = {
-            "total_bids": total_quotes,
-            "won": won_quotes,
-            "lost": lost_quotes,
-            "win_rate_pct": round(won_quotes / (won_quotes + lost_quotes) * 100, 1) if (won_quotes + lost_quotes) > 0 else 0,
-            "revenue_won": won_revenue,
-            "pipeline_value": pipeline_revenue,
-            "avg_deal_size": round(won_revenue / won_quotes, 2) if won_quotes > 0 else 0,
-            "cost_per_quote_est": round(won_revenue * 0.05 / total_quotes, 2) if total_quotes > 0 else 0,  # ~5% overhead estimate
-        }
-
-        # ── 2. Customer Lifetime Value (by agency/institution) ──
-        agency_rows = conn.execute("""
-            SELECT agency, COUNT(*) as cnt, SUM(total) as rev,
-                   MIN(created_at) as first_quote, MAX(created_at) as last_quote,
-                   SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as wins,
-                   SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as losses
-            FROM quotes WHERE is_test=0 AND agency IS NOT NULL AND agency != ''
-            GROUP BY agency ORDER BY rev DESC LIMIT 20
-        """).fetchall()
-        bi["customer_ltv"] = []
-        for r in agency_rows:
-            decided = (r[5] or 0) + (r[6] or 0)
-            bi["customer_ltv"].append({
-                "agency": r[0],
-                "total_quotes": r[1],
-                "total_revenue": float(r[2] or 0),
-                "first_quote": r[3],
-                "last_quote": r[4],
-                "wins": r[5] or 0,
-                "losses": r[6] or 0,
-                "win_rate_pct": round((r[5] or 0) / decided * 100, 1) if decided > 0 else 0,
-                "avg_deal": round(float(r[2] or 0) / r[1], 2) if r[1] > 0 else 0,
-            })
-
-        # ── 3. Competitor Profiles (from SCPRS vendor data) ──
-        bi["competitors"] = []
-        try:
-            comp_rows = conn.execute("""
-                SELECT supplier, COUNT(*) as po_count,
-                       SUM(quantity * unit_price) as total_value,
-                       COUNT(DISTINCT department) as agencies_served,
-                       MIN(award_date) as first_seen, MAX(award_date) as last_seen,
-                       ROUND(AVG(unit_price), 2) as avg_price
-                FROM won_quotes
-                WHERE supplier IS NOT NULL AND supplier != '' AND source != 'pc_vendor_cost'
-                GROUP BY supplier ORDER BY total_value DESC LIMIT 15
-            """).fetchall()
-            for r in comp_rows:
-                bi["competitors"].append({
-                    "vendor": r[0],
-                    "po_count": r[1],
-                    "total_value": float(r[2] or 0),
-                    "agencies_served": r[3],
-                    "avg_price": float(r[6] or 0),
-                    "first_seen": r[4],
-                    "last_seen": r[5],
-                })
-            # Fallback: if won_quotes has no competitor data, try scprs_po_master directly
-            if not bi["competitors"]:
-                try:
-                    comp_rows2 = conn.execute("""
-                        SELECT supplier, COUNT(DISTINCT po_number) as po_count,
-                               SUM(grand_total) as total_value,
-                               COUNT(DISTINCT agency_key) as agencies_served,
-                               MIN(start_date) as first_seen, MAX(start_date) as last_seen
-                        FROM scprs_po_master
-                        WHERE supplier IS NOT NULL AND supplier != ''
-                          AND LOWER(supplier) NOT LIKE '%reytech%'
-                        GROUP BY LOWER(supplier) ORDER BY total_value DESC LIMIT 15
-                    """).fetchall()
-                    for r in comp_rows2:
-                        bi["competitors"].append({
-                            "vendor": r[0],
-                            "po_count": r[1],
-                            "total_value": float(r[2] or 0),
-                            "agencies_served": r[3],
-                            "avg_price": 0,
-                            "first_seen": r[4],
-                            "last_seen": r[5],
-                        })
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # ── 3b. Win/Loss Against Competitors ──
-        # Cross-reference our lost quotes with SCPRS awards to find who beat us
-        bi["head_to_head"] = []
-        try:
-            # Find departments where we lost, then see who won the award
-            h2h_rows = conn.execute("""
-                SELECT wq.supplier as winner, COUNT(DISTINCT q.quote_number) as times_beat_us,
-                       ROUND(AVG(wq.unit_price), 2) as their_avg_price,
-                       ROUND(AVG(q.total / NULLIF(q.items_count, 0)), 2) as our_avg_price,
-                       GROUP_CONCAT(DISTINCT wq.department) as departments
-                FROM quotes q
-                JOIN won_quotes wq ON (
-                    wq.department = q.agency
-                    AND wq.award_date >= q.created_at
-                    AND wq.award_date <= date(q.created_at, '+60 days')
-                    AND wq.source != 'pc_vendor_cost'
-                )
-                WHERE q.is_test = 0 AND q.status = 'lost'
-                  AND wq.supplier IS NOT NULL AND wq.supplier != ''
-                  AND wq.supplier NOT LIKE '%reytech%'
-                GROUP BY wq.supplier
-                HAVING times_beat_us >= 1
-                ORDER BY times_beat_us DESC LIMIT 10
-            """).fetchall()
-            for r in h2h_rows:
-                bi["head_to_head"].append({
-                    "competitor": r[0],
-                    "times_beat_us": r[1],
-                    "their_avg_price": float(r[2] or 0),
-                    "our_avg_price": float(r[3] or 0),
-                    "departments": (r[4] or "")[:60],
-                })
-        except Exception:
-            pass
-
-        # ── 4. Time-to-Quote SLA ──
-        ttq_rows = conn.execute("""
-            SELECT
-                ROUND(AVG(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as avg_days,
-                ROUND(MIN(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as min_days,
-                ROUND(MAX(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as max_days,
-                COUNT(*) as count
-            FROM quotes
-            WHERE is_test=0 AND sent_at IS NOT NULL AND sent_at != ''
-              AND created_at IS NOT NULL AND created_at != ''
-        """).fetchone()
-        bi["time_to_quote"] = {
-            "avg_days": float(ttq_rows[0] or 0),
-            "min_days": float(ttq_rows[1] or 0),
-            "max_days": float(ttq_rows[2] or 0),
-            "sample_size": ttq_rows[3] or 0,
-        }
-
-        # ── 5. Monthly Revenue Trend ──
-        trend_rows = conn.execute("""
-            SELECT strftime('%Y-%m', created_at) as month,
-                   COUNT(*) as quotes,
-                   SUM(CASE WHEN status='won' THEN total ELSE 0 END) as won_rev,
-                   SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as wins,
-                   SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as losses
-            FROM quotes WHERE is_test=0 AND created_at >= date('now', '-12 months')
-            GROUP BY month ORDER BY month
-        """).fetchall()
-        bi["monthly_trend"] = [
-            {"month": r[0], "quotes": r[1], "won_revenue": float(r[2] or 0),
-             "wins": r[3] or 0, "losses": r[4] or 0}
-            for r in trend_rows
-        ]
-
-        # ── 6. Top Products (from won quotes) ──
-        try:
-            prod_rows = conn.execute("""
-                SELECT description, COUNT(*) as times_won,
-                       ROUND(AVG(unit_price), 2) as avg_price,
-                       SUM(quantity) as total_qty
-                FROM won_quotes
-                WHERE unit_price > 0 AND source = 'pc_vendor_cost'
-                GROUP BY SUBSTR(description, 1, 60)
-                ORDER BY times_won DESC LIMIT 10
-            """).fetchall()
-            bi["top_products"] = [
-                {"description": r[0][:60], "times_won": r[1],
-                 "avg_price": float(r[2] or 0), "total_qty": r[3] or 0}
-                for r in prod_rows
-            ]
-        except Exception:
-            bi["top_products"] = []
-
+        import sqlite3 as _bi_sq
+        from src.core.db import DB_PATH as _bi_dbp
+        conn = _bi_sq.connect(_bi_dbp, timeout=30)
+        conn.row_factory = _bi_sq.Row
+        bi = _build_bi_data(conn)
         conn.close()
         return jsonify({"ok": True, **bi})
     except Exception as e:
