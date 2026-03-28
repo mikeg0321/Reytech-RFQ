@@ -3564,7 +3564,7 @@ def api_dashboard_kpis():
         kpis = {}
         kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
         kpis["quotes_this_month"] = conn.execute(
-            "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_date >= date('now','start of month')").fetchone()[0]
+            "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_at >= date('now','start of month')").fetchone()[0]
         won = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
         kpis["revenue_won"] = float(won or 0)
         pipeline = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced','quoted')").fetchone()[0]
@@ -3671,7 +3671,7 @@ def api_business_intel():
         # ── 2. Customer Lifetime Value (by agency/institution) ──
         agency_rows = conn.execute("""
             SELECT agency, COUNT(*) as cnt, SUM(total) as rev,
-                   MIN(created_date) as first_quote, MAX(created_date) as last_quote,
+                   MIN(created_at) as first_quote, MAX(created_at) as last_quote,
                    SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as wins,
                    SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as losses
             FROM quotes WHERE is_test=0 AND agency IS NOT NULL AND agency != ''
@@ -3756,8 +3756,8 @@ def api_business_intel():
                 FROM quotes q
                 JOIN won_quotes wq ON (
                     wq.department = q.agency
-                    AND wq.award_date >= q.created_date
-                    AND wq.award_date <= date(q.created_date, '+60 days')
+                    AND wq.award_date >= q.created_at
+                    AND wq.award_date <= date(q.created_at, '+60 days')
                     AND wq.source != 'pc_vendor_cost'
                 )
                 WHERE q.is_test = 0 AND q.status = 'lost'
@@ -3781,13 +3781,13 @@ def api_business_intel():
         # ── 4. Time-to-Quote SLA ──
         ttq_rows = conn.execute("""
             SELECT
-                ROUND(AVG(JULIANDAY(sent_at) - JULIANDAY(created_date)), 1) as avg_days,
-                ROUND(MIN(JULIANDAY(sent_at) - JULIANDAY(created_date)), 1) as min_days,
-                ROUND(MAX(JULIANDAY(sent_at) - JULIANDAY(created_date)), 1) as max_days,
+                ROUND(AVG(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as avg_days,
+                ROUND(MIN(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as min_days,
+                ROUND(MAX(JULIANDAY(sent_at) - JULIANDAY(created_at)), 1) as max_days,
                 COUNT(*) as count
             FROM quotes
             WHERE is_test=0 AND sent_at IS NOT NULL AND sent_at != ''
-              AND created_date IS NOT NULL AND created_date != ''
+              AND created_at IS NOT NULL AND created_at != ''
         """).fetchone()
         bi["time_to_quote"] = {
             "avg_days": float(ttq_rows[0] or 0),
@@ -3798,12 +3798,12 @@ def api_business_intel():
 
         # ── 5. Monthly Revenue Trend ──
         trend_rows = conn.execute("""
-            SELECT strftime('%Y-%m', created_date) as month,
+            SELECT strftime('%Y-%m', created_at) as month,
                    COUNT(*) as quotes,
                    SUM(CASE WHEN status='won' THEN total ELSE 0 END) as won_rev,
                    SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as wins,
                    SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as losses
-            FROM quotes WHERE is_test=0 AND created_date >= date('now', '-12 months')
+            FROM quotes WHERE is_test=0 AND created_at >= date('now', '-12 months')
             GROUP BY month ORDER BY month
         """).fetchall()
         bi["monthly_trend"] = [
