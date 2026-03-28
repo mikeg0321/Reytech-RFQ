@@ -710,8 +710,10 @@ def sync_from_scprs_tables() -> dict:
             po_num = r[1] or ""
             item_num = r[2] or ""
             desc = r[3] or ""
-            price = float(r[4] or 0)
-            qty = float(r[5] or 1)
+            line_total = float(r[4] or 0)  # scprs_po_lines.unit_price is actually line total
+            qty = float(r[5] or 1) or 1
+            # Derive per-unit price from line total / quantity
+            price = round(line_total / qty, 2) if qty > 0 else line_total
             supplier = r[6] or ""
             dept = r[7] or ""
             award_date = r[8] or ""
