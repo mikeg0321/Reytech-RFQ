@@ -597,8 +597,8 @@ def _lookup_aedstore(url: str) -> dict:
 
 # ─── Main entry point ─────────────────────────────────────────────────────────
 
-# Domains that require login — scraping returns login page, not product data.
-# Fast-fail instead of hanging for 12s per item.
+# Domains that require login — try authenticated scraper first,
+# fall back to "paste manually" if no credentials configured.
 LOGIN_REQUIRED_DOMAINS = [
     "henryschein.com",
     "medline.com",
@@ -614,6 +614,28 @@ def _is_login_required(url: str) -> bool:
     """Check if a URL belongs to a domain that requires login to view products."""
     host = urlparse(url).netloc.lower()
     return any(d in host for d in LOGIN_REQUIRED_DOMAINS)
+
+
+def _try_authenticated_lookup(url: str) -> dict | None:
+    """Try authenticated scraping for login-required suppliers.
+
+    Returns product dict if credentials exist and scraping succeeds,
+    or None to fall through to the "paste manually" fast-fail.
+    """
+    try:
+        from src.agents.supplier_auth_scraper import lookup_product, _has_credentials, _detect_supplier_key
+        supplier_key = _detect_supplier_key(url)
+        if not supplier_key:
+            return None
+        if not _has_credentials(supplier_key):
+            return None  # No creds — fall through to manual entry
+        result = lookup_product(url, supplier_key)
+        return result
+    except ImportError:
+        return None
+    except Exception as e:
+        log.debug("Authenticated lookup failed: %s", e)
+        return None
 
 
 def lookup_from_url(url: str) -> dict:
@@ -642,8 +664,15 @@ def lookup_from_url(url: str) -> dict:
     if not url.startswith("http"):
         url = "https://" + url
 
-    # Fast-fail for login-required sites — don't waste 12s per item
+    # Login-required sites: try authenticated scraper first
     if _is_login_required(url):
+        auth_result = _try_authenticated_lookup(url)
+        if auth_result is not None:
+            # Authenticated scraper handled it (success or credential-specific error)
+            auth_result.setdefault("url", url)
+            auth_result.setdefault("supplier", detect_supplier(url))
+            return auth_result
+        # No credentials configured — fall back to manual entry
         supplier = detect_supplier(url)
         return {
             "ok": False,

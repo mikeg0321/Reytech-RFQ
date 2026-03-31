@@ -159,7 +159,7 @@
  <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);border-radius:8px;padding:10px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:14px">
   <span style="font-size:18px">🔗</span>
   <div>
-    <span style="color:#3fb950;font-weight:600">Linked to PC #{{ r.get('linked_pc_number', r.linked_pc_id[:12]) }}</span>
+    <span style="color:#3fb950;font-weight:600">Linked to PC #{{ r.get('linked_pc_number') or r.get('linked_pc_id', '')[:12] or 'unknown' }}</span>
     {% if r.get('linked_pc_match_reason') %} <span style="color:#8b949e;font-size:12px">· {{ r.linked_pc_match_reason }}</span>{% endif %}
     {% if r.get('pc_diff') %}
      <span style="color:#8b949e;margin-left:8px">·</span>

@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block title %}Loss Intelligence — Reytech{% endblock %}
+{% block content %}
+<div style="max-width:1400px;margin:0 auto;padding:0 16px">
+
+<!-- Top Nav (matches analytics pages) -->
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+ <a href="/analytics" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Pipeline</a>
+ <a href="/business-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Business Intel</a>
+ <a href="/win-loss" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Win/Loss</a>
+ <a href="/loss-intelligence" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">Loss Intel</a>
+ <a href="/competitor-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Competitors</a>
+ <div style="flex:1"></div>
+ <select id="daysFilter" onchange="loadAll()" style="padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px;margin:6px 0">
+  <option value="30">30 days</option>
+  <option value="90" selected>90 days</option>
+  <option value="180">180 days</option>
+ </select>
+</div>
+
+<!-- Header -->
+<div style="margin-bottom:20px">
+ <h2 style="margin:0;color:var(--tx)">Loss Intelligence</h2>
+ <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Why we lose, what it costs, and how to win next time</p>
+</div>
+
+<!-- KPI Cards -->
+<div id="kpiCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:20px">
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#f87171" id="kpi-losses">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total Losses</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#fbbf24" id="kpi-mth">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Margin Too High</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:var(--ac)" id="kpi-delta">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Avg Price Gap</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#d2a8ff" id="kpi-competitors">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Competitors</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#fb923c" id="kpi-patterns">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Unreviewed</div></div>
+ <div class="card" style="text-align:center;padding:14px"><div style="font-size:26px;font-weight:700;color:#f87171" id="kpi-relationship">--</div><div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Relationship Losses</div></div>
+</div>
+
+<!-- Tabs -->
+<div style="display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--bd)">
+ <button class="tab-btn active" onclick="showTab('overview',this)">Overview</button>
+ <button class="tab-btn" onclick="showTab('margin',this)">Margin Analysis</button>
+ <button class="tab-btn" onclick="showTab('competitor',this)">Competitor Dive</button>
+ <button class="tab-btn" onclick="showTab('patterns',this)">Patterns & Alerts</button>
+</div>
+<style>
+.tab-btn{padding:10px 18px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:14px;cursor:pointer;font-weight:600}
+.tab-btn:hover{color:var(--tx)}
+.tab-btn.active{color:var(--ac);border-bottom-color:var(--ac)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.sev-critical{background:rgba(248,113,113,.15);color:#f87171;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600}
+.sev-warning{background:rgba(251,191,36,.15);color:#fbbf24;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600}
+.sev-info{background:rgba(79,140,255,.15);color:#4f8cff;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600}
+.loss-class{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.lc-margin_too_high{background:rgba(248,113,113,.15);color:#f87171}
+.lc-cost_too_high{background:rgba(251,191,36,.15);color:#fbbf24}
+.lc-price_higher{background:rgba(79,140,255,.15);color:#4f8cff}
+.lc-relationship_incumbent{background:rgba(210,168,255,.15);color:#d2a8ff}
+</style>
+
+<!-- ═══ TAB 1: OVERVIEW ═══ -->
+<div id="tab-overview" class="tab-panel active">
+ <!-- Loss Class Breakdown -->
+ <div class="card" style="margin-bottom:16px;padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Loss Classification Breakdown</div>
+  <div id="classBreakdown" style="display:flex;gap:16px;flex-wrap:wrap">Loading...</div>
+ </div>
+ <!-- Win Rate Trends -->
+ <div class="card" style="margin-bottom:16px;padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Win Rate Trends</div>
+  <div id="winRateTrends" style="display:flex;gap:16px;flex-wrap:wrap">Loading...</div>
+  <div id="winRateAlerts" style="margin-top:12px"></div>
+ </div>
+ <!-- Win Rate by Agency -->
+ <div class="card" style="margin-bottom:16px;padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Win Rate by Agency</div>
+  <div id="agencyWinRate" style="overflow-x:auto">Loading...</div>
+ </div>
+ <!-- Recent Losses Table -->
+ <div class="card" style="padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Recent Losses</div>
+  <div id="recentLosses" style="overflow-x:auto">Loading...</div>
+ </div>
+</div>
+
+<!-- ═══ TAB 2: MARGIN ANALYSIS ═══ -->
+<div id="tab-margin" class="tab-panel">
+ <!-- Margin Too High Items -->
+ <div class="card" style="margin-bottom:16px;padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Margin Too High Losses</div>
+  <p style="color:var(--tx2);font-size:13px;margin:0 0 12px">Items where you had a lower cost than the competitor but bid too high</p>
+  <div id="mthLosses">Loading...</div>
+ </div>
+ <!-- Category Trends -->
+ <div class="card" style="padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Category Loss Trends</div>
+  <div id="categoryTrends">Loading...</div>
+ </div>
+</div>
+
+<!-- ═══ TAB 3: COMPETITOR DEEP DIVE ═══ -->
+<div id="tab-competitor" class="tab-panel">
+ <div class="card" style="margin-bottom:16px;padding:16px">
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:16px">
+   <select id="competitorSelect" onchange="loadCompetitor()" style="flex:1;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+    <option value="">Select a competitor...</option>
+   </select>
+  </div>
+  <div id="competitorDetail">Select a competitor to see their pricing patterns, trends, and how to beat them.</div>
+ </div>
+</div>
+
+<!-- ═══ TAB 4: PATTERNS & ALERTS ═══ -->
+<div id="tab-patterns" class="tab-panel">
+ <div class="card" style="margin-bottom:16px;padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Unreviewed Patterns</div>
+  <div id="unackedPatterns">Loading...</div>
+ </div>
+ <div class="card" style="padding:16px">
+  <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Detected Trends</div>
+  <div id="detectedPatterns">Loading...</div>
+ </div>
+</div>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function getDays(){return document.getElementById('daysFilter').value}
+function fmt(n){return '$'+Number(n||0).toLocaleString('en',{maximumFractionDigits:0})}
+function fmt2(n){return '$'+Number(n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}
+function pct(n){return (n||0).toFixed(1)+'%'}
+function escHtml(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function classLabel(c){
+ var labels={'margin_too_high':'Margin Too High','cost_too_high':'Cost Too High',
+             'price_higher':'Price Higher','relationship_incumbent':'Relationship'};
+ return '<span class="loss-class lc-'+(c||'')+'">'+escHtml(labels[c]||c||'Unknown')+'</span>';
+}
+
+function showTab(name,btn){
+ document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active')});
+ document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active')});
+ document.getElementById('tab-'+name).classList.add('active');
+ btn.classList.add('active');
+ if(name==='margin')loadMargin();
+ if(name==='patterns')loadPatterns();
+}
+
+function loadAll(){loadOverview();loadWinRate();loadPatterns()}
+
+// ═══ OVERVIEW ═══
+function loadOverview(){
+ fetch('/api/intel/loss-analysis?days='+getDays(),{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok)return;
+  var s=d.stats||{};
+  document.getElementById('kpi-losses').textContent=s.total_losses||0;
+  document.getElementById('kpi-mth').textContent=s.margin_too_high_count||0;
+  document.getElementById('kpi-delta').textContent=pct(s.avg_delta_pct);
+  document.getElementById('kpi-competitors').textContent=s.unique_competitors||0;
+  document.getElementById('kpi-relationship').textContent=s.relationship_losses||0;
+  // Class breakdown
+  var cb=d.class_breakdown||[];
+  var total=cb.reduce(function(a,c){return a+(c.count||0)},0)||1;
+  var html='';
+  cb.forEach(function(c){
+   var w=Math.max(c.count/total*100,8);
+   html+='<div style="flex:1;min-width:140px;text-align:center">';
+   html+='<div style="font-size:22px;font-weight:700;color:var(--tx)">'+c.count+'</div>';
+   html+='<div style="background:var(--sf2);border-radius:6px;height:8px;margin:6px 0"><div style="background:var(--ac);height:100%;border-radius:6px;width:'+w+'%"></div></div>';
+   html+=classLabel(c.loss_reason_class);
+   html+='<div style="font-size:12px;color:var(--tx2);margin-top:4px">avg '+pct(c.avg_delta_pct)+' gap</div>';
+   html+='</div>';
+  });
+  document.getElementById('classBreakdown').innerHTML=html||'<span style="color:var(--tx2)">No loss data yet</span>';
+  // Recent losses table
+  var losses=d.recent_losses||[];
+  if(!losses.length){document.getElementById('recentLosses').innerHTML='<span style="color:var(--tx2)">No losses recorded</span>';return}
+  html='<table class="it" style="width:100%"><thead><tr><th>Date</th><th>Quote</th><th>Agency</th><th>Competitor</th><th style="text-align:right">Our Price</th><th style="text-align:right">Their Price</th><th style="text-align:right">Delta</th><th>Class</th></tr></thead><tbody>';
+  losses.forEach(function(l){
+   var delta=l.price_delta_pct||0;
+   var color=delta>0?'#f87171':'#3fb950';
+   html+='<tr>';
+   html+='<td style="font-size:13px;color:var(--tx2)">'+(l.found_at||'').slice(0,10)+'</td>';
+   html+='<td style="font-weight:600">'+escHtml(l.quote_number)+'</td>';
+   html+='<td>'+escHtml(l.agency)+'</td>';
+   html+='<td style="font-weight:500">'+escHtml(l.competitor_name)+'</td>';
+   html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.our_price)+'</td>';
+   html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.competitor_price)+'</td>';
+   html+='<td style="text-align:right;color:'+color+';font-weight:600">'+(delta>0?'+':'')+pct(delta)+'</td>';
+   html+='<td>'+classLabel(l.loss_reason_class)+'</td>';
+   html+='</tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('recentLosses').innerHTML=html;
+  // Populate competitor dropdown
+  var comps={};
+  losses.forEach(function(l){if(l.competitor_name)comps[l.competitor_name]=1});
+  var sel=document.getElementById('competitorSelect');
+  var existing=sel.options.length;
+  if(existing<=1){
+   Object.keys(comps).sort().forEach(function(c){
+    var o=document.createElement('option');o.value=c;o.textContent=c;sel.appendChild(o);
+   });
+  }
+ });
+}
+
+// ═══ WIN RATE TRENDS ═══
+function loadWinRate(){
+ fetch('/api/intel/win-rate-trends?days='+getDays(),{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok)return;
+  // Period bars
+  var periods=d.by_period||[];
+  var html='';
+  if(periods.length){
+   periods.reverse();
+   periods.forEach(function(p){
+    var color=p.win_rate>=50?'#3fb950':p.win_rate>=30?'#fbbf24':'#f87171';
+    html+='<div style="flex:1;min-width:100px;text-align:center">';
+    html+='<div style="font-size:20px;font-weight:700;color:'+color+'">'+p.win_rate+'%</div>';
+    html+='<div style="background:var(--sf2);border-radius:6px;height:40px;position:relative;margin:6px 0">';
+    html+='<div style="position:absolute;bottom:0;left:0;right:0;background:'+color+';height:'+Math.max(p.win_rate,5)+'%;border-radius:6px;opacity:.7"></div>';
+    html+='</div>';
+    html+='<div style="font-size:11px;color:var(--tx2)">'+escHtml(p.period)+'</div>';
+    html+='<div style="font-size:11px;color:var(--tx2)">'+p.won+'W / '+p.lost+'L</div>';
+    html+='</div>';
+   });
+  }else{
+   html='<span style="color:var(--tx2)">Not enough data for trends</span>';
+  }
+  document.getElementById('winRateTrends').innerHTML=html;
+  // Alerts
+  var alerts=d.alerts||[];
+  var ahtml='';
+  alerts.forEach(function(a){
+   var bc=a.severity==='critical'?'#f87171':'#fbbf24';
+   ahtml+='<div style="padding:8px 12px;margin-bottom:6px;background:rgba('+(a.severity==='critical'?'248,113,113':'251,191,36')+',.1);border-left:3px solid '+bc+';border-radius:4px;font-size:13px;color:'+bc+'">';
+   ahtml+=escHtml(a.message)+'</div>';
+  });
+  document.getElementById('winRateAlerts').innerHTML=ahtml;
+  // Agency table
+  var agencies=d.by_agency||[];
+  if(!agencies.length){document.getElementById('agencyWinRate').innerHTML='<span style="color:var(--tx2)">No agency data</span>';return}
+  var thtml='<table class="it" style="width:100%"><thead><tr><th>Agency</th><th style="text-align:right">Won</th><th style="text-align:right">Lost</th><th style="text-align:right">Win Rate</th><th style="text-align:right">Won Value</th><th>Trend</th></tr></thead><tbody>';
+  agencies.forEach(function(a){
+   var tc=a.trend==='improving'?'#3fb950':a.trend==='declining'?'#f87171':'var(--tx2)';
+   var arrow=a.trend==='improving'?'↑':a.trend==='declining'?'↓':'→';
+   thtml+='<tr>';
+   thtml+='<td style="font-weight:600">'+escHtml(a.agency)+'</td>';
+   thtml+='<td style="text-align:right;color:#3fb950">'+a.won+'</td>';
+   thtml+='<td style="text-align:right;color:#f87171">'+a.lost+'</td>';
+   thtml+='<td style="text-align:right;font-weight:700;color:'+(a.win_rate>=50?'#3fb950':'#f87171')+'">'+a.win_rate+'%</td>';
+   thtml+='<td style="text-align:right;font-family:monospace">'+fmt(a.won_value)+'</td>';
+   thtml+='<td style="color:'+tc+';font-weight:600">'+arrow+' '+escHtml(a.trend)+'</td>';
+   thtml+='</tr>';
+  });
+  thtml+='</tbody></table>';
+  document.getElementById('agencyWinRate').innerHTML=thtml;
+ });
+}
+
+// ═══ MARGIN ANALYSIS ═══
+function loadMargin(){
+ fetch('/api/intel/loss-analysis?days='+getDays(),{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok)return;
+  var mth=d.margin_too_high_losses||[];
+  if(!mth.length){document.getElementById('mthLosses').innerHTML='<span style="color:var(--tx2)">No margin-too-high losses found. Good pricing!</span>';return}
+  var html='<table class="it" style="width:100%"><thead><tr><th>Date</th><th>Quote</th><th>Competitor</th><th>Items</th><th style="text-align:right">Our Price</th><th style="text-align:right">Their Price</th><th style="text-align:right">Our Cost</th><th style="text-align:right">Our Margin</th></tr></thead><tbody>';
+  mth.forEach(function(m){
+   html+='<tr>';
+   html+='<td style="font-size:13px;color:var(--tx2)">'+(m.found_at||'').slice(0,10)+'</td>';
+   html+='<td style="font-weight:600">'+escHtml(m.quote_number)+'</td>';
+   html+='<td>'+escHtml(m.competitor_name)+'</td>';
+   html+='<td style="font-size:13px;color:var(--tx2)">'+escHtml((m.item_summary||'').slice(0,50))+'</td>';
+   html+='<td style="text-align:right;font-family:monospace">'+fmt2(m.our_price)+'</td>';
+   html+='<td style="text-align:right;font-family:monospace;color:#3fb950">'+fmt2(m.competitor_price)+'</td>';
+   html+='<td style="text-align:right;font-family:monospace">'+fmt2(m.our_cost)+'</td>';
+   html+='<td style="text-align:right;color:#fbbf24;font-weight:600">'+pct(m.our_margin_pct)+'</td>';
+   html+='</tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('mthLosses').innerHTML=html;
+ });
+ // Category trends
+ fetch('/api/intel/margin-analysis?days='+getDays(),{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok)return;
+  var cats=d.category_trends||{};
+  var keys=Object.keys(cats);
+  if(!keys.length){document.getElementById('categoryTrends').innerHTML='<span style="color:var(--tx2)">No category data yet</span>';return}
+  var html='<table class="it" style="width:100%"><thead><tr><th>Category</th><th style="text-align:right">Losses</th><th style="text-align:right">Avg Delta</th><th>Top Competitor</th><th style="text-align:right">Margin Issues</th><th>Recommendation</th></tr></thead><tbody>';
+  keys.sort(function(a,b){return cats[b].losses-cats[a].losses}).forEach(function(k){
+   var c=cats[k];
+   html+='<tr>';
+   html+='<td style="font-weight:600">'+escHtml(k)+'</td>';
+   html+='<td style="text-align:right">'+c.losses+'</td>';
+   html+='<td style="text-align:right;color:'+(c.avg_delta_pct>0?'#f87171':'#3fb950')+'">'+pct(c.avg_delta_pct)+'</td>';
+   html+='<td>'+escHtml(c.top_competitor)+'</td>';
+   html+='<td style="text-align:right;color:#fbbf24">'+(c.margin_too_high_count||0)+'</td>';
+   html+='<td style="font-size:12px;color:var(--tx2)">'+escHtml((c.recommendation||'').slice(0,80))+'</td>';
+   html+='</tr>';
+  });
+  html+='</tbody></table>';
+  document.getElementById('categoryTrends').innerHTML=html;
+ });
+}
+
+// ═══ COMPETITOR DEEP DIVE ═══
+function loadCompetitor(){
+ var name=document.getElementById('competitorSelect').value;
+ if(!name){document.getElementById('competitorDetail').innerHTML='Select a competitor to see details.';return}
+ document.getElementById('competitorDetail').innerHTML='Loading...';
+ fetch('/api/intel/competitor/'+encodeURIComponent(name)+'?days='+getDays(),{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok){document.getElementById('competitorDetail').innerHTML='Error: '+escHtml(d.error);return}
+  var t=d.trends||{};
+  var html='';
+  // Summary cards
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:16px">';
+  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:22px;font-weight:700;color:var(--tx)">'+(t.total_encounters||0)+'</div><div style="font-size:12px;color:var(--tx2)">Encounters</div></div>';
+  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:22px;font-weight:700;color:#f87171">'+pct(t.avg_delta_pct)+'</div><div style="font-size:12px;color:var(--tx2)">Avg Delta</div></div>';
+  var trendColor=t.trend==='getting_more_aggressive'?'#f87171':t.trend==='getting_less_aggressive'?'#3fb950':'var(--tx2)';
+  var trendLabel=(t.trend||'stable').replace(/_/g,' ');
+  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:16px;font-weight:700;color:'+trendColor+'">'+escHtml(trendLabel)+'</div><div style="font-size:12px;color:var(--tx2)">Trend</div></div>';
+  html+='<div style="text-align:center;padding:12px;background:var(--sf);border-radius:8px"><div style="font-size:14px;font-weight:600;color:var(--tx)">'+(t.agencies||[]).join(', ')+'</div><div style="font-size:12px;color:var(--tx2)">Agencies</div></div>';
+  html+='</div>';
+  // Recent losses
+  var losses=d.recent_losses||[];
+  if(losses.length){
+   html+='<div style="font-size:14px;font-weight:600;margin-bottom:8px">Recent Losses to '+escHtml(name)+'</div>';
+   html+='<table class="it" style="width:100%"><thead><tr><th>Date</th><th>Quote</th><th>Agency</th><th style="text-align:right">Our Price</th><th style="text-align:right">Their Price</th><th style="text-align:right">Delta</th><th>Class</th></tr></thead><tbody>';
+   losses.forEach(function(l){
+    var delta=l.price_delta_pct||0;
+    html+='<tr>';
+    html+='<td style="font-size:13px;color:var(--tx2)">'+(l.found_at||'').slice(0,10)+'</td>';
+    html+='<td style="font-weight:600">'+escHtml(l.quote_number)+'</td>';
+    html+='<td>'+escHtml(l.agency)+'</td>';
+    html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.our_price)+'</td>';
+    html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.competitor_price)+'</td>';
+    html+='<td style="text-align:right;color:'+(delta>0?'#f87171':'#3fb950')+';font-weight:600">'+(delta>0?'+':'')+pct(delta)+'</td>';
+    html+='<td>'+classLabel(l.loss_reason_class)+'</td>';
+    html+='</tr>';
+   });
+   html+='</tbody></table>';
+  }
+  document.getElementById('competitorDetail').innerHTML=html;
+ });
+}
+
+// ═══ PATTERNS & ALERTS ═══
+function loadPatterns(){
+ fetch('/api/intel/loss-patterns?days='+getDays(),{credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d){
+  if(!d.ok)return;
+  document.getElementById('kpi-patterns').textContent=(d.unacknowledged||[]).length;
+  // Unacknowledged
+  var unacked=d.unacknowledged||[];
+  if(!unacked.length){
+   document.getElementById('unackedPatterns').innerHTML='<span style="color:#3fb950">All patterns reviewed!</span>';
+  }else{
+   var html='';
+   unacked.forEach(function(p){
+    html+='<div style="padding:12px;margin-bottom:8px;background:var(--sf);border-radius:8px;border-left:3px solid '+(p.severity==='critical'?'#f87171':p.severity==='warning'?'#fbbf24':'#4f8cff')+'">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">';
+    html+='<span class="sev-'+escHtml(p.severity)+'">'+escHtml(p.severity)+'</span>';
+    html+='<button onclick="ackPattern('+p.id+')" style="padding:4px 12px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:6px;cursor:pointer;font-size:12px">Acknowledge</button>';
+    html+='</div>';
+    html+='<div style="font-size:14px;color:var(--tx);margin-bottom:4px">'+escHtml(p.description)+'</div>';
+    if(p.recommendation)html+='<div style="font-size:13px;color:var(--ac)">'+escHtml(p.recommendation)+'</div>';
+    html+='<div style="font-size:11px;color:var(--tx2);margin-top:4px">'+(p.detected_at||'').slice(0,16)+'</div>';
+    html+='</div>';
+   });
+   document.getElementById('unackedPatterns').innerHTML=html;
+  }
+  // Detected patterns
+  var patterns=d.patterns||[];
+  if(!patterns.length){
+   document.getElementById('detectedPatterns').innerHTML='<span style="color:var(--tx2)">No patterns detected in this time range</span>';
+  }else{
+   var html='';
+   patterns.forEach(function(p){
+    html+='<div style="padding:10px;margin-bottom:6px;background:var(--sf);border-radius:6px">';
+    html+='<span class="sev-'+(p.severity||'info')+'">'+escHtml(p.severity||'info')+'</span> ';
+    html+='<span style="font-size:14px;color:var(--tx)">'+escHtml(p.description)+'</span>';
+    if(p.recommendation)html+='<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+escHtml(p.recommendation)+'</div>';
+    html+='</div>';
+   });
+   document.getElementById('detectedPatterns').innerHTML=html;
+  }
+ });
+}
+
+function ackPattern(id){
+ fetch('/api/intel/loss-patterns/acknowledge',{
+  method:'POST',credentials:'same-origin',
+  headers:{'Content-Type':'application/json'},
+  body:JSON.stringify({pattern_id:id})
+ }).then(function(r){return r.json()}).then(function(d){
+  if(d.ok)loadPatterns();
+ });
+}
+
+// Load on page ready
+document.addEventListener('DOMContentLoaded',function(){loadAll()});
+</script>
+{% endblock %}

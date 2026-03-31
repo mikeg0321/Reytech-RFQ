@@ -1586,7 +1586,36 @@ class EmailPoller:
                                         )
                                 except Exception:
                                     pass
-                            
+
+                                # Bridge: notify award tracker this quote is won (stop SCPRS checking)
+                                try:
+                                    import sqlite3 as _sql
+                                    from src.core.paths import DATA_DIR as _DD
+                                    _aconn = _sql.connect(os.path.join(_DD, "reytech.db"), timeout=10)
+                                    _aconn.execute("""
+                                        INSERT INTO award_tracker_log
+                                        (checked_at, quote_number, scprs_searched, matches_found, outcome, notes)
+                                        VALUES (?,?,0,1,?,?)
+                                    """, (datetime.now().isoformat(), matched_quote,
+                                          "won_via_email",
+                                          f"PO {po_number or '?'} detected via email — "
+                                          f"${po_total or 0:,.2f} from {po_agency}"))
+                                    # Also close the quote in quotes table
+                                    _aconn.execute("""
+                                        UPDATE quotes SET status='won',
+                                            status_notes=?, closed_by_agent='email_poller',
+                                            updated_at=?
+                                        WHERE quote_number=? AND status='sent'
+                                    """, (f"PO {po_number} received via email",
+                                          datetime.now().isoformat(), matched_quote))
+                                    _aconn.commit()
+                                    _aconn.close()
+                                    POLL_STATUS["pos_detected"] = POLL_STATUS.get("pos_detected", 0) + 1
+                                    log.info("AWARD_BRIDGE: %s marked won via email (PO %s)",
+                                             matched_quote, po_number)
+                                except Exception as _abe:
+                                    log.debug("Award tracker bridge: %s", _abe)
+
                             # Normalize institution name via resolver
                             try:
                                 from src.core.institution_resolver import normalize

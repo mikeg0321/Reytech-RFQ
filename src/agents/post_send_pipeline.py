@@ -38,7 +38,11 @@ def _ensure_tables():
                 check_after TEXT DEFAULT '',
                 status TEXT DEFAULT 'pending',
                 checked_at TEXT DEFAULT '',
-                result TEXT DEFAULT ''
+                result TEXT DEFAULT '',
+                phase TEXT DEFAULT 'daily',
+                check_count INTEGER DEFAULT 0,
+                last_checked TEXT DEFAULT '',
+                next_check TEXT DEFAULT ''
             )
         """)
 
@@ -88,15 +92,42 @@ def on_quote_sent(record_type, record_id, record_data):
     except Exception as e:
         log.warning("Post-send tracking: %s", e)
 
+    # Queue for award monitoring with adaptive schedule
+    try:
+        from src.core.scprs_schedule import get_next_check_time
+        next_check = get_next_check_time(
+            sent_at=datetime.now(),
+            last_check=None,
+            check_count=0,
+        )
+        next_check_iso = next_check.isoformat() if next_check else (now + timedelta(days=1)).isoformat()
+        phase = "daily"  # Start in daily phase
+    except ImportError:
+        next_check_iso = (now + timedelta(days=1)).isoformat()
+        phase = "daily"
+
     try:
         with get_db() as db:
             db.execute("""
                 INSERT OR IGNORE INTO award_check_queue
-                (record_id, record_type, solicitation, check_after, status)
-                VALUES (?,?,?,datetime('now', '+7 days'),?)
-            """, (record_id, record_type, sol, "pending"))
+                (record_id, record_type, solicitation, check_after, status,
+                 phase, check_count, next_check)
+                VALUES (?,?,?,?,?,?,0,?)
+            """, (record_id, record_type, sol, next_check_iso, "pending",
+                  phase, next_check_iso))
+        log.info("Post-send: Award check queued for %s %s — first check at %s (phase: %s)",
+                 record_type, record_id, next_check_iso[:16], phase)
     except Exception as e:
-        log.debug("Award check queue: %s", e)
+        # Fallback: try without new columns (pre-migration)
+        try:
+            with get_db() as db:
+                db.execute("""
+                    INSERT OR IGNORE INTO award_check_queue
+                    (record_id, record_type, solicitation, check_after, status)
+                    VALUES (?,?,?,?,?)
+                """, (record_id, record_type, sol, next_check_iso, "pending"))
+        except Exception as e2:
+            log.debug("Award check queue: %s / %s", e, e2)
 
     return {"tracked": True, "follow_ups": len(follow_ups), "total": total}
 

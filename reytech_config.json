@@ -34,6 +34,10 @@
   },
   "supplier_sites": {
     "medical": [
+      "medline.com",
+      "henryschein.com",
+      "boundtree.com",
+      "cardinalhealth.com",
       "partssource.com",
       "hcl.com",
       "sandsworldwide.com"

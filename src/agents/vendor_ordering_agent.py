@@ -140,12 +140,13 @@ VENDOR_CATALOG = {
     },
     "medline": {
         "name": "Medline Industries",
-        "api_type": "edi_pending",
+        "api_type": "web_auth",
         "categories": ["medical", "surgical", "clinical", "patient care", "hospital grade"],
-        "configured": False,
+        "configured": bool(os.environ.get("MEDLINE_USERNAME")),
         "can_order": False,
-        "env_needed": ["MEDLINE_ACCOUNT_NUM"],
-        "note": "Major medical distributor — contact medline.com for B2B API/EDI setup",
+        "can_price_lookup": bool(os.environ.get("MEDLINE_USERNAME")),
+        "env_needed": ["MEDLINE_USERNAME", "MEDLINE_PASSWORD"],
+        "note": "Authenticated web scraper for pricing. Set MEDLINE_USERNAME + MEDLINE_PASSWORD env vars.",
     },
 }
 

@@ -482,12 +482,38 @@ CREATE TABLE IF NOT EXISTS competitor_intel (
     items_detail      TEXT,
     solicitation      TEXT,
     outcome           TEXT DEFAULT 'lost',
-    notes             TEXT
+    notes             TEXT,
+    loss_reason_class TEXT DEFAULT '',
+    our_cost          REAL DEFAULT 0,
+    our_margin_pct    REAL DEFAULT 0,
+    margin_too_high   INTEGER DEFAULT 0,
+    category          TEXT DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_competitor_name ON competitor_intel(competitor_name);
 CREATE INDEX IF NOT EXISTS idx_competitor_agency ON competitor_intel(agency);
 CREATE INDEX IF NOT EXISTS idx_competitor_pc ON competitor_intel(pc_id);
+CREATE INDEX IF NOT EXISTS idx_ci_loss_class ON competitor_intel(loss_reason_class);
+CREATE INDEX IF NOT EXISTS idx_ci_margin ON competitor_intel(margin_too_high);
+
+-- Award intelligence: loss pattern tracking
+CREATE TABLE IF NOT EXISTS loss_patterns (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    detected_at     TEXT NOT NULL,
+    pattern_type    TEXT NOT NULL,
+    category        TEXT DEFAULT '',
+    agency          TEXT DEFAULT '',
+    competitor      TEXT DEFAULT '',
+    description     TEXT NOT NULL,
+    severity        TEXT DEFAULT 'info',
+    recommendation  TEXT DEFAULT '',
+    data_json       TEXT DEFAULT '{}',
+    acknowledged    INTEGER DEFAULT 0,
+    acknowledged_at TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_lp_type ON loss_patterns(pattern_type);
+CREATE INDEX IF NOT EXISTS idx_lp_severity ON loss_patterns(severity);
+CREATE INDEX IF NOT EXISTS idx_lp_unack ON loss_patterns(acknowledged);
 
 -- PRD-28 WI-1: Quote revision history
 CREATE TABLE IF NOT EXISTS quote_revisions (

@@ -1486,8 +1486,13 @@ def link_pc_to_rfq(pcid):
 @bp.route("/api/pc/<pcid>/convert-to-rfq", methods=["POST"])
 @auth_required
 def convert_pc_to_rfq(pcid):
-    """Convert a Price Check into a new RFQ, carrying over all item data and pricing."""
+    """Convert a Price Check into a new RFQ.
+
+    This is a status + DB change — the PC record IS the RFQ data.
+    No field remapping. Same items, same prices, same everything.
+    """
     import uuid as _uuid
+    import copy as _copy
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -1496,71 +1501,32 @@ def convert_pc_to_rfq(pcid):
     rfq_id = str(_uuid.uuid4())[:8]
     now = datetime.now().isoformat()
 
-    # Convert PC items to RFQ line items — copy ALL fields, don't cherry-pick
-    line_items = []
-    for i, item in enumerate(pc.get("items", [])):
-        # Copy ALL fields from PC item
-        rfq_item = {}
-        for key, val in item.items():
-            rfq_item[key] = val
+    # ── Take the PC record as-is — no field remapping ────────────────────
+    rfq_data = _copy.deepcopy(pc)
 
-        # Add row_index for ordering
-        rfq_item["row_index"] = i
+    # Stamp with RFQ identity
+    rfq_data["id"] = rfq_id
+    rfq_data["source"] = "pc_conversion"
+    rfq_data["created_at"] = now
+    rfq_data["converted_at"] = now
+    rfq_data["status"] = "priced" if pc.get("status") in ("priced", "quoted", "sent") else "new"
 
-        # Normalize field names for RFQ compatibility
-        rfq_item.setdefault("description", item.get("desc", ""))
-        rfq_item.setdefault("quantity", item.get("qty", 1))
-        rfq_item.setdefault("uom", item.get("uom", "EACH"))
-        rfq_item.setdefault("item_number", item.get("part_number", ""))
-        rfq_item.setdefault("supplier_cost",
-            item.get("cost", item.get("unit_cost", item.get("unit_price"))))
-        rfq_item.setdefault("price_per_unit",
-            item.get("bid_price", item.get("sell_price")))
-        rfq_item.setdefault("item_supplier", item.get("supplier", ""))
-        rfq_item.setdefault("item_link",
-            item.get("url", item.get("product_url",
-            item.get("amazon_url", ""))))
+    # Link back to source PC
+    rfq_data["linked_pc_id"] = pcid
+    rfq_data["linked_pc_number"] = pc.get("pc_number") or pc.get("solicitation_number") or pcid[:12]
+    rfq_data["source_pc"] = pcid
+    rfq_data["source_pc_number"] = pc.get("pc_number", "")
+    rfq_data["source_pc_status"] = pc.get("status", "")
 
-        # Tag the source
-        rfq_item["source_pc"] = pcid
-        rfq_item["imported_from_pc"] = True
-        rfq_item["imported_at"] = now
-        rfq_item["_from_pc"] = pcid
-
-        # Check for PO screenshots
-        try:
-            po_num = pc.get("po_number", "")
-            if po_num:
-                for ext in [".png", ".html"]:
-                    po_path = os.path.join(DATA_DIR, "po_records", f"{po_num}{ext}")
-                    if os.path.exists(po_path):
-                        rfq_item["po_screenshot"] = po_path
-        except Exception:
-            pass
-
-        line_items.append(rfq_item)
-
-    rfq_data = {
-        "id": rfq_id,
-        "solicitation_number": pc.get("pc_number", ""),
-        "status": "priced" if any(li.get("price_per_unit") for li in line_items) else "new",
-        "source": "pc_conversion",
-        "requestor_name": pc.get("requestor", ""),
-        "requestor_email": "",
-        "department": pc.get("institution", ""),
-        "delivery_location": pc.get("ship_to", ""),
-        "due_date": pc.get("due_date", ""),
-        "line_items": line_items,
-        "created_at": now,
-        "linked_pc_id": pcid,
-        "linked_pc_number": pc.get("pc_number", ""),
-        "reytech_quote_number": pc.get("reytech_quote_number", ""),
-        # PC-level metadata
-        "source_pc": pcid,
-        "source_pc_number": pc.get("pc_number", ""),
-        "source_pc_status": pc.get("status", ""),
-        "source_pc_requestor": pc.get("requestor", ""),
-    }
+    # Ensure key RFQ fields exist (use PC values, no translation)
+    rfq_data.setdefault("solicitation_number", pc.get("pc_number", ""))
+    rfq_data.setdefault("line_items", pc.get("items", []))
+    rfq_data.setdefault("requestor_name", pc.get("requestor", ""))
+    rfq_data.setdefault("requestor_email", pc.get("requestor_email") or pc.get("email", ""))
+    rfq_data.setdefault("agency", pc.get("agency") or pc.get("institution", ""))
+    rfq_data.setdefault("institution", pc.get("institution", ""))
+    rfq_data.setdefault("delivery_location", pc.get("ship_to", ""))
+    rfq_data.setdefault("reytech_quote_number", pc.get("reytech_quote_number", ""))
 
     # Copy source PDF if it exists
     source_file = pc.get("source_file", "")
@@ -1568,11 +1534,12 @@ def convert_pc_to_rfq(pcid):
         rfq_data["source_file"] = source_file
         rfq_data["pc_pdf_path"] = source_file
 
+    # ── Save to RFQ store ────────────────────────────────────────────────
     rfqs = load_rfqs()
     rfqs[rfq_id] = rfq_data
     _save_single_rfq(rfq_id, rfq_data)
 
-    # Copy attachments/files from PC to RFQ
+    # ── Copy attachments/files from PC to RFQ ────────────────────────────
     files_copied = 0
     try:
         from src.api.dashboard import list_rfq_files, get_rfq_file, save_rfq_file
@@ -1589,18 +1556,64 @@ def convert_pc_to_rfq(pcid):
                     uploaded_by="pc_conversion",
                 )
                 files_copied += 1
-        log.info("Copied %d files from PC %s to RFQ %s", len(pc_files), pcid, rfq_id)
     except Exception as _e:
         log.warning("File copy from PC %s to RFQ %s: %s", pcid, rfq_id, _e)
 
-    # Update PC with link
+    # ── Update PC with link ──────────────────────────────────────────────
     pc["linked_rfq_id"] = rfq_id
     pc["linked_rfq_at"] = now
     pc["converted_to_rfq"] = True
     _save_single_pc(pcid, pc)
 
-    log.info("PC %s converted to RFQ %s with %d items, %d files", pcid, rfq_id, len(line_items), files_copied)
-    return jsonify({"ok": True, "rfq_id": rfq_id, "items": len(line_items), "files_copied": files_copied})
+    # ── Audit logging ────────────────────────────────────────────────────
+    item_count = len(rfq_data.get("line_items", rfq_data.get("items", [])))
+    log.info("PC→RFQ: %s → %s (%d items, %d files, status=%s)",
+             pcid, rfq_id, item_count, files_copied, rfq_data["status"])
+
+    # Log to activity/CRM
+    try:
+        from src.api.dashboard import _log_crm_activity
+        _log_crm_activity(
+            rfq_data.get("reytech_quote_number") or rfq_id,
+            "pc_to_rfq_conversion",
+            f"PC {pc.get('pc_number', pcid)} converted to RFQ {rfq_id}. "
+            f"{item_count} items, status={rfq_data['status']}.",
+            actor="user",
+            metadata={
+                "pc_id": pcid,
+                "rfq_id": rfq_id,
+                "pc_number": pc.get("pc_number", ""),
+                "item_count": item_count,
+                "files_copied": files_copied,
+                "source_status": pc.get("status", ""),
+            },
+        )
+    except Exception as _e:
+        log.debug("CRM activity log for PC→RFQ: %s", _e)
+
+    # Log to SQLite audit
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO activity_log (event_type, subject, body, logged_at, actor, metadata_json)
+                VALUES (?,?,?,?,?,?)
+            """, (
+                "pc_to_rfq",
+                f"PC {pc.get('pc_number', pcid)} → RFQ {rfq_id}",
+                f"Converted with {item_count} items, {files_copied} files. "
+                f"PC status was '{pc.get('status', '')}', RFQ status set to '{rfq_data['status']}'.",
+                now, "user",
+                __import__("json").dumps({
+                    "pc_id": pcid, "rfq_id": rfq_id,
+                    "pc_number": pc.get("pc_number", ""),
+                    "item_count": item_count,
+                }, default=str),
+            ))
+    except Exception as _e:
+        log.debug("Activity log for PC→RFQ: %s", _e)
+
+    return jsonify({"ok": True, "rfq_id": rfq_id, "items": item_count, "files_copied": files_copied})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1623,6 +1636,13 @@ def follow_ups_page():
 def win_loss_page():
     """Win/loss analysis page with charts and trends."""
     return render_page("win_loss.html", active_page="Analytics")
+
+
+@bp.route("/loss-intelligence")
+@auth_required
+def loss_intelligence_page():
+    """Loss intelligence dashboard — why we lose, margin analysis, competitor deep dive."""
+    return render_page("loss_intelligence.html", active_page="Analytics")
 
 
 @bp.route("/api/analytics/win-loss")

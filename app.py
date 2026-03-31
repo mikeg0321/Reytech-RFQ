@@ -269,7 +269,7 @@ def create_app():
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
             start_backup_scheduler(interval_hours=24)
             for job_name, interval in [
-                ("email-poller", 300), ("award-monitor", 3600),
+                ("email-poller", 300), ("award-tracker", 3600),
                 ("follow-up-engine", 3600), ("quote-lifecycle", 3600),
                 ("email-retry", 900), ("lead-nurture", 86400),
                 ("qa-monitor", 900), ("growth-agent", 86400),
@@ -348,9 +348,16 @@ def create_app():
         threading.Thread(target=_deferred_init, daemon=True, name="deferred-init").start()
 
     # Start email polling (production only)
-    if os.environ.get("ENABLE_EMAIL_POLLING", "").lower() == "true" and start_polling:
+    _email_polling_env = os.environ.get("ENABLE_EMAIL_POLLING", "").lower()
+    if _email_polling_env == "true" and start_polling:
         with app.app_context():
             start_polling(app)
+    elif _email_polling_env != "true":
+        logging.getLogger("reytech").warning(
+            "EMAIL POLLING DISABLED: ENABLE_EMAIL_POLLING=%r (need 'true'). "
+            "PO detection via email will NOT work. Check /api/email/health for diagnostics.",
+            os.environ.get("ENABLE_EMAIL_POLLING", "(not set)")
+        )
 
     elapsed = time.time() - t0
     print(f"[BOOT] create_app() complete ✅ ({elapsed:.1f}s)", flush=True)

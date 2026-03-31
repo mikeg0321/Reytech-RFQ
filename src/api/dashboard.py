@@ -5912,11 +5912,12 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Follow-up engine failed to start: %s", _e)
 
-    # ── Start Award Tracker (polls SCPRS 3x/day for PO awards) ──────────────
+    # ── Start Unified Award Tracker (SCPRS-aligned schedule) ─────────────
     try:
         from src.agents.award_tracker import start_award_tracker
         start_award_tracker()
-        log.info("Award tracker started (polls SCPRS every 8h)")
+        log.info("Award tracker started (unified system — SCPRS-aligned, "
+                 "daily→3x/day adaptive schedule, quotes + RFQs + PCs)")
     except Exception as _e:
         log.warning("Award tracker failed to start: %s", _e)
 

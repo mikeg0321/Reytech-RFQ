@@ -83,15 +83,38 @@ def _check_guardrails(items):
                     "msg": "Cost has no backing source (no URL or SCPRS)"
                 })
 
+        # Loss intelligence — check if we've lost on similar items before
+        if bid > 0 and desc and len(desc) > 5:
+            try:
+                from src.agents.pricing_feedback import get_pricing_recommendation
+                agency = items[0].get("agency", "") if items else ""
+                loss_rec = get_pricing_recommendation(desc, agency, cost)
+                if loss_rec.get("margin_warning"):
+                    warnings.append({
+                        "idx": i, "desc": desc, "level": "warn",
+                        "msg": f"Loss intel: {loss_rec['margin_warning'][:120]}"
+                    })
+                comp_floor = loss_rec.get("competitor_floor")
+                if comp_floor and bid > comp_floor * 1.10:
+                    warnings.append({
+                        "idx": i, "desc": desc, "level": "warn",
+                        "msg": f"Bid ${bid:.2f} is >{10}% above competitor floor "
+                               f"${comp_floor:.2f} (from {loss_rec.get('sources_used',0)} losses)"
+                    })
+            except Exception:
+                pass
+
     return warnings
 
 
 def _recommend_price(item):
-    """Lightweight price recommendation (mirrors routes_analytics logic).
-    Returns {recommended, aggressive, safe} tiers or None."""
+    """Lightweight price recommendation with loss intelligence.
+    Returns {recommended, aggressive, safe, loss_intel} tiers or None."""
     scprs = item.get("scprs_last_price") or 0
     amazon = item.get("amazon_price") or 0
     cost = item.get("supplier_cost") or 0
+    desc = (item.get("description") or "")[:60]
+    agency = item.get("agency", "")
 
     base = 0
     reason = ""
@@ -112,12 +135,39 @@ def _recommend_price(item):
     if cost > 0 and base < cost * 1.10:
         base = cost * 1.10
 
-    return {
-        "recommended": round(base * 0.98, 2),  # Undercut by 2%
-        "aggressive": round(base * 0.93, 2),    # Undercut by 7%
-        "safe": round(base * 1.05, 2),           # 5% above
+    result = {
+        "recommended": round(base * 0.98, 2),
+        "aggressive": round(base * 0.93, 2),
+        "safe": round(base * 1.05, 2),
         "reason": reason,
     }
+
+    # Loss intelligence: adjust recommendations if we have competitor data
+    if desc and len(desc) > 5:
+        try:
+            from src.agents.pricing_feedback import get_pricing_recommendation
+            loss_rec = get_pricing_recommendation(desc, agency, float(cost) if cost else 0)
+            if loss_rec.get("sources_used", 0) > 0:
+                comp_floor = loss_rec.get("competitor_floor")
+                suggested = loss_rec.get("suggested_range")
+                result["loss_intel"] = {
+                    "competitor_floor": comp_floor,
+                    "suggested_range": suggested,
+                    "margin_warning": loss_rec.get("margin_warning"),
+                    "loss_count": loss_rec.get("sources_used", 0),
+                    "confidence": loss_rec.get("confidence", 0),
+                }
+                # If competitor floor is known and lower than our recommended,
+                # adjust aggressive tier to beat it
+                if comp_floor and comp_floor > 0:
+                    beat_floor = round(comp_floor * 0.98, 2)  # 2% under competitor
+                    if cost > 0 and beat_floor > cost * 1.05:  # Must keep 5% min margin
+                        result["competitive"] = beat_floor
+                        result["reason"] += f" | Loss Intel: floor ${comp_floor:.2f}"
+        except Exception:
+            pass
+
+    return result
 
 
 def _enrich_items_with_intel(items, rfq_number="", agency=""):
@@ -2821,6 +2871,24 @@ def rfq_lookup_single_item(rid, idx):
     except Exception as e:
         results["oracle"] = {"error": str(e)[:80]}
 
+    # 5. Loss Intelligence — competitive pricing feedback from past losses
+    try:
+        from src.agents.pricing_feedback import get_pricing_recommendation
+        agency = r.get("agency", "")
+        cost = item.get("supplier_cost") or item.get("unit_price") or 0
+        loss_intel = get_pricing_recommendation(desc, agency, float(cost) if cost else 0)
+        if loss_intel.get("sources_used", 0) > 0:
+            results["loss_intelligence"] = {
+                "competitor_floor": loss_intel.get("competitor_floor"),
+                "suggested_range": loss_intel.get("suggested_range"),
+                "margin_warning": loss_intel.get("margin_warning"),
+                "confidence": loss_intel.get("confidence", 0),
+                "loss_count": loss_intel.get("sources_used", 0),
+            }
+            items[idx]["loss_intel"] = results["loss_intelligence"]
+    except Exception as e:
+        log.debug("Loss intelligence lookup: %s", e)
+
     from src.api.dashboard import _save_single_rfq
     _save_single_rfq(rid, r)
 
@@ -2834,6 +2902,11 @@ def rfq_lookup_single_item(rid, idx):
         found.append(f"Amazon: ${results['amazon']['price']:.2f}")
     if results.get("oracle") and not results["oracle"].get("error") and results["oracle"].get("quote_price"):
         found.append(f"Oracle: ${results['oracle']['quote_price']:.2f} ({results['oracle'].get('confidence','?')})")
+    if results.get("loss_intelligence") and results["loss_intelligence"].get("competitor_floor"):
+        li = results["loss_intelligence"]
+        found.append(f"Loss Intel: floor ${li['competitor_floor']:.2f} ({li['loss_count']} losses)")
+        if li.get("margin_warning"):
+            found.append(f"WARNING: {li['margin_warning'][:60]}")
 
     return jsonify({
         "ok": True,
@@ -6082,6 +6155,22 @@ def api_rfq_price_intel(rid):
         rec = _recommend_price(item)
         if rec:
             result["recommendation"] = rec
+
+        # Loss intelligence — competitive insights from past losses
+        try:
+            from src.agents.pricing_feedback import get_pricing_recommendation
+            agency = r.get("agency", "")
+            loss_rec = get_pricing_recommendation(desc, agency, float(current_cost) if current_cost else 0)
+            if loss_rec.get("sources_used", 0) > 0:
+                result["loss_intelligence"] = {
+                    "competitor_floor": loss_rec.get("competitor_floor"),
+                    "suggested_range": loss_rec.get("suggested_range"),
+                    "margin_warning": loss_rec.get("margin_warning"),
+                    "confidence": loss_rec.get("confidence", 0),
+                    "loss_count": loss_rec.get("sources_used", 0),
+                }
+        except Exception:
+            pass
 
         # F6: Price conflict resolution — all known sources
         sources = {}

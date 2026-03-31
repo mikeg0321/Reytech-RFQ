@@ -654,45 +654,26 @@ def run_award_check() -> dict:
 # ── Background Thread ────────────────────────────────────────────────────────
 
 def _monitor_loop():
-    """Background loop — runs every CHECK_INTERVAL_HOURS."""
-    global _monitor_running
-    _monitor_running = True
-    try:
-        log.info("Award monitor started (checks every %dh, SCPRS every %d biz days, expires at %dd)",
-                 CHECK_INTERVAL_HOURS, SCPRS_CHECK_INTERVAL_DAYS, EXPIRY_DAYS)
-    except Exception:
-        pass
-    
-    while _monitor_running:
-        try:
-            run_award_check()
-            try:
-                from src.core.scheduler import heartbeat
-                heartbeat("award-monitor", success=True)
-            except Exception:
-                pass
-        except Exception as e:
-            log.error("Award monitor error: %s", e, exc_info=True)
-            try:
-                from src.core.scheduler import heartbeat
-                heartbeat("award-monitor", success=False, error=str(e)[:200])
-            except Exception:
-                pass
-        
-        time.sleep(CHECK_INTERVAL_HOURS * 3600)
+    """DEPRECATED: Award monitor loop now unified into award_tracker.py.
+    The award_tracker thread calls run_award_check() from here as part of its
+    SCPRS-aligned schedule. This function is kept for backwards compatibility
+    but should not be started as a separate thread.
+    """
+    log.info("Award monitor: delegating to unified award_tracker (no separate thread)")
 
 
 def start_monitor():
-    """Start the award monitor background thread."""
-    global _monitor_thread
-    if _monitor_thread and _monitor_thread.is_alive():
-        return
-    _monitor_thread = threading.Thread(target=_monitor_loop, daemon=True, name="award-monitor")
-    _monitor_thread.start()
+    """Start the award monitor — now delegates to award_tracker.
+
+    The award_tracker thread handles both quote and PC award checking.
+    This function is kept for backwards compatibility but is a no-op.
+    """
+    log.info("Award monitor: unified into award_tracker — no separate thread needed. "
+             "PC checks run as part of award_tracker's SCPRS-aligned schedule.")
 
 
 def stop_monitor():
-    """Stop the monitor (for graceful shutdown)."""
+    """Stop the monitor (no-op — unified into award_tracker)."""
     global _monitor_running
     _monitor_running = False
 

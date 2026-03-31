@@ -121,31 +121,8 @@ def api_intel_po_monitor():
 
 
 # ── Award Tracker (automated SCPRS polling) ──────────────────────────────────
-
-@bp.route("/api/intel/award-tracker/status")
-@auth_required
-def api_award_tracker_status():
-    """Get award tracker status — eligible quotes, last run, loss history."""
-    try:
-        from src.agents.award_tracker import get_status
-        return jsonify(get_status())
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/intel/award-tracker/run", methods=["POST"])
-@auth_required
-def api_award_tracker_run():
-    """Manually trigger award tracker scan now."""
-    try:
-        from src.agents.award_tracker import run_award_check
-        force = request.get_json(silent=True) or {}
-        result = run_award_check(force=force.get("force", False))
-        return jsonify(result)
-    except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
-
+# NOTE: /api/intel/award-tracker/status and /run are defined at end of file
+# with enhanced schedule info. See "AWARD INTELLIGENCE" section below.
 
 @bp.route("/api/intel/award-tracker/history")
 @auth_required
@@ -5998,3 +5975,286 @@ def api_intel_revenue_by_agency():
     except Exception as e:
         log.exception("revenue-by-agency")
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AWARD INTELLIGENCE & COMPETITIVE PRICING ENDPOINTS
+# ══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/intel/loss-analysis")
+@auth_required
+def api_loss_analysis():
+    """Full loss analysis dashboard data — recent losses, patterns, margin insights."""
+    try:
+        days = int(request.args.get("days", 90))
+
+        with get_db() as conn:
+            conn.row_factory = __import__("sqlite3").Row
+
+            # Recent losses with classification
+            recent_losses = [dict(r) for r in conn.execute("""
+                SELECT found_at, quote_number, our_price, competitor_name,
+                       competitor_price, price_delta, price_delta_pct,
+                       po_number, agency, institution, loss_reason_class,
+                       margin_too_high, our_cost, our_margin_pct, item_summary
+                FROM competitor_intel
+                WHERE outcome='lost'
+                ORDER BY found_at DESC LIMIT 25
+            """).fetchall()]
+
+            # Loss classification breakdown
+            cutoff = (__import__("datetime").datetime.now()
+                      - __import__("datetime").timedelta(days=days)).isoformat()
+            class_breakdown = [dict(r) for r in conn.execute("""
+                SELECT loss_reason_class,
+                       COUNT(*) as count,
+                       AVG(price_delta_pct) as avg_delta_pct,
+                       SUM(our_price) as total_lost_value
+                FROM competitor_intel
+                WHERE outcome='lost' AND found_at >= ?
+                GROUP BY loss_reason_class
+                ORDER BY count DESC
+            """, (cutoff,)).fetchall()]
+
+            # Margin too high items
+            mth_losses = [dict(r) for r in conn.execute("""
+                SELECT found_at, quote_number, competitor_name,
+                       our_price, competitor_price, price_delta_pct,
+                       our_cost, our_margin_pct, agency, item_summary
+                FROM competitor_intel
+                WHERE outcome='lost' AND margin_too_high = 1
+                ORDER BY found_at DESC LIMIT 15
+            """).fetchall()]
+
+            # Overall stats
+            stats = conn.execute("""
+                SELECT COUNT(*) as total_losses,
+                       AVG(price_delta_pct) as avg_delta_pct,
+                       COUNT(DISTINCT competitor_name) as unique_competitors,
+                       SUM(CASE WHEN margin_too_high = 1 THEN 1 ELSE 0 END) as margin_too_high_count,
+                       SUM(CASE WHEN loss_reason_class = 'relationship_incumbent' THEN 1 ELSE 0 END) as relationship_losses
+                FROM competitor_intel WHERE outcome='lost' AND found_at >= ?
+            """, (cutoff,)).fetchone()
+            stats = dict(stats) if stats else {}
+
+        return jsonify({
+            "ok": True,
+            "recent_losses": recent_losses,
+            "class_breakdown": class_breakdown,
+            "margin_too_high_losses": mth_losses,
+            "stats": stats,
+            "days": days,
+        })
+    except Exception as e:
+        log.exception("loss-analysis")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/loss-patterns")
+@auth_required
+def api_loss_patterns():
+    """Detected competitive patterns and recommendations."""
+    try:
+        from src.agents.pricing_feedback import (
+            detect_margin_patterns, get_unacknowledged_patterns
+        )
+        days = int(request.args.get("days", 90))
+        patterns = detect_margin_patterns(days)
+        unacked = get_unacknowledged_patterns(limit=20)
+        return jsonify({
+            "ok": True,
+            "patterns": patterns,
+            "unacknowledged": unacked,
+            "days": days,
+        })
+    except Exception as e:
+        log.exception("loss-patterns")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/loss-patterns/acknowledge", methods=["POST"])
+@auth_required
+def api_acknowledge_pattern():
+    """Mark a loss pattern as reviewed."""
+    try:
+        from src.agents.pricing_feedback import acknowledge_pattern
+        pattern_id = request.json.get("pattern_id")
+        if not pattern_id:
+            return jsonify({"ok": False, "error": "pattern_id required"}), 400
+        result = acknowledge_pattern(int(pattern_id))
+        return jsonify({"ok": result})
+    except Exception as e:
+        log.exception("acknowledge-pattern")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/pricing-recommendation", methods=["POST"])
+@auth_required
+def api_pricing_recommendation():
+    """Get pricing recommendation for items about to be quoted."""
+    try:
+        from src.agents.pricing_feedback import get_pricing_recommendation
+        data = request.json or {}
+        description = data.get("description", "")
+        agency = data.get("agency", "")
+        cost = float(data.get("cost", 0) or 0)
+        quantity = int(data.get("quantity", 1) or 1)
+
+        if not description:
+            return jsonify({"ok": False, "error": "description required"}), 400
+
+        rec = get_pricing_recommendation(description, agency, cost, quantity)
+        return jsonify({"ok": True, **rec})
+    except Exception as e:
+        log.exception("pricing-recommendation")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/margin-analysis")
+@auth_required
+def api_margin_analysis():
+    """Margin trends — where are we too high, where too thin."""
+    try:
+        from src.agents.pricing_feedback import (
+            get_category_loss_trends, detect_margin_patterns
+        )
+        days = int(request.args.get("days", 90))
+        category_trends = get_category_loss_trends(days)
+        patterns = detect_margin_patterns(days)
+        margin_patterns = [p for p in patterns if p.get("pattern_type") in
+                           ("margin_trend", "loss_class_trend")]
+        return jsonify({
+            "ok": True,
+            "category_trends": category_trends,
+            "margin_patterns": margin_patterns,
+            "days": days,
+        })
+    except Exception as e:
+        log.exception("margin-analysis")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/competitor/<name>")
+@auth_required
+def api_competitor_detail(name):
+    """Deep dive on a specific competitor's pricing patterns."""
+    try:
+        from src.agents.pricing_feedback import get_competitor_price_trends
+        days = int(request.args.get("days", 180))
+        trends = get_competitor_price_trends(competitor_name=name, days=days)
+        competitor_data = trends.get(name, {})
+
+        # Also get recent losses to this competitor
+        with get_db() as conn:
+            conn.row_factory = __import__("sqlite3").Row
+            recent = [dict(r) for r in conn.execute("""
+                SELECT found_at, quote_number, our_price, competitor_price,
+                       price_delta_pct, po_number, agency, institution,
+                       loss_reason_class, margin_too_high, item_summary
+                FROM competitor_intel
+                WHERE competitor_name = ? AND outcome='lost'
+                ORDER BY found_at DESC LIMIT 15
+            """, (name,)).fetchall()]
+
+        return jsonify({
+            "ok": True,
+            "competitor": name,
+            "trends": competitor_data,
+            "recent_losses": recent,
+            "days": days,
+        })
+    except Exception as e:
+        log.exception("competitor-detail")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/award-tracker/status")
+@auth_required
+def api_award_tracker_status():
+    """Award tracker status with schedule information."""
+    try:
+        from src.agents.award_tracker import get_status
+        status = get_status()
+
+        # Add schedule config
+        try:
+            from src.core.scprs_schedule import (
+                SCPRS_UPDATE_TIMES_PT, DAILY_CHECK_PHASE_DAYS, EXPIRY_DAYS,
+                seconds_until_next_window, is_scprs_check_time,
+                current_scprs_window,
+            )
+            status["schedule"] = {
+                "scprs_update_times": [t.strftime("%H:%M") for t in SCPRS_UPDATE_TIMES_PT],
+                "daily_phase_days": DAILY_CHECK_PHASE_DAYS,
+                "expiry_days": EXPIRY_DAYS,
+                "in_check_window": is_scprs_check_time(),
+                "current_window": current_scprs_window(),
+                "seconds_until_next": seconds_until_next_window(),
+            }
+        except ImportError:
+            status["schedule"] = {"error": "scprs_schedule module not available"}
+
+        return jsonify({"ok": True, **status})
+    except Exception as e:
+        log.exception("award-tracker-status")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/award-tracker/run", methods=["POST"])
+@auth_required
+def api_award_tracker_run():
+    """Manually trigger an award check cycle."""
+    try:
+        from src.agents.award_tracker import run_award_check
+        force = request.json.get("force", False) if request.json else False
+        result = run_award_check(force=force)
+        return jsonify(result)
+    except Exception as e:
+        log.exception("award-tracker-run")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/win-rate-trends")
+@auth_required
+def api_win_rate_trends():
+    """Win rate trends over time — by period, agency, competitor."""
+    try:
+        from src.agents.pricing_feedback import get_win_rate_trends
+        days = int(request.args.get("days", 180))
+        result = get_win_rate_trends(days=days)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.exception("win-rate-trends")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SUPPLIER AUTH STATUS & TESTING
+# ══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/intel/supplier-auth/status")
+@auth_required
+def api_supplier_auth_status():
+    """Get authentication status for all login-required suppliers."""
+    try:
+        from src.agents.supplier_auth_scraper import get_supplier_auth_status
+        return jsonify({"ok": True, "suppliers": get_supplier_auth_status()})
+    except Exception as e:
+        log.exception("supplier-auth-status")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/supplier-auth/test", methods=["POST"])
+@auth_required
+def api_supplier_auth_test():
+    """Test login for a specific supplier."""
+    try:
+        from src.agents.supplier_auth_scraper import test_supplier_login
+        supplier_key = (request.json or {}).get("supplier", "")
+        if not supplier_key:
+            return jsonify({"ok": False, "error": "supplier key required"}), 400
+        result = test_supplier_login(supplier_key)
+        return jsonify(result)
+    except Exception as e:
+        log.exception("supplier-auth-test")
+        return jsonify({"ok": False, "error": str(e)}), 500

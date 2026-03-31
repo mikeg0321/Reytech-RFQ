@@ -400,6 +400,44 @@ MIGRATIONS = [
             '2024-06-30'
         );
     """),
+    (13, "award_intelligence_enhancements", """
+        -- Enhanced competitor_intel: loss classification + margin analysis
+        ALTER TABLE competitor_intel ADD COLUMN loss_reason_class TEXT DEFAULT '';
+        ALTER TABLE competitor_intel ADD COLUMN our_cost REAL DEFAULT 0;
+        ALTER TABLE competitor_intel ADD COLUMN our_margin_pct REAL DEFAULT 0;
+        ALTER TABLE competitor_intel ADD COLUMN margin_too_high INTEGER DEFAULT 0;
+        ALTER TABLE competitor_intel ADD COLUMN items_detail TEXT;
+        ALTER TABLE competitor_intel ADD COLUMN category TEXT DEFAULT '';
+
+        -- Enhanced award_check_queue: adaptive schedule phases
+        ALTER TABLE award_check_queue ADD COLUMN phase TEXT DEFAULT 'daily';
+        ALTER TABLE award_check_queue ADD COLUMN check_count INTEGER DEFAULT 0;
+        ALTER TABLE award_check_queue ADD COLUMN last_checked TEXT DEFAULT '';
+        ALTER TABLE award_check_queue ADD COLUMN next_check TEXT DEFAULT '';
+
+        -- Loss patterns: aggregate competitive intelligence
+        CREATE TABLE IF NOT EXISTS loss_patterns (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            detected_at     TEXT NOT NULL,
+            pattern_type    TEXT NOT NULL,
+            category        TEXT DEFAULT '',
+            agency          TEXT DEFAULT '',
+            competitor      TEXT DEFAULT '',
+            description     TEXT NOT NULL,
+            severity        TEXT DEFAULT 'info',
+            recommendation  TEXT DEFAULT '',
+            data_json       TEXT DEFAULT '{}',
+            acknowledged    INTEGER DEFAULT 0,
+            acknowledged_at TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_lp_type ON loss_patterns(pattern_type);
+        CREATE INDEX IF NOT EXISTS idx_lp_severity ON loss_patterns(severity);
+        CREATE INDEX IF NOT EXISTS idx_lp_unack ON loss_patterns(acknowledged);
+
+        -- Index for loss classification queries
+        CREATE INDEX IF NOT EXISTS idx_ci_loss_class ON competitor_intel(loss_reason_class);
+        CREATE INDEX IF NOT EXISTS idx_ci_margin ON competitor_intel(margin_too_high);
+    """),
 ]
 
 

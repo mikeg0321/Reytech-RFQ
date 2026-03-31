@@ -1276,6 +1276,134 @@ def pricecheck_auto_process(pcid):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Email Health & Diagnostics
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/email/health")
+@auth_required
+def api_email_health():
+    """Email system diagnostics — shows why polling might not be working."""
+    try:
+        import os as _os
+        email_cfg = CONFIG.get("email", {})
+        gmail_addr = email_cfg.get("email") or _os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pass = email_cfg.get("email_password") or _os.environ.get("GMAIL_PASSWORD", "")
+        enable_polling = _os.environ.get("ENABLE_EMAIL_POLLING", "")
+
+        # Check poll thread
+        poll_thread_alive = False
+        try:
+            for t in threading.enumerate():
+                if "email" in t.name.lower() or "poll" in t.name.lower():
+                    poll_thread_alive = t.is_alive()
+                    break
+        except Exception:
+            pass
+
+        # Diagnostics
+        diag = POLL_STATUS.get("_diag", {})
+        checks = []
+
+        # Check 1: ENABLE_EMAIL_POLLING
+        if enable_polling.lower() == "true":
+            checks.append({"check": "ENABLE_EMAIL_POLLING", "status": "ok", "value": "true"})
+        else:
+            checks.append({"check": "ENABLE_EMAIL_POLLING", "status": "FAIL",
+                           "value": enable_polling or "(not set)",
+                           "fix": "Set ENABLE_EMAIL_POLLING=true in Railway env vars"})
+
+        # Check 2: Gmail address
+        if gmail_addr:
+            checks.append({"check": "GMAIL_ADDRESS", "status": "ok",
+                           "value": gmail_addr[:4] + "***" + gmail_addr[gmail_addr.index("@"):] if "@" in gmail_addr else "***"})
+        else:
+            checks.append({"check": "GMAIL_ADDRESS", "status": "FAIL", "value": "(not set)",
+                           "fix": "Set GMAIL_ADDRESS=sales@raytechinc.com in Railway env vars"})
+
+        # Check 3: Gmail password
+        if gmail_pass:
+            checks.append({"check": "GMAIL_PASSWORD", "status": "ok",
+                           "value": gmail_pass[:3] + "***" + gmail_pass[-2:] if len(gmail_pass) > 5 else "***"})
+        else:
+            checks.append({"check": "GMAIL_PASSWORD", "status": "FAIL", "value": "(not set)",
+                           "fix": "Set GMAIL_PASSWORD to a Gmail App Password (not your regular password) in Railway env vars"})
+
+        # Check 4: Poll thread
+        if poll_thread_alive:
+            checks.append({"check": "Poll Thread", "status": "ok", "value": "alive"})
+        elif _poll_started:
+            checks.append({"check": "Poll Thread", "status": "FAIL", "value": "started but dead",
+                           "fix": "Thread crashed — check logs for errors"})
+        else:
+            checks.append({"check": "Poll Thread", "status": "FAIL", "value": "never started",
+                           "fix": "Fix the above env var issues, then restart the app"})
+
+        # Overall status
+        all_ok = all(c["status"] == "ok" for c in checks)
+
+        return jsonify({
+            "ok": all_ok,
+            "status": "healthy" if all_ok else "unhealthy",
+            "checks": checks,
+            "poll_status": {
+                "running": POLL_STATUS.get("running", False),
+                "paused": POLL_STATUS.get("paused", False),
+                "last_check": POLL_STATUS.get("last_check"),
+                "last_success": POLL_STATUS.get("last_success"),
+                "error": POLL_STATUS.get("error"),
+                "emails_found": POLL_STATUS.get("emails_found", 0),
+                "pos_detected": POLL_STATUS.get("pos_detected", 0),
+                "started_at": POLL_STATUS.get("started_at"),
+            },
+            "diag": {
+                "imap_connected": diag.get("imap_connected"),
+                "rfqs_returned": diag.get("rfqs_returned"),
+                "pcs_routed": diag.get("pcs_routed", 0),
+                "errors": diag.get("errors", [])[-5:],
+            },
+        })
+    except Exception as e:
+        log.exception("email-health")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/email/poll-now", methods=["POST"])
+@auth_required
+def api_email_poll_now():
+    """Force an immediate email poll cycle. Returns results."""
+    try:
+        log.info("Manual email poll triggered via /api/email/poll-now")
+        results = do_poll_check()
+
+        pos_found = 0
+        rfqs_found = 0
+        pcs_found = 0
+        for r in (results or []):
+            if isinstance(r, dict):
+                if r.get("_is_po"):
+                    pos_found += 1
+                elif r.get("_is_pc"):
+                    pcs_found += 1
+                else:
+                    rfqs_found += 1
+
+        return jsonify({
+            "ok": True,
+            "emails_processed": len(results or []),
+            "pos_found": pos_found,
+            "rfqs_found": rfqs_found,
+            "pcs_found": pcs_found,
+            "poll_status": {
+                "last_check": POLL_STATUS.get("last_check"),
+                "error": POLL_STATUS.get("error"),
+            },
+        })
+    except Exception as e:
+        log.exception("email-poll-now")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Startup
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1287,13 +1415,19 @@ def start_polling(app=None):
         return
     _poll_started = True
     email_cfg = CONFIG.get("email", {})
-    if email_cfg.get("email_password"):
-        poll_thread = threading.Thread(target=email_poll_loop, daemon=True)
+    effective_password = (email_cfg.get("email_password")
+                          or os.environ.get("GMAIL_PASSWORD", ""))
+    if effective_password:
+        POLL_STATUS["started_at"] = __import__("datetime").datetime.now().isoformat()
+        POLL_STATUS["running"] = True
+        poll_thread = threading.Thread(target=email_poll_loop, daemon=True, name="email-poller")
         poll_thread.start()
-        log.info("Email polling started")
+        log.info("Email polling started (account: %s)",
+                 email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "?"))
     else:
         POLL_STATUS["error"] = "Set GMAIL_PASSWORD env var or email_password in config"
-        log.info("Email polling disabled — no password configured")
+        log.warning("EMAIL POLLING DISABLED: No GMAIL_PASSWORD env var or email_password in config. "
+                     "PO detection via email will NOT work. Set GMAIL_PASSWORD in Railway env vars.")
 
 # ─── Logo Upload + Quotes Database ────────────────────────────────────────────
 
