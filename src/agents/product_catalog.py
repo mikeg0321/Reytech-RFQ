@@ -1816,6 +1816,19 @@ def match_items_batch(items: list) -> list:
                         results[-1]["best_supplier"] = sup_row["supplier_name"]
             except Exception:
                 pass
+            # Fallback: auto-generate URL from SKU pattern
+            if not results[-1].get("supplier_url"):
+                try:
+                    from src.agents.sku_url_resolver import resolve_sku_url
+                    _sku = results[-1].get("mfg_number") or results[-1].get("sku") or ""
+                    if _sku:
+                        _resolved = resolve_sku_url(_sku)
+                        if _resolved.get("url"):
+                            results[-1]["supplier_url"] = _resolved["url"]
+                            if not results[-1]["best_supplier"]:
+                                results[-1]["best_supplier"] = _resolved["supplier"]
+                except Exception:
+                    pass
         else:
             results.append({"idx": item.get("idx", 0), "matched": False})
     return results

@@ -431,9 +431,14 @@ def _pricecheck_detail_inner(pcid):
             )
             unit_cost = _ref_price
 
-        # Markup and final price
+        # Markup and final price — user markup ALWAYS wins over Oracle recommendation
         markup_pct = _safe_float(p.get("markup_pct"), 25)
-        final_price = _safe_float(p.get("recommended_price")) or (round(unit_cost * (1 + markup_pct/100), 2) if unit_cost else 0)
+        if unit_cost > 0 and markup_pct > 0:
+            # Calculate from cost + markup (user's pricing intent)
+            final_price = round(unit_cost * (1 + markup_pct/100), 2)
+        else:
+            # No cost or markup — fall back to Oracle recommendation
+            final_price = _safe_float(p.get("recommended_price")) or 0
 
         # Type-safe qty (could be string, None, or already int/float)
         _raw_qty = item.get("qty", 1)
