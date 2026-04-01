@@ -343,6 +343,20 @@ def create_app():
 
         logging.getLogger("reytech").info("Deferred init complete")
 
+        # Pre-warm expensive caches so first user request is fast
+        try:
+            with app.app_context():
+                from flask import testing
+                client = app.test_client()
+                for endpoint in ["/api/dashboard/init", "/api/manager/brief"]:
+                    try:
+                        client.get(endpoint)
+                    except Exception:
+                        pass
+                logging.getLogger("reytech").info("Cache pre-warmed: dashboard/init + manager/brief")
+        except Exception as _e:
+            logging.getLogger("reytech").debug("Cache pre-warm failed: %s", _e)
+
     import threading
     if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
         threading.Thread(target=_deferred_init, daemon=True, name="deferred-init").start()
