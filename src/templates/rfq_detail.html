@@ -89,6 +89,13 @@
  .rfq-action-btn .ab-label{font-size:12px;font-weight:700;white-space:nowrap}
  .rfq-action-btn .ab-sub{font-size:10px;font-weight:400;opacity:.75}
  .rfq-action-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
+ /* Row highlighting — same as PC page */
+ table tr[data-row]:hover{background:#1a233280}
+ table tr[data-row]:focus-within{background:var(--row-hl,#1a2332);box-shadow:inset 3px 0 0 #58a6ff}
+ table tr[data-row]:focus-within td{border-top-color:var(--row-hl-border,#2d4a6f);border-bottom-color:var(--row-hl-border,#2d4a6f)}
+ /* Highlight filled cost + price fields */
+ input[name^="cost_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d2818;border-color:#238636;color:#3fb950}
+ input[name^="price_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d1a2e;border-color:#1f6feb;color:#58a6ff;font-weight:700}
  .ab-scprs{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3);color:#58a6ff}
  .ab-amazon{background:rgba(255,153,0,.1);border-color:rgba(255,153,0,.3);color:#ff9900}
  .ab-auto{background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.3);color:#a78bfa}
@@ -112,6 +119,7 @@
   <div class="margin-kpi" style="flex:0 0 auto;min-width:130px"><span class="kpi-label">Ship</span><span class="kpi-val" style="display:flex;align-items:center;gap:4px;font-size:13px"><select id="shipping-option" onchange="recalc();triggerAutosave()" style="background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px"><option value="included"{% if r.get('shipping_option')=='included' %} selected{% endif %}>Included</option><option value="fob_dest"{% if r.get('shipping_option')=='fob_dest' %} selected{% endif %}>FOB Dest</option><option value="custom"{% if r.get('shipping_option')=='custom' %} selected{% endif %}>Custom</option></select><input type="number" id="shipping-amount" value="{{r.get('shipping_amount',0)}}" min="0" step="0.01" style="width:52px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px;text-align:center;display:{% if r.get('shipping_option')=='custom' %}inline{% else %}none{% endif %}" onchange="recalc();triggerAutosave()"></span></div>
   <div class="margin-kpi" style="flex:0 0 auto;padding:8px 20px;background:rgba(79,140,255,.06);border-left:1px solid rgba(79,140,255,.2)"><span class="kpi-label">Total</span><span class="kpi-val" id="ms-grand-total" style="color:var(--ac);font-size:17px">—</span></div>
   <div class="margin-kpi" style="flex:0 0 auto;min-width:80px;border-left:1px solid var(--bd)"><span class="kpi-label">Priced</span><span class="kpi-val" id="ms-items-priced" style="font-size:13px">—</span></div>
+  <div id="ms-discount-profit" style="font-size:13px;padding:4px 12px;border-left:1px solid var(--bd)"></div>
   <span id="ms-tax" style="display:none"></span><span id="ms-shipping" style="display:none"></span>
  </div>
 
@@ -1372,8 +1380,33 @@ function recalc(){
   const pf=document.getElementById(`pf_${i}`);
   if(pf){
    const ip=(p-c)*q;
-   if(p>0&&c>0){pf.textContent=`$${ip.toFixed(2)}`;pf.style.color=ip>0?'#3fb950':'#f85149'}
-   else{pf.textContent='—';pf.style.color='#8b949e'}
+   if(p>0&&c>0){
+    var pfHtml='<span style="color:'+(ip>0?'#3fb950':'#f85149')+'">$'+ip.toFixed(2)+'</span>';
+    // Discount profit badge
+    var row=document.querySelector('tr[data-row="'+i+'"]');
+    if(row){
+     var discCost=parseFloat(row.getAttribute('data-discount-cost')||'0');
+     if(discCost>0&&discCost<c){
+      var discProfit=(p-discCost)*q;
+      var extraProfit=discProfit-ip;
+      pfHtml+='<div style="font-size:10px;color:#34d399;margin-top:1px" title="If discount holds: cost $'+discCost.toFixed(2)+' → profit $'+discProfit.toFixed(2)+'">+$'+extraProfit.toFixed(2)+' if disc</div>';
+     }
+     // Cost guardrail: red border if cost >3x source references
+     if(cEl){
+      var srcCell=row.querySelectorAll('td')[7];
+      if(srcCell){
+       var refs=(srcCell.textContent||'').match(/\$(\d+\.?\d*)/g);
+       if(refs){
+        var lowest=Math.min.apply(null,refs.map(function(r){return parseFloat(r.replace('$',''));}));
+        if(lowest>0&&c>lowest*3){cEl.style.border='2px solid #f85149';cEl.title='Cost >3x reference $'+lowest.toFixed(2)}
+        else{cEl.style.border='';cEl.title=''}
+       }
+      }
+     }
+    }
+    pf.innerHTML=pfHtml;
+   }
+   else{pf.innerHTML='—';pf.style.color='#8b949e'}
   }
   // Back-calculate markup % from bid price ÷ cost
   const mkEl=document.querySelector(`[name=markup_${i}]`);
@@ -1416,6 +1449,24 @@ function recalc(){
   if(shipEl){shipEl.textContent=shipAmt>0?'Ship: $'+shipAmt.toFixed(2):'';}
   var gtEl=document.getElementById('ms-grand-total');
   if(gtEl){gtEl.textContent=(taxRate>0||shipAmt>0)?'Total: $'+grandTotal.toFixed(2):'';}
+  // Discount profit total
+  var discEl=document.getElementById('ms-discount-profit');
+  if(discEl){
+   var discTotalExtra=0,hasDisc=false;
+   for(var di=0;di<n;di++){
+    var dRow=document.querySelector('tr[data-row="'+di+'"]');
+    if(!dRow)continue;
+    var dCost=parseFloat(dRow.getAttribute('data-discount-cost')||'0');
+    var dRegCost=parseFloat((document.querySelector('[name=cost_'+di+']')||{}).value)||0;
+    var dQty=parseFloat((document.querySelector('[name=qty_'+di+']')||{}).value)||1;
+    if(dCost>0&&dCost<dRegCost){discTotalExtra+=(dRegCost-dCost)*dQty;hasDisc=true;}
+   }
+   if(hasDisc){
+    var discProfit=pr+discTotalExtra;
+    var discMargin=tb>0?discProfit/tb*100:0;
+    discEl.innerHTML='<span style="color:#34d399">If discounts: $'+discProfit.toFixed(2)+' ('+discMargin.toFixed(1)+'%, +$'+discTotalExtra.toFixed(2)+')</span>';
+   }else{discEl.textContent='';}
+  }
  } else if(msBar){
   msBar.style.display='none';
  }
