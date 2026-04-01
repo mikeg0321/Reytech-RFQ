@@ -1519,6 +1519,47 @@ class EmailPoller:
                                 except (FileNotFoundError, _json.JSONDecodeError):
                                     pass
                             
+                            # 2b. Fallback: match by item descriptions (>60% overlap)
+                            if not matched_quote and po_items:
+                                try:
+                                    _po_descs = set()
+                                    for _pit in po_items:
+                                        _pd = (_pit.get("description") or "").upper().strip()
+                                        if len(_pd) > 5:
+                                            # Use significant words (>3 chars)
+                                            _po_descs.update(w for w in _pd.split() if len(w) > 3)
+                                    if len(_po_descs) >= 3:
+                                        # Search RFQs for item overlap
+                                        rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
+                                        try:
+                                            with open(rfqs_path) as _rf2:
+                                                _rfqs2 = json.load(_rf2)
+                                            best_score = 0
+                                            best_match = None
+                                            for rid, rfq in (_rfqs2.items() if isinstance(_rfqs2, dict) else []):
+                                                if rfq.get("status") not in ("sent", "pending_award", "generated", "priced", "completed", "converted"):
+                                                    continue
+                                                _rfq_descs = set()
+                                                for _rit in rfq.get("line_items", rfq.get("items", [])):
+                                                    _rd = (_rit.get("description") or "").upper().strip()
+                                                    if len(_rd) > 5:
+                                                        _rfq_descs.update(w for w in _rd.split() if len(w) > 3)
+                                                if not _rfq_descs:
+                                                    continue
+                                                overlap = len(_po_descs & _rfq_descs)
+                                                score = overlap / max(len(_po_descs), 1)
+                                                if score > best_score and score >= 0.6:
+                                                    best_score = score
+                                                    best_match = rfq
+                                            if best_match:
+                                                matched_quote = best_match.get("reytech_quote_number", "")
+                                                log.info("PO matched to RFQ by items (%.0f%% overlap, %d words) → quote %s",
+                                                         best_score * 100, len(_po_descs & _rfq_descs), matched_quote)
+                                        except (FileNotFoundError, json.JSONDecodeError):
+                                            pass
+                                except Exception as _me:
+                                    log.debug("PO item matching failed: %s", _me)
+
                             # 3. Mark quote as won + trigger vendor ordering
                             _all_quotes = []
                             if matched_quote:
