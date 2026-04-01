@@ -257,31 +257,8 @@ function _applyLinkData(idx, d, mode) {
       + ' <span style="color:#8b949e;font-size:11px">'
       + '<a href="' + (d.url || '') + '" target="_blank" style="color:#58a6ff">' + (d.supplier || '') + '</a>'
       + '</span></div></div></div>';
-    // For S&S: use Chrome extension bridge if available, else popup fallback
-    var _sswUrl = d.url || '';
-    if (_sswUrl.indexOf('ssww.com') >= 0) {
-      if (typeof window._reytechFetchSswwPrice === 'function') {
-        // Extension installed — use the bridge (handles cross-origin)
-        window._reytechFetchSswwPrice(_sswUrl, idx);
-      } else {
-        // No extension — open popup with #reytech hash for manual extraction
-        (function(ci, cu) {
-          setTimeout(function() {
-            var popup = window.open(cu + '#reytech', '_ssww_' + ci, 'width=420,height=350,left=50,top=50');
-            if (!popup) return;
-            // Popup can't be read cross-origin, but the extension content script
-            // on ssww.com will post prices back via postMessage
-            setTimeout(function() {
-              if (!popup.closed) {
-                // If still open after 10s, extension didn't handle it
-                // Leave popup open for user to read prices manually
-                console.log('[S&S] Popup still open — enter prices from the S&S page manually');
-              }
-            }, 10000);
-          }, 300);
-        })(idx, _sswUrl);
-      }
-    }
+    // S&S: extension will auto-fill if installed + Cloudflare passes.
+    // Quick-entry fields above are the primary input method.
   }
   // ASIN: informational badge only — NEVER in description or part# field
   if (d.asin) {
