@@ -2576,8 +2576,18 @@
        badge.textContent = '⚠️ NEW';
        badge.style.background = 'rgba(210,153,34,.15)';
        badge.style.color = '#d29922';
+       // Detect agency from institution name client-side (never show DEFAULT)
+       var suggested = d.suggested_agency || '';
+       if (!suggested || suggested === 'DEFAULT') {
+        var _iu = (inst||'').toUpperCase();
+        var _pfx = ['CSP','CIM','CIW','SCC','CMC','SATF','CHCF','PVSP','KVSP','LAC','MCSP','NKSP','SAC','WSP','SOL','FSP','HDSP','ISP','CTF','RJD','DVI','CRC','PBSP'];
+        suggested = 'CDCR';
+        for (var _pi=0;_pi<_pfx.length;_pi++) { if(_iu.indexOf(_pfx[_pi])===0){suggested='CDCR';break;} }
+        if(_iu.indexOf('CCHCS')>=0||_iu.indexOf('HEALTH CARE')>=0) suggested='CCHCS';
+        if(_iu.indexOf('CALVET')>=0||_iu.indexOf('VETERAN')>=0) suggested='CalVet';
+        if(_iu.indexOf('STATE HOSPITAL')>=0||_iu.indexOf('DSH')>=0) suggested='DSH';
+       }
        let html = '<div style="color:#d29922;font-weight:600">"' + inst + '" not in CRM</div>';
-       const suggested = d.suggested_agency || 'DEFAULT';
        html += '<div style="font-size:14px;margin-top:4px;color:var(--tx2)">Suggested agency: <b>' + suggested + '</b></div>';
        if (d.candidates && d.candidates.length > 0) {
         html += '<div style="margin-top:6px;font-size:14px;color:var(--tx2)">Did you mean:</div>';
