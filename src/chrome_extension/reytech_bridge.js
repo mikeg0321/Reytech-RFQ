@@ -30,8 +30,12 @@
         row.setAttribute('data-discount-cost', d.sale.toFixed(2));
       }
 
+      // Dispatch change event so autosave detects the update
+      if (costEl) costEl.dispatchEvent(new Event('change', {bubbles: true}));
       if (typeof recalcRow === 'function') recalcRow(parseInt(idx), true);
       if (typeof recalcPC === 'function') recalcPC();
+      // Force autosave — clear last snapshot so it detects changes
+      if (typeof _pcLastSaved !== 'undefined') window._pcLastSaved = null;
       if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
 
       // Update Sources column with S&S price
