@@ -71,7 +71,7 @@
         metaEl.innerHTML = html;
       }
     });
-  });
+  }
 
   // Expose function for the app to trigger S&S price extraction
   window._reytechFetchSswwPrice = function(url, idx) {
