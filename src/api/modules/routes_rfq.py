@@ -516,6 +516,10 @@ def awards_page():
     """Pending PO Award Review page."""
     from src.api.dashboard import _load_pending_pos
     pending = _load_pending_pos()
+    if callable(pending):
+        pending = pending()  # Guard: if we got the function instead of its result
+    if not isinstance(pending, list):
+        pending = []
     return render_page("awards.html", active_page="Awards", pending=pending)
 
 
