@@ -2098,7 +2098,7 @@
         if (d.ok) {
           _pcLastSaved = snapshot;
           _showPcSaveStatus('saved');
-          try { localStorage.removeItem('pc_autosave_' + _pcid); } catch(e) {}
+          // Keep localStorage backup as insurance — don't remove on success
         } else {
           _showPcSaveStatus('error');
         }
@@ -2139,16 +2139,26 @@
         if (!raw) return;
         var backup = JSON.parse(raw);
         var age = (Date.now() - backup.ts) / 1000;
-        if (age < 3600 && backup.pcid === _pcid) {
-          var bar = document.createElement('div');
-          bar.style.cssText = 'background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:14px;color:#d29922;display:flex;align-items:center;gap:12px';
-          bar.innerHTML = '<span>\u26A0\uFE0F <strong>Unsaved session recovered</strong> from browser backup (' + Math.round(age) + 's ago)</span>' +
-            '<button onclick="restoreLocalBackup()" style="background:rgba(210,153,34,.2);border:1px solid rgba(210,153,34,.4);color:#d29922;border-radius:6px;padding:4px 12px;font-size:13px;font-weight:600;cursor:pointer">\u21A9 Restore & Save</button>' +
-            '<button onclick="this.closest(\'div\').remove()" style="background:none;border:none;color:#d29922;cursor:pointer;font-size:16px;padding:4px 8px">\u2715</button>';
-          var container = document.querySelector('.card') || document.body;
-          container.insertBefore(bar, container.firstChild);
+        if (age < 3600 && backup.pcid === _pcid && backup.data) {
+          // Check if backup has more data than server (costs filled vs empty)
+          var backupCosts = 0, serverCosts = 0;
+          Object.keys(backup.data).forEach(function(k) {
+            if (k.match(/^cost_\d/) && parseFloat(backup.data[k]) > 0) backupCosts++;
+          });
+          document.querySelectorAll('input[name^="cost_"]').forEach(function(el) {
+            if (parseFloat(el.value) > 0) serverCosts++;
+          });
+          if (backupCosts > serverCosts) {
+            // Auto-restore — backup has more data than server
+            console.log('[PC] Auto-restoring from backup: ' + backupCosts + ' costs vs server ' + serverCosts);
+            restoreLocalBackup();
+            showMsg('Restored ' + backupCosts + ' prices from browser backup (server save was lost during deploy)', 'warn');
+          } else {
+            // Server has same or more data — discard backup
+            localStorage.removeItem('pc_autosave_' + _pcid);
+          }
         }
-      } catch(e) {}
+      } catch(e) { console.warn('checkLocalBackup:', e); }
     }
 
     function restoreLocalBackup() {
