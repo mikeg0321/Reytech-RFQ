@@ -625,7 +625,7 @@
 
     // ── Standalone Save with feedback ──
     function savePrices(btn) {
-     // Pre-flight check: warn if items are unpriced
+     // Pre-flight check: block if items are unpriced
      var _totalItems=0, _unpricedItems=0, _unpricedNames=[];
      document.querySelectorAll('[name^="bid_"]').forEach(function(cb){
       if(!cb.checked) return;
@@ -640,11 +640,11 @@
       }
      });
      if(_unpricedItems>0){
-      var msg=_unpricedItems+' of '+_totalItems+' items have no price — they will be SKIPPED on the 704.\n\n';
-      msg+=_unpricedNames.slice(0,5).join('\n');
-      if(_unpricedNames.length>5) msg+='\n...and '+(_unpricedNames.length-5)+' more';
-      msg+='\n\nContinue anyway?';
-      if(!confirm(msg)){return;}
+      var msg=_unpricedItems+' of '+_totalItems+' items need pricing before generating:\n\n';
+      msg+=_unpricedNames.slice(0,8).join('\n');
+      if(_unpricedNames.length>8) msg+='\n...and '+(_unpricedNames.length-8)+' more';
+      alert(msg);
+      return;
      }
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
