@@ -24,8 +24,8 @@
      .num-in.sm{width:52px;font-size:14px;padding:6px 6px}
      /* Active row highlight — hover + focus-within */
      #itemsTable tr[data-row]:hover{background:#1a233280}
-     #itemsTable tr[data-row]:focus-within{background:#1a2332;border-left:2px solid #58a6ff}
-     #itemsTable tr[data-row]:focus-within td:first-child{border-left:2px solid #58a6ff}
+     #itemsTable tr[data-row]:focus-within{background:var(--row-hl,#1a2332);box-shadow:inset 3px 0 0 #58a6ff}
+     #itemsTable tr[data-row]:focus-within td{border-top-color:var(--row-hl-border,#2d4a6f);border-bottom-color:var(--row-hl-border,#2d4a6f)}
      /* Currency input wrapper — $ prefix */
      .currency-wrap{position:relative;display:inline-block}
      .currency-wrap::before{content:'$';position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#58a6ff;font-size:14px;font-weight:700;pointer-events:none;z-index:1;font-family:'JetBrains Mono',monospace}
@@ -2908,6 +2908,52 @@
   </div>
 </div>
 
+<!-- ═══ VIEW CONTROLS (zoom + highlight) ═══ -->
+<div id="viewControls" style="position:fixed;bottom:16px;left:16px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;z-index:9998;display:flex;align-items:center;gap:12px;font-size:13px;color:#8b949e;box-shadow:0 4px 12px rgba(0,0,0,.4)">
+ <span style="font-weight:600;color:#58a6ff">View</span>
+ <button onclick="_adjZoom(-0.05)" style="background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700">−</button>
+ <span id="zoomLevel" style="font-family:'JetBrains Mono',monospace;font-weight:600;min-width:38px;text-align:center;color:#e6edf3">125%</span>
+ <button onclick="_adjZoom(0.05)" style="background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700">+</button>
+ <span style="border-left:1px solid #30363d;height:18px"></span>
+ <span style="font-size:12px">Row</span>
+ <select id="hlIntensity" onchange="_setHighlight(this.value)" style="background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:4px;padding:3px 6px;font-size:12px;cursor:pointer">
+  <option value="subtle">Subtle</option>
+  <option value="medium" selected>Medium</option>
+  <option value="strong">Strong</option>
+ </select>
+</div>
+<script>
+(function(){
+ var _zoom = parseFloat(localStorage.getItem('pc_zoom') || '1.25');
+ var _hl = localStorage.getItem('pc_row_hl') || 'medium';
+ document.body.style.zoom = _zoom;
+ document.getElementById('zoomLevel').textContent = Math.round(_zoom * 100) + '%';
+ var hlSel = document.getElementById('hlIntensity');
+ if (hlSel) hlSel.value = _hl;
+ _setHighlight(_hl);
+
+ window._adjZoom = function(delta) {
+  _zoom = Math.max(0.75, Math.min(2.0, _zoom + delta));
+  document.body.style.zoom = _zoom;
+  document.getElementById('zoomLevel').textContent = Math.round(_zoom * 100) + '%';
+  localStorage.setItem('pc_zoom', _zoom);
+ };
+ window._setHighlight = function(level) {
+  var r = document.documentElement;
+  if (level === 'subtle') {
+   r.style.setProperty('--row-hl', '#1a233260');
+   r.style.setProperty('--row-hl-border', '#30363d');
+  } else if (level === 'medium') {
+   r.style.setProperty('--row-hl', '#1a2332');
+   r.style.setProperty('--row-hl-border', '#2d4a6f');
+  } else {
+   r.style.setProperty('--row-hl', '#1f3a5f');
+   r.style.setProperty('--row-hl-border', '#3b6eb5');
+  }
+  localStorage.setItem('pc_row_hl', level);
+ };
+})();
+</script>
     </body></html>
 
 {% endblock %}
