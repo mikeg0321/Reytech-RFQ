@@ -147,6 +147,128 @@ Before pushing any change:
 - Read actual PDF field names before filling. Detect prefix (703B_, 703C_, or none).
 - Log field names for debugging: `print(f"703C fields: {sorted(field_names)}")`
 
+## JavaScript Guard Rails (CRITICAL — Production Incidents 2026-03-31)
+
+### DOM Access Must Be Null-Safe
+Every `document.getElementById()` or `querySelector()` call in inline JS MUST
+use null checks. The exec() module loading means elements may not exist on all
+page variants (manual PC vs parsed PC vs RFQ).
+```javascript
+// WRONG — kills autosave silently if element missing:
+data['tax_enabled'] = document.getElementById('taxToggle').checked;
+
+// RIGHT:
+var el = document.getElementById('taxToggle');
+data['tax_enabled'] = el ? el.checked : false;
+```
+
+### Autosave Must Never Die Silently
+- Wrap `collectPrices()` in try-catch inside `doPcAutosave()`
+- Log errors to console so they're visible in DevTools
+- Never let a single failed save kill the autosave timer
+- The autosave timer re-triggers on next user input (change/input events)
+
+### Inline Event Handlers in innerHTML Are Fragile
+Never use complex JS in `onkeydown="..."` inside dynamically inserted HTML.
+Quote escaping breaks silently. Use `addEventListener` after DOM insertion:
+```javascript
+// WRONG — nested quotes break:
+html += '<input onkeydown="if(event.key===\'Enter\'){...}">';
+
+// RIGHT — attach after insertion:
+element.innerHTML = html;
+var input = document.getElementById('myInput');
+if (input) input.addEventListener('keydown', function(e) { ... });
+```
+
+## Pricing Guard Rails (CRITICAL — Production Incidents 2026-03-31)
+
+### SCPRS Prices Are NOT Supplier Costs
+SCPRS prices are what the STATE paid another vendor. They are reference
+ceilings for your bid price, NEVER your cost basis.
+```python
+# WRONG — uses SCPRS as cost:
+unit_cost = p.get("unit_cost") or amazon_price or scprs_price or 0
+
+# RIGHT — only real supplier costs:
+unit_cost = (p.get("unit_cost") or p.get("catalog_cost")
+             or p.get("web_cost") or item.get("vendor_cost") or 0)
+```
+
+### Amazon Prices Are NOT Supplier Costs
+Amazon retail prices are reference data for comparison. Never use as your
+wholesale cost. The app marks Amazon data with ASIN badges — informational only.
+
+### Cost Sanity Guardrail (3x Rule)
+If unit_cost is >3x the SCPRS or catalog reference price, it's almost certainly
+a bad scrape (wrong product matched on Amazon). Auto-correct to the reference
+price and show a warning badge.
+
+### S&S Worldwide Pricing
+- S&S is Cloudflare-blocked — cannot scrape prices directly
+- ALWAYS keep the S&S URL (never override with Amazon link)
+- Use LIST price (non-discount) as cost basis — discounts expire in 45-day window
+- When price unavailable: show quick-entry field, not $0.00 silently
+
+### Catalog Match Threshold
+Token matching threshold = 0.50 (raised from 0.35 after cross-category garbage
+matches — shoes matching medical items). Final output filter also 0.50.
+Never lower these without testing cross-category accuracy.
+
+## PDF Parsing Guard Rails (Production Incidents 2026-03-31)
+
+### Multi-Page AMS 704 Forms
+PDF form fields use `_2`, `_3`, `_4` suffixes for pages 2-4 (e.g., `QTYRow1_2`
+for page 2 item 1). Always scan field names for these suffixes.
+
+### MFG# Extraction Patterns
+Must handle: `W12919` (single letter + digits), `FN4368` (2 letter + digits),
+`NL304` (2 letter + digits), `16753` (pure 5+ digit codes after " - ").
+The `_PN_PATTERNS` list in `price_check.py` covers all these.
+
+### Never Merge Items With Their Own Line Number
+If a PDF row has its own `item_number` (distinct line # on the form), NEVER
+merge it as a continuation row — even if qty=1 and uom=EA.
+
+### Re-Index After Merge
+After continuation merges remove rows, re-index items sequentially (1, 2, 3...)
+not the original PDF row numbers (1, 3, 5...).
+
+### Re-Parse Clears Enrichment
+When re-parsing from PDF, clear `enrichment_status` and `enrichment_summary`.
+Old enrichment data doesn't apply to new item set.
+
+## Agency & Institution Rules
+
+### We Only Sell in CA
+Every institution maps to a known CA agency. Default to CDCR (most common),
+never "DEFAULT". Use `institution_resolver.resolve()` first, keyword fallback
+second.
+
+### Institution Resolver Returns Lowercase
+The resolver returns `"cchcs"`, `"cdcr"`, etc. UI expects `"CCHCS"`, `"CDCR"`.
+Always normalize: `agency_map.get(agency.lower(), agency.upper())`.
+
+## PC → RFQ Conversion (Updated 2026-03-31)
+
+### Conversion = deepcopy, Not Field Remapping
+PC → RFQ conversion is a `copy.deepcopy(pc)` + status change + audit log.
+**No field-by-field remapping.** Same items, same prices, same data.
+The old approach caused 4 bugs (empty MFG#, 0.00 bid price, "unknown" PC link,
+empty subtotals) because field names differed between PC and RFQ schemas.
+
+## Date/Time Rules
+
+### All Dates Must Be PST/PDT
+Server runs UTC (Railway). Use `_pst_now()` for any user-facing date:
+- AMS 704 signature date
+- Price Check expires date (45 days from PST today)
+- Quote dates, due dates
+
+### PDF Preview Must Be Inline
+Use `?inline=1` query parameter on download URLs for iframe preview.
+Without it, browser downloads the PDF instead of rendering it.
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
@@ -154,3 +276,5 @@ Before pushing any change:
 - **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
 - **Defensive Programming**: Every data access should handle None, wrong type, missing keys.
 - **Production First**: This is a live business system. Every commit deploys automatically.
+- **Never Die Silently**: Errors must be logged. Autosave must never stop. Data loss is unacceptable.
+- **Prices Have Roles**: SCPRS = ceiling, Amazon = reference, Catalog = cost, S&S = cost. Never mix.

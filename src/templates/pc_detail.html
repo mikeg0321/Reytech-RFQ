@@ -1184,6 +1184,31 @@
       else if(margin>=10){pp.style.background='rgba(210,153,34,.15)';pp.style.color='#d29922';}
       else{pp.style.background='rgba(248,113,113,.15)';pp.style.color='#f87171';}
      }
+     // ── GUARDRAIL: Flag suspicious costs vs sources ──────────────
+     rows.forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var costEl=document.querySelector('[name=cost_'+idx+']');
+      if(!costEl) return;
+      var cost=parseFloat(costEl.value)||0;
+      if(cost<=0) return;
+      // Check if Sources column has a reference price
+      var srcCell=row.querySelectorAll('td')[8];
+      if(!srcCell) return;
+      var srcText=srcCell.textContent||'';
+      // Extract lowest reference price from sources text (e.g., "$16.00 SCPRS")
+      var refPrices=srcText.match(/\$(\d+\.?\d*)/g);
+      if(refPrices && refPrices.length>0){
+       var lowestRef=Math.min.apply(null,refPrices.map(function(p){return parseFloat(p.replace('$',''));}));
+       if(lowestRef>0 && cost>lowestRef*3){
+        costEl.style.border='2px solid #f85149';
+        costEl.title='Cost $'+cost.toFixed(2)+' is >3x reference $'+lowestRef.toFixed(2)+' — verify!';
+       } else {
+        costEl.style.border='';
+        costEl.title='';
+       }
+      }
+     });
+
      }finally{recalcPC._running=false;}
     }
 
