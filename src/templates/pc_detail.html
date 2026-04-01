@@ -31,6 +31,9 @@
      .currency-wrap::before{content:'$';position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#58a6ff;font-size:14px;font-weight:700;pointer-events:none;z-index:1;font-family:'JetBrains Mono',monospace}
      .currency-wrap .num-in{padding-left:20px;width:95px;font-variant-numeric:tabular-nums}
      .currency-wrap .num-in:not(:placeholder-shown){color:#e6edf3}
+     /* Highlight filled cost + price fields */
+     input[name^="cost_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d2818;border-color:#238636;color:#3fb950}
+     input[name^="price_"]:not([value=""]):not([value="0.00"]):not(:placeholder-shown){background:#0d1a2e;border-color:#1f6feb;color:#58a6ff;font-weight:700}
      .currency-wrap .num-in:placeholder-shown{color:#484f58}
      .num-in.price-out{background:#0d1117;border-color:#238636;color:#3fb950;font-weight:700}
      .num-in.price-out:focus{border-color:#3fb950;box-shadow:0 0 0 2px #23863644}
