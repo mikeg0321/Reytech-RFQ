@@ -347,26 +347,46 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("ENRICH %s: web search error: %s", pc_id, e)
     ENRICHMENT_STATUS[pc_id]["steps_done"].append("web_search")
 
-    # ── Step 6: Pricing oracle recommendations ───────────────────────────
+    # ── Step 6: Pricing oracle recommendations (with per-item timeout) ───
     _update_status(pc_id, "pricing_oracle", f"0/{total} items")
     try:
         from src.knowledge.pricing_oracle import recommend_price
+        import signal
+        _ORACLE_TIMEOUT_SEC = 10  # Max 10s per item
+
         for i, it in enumerate(items):
             # Skip items already priced by user or earlier steps
             if it.get("unit_price") and it["unit_price"] > 0:
+                _update_status(pc_id, "pricing_oracle", f"{i+1}/{total} items")
                 continue
             if it["pricing"].get("recommended_price"):
+                _update_status(pc_id, "pricing_oracle", f"{i+1}/{total} items")
                 continue
             desc = it.get("description", "")
             pn = it.get("mfg_number", "") or it.get("part_number", "")
             cost = it["pricing"].get("unit_cost") or it["pricing"].get("catalog_cost") or 0
             scprs = it["pricing"].get("scprs_price") or 0
-            rec = recommend_price(
-                pn, desc,
-                supplier_cost=cost if cost > 0 else None,
-                scprs_price=scprs if scprs > 0 else None,
-                agency=institution,
-            )
+            try:
+                import threading
+                _oracle_result = [None]
+                def _run_oracle():
+                    _oracle_result[0] = recommend_price(
+                        pn, desc,
+                        supplier_cost=cost if cost > 0 else None,
+                        scprs_price=scprs if scprs > 0 else None,
+                        agency=institution,
+                    )
+                t = threading.Thread(target=_run_oracle, daemon=True)
+                t.start()
+                t.join(timeout=_ORACLE_TIMEOUT_SEC)
+                rec = _oracle_result[0]
+                if t.is_alive():
+                    log.warning("ENRICH %s: pricing oracle TIMEOUT on item %d/%d (%s)",
+                                pc_id, i+1, total, desc[:40])
+                    rec = None
+            except Exception as oe:
+                log.debug("Oracle item %d: %s", i, oe)
+                rec = None
             if rec:
                 if rec.get("recommended_price"):
                     it["pricing"]["recommended_price"] = rec["recommended_price"]
@@ -378,6 +398,8 @@ def _run_pipeline(pc_id: str, force: bool):
                     it["pricing"]["data_quality"] = rec["data_quality"]
                 counters["oracle_priced"] += 1
             _update_status(pc_id, "pricing_oracle", f"{i+1}/{total} items")
+    except ImportError:
+        log.debug("pricing_oracle not available")
     except Exception as e:
         log.warning("ENRICH %s: pricing oracle error: %s", pc_id, e)
     ENRICHMENT_STATUS[pc_id]["steps_done"].append("pricing_oracle")

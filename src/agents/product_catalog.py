@@ -1642,7 +1642,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
                     intersection = desc_tokens & prod_tokens
                     union = desc_tokens | prod_tokens
                     similarity = len(intersection) / len(union) if union else 0
-                    if similarity >= 0.35:  # was 0.25 — too many garbage matches
+                    if similarity >= 0.50:  # raised from 0.35 — too many cross-category garbage matches
                         m = dict(r)
                         m["match_confidence"] = round(min(similarity * 1.3, 0.95), 2)
                         m["match_reason"] = f"Token match: {len(intersection)} shared ({similarity:.0%})"
@@ -3060,6 +3060,9 @@ def bulk_smart_price(items: list, agency: str = "") -> list:
         pricing["matched"] = True
         pricing["catalog_name"] = m.get("name", "")
         pricing["match_confidence"] = m.get("match_confidence", 0)
+        pricing["mfg_number"] = m.get("mfg_number", "") or m.get("sku", "") or m.get("part_number", "")
+        pricing["part_number"] = m.get("part_number", "") or m.get("sku", "")
+        pricing["sku"] = m.get("sku", "")
         results.append(pricing)
 
     return results
