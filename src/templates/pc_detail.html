@@ -308,6 +308,7 @@
         <hr style="border-color:#30363d;margin:6px 0">
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete');this.closest('details').open=false">Delete</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="trimItems();this.closest('details').open=false">Trim to Visible Items</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="var vc=document.getElementById('viewControls');vc.style.display=vc.style.display==='flex'?'none':'flex';this.closest('details').open=false">View Settings (Zoom / Highlight)</button>
        </div>
       </details>
      </div>
@@ -2930,7 +2931,7 @@
 </div>
 
 <!-- ═══ VIEW CONTROLS (zoom + highlight) ═══ -->
-<div id="viewControls" style="position:fixed;bottom:60px;left:16px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;z-index:9998;display:flex;align-items:center;gap:12px;font-size:13px;color:#8b949e;box-shadow:0 4px 12px rgba(0,0,0,.4)">
+<div id="viewControls" style="position:fixed;bottom:60px;left:16px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:8px 12px;z-index:9998;display:none;align-items:center;gap:12px;font-size:13px;color:#8b949e;box-shadow:0 4px 12px rgba(0,0,0,.4)">
  <span style="font-weight:600;color:#58a6ff">View</span>
  <button onclick="_adjZoom(-0.05)" style="background:#21262d;border:1px solid #30363d;color:#e6edf3;border-radius:4px;width:26px;height:26px;cursor:pointer;font-size:14px;font-weight:700">−</button>
  <span id="zoomLevel" style="font-family:'JetBrains Mono',monospace;font-weight:600;min-width:38px;text-align:center;color:#e6edf3">125%</span>
