@@ -953,12 +953,31 @@ def parse_ams704(pdf_path: str) -> dict:
         field_map_cache[cache_key] = exact  # Fall back to exact even if not found
         return exact
 
-    for row_num in range(1, max_row_check + 1):
+    # Build list of (row_num, suffix) pairs to check.
+    # Standard: Row1..Row50 (page 1)
+    # Multi-page: Row1_2..Row8_2 (page 2), Row1_3..Row8_3 (page 3), etc.
+    row_checks = [(r, "") for r in range(1, max_row_check + 1)]
+    # Detect multi-page _2, _3 suffixed fields (e.g., QTYRow1_2 for page 2)
+    for fname in fields:
+        for suffix in ("_2", "_3", "_4"):
+            if suffix in fname and "Row" in fname:
+                # Add page 2/3/4 rows if not already present
+                for r in range(1, 9):  # 8 rows per page
+                    pair = (r, suffix)
+                    if pair not in row_checks:
+                        row_checks.append(pair)
+                break
+
+    _logical_row = 0
+    for row_num, row_suffix in row_checks:
         row_data = {}
         has_data = False
 
         for key, pattern in ROW_FIELDS.items():
+            # Build field name with optional page suffix
             field_name = _find_field(key, row_num)
+            if row_suffix:
+                field_name = field_name + row_suffix
             field = fields.get(field_name, {})
             val = field.get("/V", "") if isinstance(field, dict) else ""
             val = str(val).strip() if val else ""
@@ -1022,15 +1041,16 @@ def parse_ams704(pdf_path: str) -> dict:
             except (ValueError, TypeError):
                 qty_per_uom = 1
 
+            _logical_row += 1
             item = {
-                "item_number": row_data.get("item_number", str(row_num)),
+                "item_number": str(_logical_row),
                 "qty": qty,
                 "uom": (row_data.get("uom", "ea") or "ea").upper(),
                 "qty_per_uom": qty_per_uom,
                 "description": clean_description(row_data["description"]),
                 "description_raw": row_data["description"],
                 "substituted": row_data.get("substituted", ""),
-                "row_index": row_num,
+                "row_index": _logical_row,
             }
 
             # Extract real MFG/part number from substituted field, description, etc.
