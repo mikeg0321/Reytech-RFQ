@@ -806,8 +806,12 @@ def _pricecheck_detail_inner(pcid):
                 if candidates and scored[0][0] >= 0.6:
                     crm_data = {"matched": True, "customer": candidates[0], "is_new": False, "candidates": candidates[:3]}
                 else:
+                    _agency = _guess_agency(institution) if callable(_guess_agency) else "CDCR"
+                    # Never show DEFAULT — we only sell in CA
+                    if not _agency or _agency == "DEFAULT":
+                        _agency = "CDCR"
                     crm_data = {"matched": False, "is_new": True, "candidates": candidates[:3],
-                                "suggested_agency": _guess_agency(institution)}
+                                "suggested_agency": _agency}
         except Exception as e:
             log.debug("CRM match error: %s", e)
     

@@ -215,13 +215,14 @@ def _guess_agency(institution_name):
         result = resolve(institution_name)
         if result and result.get("agency"):
             agency = result["agency"]
-            # Normalize casing to match UI expectations
             agency_map = {"cchcs": "CCHCS", "cdcr": "CDCR", "calvet": "CalVet",
                           "dsh": "DSH", "dgs": "DGS", "calfire": "CalFire",
                           "cdph": "CDPH", "caltrans": "CalTrans", "chp": "CHP"}
-            return agency_map.get(agency.lower(), agency.upper())
-    except Exception:
-        pass
+            resolved = agency_map.get(agency.lower(), agency.upper())
+            log.info("AGENCY_RESOLVE: '%s' → resolver=%s → %s", institution_name, agency, resolved)
+            return resolved
+    except Exception as e:
+        log.warning("AGENCY_RESOLVE: resolver failed for '%s': %s", institution_name, e)
 
     # Fallback: keyword matching
     upper = institution_name.upper()
