@@ -1939,15 +1939,19 @@
      document.querySelectorAll('input[name^=notes_]').forEach(inp=>{
       data[inp.name]=inp.value.trim();
      });
-     data['tax_enabled']=document.getElementById('taxToggle').checked;
-     data['tax_rate']=cachedTaxRate||0;
-     data['price_buffer']=getCurrentBuffer();
-     data['default_markup']=parseInt(document.getElementById('markupDefault').value)||25;
+     var _taxEl=document.getElementById('taxToggle');
+     data['tax_enabled']=_taxEl?_taxEl.checked:false;
+     data['tax_rate']=(typeof cachedTaxRate!=='undefined'?cachedTaxRate:0)||0;
+     data['price_buffer']=(typeof getCurrentBuffer==='function')?getCurrentBuffer():0;
+     var _mkEl=document.getElementById('markupDefault');
+     data['default_markup']=_mkEl?parseInt(_mkEl.value)||25:25;
      // Delivery option
-     let delSel=document.getElementById('deliverySelect');
-     data['delivery_option']=delSel.value==='custom'?document.getElementById('deliveryCustom').value:delSel.value;
+     var delSel=document.getElementById('deliverySelect');
+     if(delSel){data['delivery_option']=delSel.value==='custom'?(document.getElementById('deliveryCustom')||{}).value||'':delSel.value;}
+     else{data['delivery_option']='';}
      // Supplier notes
-     data['custom_notes']=document.getElementById('supplierNotes').value;
+     var _notesEl=document.getElementById('supplierNotes');
+     data['custom_notes']=_notesEl?_notesEl.value:'';
      // Ship to
      var shipEl=document.getElementById('shipToField');
      if(shipEl) data['ship_to']=shipEl.value;
@@ -1966,7 +1970,14 @@
 
     function doPcAutosave() {
       if (_pcSaveInFlight) return;
-      var payload = collectPrices();
+      var payload;
+      try {
+        payload = collectPrices();
+      } catch(e) {
+        console.error('collectPrices failed:', e);
+        _showPcSaveStatus('error');
+        return;
+      }
       var snapshot = JSON.stringify(payload);
       if (snapshot === _pcLastSaved) return;
       _pcSaveInFlight = true;
