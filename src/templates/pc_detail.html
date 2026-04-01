@@ -1425,31 +1425,35 @@
        const descEl=document.querySelector('[name=desc_'+idx+']');
        const itemEl=document.querySelector('[name=itemnum_'+idx+']');
 
-       // Show match badge above description
+       // Show collapsed pricing summary above description
        if(descEl){
-        const conf=Math.round((r.confidence||0)*100);
-        const color=conf>=80?'#3fb950':conf>=60?'#d29922':'#8b949e';
-        // Remove old badge if any
-        const oldBadge=descEl.parentElement.querySelector('.cat-badge');
+        var conf=Math.round((r.confidence||0)*100);
+        var color=conf>=80?'#3fb950':conf>=60?'#d29922':'#8b949e';
+        var oldBadge=descEl.parentElement.querySelector('.cat-badge');
         if(oldBadge)oldBadge.remove();
-        const badge=document.createElement('div');
+        var badge=document.createElement('div');
         badge.className='cat-badge';
-        badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-        // Freshness indicator
-        const freshIcon=r.freshness_icon||'⚪';
-        const freshTip=(r.freshness||'unknown')+' ('+Math.round(r.days_old||0)+'d ago)';
-        // Recommended price badge
-        const recBadge=r.recommended_price?'<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace" title="Strategy: '+(r.price_strategy||'default')+'">🧠 $'+Number(r.recommended_price).toFixed(2)+'</span>':'';
-        // Win rate badge
-        const winBadge=(r.times_won||0)>0?'<span style="color:#3fb950;font-weight:600" title="Won '+r.times_won+'x, lost '+(r.times_lost||0)+'x">🏆 '+Number(r.win_rate||0).toFixed(0)+'%</span>':'';
-        // Manufacturer
-        const mfgBadge=r.manufacturer?'<span style="color:#8b949e;font-style:italic" title="Manufacturer">🏭 '+escHtml(r.manufacturer)+'</span>':'';
-        badge.innerHTML='<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">'+conf+'% match</span>'
-         +'<span title="'+escHtml(freshTip)+'">'+freshIcon+'</span>'
-         +'<span style="color:#8b949e;font-size:13px" title="'+escHtml(r.reason||'')+'">'+escHtml((r.canonical_name||'').substring(0,50))+'</span>'
-         +(r.last_cost?'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace">QB $'+Number(r.last_cost).toFixed(2)+'→$'+Number(r.last_sell||0).toFixed(2)+'</span>':'')
-         +recBadge+winBadge+mfgBadge
-         +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
+        badge.style.cssText='font-size:13px;margin-bottom:3px';
+        var detailId='_catdetail_'+idx;
+        var costStr=r.best_cost||r.last_cost?'$'+Number(r.best_cost||r.last_cost).toFixed(2):'—';
+        var suggestStr=r.recommended_price?'$'+Number(r.recommended_price).toFixed(2):'—';
+        // Collapsed: one clean line
+        var summary='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+         +'<span style="background:'+color+'22;color:'+color+';border:1px solid '+color+'44;border-radius:4px;padding:1px 6px;font-weight:600;font-size:12px">'+conf+'%</span>'
+         +'<span style="color:#8b949e;font-size:13px">'+escHtml((r.canonical_name||'').substring(0,40))+'</span>'
+         +'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costStr+'</span>'
+         +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none">Use</a>'
+         +'<a href="#" onclick="var d=document.getElementById(\''+detailId+'\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';return false" style="color:#484f58;font-size:11px;text-decoration:none">details</a>'
+         +'</div>';
+        // Expanded: full details (hidden by default)
+        var details='<div id="'+detailId+'" style="display:none;padding:4px 0 2px 8px;border-left:2px solid '+color+'44;margin:3px 0;font-size:12px;color:#8b949e">';
+        details+='<div>Catalog: '+escHtml(r.canonical_name||'')+ ' ('+conf+'% match)</div>';
+        if(r.last_cost)details+='<div>QB History: $'+Number(r.last_cost).toFixed(2)+(r.last_sell?' → $'+Number(r.last_sell).toFixed(2):'')+'</div>';
+        if(r.recommended_price)details+='<div>Oracle: <span style="color:#d2a8ff">$'+Number(r.recommended_price).toFixed(2)+'</span>'+(r.win_rate?' ('+Number(r.win_rate).toFixed(0)+'% win)':'')+'</div>';
+        if(r.manufacturer)details+='<div>MFG: '+escHtml(r.manufacturer)+'</div>';
+        if(r.freshness)details+='<div>Data: '+(r.freshness_icon||'')+' '+r.freshness+' ('+Math.round(r.days_old||0)+'d ago)</div>';
+        details+='</div>';
+        badge.innerHTML=summary+details;
         descEl.parentElement.insertBefore(badge,descEl);
        }
 
@@ -1779,20 +1783,31 @@
         }
        }
 
-       // Show reasoning badge
+       // Show collapsed Oracle pricing summary
        if(descEl){
-        const oldBadge=descEl.parentElement.querySelector('.price-badge');
+        var oldBadge=descEl.parentElement.querySelector('.price-badge');
         if(oldBadge)oldBadge.remove();
-        const winColor=r.win_probability>=70?'#3fb950':r.win_probability>=50?'#d29922':'#f85149';
-        const badge=document.createElement('div');
+        var winColor=r.win_probability>=70?'#3fb950':r.win_probability>=50?'#d29922':'#f85149';
+        var badge=document.createElement('div');
         badge.className='price-badge';
-        badge.style.cssText='font-size:13px;margin-bottom:2px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-        let html='<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-family:JetBrains Mono,monospace">🧠 $'+Number(r.recommended).toFixed(2)+'</span>';
-        html+='<span style="color:'+winColor+';font-weight:600;font-size:13px">'+Math.round(r.win_probability)+'% win</span>';
-        html+='<span style="color:#8b949e;font-size:13px" title="'+(r.reasoning||[]).join(' | ')+'">'+(r.reasoning||[])[0]||''+'</span>';
-        if(r.aggressive) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcPC();return false" style="color:#f0883e;font-size:13px;text-decoration:none">⚡$'+r.aggressive.toFixed(2)+'</a>';
-        if(r.safe) html+=' <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcPC();return false" style="color:#3fb950;font-size:13px;text-decoration:none">🛡️$'+r.safe.toFixed(2)+'</a>';
-        badge.innerHTML=html;
+        badge.style.cssText='font-size:13px;margin-bottom:3px';
+        var oDetailId='_oracledetail_'+idx;
+        var costVal=r.cost?'$'+Number(r.cost).toFixed(2):'—';
+        // Collapsed: one clean line
+        var oSummary='<div style="display:flex;align-items:center;gap:6px">'
+         +'<span style="background:#d2a8ff22;color:#d2a8ff;border:1px solid #d2a8ff44;border-radius:4px;padding:1px 6px;font-weight:600;font-size:12px">Oracle</span>'
+         +'<span style="color:#58a6ff;font-weight:600;font-family:JetBrains Mono,monospace;font-size:13px">'+costVal+'</span>'
+         +'<span style="color:'+winColor+';font-size:12px">'+Math.round(r.win_probability)+'% win</span>'
+         +'<a href="#" onclick="var d=document.getElementById(\''+oDetailId+'\');d.style.display=d.style.display===\'none\'?\'block\':\'none\';return false" style="color:#484f58;font-size:11px;text-decoration:none">details</a>'
+         +'</div>';
+        // Expanded: full details
+        var oDetails='<div id="'+oDetailId+'" style="display:none;padding:4px 0 2px 8px;border-left:2px solid #d2a8ff44;margin:3px 0;font-size:12px;color:#8b949e">';
+        oDetails+='<div>Recommended: <span style="color:#d2a8ff">$'+Number(r.recommended).toFixed(2)+'</span></div>';
+        if(r.reasoning&&r.reasoning.length)oDetails+='<div>'+escHtml(r.reasoning[0])+'</div>';
+        if(r.aggressive)oDetails+='<div>Aggressive: <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.aggressive.toFixed(2)+';recalcPC();return false" style="color:#f0883e">$'+r.aggressive.toFixed(2)+'</a></div>';
+        if(r.safe)oDetails+='<div>Safe: <a href="#" onclick="document.querySelector(\'[name=price_'+idx+']\').value='+r.safe.toFixed(2)+';recalcPC();return false" style="color:#3fb950">$'+r.safe.toFixed(2)+'</a></div>';
+        oDetails+='</div>';
+        badge.innerHTML=oSummary+oDetails;
         descEl.parentElement.insertBefore(badge,descEl);
        }
 
