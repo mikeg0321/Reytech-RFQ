@@ -719,8 +719,11 @@ def api_pricecheck_process():
 @bp.route("/api/pricecheck/download/<filename>")
 @auth_required
 def api_pricecheck_download(filename):
-    """Download a completed Price Check PDF."""
+    """Download or preview a completed Price Check PDF.
+    Add ?inline=1 to display in browser instead of downloading.
+    """
     safe = os.path.basename(filename)
+    inline = request.args.get("inline") == "1"
     # Fast targeted search — one level deep in output dirs
     search_dirs = [DATA_DIR, os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]
     for d in [os.path.join(DATA_DIR, "output"), os.path.join(DATA_DIR, "outputs")]:
@@ -732,7 +735,7 @@ def api_pricecheck_download(filename):
     for d in search_dirs:
         candidate = os.path.join(d, safe)
         if os.path.exists(candidate):
-            return send_file(candidate, as_attachment=True, download_name=safe)
+            return send_file(candidate, as_attachment=not inline, download_name=safe)
     # Fallback: check DB
     try:
         from src.core.db import get_db
@@ -744,7 +747,7 @@ def api_pricecheck_download(filename):
                 restore_path = os.path.join(restore_dir, safe)
                 with open(restore_path, "wb") as _fw:
                     _fw.write(row["data"])
-                return send_file(restore_path, as_attachment=True, download_name=safe)
+                return send_file(restore_path, as_attachment=not inline, download_name=safe)
     except Exception:
         pass
     return jsonify({"error": "File not found"}), 404

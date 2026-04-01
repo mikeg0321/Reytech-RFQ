@@ -2756,13 +2756,15 @@
       var frame = document.getElementById('pcPdfPreviewFrame');
       var titleEl = document.getElementById('pcPdfPreviewTitle');
       if (titleEl) titleEl.textContent = title || 'AMS 704 Preview';
+      // Use inline=1 for iframe preview (renders PDF in browser, no download)
+      var inlineUrl = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'inline=1';
       frame.src = '';
       modal.style.display = 'flex';
-      setTimeout(function() { frame.src = url; }, 50);
+      setTimeout(function() { frame.src = inlineUrl; }, 50);
       var dlBtn = document.getElementById('pcPdfPreviewDownload');
       if (dlBtn) { dlBtn.href = url; dlBtn.style.display = 'inline-flex'; }
       var tabBtn = document.getElementById('pcPdfOpenTab');
-      if (tabBtn) tabBtn.href = url;
+      if (tabBtn) tabBtn.href = inlineUrl;
       // Fallback: if iframe fails after 3s, highlight Open in Tab
       var _fbTimer = setTimeout(function() {
         try {

@@ -3075,6 +3075,7 @@ def download(rid, fname):
     r = rfqs.get(rid)
     sol = r["solicitation_number"] if r else rid
     safe = os.path.basename(fname)
+    inline = request.args.get("inline") == "1"
     
     # Search filesystem — targeted directories only (no full os.walk)
     for search_dir in [
@@ -3087,8 +3088,8 @@ def download(rid, fname):
     ]:
         candidate = os.path.join(search_dir, safe)
         if os.path.exists(candidate):
-            return send_file(candidate, as_attachment=True, download_name=safe)
-    
+            return send_file(candidate, as_attachment=not inline, download_name=safe)
+
     # Fallback: check DB (rfq_files table — survives redeploys)
     try:
         from src.core.db import get_db
@@ -3106,7 +3107,7 @@ def download(rid, fname):
                 restore_path = os.path.join(restore_dir, safe)
                 with open(restore_path, "wb") as _fw:
                     _fw.write(row["data"])
-                return send_file(restore_path, as_attachment=True, download_name=safe)
+                return send_file(restore_path, as_attachment=not inline, download_name=safe)
     except Exception as _e:
         log.debug("DB file lookup failed for %s: %s", safe, _e)
     
