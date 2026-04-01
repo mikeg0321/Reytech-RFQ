@@ -407,8 +407,15 @@ def _pricecheck_detail_inner(pcid):
         
         amazon_cost = _safe_float(p.get("amazon_price"), None)
         scprs_cost = _safe_float(p.get("scprs_price"), None)
-        # Best available cost
-        unit_cost = _safe_float(p.get("unit_cost")) or amazon_cost or scprs_cost or 0
+        # Best available SUPPLIER cost — NEVER use SCPRS or Amazon as cost.
+        # SCPRS = what the STATE paid (a sell-price ceiling, not our cost).
+        # Amazon = retail price (not our wholesale cost).
+        # Only use actual supplier costs (unit_cost, catalog_cost, web_cost).
+        unit_cost = (_safe_float(p.get("unit_cost"))
+                     or _safe_float(p.get("catalog_cost"))
+                     or _safe_float(p.get("web_cost"))
+                     or _safe_float(item.get("vendor_cost"))
+                     or 0)
         # Markup and final price
         markup_pct = _safe_float(p.get("markup_pct"), 25)
         final_price = _safe_float(p.get("recommended_price")) or (round(unit_cost * (1 + markup_pct/100), 2) if unit_cost else 0)

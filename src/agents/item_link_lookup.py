@@ -596,8 +596,20 @@ def _lookup_ssww(url: str) -> dict:
 
     result["title"] = ref_title or desc_from_url
     result["description"] = result["title"]
-    result["price"] = ref_price or 0
-    result["cost"] = result["price"]
+
+    # Only set price/cost from CATALOG (trusted supplier cost).
+    # Amazon and web search prices are RETAIL references — not our wholesale cost.
+    # User should enter the actual S&S MSRP via the quick-entry field.
+    if ref_source == "Catalog" and ref_price:
+        result["price"] = ref_price
+        result["cost"] = ref_price
+    else:
+        result["price"] = 0  # Triggers quick-entry field in JS
+        result["cost"] = 0
+        if ref_price:
+            result["reference_price"] = ref_price
+            result["reference_source"] = ref_source
+
     return result
 
 
