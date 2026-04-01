@@ -2467,7 +2467,9 @@ def fill_ams704(
     # Page numbering
     total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
     if "Page" in _pdf_fields:
-        field_values.append({"field_id": "Page", "page": 1, "value": f"1 of {total_pages}"})
+        field_values.append({"field_id": "Page", "page": 1, "value": "1"})
+    if "of" in _pdf_fields:
+        field_values.append({"field_id": "of", "page": 1, "value": str(total_pages)})
 
     # Multi-page: grand total on page 2 ("ENTER GRAND TOTAL ON FRONT PAGE")
     if _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
