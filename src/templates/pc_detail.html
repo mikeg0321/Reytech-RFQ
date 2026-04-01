@@ -264,34 +264,40 @@
        <button class="btn" onclick="sendPcQuote()" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:14px;padding:8px 18px">Send Quote</button>
       {% else %}
        <button class="btn" onclick="runAutoPrice(this)" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Find Prices</button>
+       <button class="btn" onclick="savePrices(this)" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:14px;padding:8px 18px">Save & Generate</button>
        <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview</button>
-       <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">Original</button>
       {% endif %}
       {{ download_html | default('') | safe }}
-      <button class="btn" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">Notes</button>
-      <!-- Single "More" dropdown for everything else -->
+      <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">Original</button>
+      <button class="btn" onclick="toggleAllNotes()" style="background:#21262d;color:#a78bfa;border:1px solid #30363d;font-size:14px;padding:8px 16px">Notes</button>
+      <!-- Organized "More" dropdown: Generate | History | Admin -->
       <details style="position:relative;display:inline-block">
        <summary class="btn" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:14px;padding:8px 14px;cursor:pointer;list-style:none">More</summary>
-       <div style="position:absolute;top:100%;right:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:240px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="savePrices(this)">Save & Generate 704</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="sendPcQuote()">Send Quote</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateOriginal704(this)">Generate Original 704</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">Generate Formal Quote (704b/703b)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()">Revision History</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showPreview()">Internal Quote View</button>
-        <hr style="border-color:#30363d;margin:4px 0">
-        <div style="font-size:12px;color:#484f58;padding:2px 12px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">Re-parse from PDF</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click()">Upload PDF & Parse</button>
+       <div style="position:absolute;top:100%;right:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:10px;padding:8px;min-width:260px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        <!-- GENERATE section -->
+        <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Generate</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this);this.closest('details').open=false">Formal Quote (704b/703b)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateOriginal704(this);this.closest('details').open=false">Original 704 (buyer format)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showPreview();this.closest('details').open=false">Internal Quote View</button>
+        <!-- HISTORY section -->
+        <hr style="border-color:#30363d;margin:6px 0">
+        <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">History</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions();this.closest('details').open=false">Revision History</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="sendPcQuote();this.closest('details').open=false">Send Quote</button>
+        <!-- ADMIN section -->
+        <hr style="border-color:#30363d;margin:6px 0">
+        <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Admin</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this);this.closest('details').open=false">Re-parse from PDF</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click();this.closest('details').open=false">Upload PDF & Parse</button>
         <form id="pc-upload-form" action="/pricecheck/{{pcid}}/upload-pdf" method="POST" enctype="multipart/form-data" style="display:none">
          <input type="file" id="pc-pdf-upload" name="file" accept=".pdf" onchange="this.form.submit()">
         </form>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">No Response</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">Mark Duplicate</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">Archive</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">Delete</button>
-        <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="trimItems()">Trim to Visible Items</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response');this.closest('details').open=false">No Response</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate');this.closest('details').open=false">Mark Duplicate</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived');this.closest('details').open=false">Archive</button>
+        <hr style="border-color:#30363d;margin:6px 0">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete');this.closest('details').open=false">Delete</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="trimItems();this.closest('details').open=false">Trim to Visible Items</button>
        </div>
       </details>
      </div>
