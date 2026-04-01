@@ -400,45 +400,43 @@ MIGRATIONS = [
             '2024-06-30'
         );
     """),
-    (13, "award_intelligence_enhancements", """
-        -- Enhanced competitor_intel: loss classification + margin analysis
-        ALTER TABLE competitor_intel ADD COLUMN loss_reason_class TEXT DEFAULT '';
-        ALTER TABLE competitor_intel ADD COLUMN our_cost REAL DEFAULT 0;
-        ALTER TABLE competitor_intel ADD COLUMN our_margin_pct REAL DEFAULT 0;
-        ALTER TABLE competitor_intel ADD COLUMN margin_too_high INTEGER DEFAULT 0;
-        ALTER TABLE competitor_intel ADD COLUMN items_detail TEXT;
-        ALTER TABLE competitor_intel ADD COLUMN category TEXT DEFAULT '';
+    # Migration 13: handled programmatically (ALTER TABLE doesn't support IF NOT EXISTS)
+]
 
-        -- Enhanced award_check_queue: adaptive schedule phases
-        ALTER TABLE award_check_queue ADD COLUMN phase TEXT DEFAULT 'daily';
-        ALTER TABLE award_check_queue ADD COLUMN check_count INTEGER DEFAULT 0;
-        ALTER TABLE award_check_queue ADD COLUMN last_checked TEXT DEFAULT '';
-        ALTER TABLE award_check_queue ADD COLUMN next_check TEXT DEFAULT '';
+def _run_migration_13(conn):
+    """Award intelligence enhancements — idempotent column additions."""
+    # Add columns only if they don't exist
+    def _add_col(table, col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except Exception:
+            pass  # Column already exists
 
-        -- Loss patterns: aggregate competitive intelligence
+    _add_col("competitor_intel", "loss_reason_class", "TEXT DEFAULT ''")
+    _add_col("competitor_intel", "our_cost", "REAL DEFAULT 0")
+    _add_col("competitor_intel", "our_margin_pct", "REAL DEFAULT 0")
+    _add_col("competitor_intel", "margin_too_high", "INTEGER DEFAULT 0")
+    _add_col("competitor_intel", "items_detail", "TEXT")
+    _add_col("competitor_intel", "category", "TEXT DEFAULT ''")
+    _add_col("award_check_queue", "phase", "TEXT DEFAULT 'daily'")
+    _add_col("award_check_queue", "check_count", "INTEGER DEFAULT 0")
+    _add_col("award_check_queue", "last_checked", "TEXT DEFAULT ''")
+    _add_col("award_check_queue", "next_check", "TEXT DEFAULT ''")
+
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS loss_patterns (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            detected_at     TEXT NOT NULL,
-            pattern_type    TEXT NOT NULL,
-            category        TEXT DEFAULT '',
-            agency          TEXT DEFAULT '',
-            competitor      TEXT DEFAULT '',
-            description     TEXT NOT NULL,
-            severity        TEXT DEFAULT 'info',
-            recommendation  TEXT DEFAULT '',
-            data_json       TEXT DEFAULT '{}',
-            acknowledged    INTEGER DEFAULT 0,
-            acknowledged_at TEXT DEFAULT ''
+            id INTEGER PRIMARY KEY AUTOINCREMENT, detected_at TEXT NOT NULL,
+            pattern_type TEXT NOT NULL, category TEXT DEFAULT '', agency TEXT DEFAULT '',
+            competitor TEXT DEFAULT '', description TEXT NOT NULL, severity TEXT DEFAULT 'info',
+            recommendation TEXT DEFAULT '', data_json TEXT DEFAULT '{}',
+            acknowledged INTEGER DEFAULT 0, acknowledged_at TEXT DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_lp_type ON loss_patterns(pattern_type);
         CREATE INDEX IF NOT EXISTS idx_lp_severity ON loss_patterns(severity);
         CREATE INDEX IF NOT EXISTS idx_lp_unack ON loss_patterns(acknowledged);
-
-        -- Index for loss classification queries
         CREATE INDEX IF NOT EXISTS idx_ci_loss_class ON competitor_intel(loss_reason_class);
         CREATE INDEX IF NOT EXISTS idx_ci_margin ON competitor_intel(margin_too_high);
-    """),
-]
+    """)
 
 
 def run_migrations():
@@ -464,6 +462,19 @@ def run_migrations():
                 except Exception as e:
                     log.error("Migration %d (%s) FAILED: %s", version, name, e)
                     raise
+
+            # Programmatic migrations (handle ALTER TABLE idempotently)
+            if current < 13:
+                try:
+                    _run_migration_13(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (13, "award_intelligence_enhancements", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 13 applied: award_intelligence_enhancements (programmatic)")
+                except Exception as e:
+                    log.warning("Migration 13 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",
