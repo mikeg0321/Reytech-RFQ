@@ -866,7 +866,7 @@
      const priceField=document.querySelector('[name=price_'+idx+']');
      if(!costEl||!markupEl||!priceField) return;
      const cost=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
-     const markup=parseFloat(markupEl.value.replace(/[^0-9]/g,''))||0;
+     const markup=parseFloat(markupEl.value.replace(/[^0-9.]/g,''))||0;
      const currentPrice=parseFloat(priceField.value.replace(/[^0-9.\-]/g,''))||0;
      const computedPrice=parseFloat((cost*(1+markup/100)).toFixed(2));
      // Compute price if:
