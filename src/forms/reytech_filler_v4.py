@@ -124,6 +124,7 @@ SIGN_FIELDS = {
     "BidderSignature",     # no-space variant
     # Standalone forms
     "Signature",           # CalRecycle 74 standalone + STD 1000 standalone
+    "Signature3",          # STD 205 Payee Data Record Supplement
     "Signature4",          # STD 204 Payee Data Record
     # Bid Package
     "Signature_CUF",       # CUF (MC-345)
@@ -3274,18 +3275,17 @@ def fill_std205(input_path, rfq_data, config, output_path):
             zipcode = m.group(3)
 
     values = {
-        # Section 1: Payee Information
+        # Section 1: Payee Information (required)
         "nameReq1": company["name"],
         "taxIDNumber": company.get("fein", ""),
-        # Section 2: Remittance Address
+        # Section 2: Remittance Address #1 ONLY (same as STD 204)
         "remAddress1": addr.split(',')[0] if ',' in addr else addr,
         "CITY1": city,
         "STATE1": state,
         "ZIPCODE1": zipcode,
-        "TELEPHONE_1": company.get("phone", ""),
-        "EMAIL": company.get("email", ""),
-        "contactName1": company.get("owner", ""),
-        # Certification
+        # Do NOT fill contactName, TELEPHONE, EMAIL, or addresses 2-5
+        # Those are "additional contact information" — leave blank
+        # Certification section
         "certName": f"{company.get('owner', '')}, {company.get('title', 'Owner')}",
         "certTelephone": company.get("phone", ""),
         "TITLE": company.get("title", "Owner"),
