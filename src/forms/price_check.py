@@ -2217,8 +2217,12 @@ def fill_ams704(
             occupied_rows.add(_r)
     overflow_rows = set()  # Track rows used for description overflow
 
-    # Detect which field naming convention the PDF uses for multi-page
-    _has_suffix_fields = any("_2" in fname for fname in fields)
+    # Read PDF fields to detect multi-page naming convention
+    try:
+        _pdf_fields = PdfReader(source_pdf).get_fields() or {}
+    except Exception:
+        _pdf_fields = {}
+    _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
 
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
@@ -2457,16 +2461,16 @@ def fill_ams704(
     field_values.append({"field_id": "fill_73", "page": 1, "value": f"{total:,.2f}"})
 
     # Always fill SUPPLIER NAME (shared field, appears on all pages)
-    if "SUPPLIER NAME" in fields:
+    if "SUPPLIER NAME" in _pdf_fields:
         field_values.append({"field_id": "SUPPLIER NAME", "page": 1, "value": info.get("company_name", "Reytech Inc.")})
 
     # Page numbering
     total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
-    if "Page" in fields:
+    if "Page" in _pdf_fields:
         field_values.append({"field_id": "Page", "page": 1, "value": f"1 of {total_pages}"})
 
     # Multi-page: grand total on page 2 ("ENTER GRAND TOTAL ON FRONT PAGE")
-    if _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in fields:
+    if _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
         field_values.append({"field_id": "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE",
                              "page": 2, "value": f"{total:,.2f}"})
 
