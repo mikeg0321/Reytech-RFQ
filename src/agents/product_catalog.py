@@ -1801,7 +1801,21 @@ def match_items_batch(items: list) -> list:
                 "photo_url": best.get("photo_url", ""),
                 "verification_penalty": best.get("verification_penalty", 0),
                 "verification_reasons": best.get("verification_reasons", []),
+                "supplier_url": "",
             })
+            # Look up best supplier URL from product_suppliers table
+            try:
+                sup_row = conn.execute("""
+                    SELECT supplier_url, supplier_name FROM product_suppliers
+                    WHERE product_id = ? AND supplier_url IS NOT NULL AND supplier_url != ''
+                    ORDER BY is_preferred DESC, last_price ASC LIMIT 1
+                """, (best["id"],)).fetchone()
+                if sup_row:
+                    results[-1]["supplier_url"] = sup_row["supplier_url"]
+                    if not results[-1]["best_supplier"]:
+                        results[-1]["best_supplier"] = sup_row["supplier_name"]
+            except Exception:
+                pass
         else:
             results.append({"idx": item.get("idx", 0), "matched": False})
     return results

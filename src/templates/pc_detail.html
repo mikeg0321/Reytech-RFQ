@@ -1327,10 +1327,32 @@
          +'<a href="#" onclick="applyCatalogMatch('+idx+','+JSON.stringify(r).replace(/"/g,'&quot;')+');return false" style="color:#3fb950;font-size:13px;font-weight:700;text-decoration:none" title="Fill cost + price from catalog">✅ Use</a>';
         descEl.parentElement.insertBefore(badge,descEl);
        }
+
+       // Auto-fill MFG# if empty (don't wait for "Use" click)
+       if(itemEl && (!itemEl.value || itemEl.value==='MFG#' || itemEl.value.match(/^\d{1,2}$/))){
+        var bestPn=r.mfg_number||r.sku||r.part_number||'';
+        if(bestPn && bestPn.length>2) itemEl.value=bestPn;
+       }
+
+       // Auto-fill supplier URL if empty and available
+       var linkEl=document.querySelector('[name=link_'+idx+']');
+       if(linkEl && !linkEl.value && r.supplier_url){
+        linkEl.value=r.supplier_url;
+       }
+
+       // Update Sources column
+       var row=document.querySelector('tr[data-row="'+idx+'"]');
+       if(row){
+        var srcCell=row.querySelectorAll('td')[8];
+        if(srcCell && (srcCell.textContent.trim()==='No sources'||!srcCell.textContent.trim())){
+         srcCell.innerHTML='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span>';
+        }
+       }
+
        applied++;
       });
 
-      showMsg('🎯 Catalog: Matched '+matched+'/'+total+' items. Click ✅ Use to apply pricing.','ok');
+      showMsg('Catalog: Matched '+matched+'/'+total+' items — MFG# and URLs auto-filled. Click Use to apply pricing.','ok');
      }).catch(e=>{
       btn.textContent=origText;btn.disabled=false;
       showMsg('❌ Catalog match failed: '+e.message,'err');
@@ -1341,6 +1363,7 @@
      const costEl=document.querySelector('[name=cost_'+idx+']');
      const priceEl=document.querySelector('[name=price_'+idx+']');
      const itemEl=document.querySelector('[name=itemnum_'+idx+']');
+     const linkEl=document.querySelector('[name=link_'+idx+']');
 
      // Use best_cost if available, otherwise last_cost
      const bestCost = match.best_cost || match.last_cost;
@@ -1358,18 +1381,36 @@
       setTimeout(()=>{priceEl.style.background='';},1500);
      }
 
+     // Fill MFG# if empty or just a row number
      if(itemEl && (!itemEl.value||itemEl.value.match(/^\d{1,2}$/))){
       var bestNum = match.mfg_number || match.sku || match.part_number || '';
       if(bestNum) itemEl.value=bestNum;
      }
+
+     // Fill supplier URL if available and field is empty
+     if(linkEl && !linkEl.value && match.supplier_url){
+      linkEl.value=match.supplier_url;
+      linkEl.style.background='#0d1a2e';
+      setTimeout(()=>{linkEl.style.background='';},1500);
+     }
+
      recalcRow(idx);
      recalcPC();
 
+     // Update Sources column
+     var row=document.querySelector('tr[data-row="'+idx+'"]');
+     if(row){
+      var srcCell=row.querySelectorAll('td')[8];
+      if(srcCell){
+       srcCell.innerHTML='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span>';
+      }
+     }
+
      // Build info message
-     const src = match.recommended_price ? '🧠 AI-priced' : 'QB pricing';
+     const src = match.recommended_price ? 'AI-priced' : 'QB pricing';
      const supplier = match.best_supplier ? ' ('+match.best_supplier+')' : '';
      const winInfo = (match.times_won||0) > 0 ? ' | Won '+match.times_won+'x at '+Number(match.win_rate||0).toFixed(0)+'%' : '';
-     showMsg('✅ Applied '+src+': $'+Number(bestCost||0).toFixed(2)+supplier+' → $'+Number(bestPrice||0).toFixed(2)+winInfo,'ok');
+     showMsg('Applied '+src+': $'+Number(bestCost||0).toFixed(2)+supplier+' → $'+Number(bestPrice||0).toFixed(2)+winInfo,'ok');
     }
 
     /* ═══ MFG# ONBLUR → Catalog Lookup ═══ */
