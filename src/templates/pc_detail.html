@@ -166,8 +166,14 @@
      </script>
      {% elif pc.get('enrichment_status') == 'complete' %}
      {% set es = pc.get('enrichment_summary', {}) %}
+     {% set _actual_count = (pc.get('items', [])|length) %}
+     {% if es.get('total_items', 0) != _actual_count and _actual_count > 0 %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">⚠️</span><div><b>Enrichment stale</b> — was run on {{es.get('total_items',0)}} items but PC now has {{_actual_count}}. Re-enrich to update pricing.</div>
+      <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#d29922;color:#000;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Re-run enrichment">🔄 Re-enrich</button></div>
+     {% else %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.25);color:#3fb950;margin-bottom:10px"><span style="font-size:18px">✅</span><div><b>Enriched</b> — {{es.get('catalog_matched',0)}}/{{es.get('total_items',0)}} catalog, {{es.get('scprs_matched',0)}}/{{es.get('total_items',0)}} SCPRS{% if es.get('identifiers_extracted',0) %}, {{es.get('identifiers_extracted',0)}} IDs{% endif %}{% if es.get('urls_extracted',0) %}, {{es.get('urls_extracted',0)}} URLs{% endif %}{% if es.get('web_prices_found',0) %}, {{es.get('web_prices_found',0)}} web prices{% endif %}</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Re-run enrichment">🔄 Re-enrich</button></div>
+     {% endif %}
      {% else %}
      <div id="autoStatusBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — no enrichment yet. Click to search Catalog + SCPRS.</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#d29922;color:#000;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Run automatic pricing">🔍 Auto-Enrich</button></div>

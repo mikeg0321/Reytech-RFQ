@@ -1897,11 +1897,17 @@ def pricecheck_reparse(pcid):
     # Update PC with fresh parse
     pc["parsed"] = fresh
     _sync_pc_items(pc, fresh["line_items"])
+
+    # Clear stale enrichment status — items changed, old enrichment doesn't apply
+    pc.pop("enrichment_status", None)
+    pc.pop("enrichment_summary", None)
+    pc["status"] = "parsed"  # Reset to parsed so user re-runs pricing
+
     _save_single_pc(pcid, pc)
 
-    log.info("REPARSE PC %s: %d items re-parsed from source PDF", pcid, len(fresh["line_items"]))
+    log.info("REPARSE PC %s: %d items re-parsed, enrichment cleared", pcid, len(fresh["line_items"]))
     return jsonify({"ok": True, "items": len(fresh["line_items"]),
-                    "msg": f"Re-parsed {len(fresh['line_items'])} items from source PDF"})
+                    "msg": f"Re-parsed {len(fresh['line_items'])} items — run Find Prices to re-enrich"})
 
 
 @bp.route("/api/pricecheck/<pcid>/lookup-tax-rate", methods=["POST"])
