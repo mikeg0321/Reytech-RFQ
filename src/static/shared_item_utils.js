@@ -256,7 +256,55 @@ function _applyLinkData(idx, d, mode) {
       + 'font-family:JetBrains Mono,monospace">'
       + ' <span style="color:#8b949e;font-size:11px">'
       + '<a href="' + (d.url || '') + '" target="_blank" style="color:#58a6ff">' + (d.supplier || '') + '</a>'
-      + '</span></div></div>';
+      + '</span></div></div></div>';
+    // For S&S: auto-extract prices via popup (bypasses Cloudflare)
+    var _sswUrl = d.url || '';
+    if (_sswUrl.indexOf('ssww.com') >= 0) {
+      (function(ci, cu, cq, cd) {
+        setTimeout(function() {
+          var popup = window.open(cu, '_ssww_' + ci, 'width=420,height=350,left=50,top=50');
+          if (!popup) return; // blocked
+          var tries = 0;
+          var tmr = setInterval(function() {
+            tries++;
+            if (tries > 25 || popup.closed) { clearInterval(tmr); return; }
+            try {
+              var txt = popup.document.body.innerText || '';
+              var lm = txt.match(/List:\s*\$(\d+\.?\d*)/);
+              if (!lm) return;
+              var msrp = parseFloat(lm[1]);
+              // Sale price: "$69" + ".99" pattern before "Buy" or "Qty"
+              var sm = txt.match(/SALE[^]*?\$\s*(\d+)\s*\.?\s*(\d{2})/);
+              var sale = sm ? parseFloat(sm[1] + '.' + sm[2]) : 0;
+              clearInterval(tmr);
+              popup.close();
+              // Fill fields
+              var me = document.getElementById(cq);
+              var de = document.getElementById(cd);
+              if (me) me.value = msrp.toFixed(2);
+              if (de && sale > 0 && sale < msrp) de.value = sale.toFixed(2);
+              // Auto-apply to cost
+              var ce = document.querySelector('[name=cost_' + ci + ']');
+              if (ce) ce.value = msrp.toFixed(2);
+              var row = document.querySelector('tr[data-row="' + ci + '"]');
+              if (row && sale > 0 && sale < msrp) row.setAttribute('data-discount-cost', sale.toFixed(2));
+              if (typeof recalcRow === 'function') recalcRow(ci, true);
+              if (typeof recalcPC === 'function') recalcPC();
+              if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
+              var w = document.getElementById('_qe_wrap_' + ci);
+              if (w) {
+                var h = '<span style="color:#3fb950">$' + msrp.toFixed(2) + ' MSRP filled</span>';
+                if (sale > 0 && sale < msrp) h += '<br><span style="color:#34d399;font-size:11px">sale $' + sale.toFixed(2) + ' (' + ((1 - sale/msrp)*100).toFixed(0) + '% off)</span>';
+                w.innerHTML = h;
+              }
+            } catch (e) {
+              // Cross-origin block — stop after a few tries, fall to manual
+              if (tries > 8) { clearInterval(tmr); try{popup.close();}catch(x){} }
+            }
+          }, 600);
+        }, 300);
+      })(idx, _sswUrl, _qeId, _qeDiscId);
+    }
   }
   // ASIN: informational badge only — NEVER in description or part# field
   if (d.asin) {
