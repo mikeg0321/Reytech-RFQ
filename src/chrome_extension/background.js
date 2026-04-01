@@ -11,10 +11,7 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
         console.log('[BG] Forwarded to Reytech tab', tab.id);
       });
     });
-    // Close the S&S tab after a delay
-    if (sender.tab) {
-      setTimeout(function() { chrome.tabs.remove(sender.tab.id); }, 2000);
-    }
+    // DON'T close the S&S tab — user may be browsing for more items
     sendResponse({ok: true});
   }
   return true;
