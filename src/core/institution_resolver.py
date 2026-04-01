@@ -99,6 +99,45 @@ _DSH_FACILITIES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Address / ZIP → Facility Mapping (for ship-to address resolution)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_ADDRESS_FACILITIES = {
+    # CalVet facilities
+    "91911": ("Veterans Home of California, Chula Vista", "calvet", "VHC-ChulaVista"),
+    "92311": ("Veterans Home of California, Barstow", "calvet", "VHC-Barstow"),
+    "94599": ("Veterans Home of California, Yountville", "calvet", "VHC-Yountville"),
+    "93721": ("Veterans Home of California, Fresno", "calvet", "VHC-Fresno"),
+    "93534": ("Veterans Home of California, Lancaster", "calvet", "VHC-Lancaster"),
+    "93003": ("Veterans Home of California, Ventura", "calvet", "VHC-Ventura"),
+    "90073": ("Veterans Home of California, West Los Angeles", "calvet", "VHC-WLA"),
+    "96001": ("Veterans Home of California, Redding", "calvet", "VHC-Redding"),
+    # CDCR facilities by ZIP
+    "92179": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
+    "91710": ("California Institution for Men", "cchcs", "CIM"),
+    "92880": ("California Institution for Women", "cchcs", "CIW"),
+    "93409": ("California Men's Colony", "cchcs", "CMC"),
+    "95696": ("California Medical Facility", "cchcs", "CMF"),
+    "95763": ("Folsom State Prison", "cchcs", "FSP"),
+    "94964": ("San Quentin State Prison", "cchcs", "SQ"),
+    "95202": ("California Health Care Facility", "cchcs", "CHCF"),
+    # DSH facilities by ZIP
+    "93423": ("DSH — Atascadero State Hospital", "dsh", "ASH"),
+    "93210": ("DSH — Coalinga State Hospital", "dsh", "CSH"),
+    "90660": ("DSH — Metropolitan State Hospital", "dsh", "MSH"),
+    "94558": ("DSH — Napa State Hospital", "dsh", "NSH"),
+    "92369": ("DSH — Patton State Hospital", "dsh", "PSH"),
+}
+
+# Street address keywords → facility (when ZIP alone is ambiguous)
+_ADDRESS_KEYWORDS = {
+    "naples": ("Veterans Home of California, Chula Vista", "calvet", "VHC-ChulaVista"),
+    "alta rd": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
+    "donovan": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
+    "carnoustie": ("Reytech Inc.", "", ""),  # Our own address
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Agency Aliases (abbreviation → canonical display name)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -169,7 +208,12 @@ def resolve(raw_name: str) -> dict:
     if alias_match:
         return {**alias_match, "original": original}
 
-    # 5. No match — return cleaned version of original
+    # 5. Try address/zip-based resolution (ship-to addresses)
+    addr_match = _match_address(text)
+    if addr_match:
+        return {**addr_match, "original": original}
+
+    # 6. No match — return cleaned version of original
     return {"canonical": original, "agency": "", "facility_code": "", "original": original}
 
 
@@ -304,6 +348,30 @@ def _match_alias(text: str) -> dict:
     for alias, canonical in _AGENCY_ALIASES.items():
         if text == alias or text.startswith(alias + " "):
             return {"canonical": canonical, "agency": canonical.lower().split()[0], "facility_code": ""}
+    return None
+
+
+def _match_address(text: str) -> dict:
+    """Match ship-to addresses by ZIP code or street keywords."""
+    import re
+    # Extract ZIP code — look for 5 digits near end (after state abbreviation)
+    zip_match = re.search(r'(?:CA|california)\s+(\d{5})\b', text, re.IGNORECASE)
+    if not zip_match:
+        # Fallback: last 5-digit number in the string
+        all_zips = re.findall(r'\b(\d{5})\b', text)
+        zip_match = type('M', (), {'group': lambda s, n: all_zips[-1]})() if all_zips else None
+    if zip_match:
+        z = zip_match.group(1)
+        if z in _ADDRESS_FACILITIES:
+            name, agency, code = _ADDRESS_FACILITIES[z]
+            return {"canonical": name, "agency": agency, "facility_code": code}
+
+    # Check street address keywords
+    text_lower = text.lower()
+    for keyword, (name, agency, code) in _ADDRESS_KEYWORDS.items():
+        if keyword in text_lower:
+            return {"canonical": name, "agency": agency, "facility_code": code}
+
     return None
 
 
