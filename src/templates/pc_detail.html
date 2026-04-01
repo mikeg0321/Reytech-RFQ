@@ -3,14 +3,14 @@
 
 {% block content %}
 <style>
-     body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg,#0d1117);color:var(--tx,#c9d1d9);margin:0;padding:20px;font-size:15px;line-height:1.5}
+     body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg,#0d1117);color:var(--tx,#c9d1d9);margin:0;padding:20px;font-size:16px;line-height:1.5}
      .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
      table{width:100%;border-collapse:collapse}
-     th,td{padding:8px 10px;border:1px solid #30363d;text-align:left;font-size:14px}
-     th{background:#21262d;font-size:14px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
-     .btn{padding:9px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block;margin:4px;font-size:14px}
+     th,td{padding:9px 12px;border:1px solid #30363d;text-align:left;font-size:14px}
+     th{background:#21262d;font-size:13px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
+     .btn{padding:10px 20px;border-radius:6px;border:none;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block;margin:4px;font-size:14px}
      .btn-p{background:#1f6feb;color:#fff} .btn-g{background:#238636;color:#fff} .btn-o{background:#da3633;color:#fff}
-     .btn-y{background:#9e6a03;color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:6px 14px;font-size:13px}
+     .btn-y{background:#9e6a03;color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:7px 16px;font-size:14px}
      a{color:#58a6ff} h1{margin:0;font-size:24px} .meta{color:#8b949e;font-size:15px}
      .status{padding:3px 8px;border-radius:4px;font-size:13px;font-weight:600;vertical-align:middle}
      .status-parsed{background:#1f6feb33;color:#58a6ff} .status-priced{background:#23863633;color:#3fb950}
@@ -247,47 +247,51 @@
      </div>
      {% endif %}
 
+     <!-- ═══ STAGE-AWARE ACTION BAR ═══ -->
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
-      <button class="btn btn-p" onclick="savePrices(this)" id="saveBtn" aria-label="Save prices and generate PDF" style="font-size:14px;padding:8px 20px;background:#238636;color:#fff">💾 Save &amp; Generate</button>
-      <button class="btn" onclick="previewPcPdf()" id="preview704Btn" aria-label="Preview AMS 704 PDF" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px;font-weight:600" title="View the actual AMS 704 form you'll submit to the buyer">👁 Preview 704</button>
-      <button class="btn" onclick="viewOriginalPc()" aria-label="View original source PC" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="View the buyer's original PC document">📄 View Original</button>
-      <button class="btn" onclick="showPreview()" aria-label="Reytech quote layout" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Internal pricing summary (not the government form)">📊 Quote</button>
-      <button class="btn" onclick="sendPcQuote()" aria-label="Send quote email" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 20px">📧 Send Quote</button>
+      {% set st = pc.get('status','new') %}
+      {% if st in ('sent',) %}
+       <button class="btn" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Mark Won</button>
+       <button class="btn" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:10px 20px">Mark Lost</button>
+       <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">View Sent</button>
+      {% elif st in ('completed','converted') %}
+       <button class="btn" onclick="sendPcQuote()" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Send Quote</button>
+       <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview 704</button>
+       <button class="btn" onclick="savePrices(this)" id="saveBtn" style="background:#21262d;color:#3fb950;border:1px solid #30363d;font-size:14px;padding:8px 18px">Regenerate</button>
+      {% elif st in ('priced','enriched') %}
+       <button class="btn" onclick="savePrices(this)" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Save & Generate</button>
+       <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview 704</button>
+       <button class="btn" onclick="sendPcQuote()" style="background:#21262d;color:#58a6ff;border:1px solid #30363d;font-size:14px;padding:8px 18px">Send Quote</button>
+      {% else %}
+       <button class="btn" onclick="runAutoPrice(this)" id="saveBtn" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Find Prices</button>
+       <button class="btn" onclick="previewPcPdf()" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);font-size:14px;padding:8px 18px">Preview</button>
+       <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">Original</button>
+      {% endif %}
       {{ download_html | default('') | safe }}
-      <!-- Pricing: consolidated into dropdown -->
-      <span style="border-left:1px solid #30363d;height:28px;margin:0 4px"></span>
-      <details style="position:relative;display:inline-block" id="priceDropdown">
-       <summary class="btn btn-sm" style="background:#21262d;color:#bc8cff;border:1px solid #30363d;font-size:14px;padding:6px 16px;cursor:pointer;list-style:none;font-weight:600">🔍 Find Prices ▾</summary>
-       <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#bc8cff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runAutoPrice(this);this.closest('details').open=false" aria-label="Auto-Price (all sources)">🧠 Auto-Price (all sources)</button>
-        <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runScprs(this);this.closest('details').open=false" aria-label="SCPRS (state contracts)">🔍 SCPRS (state contracts)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runCatalogMatch(this);this.closest('details').open=false" aria-label="Catalog (our products)">🎯 Catalog (our products)</button>
-       </div>
-      </details>
-      <button class="btn btn-sm" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:13px;padding:6px 14px" title="Show/hide notes row for each item">📝 Notes</button>
+      <button class="btn" onclick="toggleAllNotes()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">Notes</button>
+      <!-- Single "More" dropdown for everything else -->
       <details style="position:relative;display:inline-block">
-       <summary class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:14px;padding:4px 10px;cursor:pointer;list-style:none">⋯ More</summary>
-       <div style="position:absolute;top:100%;left:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:220px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
-        {% if pc.get('status') in ('completed','converted') %}
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#c9d1d9;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="saveAndGenerate(this)" aria-label="Re-fill 704">♻️ Re-fill 704</button>
-        {% endif %}
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateOriginal704(this)" aria-label="Generate Original 704">📄 Generate Original 704</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)" aria-label="Generate Formal Quote (704b/703b)">📋 Generate Formal Quote (704b/703b)</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()" aria-label="Revision History">📝 Revision History</button>
+       <summary class="btn" style="background:#21262d;color:#8b949e;border:1px solid #30363d;font-size:14px;padding:8px 14px;cursor:pointer;list-style:none">More</summary>
+       <div style="position:absolute;top:100%;right:0;z-index:50;margin-top:4px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px;min-width:240px;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="savePrices(this)">Save & Generate 704</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="sendPcQuote()">Send Quote</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateOriginal704(this)">Generate Original 704</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this)">Generate Formal Quote (704b/703b)</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions()">Revision History</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showPreview()">Internal Quote View</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <div style="font-size:13px;color:#484f58;padding:2px 10px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)" aria-label="Re-parse from PDF">🔄 Re-parse from PDF</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click()" aria-label="Upload PDF">📤 Upload PDF &amp; Parse</button>
+        <div style="font-size:12px;color:#484f58;padding:2px 12px;text-transform:uppercase;letter-spacing:.5px">Admin</div>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this)">Re-parse from PDF</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click()">Upload PDF & Parse</button>
         <form id="pc-upload-form" action="/pricecheck/{{pcid}}/upload-pdf" method="POST" enctype="multipart/form-data" style="display:none">
          <input type="file" id="pc-pdf-upload" name="file" accept=".pdf" onchange="this.form.submit()">
         </form>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')" aria-label="No Response">💤 No Response</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')" aria-label="Mark Duplicate">📋 Mark Duplicate</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')" aria-label="Archive">🗄️ Archive</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')" aria-label="Delete">🗑️ Delete</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response')">No Response</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate')">Mark Duplicate</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('archived')">Archive</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#f85149;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('delete')">Delete</button>
         <hr style="border-color:#30363d;margin:4px 0">
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:8px 10px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="trimItems()" aria-label="Trim Items">✂️ Trim to Visible Items</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:9px 12px;font-size:14px;border-radius:4px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="trimItems()">Trim to Visible Items</button>
        </div>
       </details>
      </div>
@@ -295,44 +299,82 @@
      <div id="confidenceBar"></div>
     </div>
 
+    <!-- ═══ PRICING ACTION GRID ═══ -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0">
+     <button onclick="runScprs(this)" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 10px;cursor:pointer;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">🔍</div>
+      <div style="font-size:14px;font-weight:600;color:#58a6ff">SCPRS Lookup</div>
+      <div style="font-size:12px;color:#8b949e">State contracts</div>
+     </button>
+     <button onclick="runCatalogMatch(this)" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 10px;cursor:pointer;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">🎯</div>
+      <div style="font-size:14px;font-weight:600;color:#3fb950">Catalog Match</div>
+      <div style="font-size:12px;color:#8b949e">Our products</div>
+     </button>
+     <button onclick="runAutoPrice(this)" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 10px;cursor:pointer;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">🧠</div>
+      <div style="font-size:14px;font-weight:600;color:#bc8cff">Auto-Price</div>
+      <div style="font-size:12px;color:#8b949e">All sources</div>
+     </button>
+     <button onclick="openBulkPaste()" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 10px;cursor:pointer;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">📋</div>
+      <div style="font-size:14px;font-weight:600;color:#d2a8ff">Bulk Paste URLs</div>
+      <div style="font-size:12px;color:#8b949e">Paste supplier links</div>
+     </button>
+     <button onclick="rescrapeUnpriced(this)" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:14px 10px;cursor:pointer;text-align:center">
+      <div style="font-size:18px;margin-bottom:4px">🔄</div>
+      <div style="font-size:14px;font-weight:600;color:#d29922">Re-scrape</div>
+      <div style="font-size:12px;color:#8b949e">Missing prices</div>
+     </button>
+    </div>
+
+    <!-- ═══ UNIFIED MARKUP & SETTINGS BAR ═══ -->
     <div class="card" style="padding:16px 20px">
-     <div style="display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap">
-      <div>
-       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Delivery Time</label><br>
-       <select id="deliverySelect" class="text-in" style="padding:8px 12px;font-size:15px;min-width:210px;margin-top:4px;cursor:pointer">
+     <!-- Row 1: Markup -->
+     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px;min-width:70px">Markup</span>
+      <span id="pc-mk-buttons"></span>
+      <div style="display:flex;align-items:center;gap:4px;background:#21262d;padding:6px 10px;border-radius:6px;border:1px solid #30363d">
+       <input type="number" id="pc-custom-pct" step="1" min="0" max="200" placeholder="%" style="width:55px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:700;text-align:center;outline:none">
+       <span style="color:#8b949e;font-size:14px;font-weight:600">%</span>
+       <button class="btn btn-sm" style="background:#238636;color:#fff;border:none;padding:5px 14px;font-size:14px;font-weight:600" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;background:#21262d;padding:6px 10px;border-radius:6px;border:1px solid #30363d">
+       <span style="color:#8b949e;font-size:14px">$</span>
+       <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none">
+       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:4px 8px;font-size:14px;cursor:pointer;font-weight:600" onclick="applyFlatMarkupPC()">+$</button>
+      </div>
+      <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:50px;text-align:center;font-size:15px;font-weight:700;padding:6px;display:none">
+     </div>
+     <!-- Row 2: Buffer + Delivery + Notes -->
+     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:6px">
+       <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Buffer</span>
+       <div style="display:flex;gap:4px" id="pricingTiers">
+        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">None</button>
+        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">+10%</button>
+        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">+15%</button>
+        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">+20%</button>
+       </div>
+      </div>
+      <span style="border-left:1px solid #30363d;height:24px"></span>
+      <div style="display:flex;align-items:center;gap:6px">
+       <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Delivery</span>
+       <select id="deliverySelect" class="text-in" style="padding:6px 10px;font-size:14px;min-width:180px;cursor:pointer">
         <option value="3-5 business days" {{ del_sel["3-5 business days"] }}>3-5 business days</option>
         <option value="5-7 business days" {{ del_sel["5-7 business days"] }}>5-7 business days</option>
         <option value="7-14 business days" {{ del_sel["7-14 business days"] }}>7-14 business days</option>
         <option value="custom" {{ del_sel["custom"] }}>Custom...</option>
        </select>
-       <input type="text" id="deliveryCustom" placeholder="e.g. 2-3 weeks" value="{{ custom_val }}" class="text-in" style="display:{{ custom_display }};padding:8px 12px;font-size:15px;width:160px;margin-left:6px;margin-top:4px">
+       <input type="text" id="deliveryCustom" placeholder="e.g. 2-3 weeks" value="{{ custom_val }}" class="text-in" style="display:{{ custom_display }};padding:6px 10px;font-size:14px;width:140px">
       </div>
-      <div>
-       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Price Protection
-        <span style="font-size:14px;text-transform:none;cursor:help" title="Amazon prices fluctuate. Buffer pads your cost basis so a temporary discount doesn't eat your margin when prices revert.">ⓘ</span>
-       </label>
-       <div style="display:flex;gap:6px;margin-top:6px" id="pricingTiers">
-        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0" aria-label="Current">Current<br><span style="font-size:14px;opacity:0.7">No buffer</span></button>
-        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10" aria-label="Light">Light<br><span style="font-size:14px;opacity:0.7">+10%</span></button>
-        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15" aria-label="Standard">Standard<br><span style="font-size:14px;opacity:0.7">+15%</span></button>
-        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20" aria-label="Safe">Safe<br><span style="font-size:14px;opacity:0.7">+20%</span></button>
-       </div>
-       <div id="tierComparison" style="margin-top:10px;font-size:14px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;display:none"></div>
-      </div>
-      <div>
-       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Default Markup</label>
-       <div style="display:flex;align-items:center;gap:6px;margin-top:6px">
-        <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:60px;text-align:center;font-size:16px;font-weight:700;padding:8px" onchange="applyDefaultMarkup()">
-        <span style="font-size:16px;color:#8b949e">%</span>
-        <button onclick="applyDefaultMarkup()" style="margin-left:6px;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff;font-size:12px;cursor:pointer" title="Apply this markup to all items">Apply All</button>
-        <span style="font-size:15px;color:#8b949e;font-weight:600">%</span>
-       </div>
-      </div>
-      <div style="flex:1;min-width:250px">
-       <label style="font-size:14px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;font-weight:600">Supplier Notes <span style="font-size:14px;text-transform:none;font-weight:400">(prints on 704)</span></label><br>
-       <input type="text" id="supplierNotes" value="{{ pc.get('custom_notes','').replace('"','&quot;') }}" placeholder="Optional — leave blank for no notes" class="text-in" style="width:100%;padding:8px 12px;font-size:15px;margin-top:4px">
+      <span style="border-left:1px solid #30363d;height:24px"></span>
+      <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:200px">
+       <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Notes</span>
+       <input type="text" id="supplierNotes" value="{{ pc.get('custom_notes','').replace('"','&amp;quot;') }}" placeholder="Optional — prints on 704" class="text-in" style="flex:1;padding:6px 10px;font-size:14px">
       </div>
      </div>
+     <div id="tierComparison" style="margin-top:10px;font-size:14px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;display:none"></div>
     </div>
 
     {% if pc.get('_split_hint') and pc['_split_hint'].get('total_items', 0) > 8 %}
@@ -349,35 +391,25 @@
 
     <div class="card">
      <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
-     <!-- Lock Toggle + Bulk Paste -->
-     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
-      <button onclick="openBulkPaste()" style="background:#21262d;border:1px solid #30363d;color:#58a6ff;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
-      <button onclick="rescrapeUnpriced(this)" style="background:#21262d;border:1px solid #30363d;color:#d29922;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer" title="Re-scrape items that have URLs but no price">🔄 Re-scrape Missing</button>
+     <!-- Lock Toggle -->
+     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
      </div>
-     <!-- Quick Markup Bar (config-driven, parity with RFQ) -->
-     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;font-size:14px">
-      <span style="color:#8b949e">Quick Markup:</span>
-      <span id="pc-mk-buttons"></span>
-      <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:4px 8px;border-radius:6px;border:1px solid #30363d">
-       <input type="number" id="pc-custom-pct" step="1" min="0" max="200" placeholder="%" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:700;text-align:center;outline:none">
-       <span style="color:#8b949e;font-size:13px;font-weight:600">%</span>
-       <button class="btn btn-sm" style="background:#238636;color:#fff;border:none;padding:3px 10px;font-size:13px;font-weight:600" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
+     <!-- ═══ STICKY MARGIN STRIP ═══ -->
+     <div id="pc-margin-summary" style="display:flex;padding:12px 18px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:15px;gap:20px;flex-wrap:wrap;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:15">
+      <div id="pc-ms-coverage" style="display:flex;align-items:center;gap:8px;min-width:120px">
+       <div style="flex:1;height:8px;background:#30363d;border-radius:4px;min-width:60px;overflow:hidden">
+        <div id="pc-ms-bar" style="height:100%;background:#3fb950;border-radius:4px;width:0%;transition:width .3s"></div>
+       </div>
+       <span id="pc-ms-items" style="color:#8b949e;font-size:14px;white-space:nowrap">0/0</span>
       </div>
-      <div style="display:flex;align-items:center;gap:3px;background:#21262d;padding:3px 6px;border-radius:6px;border:1px solid #30363d">
-       <span style="color:#8b949e;font-size:12px">$</span>
-       <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:50px;background:transparent;border:none;color:#e6edf3;font-size:13px;font-weight:600;text-align:center;outline:none">
-       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:2px 6px;font-size:12px;cursor:pointer" onclick="applyFlatMarkupPC()">+$</button>
-      </div>
-     </div>
-     <!-- Margin Summary Bar -->
-     <div id="pc-margin-summary" style="display:none;padding:8px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
-      <span style="color:#8b949e">Margin:</span>
-      <span id="pc-ms-cost"></span>
-      <span id="pc-ms-revenue"></span>
-      <span id="pc-ms-profit" style="font-weight:700"></span>
-      <span id="pc-ms-pct" style="font-weight:700"></span>
-      <span id="pc-ms-items" style="color:#8b949e"></span>
+      <span style="border-left:1px solid #484f58;height:20px"></span>
+      <span style="color:#8b949e;font-size:14px">Cost</span> <span id="pc-ms-cost" style="font-weight:600;font-family:'JetBrains Mono',monospace">$0</span>
+      <span style="border-left:1px solid #484f58;height:20px"></span>
+      <span style="color:#8b949e;font-size:14px">Revenue</span> <span id="pc-ms-revenue" style="font-weight:600;font-family:'JetBrains Mono',monospace">$0</span>
+      <span style="border-left:1px solid #484f58;height:20px"></span>
+      <span style="color:#8b949e;font-size:14px">Profit</span> <span id="pc-ms-profit" style="font-weight:700;font-family:'JetBrains Mono',monospace">$0</span>
+      <span id="pc-ms-pct" style="font-weight:700;padding:3px 10px;border-radius:12px;font-size:14px">0%</span>
      </div>
      <div class="pc-table-wrap">
      <table id="itemsTable">
@@ -1099,20 +1131,26 @@
      document.getElementById('totals').innerHTML=html;
      // Also refresh tier comparison
      if(typeof showTierComparison==='function') showTierComparison();
-     // Update margin summary bar
+     // Update sticky margin strip (always visible)
      var msBar=document.getElementById('pc-margin-summary');
-     if(msBar && (totalCost>0||sub>0)){
-      msBar.style.display='flex';
-      document.getElementById('pc-ms-cost').textContent='Cost: $'+totalCost.toFixed(2);
-      document.getElementById('pc-ms-revenue').textContent='Revenue: $'+sub.toFixed(2);
+     if(msBar){
+      // Coverage bar
+      var covPct=totalCount>0?Math.round(bidCount/totalCount*100):0;
+      var barEl=document.getElementById('pc-ms-bar');
+      if(barEl){barEl.style.width=covPct+'%';barEl.style.background=covPct>=80?'#3fb950':covPct>=50?'#d29922':'#f87171';}
+      document.getElementById('pc-ms-items').textContent=bidCount+'/'+totalCount+' priced';
+      // Totals
+      document.getElementById('pc-ms-cost').textContent='$'+totalCost.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
+      document.getElementById('pc-ms-revenue').textContent='$'+sub.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
       var pe=document.getElementById('pc-ms-profit');
-      pe.textContent=(totalProfit>=0?'+':'')+' $'+totalProfit.toFixed(2);
+      pe.textContent=(totalProfit>=0?'+$':'-$')+Math.abs(totalProfit).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
       pe.style.color=totalProfit>=0?'#3fb950':'#f85149';
       var pp=document.getElementById('pc-ms-pct');
-      pp.textContent=margin.toFixed(1)+'% margin';
-      pp.style.color=margin>=20?'#3fb950':margin>=10?'#d29922':'#f85149';
-      document.getElementById('pc-ms-items').textContent=bidCount+'/'+totalCount+' priced';
-     } else if(msBar){msBar.style.display='none';}
+      pp.textContent=margin.toFixed(1)+'%';
+      if(margin>=20){pp.style.background='rgba(63,185,80,.15)';pp.style.color='#3fb950';}
+      else if(margin>=10){pp.style.background='rgba(210,153,34,.15)';pp.style.color='#d29922';}
+      else{pp.style.background='rgba(248,113,113,.15)';pp.style.color='#f87171';}
+     }
      }finally{recalcPC._running=false;}
     }
 
