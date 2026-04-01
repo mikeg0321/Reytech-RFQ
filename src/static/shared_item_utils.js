@@ -152,6 +152,13 @@ function _applyLinkData(idx, d, mode) {
   var isPC = (mode === 'pc');
   var isAmazon = d.supplier === 'Amazon';
 
+  // S&S Worldwide: always open popup for price extraction via extension
+  // (server can't scrape S&S due to Cloudflare, extension reads the real page)
+  var _url = d.url || '';
+  if (_url.indexOf('ssww.com') >= 0 && (!d.price || d.price <= 0)) {
+    window.open(_url, '_ssww_' + idx, 'width=500,height=400,left=50,top=50');
+  }
+
   // On PC: NEVER overwrite description or MFG# — buyer's 704 data is sacred.
   // Only overwrite if substitute checkbox is checked (replacement item mode).
   // On RFQ: Amazon overwrites (structured format), others only if empty.
