@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Reytech Price Extractor",
+  "version": "1.0",
+  "description": "Extracts MSRP and sale prices from S&S Worldwide for Reytech RFQ app",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://www.ssww.com/*",
+    "https://web-production-dcee9.up.railway.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://www.ssww.com/item/*"],
+      "js": ["ssww_extractor.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web-production-dcee9.up.railway.app/*"],
+      "js": ["reytech_bridge.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
