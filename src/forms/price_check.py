@@ -262,6 +262,12 @@ _PN_PATTERNS = [
     # Alphanumeric codes: ABC1234, AB-12.34
     re.compile(r'\b([A-Z][A-Z0-9]{2,}[\-\.][A-Z0-9]{1,10})\b'),
     re.compile(r'\b([A-Z]{2,4}\d{3,8})\b'),
+    # Single letter + digits: W12919, W9235 (S&S Worldwide format)
+    re.compile(r'\b([A-Z]\d{4,6})\b'),
+    # Trailing code after " - ": "JUMBO JACKS - W14100" → W14100
+    re.compile(r'[\-–]\s*([A-Z0-9][A-Z0-9\-]{2,15})\s*$'),
+    # Pure numeric codes at end: "EASY PACK - 16753" → 16753 (5+ digits)
+    re.compile(r'[\-–]\s*(\d{5,8})\s*$'),
 ]
 
 _PN_SKIP = {
@@ -285,7 +291,7 @@ def _extract_part_number(text: str) -> str:
             has_letter = any(c.isalpha() for c in candidate)
             has_digit = any(c.isdigit() for c in candidate)
             has_dash = '-' in candidate
-            if (has_letter and has_digit) or (has_dash and has_digit and len(candidate) >= 5):
+            if (has_letter and has_digit) or (has_dash and has_digit and len(candidate) >= 5) or (has_digit and len(candidate) >= 5 and not has_letter):
                 return candidate
     return ""
 

@@ -214,7 +214,12 @@ def _guess_agency(institution_name):
         from src.core.institution_resolver import resolve
         result = resolve(institution_name)
         if result and result.get("agency"):
-            return result["agency"]
+            agency = result["agency"]
+            # Normalize casing to match UI expectations
+            agency_map = {"cchcs": "CCHCS", "cdcr": "CDCR", "calvet": "CalVet",
+                          "dsh": "DSH", "dgs": "DGS", "calfire": "CalFire",
+                          "cdph": "CDPH", "caltrans": "CalTrans", "chp": "CHP"}
+            return agency_map.get(agency.lower(), agency.upper())
     except Exception:
         pass
 
