@@ -2217,10 +2217,19 @@ def fill_ams704(
             occupied_rows.add(_r)
     overflow_rows = set()  # Track rows used for description overflow
 
+    # Detect which field naming convention the PDF uses for multi-page
+    _has_suffix_fields = any("_2" in fname for fname in fields)
+
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
-        # Ensure row is sequential if row_index resets per page (1-8 instead of 9-16, 17-24)
-        if row <= 8 and item_idx >= 8:
+        # For multi-page PDFs with _2 suffix fields: map items 9-16 to Row1_2-Row8_2
+        _field_suffix = ""
+        if _has_suffix_fields and row > 8:
+            _page = ((row - 1) // 8) + 1  # page 2 for rows 9-16, page 3 for 17-24
+            _field_suffix = f"_{_page}" if _page > 1 else ""
+            row = ((row - 1) % 8) + 1  # reset to 1-8 within page
+        elif row <= 8 and item_idx >= 8 and not _has_suffix_fields:
+            # No suffix fields — use sequential numbering (Row9, Row10, etc.)
             row = item_idx + 1
         if row < 1 or row > max_row:
             _skipped_no_row += 1
@@ -2254,10 +2263,11 @@ def fill_ams704(
                 if extension > 0:
                     subtotal += extension
                     items_priced += 1
-                    price_field = ROW_FIELDS["unit_price"].format(n=row)
-                    ext_field = ROW_FIELDS["extension"].format(n=row)
-                    field_values.append({"field_id": price_field, "page": 1, "value": f"{unit_price:,.2f}"})
-                    field_values.append({"field_id": ext_field, "page": 1, "value": f"{extension:,.2f}"})
+                    price_field = ROW_FIELDS["unit_price"].format(n=row) + _field_suffix
+                    ext_field = ROW_FIELDS["extension"].format(n=row) + _field_suffix
+                    _page_num = int(_field_suffix.replace("_", "")) if _field_suffix else 1
+                    field_values.append({"field_id": price_field, "page": _page_num, "value": f"{unit_price:,.2f}"})
+                    field_values.append({"field_id": ext_field, "page": _page_num, "value": f"{extension:,.2f}"})
                     log.info("fill_ams704 ORIGINAL row=%d idx=%d: price=%.2f qty=%d ext=%.2f",
                              row, item_idx, unit_price, qty, extension)
                 else:
@@ -2445,6 +2455,20 @@ def fill_ams704(
     field_values.append({"field_id": "fill_71", "page": 1, "value": "0.00"})  # Freight
     field_values.append({"field_id": "fill_72", "page": 1, "value": f"{tax:,.2f}"})
     field_values.append({"field_id": "fill_73", "page": 1, "value": f"{total:,.2f}"})
+
+    # Always fill SUPPLIER NAME (shared field, appears on all pages)
+    if "SUPPLIER NAME" in fields:
+        field_values.append({"field_id": "SUPPLIER NAME", "page": 1, "value": info.get("company_name", "Reytech Inc.")})
+
+    # Page numbering
+    total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
+    if "Page" in fields:
+        field_values.append({"field_id": "Page", "page": 1, "value": f"1 of {total_pages}"})
+
+    # Multi-page: grand total on page 2 ("ENTER GRAND TOTAL ON FRONT PAGE")
+    if _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in fields:
+        field_values.append({"field_id": "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE",
+                             "page": 2, "value": f"{total:,.2f}"})
 
     # Notes — user-editable, no default
     if not original_mode:
