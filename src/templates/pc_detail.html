@@ -1066,6 +1066,12 @@
     function _backgroundEnrichItem(idx) {
       var desc = (document.querySelector('[name="desc_'+idx+'"]') || {}).value || '';
       if (!desc || desc.length < 5) return;
+      // Skip if cost already filled (user or extension already set it)
+      var costEl = document.querySelector('[name=cost_'+idx+']');
+      if (costEl && parseFloat(costEl.value) > 0) {
+        console.log('[PC] Skip background enrich for item '+idx+' — cost already filled: $'+costEl.value);
+        return;
+      }
       // Save current prices first so the backend has the latest data
       fetch('/pricecheck/'+_pcid+'/save-prices', {
         method:'POST', headers:{'Content-Type':'application/json'},
