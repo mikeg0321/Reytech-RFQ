@@ -24,14 +24,40 @@
     var itemMatch = body.match(/Item\s*#:\s*(\w+)/);
     if (itemMatch) result.item_number = itemMatch[1];
 
+    // Try "List: $XX.XX" first (product on sale)
     var listMatch = body.match(/List:\s*\$(\d+\.?\d*)/);
     if (listMatch) result.msrp = parseFloat(listMatch[1]);
 
+    // Sale price pattern
     var saleMatch = body.match(/SALE[\s\S]*?\$\s*(\d+)\s*\.?\s*(\d{2})/);
     if (saleMatch) result.sale = parseFloat(saleMatch[1] + '.' + saleMatch[2]);
 
-    result.in_stock = body.indexOf('In stock') >= 0;
+    // If no List price found, product is NOT on sale — find the regular price
+    // Look for the main price: "$XX.XX" near "Qty" or "Add To Cart"
+    if (!result.msrp) {
+      // Try price elements directly
+      var priceEls = document.querySelectorAll('[class*="price"], [id*="price"], b, strong');
+      for (var i = 0; i < priceEls.length; i++) {
+        var txt = (priceEls[i].textContent || '').trim();
+        var pm = txt.match(/^\$(\d+\.?\d{0,2})$/);
+        if (pm && parseFloat(pm[1]) > 1) {
+          result.msrp = parseFloat(pm[1]);
+          break;
+        }
+      }
+      // Fallback: regex on body text near "Qty" or "Add To Cart"
+      if (!result.msrp) {
+        var qtyMatch = body.match(/\$(\d+\.?\d{2})\s*(?:Qty|Buy|Add)/);
+        if (qtyMatch) result.msrp = parseFloat(qtyMatch[1]);
+      }
+      // Fallback: any prominent dollar amount
+      if (!result.msrp) {
+        var anyPrice = body.match(/\$(\d{2,5}\.\d{2})/);
+        if (anyPrice) result.msrp = parseFloat(anyPrice[1]);
+      }
+    }
 
+    result.in_stock = body.indexOf('In stock') >= 0;
     return result;
   }
 
@@ -54,7 +80,7 @@
     _attempts++;
     if (document.title === 'Just a moment...') {
       console.log('[S&S Extractor] Waiting for Cloudflare... attempt ' + _attempts);
-      return; // Still on challenge page
+      return;
     }
     if (trySend() || _attempts >= _maxAttempts) {
       clearInterval(_timer);

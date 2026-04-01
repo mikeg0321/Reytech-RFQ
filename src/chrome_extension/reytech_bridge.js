@@ -34,6 +34,25 @@
       if (typeof recalcPC === 'function') recalcPC();
       if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
 
+      // Update Sources column with S&S price
+      if (row) {
+        var srcCell = row.querySelectorAll('td')[8];
+        if (srcCell) {
+          var srcHtml = '<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.3);color:#3fb950;white-space:nowrap">'
+            + '<b>$' + d.msrp.toFixed(2) + '</b> S&S Worldwide</span>';
+          if (d.sale > 0 && d.sale < d.msrp) {
+            srcHtml += '<br><span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:12px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);color:#34d399;white-space:nowrap;margin-top:2px">'
+              + '<b>$' + d.sale.toFixed(2) + '</b> S&S Sale</span>';
+          }
+          // Preserve existing sources, add S&S
+          var existing = srcCell.innerHTML;
+          if (existing.indexOf('S&S') < 0) {
+            srcCell.innerHTML = srcHtml + (existing.indexOf('No sources') >= 0 ? '' : '<br>' + existing);
+          }
+        }
+      }
+
+      // Update link meta
       var metaEl = document.getElementById('link_meta_' + idx);
       if (metaEl) {
         var html = '<span style="color:#3fb950">MSRP $' + d.msrp.toFixed(2) + ' auto-filled</span>';
