@@ -14,7 +14,7 @@
       var url = (inp.value || '').trim();
       if (!url || url.indexOf('ssww.com') < 0) return;
 
-      var urlItem = url.match(/[\-\/]([A-Z]?\d{4,6})\/?(\?|$)/i);
+      var urlItem = url.match(/[\-\/]([A-Z]{0,4}\d{3,6})\/?(\?|$)/i);
       var msgItem = d.item_number || '';
       if (!urlItem || !msgItem) return;
       if (urlItem[1].toUpperCase() !== msgItem.toUpperCase()) return;
