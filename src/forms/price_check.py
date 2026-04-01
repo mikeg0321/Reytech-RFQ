@@ -74,7 +74,23 @@ import json
 import os
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+
+def _pst_now() -> datetime:
+    """Current time in US/Pacific (handles PST/PDT)."""
+    utc = datetime.now(timezone.utc)
+    year = utc.year
+    # March second Sunday 2am → November first Sunday 2am = PDT
+    mar1 = datetime(year, 3, 1, tzinfo=timezone.utc)
+    mar_sun2 = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7)
+    nov1 = datetime(year, 11, 1, tzinfo=timezone.utc)
+    nov_sun1 = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
+    if mar_sun2.replace(hour=10) <= utc < nov_sun1.replace(hour=9):
+        offset = timezone(timedelta(hours=-7))  # PDT
+    else:
+        offset = timezone(timedelta(hours=-8))  # PST
+    return utc.astimezone(offset).replace(tzinfo=None)
 from typing import Optional
 from copy import deepcopy
 
@@ -3059,7 +3075,7 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
                 log.warning("Could not draw signature image: %s", e)
 
         # ── Draw date (right portion of cell) ──
-        today = datetime.now().strftime("%-m/%-d/%Y")
+        today = _pst_now().strftime("%-m/%-d/%Y")
         date_fs = min(9, (fh - _SP * 2) * 0.6)
         c.setFont("Helvetica", date_fs)
         c.setFillColorRGB(0, 0, 0)
@@ -3079,7 +3095,7 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
 
     except ImportError:
         log.warning("reportlab not available, setting Signature1 as text")
-        today = datetime.now().strftime("%-m/%-d/%Y")
+        today = _pst_now().strftime("%-m/%-d/%Y")
         text_values = {"Signature1": f"Michael Guadan  {today}"}
         writer.update_page_form_field_values(writer.pages[0], text_values, auto_regenerate=False)
     except Exception as e:
@@ -3087,9 +3103,8 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
 
 
 def _expiry_date() -> str:
-    """Generate an expiry date 45 days from now."""
-    from datetime import timedelta
-    exp = datetime.now() + timedelta(days=45)
+    """Generate an expiry date 45 days from now (PST)."""
+    exp = _pst_now() + timedelta(days=45)
     return exp.strftime("%-m/%-d/%Y")
 
 
