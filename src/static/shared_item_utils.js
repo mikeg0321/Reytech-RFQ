@@ -237,16 +237,26 @@ function _applyLinkData(idx, d, mode) {
   } else if (metaEl && d.ok === false) {
     statusHtml = '<span style="color:#f85149">' + (d.error || 'Lookup failed') + '</span>';
   } else if (metaEl && d.supplier && (!d.price || d.price <= 0) && costEl && !(parseFloat(costEl.value) > 0)) {
-    // Price not found AND cost field is empty — show quick-entry inline
+    // Price not found AND cost field is empty — show dual-price quick-entry
     var _qeId = '_qe_cost_' + idx;
-    statusHtml = '<span style="color:#d29922">cost $</span>'
+    var _qeDiscId = '_qe_disc_' + idx;
+    statusHtml = '<div style="display:flex;flex-direction:column;gap:4px">'
+      + '<div style="display:flex;align-items:center;gap:4px">'
+      + '<span style="color:#d29922;font-size:12px;min-width:38px">MSRP</span>'
       + '<input type="text" id="' + _qeId + '" inputmode="decimal" placeholder="0.00" '
       + 'style="width:70px;background:#21262d;border:1px solid #d29922;border-radius:4px;'
-      + 'color:#e6edf3;font-size:15px;font-weight:700;padding:4px 8px;text-align:center;'
-      + 'font-family:JetBrains Mono,monospace"'
-      + '> <span style="color:#8b949e;font-size:12px">from '
+      + 'color:#e6edf3;font-size:14px;font-weight:700;padding:3px 6px;text-align:center;'
+      + 'font-family:JetBrains Mono,monospace">'
+      + '</div>'
+      + '<div style="display:flex;align-items:center;gap:4px">'
+      + '<span style="color:#3fb950;font-size:12px;min-width:38px">Sale</span>'
+      + '<input type="text" id="' + _qeDiscId + '" inputmode="decimal" placeholder="optional" '
+      + 'style="width:70px;background:#21262d;border:1px solid #30363d;border-radius:4px;'
+      + 'color:#3fb950;font-size:14px;font-weight:700;padding:3px 6px;text-align:center;'
+      + 'font-family:JetBrains Mono,monospace">'
+      + ' <span style="color:#8b949e;font-size:11px">'
       + '<a href="' + (d.url || '') + '" target="_blank" style="color:#58a6ff">' + (d.supplier || '') + '</a>'
-      + '</span>';
+      + '</span></div></div>';
   }
   // ASIN: informational badge only — NEVER in description or part# field
   if (d.asin) {
@@ -255,25 +265,56 @@ function _applyLinkData(idx, d, mode) {
   }
   if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
 
-  // Attach Enter + blur handler to quick-entry cost field (if created)
+  // Attach Enter + blur handler to quick-entry cost fields (MSRP + optional Sale)
   var _qeInput = document.getElementById('_qe_cost_' + idx);
+  var _qeDiscInput = document.getElementById('_qe_disc_' + idx);
   if (_qeInput) {
-    function _applyQeCost(el) {
-      var v = parseFloat(el.value);
-      if (v > 0) {
-        var c = document.querySelector('[name=cost_' + idx + ']');
-        if (c) c.value = v.toFixed(2);
-        if (typeof recalcRow === 'function') recalcRow(idx, true);
-        if (typeof recalcPC === 'function') recalcPC();
-        if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
-        var parent = el.closest('div') || el.parentElement;
-        if (parent) parent.innerHTML = '<span style="color:#3fb950">cost $' + v.toFixed(2) + ' filled</span>';
+    function _applyQeDual() {
+      var msrp = parseFloat(_qeInput.value);
+      if (!(msrp > 0)) return;
+      var sale = _qeDiscInput ? parseFloat(_qeDiscInput.value) : 0;
+      // Set MSRP as the cost (safe bid basis)
+      var c = document.querySelector('[name=cost_' + idx + ']');
+      if (c) c.value = msrp.toFixed(2);
+      // Store discount cost on the row for dual-profit calculation
+      var row = document.querySelector('tr[data-row="' + idx + '"]');
+      if (row && sale > 0 && sale < msrp) {
+        row.setAttribute('data-discount-cost', sale.toFixed(2));
       }
+      if (typeof recalcRow === 'function') recalcRow(idx, true);
+      if (typeof recalcPC === 'function') recalcPC();
+      if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
+      // Show confirmation with both prices
+      var container = _qeInput.closest('div').parentElement || _qeInput.parentElement;
+      var msg = '<span style="color:#3fb950">cost $' + msrp.toFixed(2) + ' filled</span>';
+      if (sale > 0 && sale < msrp) {
+        var savings = ((1 - sale / msrp) * 100).toFixed(0);
+        msg += '<br><span style="color:#3fb950;font-size:11px">sale $' + sale.toFixed(2)
+          + ' (' + savings + '% off) — extra margin if discount holds</span>';
+      }
+      if (container) container.innerHTML = msg;
     }
     _qeInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') { e.preventDefault(); _applyQeCost(this); }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (_qeDiscInput && !_qeDiscInput.value) { _qeDiscInput.focus(); return; }
+        _applyQeDual();
+      }
     });
-    _qeInput.addEventListener('blur', function() { _applyQeCost(this); });
+    if (_qeDiscInput) {
+      _qeDiscInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); _applyQeDual(); }
+      });
+      _qeDiscInput.addEventListener('blur', function() {
+        if (parseFloat(_qeInput.value) > 0) _applyQeDual();
+      });
+    }
+    _qeInput.addEventListener('blur', function() {
+      if (_qeDiscInput && document.activeElement === _qeDiscInput) return;
+      if (parseFloat(this.value) > 0) setTimeout(function() {
+        if (document.activeElement !== _qeDiscInput) _applyQeDual();
+      }, 200);
+    });
     _qeInput.focus();
   }
 

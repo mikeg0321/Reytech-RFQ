@@ -1122,7 +1122,18 @@
       if(profitCells[0]) {
        if(c>0 && p>0) {
         let pColor=profit>0?'#3fb950':(profit<0?'#f85149':'#8b949e');
-        profitCells[0].innerHTML='<span style="color:'+pColor+'">$'+profit.toFixed(2)+'</span>';
+        var profitHtml='<span style="color:'+pColor+'">$'+profit.toFixed(2)+'</span>';
+        // Check for discount cost — show upside profit if discount holds
+        var discCost=parseFloat(row.getAttribute('data-discount-cost')||'0');
+        if(discCost>0 && discCost<c){
+         var discProfit=(p-discCost)*qty;
+         var extraProfit=discProfit-profit;
+         profitHtml+='<div style="font-size:10px;color:#34d399;margin-top:1px" '
+           +'title="If S&amp;S discount holds: cost $'+discCost.toFixed(2)
+           +' → profit $'+discProfit.toFixed(2)+'">'
+           +'+$'+extraProfit.toFixed(2)+' if disc</div>';
+        }
+        profitCells[0].innerHTML=profitHtml;
        } else {
         profitCells[0].innerHTML='—';
        }
