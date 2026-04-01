@@ -1211,6 +1211,26 @@
      let profitColor=totalProfit>0?'#3fb950':(totalProfit<0?'#f85149':'#8b949e');
      html+='<div style="font-size:16px;margin-top:2px"><span style="color:#8b949e">Profit:</span> <b style="color:'+profitColor+'">$'+totalProfit.toFixed(2)+'</b>';
      html+=' <span style="color:'+marginColor+';font-size:14px">('+margin.toFixed(1)+'% margin)</span></div>';
+     // Discount profit: if any items have data-discount-cost, show bonus profit
+     var discTotalCost=0, hasDisc=false;
+     rows.forEach(function(row){
+      var idx=row.getAttribute('data-row');
+      var bidCb=document.querySelector('[name=bid_'+idx+']');
+      if(!bidCb||!bidCb.checked) return;
+      var discCost=parseFloat(row.getAttribute('data-discount-cost')||'0');
+      var regCost=parseFloat((document.querySelector('[name=cost_'+idx+']')||{}).value)||0;
+      var qty=parseInt((document.querySelector('[name=qty_'+idx+']')||{}).value)||1;
+      if(discCost>0 && discCost<regCost){
+       discTotalCost+=(regCost-discCost)*qty;
+       hasDisc=true;
+      }
+     });
+     if(hasDisc){
+      var discProfit=totalProfit+discTotalCost;
+      var discMargin=sub>0?discProfit/sub*100:0;
+      html+='<div style="font-size:14px;margin-top:4px;color:#34d399"><span style="color:#8b949e">If discounts hold:</span> <b>$'+discProfit.toFixed(2)+'</b>';
+      html+=' <span style="font-size:13px">('+discMargin.toFixed(1)+'% margin, +$'+discTotalCost.toFixed(2)+')</span></div>';
+     }
      html+='</div>';
 
      html+='</div>';
