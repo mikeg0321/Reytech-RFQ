@@ -1591,23 +1591,19 @@
         mfgEl.value=r.mfg_number || r.part_number || r.sku || '';
        }
 
-       // Update Sources column
+       // Update Sources column (8th td, 0-indexed) — works on re-runs
        var row=document.querySelector('tr[data-row="'+idx+'"]');
        if(row){
-        var srcCells=row.querySelectorAll('td');
-        // Sources is typically the 9th column (0-indexed: 8)
-        for(var ci=0;ci<srcCells.length;ci++){
-         if(srcCells[ci].textContent.trim()==='No sources'){
-          var srcHtml='';
-          if(r.matched && r.catalog_name){
-           srcHtml+='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span> ';
-          }
-          if(r.cost>0){
-           srcHtml+='<span style="background:rgba(79,140,255,.12);color:#58a6ff;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Oracle</span>';
-          }
-          if(srcHtml) srcCells[ci].innerHTML=srcHtml;
-          break;
+        var srcCell=row.querySelectorAll('td')[8];
+        if(srcCell){
+         var srcHtml='';
+         if(r.matched && r.catalog_name){
+          srcHtml+='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span> ';
          }
+         if(r.cost>0){
+          srcHtml+='<span style="background:rgba(79,140,255,.12);color:#58a6ff;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Oracle</span>';
+         }
+         if(srcHtml) srcCell.innerHTML=srcHtml;
         }
        }
 

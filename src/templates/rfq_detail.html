@@ -1646,13 +1646,14 @@ function showRfqPreview(){
   var dlLink=document.getElementById('pdfPreviewDownload');
   var newTab=document.getElementById('pdfPreviewNewTab');
   if(title)title.textContent='Quote '+(quoteNum||'')+' Preview';
+  var inlineUrl=pdfUrl+(pdfUrl.indexOf('?')>=0?'&':'?')+'inline=1';
   if(dlLink)dlLink.href=pdfUrl;
-  if(newTab)newTab.href=pdfUrl;
+  if(newTab)newTab.href=inlineUrl;
   if(frame){frame.src='about:blank';frame.style.display='none';}
   var loader=document.getElementById('pdfPreviewLoading');
   if(loader)loader.style.display='flex';
   if(modal)modal.style.display='flex';
-  setTimeout(function(){if(frame)frame.src=pdfUrl;},50);
+  setTimeout(function(){if(frame)frame.src=inlineUrl;},50);
   return;
  }
  // Fallback: no PDF yet — show HTML preview from DOM

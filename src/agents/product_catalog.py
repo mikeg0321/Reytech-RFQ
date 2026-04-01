@@ -1710,7 +1710,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
     filtered = []
     for m in matches:
         # Skip zero-confidence
-        if m.get("match_confidence", 0) < 0.35:
+        if m.get("match_confidence", 0) < 0.50:
             continue
         # Skip non-product entries (amendments, org name changes)
         _mdesc = (m.get("description", "") or "").lower()

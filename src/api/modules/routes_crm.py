@@ -735,7 +735,8 @@ def api_pricecheck_download(filename):
     for d in search_dirs:
         candidate = os.path.join(d, safe)
         if os.path.exists(candidate):
-            return send_file(candidate, as_attachment=not inline, download_name=safe)
+            mimetype = "application/pdf" if safe.lower().endswith(".pdf") else None
+            return send_file(candidate, as_attachment=not inline, download_name=safe, mimetype=mimetype)
     # Fallback: check DB
     try:
         from src.core.db import get_db
@@ -747,7 +748,8 @@ def api_pricecheck_download(filename):
                 restore_path = os.path.join(restore_dir, safe)
                 with open(restore_path, "wb") as _fw:
                     _fw.write(row["data"])
-                return send_file(restore_path, as_attachment=not inline, download_name=safe)
+                mimetype = "application/pdf" if safe.lower().endswith(".pdf") else None
+                return send_file(restore_path, as_attachment=not inline, download_name=safe, mimetype=mimetype)
     except Exception:
         pass
     return jsonify({"error": "File not found"}), 404
