@@ -257,8 +257,15 @@ function _applyLinkData(idx, d, mode) {
       + ' <span style="color:#8b949e;font-size:11px">'
       + '<a href="' + (d.url || '') + '" target="_blank" style="color:#58a6ff">' + (d.supplier || '') + '</a>'
       + '</span></div></div></div>';
-    // S&S: extension will auto-fill if installed + Cloudflare passes.
-    // Quick-entry fields above are the primary input method.
+    // S&S: open popup for price extraction via extension.
+    // First time: user clicks Cloudflare "Verify" once. After that, cookie persists
+    // and all subsequent S&S popups load instantly with auto-extraction.
+    var _sswUrl = d.url || '';
+    if (_sswUrl.indexOf('ssww.com') >= 0) {
+      setTimeout(function() {
+        window.open(_sswUrl, '_ssww_' + idx, 'width=500,height=400,left=50,top=50');
+      }, 300);
+    }
   }
   // ASIN: informational badge only — NEVER in description or part# field
   if (d.asin) {
