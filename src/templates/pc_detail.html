@@ -635,27 +635,55 @@
     }
 
     // ── Standalone Save with feedback ──
-    function savePrices(btn) {
-     // Pre-flight check: block if items are unpriced
-     var _totalItems=0, _unpricedItems=0, _unpricedNames=[];
+    function _validateBeforeGenerate() {
+     // Comprehensive pre-flight validation — returns {ok, errors[], warnings[]}
+     var errors=[], warnings=[], totalItems=0;
      document.querySelectorAll('[name^="bid_"]').forEach(function(cb){
       if(!cb.checked) return;
       var idx=cb.name.split('_')[1];
-      _totalItems++;
-      var pEl=document.querySelector('[name=price_'+idx+']');
-      var p=pEl?parseFloat(pEl.value):0;
-      if(!p || p<=0){
-       _unpricedItems++;
-       var dEl=document.querySelector('[name=desc_'+idx+']');
-       if(dEl) _unpricedNames.push('#'+(parseInt(idx)+1)+' '+(dEl.value||'').substring(0,30));
+      totalItems++;
+      var desc=(document.querySelector('[name=desc_'+idx+']')||{}).value||'';
+      var label='#'+(parseInt(idx)+1)+' '+(desc).substring(0,35);
+      var cost=parseFloat((document.querySelector('[name=cost_'+idx+']')||{}).value)||0;
+      var price=parseFloat((document.querySelector('[name=price_'+idx+']')||{}).value)||0;
+      var markup=parseFloat((document.querySelector('[name=markup_'+idx+']')||{}).value)||0;
+      // Errors (block generate)
+      if(!price || price<=0) errors.push(label+': no bid price');
+      if(!cost || cost<=0) errors.push(label+': no cost');
+      // Warnings (allow but flag)
+      if(cost>0 && price>0 && price<cost) warnings.push(label+': selling below cost ($'+cost.toFixed(2)+' > $'+price.toFixed(2)+')');
+      if(markup>80) warnings.push(label+': markup '+markup+'% seems high');
+      if(cost>0 && price>0){
+       // Check against sources
+       var row=document.querySelector('tr[data-row="'+idx+'"]');
+       if(row){
+        var srcText=(row.querySelectorAll('td')[8]||{}).textContent||'';
+        var refs=srcText.match(/\$(\d+\.?\d*)/g);
+        if(refs){
+         var lowest=Math.min.apply(null,refs.map(function(p){return parseFloat(p.replace('$',''));}));
+         if(lowest>0 && cost>lowest*3) warnings.push(label+': cost $'+cost.toFixed(2)+' is 3x+ reference $'+lowest.toFixed(2));
+        }
+       }
       }
      });
-     if(_unpricedItems>0){
-      var msg=_unpricedItems+' of '+_totalItems+' items need pricing before generating:\n\n';
-      msg+=_unpricedNames.slice(0,8).join('\n');
-      if(_unpricedNames.length>8) msg+='\n...and '+(_unpricedNames.length-8)+' more';
+     return {ok:errors.length===0, errors:errors, warnings:warnings, total:totalItems};
+    }
+
+    function savePrices(btn) {
+     // Pre-flight validation
+     var v=_validateBeforeGenerate();
+     if(!v.ok){
+      var msg='Cannot generate — '+v.errors.length+' error(s):\n\n';
+      msg+=v.errors.slice(0,10).join('\n');
+      if(v.errors.length>10) msg+='\n...and '+(v.errors.length-10)+' more';
       alert(msg);
       return;
+     }
+     if(v.warnings.length>0){
+      var wmsg='Warnings ('+v.warnings.length+'):\n\n';
+      wmsg+=v.warnings.join('\n');
+      wmsg+='\n\nGenerate anyway?';
+      if(!confirm(wmsg)) return;
      }
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
@@ -2746,6 +2774,14 @@
 
     // ── SEND PC QUOTE EMAIL ──
     function sendPcQuote(){
+     var v=_validateBeforeGenerate();
+     if(!v.ok){
+      alert('Cannot send — fix these errors first:\n\n'+v.errors.slice(0,10).join('\n'));
+      return;
+     }
+     if(v.warnings.length>0){
+      if(!confirm('Warnings:\n\n'+v.warnings.join('\n')+'\n\nSend anyway?')) return;
+     }
      var to=prompt('Send quote to:',{{(pc.get('requestor_email','')|tojson)}});
      if(!to)return;
      var pcNum={{(pc.get('pc_number','')|tojson)}};
