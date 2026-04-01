@@ -329,52 +329,52 @@
     </div>
 
     <!-- ═══ UNIFIED MARKUP & SETTINGS BAR ═══ -->
-    <div class="card" style="padding:16px 20px">
+    <div class="card" style="padding:20px 24px">
      <!-- Row 1: Markup -->
-     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-      <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px;min-width:70px">Markup</span>
+     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      <span style="font-size:16px;color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:.5px;min-width:80px">Markup</span>
       <span id="pc-mk-buttons"></span>
-      <div style="display:flex;align-items:center;gap:4px;background:#21262d;padding:6px 10px;border-radius:6px;border:1px solid #30363d">
-       <input type="number" id="pc-custom-pct" step="1" min="0" max="200" placeholder="%" style="width:55px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:700;text-align:center;outline:none">
-       <span style="color:#8b949e;font-size:14px;font-weight:600">%</span>
-       <button class="btn btn-sm" style="background:#238636;color:#fff;border:none;padding:5px 14px;font-size:14px;font-weight:600" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
+      <div style="display:flex;align-items:center;gap:6px;background:#21262d;padding:8px 14px;border-radius:8px;border:1px solid #30363d">
+       <input type="number" id="pc-custom-pct" step="1" min="0" max="200" placeholder="%" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:17px;font-weight:700;text-align:center;outline:none">
+       <span style="color:#8b949e;font-size:16px;font-weight:600">%</span>
+       <button class="btn btn-sm" style="background:#238636;color:#fff;border:none;padding:8px 18px;font-size:15px;font-weight:700" onclick="var v=parseFloat(document.getElementById('pc-custom-pct').value);if(v>0)applyQuickMarkup(v);else alert('Enter a %')">Apply</button>
       </div>
-      <div style="display:flex;align-items:center;gap:4px;background:#21262d;padding:6px 10px;border-radius:6px;border:1px solid #30363d">
-       <span style="color:#8b949e;font-size:14px">$</span>
-       <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:60px;background:transparent;border:none;color:#e6edf3;font-size:15px;font-weight:600;text-align:center;outline:none">
-       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:4px 8px;font-size:14px;cursor:pointer;font-weight:600" onclick="applyFlatMarkupPC()">+$</button>
+      <div style="display:flex;align-items:center;gap:6px;background:#21262d;padding:8px 14px;border-radius:8px;border:1px solid #30363d">
+       <span style="color:#8b949e;font-size:16px;font-weight:600">$</span>
+       <input type="number" id="pc-custom-flat" step="0.01" min="0" placeholder="0.00" style="width:70px;background:transparent;border:none;color:#e6edf3;font-size:17px;font-weight:700;text-align:center;outline:none">
+       <button class="btn btn-sm" style="background:transparent;color:#58a6ff;border:none;padding:6px 12px;font-size:16px;cursor:pointer;font-weight:700" onclick="applyFlatMarkupPC()">+$</button>
       </div>
       <input type="number" id="markupDefault" value="{{ pc.get('default_markup', 25) }}" min="0" max="200" class="num-in" style="width:50px;text-align:center;font-size:15px;font-weight:700;padding:6px;display:none">
      </div>
      <!-- Row 2: Buffer + Delivery + Notes -->
-     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <div style="display:flex;align-items:center;gap:6px">
-       <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Buffer</span>
-       <div style="display:flex;gap:4px" id="pricingTiers">
-        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">None</button>
-        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">+10%</button>
-        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">+15%</button>
-        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20" style="padding:6px 14px;font-size:13px;border-radius:5px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3">+20%</button>
+     <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+       <span style="font-size:16px;color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Buffer</span>
+       <div style="display:flex;gap:5px" id="pricingTiers">
+        <button class="tier-btn tier-active" onclick="applyTier(0,this)" data-buffer="0" style="padding:8px 16px;font-size:15px;border-radius:6px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-weight:600">None</button>
+        <button class="tier-btn" onclick="applyTier(10,this)" data-buffer="10" style="padding:8px 16px;font-size:15px;border-radius:6px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-weight:600">+10%</button>
+        <button class="tier-btn" onclick="applyTier(15,this)" data-buffer="15" style="padding:8px 16px;font-size:15px;border-radius:6px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-weight:600">+15%</button>
+        <button class="tier-btn" onclick="applyTier(20,this)" data-buffer="20" style="padding:8px 16px;font-size:15px;border-radius:6px;cursor:pointer;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-weight:600">+20%</button>
        </div>
       </div>
-      <span style="border-left:1px solid #30363d;height:24px"></span>
-      <div style="display:flex;align-items:center;gap:6px">
-       <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px">Delivery</span>
-       <select id="deliverySelect" class="text-in" style="padding:6px 10px;font-size:14px;min-width:180px;cursor:pointer">
+      <span style="border-left:1px solid #30363d;height:28px"></span>
+      <div style="display:flex;align-items:center;gap:8px">
+       <span style="font-size:16px;color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:.5px">Delivery</span>
+       <select id="deliverySelect" class="text-in" style="padding:8px 12px;font-size:15px;min-width:200px;cursor:pointer">
         <option value="3-5 business days" {{ del_sel["3-5 business days"] }}>3-5 business days</option>
         <option value="5-7 business days" {{ del_sel["5-7 business days"] }}>5-7 business days</option>
         <option value="7-14 business days" {{ del_sel["7-14 business days"] }}>7-14 business days</option>
         <option value="custom" {{ del_sel["custom"] }}>Custom...</option>
        </select>
-       <input type="text" id="deliveryCustom" placeholder="e.g. 2-3 weeks" value="{{ custom_val }}" class="text-in" style="display:{{ custom_display }};padding:6px 10px;font-size:14px;width:140px">
+       <input type="text" id="deliveryCustom" placeholder="e.g. 2-3 weeks" value="{{ custom_val }}" class="text-in" style="display:{{ custom_display }};padding:8px 12px;font-size:15px;width:160px">
       </div>
-      <span style="border-left:1px solid #30363d;height:24px"></span>
-      <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:200px">
-       <span style="font-size:14px;color:#8b949e;font-weight:600;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Notes</span>
-       <input type="text" id="supplierNotes" value="{{ pc.get('custom_notes','').replace('"','&amp;quot;') }}" placeholder="Optional — prints on 704" class="text-in" style="flex:1;padding:6px 10px;font-size:14px">
+      <span style="border-left:1px solid #30363d;height:28px"></span>
+      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:220px">
+       <span style="font-size:16px;color:#8b949e;font-weight:700;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap">Notes</span>
+       <input type="text" id="supplierNotes" value="{{ pc.get('custom_notes','').replace('"','&amp;quot;') }}" placeholder="Optional — prints on 704" class="text-in" style="flex:1;padding:8px 12px;font-size:15px">
       </div>
      </div>
-     <div id="tierComparison" style="margin-top:10px;font-size:14px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:10px 12px;display:none"></div>
+     <div id="tierComparison" style="margin-top:10px;font-size:15px;background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px 14px;display:none"></div>
     </div>
 
     {% if pc.get('_split_hint') and pc['_split_hint'].get('total_items', 0) > 8 %}
