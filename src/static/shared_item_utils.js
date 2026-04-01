@@ -222,11 +222,14 @@ function _applyLinkData(idx, d, mode) {
     if (typeof recalcFromMarkup === 'function') recalcFromMarkup(idx);
     else if (typeof recalcRow === 'function') recalcRow(idx, true);
     else if (typeof recalc === 'function') recalc();
-    if (d.list_price && d.sale_price && d.list_price !== d.sale_price && metaEl) {
-      metaEl.innerHTML = '<span style="color:#d29922">Using list $' + parseFloat(d.list_price).toFixed(2) + ' (sale: $' + parseFloat(d.sale_price).toFixed(2) + ')</span>';
-      if (typeof triggerAutosave === 'function') triggerAutosave();
-      if (typeof savePricesQuiet === 'function') savePricesQuiet();
-      return;
+    // Store discount cost if list_price > sale_price (any supplier, not just S&S)
+    if (d.list_price && d.sale_price && parseFloat(d.list_price) > parseFloat(d.sale_price)) {
+      var _lp = parseFloat(d.list_price), _sp = parseFloat(d.sale_price);
+      var row = document.querySelector('tr[data-row="' + idx + '"]');
+      if (row) row.setAttribute('data-discount-cost', _sp.toFixed(2));
+      var _disc = ((1 - _sp / _lp) * 100).toFixed(0);
+      if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">list $' + _lp.toFixed(2)
+        + ' (sale: $' + _sp.toFixed(2) + ', ' + _disc + '% off)</span>';
     }
   }
 
