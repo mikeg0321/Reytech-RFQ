@@ -47,5 +47,18 @@
     return false;
   }
 
-  setTimeout(function() { if (!trySend()) setTimeout(function() { if (!trySend()) setTimeout(trySend, 4000); }, 2000); }, 1500);
+  // Retry with increasing delays — Cloudflare challenge can take 5-10s
+  var _attempts = 0;
+  var _maxAttempts = 15;
+  var _timer = setInterval(function() {
+    _attempts++;
+    if (document.title === 'Just a moment...') {
+      console.log('[S&S Extractor] Waiting for Cloudflare... attempt ' + _attempts);
+      return; // Still on challenge page
+    }
+    if (trySend() || _attempts >= _maxAttempts) {
+      clearInterval(_timer);
+      if (_attempts >= _maxAttempts) console.log('[S&S Extractor] Gave up after ' + _attempts + ' attempts');
+    }
+  }, 1000);
 })();
