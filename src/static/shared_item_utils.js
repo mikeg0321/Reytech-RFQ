@@ -226,6 +226,23 @@ function _applyLinkData(idx, d, mode) {
     statusHtml = '<span style="color:#3fb950">' + filled.join(', ') + ' filled</span>';
   } else if (metaEl && d.ok === false) {
     statusHtml = '<span style="color:#f85149">' + (d.error || 'Lookup failed') + '</span>';
+  } else if (metaEl && d.supplier && (!d.price || d.price <= 0)) {
+    // Price not found (Cloudflare blocked, etc.) — show quick-entry inline
+    var _qeId = '_qe_cost_' + idx;
+    statusHtml = '<span style="color:#d29922">cost $</span>'
+      + '<input type="text" id="' + _qeId + '" inputmode="decimal" placeholder="0.00" '
+      + 'style="width:65px;background:#21262d;border:1px solid #d29922;border-radius:4px;'
+      + 'color:#e6edf3;font-size:14px;font-weight:700;padding:3px 6px;text-align:center;'
+      + 'font-family:JetBrains Mono,monospace" '
+      + 'onkeydown="if(event.key===\'Enter\'){var v=parseFloat(this.value);if(v>0){'
+      + 'var c=document.querySelector(\'[name=cost_' + idx + ']\');if(c){c.value=v.toFixed(2);}'
+      + 'if(typeof recalcRow===\'function\')recalcRow(' + idx + ',true);'
+      + 'if(typeof recalcPC===\'function\')recalcPC();'
+      + 'this.parentElement.innerHTML=\'<span style=color:#3fb950>cost $\'+v.toFixed(2)+\' filled</span>\';'
+      + '}}" '
+      + '> <span style="color:#8b949e;font-size:12px">from '
+      + '<a href="' + (d.url || '') + '" target="_blank" style="color:#58a6ff">' + (d.supplier || '') + '</a>'
+      + '</span>';
   }
   // ASIN: informational badge only — NEVER in description or part# field
   if (d.asin) {
