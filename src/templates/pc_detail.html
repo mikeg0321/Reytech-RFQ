@@ -2031,10 +2031,7 @@
     var _pcAutosaveTimer = null;
     var _pcLastSaved = null;
     // Expose for extension bridge to invalidate when it fills data programmatically
-    Object.defineProperty(window, '_pcLastSaved', {
-      get: function() { return _pcLastSaved; },
-      set: function(v) { _pcLastSaved = v; }
-    });
+    window._pcInvalidateSave = function() { _pcLastSaved = null; };
     var _pcSaveInFlight = false;
 
     function triggerPcAutosave() {
