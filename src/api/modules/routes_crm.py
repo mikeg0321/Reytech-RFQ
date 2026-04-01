@@ -204,28 +204,56 @@ def api_customers_match():
                     "suggested_agency": _guess_agency(q)})
 
 def _guess_agency(institution_name):
-    """Guess agency from institution name for new customers."""
+    """Guess agency from institution name using the institution resolver.
+    We only sell in CA — every institution maps to a known agency."""
+    if not institution_name:
+        return "CDCR"  # Default to CDCR (most common)
+
+    # Use the authoritative resolver first
+    try:
+        from src.core.institution_resolver import resolve
+        result = resolve(institution_name)
+        if result and result.get("agency"):
+            return result["agency"]
+    except Exception:
+        pass
+
+    # Fallback: keyword matching
     upper = institution_name.upper()
     if any(kw in upper for kw in ("CCHCS", "HEALTH CARE SERVICE")):
         return "CCHCS"
     if any(kw in upper for kw in ("CALVET", "CAL VET", "VETERAN")):
         return "CalVet"
-    if any(kw in upper for kw in ("STATE HOSPITAL", "DSH")):
+    if any(kw in upper for kw in ("STATE HOSPITAL", "DSH", "PATTON", "COALINGA", "ATASCADERO", "NAPA")):
         return "DSH"
     if any(kw in upper for kw in ("DGS", "GENERAL SERVICE")):
         return "DGS"
-    # CDCR patterns
+    if any(kw in upper for kw in ("CALFIRE", "CAL FIRE", "FORESTRY")):
+        return "CalFire"
+    if any(kw in upper for kw in ("CDPH", "PUBLIC HEALTH")):
+        return "CDPH"
+    if any(kw in upper for kw in ("CALTRANS", "TRANSPORTATION")):
+        return "CalTrans"
+    if any(kw in upper for kw in ("CHP", "HIGHWAY PATROL")):
+        return "CHP"
+
+    # CDCR patterns — check abbreviations + keywords
     cdcr_kw = ("CDCR", "CORRECTION", "STATE PRISON", "CONSERVATION CENTER",
-               "INSTITUTION FOR", "FOLSOM", "PELICAN", "SAN QUENTIN", "CORCORAN")
+               "INSTITUTION FOR", "FOLSOM", "PELICAN", "SAN QUENTIN", "CORCORAN",
+               "MENTAL HEALTH", "REHABILIT")
     cdcr_pfx = ("CSP", "CIM", "CIW", "SCC", "CMC", "SATF", "CHCF", "PVSP",
                 "KVSP", "LAC", "MCSP", "NKSP", "SAC", "WSP", "SOL", "FSP",
-                "HDSP", "ISP", "CTF", "RJD", "CAL", "CEN", "ASP", "CCWF", "VSP")
+                "HDSP", "ISP", "CTF", "RJD", "CAL", "CEN", "ASP", "CCWF", "VSP",
+                "DVI", "CRC", "PBSP", "RJD", "SVSP", "COR", "CMF", "CVSP", "CCC")
     if any(kw in upper for kw in cdcr_kw):
         return "CDCR"
+    # Check if starts with known CDCR prefix (CIW /, CIW-, CIW space, CIW alone)
     for pfx in cdcr_pfx:
-        if upper.startswith(pfx + "-") or upper.startswith(pfx + " ") or upper == pfx:
+        if upper == pfx or upper.startswith(pfx + " ") or upper.startswith(pfx + "-") or upper.startswith(pfx + "/"):
             return "CDCR"
-    return "DEFAULT"
+
+    # We only sell in CA — default to CDCR (most likely)
+    return "CDCR"
 
 @bp.route("/api/quotes/counter")
 @auth_required
