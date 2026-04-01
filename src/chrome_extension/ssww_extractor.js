@@ -4,10 +4,8 @@
  * Extracts MSRP (list price) and sale price, posts back to Reytech app
  */
 (function() {
-  // Only run if opened by Reytech (check URL hash or referrer)
-  if (!document.referrer.includes('railway.app') && !location.hash.includes('reytech')) {
-    return;
-  }
+  // Always run on S&S product pages — extract prices and post to any listening Reytech tab
+  console.log('[Reytech S&S Extractor] Running on', location.href);
 
   function extractPrices() {
     var result = {
@@ -61,20 +59,34 @@
   // Wait for page to fully load, then extract and post
   function tryExtract() {
     var prices = extractPrices();
+    console.log('[Reytech S&S Extractor] Extracted:', JSON.stringify(prices));
     if (prices.msrp > 0 || prices.sale > 0) {
-      // Post to all Reytech windows
+      // Post to opener window (the Reytech tab that opened this popup)
       if (window.opener) {
-        window.opener.postMessage(prices, '*');
+        try {
+          window.opener.postMessage(prices, '*');
+          console.log('[Reytech S&S Extractor] Posted to opener');
+        } catch(e) {
+          console.log('[Reytech S&S Extractor] opener.postMessage failed:', e);
+        }
       }
-      // Also broadcast to any listening tabs
-      window.postMessage(prices, '*');
+      // Also use BroadcastChannel (works across tabs, no cross-origin issues)
+      try {
+        var bc = new BroadcastChannel('reytech_ssww');
+        bc.postMessage(prices);
+        bc.close();
+        console.log('[Reytech S&S Extractor] Broadcast sent');
+      } catch(e) {
+        console.log('[Reytech S&S Extractor] BroadcastChannel failed:', e);
+      }
 
       // Auto-close after short delay
-      setTimeout(function() { window.close(); }, 1500);
+      setTimeout(function() { window.close(); }, 2000);
     }
   }
 
-  // Try immediately, then retry after a delay (page might still be loading)
-  setTimeout(tryExtract, 1000);
-  setTimeout(tryExtract, 3000);
+  // Try immediately, then retry (page might still be loading)
+  setTimeout(tryExtract, 1500);
+  setTimeout(tryExtract, 4000);
+  setTimeout(tryExtract, 7000);
 })();

@@ -4,11 +4,27 @@
  * Listens for price messages from the S&S extractor and applies them
  */
 (function() {
-  window.addEventListener('message', function(e) {
-    if (!e.data || e.data.type !== 'reytech_ssww_prices') return;
+  console.log('[Reytech Bridge] Extension loaded on', location.hostname);
 
-    var d = e.data;
-    console.log('[Reytech Extension] Received S&S prices:', d);
+  // Listen on both postMessage AND BroadcastChannel
+  function handlePrices(d) {
+    if (!d || d.type !== 'reytech_ssww_prices') return;
+    _applyPrices(d);
+  }
+
+  window.addEventListener('message', function(e) { handlePrices(e.data); });
+
+  try {
+    var bc = new BroadcastChannel('reytech_ssww');
+    bc.onmessage = function(e) { handlePrices(e.data); };
+    console.log('[Reytech Bridge] BroadcastChannel listening');
+  } catch(e) {
+    console.log('[Reytech Bridge] BroadcastChannel not available');
+  }
+
+  function _applyPrices(d) {
+    if (!d || !d.msrp) return;
+    console.log('[Reytech Bridge] Applying S&S prices:', d);
 
     // Find the matching item by URL
     var linkInputs = document.querySelectorAll('input[name^="link_"]');
