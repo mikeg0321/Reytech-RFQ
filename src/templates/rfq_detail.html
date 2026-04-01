@@ -1214,12 +1214,12 @@ function _getFormData(){
   items.push({
    idx:i,
    qty:parseFloat(_qEl.value)||0,
-   uom:(document.querySelector('[name=uom_'+i+']').value||'').trim().toUpperCase(),
-   description:document.querySelector('[name=desc_'+i+']').value||'',
-   item_number:(document.querySelector('[name=part_'+i+']').value||'').trim(),
-   item_link:(document.querySelector('[name=link_'+i+']').value||'').trim(),
-   supplier_cost:parseFloat(document.querySelector('[name=cost_'+i+']').value)||null,
-   price_per_unit:parseFloat(document.querySelector('[name=price_'+i+']').value)||null,
+   uom:((document.querySelector('[name=uom_'+i+']')||{}).value||'').trim().toUpperCase(),
+   description:(document.querySelector('[name=desc_'+i+']')||{}).value||'',
+   item_number:((document.querySelector('[name=part_'+i+']')||{}).value||'').trim(),
+   item_link:((document.querySelector('[name=link_'+i+']')||{}).value||'').trim(),
+   supplier_cost:parseFloat((document.querySelector('[name=cost_'+i+']')||{}).value)||null,
+   price_per_unit:parseFloat((document.querySelector('[name=price_'+i+']')||{}).value)||null,
    scprs_last_price:parseFloat((document.querySelector('[name=scprs_'+i+']')||{}).value)||null,
    markup_pct:parseFloat((document.querySelector('[name=markup_'+i+']')||{}).value)||null,
   });
@@ -1271,7 +1271,8 @@ function _fetchWithRetry(url, opts, retries) {
 }
 
 function _doAutosave(){
- const data=_getFormData();
+ var data;
+ try{ data=_getFormData(); }catch(e){ console.error('_getFormData failed:',e); _showSaveStatus('error'); return; }
  if(data===_lastSaveData)return;
  try{localStorage.setItem('rfq_autosave_'+RID,JSON.stringify({ts:Date.now(),rid:RID,data:data}));}catch(e){}
  _showSaveStatus('saving');

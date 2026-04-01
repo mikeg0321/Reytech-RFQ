@@ -2645,7 +2645,7 @@
       if (d.matched && d.customer) {
        const c = d.customer;
        const agColors = {CDCR:'#3fb950',CCHCS:'#58a6ff',CalVet:'#d29922',DSH:'#bc8cff',DGS:'#f0883e',DEFAULT:'#8b949e'};
-       const ag = c.agency || 'DEFAULT';
+       const ag = c.agency || 'CDCR';
        badge.textContent = ag;
        badge.style.background = (agColors[ag]||'#8b949e') + '22';
        badge.style.color = agColors[ag]||'#8b949e';
