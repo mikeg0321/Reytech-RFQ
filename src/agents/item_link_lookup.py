@@ -536,45 +536,67 @@ def _lookup_ssww(url: str) -> dict:
                      item_num, list_price, sale_price, discount_pct)
         return result
 
-    # S&S blocked (Cloudflare) — try Amazon for price reference only
-    amazon_price = None
-    amazon_title = desc_from_url
+    # S&S blocked (Cloudflare) — try multiple fallbacks for pricing
+    ref_price = None
+    ref_title = desc_from_url
+    ref_source = ""
+
+    # Fallback 1: Amazon search (try item_num, then description)
     if item_num:
         try:
             from src.agents.product_research import search_amazon
-            search_query = f"{item_num} {desc_from_url}" if desc_from_url else item_num
-            results = search_amazon(search_query, max_results=1)
-            if results and results[0].get("price"):
-                r = results[0]
-                amazon_price = r.get("list_price") or r.get("price")  # prefer list price
-                amazon_title = r.get("title", desc_from_url)
-                result["asin"] = r.get("asin", "")
-                result["amazon_reference_price"] = r["price"]
-                result["shipping_note"] = (
-                    f"S&S site blocked — Amazon reference: ${r['price']:.2f}. "
-                    f"Verify on S&S directly."
-                )
-                log.info("SSWW blocked, Amazon ref: %s → $%s", item_num, r["price"])
+            for query in [item_num, desc_from_url, f"{item_num} {desc_from_url}"]:
+                if not query:
+                    continue
+                results = search_amazon(query, max_results=1)
+                if results and results[0].get("price"):
+                    r = results[0]
+                    ref_price = r.get("list_price") or r.get("price")
+                    ref_title = r.get("title", desc_from_url)
+                    result["asin"] = r.get("asin", "")
+                    result["amazon_reference_price"] = r["price"]
+                    ref_source = "Amazon"
+                    log.info("SSWW blocked, Amazon ref: %s → $%s", item_num, r["price"])
+                    break
         except Exception as e:
             log.warning("SSWW→Amazon fallback: %s", e)
 
-    # Try catalog as additional fallback
-    if not amazon_price:
+    # Fallback 2: Catalog match
+    if not ref_price:
         try:
             from src.agents.product_catalog import match_item, init_catalog_db
             init_catalog_db()
             matches = match_item(item_num, part_number=item_num, top_n=1)
             if matches and matches[0].get("match_confidence", 0) >= 0.80:
                 m = matches[0]
-                amazon_title = m.get("name", desc_from_url)
-                amazon_price = m.get("cost") or m.get("sell_price")
+                ref_title = m.get("name", desc_from_url)
+                ref_price = m.get("cost") or m.get("sell_price")
                 result["manufacturer"] = m.get("manufacturer", "")
+                ref_source = "Catalog"
         except Exception:
             pass
 
-    result["title"] = amazon_title or desc_from_url
+    # Fallback 3: Web price research (Claude-powered)
+    if not ref_price and desc_from_url:
+        try:
+            from src.agents.web_price_research import research_price
+            web = research_price(f"{desc_from_url} {item_num or ''}", quantity=1)
+            if web and web.get("price") and web["price"] > 0:
+                ref_price = web["price"]
+                ref_source = web.get("source", "Web")
+                log.info("SSWW blocked, web research: %s → $%s", item_num, ref_price)
+        except Exception:
+            pass
+
+    if ref_source:
+        result["shipping_note"] = (
+            f"S&S site blocked — {ref_source} reference: ${ref_price:.2f}. "
+            f"Verify on ssww.com directly."
+        )
+
+    result["title"] = ref_title or desc_from_url
     result["description"] = result["title"]
-    result["price"] = amazon_price or 0
+    result["price"] = ref_price or 0
     result["cost"] = result["price"]
     return result
 
