@@ -241,15 +241,9 @@ function _applyLinkData(idx, d, mode) {
     var _qeId = '_qe_cost_' + idx;
     statusHtml = '<span style="color:#d29922">cost $</span>'
       + '<input type="text" id="' + _qeId + '" inputmode="decimal" placeholder="0.00" '
-      + 'style="width:65px;background:#21262d;border:1px solid #d29922;border-radius:4px;'
-      + 'color:#e6edf3;font-size:14px;font-weight:700;padding:3px 6px;text-align:center;'
-      + 'font-family:JetBrains Mono,monospace" '
-      + 'onkeydown="if(event.key===\'Enter\'){var v=parseFloat(this.value);if(v>0){'
-      + 'var c=document.querySelector(\'[name=cost_' + idx + ']\');if(c){c.value=v.toFixed(2);}'
-      + 'if(typeof recalcRow===\'function\')recalcRow(' + idx + ',true);'
-      + 'if(typeof recalcPC===\'function\')recalcPC();'
-      + 'this.parentElement.innerHTML=\'<span style=color:#3fb950>cost $\'+v.toFixed(2)+\' filled</span>\';'
-      + '}}" '
+      + 'style="width:70px;background:#21262d;border:1px solid #d29922;border-radius:4px;'
+      + 'color:#e6edf3;font-size:15px;font-weight:700;padding:4px 8px;text-align:center;'
+      + 'font-family:JetBrains Mono,monospace"'
       + '> <span style="color:#8b949e;font-size:12px">from '
       + '<a href="' + (d.url || '') + '" target="_blank" style="color:#58a6ff">' + (d.supplier || '') + '</a>'
       + '</span>';
@@ -260,6 +254,25 @@ function _applyLinkData(idx, d, mode) {
       'ASIN: <a href="https://www.amazon.com/dp/' + d.asin + '" target="_blank" style="color:#ff9900">' + d.asin + ' ↗</a></span>';
   }
   if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
+
+  // Attach Enter handler to quick-entry cost field (if created)
+  var _qeInput = document.getElementById('_qe_cost_' + idx);
+  if (_qeInput) {
+    _qeInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        var v = parseFloat(this.value);
+        if (v > 0) {
+          var c = document.querySelector('[name=cost_' + idx + ']');
+          if (c) c.value = v.toFixed(2);
+          if (typeof recalcRow === 'function') recalcRow(idx, true);
+          if (typeof recalcPC === 'function') recalcPC();
+          if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
+          this.closest('div').innerHTML = '<span style="color:#3fb950">cost $' + v.toFixed(2) + ' filled</span>';
+        }
+      }
+    });
+    _qeInput.focus();
+  }
 
   // Autosave + recalc
   if (filled.length) {
