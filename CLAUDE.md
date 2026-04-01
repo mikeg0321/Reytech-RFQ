@@ -277,4 +277,6 @@ Without it, browser downloads the PDF instead of rendering it.
 - **Defensive Programming**: Every data access should handle None, wrong type, missing keys.
 - **Production First**: This is a live business system. Every commit deploys automatically.
 - **Never Die Silently**: Errors must be logged. Autosave must never stop. Data loss is unacceptable.
-- **Prices Have Roles**: SCPRS = ceiling, Amazon = reference, Catalog = cost, S&S = cost. Never mix.
+- **Prices Have Roles**: SCPRS = ceiling, Amazon = reference, Catalog = cost, S&S = cost.
+- **Test With Real Numbers**: Before pushing ANY calculation change, manually verify: input × formula = expected output. "40.0% markup on $82.24 = ?" must equal $115.14, not $411.20. Compile-check is not enough.
+- **Test All UI States**: Every new UI element must be tested in all states: empty, filled, error, re-run. If a field appears conditionally, test the condition being true AND false. Never mix.
