@@ -1270,7 +1270,7 @@ function _doAutosave(){
  _fetchWithRetry('/api/rfq/'+RID+'/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:data,credentials:'same-origin'})
  .then(r=>r.json()).then(d=>{
   if(d.ok){_lastSaveData=data;_showSaveStatus('saved');_showGuardrails(d.guardrails);
-   try{localStorage.removeItem('rfq_autosave_'+RID);}catch(e){}}
+   /* Keep localStorage backup as insurance — don't remove on success */}
   else{_showSaveStatus('error')}
  }).catch(()=>_showSaveStatus('error'));
 }
@@ -1310,20 +1310,32 @@ function _showSaveStatus(state){
 
 // Wire up all inputs to auto-save
 document.addEventListener('DOMContentLoaded',function(){
- // Check for localStorage crash backup
+ // Auto-restore from localStorage backup if it has more data than server
  try{
   var _rfqBk=localStorage.getItem('rfq_autosave_'+RID);
   if(_rfqBk){var _b=JSON.parse(_rfqBk);
-   if(_b&&(Date.now()-_b.ts)<3600000){
-    var _ageS=Math.round((Date.now()-_b.ts)/1000);
-    var _bar=document.createElement('div');_bar.id='rfq-backup-bar';
-    _bar.style.cssText='background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.4);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:14px;color:#d29922;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
-    _bar.innerHTML='<span>\u26A0\uFE0F <strong>Unsaved session recovered</strong> \u2014 browser backup from '+_ageS+'s ago</span><button onclick="try{var d=JSON.parse(localStorage.getItem(\'rfq_autosave_\'+RID)).data;if(d){var p=JSON.parse(d);if(p.items)p.items.forEach(function(it,i){[\'qty\',\'uom\',\'description\',\'item_number\',\'item_link\',\'supplier_cost\',\'price_per_unit\',\'markup_pct\'].forEach(function(f){var el=document.querySelector(\'[name=\'+f.replace(\'description\',\'desc\').replace(\'item_number\',\'part\').replace(\'item_link\',\'link\').replace(\'supplier_cost\',\'cost\').replace(\'price_per_unit\',\'price\').replace(\'markup_pct\',\'markup\')+\'_\'+i+\']\');if(el)el.value=it[f]||\'\'});});if(p.quote_notes){var qn=document.querySelector(\'[name=quote_notes]\');if(qn)qn.value=p.quote_notes;}if(p.tax_rate){var tr=document.getElementById(\'tax-rate\');if(tr)tr.value=p.tax_rate;}if(typeof recalc===\'function\')recalc();_doAutosave();}document.getElementById(\'rfq-backup-bar\').remove()}catch(e){alert(\'Restore failed: \'+e)}" style="background:rgba(210,153,34,.2);border:1px solid rgba(210,153,34,.4);color:#d29922;border-radius:6px;padding:5px 14px;font-size:13px;font-weight:700;cursor:pointer">\u21A9 Restore & Save</button><button onclick="localStorage.removeItem(\'rfq_autosave_\'+RID);document.getElementById(\'rfq-backup-bar\').remove()" style="background:none;border:none;color:#d29922;cursor:pointer;font-size:18px;padding:2px 8px">\u2715</button>';
-    var _ref=document.getElementById('margin-summary')||document.querySelector('.card');
-    if(_ref&&_ref.parentNode)_ref.parentNode.insertBefore(_bar,_ref);
+   if(_b&&(Date.now()-_b.ts)<3600000&&_b.data){
+    var _bData=JSON.parse(_b.data);
+    // Count costs in backup vs server
+    var bkCosts=0,svCosts=0;
+    if(_bData.items)_bData.items.forEach(function(it){if(parseFloat(it.supplier_cost)>0)bkCosts++;});
+    document.querySelectorAll('input[name^="cost_"]').forEach(function(el){if(parseFloat(el.value)>0)svCosts++;});
+    if(bkCosts>svCosts){
+     console.log('[RFQ] Auto-restoring: backup has '+bkCosts+' costs vs server '+svCosts);
+     if(_bData.items)_bData.items.forEach(function(it,i){
+      ['qty','uom','description','item_number','item_link','supplier_cost','price_per_unit','markup_pct'].forEach(function(f){
+       var name=f.replace('description','desc').replace('item_number','part').replace('item_link','link').replace('supplier_cost','cost').replace('price_per_unit','price').replace('markup_pct','markup');
+       var el=document.querySelector('[name='+name+'_'+i+']');
+       if(el&&it[f])el.value=it[f];
+      });
+     });
+     if(typeof recalc==='function')recalc();
+     _doAutosave();
+     if(typeof showMsg==='function')showMsg('Restored '+bkCosts+' prices from browser backup','warn');
+    }
    }
   }
- }catch(e){}
+ }catch(e){console.warn('RFQ restore:',e)}
  _lastSaveData=_getFormData(); // snapshot on load
  document.querySelectorAll('#pf input').forEach(function(inp){
   inp.addEventListener('change',triggerAutosave);

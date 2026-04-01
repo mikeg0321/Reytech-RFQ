@@ -2782,6 +2782,34 @@ def rfq_reset_items(rid):
     return _item_response(rid, True, f"Cleared {old_count} items")
 
 
+@bp.route("/api/rfq/<rid>/unlink-pc", methods=["POST"])
+@auth_required
+def api_rfq_unlink_pc(rid):
+    """Remove PC linkage from an RFQ."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    r.pop("linked_pc_id", None)
+    r.pop("linked_pc_number", None)
+    r.pop("linked_pc_match_reason", None)
+    r.pop("source_pc", None)
+    r.pop("source_pc_number", None)
+    r.pop("source_pc_status", None)
+    r.pop("source_pc_requestor", None)
+    if r.get("source") == "pc_conversion":
+        r["source"] = "direct"
+    # Remove PC badges from items
+    for item in r.get("line_items", r.get("items", [])):
+        item.pop("source_pc", None)
+        item.pop("imported_from_pc", None)
+        item.pop("_from_pc", None)
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+    log.info("RFQ %s unlinked from PC", rid)
+    return jsonify({"ok": True, "msg": "PC linkage removed"})
+
+
 @bp.route("/rfq/<rid>/lookup-item/<int:idx>", methods=["POST"])
 @auth_required
 def rfq_lookup_single_item(rid, idx):
