@@ -3240,22 +3240,60 @@ def fill_genai_708(input_path, rfq_data, config, output_path):
 
 
 def fill_std205(input_path, rfq_data, config, output_path):
-    """Fill STD 205 Payee Data Record Supplement from blank template."""
+    """Fill STD 205 Payee Data Record Supplement from blank template.
+
+    Fields (from actual PDF):
+      nameReq1: Company name (required)
+      taxIDNumber: FEIN
+      remAddress1: Remittance address line 1
+      CITY1, STATE1, ZIPCODE1: City/State/ZIP for remittance
+      TELEPHONE_1: Phone
+      EMAIL: Email
+      contactName1: Contact person name
+      certName: Certification printed name
+      certTelephone: Certification phone
+      TITLE: Title of signer
+      DATE: Signature date
+      Signature3: Signature field
+    """
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
+    # Parse address into components
+    addr = company.get("address", "")
+    city = company.get("city", "Trabuco Canyon")
+    state = company.get("state", "CA")
+    zipcode = company.get("zip", "92679")
+    # Try to parse from full address string if components missing
+    if not city and addr:
+        import re
+        m = re.search(r'(.+?),?\s+([A-Z]{2})\s+(\d{5})', addr)
+        if m:
+            city = m.group(1).split(',')[-1].strip()
+            state = m.group(2)
+            zipcode = m.group(3)
+
     values = {
-        "Name": company["name"], "Business Name": company["name"],
-        "DBA": company["name"],
-        "Address": company.get("address", ""),
-        "City": company.get("city", ""), "State": company.get("state", "CA"),
-        "Zip": company.get("zip", ""), "Phone": company.get("phone", ""),
-        "Email": company.get("email", ""),
-        "FEIN": company.get("fein", ""), "Date": sign_date,
+        # Section 1: Payee Information
+        "nameReq1": company["name"],
+        "taxIDNumber": company.get("fein", ""),
+        # Section 2: Remittance Address
+        "remAddress1": addr.split(',')[0] if ',' in addr else addr,
+        "CITY1": city,
+        "STATE1": state,
+        "ZIPCODE1": zipcode,
+        "TELEPHONE_1": company.get("phone", ""),
+        "EMAIL": company.get("email", ""),
+        "contactName1": company.get("owner", ""),
+        # Certification
+        "certName": f"{company.get('owner', '')}, {company.get('title', 'Owner')}",
+        "certTelephone": company.get("phone", ""),
+        "TITLE": company.get("title", "Owner"),
+        "DATE": sign_date,
     }
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
-    print(f"  ✓ STD 205 filled")
+    print(f"  ✓ STD 205 filled from template")
 
 
 def fill_darfur_standalone(input_path, rfq_data, config, output_path):

@@ -3828,8 +3828,13 @@ def generate_rfq_package(rid):
         # STD 205
         if _include("std205"):
             try:
-                from src.forms.reytech_filler_v4 import generate_std205
-                generate_std205(r, CONFIG, f"{out_dir}/{sol}_STD205_Reytech.pdf")
+                _std205_template = os.path.join(DATA_DIR, "templates", "std205_blank.pdf")
+                if os.path.exists(_std205_template):
+                    from src.forms.reytech_filler_v4 import fill_std205
+                    fill_std205(_std205_template, r, CONFIG, f"{out_dir}/{sol}_STD205_Reytech.pdf")
+                else:
+                    from src.forms.reytech_filler_v4 import generate_std205
+                    generate_std205(r, CONFIG, f"{out_dir}/{sol}_STD205_Reytech.pdf")
                 output_files.append(f"{sol}_STD205_Reytech.pdf")
                 t.step("STD 205 generated")
             except Exception as e:
