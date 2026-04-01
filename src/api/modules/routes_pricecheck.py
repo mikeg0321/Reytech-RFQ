@@ -807,11 +807,44 @@ def _pricecheck_detail_inner(pcid):
                     crm_data = {"matched": True, "customer": candidates[0], "is_new": False, "candidates": candidates[:3]}
                 else:
                     _agency = _guess_agency(institution) if callable(_guess_agency) else "CDCR"
-                    # Never show DEFAULT — we only sell in CA
                     if not _agency or _agency == "DEFAULT":
                         _agency = "CDCR"
-                    crm_data = {"matched": False, "is_new": True, "candidates": candidates[:3],
-                                "suggested_agency": _agency}
+                    # Auto-create CRM customer for known CA facilities
+                    _auto_customer = None
+                    try:
+                        from src.core.institution_resolver import resolve as _resolve
+                        _resolved = _resolve(institution)
+                        if _resolved and _resolved.get("canonical"):
+                            _auto_customer = {
+                                "display_name": _resolved["canonical"],
+                                "abbreviation": _resolved.get("facility_code", ""),
+                                "agency": _agency,
+                                "company": _resolved["canonical"],
+                                "source": "auto_resolved",
+                                "state": "CA",
+                            }
+                            # Save to CRM DB so it matches next time
+                            try:
+                                from src.core.db import get_db as _crm_db
+                                with _crm_db() as _conn:
+                                    _conn.execute("""
+                                        INSERT OR IGNORE INTO contacts
+                                        (display_name, company, abbreviation, agency, state, source, created_at)
+                                        VALUES (?,?,?,?,?,?,datetime('now'))
+                                    """, (_resolved["canonical"], _resolved["canonical"],
+                                          _resolved.get("facility_code", ""), _agency, "CA", "auto_resolved"))
+                                log.info("CRM_AUTO: Created customer '%s' (%s) from institution resolver",
+                                         _resolved["canonical"], _resolved.get("facility_code", ""))
+                            except Exception as _ce:
+                                log.debug("CRM auto-create: %s", _ce)
+                    except Exception:
+                        pass
+                    if _auto_customer:
+                        crm_data = {"matched": True, "customer": _auto_customer, "is_new": False,
+                                    "auto_created": True}
+                    else:
+                        crm_data = {"matched": False, "is_new": True, "candidates": candidates[:3],
+                                    "suggested_agency": _agency}
         except Exception as e:
             log.debug("CRM match error: %s", e)
     
