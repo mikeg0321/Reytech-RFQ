@@ -416,6 +416,21 @@ def _pricecheck_detail_inner(pcid):
                      or _safe_float(p.get("web_cost"))
                      or _safe_float(item.get("vendor_cost"))
                      or 0)
+
+        # ── GUARDRAIL: Sanity check cost against known references ────────
+        # If SCPRS or Catalog gives a reference AND our cost is >3x higher,
+        # something is wrong (bad Amazon match, wrong product scraped).
+        # Use the lower reference as cost instead.
+        _ref_price = _safe_float(p.get("catalog_cost")) or scprs_cost or 0
+        if unit_cost > 0 and _ref_price > 0 and unit_cost > _ref_price * 3:
+            log.warning("COST_GUARDRAIL: item '%s' cost $%.2f is >3x reference $%.2f — "
+                        "using reference as cost (likely bad scrape)",
+                        (item.get("description") or "")[:40], unit_cost, _ref_price)
+            item["_cost_override_reason"] = (
+                f"Cost ${unit_cost:.2f} was >3x reference ${_ref_price:.2f} — auto-corrected"
+            )
+            unit_cost = _ref_price
+
         # Markup and final price
         markup_pct = _safe_float(p.get("markup_pct"), 25)
         final_price = _safe_float(p.get("recommended_price")) or (round(unit_cost * (1 + markup_pct/100), 2) if unit_cost else 0)
@@ -575,6 +590,9 @@ def _pricecheck_detail_inner(pcid):
                 chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:13px;text-decoration:none" title="Use this price">⬇</a>'
             source_chips.append(chip)
         source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
+        # Guardrail warning badge
+        if item.get("_cost_override_reason"):
+            source_html += f'<div style="font-size:11px;color:#f85149;margin-top:2px" title="{item["_cost_override_reason"]}">⚠ Cost auto-corrected</div>'
 
         # Per-item notes
         item_notes = item.get("notes") or ""
