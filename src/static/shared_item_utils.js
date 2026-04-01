@@ -236,8 +236,8 @@ function _applyLinkData(idx, d, mode) {
     statusHtml = '<span style="color:#3fb950">' + filled.join(', ') + ' filled</span>';
   } else if (metaEl && d.ok === false) {
     statusHtml = '<span style="color:#f85149">' + (d.error || 'Lookup failed') + '</span>';
-  } else if (metaEl && d.supplier && (!d.price || d.price <= 0)) {
-    // Price not found (Cloudflare blocked, etc.) — show quick-entry inline
+  } else if (metaEl && d.supplier && (!d.price || d.price <= 0) && costEl && !(parseFloat(costEl.value) > 0)) {
+    // Price not found AND cost field is empty — show quick-entry inline
     var _qeId = '_qe_cost_' + idx;
     statusHtml = '<span style="color:#d29922">cost $</span>'
       + '<input type="text" id="' + _qeId + '" inputmode="decimal" placeholder="0.00" '
@@ -255,22 +255,25 @@ function _applyLinkData(idx, d, mode) {
   }
   if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
 
-  // Attach Enter handler to quick-entry cost field (if created)
+  // Attach Enter + blur handler to quick-entry cost field (if created)
   var _qeInput = document.getElementById('_qe_cost_' + idx);
   if (_qeInput) {
-    _qeInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') {
-        var v = parseFloat(this.value);
-        if (v > 0) {
-          var c = document.querySelector('[name=cost_' + idx + ']');
-          if (c) c.value = v.toFixed(2);
-          if (typeof recalcRow === 'function') recalcRow(idx, true);
-          if (typeof recalcPC === 'function') recalcPC();
-          if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
-          this.closest('div').innerHTML = '<span style="color:#3fb950">cost $' + v.toFixed(2) + ' filled</span>';
-        }
+    function _applyQeCost(el) {
+      var v = parseFloat(el.value);
+      if (v > 0) {
+        var c = document.querySelector('[name=cost_' + idx + ']');
+        if (c) c.value = v.toFixed(2);
+        if (typeof recalcRow === 'function') recalcRow(idx, true);
+        if (typeof recalcPC === 'function') recalcPC();
+        if (typeof triggerPcAutosave === 'function') triggerPcAutosave();
+        var parent = el.closest('div') || el.parentElement;
+        if (parent) parent.innerHTML = '<span style="color:#3fb950">cost $' + v.toFixed(2) + ' filled</span>';
       }
+    }
+    _qeInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); _applyQeCost(this); }
     });
+    _qeInput.addEventListener('blur', function() { _applyQeCost(this); });
     _qeInput.focus();
   }
 
