@@ -22,6 +22,10 @@
      .notes-row td{border-top:none!important;padding-top:0!important}
      #itemsTable{table-layout:auto}
      .num-in.sm{width:52px;font-size:14px;padding:6px 6px}
+     /* Active row highlight — hover + focus-within */
+     #itemsTable tr[data-row]:hover{background:#1a233280}
+     #itemsTable tr[data-row]:focus-within{background:#1a2332;border-left:2px solid #58a6ff}
+     #itemsTable tr[data-row]:focus-within td:first-child{border-left:2px solid #58a6ff}
      /* Currency input wrapper — $ prefix */
      .currency-wrap{position:relative;display:inline-block}
      .currency-wrap::before{content:'$';position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#58a6ff;font-size:14px;font-weight:700;pointer-events:none;z-index:1;font-family:'JetBrains Mono',monospace}
