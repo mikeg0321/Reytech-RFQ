@@ -493,13 +493,52 @@ def _normalize_ssww_url(url: str) -> str:
 
 
 def _lookup_ssww(url: str) -> dict:
-    """S&S Worldwide: extract MFG# from URL, find on Amazon for pricing.
-    If found on Amazon → use Amazon price + Amazon URL (supplier=Amazon).
-    If NOT on Amazon → keep SSWW URL for manual lookup (supplier=S&S Worldwide)."""
+    """S&S Worldwide: scrape the S&S page for list (non-discount) price.
+    ALWAYS keeps the S&S URL — never overrides with Amazon.
+    Uses list_price (not sale price) as cost basis since discounts may expire
+    within the 45-day quote window. If S&S is blocked, falls back to Amazon
+    for price reference only (still keeps S&S URL)."""
     item_num, desc_from_url = _extract_ssww_item(url)
     clean_url = _normalize_ssww_url(url)
 
-    # Always try Amazon first — use MFG# to find exact product with pricing
+    result = {
+        "supplier": "S&S Worldwide",
+        "url": clean_url,  # ALWAYS keep original S&S URL
+        "part_number": item_num or "",
+        "mfg_number": item_num or "",
+        "ok": True,
+    }
+
+    # Try scraping S&S directly first
+    scraped = _scrape_generic(clean_url)
+    title = scraped.get("title") or scraped.get("description") or ""
+    _blocked = not title or "just a moment" in title.lower() or "cloudflare" in title.lower()
+
+    if not _blocked and title:
+        # S&S page loaded — use LIST price (non-discount) as cost
+        result["title"] = title
+        result["description"] = title
+        result["manufacturer"] = scraped.get("manufacturer", "")
+        # Prefer list_price over sale_price — discount may expire in 45-day window
+        list_price = scraped.get("list_price") or scraped.get("price") or 0
+        sale_price = scraped.get("sale_price") or scraped.get("price") or 0
+        result["price"] = list_price if list_price > 0 else sale_price
+        result["cost"] = result["price"]
+        result["list_price"] = list_price
+        result["sale_price"] = sale_price
+        if sale_price and list_price and sale_price < list_price:
+            discount_pct = round((1 - sale_price / list_price) * 100)
+            result["shipping_note"] = (
+                f"S&S sale: ${sale_price:.2f} ({discount_pct}% off list ${list_price:.2f}). "
+                f"Using list price as cost basis — discount may expire."
+            )
+            log.info("SSWW: %s list=$%.2f sale=$%.2f (%d%% off) — using list price",
+                     item_num, list_price, sale_price, discount_pct)
+        return result
+
+    # S&S blocked (Cloudflare) — try Amazon for price reference only
+    amazon_price = None
+    amazon_title = desc_from_url
     if item_num:
         try:
             from src.agents.product_research import search_amazon
@@ -507,70 +546,37 @@ def _lookup_ssww(url: str) -> dict:
             results = search_amazon(search_query, max_results=1)
             if results and results[0].get("price"):
                 r = results[0]
-                amazon_url = r.get("url", "")
-                log.info("SSWW→Amazon: %s found → $%s '%s'",
-                         item_num, r["price"], r.get("title", "")[:50])
-                return {
-                    "supplier": "Amazon",
-                    "title": r.get("title", desc_from_url),
-                    "description": r.get("title", desc_from_url),
-                    "price": r["price"],
-                    "cost": r["price"],
-                    "part_number": item_num,
-                    "mfg_number": item_num,
-                    "manufacturer": r.get("manufacturer", ""),
-                    "asin": r.get("asin", ""),
-                    "url": amazon_url,
-                    "ssww_url": clean_url,
-                    "shipping": 0.0,
-                    "shipping_note": "Prime/standard shipping — verify delivery window",
-                    "source": "ssww_to_amazon",
-                    "ok": True,
-                }
+                amazon_price = r.get("list_price") or r.get("price")  # prefer list price
+                amazon_title = r.get("title", desc_from_url)
+                result["asin"] = r.get("asin", "")
+                result["amazon_reference_price"] = r["price"]
+                result["shipping_note"] = (
+                    f"S&S site blocked — Amazon reference: ${r['price']:.2f}. "
+                    f"Verify on S&S directly."
+                )
+                log.info("SSWW blocked, Amazon ref: %s → $%s", item_num, r["price"])
         except Exception as e:
-            log.warning("SSWW→Amazon search failed: %s", e)
+            log.warning("SSWW→Amazon fallback: %s", e)
 
-    # Not found on Amazon — try scraping SSWW directly
-    scraped = _scrape_generic(clean_url)
-    scraped["supplier"] = "S&S Worldwide"
-    scraped["url"] = clean_url
-    if item_num:
-        scraped["part_number"] = item_num
-        scraped["mfg_number"] = item_num
-
-    title = scraped.get("title") or scraped.get("description") or ""
-    _blocked = not title or "just a moment" in title.lower() or "cloudflare" in title.lower()
-
-    if _blocked:
-        # Cloudflare blocked — use catalog or URL slug as last resort
-        log.info("SSWW not on Amazon + Cloudflare blocked for %s — manual lookup needed", item_num)
+    # Try catalog as additional fallback
+    if not amazon_price:
         try:
             from src.agents.product_catalog import match_item, init_catalog_db
             init_catalog_db()
             matches = match_item(item_num, part_number=item_num, top_n=1)
-            if matches and matches[0].get("confidence", 0) >= 0.80:
+            if matches and matches[0].get("match_confidence", 0) >= 0.80:
                 m = matches[0]
-                scraped["title"] = m.get("name", desc_from_url)
-                scraped["description"] = m.get("name", desc_from_url)
-                scraped["price"] = m.get("cost") or m.get("sell_price")
-                scraped["cost"] = m.get("cost") or m.get("sell_price")
-                scraped["manufacturer"] = m.get("manufacturer", "")
-                return scraped
-        except Exception as e:
-            log.warning("SSWW catalog fallback failed: %s", e)
-        scraped["title"] = desc_from_url
-        scraped["description"] = desc_from_url
-        return scraped
+                amazon_title = m.get("name", desc_from_url)
+                amazon_price = m.get("cost") or m.get("sell_price")
+                result["manufacturer"] = m.get("manufacturer", "")
+        except Exception:
+            pass
 
-    if title:
-        scraped["description"] = title
-    elif desc_from_url:
-        scraped["description"] = desc_from_url
-    _list = scraped.get("list_price") or scraped.get("price")
-    if _list:
-        scraped["price"] = _list
-        scraped["cost"] = _list
-    return scraped
+    result["title"] = amazon_title or desc_from_url
+    result["description"] = result["title"]
+    result["price"] = amazon_price or 0
+    result["cost"] = result["price"]
+    return result
 
 
 def _lookup_aedstore(url: str) -> dict:
