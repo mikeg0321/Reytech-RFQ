@@ -625,6 +625,27 @@
 
     // ── Standalone Save with feedback ──
     function savePrices(btn) {
+     // Pre-flight check: warn if items are unpriced
+     var _totalItems=0, _unpricedItems=0, _unpricedNames=[];
+     document.querySelectorAll('[name^="bid_"]').forEach(function(cb){
+      if(!cb.checked) return;
+      var idx=cb.name.split('_')[1];
+      _totalItems++;
+      var pEl=document.querySelector('[name=price_'+idx+']');
+      var p=pEl?parseFloat(pEl.value):0;
+      if(!p || p<=0){
+       _unpricedItems++;
+       var dEl=document.querySelector('[name=desc_'+idx+']');
+       if(dEl) _unpricedNames.push('#'+(parseInt(idx)+1)+' '+(dEl.value||'').substring(0,30));
+      }
+     });
+     if(_unpricedItems>0){
+      var msg=_unpricedItems+' of '+_totalItems+' items have no price — they will be SKIPPED on the 704.\n\n';
+      msg+=_unpricedNames.slice(0,5).join('\n');
+      if(_unpricedNames.length>5) msg+='\n...and '+(_unpricedNames.length-5)+' more';
+      msg+='\n\nContinue anyway?';
+      if(!confirm(msg)){return;}
+     }
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
      _fetchWithRetry('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})

@@ -662,8 +662,7 @@ def _pricecheck_detail_inner(pcid):
         qnum = pc.get("reytech_quote_number", "")
         download_html += f' <a href="/api/pricecheck/download/{qfname}" class="btn btn-sm" style="background:#1a3a5c;color:#fff;font-size:13px">📥 Quote {qnum}</a>'
 
-    # Diagnostic link (small, unobtrusive)
-    download_html += f' <a href="/pricecheck/{pcid}/diagnose" target="_blank" style="font-size:13px;color:#484f58;margin-left:8px" title="Check data integrity">🔍 diagnose</a>'
+    # Diagnostic endpoint still available at /pricecheck/<id>/diagnose for admin debug
 
     # 45-day expiry from TODAY (not upload date)
     try:
