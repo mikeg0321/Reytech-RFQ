@@ -1051,6 +1051,13 @@ def parse_ams704(pdf_path: str) -> dict:
 
     # Filter out junk items (legal text, instructions, boilerplate)
     result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
+
+    # Re-index items sequentially (1, 2, 3...) after continuation merges removed rows.
+    # Without this, a 3-item PC parsed from a 5-row form shows line numbers 1, 3, 5.
+    for i, item in enumerate(result["line_items"]):
+        item["item_number"] = str(i + 1)
+        item["row_index"] = i + 1
+
     return result
 
 
