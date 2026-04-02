@@ -97,6 +97,7 @@ def _extract_asin(url: str) -> str:
     """Extract Amazon ASIN from URL."""
     patterns = [
         r"/dp/([A-Z0-9]{10})",
+        r"/gp/aw/d/([A-Z0-9]{10})",
         r"/gp/product/([A-Z0-9]{10})",
         r"ASIN=([A-Z0-9]{10})",
         r"/product/([A-Z0-9]{10})",
