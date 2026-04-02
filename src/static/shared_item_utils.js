@@ -225,6 +225,21 @@ function _applyLinkData(idx, d, mode) {
       var _disc = ((1 - _sp / _lp) * 100).toFixed(0);
       if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">list $' + _lp.toFixed(2)
         + ' (sale: $' + _sp.toFixed(2) + ', ' + _disc + '% off)</span>';
+      // Persist sale_price via hidden input so autosave stores it on the item
+      var _spEl = document.querySelector('[name="saleprice_' + idx + '"]');
+      if (!_spEl && row) {
+        _spEl = document.createElement('input');
+        _spEl.type = 'hidden'; _spEl.name = 'saleprice_' + idx;
+        row.querySelector('td').appendChild(_spEl);
+      }
+      if (_spEl) _spEl.value = _sp.toFixed(2);
+      var _lpEl = document.querySelector('[name="listprice_' + idx + '"]');
+      if (!_lpEl && row) {
+        _lpEl = document.createElement('input');
+        _lpEl.type = 'hidden'; _lpEl.name = 'listprice_' + idx;
+        row.querySelector('td').appendChild(_lpEl);
+      }
+      if (_lpEl) _lpEl.value = _lp.toFixed(2);
     }
   }
 

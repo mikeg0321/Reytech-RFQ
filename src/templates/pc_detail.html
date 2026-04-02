@@ -2045,7 +2045,7 @@
      document.querySelectorAll('input[name^=qpu_]').forEach(inp=>{
       data[inp.name]=parseInt(inp.value)||1;
      });
-     document.querySelectorAll('input[name^=uom_],input[name^=itemno_],input[name^=itemnum_],input[name^=linenum_]').forEach(inp=>{
+     document.querySelectorAll('input[name^=uom_],input[name^=itemno_],input[name^=itemnum_],input[name^=linenum_],input[name^=saleprice_],input[name^=listprice_]').forEach(inp=>{
       data[inp.name]=inp.value;
      });
      document.querySelectorAll('textarea[name^=desc_],input[name^=desc_]').forEach(inp=>{

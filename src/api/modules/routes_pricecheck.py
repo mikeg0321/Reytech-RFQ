@@ -493,10 +493,25 @@ def _pricecheck_detail_inner(pcid):
         grade_color = {"A": "#3fb950", "B": "#58a6ff", "C": "#d29922", "F": "#f85149"}.get(grade, "#8b949e")
         grade_html = f'<span style="color:{grade_color};font-weight:bold">{grade}</span>' if grade else "—"
 
+        # Discount / sale price — for "if discount holds" profit calculator
+        _sale_price = _safe_float(item.get("sale_price") or p.get("sale_price"), 0)
+        _list_price_val = _safe_float(item.get("list_price") or p.get("list_price"), 0)
+        # sale_price is the discounted cost; if it's less than unit_cost, it's the discount cost
+        discount_cost = _sale_price if (_sale_price > 0 and _sale_price < unit_cost) else 0
+
         # Per-item profit
         item_profit = round((final_price - unit_cost) * qty, 2) if (final_price and unit_cost) else 0
         profit_color = "#3fb950" if item_profit > 0 else ("#f85149" if item_profit < 0 else "#8b949e")
         profit_str = f'<span style="color:{profit_color}">${item_profit:.2f}</span>' if (final_price and unit_cost) else "—"
+        # Discount profit badge
+        if discount_cost > 0 and final_price > 0:
+            disc_profit = round((final_price - discount_cost) * qty, 2)
+            extra = round(disc_profit - item_profit, 2)
+            profit_str += (
+                f'<div style="font-size:10px;color:#34d399;margin-top:1px" '
+                f'title="If discount holds: cost ${discount_cost:.2f} → profit ${disc_profit:.2f}">'
+                f'+${extra:.2f} if disc</div>'
+            )
         
         # Item link — check item_link first, then pricing sub-fields
         item_link = item.get("item_link") or p.get("web_url") or p.get("catalog_url") or p.get("amazon_url") or ""
@@ -508,6 +523,9 @@ def _pricecheck_detail_inner(pcid):
             item["item_supplier"] = item_supplier
         link_display = f'<a href="{item_link}" target="_blank" style="font-size:14px;color:#58a6ff;word-break:break-all">{item_supplier or item_link[:30]}</a>' if item_link else ""
         supplier_badge = f'<span style="font-size:13px;color:#8b949e;display:block;margin-top:1px">{item_supplier}</span>' if item_supplier else ""
+        if _sale_price > 0 and unit_cost > 0 and _sale_price < unit_cost:
+            _disc_pct = round((1 - _sale_price / unit_cost) * 100)
+            supplier_badge += f'<span style="font-size:12px;color:#34d399;display:block">sale ${_sale_price:.2f} ({_disc_pct}% off)</span>'
         # Price history toggle link for this item
         _ph_num = (item.get("mfg_number") or p.get("mfg_number") or p.get("manufacturer_part") or "").strip()
         _ph_num_safe = str(_ph_num).replace("'", "\\'").replace('"', '&quot;')
@@ -650,11 +668,12 @@ def _pricecheck_detail_inner(pcid):
         else:
             _qpu_badge = ""
 
-        items_html += f"""<tr style="{row_opacity}" data-row="{idx}">
+        _disc_attr = f' data-discount-cost="{discount_cost:.2f}"' if discount_cost > 0 else ''
+        items_html += f"""<tr style="{row_opacity}" data-row="{idx}"{_disc_attr}>
          <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
          <td style="text-align:center;position:relative"><input type="number" name="linenum_{idx}" value="{line_num}" class="lockable-field" style="width:36px;text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;padding:2px" onchange="autoSequenceLineNums({idx})" min="1">{'<button onclick=\"mergeUp('+str(idx)+');event.stopPropagation()\" title=\"Merge into item above\" style=\"position:absolute;top:-2px;right:-2px;background:#21262d;border:1px solid #30363d;border-radius:3px;color:#a78bfa;font-size:10px;cursor:pointer;padding:1px 3px;display:none\" class=\"merge-btn\">⬆</button>' if idx > 0 else ''}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:72px;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
-         <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{_qpu_badge}</td>
+         <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td><textarea name="desc_{idx}" class="text-in" style="width:100%;min-height:38px;max-height:120px;overflow-y:auto;resize:vertical;font-family:inherit;font-size:13px;line-height:1.4;padding:6px 8px" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea></td>
          <td style="text-align:center"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item — unlocks description editing" onchange="toggleSubstitute({idx},this)"></td>
@@ -1519,6 +1538,20 @@ def _do_save_prices(pcid):
                         items[idx]["row_index"] = int(float(val)) if val else idx + 1
                     except (ValueError, TypeError):
                         items[idx]["row_index"] = idx + 1
+                elif field_type == "saleprice":
+                    v = _safe_float(val, 0)
+                    if v > 0:
+                        items[idx]["sale_price"] = v
+                        if not items[idx].get("pricing"):
+                            items[idx]["pricing"] = {}
+                        items[idx]["pricing"]["sale_price"] = v
+                elif field_type == "listprice":
+                    v = _safe_float(val, 0)
+                    if v > 0:
+                        items[idx]["list_price"] = v
+                        if not items[idx].get("pricing"):
+                            items[idx]["pricing"] = {}
+                        items[idx]["pricing"]["list_price"] = v
                 elif field_type == "qpu":
                     try:
                         items[idx]["qty_per_uom"] = int(float(val)) if val else 1
