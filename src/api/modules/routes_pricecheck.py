@@ -236,6 +236,9 @@ def pricecheck_split(pcid):
         "created_at": datetime.now().isoformat(),
         "source": f"split_from_{pcid}",
         "email_uid": pc.get("email_uid", ""),
+        "email_message_id": pc.get("email_message_id", ""),
+        "original_sender": pc.get("original_sender", ""),
+        "email_subject": pc.get("email_subject", ""),
         "reytech_quote_number": "",
         "linked_quote_number": "",
         "parsed": {"header": (pc.get("parsed") or {}).get("header", {}), "line_items": list(new_items)},
@@ -8492,9 +8495,17 @@ def api_pc_send_quote(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
 
     data = request.get_json(force=True, silent=True) or {}
-    to_email = data.get("to") or pc.get("requestor_email", pc.get("requestor", ""))
+    # Prefer original buyer email (from forwarded emails) over requestor fields
+    to_email = data.get("to") or pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
     pc_num = pc.get("pc_number", pcid)
-    subject = data.get("subject") or f"Price Quote — {pc_num}"
+    # Build reply subject from original email subject
+    import re as _re_subj
+    orig_subject = pc.get("email_subject", "")
+    if orig_subject and not data.get("subject"):
+        clean_subj = _re_subj.sub(r'^(Re:\s*|Fwd?:\s*|FW:\s*)*', '', orig_subject, flags=re.IGNORECASE).strip()
+        subject = f"Re: {clean_subj}" if clean_subj else f"Price Quote — {pc_num}"
+    else:
+        subject = data.get("subject") or f"Price Quote — {pc_num}"
     body_text = data.get("body") or f"Please find attached our price quote for {pc_num}.\n\nThank you,\nReytech Inc."
 
     if not to_email or "@" not in to_email:
@@ -8549,6 +8560,13 @@ def api_pc_send_quote(pcid):
         msg["From"] = f"Reytech Inc. <{gmail_user}>"
         msg["To"] = to_email
         msg["Subject"] = subject
+
+        # Threading — reply in buyer's email thread
+        email_message_id = pc.get("email_message_id", "")
+        if email_message_id:
+            msg["In-Reply-To"] = email_message_id
+            msg["References"] = email_message_id
+
         msg.attach(MIMEText(body_text, "plain"))
 
         with open(pdf_path, "rb") as f:

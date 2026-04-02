@@ -42,6 +42,93 @@ except ImportError:
     os.makedirs(DATA_DIR, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Forward Detection — extract original sender/subject/body from forwarded emails
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _extract_forwarded_original(subject, body, sender):
+    """For forwarded emails, extract the ORIGINAL sender, subject, and clean body.
+
+    When Mike forwards a buyer email to sales@, we need:
+    1. Original buyer's email (not Mike's)
+    2. Clean subject (strip Fwd:/FW: prefixes)
+    3. Clean body (strip forwarding headers and Mike's comments)
+
+    Returns: (original_sender, clean_subject, clean_body, was_forwarded)
+    """
+    was_forwarded = False
+    original_sender = sender  # default to actual sender
+    clean_subject = subject
+    clean_body = body
+
+    # Detect forward
+    fwd_signals = 0
+    if re.match(r'^(Fwd?|FW)\s*:', subject, re.IGNORECASE):
+        fwd_signals += 1
+        clean_subject = re.sub(r'^(Fwd?|FW)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
+
+    fwd_body_markers = [
+        r'---------- Forwarded message ---------',
+        r'----- Forwarded Message -----',
+        r'Begin forwarded message:',
+        r'-----Original Message-----',
+        r'_+\s*From:',  # Outlook style
+    ]
+    fwd_pos = -1
+    for marker in fwd_body_markers:
+        m = re.search(marker, body or "", re.IGNORECASE)
+        if m:
+            fwd_signals += 1
+            fwd_pos = m.start()
+            break
+
+    if fwd_signals >= 1:
+        was_forwarded = True
+
+        # Extract original sender from forwarded body
+        # Look for "From: Name <email@domain>" or "From: email@domain"
+        from_patterns = [
+            r'From:\s*[^<]*<([^>]+@[^>]+)>',  # From: Name <email@domain>
+            r'From:\s*(\S+@\S+\.\S+)',          # From: email@domain
+        ]
+        search_block = (body or "")[fwd_pos:] if fwd_pos >= 0 else (body or "")
+        for pat in from_patterns:
+            m = re.search(pat, search_block, re.IGNORECASE)
+            if m:
+                extracted = m.group(1).strip().lower()
+                # Don't use Mike's own email as "original sender"
+                if extracted and 'reytechinc.com' not in extracted and 'reytech' not in extracted:
+                    original_sender = extracted
+                    break
+
+        # Clean body — remove everything before the forwarded content
+        if fwd_pos >= 0 and body:
+            # Take content after the forward marker
+            after_marker = body[fwd_pos:]
+            # Skip the marker line and metadata lines (From:, Date:, Subject:, To:)
+            lines = after_marker.split('\n')
+            content_start = 0
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if i == 0:  # Skip the marker itself
+                    content_start = i + 1
+                    continue
+                if re.match(r'^(From|Date|Subject|To|Cc|Sent|Reply-To):\s', stripped, re.IGNORECASE):
+                    content_start = i + 1
+                    continue
+                if stripped == '':  # Skip blank lines after headers
+                    content_start = i + 1
+                    continue
+                break
+            clean_body = '\n'.join(lines[content_start:]).strip()
+
+    # Also strip nested Re:/Fwd: from subject
+    clean_subject = re.sub(r'^(Re:\s*)*', '', clean_subject, flags=re.IGNORECASE).strip()
+    # (caller will add Re: when actually replying)
+
+    return original_sender, clean_subject, clean_body, was_forwarded
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # RFQ Detection
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1943,14 +2030,22 @@ class EmailPoller:
                         pc_attachments = self._save_attachments(msg, pc_rfq_dir)
                         pc_attachments.extend(self._extract_forwarded_attachments(msg, pc_rfq_dir))
                         
+                        # Forward detection — extract original buyer sender
+                        _pc_orig_sender, _pc_clean_subj, _pc_clean_body, _pc_was_fwd = \
+                            _extract_forwarded_original(subject, body or "", sender_email_raw)
+                        if _pc_was_fwd:
+                            log.info("FORWARD detected (PC): original sender=%s, clean subject='%s'",
+                                     _pc_orig_sender, _pc_clean_subj[:50])
+
                         # Build minimal rfq_email dict for process_rfq_email's PC path
                         pc_email_info = {
                             "id": pc_rfq_id,
                             "email_uid": uid,
                             "message_id": msg.get("Message-ID", ""),
-                            "subject": subject,
+                            "subject": _pc_clean_subj if _pc_was_fwd else subject,
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
+                            "original_sender": _pc_orig_sender if _pc_was_fwd else (sender_email_raw or self._extract_email(sender)),
                             "date": msg.get("Date"),
                             "solicitation_hint": extract_solicitation_number(subject, body, pdf_names),
                             "attachments": pc_attachments,
@@ -2103,13 +2198,21 @@ class EmailPoller:
                             [a["filename"] for a in attachments]
                         )
                         
+                        # Forward detection — extract original buyer sender
+                        _rfq_orig_sender, _rfq_clean_subj, _rfq_clean_body, _rfq_was_fwd = \
+                            _extract_forwarded_original(subject, body or "", sender_email_raw)
+                        if _rfq_was_fwd:
+                            log.info("FORWARD detected (RFQ): original sender=%s, clean subject='%s'",
+                                     _rfq_orig_sender, _rfq_clean_subj[:50])
+
                         rfq_info = {
                             "id": rfq_id,
                             "email_uid": uid,
                             "message_id": msg.get("Message-ID", ""),
-                            "subject": subject,
+                            "subject": _rfq_clean_subj if _rfq_was_fwd else subject,
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
+                            "original_sender": _rfq_orig_sender if _rfq_was_fwd else (sender_email_raw or self._extract_email(sender)),
                             "date": msg["Date"],
                             "solicitation_hint": sol_num,
                             "attachments": attachments,

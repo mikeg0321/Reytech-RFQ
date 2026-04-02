@@ -2636,6 +2636,8 @@ def process_rfq_email(rfq_email):
                     if pc_id in pcs:
                         pcs[pc_id]["email_uid"] = email_uid
                         pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
+                        pcs[pc_id]["email_message_id"] = rfq_email.get("message_id", "")
+                        pcs[pc_id]["original_sender"] = rfq_email.get("original_sender") or rfq_email.get("sender_email", "")
                         pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
                         _save_single_pc(pc_id, pcs[pc_id])
                         _ensure_contact_from_email(rfq_email)
@@ -2939,6 +2941,7 @@ def process_rfq_email(rfq_email):
             "email_subject": rfq_email["subject"],
             "email_sender": rfq_email["sender_email"],
             "email_message_id": rfq_email.get("message_id", ""),
+            "original_sender": rfq_email.get("original_sender") or rfq_email.get("sender_email", ""),
             "requestor_name": _generic_result.get("requestor_name") or rfq_email["sender_email"],
             "requestor_email": _generic_result.get("requestor_email") or rfq_email["sender_email"],
             "due_date": _generic_result.get("due_date") or "TBD",
@@ -2989,6 +2992,7 @@ def process_rfq_email(rfq_email):
         rfq_data["email_subject"] = rfq_email["subject"]
         rfq_data["email_sender"] = rfq_email["sender_email"]
         rfq_data["email_message_id"] = rfq_email.get("message_id", "")
+        rfq_data["original_sender"] = rfq_email.get("original_sender") or rfq_email.get("sender_email", "")
         rfq_data["body_text"] = (rfq_email.get("body_text", rfq_email.get("body_preview", "")) or "")[:3000]
         rfq_data["requestor_name"] = rfq_data.get("requestor_name") or rfq_email.get("sender_email", "")
         rfq_data["requestor_email"] = rfq_data.get("requestor_email") or rfq_email.get("sender_email", "")

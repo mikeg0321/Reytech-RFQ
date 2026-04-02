@@ -2918,10 +2918,17 @@
      if(v.warnings.length>0){
       if(!confirm('Warnings:\n\n'+v.warnings.join('\n')+'\n\nSend anyway?')) return;
      }
-     var to=prompt('Send quote to:',{{(pc.get('requestor_email','')|tojson)}});
-     if(!to)return;
+     // Pre-fill with original buyer email (handles forwarded emails)
+     var buyerEmail = {{ (pc.get('original_sender', '') or pc.get('requestor_email', '') or pc.get('requestor', '') or '')|tojson }};
+     var origSubject = {{ (pc.get('email_subject', '') or '')|tojson }};
+     // Clean subject for reply — strip Re:/Fwd:/FW: prefixes
+     var cleanSubj = origSubject.replace(/^(Re:\s*|Fwd?:\s*|FW:\s*)*/gi, '').trim();
      var pcNum={{(pc.get('pc_number','')|tojson)}};
-     var subject=prompt('Subject:','Price Quote — '+pcNum);
+     var replySubject = cleanSubj ? 'Re: ' + cleanSubj : 'Price Quote — ' + pcNum;
+
+     var to=prompt('Send quote to:', buyerEmail);
+     if(!to)return;
+     var subject=prompt('Subject:', replySubject);
      if(subject===null)return;
      fetch('/api/pricecheck/'+_pcid+'/send-quote',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({to:to,subject:subject}),credentials:'same-origin'})
      .then(function(r){return r.json()}).then(function(d){

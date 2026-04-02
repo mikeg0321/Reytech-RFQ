@@ -2318,11 +2318,16 @@ function saveDraft(){
   form.submit();
 }
 
-// E8: Send Quote Email
+// E8: Send Quote Email — pre-fill with original buyer + reply subject
 function sendQuoteEmail(){
- var to=prompt('Send quote to:',{{r.get("requestor_email","")|tojson}});
+ var buyerEmail = {{ (r.get('original_sender', '') or r.get('requestor_email', '') or '')|tojson }};
+ var origSubject = {{ (r.get('email_subject', '') or '')|tojson }};
+ var cleanSubj = origSubject.replace(/^(Re:\s*|Fwd?:\s*|FW:\s*)*/gi, '').trim();
+ var solNum = {{ r.get('solicitation_number', '')|tojson }};
+ var replySubject = cleanSubj ? 'Re: ' + cleanSubj : 'Quote — Solicitation #' + solNum;
+ var to=prompt('Send quote to:', buyerEmail);
  if(!to)return;
- var subject=prompt('Subject:','Quote — Solicitation #{{ r.get("solicitation_number","")|tojson }}');
+ var subject=prompt('Subject:', replySubject);
  if(subject===null)return;
  fetch('/api/rfq/'+RID+'/send-quote',{
   method:'POST',

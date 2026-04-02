@@ -512,8 +512,16 @@ def send_quote_email(rid):
         return jsonify({"ok": False, "error": "RFQ not found"}), 404
 
     data = request.get_json(silent=True) or {}
-    to_email = data.get("to") or r.get("requestor_email", "")
-    subject = data.get("subject") or f"Quote — Solicitation #{r.get('solicitation_number', rid)}"
+    # Prefer original buyer email (from forwarded emails) over requestor fields
+    to_email = data.get("to") or r.get("original_sender") or r.get("requestor_email", "")
+    # Build reply subject from original email subject
+    import re as _re_subj
+    orig_subject = r.get("email_subject", "")
+    if orig_subject and not data.get("subject"):
+        clean_subj = _re_subj.sub(r'^(Re:\s*|Fwd?:\s*|FW:\s*)*', '', orig_subject, flags=_re_subj.IGNORECASE).strip()
+        subject = f"Re: {clean_subj}" if clean_subj else f"Quote — Solicitation #{r.get('solicitation_number', rid)}"
+    else:
+        subject = data.get("subject") or f"Quote — Solicitation #{r.get('solicitation_number', rid)}"
     body = data.get("body") or _default_quote_email_body(r)
     pdf_path = data.get("pdf_path") or ""
 
@@ -549,6 +557,12 @@ def send_quote_email(rid):
         msg["To"] = to_email
         msg["Subject"] = subject
         msg["Reply-To"] = gmail_user
+
+        # Threading — reply in buyer's email thread
+        email_message_id = r.get("email_message_id", "")
+        if email_message_id:
+            msg["In-Reply-To"] = email_message_id
+            msg["References"] = email_message_id
 
         # HTML body + inline logo in a 'related' sub-part
         msg_related = MIMEMultipart("related")

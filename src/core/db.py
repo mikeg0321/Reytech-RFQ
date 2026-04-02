@@ -1319,6 +1319,11 @@ def _migrate_columns():
         # ── data_json blob: stores full dict for lossless round-trip ──
         ("rfqs", "data_json", "TEXT"),
         ("price_checks", "data_json", "TEXT"),
+        # ── Email threading (reply-in-thread + forward handling) ──
+        ("price_checks", "email_message_id", "TEXT DEFAULT ''"),
+        ("price_checks", "original_sender", "TEXT DEFAULT ''"),
+        ("rfqs", "email_message_id", "TEXT DEFAULT ''"),
+        ("rfqs", "original_sender", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
