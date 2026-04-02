@@ -995,12 +995,31 @@ def _pricecheck_detail_inner(pcid):
     # Resolve existing generated PDF URLs for inline preview
     _existing_704_url = ""
     _existing_quote_url = ""
-    _op = pc.get("original_pdf") or pc.get("output_pdf") or ""
-    if _op and os.path.exists(_op):
-        _existing_704_url = f"/api/pricecheck/download/{os.path.basename(_op)}"
+    # Check stored paths first
+    for _op_key in ("output_pdf", "original_pdf"):
+        _op = pc.get(_op_key, "")
+        if _op and os.path.exists(_op):
+            _existing_704_url = f"/api/pricecheck/download/{os.path.basename(_op)}"
+            break
     _qp = pc.get("reytech_quote_pdf") or ""
     if _qp and os.path.exists(_qp):
         _existing_quote_url = f"/api/pricecheck/download/{os.path.basename(_qp)}"
+    # Fallback: scan DATA_DIR for matching PDFs by PC ID or number
+    if not _existing_704_url or not _existing_quote_url:
+        import re as _re_scan
+        _safe_num = _re_scan.sub(r'[^a-zA-Z0-9_-]', '_', (pc.get("pc_number", "") or pcid).strip())
+        try:
+            for _f in os.listdir(DATA_DIR):
+                if not _f.endswith(".pdf"):
+                    continue
+                if pcid in _f or _safe_num in _f:
+                    _dl = f"/api/pricecheck/download/{_f}"
+                    if "Reytech" in _f and not _existing_quote_url:
+                        _existing_quote_url = _dl
+                    elif not _existing_704_url:
+                        _existing_704_url = _dl
+        except Exception:
+            pass
 
     # SCPRS data staleness check
     _scprs_staleness = None
@@ -8721,21 +8740,42 @@ def api_pc_send_quote(pcid):
     if not to_email or "@" not in to_email:
         return jsonify({"ok": False, "error": "No valid recipient email"})
 
-    # Find the latest generated PDF
+    # Find the latest generated PDF — check ALL possible locations
     pdf_path = ""
     qn = pc.get("reytech_quote_number", "")
-    if qn:
-        import re as _re
-        safe = _re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
-        for candidate in [
+    import re as _re
+    safe = _re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+    safe_id = _re.sub(r'[^a-zA-Z0-9_-]', '_', pcid.strip())
+
+    # Priority 1: paths stored on the PC record
+    for stored_path in [pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", "")]:
+        if stored_path and os.path.exists(stored_path):
+            pdf_path = stored_path
+            break
+
+    # Priority 2: search by naming patterns
+    if not pdf_path:
+        candidates = [
             os.path.join(DATA_DIR, f"Quote_{safe}_Reytech.pdf"),
             os.path.join(DATA_DIR, f"PC_{safe}_Reytech.pdf"),
-        ]:
+            os.path.join(DATA_DIR, f"Quote_{safe}_{safe_id}_Reytech.pdf"),
+            os.path.join(DATA_DIR, f"PC_{safe}_{safe_id}_Reytech.pdf"),
+        ]
+        # Also search for any PDF with the PC ID in the filename
+        try:
+            for f in os.listdir(DATA_DIR):
+                if f.endswith(".pdf") and (pcid in f or safe in f) and "Reytech" in f:
+                    candidates.append(os.path.join(DATA_DIR, f))
+        except Exception:
+            pass
+        for candidate in candidates:
             if os.path.exists(candidate):
                 pdf_path = candidate
+                log.info("SEND: Found PDF at %s", os.path.basename(candidate))
                 break
+
+    # Priority 3: rfq_files DB
     if not pdf_path:
-        # Try rfq_files DB
         try:
             from src.api.dashboard import list_rfq_files, get_rfq_file
             files = list_rfq_files(pcid, category="generated")
@@ -8751,6 +8791,8 @@ def api_pc_send_quote(pcid):
             log.debug("Suppressed: %s", _e)
 
     if not pdf_path:
+        log.warning("SEND %s: No PDF found. output_pdf=%s, quote_pdf=%s, safe=%s",
+                     pcid, pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", ""), safe)
         return jsonify({"ok": False, "error": "No generated PDF found — generate first"})
 
     # Send via Gmail
