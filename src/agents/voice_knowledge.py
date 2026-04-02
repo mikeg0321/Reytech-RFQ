@@ -660,15 +660,18 @@ def _tool_check_order_status(params: dict) -> str:
                     return f"Order {row['id']}: {row['status']}, {row['items_count']} items, placed {(row['created_at'] or '')[:10]}."
         except Exception:
             pass
-    # JSON fallback
-    orders = _load("orders.json")
-    if isinstance(orders, dict):
-        for oid, order in orders.items():
-            if order_id.lower() in oid.lower() or order_id.lower() in order.get("po_number","").lower():
+    # SQLite fallback via DAL
+    try:
+        from src.core.dal import list_orders as _dal_lo
+        for order in _dal_lo(limit=5000):
+            oid = order.get("id", order.get("order_id", ""))
+            if order_id.lower() in oid.lower() or order_id.lower() in (order.get("po_number","") or "").lower():
                 status = order.get("status","unknown")
-                items = order.get("line_items",[])
+                items = order.get("line_items", order.get("items", []))
                 delivered = sum(1 for i in items if i.get("sourcing_status") == "delivered")
                 return f"Order {oid}: {status}. {delivered} of {len(items)} items delivered."
+    except Exception:
+        pass
     return f"No order matching {order_id} found."
 
 

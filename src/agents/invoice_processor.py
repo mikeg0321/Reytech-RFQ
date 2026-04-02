@@ -123,14 +123,73 @@ def poll_for_qb_invoices():
         return {"ok": False, "error": str(e)}
 
 
+def _load_orders_sqlite() -> dict:
+    """Load orders from SQLite (single source of truth)."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
+            ).fetchall()
+            result = {}
+            for row in rows:
+                d = dict(row)
+                oid = d.get("id", "")
+                if not oid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        full["order_id"] = full.get("order_id", oid)
+                        result[oid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                d["order_id"] = oid
+                result[oid] = d
+            return result
+    except Exception as e:
+        log.warning("_load_orders_sqlite failed: %s", e)
+        return {}
+
+
+def _save_single_order_sqlite(order_id, order):
+    """Save a single order to SQLite."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO orders
+                (id, quote_number, po_number, agency, institution,
+                 total, status, items, created_at, updated_at, data_json)
+                VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),?)
+            """, (
+                order_id,
+                order.get("quote_number", ""),
+                order.get("po_number", ""),
+                order.get("agency", ""),
+                order.get("institution", ""),
+                order.get("total", 0),
+                order.get("status", "new"),
+                json.dumps(order.get("line_items", order.get("items", [])), default=str),
+                order.get("created_at", ""),
+                json.dumps(order, default=str),
+            ))
+    except Exception as e:
+        log.error("_save_single_order_sqlite failed for %s: %s", order_id, e)
+
+
 def _find_order_by_invoice(inv_number: str) -> Optional[str]:
     """Find which order this QB invoice belongs to."""
     try:
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        if not os.path.exists(orders_path):
-            return None
-        with open(orders_path) as f:
-            orders = json.load(f)
+        orders = _load_orders_sqlite()
         for oid, order in orders.items():
             if order.get("qb_invoice_number") == inv_number:
                 return oid
@@ -155,9 +214,7 @@ def _enhance_invoice_pdf(raw_pdf_path: str, order_id: str, inv_number: str) -> s
         import io
 
         # Load order data for UOM + PO
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        with open(orders_path) as f:
-            orders = json.load(f)
+        orders = _load_orders_sqlite()
         order = orders.get(order_id, {})
         po_number = order.get("po_number", "") or order.get("invoice_po_number", "")
         uom_data = order.get("invoice_items_uom", [])
@@ -234,18 +291,14 @@ def _enhance_invoice_pdf(raw_pdf_path: str, order_id: str, inv_number: str) -> s
 def _update_order_invoice_status(order_id: str, raw_path: str, enhanced_path: str, inv_number: str):
     """Update order with invoice PDF paths and status."""
     try:
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        with open(orders_path) as f:
-            orders = json.load(f)
+        orders = _load_orders_sqlite()
         order = orders.get(order_id, {})
         order["invoice_pdf_raw"] = raw_path
         order["invoice_pdf_enhanced"] = enhanced_path
         order["invoice_pdf"] = enhanced_path  # For backward compat
         order["invoice_status"] = "ready_to_send"
         order["invoice_received_at"] = datetime.now().isoformat()
-        orders[order_id] = order
-        with open(orders_path, "w") as f:
-            json.dump(orders, f, indent=2, default=str)
+        _save_single_order_sqlite(order_id, order)
     except Exception as e:
         log.error("Order invoice status update error: %s", e)
 

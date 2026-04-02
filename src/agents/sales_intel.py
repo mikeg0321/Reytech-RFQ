@@ -567,20 +567,7 @@ def update_revenue_tracker() -> dict:
             orders_revenue = row["total"] if row else 0
     except Exception:
         pass
-    # Also check orders.json (primary source on Railway volume)
-    try:
-        orders_json_path = os.path.join(DATA_DIR, "orders.json")
-        if os.path.exists(orders_json_path):
-            with open(orders_json_path) as _f:
-                _json_orders = json.load(_f)
-            json_orders_rev = sum(o.get("total", 0) for o in _json_orders.values()
-                                  if o.get("status") not in ("cancelled", "test", "deleted")
-                                  and "TEST" not in (o.get("po_number", "") or "").upper()
-                                  and not o.get("is_test")
-                                  and o.get("total", 0) > 0)
-            orders_revenue = max(orders_revenue, json_orders_rev)
-    except Exception:
-        pass
+    # (orders.json fallback removed — SQLite is single source of truth)
     # ── End orders ──────────────────────────────────────────────
 
     # Pull from quotes (fallback)

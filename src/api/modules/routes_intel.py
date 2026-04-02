@@ -1238,7 +1238,7 @@ def api_debug_run():
     # 2. Data files
     data_files = {}
     for fname in ["quotes_log.json","crm_contacts.json","intel_buyers.json",
-                  "intel_agencies.json","quote_counter.json","orders.json"]:
+                  "intel_agencies.json","quote_counter.json"]:
         fp = os.path.join(DATA_DIR, fname)
         if os.path.exists(fp):
             try:
@@ -5528,17 +5528,15 @@ def api_data_sync_clean():
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
-    # 6. Clear orders
+    # 6. Clear orders (SQLite)
     try:
-        opath = os.path.join(DATA_DIR, "orders.json")
-        if os.path.exists(opath):
-            with open(opath) as f:
-                orders = json.load(f)
-            if isinstance(orders, dict) and len(orders) > 0:
-                report["actions"].append(f"Clear {len(orders)} orders")
+        from src.core.db import get_db
+        with get_db() as conn:
+            cnt = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
+            if cnt > 0:
+                report["actions"].append(f"Clear {cnt} orders from SQLite")
                 if not dry_run:
-                    with open(opath, "w") as f:
-                        json.dump({}, f, indent=2)
+                    conn.execute("DELETE FROM orders")
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
@@ -5742,7 +5740,6 @@ def api_competitor_price_intel():
 def api_agency_leaderboard():
     """Rank agencies by revenue, order count, and growth."""
     rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
-    orders_path = os.path.join(DATA_DIR, "orders.json")
     agencies = defaultdict(lambda: {"quotes": 0, "orders": 0, "revenue": 0, "rfqs": 0})
 
     try:
@@ -5756,8 +5753,7 @@ def api_agency_leaderboard():
     except Exception: pass
 
     try:
-        with open(orders_path) as f:
-            orders = json.load(f)
+        orders = _load_orders()
         for o in orders.values():
             agency = o.get("institution") or o.get("agency") or "Unknown"
             agencies[agency]["orders"] += 1

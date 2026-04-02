@@ -1037,7 +1037,7 @@ def api_metrics():
     
     # Data file sizes
     data_files = {}
-    for fname in ["rfqs.json","quotes_log.json","orders.json","crm_activity.json",
+    for fname in ["rfqs.json","quotes_log.json","crm_activity.json",
                   "crm_contacts.json","intel_buyers.json","intel_agencies.json",
                   "growth_prospects.json","scprs_prices.json"]:
         fpath = os.path.join(DATA_DIR, fname)
@@ -2728,8 +2728,7 @@ def _build_expansion_intel_v4():
     customers = _load_customers()
     pcs_path = os.path.join(DATA_DIR, "price_checks.json")
     pcs = _json.load(open(pcs_path)) if os.path.exists(pcs_path) else {}
-    orders_path = os.path.join(DATA_DIR, "orders.json")
-    orders = _json.load(open(orders_path)) if os.path.exists(orders_path) else {}
+    orders = _load_orders()
     crm = _crm_data
     crm_list = list(crm.values()) if isinstance(crm, dict) else crm
     mi_path = os.path.join(DATA_DIR, "market_intelligence.json")

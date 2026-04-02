@@ -62,6 +62,15 @@
       "body": "Hi [name],\n\nHere is our pricing for the items you requested. Quote [quote_number] is attached.\n\n[items_summary]\n\nTotal: [total] (tax included)\nValid through: [expiry_date]\nEstimated lead time: 5–7 business days from PO receipt\n\nWe're a CA-certified SB/DVBE, which can help satisfy your spend requirements. Let me know if you need any adjustments to quantities, descriptions, or payment terms.\n\nBest regards,\nMike Guadan | Reytech Inc.\nsales@reytechinc.com | 949-229-1575",
       "variables": ["name", "quote_number", "items_summary", "total", "expiry_date"],
       "tags": ["quote", "transaction"]
+    },
+    "quote_initial": {
+      "id": "quote_initial",
+      "name": "Price Quote — Initial Send",
+      "category": "transaction",
+      "subject": "Re: [subject]",
+      "body": "Dear [buyer_name],\n\nPlease find attached our pricing response for [pc_number].\n\n[item_summary]\n\nPricing is valid for 45 days from the date of this quote. Please don't hesitate to reach out with any questions.\n\nThank you for the opportunity.\n\nBest regards,\nMichael Guadan\nReytech Inc.\n(619) 985-8610\nmike@reytechinc.com",
+      "variables": ["buyer_name", "pc_number", "item_summary", "subject"],
+      "tags": ["quote", "transaction", "pc_send"]
     }
   }
 }

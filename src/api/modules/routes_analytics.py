@@ -4230,16 +4230,13 @@ def api_daily_wins():
     today = datetime.now().strftime("%Y-%m-%d")
     wins = []
 
-    orders_path = os.path.join(DATA_DIR, "orders.json")
-    if os.path.exists(orders_path):
-        try:
-            with open(orders_path) as f:
-                orders = json.load(f)
-            for oid, o in orders.items():
-                if o.get("created", "").startswith(today):
-                    wins.append({"type": "New Order", "detail": f"PO {o.get('po_number', oid)}",
-                                "value": o.get("total", 0), "time": o.get("created", "")})
-        except Exception: pass
+    try:
+        orders = _load_orders()
+        for oid, o in orders.items():
+            if (o.get("created_at") or o.get("created", "")).startswith(today):
+                wins.append({"type": "New Order", "detail": f"PO {o.get('po_number', oid)}",
+                            "value": o.get("total", 0), "time": o.get("created_at") or o.get("created", "")})
+    except Exception: pass
 
     wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
     if os.path.exists(wl_path):

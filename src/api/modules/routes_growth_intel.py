@@ -117,10 +117,8 @@ def _catalog_rebuild_from_history():
 
     # ── 3. Process all orders ──
     try:
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        if os.path.exists(orders_path):
-            with open(orders_path) as f:
-                orders = json.load(f)
+        orders = _load_orders()
+        if orders:
             order_list = orders.values() if isinstance(orders, dict) else orders
             for order in order_list:
                 agency = order.get("agency", "")

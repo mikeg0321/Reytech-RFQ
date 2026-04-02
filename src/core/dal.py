@@ -1045,6 +1045,15 @@ def get_order(order_id: str) -> dict | None:
             if not row:
                 return None
             d = dict(row)
+            # Prefer data_json blob for lossless round-trip
+            blob = d.pop("data_json", None)
+            if blob:
+                try:
+                    full = json.loads(blob)
+                    full["order_id"] = order_id
+                    return full
+                except (json.JSONDecodeError, TypeError):
+                    pass
             d["items"] = _safe_json(d.get("items"), [])
             return d
     except Exception as e:
@@ -1071,7 +1080,19 @@ def list_orders(status: str = None, limit: int = 500) -> list[dict]:
             result = []
             for r in rows:
                 d = dict(r)
+                oid = d.get("id", "")
+                # Prefer data_json blob for lossless round-trip
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        full["order_id"] = full.get("order_id", oid)
+                        result.append(full)
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 d["items"] = _safe_json(d.get("items"), [])
+                d["order_id"] = oid
                 result.append(d)
             return result
     except Exception as e:
@@ -1083,7 +1104,7 @@ def save_order(order: dict, actor: str = "system") -> bool:
     """Insert or update an order record.
     Input: order dict (must have 'id'), actor for audit
     Output: True on success.
-    Side effects: Writes to orders table.
+    Side effects: Writes to orders table with data_json blob.
     """
     order_id = order.get("id")
     if not order_id:
@@ -1095,20 +1116,22 @@ def save_order(order: dict, actor: str = "system") -> bool:
                 _snapshot_before_update("order", order_id, get_order)
             conn.execute("""
                 INSERT INTO orders (id, quote_number, agency, institution, po_number,
-                    po_date, status, total, items, notes, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                    po_date, status, total, items, notes, created_at, updated_at, data_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
                 ON CONFLICT(id) DO UPDATE SET
                     quote_number=excluded.quote_number, agency=excluded.agency,
                     institution=excluded.institution, po_number=excluded.po_number,
                     po_date=excluded.po_date, status=excluded.status,
                     total=excluded.total, items=excluded.items,
-                    notes=excluded.notes, updated_at=excluded.updated_at
+                    notes=excluded.notes, updated_at=excluded.updated_at,
+                    data_json=excluded.data_json
             """, (order_id, order.get("quote_number", ""), order.get("agency", ""),
                   order.get("institution", ""), order.get("po_number", ""),
                   order.get("po_date", ""), order.get("status", "new"),
                   order.get("total", 0),
-                  json.dumps(order.get("items", []), default=str),
-                  order.get("notes", ""), order.get("created_at", "")))
+                  json.dumps(order.get("items", order.get("line_items", [])), default=str),
+                  order.get("notes", ""), order.get("created_at", ""),
+                  json.dumps(order, default=str)))
         # Audit trail
         try:
             _audit("order", order_id, "create" if not _existing else "update", actor,

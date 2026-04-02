@@ -716,10 +716,8 @@ def api_dashboard_init():
 
         # ── Orders needing action ──
         try:
-            orders_path = os.path.join(DATA_DIR, "orders.json")
-            if os.path.exists(orders_path):
-                with open(orders_path) as f:
-                    all_orders = json.load(f)
+            all_orders = _load_orders()
+            if all_orders:
                 # Filter out test orders everywhere
                 real_orders = {k: o for k, o in all_orders.items()
                                if "TEST" not in (o.get("po_number", "") or "").upper()
@@ -802,20 +800,17 @@ def api_dashboard_init():
         except Exception:
             pass
 
-        # Include orders.json in won_value if orders exist without won quotes
+        # Include orders in won_value if orders exist without won quotes
         try:
-            orders_path = os.path.join(DATA_DIR, "orders.json")
-            if os.path.exists(orders_path):
-                with open(orders_path) as f:
-                    json_orders = json.load(f)
-                real_orders = {k: o for k, o in json_orders.items()
-                               if o.get("status") not in ("cancelled", "test", "deleted")
-                               and "TEST" not in (o.get("po_number", "") or "").upper()
-                               and not o.get("is_test")}
-                order_total = sum(o.get("total", 0) for o in real_orders.values())
-                orders_count = max(orders_count, len(real_orders))
-                if order_total > won_value:
-                    won_value = order_total
+            all_orders = _load_orders()
+            real_orders = {k: o for k, o in all_orders.items()
+                           if o.get("status") not in ("cancelled", "test", "deleted")
+                           and "TEST" not in (o.get("po_number", "") or "").upper()
+                           and not o.get("is_test")}
+            order_total = sum(o.get("total", 0) for o in real_orders.values())
+            orders_count = max(orders_count, len(real_orders))
+            if order_total > won_value:
+                won_value = order_total
         except Exception:
             pass
 
@@ -850,18 +845,15 @@ def api_dashboard_init():
             total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
             total_revenue = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
             pipeline = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('pending','sent')").fetchone()[0]
-        # Also include orders.json revenue (POs may exist without won quotes)
+        # Also include orders revenue (POs may exist without won quotes)
         try:
-            orders_path = os.path.join(DATA_DIR, "orders.json")
-            if os.path.exists(orders_path):
-                with open(orders_path) as f:
-                    json_orders = json.load(f)
-                order_revenue = sum(o.get("total", 0) for o in json_orders.values()
-                                   if o.get("status") not in ("cancelled", "test", "deleted")
-                                   and "TEST" not in (o.get("po_number", "") or "").upper()
-                                   and not o.get("is_test"))
-                if order_revenue > total_revenue:
-                    total_revenue = order_revenue
+            all_orders = _load_orders()
+            order_revenue = sum(o.get("total", 0) for o in all_orders.values()
+                               if o.get("status") not in ("cancelled", "test", "deleted")
+                               and "TEST" not in (o.get("po_number", "") or "").upper()
+                               and not o.get("is_test"))
+            if order_revenue > total_revenue:
+                total_revenue = order_revenue
         except Exception:
             pass
         result["metrics"] = {"ok": True, "total_quotes": total_quotes, "total_revenue": total_revenue, "pipeline": pipeline}
@@ -1018,13 +1010,9 @@ def api_activity_feed():
 
     # 3) Recent orders
     try:
-        from src.core.paths import data_path
-        import json
-        op = data_path("orders.json")
-        if op.exists():
-            orders = json.loads(op.read_text())
-            if isinstance(orders, dict):
-                orders = list(orders.values())
+        all_orders = _load_orders()
+        if True:
+            orders = list(all_orders.values())
             for o in sorted(orders, key=lambda x: x.get("updated_at") or x.get("created_at", ""), reverse=True)[:limit]:
                 events.append({
                     "ts": o.get("updated_at") or o.get("created_at", ""),

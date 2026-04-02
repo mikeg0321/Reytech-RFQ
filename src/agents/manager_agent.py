@@ -478,7 +478,12 @@ def _get_pipeline_summary() -> dict:
         outbox = dal_outbox()
     except Exception:
         outbox = get_outbox() if _HAS_DB_DAL else _load_json("email_outbox.json", [])
-    orders = _load_json("orders.json", {})
+    try:
+        from src.core.dal import list_orders as _dal_list_orders
+        _order_list = _dal_list_orders(limit=5000)
+        orders = {o.get("id", o.get("order_id", "")): o for o in _order_list}
+    except Exception:
+        orders = {}
     live_orders = {k: v for k, v in (orders.items() if isinstance(orders, dict) else [])}
 
     pc_by_status = defaultdict(int)

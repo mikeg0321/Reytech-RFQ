@@ -8139,16 +8139,19 @@ def api_db_rebuild():
         except Exception as e:
             steps.append(f"RFQ import error: {e}")
     
-    # Orders
+    # Orders — migrate from JSON if not yet done
     orders_json = os.path.join(_DD, "orders.json")
     if os.path.exists(orders_json):
         try:
             with open(orders_json) as f:
                 orders = json.load(f)
-            from src.api.dashboard import _save_orders
-            _save_orders(orders)
+            from src.api.dashboard import _save_single_order
+            for oid, o in orders.items():
+                _save_single_order(oid, o)
             imported["orders"] = len(orders)
-            steps.append(f"Imported {len(orders)} orders from JSON")
+            steps.append(f"Imported {len(orders)} orders from JSON to SQLite")
+            import os as _os2
+            _os2.rename(orders_json, orders_json + ".migrated")
         except Exception as e:
             steps.append(f"Orders import error: {e}")
     
@@ -8525,6 +8528,87 @@ def api_bulk_scrape_urls(pcid):
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
+def _resolve_buyer_name(pc, buyer_email):
+    """Resolve buyer display name from CRM contacts, falling back to email parse."""
+    buyer_name = ""
+    # Try CRM lookup first
+    if buyer_email:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT buyer_name FROM contacts WHERE LOWER(buyer_email)=LOWER(?) LIMIT 1",
+                    (buyer_email,)
+                ).fetchone()
+                if row and row[0]:
+                    # buyer_name may be "Last, First" or "First Last"
+                    raw = row[0].strip()
+                    if "," in raw:
+                        parts = raw.split(",", 1)
+                        buyer_name = parts[1].strip()  # First name from "Last, First"
+                    else:
+                        buyer_name = raw.split()[0]  # First name from "First Last"
+        except Exception:
+            pass
+    # Fallback: parse from requestor field
+    if not buyer_name:
+        requestor = pc.get("original_sender", "") or pc.get("requestor", "")
+        if "@" in requestor:
+            buyer_name = requestor.split("@")[0].replace(".", " ").title()
+        elif requestor:
+            buyer_name = requestor.split()[0] if " " in requestor else requestor
+    return buyer_name or "Team"
+
+
+def _build_item_summary(pc, max_items=5):
+    """Build a short text summary of quote line items for email body."""
+    items = pc.get("items", [])
+    lines = []
+    for it in items[:max_items]:
+        if it.get("no_bid"):
+            continue
+        desc = (it.get("description") or "")[:50]
+        price = it.get("unit_price") or 0
+        if not price:
+            pricing = it.get("pricing") or {}
+            price = pricing.get("recommended_price") or pricing.get("bid_price") or 0
+        qty = it.get("qty", 1)
+        if desc:
+            try:
+                lines.append(f"  - {desc} — Qty {qty} @ ${float(price):.2f}")
+            except (ValueError, TypeError):
+                lines.append(f"  - {desc} — Qty {qty}")
+    if len(items) > max_items:
+        remaining = len(items) - max_items
+        lines.append(f"  ... and {remaining} more item{'s' if remaining != 1 else ''}")
+    return "\n".join(lines)
+
+
+def _build_pc_quote_email_body(pc, pcid, buyer_email):
+    """Build a personalized quote email body using template + CRM data."""
+    buyer_name = _resolve_buyer_name(pc, buyer_email)
+    pc_number = pc.get("pc_number") or pc.get("reytech_quote_number") or pcid
+    item_summary = _build_item_summary(pc)
+
+    body = (
+        f"Dear {buyer_name},\n\n"
+        f"Please find attached our pricing response for {pc_number}.\n\n"
+    )
+    if item_summary:
+        body += f"{item_summary}\n\n"
+    body += (
+        "Pricing is valid for 45 days from the date of this quote. "
+        "Please don't hesitate to reach out with any questions.\n\n"
+        "Thank you for the opportunity.\n\n"
+        "Best regards,\n"
+        "Michael Guadan\n"
+        "Reytech Inc.\n"
+        "(619) 985-8610\n"
+        "mike@reytechinc.com"
+    )
+    return body
+
+
 @bp.route("/api/pricecheck/<pcid>/send-quote", methods=["POST"])
 @auth_required
 def api_pc_send_quote(pcid):
@@ -8546,7 +8630,7 @@ def api_pc_send_quote(pcid):
         subject = f"Re: {clean_subj}" if clean_subj else f"Price Quote — {pc_num}"
     else:
         subject = data.get("subject") or f"Price Quote — {pc_num}"
-    body_text = data.get("body") or f"Please find attached our price quote for {pc_num}.\n\nThank you,\nReytech Inc."
+    body_text = data.get("body") or _build_pc_quote_email_body(pc, pcid, to_email)
 
     if not to_email or "@" not in to_email:
         return jsonify({"ok": False, "error": "No valid recipient email"})
@@ -8638,6 +8722,19 @@ def api_pc_send_quote(pcid):
     except Exception as e:
         log.error("PC send-quote: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)[:200]})
+
+
+@bp.route("/api/pricecheck/<pcid>/email-preview", methods=["GET"])
+@auth_required
+def api_pc_email_preview(pcid):
+    """Return pre-built email body for the send-quote dialog."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    buyer_email = pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
+    body = _build_pc_quote_email_body(pc, pcid, buyer_email)
+    return jsonify({"ok": True, "body": body})
 
 
 @bp.route("/api/pricecheck/<pcid>/duplicate", methods=["POST"])

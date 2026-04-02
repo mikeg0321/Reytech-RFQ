@@ -521,7 +521,7 @@ def _check_data_integrity() -> list:
     results = []
     json_files = [
         "quotes_log.json", "customers.json", "leads.json",
-        "rfqs.json", "orders.json", "crm_activity.json",
+        "rfqs.json", "crm_activity.json",
         "voice_campaigns.json", "competitor_intel.json",
     ]
     for fname in json_files:
@@ -783,18 +783,22 @@ def _check_sales_metrics() -> list:
 
     # ── 4. Orders ↔ Quotes consistency ──
     try:
-        with open(os.path.join(DATA_DIR, "orders.json")) as f:
-            orders = json.load(f)
+        from src.core.dal import list_orders as _dal_lo
+        _order_list = _dal_lo(limit=5000)
+        orders = {o.get("id", o.get("order_id", "")): o for o in _order_list}
         if isinstance(orders, dict):
             live_orders = {k: v for k, v in orders.items() if not v.get("is_test")}
             orphan = 0
             for oid, o in live_orders.items():
                 qn = o.get("quote_number") or o.get("quote_ref")
                 if qn:
-                    with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
-                        qs = json.load(f)
-                    if not any(q.get("quote_number") == qn for q in qs):
-                        orphan += 1
+                    try:
+                        with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
+                            qs = json.load(f)
+                        if not any(q.get("quote_number") == qn for q in qs):
+                            orphan += 1
+                    except Exception:
+                        pass
             if orphan:
                 results.append({"check": "sales", "status": "warn",
                                 "message": f"{orphan} orders reference missing quotes",
@@ -802,10 +806,8 @@ def _check_sales_metrics() -> list:
             else:
                 results.append({"check": "sales", "status": "pass",
                                 "message": f"{len(live_orders)} orders, all quote refs valid"})
-    except FileNotFoundError:
-        results.append({"check": "sales", "status": "info", "message": "No orders yet"})
     except Exception:
-        pass
+        results.append({"check": "sales", "status": "info", "message": "Orders check skipped"})
 
     return results
 

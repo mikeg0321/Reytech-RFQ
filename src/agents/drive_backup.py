@@ -161,7 +161,7 @@ def check_and_restore() -> dict:
         return {"restored": False, "reason": "Drive not configured"}
 
     # Check if local data exists
-    essential_files = ["rfqs.json", "orders.json"]
+    essential_files = ["rfqs.json", "reytech.db"]
     has_data = any(
         os.path.exists(os.path.join(DATA_DIR, f)) and
         os.path.getsize(os.path.join(DATA_DIR, f)) > 10

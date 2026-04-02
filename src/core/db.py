@@ -1319,6 +1319,7 @@ def _migrate_columns():
         # ── data_json blob: stores full dict for lossless round-trip ──
         ("rfqs", "data_json", "TEXT"),
         ("price_checks", "data_json", "TEXT"),
+        ("orders", "data_json", "TEXT"),
         # ── Email threading (reply-in-thread + forward handling) ──
         ("price_checks", "email_message_id", "TEXT DEFAULT ''"),
         ("price_checks", "original_sender", "TEXT DEFAULT ''"),
@@ -1368,23 +1369,7 @@ def _migrate_columns():
     except Exception as e:
         log.debug("Test data cleanup: %s", e)
 
-    # ── Cleanup: remove test orders from orders.json ──
-    try:
-        import json as _jc
-        orders_json = os.path.join(os.path.dirname(DB_PATH), "orders.json")
-        if os.path.exists(orders_json):
-            with open(orders_json) as _f:
-                _orders = _jc.load(_f)
-            before = len(_orders)
-            _orders = {k: v for k, v in _orders.items()
-                       if "TEST" not in (v.get("po_number", "") or "").upper()
-                       and not v.get("is_test")}
-            if len(_orders) < before:
-                with open(orders_json, "w") as _f:
-                    _jc.dump(_orders, _f, indent=2)
-                log.info("Cleaned %d test orders from orders.json", before - len(_orders))
-    except Exception as e:
-        log.debug("orders.json cleanup: %s", e)
+    # (orders.json cleanup removed — SQLite is single source of truth)
 
 
 def _reconcile_quotes_json():
@@ -2168,26 +2153,33 @@ def _fix_data_on_boot():
                 """, (d["quote_number"], d["quote_number"]))
                 fixes.append(f"cleaned {d['c']-1} dupes for {d['quote_number']}")
 
-            # Fix 2: Sync orders.json → SQLite
+            # Fix 2: One-time migration of orders.json → SQLite (if not yet migrated)
             orders_path = os.path.join(DATA_DIR, "orders.json")
             if os.path.exists(orders_path):
                 try:
                     with open(orders_path) as f:
                         json_orders = json.load(f)
+                    migrated = 0
                     for oid, o in json_orders.items():
                         exists = conn.execute("SELECT id FROM orders WHERE id=?", (oid,)).fetchone()
                         if not exists:
                             conn.execute("""
                                 INSERT OR IGNORE INTO orders
                                 (id, quote_number, po_number, agency, institution,
-                                 total, status, items, created_at, updated_at)
-                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 total, status, items, created_at, updated_at, data_json)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """, (oid, o.get("quote_number", ""), o.get("po_number", ""),
                                   o.get("agency", ""), o.get("institution", o.get("customer", "")),
                                   o.get("total", 0), o.get("status", "new"),
                                   json.dumps(o.get("line_items", [])),
-                                  o.get("created_at", ""), datetime.now().isoformat()))
-                            fixes.append(f"synced order {oid}")
+                                  o.get("created_at", ""), datetime.now().isoformat(),
+                                  json.dumps(o, default=str)))
+                            migrated += 1
+                    if migrated:
+                        fixes.append(f"migrated {migrated} orders from JSON")
+                    # Rename to .migrated so we don't re-read on next boot
+                    os.rename(orders_path, orders_path + ".migrated")
+                    fixes.append("renamed orders.json to orders.json.migrated")
                 except Exception:
                     pass
 

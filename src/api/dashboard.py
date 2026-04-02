@@ -1285,10 +1285,14 @@ def _load_price_checks(include_items=True):
         if "line_items" in pc and "items" not in pc:
             pc["items"] = list(pc["line_items"])  # shallow copy to prevent aliasing
 
-    # Only cache full results (with items)
-    if include_items:
+    # Only cache full results (with items) if reasonable size (prevent OOM)
+    if include_items and len(data) < 500:
         _pc_cache = data
         _pc_cache_time = _t.time()
+    elif include_items:
+        log.warning("PC cache skipped: %d records exceeds 500 limit", len(data))
+        _pc_cache = None
+        _pc_cache_time = 0
     return data
 
 def _save_single_pc(pc_id, pc):
@@ -2150,9 +2154,7 @@ def _check_delivery_status(email_data, track_result):
     # Also try to match by tracking number in existing orders
     if not matched_orders and tracking_numbers:
         try:
-            orders_path = os.path.join(DATA_DIR, "orders.json")
-            with open(orders_path) as f:
-                orders = json.load(f)
+            orders = _load_orders()
             for oid, order in orders.items():
                 if order.get("status") in ("cancelled", "deleted", "closed"):
                     continue
@@ -2162,16 +2164,14 @@ def _check_delivery_status(email_data, track_result):
                             matched_orders.append(oid)
         except Exception:
             pass
-    
+
     if not matched_orders:
         return
-    
+
     # Update matched items from shipped → delivered
     try:
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        with open(orders_path) as f:
-            orders = json.load(f)
-        
+        orders = _load_orders()
+
         updated = 0
         for oid in matched_orders:
             order = orders.get(oid)
@@ -2185,7 +2185,7 @@ def _check_delivery_status(email_data, track_result):
                         it["sourcing_status"] = "delivered"
                         it["delivered_at"] = datetime.now().isoformat()
                         updated += 1
-            
+
             # Update order-level status if all items delivered
             all_delivered = all(
                 i.get("sourcing_status") == "delivered"
@@ -2195,14 +2195,12 @@ def _check_delivery_status(email_data, track_result):
                 order["status"] = "delivered"
             elif updated > 0:
                 order["status"] = "partial_delivery"
-            
+
             order["updated_at"] = datetime.now().isoformat()
-            orders[oid] = order
-        
+            _save_single_order(oid, order)
+
         if updated > 0:
-            with open(orders_path, "w") as f:
-                json.dump(orders, f, indent=2, default=str)
-            log.info("Delivery detected: %d items marked delivered across %d orders", 
+            log.info("Delivery detected: %d items marked delivered across %d orders",
                      updated, len(matched_orders))
     except Exception as e:
         log.error("Delivery status update failed: %s", e)
@@ -3796,53 +3794,93 @@ def _find_quote(quote_number: str) -> dict:
 
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
-def _load_orders() -> dict:
-    """Load orders — DAL (SQLite) primary, JSON fallback."""
+def _save_single_order(order_id, order):
+    """Save a single order to SQLite (single source of truth)."""
     try:
-        from src.core.dal import list_orders as _dal_list
-        rows = _dal_list(limit=10000)
-        if rows:
-            result = {}
-            for r in rows:
-                oid = r.get("id", r.get("order_id", ""))
-                r["order_id"] = oid  # ensure order_id always present
-                result[oid] = r
-            return result
-    except Exception as e:
-        log.warning("DAL list_orders failed, falling back to JSON: %s", str(e)[:200])
-    return _cached_json_load(ORDERS_FILE, fallback={})
-
-def _save_orders(orders: dict):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(ORDERS_FILE, "w") as f:
-        json.dump(orders, f, indent=2, default=str)
-    _invalidate_cache(ORDERS_FILE)
-    # ── Sync to SQLite ───────────────────────────────────────────
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            for oid, o in orders.items():
-                items_json = json.dumps(o.get("line_items", []))
+        from src.core.db import get_db, db_retry
+        def _do():
+            with get_db() as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO orders
                     (id, quote_number, po_number, agency, institution,
-                     total, status, items, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     total, status, items, created_at, updated_at, data_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),?)
                 """, (
-                    oid,
-                    o.get("quote_number", ""),
-                    o.get("po_number", ""),
-                    o.get("agency", ""),
-                    o.get("institution", o.get("customer", "")),
-                    o.get("total", 0),
-                    o.get("status", "new"),
-                    items_json,
-                    o.get("created_at", ""),
-                    datetime.now().isoformat(),
+                    order_id,
+                    order.get("quote_number", ""),
+                    order.get("po_number", ""),
+                    order.get("agency", ""),
+                    order.get("institution", order.get("customer", "")),
+                    order.get("total", 0),
+                    order.get("status", "new"),
+                    json.dumps(order.get("line_items", order.get("items", [])), default=str),
+                    order.get("created_at", ""),
+                    json.dumps(order, default=str),
                 ))
-    except Exception as _e:
-        log.debug("Suppressed: %s", _e)
-    # ── End sync ─────────────────────────────────────────────────
+        db_retry(_do, max_retries=3, delay=1.0)
+    except Exception as e:
+        log.error("_save_single_order failed for %s: %s", order_id, e)
+
+def _load_orders() -> dict:
+    """Load orders — SQLite only (single source of truth)."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
+            ).fetchall()
+            result = {}
+            for row in rows:
+                d = dict(row)
+                oid = d.get("id", "")
+                if not oid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        full["order_id"] = full.get("order_id", oid)
+                        result[oid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # Structured columns fallback
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                d["order_id"] = oid
+                result[oid] = d
+            if result:
+                return result
+    except Exception as e:
+        log.warning("load_orders SQLite failed: %s", e)
+
+    # One-time migration from JSON
+    json_path = os.path.join(DATA_DIR, "orders.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path) as f:
+                data = json.load(f)
+            if data:
+                log.info("MIGRATION: Importing %d orders from JSON to SQLite", len(data))
+                for oid, order in data.items():
+                    try:
+                        _save_single_order(oid, order)
+                    except Exception:
+                        pass
+                os.rename(json_path, json_path + ".migrated")
+                return data
+        except Exception as e:
+            log.warning("Orders JSON migration failed: %s", e)
+    return {}
+
+def _save_orders(orders: dict):
+    """Save all orders to SQLite (single source of truth). No JSON write."""
+    for oid, o in orders.items():
+        _save_single_order(oid, o)
 
 def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
     """Create an order when a quote is won."""

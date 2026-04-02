@@ -25,7 +25,6 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
 
-ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 DIGEST_STATE_FILE = os.path.join(DATA_DIR, "order_digest_state.json")
 
 
@@ -34,10 +33,39 @@ DIGEST_STATE_FILE = os.path.join(DATA_DIR, "order_digest_state.json")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_orders() -> dict:
+    """Load orders from SQLite (single source of truth)."""
     try:
-        with open(ORDERS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
+            ).fetchall()
+            result = {}
+            for row in rows:
+                d = dict(row)
+                oid = d.get("id", "")
+                if not oid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        full["order_id"] = full.get("order_id", oid)
+                        result[oid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                d["order_id"] = oid
+                result[oid] = d
+            return result
+    except Exception as e:
+        log.warning("_load_orders SQLite failed: %s", e)
         return {}
 
 

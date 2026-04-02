@@ -1861,58 +1861,55 @@ def api_test_sms():
 @auth_required
 def api_orders_diagnostic():
     """Full diagnostic of all order data sources.
-    Shows: orders.json, DB orders, what shows as urgent, and why.
+    Shows: SQLite orders, DB orders via DAL, what shows as urgent, and why.
     """
     import json
-    results = {"ok": True, "orders_json": [], "db_orders": [], "urgent_analysis": []}
+    results = {"ok": True, "orders_sqlite": [], "db_orders": [], "urgent_analysis": []}
 
-    # 1. orders.json
+    # 1. SQLite orders (single source of truth)
     try:
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        if os.path.exists(orders_path):
-            with open(orders_path) as f:
-                all_orders = json.load(f)
-            for oid, o in all_orders.items():
-                items = o.get("line_items", [])
-                has_real_items = any(
-                    (li.get("description", "") or "").strip() or (li.get("part_number", "") or "").strip()
-                    for li in items
-                )
-                entry = {
-                    "order_id": oid,
-                    "status": o.get("status"),
-                    "total": o.get("total", 0),
-                    "po_number": o.get("po_number"),
-                    "quote_number": o.get("quote_number"),
-                    "institution": o.get("institution"),
-                    "source": o.get("source", ""),
-                    "line_items_count": len(items),
-                    "has_real_items": has_real_items,
-                    "is_test": o.get("is_test"),
-                    "created_at": o.get("created_at"),
-                }
-                results["orders_json"].append(entry)
+        all_orders = _load_orders()
+        for oid, o in all_orders.items():
+            items = o.get("line_items", [])
+            has_real_items = any(
+                (li.get("description", "") or "").strip() or (li.get("part_number", "") or "").strip()
+                for li in items
+            )
+            entry = {
+                "order_id": oid,
+                "status": o.get("status"),
+                "total": o.get("total", 0),
+                "po_number": o.get("po_number"),
+                "quote_number": o.get("quote_number"),
+                "institution": o.get("institution"),
+                "source": o.get("source", ""),
+                "line_items_count": len(items),
+                "has_real_items": has_real_items,
+                "is_test": o.get("is_test"),
+                "created_at": o.get("created_at"),
+            }
+            results["orders_sqlite"].append(entry)
 
-                # Urgent analysis
-                if o.get("status") == "new":
-                    is_test = ("TEST" in (o.get("po_number", "") or "").upper() or o.get("is_test"))
-                    is_phantom = not has_real_items and (o.get("total", 0) or 0) == 0
-                    shows_urgent = not is_test and not is_phantom and \
-                                   o.get("status") not in ("cancelled", "test", "deleted")
-                    results["urgent_analysis"].append({
-                        "order_id": oid,
-                        "total": o.get("total", 0),
-                        "has_real_items": has_real_items,
-                        "is_test": is_test,
-                        "is_phantom": is_phantom,
-                        "would_show_urgent": shows_urgent,
-                        "reason": "SHOWS" if shows_urgent else
-                                  ("filtered: test" if is_test else
-                                   "filtered: phantom ($0 + no items)" if is_phantom else
-                                   "filtered: status"),
-                    })
+            # Urgent analysis
+            if o.get("status") == "new":
+                is_test = ("TEST" in (o.get("po_number", "") or "").upper() or o.get("is_test"))
+                is_phantom = not has_real_items and (o.get("total", 0) or 0) == 0
+                shows_urgent = not is_test and not is_phantom and \
+                               o.get("status") not in ("cancelled", "test", "deleted")
+                results["urgent_analysis"].append({
+                    "order_id": oid,
+                    "total": o.get("total", 0),
+                    "has_real_items": has_real_items,
+                    "is_test": is_test,
+                    "is_phantom": is_phantom,
+                    "would_show_urgent": shows_urgent,
+                    "reason": "SHOWS" if shows_urgent else
+                              ("filtered: test" if is_test else
+                               "filtered: phantom ($0 + no items)" if is_phantom else
+                               "filtered: status"),
+                })
     except Exception as e:
-        results["orders_json_error"] = str(e)
+        results["orders_sqlite_error"] = str(e)
 
     # 2. DB orders via DAL
     try:
@@ -1929,7 +1926,7 @@ def api_orders_diagnostic():
         results["db_orders_error"] = str(e)
 
     results["summary"] = {
-        "total_orders_json": len(results["orders_json"]),
+        "total_orders_sqlite": len(results["orders_sqlite"]),
         "total_db_orders": len(results["db_orders"]),
         "showing_urgent": sum(1 for a in results["urgent_analysis"] if a["would_show_urgent"]),
         "filtered_phantom": sum(1 for a in results["urgent_analysis"] if a.get("is_phantom")),
@@ -2234,7 +2231,6 @@ def api_quote_to_cash():
     """Quote-to-cash pipeline: track RFQs from quote through order to payment."""
     try:
         rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
-        orders_path = os.path.join(DATA_DIR, "orders.json")
 
         try:
             with open(rfqs_path) as f:
@@ -2242,11 +2238,7 @@ def api_quote_to_cash():
         except Exception:
             rfqs = {}
 
-        try:
-            with open(orders_path) as f:
-                orders = json.load(f)
-        except Exception:
-            orders = {}
+        orders = _load_orders()
 
         stages = {
             "draft": [], "priced": [], "sent": [],
@@ -2403,12 +2395,7 @@ def api_pipeline_revenue_goal():
         q_month = ((now.month - 1) // 3) * 3 + 1
         quarter_start = now.replace(month=q_month, day=1).strftime("%Y-%m-%d")
 
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-        try:
-            with open(orders_path) as f:
-                orders = json.load(f)
-        except Exception:
-            orders = {}
+        orders = _load_orders()
 
         monthly_rev = 0.0
         quarterly_rev = 0.0
@@ -2501,7 +2488,6 @@ def api_avg_deal_size():
     """Calculate average deal size from won quotes and orders."""
     try:
         rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
-        orders_path = os.path.join(DATA_DIR, "orders.json")
         amounts = []
 
         try:
@@ -2516,8 +2502,7 @@ def api_avg_deal_size():
             pass
 
         try:
-            with open(orders_path) as f:
-                orders = json.load(f)
+            orders = _load_orders()
             for o in orders.values():
                 total = o.get("total", 0)
                 if isinstance(total, (int, float)) and total > 0:
@@ -2548,19 +2533,13 @@ def api_pipeline_daily_summary():
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
-        orders_path = os.path.join(DATA_DIR, "orders.json")
-
         try:
             with open(rfqs_path) as f:
                 rfqs = json.load(f)
         except Exception:
             rfqs = {}
 
-        try:
-            with open(orders_path) as f:
-                orders = json.load(f)
-        except Exception:
-            orders = {}
+        orders = _load_orders()
 
         new_today = [r for r in rfqs.values() if (r.get("created") or r.get("received_date") or "")[:10] == today]
         sent_today = [r for r in rfqs.values() if (r.get("sent_date") or "")[:10] == today]
@@ -2652,7 +2631,6 @@ def api_pipeline_weekly_summary():
         week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%d")
 
         rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
-        orders_path = os.path.join(DATA_DIR, "orders.json")
 
         try:
             with open(rfqs_path) as f:
@@ -2660,11 +2638,7 @@ def api_pipeline_weekly_summary():
         except Exception:
             rfqs = {}
 
-        try:
-            with open(orders_path) as f:
-                orders = json.load(f)
-        except Exception:
-            orders = {}
+        orders = _load_orders()
 
         new_rfqs = [r for r in rfqs.values()
                     if (r.get("created") or r.get("received_date") or "")[:10] >= week_ago]
@@ -2694,7 +2668,6 @@ def api_po_match():
     """Match POs to quotes — find orders that reference known RFQ IDs."""
     try:
         rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
-        orders_path = os.path.join(DATA_DIR, "orders.json")
 
         try:
             with open(rfqs_path) as f:
@@ -2702,11 +2675,7 @@ def api_po_match():
         except Exception:
             rfqs = {}
 
-        try:
-            with open(orders_path) as f:
-                orders = json.load(f)
-        except Exception:
-            orders = {}
+        orders = _load_orders()
 
         matched = []
         unmatched_orders = []

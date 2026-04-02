@@ -30,22 +30,86 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
 
-ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 
 
 def _load_orders():
+    """Load orders from SQLite (single source of truth).
+    Uses the dashboard _load_orders via exec() namespace if available,
+    otherwise falls back to direct SQLite read."""
+    # Try the shared _load_orders from dashboard.py (injected via exec())
+    import sys
+    _dash = sys.modules.get("src.api.dashboard")
+    if _dash and hasattr(_dash, "_load_orders"):
+        return _dash._load_orders()
+    # Direct SQLite fallback
     try:
-        with open(ORDERS_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
+            ).fetchall()
+            result = {}
+            for row in rows:
+                d = dict(row)
+                oid = d.get("id", "")
+                if not oid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        full["order_id"] = full.get("order_id", oid)
+                        result[oid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                d["order_id"] = oid
+                result[oid] = d
+            return result
+    except Exception as e:
+        log.warning("_load_orders SQLite failed: %s", e)
         return {}
 
 
 def _save_orders(orders):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(ORDERS_FILE, "w") as f:
-        json.dump(orders, f, indent=2, default=str)
+    """Save orders to SQLite (single source of truth). No JSON write."""
+    import sys
+    _dash = sys.modules.get("src.api.dashboard")
+    if _dash and hasattr(_dash, "_save_single_order"):
+        for oid, o in orders.items():
+            _dash._save_single_order(oid, o)
+        return
+    # Direct SQLite fallback
+    try:
+        from src.core.db import get_db
+        for oid, o in orders.items():
+            with get_db() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO orders
+                    (id, quote_number, po_number, agency, institution,
+                     total, status, items, created_at, updated_at, data_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                """, (
+                    oid,
+                    o.get("quote_number", ""),
+                    o.get("po_number", ""),
+                    o.get("agency", ""),
+                    o.get("institution", ""),
+                    o.get("total", 0),
+                    o.get("status", "new"),
+                    json.dumps(o.get("line_items", o.get("items", [])), default=str),
+                    o.get("created_at", ""),
+                    json.dumps(o, default=str),
+                ))
+    except Exception as e:
+        log.error("_save_orders SQLite failed: %s", e)
 
 
 @bp.route("/api/order/<oid>/delivery-update", methods=["POST"])
