@@ -1519,42 +1519,74 @@ class EmailPoller:
                                 except (FileNotFoundError, _json.JSONDecodeError):
                                     pass
                             
-                            # 2b. Fallback: match by item descriptions (>60% overlap)
+                            # 2b. Smart match: items first, then validate by total
                             if not matched_quote and po_items:
                                 try:
+                                    # Extract part numbers + description words from PO
+                                    _po_parts = set()
                                     _po_descs = set()
                                     for _pit in po_items:
+                                        _pn = (_pit.get("part_number") or _pit.get("mfg_number") or "").upper().strip()
+                                        if _pn and len(_pn) >= 3:
+                                            _po_parts.add(_pn)
                                         _pd = (_pit.get("description") or "").upper().strip()
                                         if len(_pd) > 5:
-                                            # Use significant words (>3 chars)
                                             _po_descs.update(w for w in _pd.split() if len(w) > 3)
-                                    if len(_po_descs) >= 3:
-                                        # Search RFQs for item overlap
+
+                                    if _po_parts or len(_po_descs) >= 3:
                                         rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
                                         try:
                                             with open(rfqs_path) as _rf2:
                                                 _rfqs2 = json.load(_rf2)
                                             best_score = 0
                                             best_match = None
+                                            best_rid = None
                                             for rid, rfq in (_rfqs2.items() if isinstance(_rfqs2, dict) else []):
                                                 if rfq.get("status") not in ("sent", "pending_award", "generated", "priced", "completed", "converted"):
                                                     continue
+                                                _rfq_parts = set()
                                                 _rfq_descs = set()
                                                 for _rit in rfq.get("line_items", rfq.get("items", [])):
+                                                    _rn = (_rit.get("item_number") or _rit.get("mfg_number") or _rit.get("part_number") or "").upper().strip()
+                                                    if _rn and len(_rn) >= 3:
+                                                        _rfq_parts.add(_rn)
                                                     _rd = (_rit.get("description") or "").upper().strip()
                                                     if len(_rd) > 5:
                                                         _rfq_descs.update(w for w in _rd.split() if len(w) > 3)
-                                                if not _rfq_descs:
-                                                    continue
-                                                overlap = len(_po_descs & _rfq_descs)
-                                                score = overlap / max(len(_po_descs), 1)
-                                                if score > best_score and score >= 0.6:
+
+                                                # Gate 1: Part number overlap (strongest signal)
+                                                part_overlap = len(_po_parts & _rfq_parts) / max(len(_po_parts), 1) if _po_parts else 0
+                                                # Gate 2: Description word overlap
+                                                desc_overlap = len(_po_descs & _rfq_descs) / max(len(_po_descs), 1) if _po_descs else 0
+                                                # Combined score: part# match weighted 2x
+                                                score = (part_overlap * 2 + desc_overlap) / 3 if _po_parts else desc_overlap
+
+                                                if score > best_score and score >= 0.5:
                                                     best_score = score
                                                     best_match = rfq
+                                                    best_rid = rid
+
                                             if best_match:
-                                                matched_quote = best_match.get("reytech_quote_number", "")
-                                                log.info("PO matched to RFQ by items (%.0f%% overlap, %d words) → quote %s",
-                                                         best_score * 100, len(_po_descs & _rfq_descs), matched_quote)
+                                                # Gate 3: Validate total price (within 20% tolerance)
+                                                _rfq_total = 0
+                                                for _rit in best_match.get("line_items", best_match.get("items", [])):
+                                                    _rp = float(_rit.get("price_per_unit") or _rit.get("unit_price") or _rit.get("bid_price") or 0)
+                                                    _rq = float(_rit.get("quantity") or _rit.get("qty") or 1)
+                                                    _rfq_total += _rp * _rq
+                                                _price_match = True
+                                                if po_total > 0 and _rfq_total > 0:
+                                                    _ratio = min(po_total, _rfq_total) / max(po_total, _rfq_total)
+                                                    _price_match = _ratio >= 0.8  # Within 20%
+                                                    if not _price_match:
+                                                        log.warning("PO item match found but total mismatch: PO $%.2f vs RFQ $%.2f (%.0f%%)",
+                                                                    po_total, _rfq_total, _ratio * 100)
+
+                                                if _price_match:
+                                                    matched_quote = best_match.get("reytech_quote_number", "")
+                                                    log.info("PO matched to RFQ %s by items (score=%.0f%%, parts=%d/%d, PO=$%.2f RFQ=$%.2f) → quote %s",
+                                                             best_rid, best_score * 100,
+                                                             len(_po_parts & set()), len(_po_parts),
+                                                             po_total, _rfq_total, matched_quote)
                                         except (FileNotFoundError, json.JSONDecodeError):
                                             pass
                                 except Exception as _me:
