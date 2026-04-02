@@ -451,6 +451,25 @@ def home():
         3 if x[1].get("status") in ("sent","generated") else 0 if x[1].get("_urgency") in ("overdue","critical") else 1,
         x[1].get("due_date", "9999"),
     )))
+    # P0.5: Compute readiness scoring for each RFQ (mirrors PC readiness)
+    for _rfq_rid, _rfq_r in active_rfqs.items():
+        _rfq_items = _rfq_r.get("line_items", _rfq_r.get("items", []))
+        if isinstance(_rfq_items, str):
+            try:
+                import json as _json_rfq
+                _rfq_items = _json_rfq.loads(_rfq_items)
+            except Exception:
+                _rfq_items = []
+        _rfq_total = len(_rfq_items)
+        _rfq_priced = sum(1 for it in _rfq_items
+                          if (it.get("price_per_unit") or it.get("supplier_cost")
+                              or it.get("amazon_price") or it.get("scprs_last_price") or 0) > 0)
+        _rfq_r["_readiness"] = {
+            "total": _rfq_total,
+            "priced": _rfq_priced,
+            "pct": round(_rfq_priced / _rfq_total * 100) if _rfq_total > 0 else 0,
+        }
+
     # ── Build action items panel ──
     action_items = []
     # Overdue PCs
@@ -1523,6 +1542,18 @@ def detail(rid):
                             _fw.write(full_f["data"])
             rfqs[rid] = r
             r["_needs_save"] = True  # Deferred to POST /rfq/{rid}/save-restore
+
+    # ── Auto-fill delivery_location from institution resolver if empty ──
+    if not r.get("delivery_location") and r.get("agency_name"):
+        try:
+            from src.core.institution_resolver import get_ship_to_address
+            _inst_name = r.get("agency_name", "")
+            _auto_addr = get_ship_to_address(_inst_name)
+            if _auto_addr:
+                r["delivery_location"] = _auto_addr
+                log.info("RFQ delivery_location auto-filled for %s: %s", _inst_name, _auto_addr[:50])
+        except Exception as _sta:
+            log.debug("RFQ delivery_location auto-fill: %s", _sta)
 
     # ── Enrichment: catalog matches + price history on detail load ──
     try:

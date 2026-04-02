@@ -2318,29 +2318,28 @@ function saveDraft(){
   form.submit();
 }
 
-// E8: Send Quote Email — pre-fill with original buyer + reply subject
+// E8: Send Quote Email — scroll to embedded composer panel
 function sendQuoteEmail(){
- var buyerEmail = {{ (r.get('original_sender', '') or r.get('requestor_email', '') or '')|tojson }};
- var origSubject = {{ (r.get('email_subject', '') or '')|tojson }};
- var cleanSubj = origSubject.replace(/^(Re:\s*|Fwd?:\s*|FW:\s*)*/gi, '').trim();
- var solNum = {{ r.get('solicitation_number', '')|tojson }};
- var replySubject = cleanSubj ? 'Re: ' + cleanSubj : 'Quote — Solicitation #' + solNum;
- var to=prompt('Send quote to:', buyerEmail);
- if(!to)return;
- var subject=prompt('Subject:', replySubject);
- if(subject===null)return;
- fetch('/api/rfq/'+RID+'/send-quote',{
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body:JSON.stringify({to:to,subject:subject})
- }).then(r=>r.json()).then(d=>{
-  if(d.ok){
-   alert('Quote sent to '+d.sent_to);
-   location.reload();
-  } else {
-   alert('Error: '+(d.error||'unknown'));
+ var composer = document.getElementById('emailForm');
+ if(composer){
+  composer.scrollIntoView({behavior:'smooth'});
+  // Flash the composer card border to draw attention
+  var card = composer.closest('.card');
+  if(card){
+   card.style.borderColor = '#58a6ff';
+   card.style.boxShadow = '0 0 20px rgba(88,166,255,.3)';
+   setTimeout(function(){ card.style.borderColor = ''; card.style.boxShadow = ''; }, 2000);
   }
- });
+  // Pre-fill To if empty
+  var toEl = document.getElementById('emailTo');
+  if(toEl && !toEl.value){
+   var buyerEmail = {{ (r.get('original_sender', '') or r.get('requestor_email', '') or '')|tojson }};
+   toEl.value = buyerEmail;
+  }
+ } else {
+  // Composer not rendered (wrong status) — fall back to alert
+  alert('Email composer is only available after generating the package.\nGenerate the package first, then use the Email Composer below.');
+ }
 }
 
 function generateOBS1600(){

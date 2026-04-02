@@ -617,6 +617,7 @@ function sortTable(th, col) {
      <th>Buyer</th>
      <th style="width:90px">Due</th>
      <th style="width:56px;text-align:center">Items</th>
+     <th style="width:70px;text-align:center">Priced</th>
      <th style="width:80px;text-align:center">Status</th>
      <th style="width:32px"></th>
     </tr>
@@ -638,6 +639,13 @@ function sortTable(th, col) {
       </div>{% endif %}
      </td>
      <td style="text-align:center" class="mono">{{(r.get("line_items") or r.get("items") or [])|length}}</td>
+     <td style="padding:8px 6px;text-align:center">
+      {% set rd = r.get('_readiness', {}) %}
+      {% set rpct = rd.get('pct', 0) if rd else 0 %}
+      <span style="color:{{ '#3fb950' if rpct == 100 else ('#d29922' if rpct >= 50 else '#f85149') }};font-weight:600;font-size:13px">
+        {{ rd.get('priced', 0)|default(0) }}/{{ rd.get('total', 0)|default(0) }}
+      </span>
+     </td>
      <td style="text-align:center"><span class="badge b-{{r.status}}">{{r.status}}</span></td>
      <td style="text-align:center" onclick="event.stopPropagation()">
       <button class="dismiss-x-btn" onclick="showDismissMenu('rfq','{{id}}',this,event)" title="Dismiss" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">✕</button>

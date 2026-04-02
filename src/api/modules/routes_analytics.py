@@ -528,14 +528,63 @@ def send_quote_email(rid):
     if not to_email:
         return jsonify({"ok": False, "error": "No recipient email"}), 400
 
-    # Find the latest generated PDF
+    # Find the latest generated PDF — broader search across multiple locations
     if not pdf_path:
         sol = r.get("solicitation_number", "")
-        output_dir = os.path.join(DATA_DIR, "output", sol)
-        if os.path.isdir(output_dir):
-            pdfs = sorted([f for f in os.listdir(output_dir) if f.endswith(".pdf")], reverse=True)
-            if pdfs:
-                pdf_path = os.path.join(output_dir, pdfs[0])
+
+        # Priority 1: stored paths on the RFQ record
+        for _stored_key in ("reytech_quote_pdf", "output_pdf"):
+            _sp = r.get(_stored_key, "")
+            if _sp and os.path.exists(_sp):
+                pdf_path = _sp
+                break
+
+        # Priority 2: output_files list
+        if not pdf_path and r.get("output_files"):
+            for _of in r["output_files"]:
+                for _base in [os.path.join(DATA_DIR, "output", sol), os.path.join(DATA_DIR, "output", rid)]:
+                    _fp = os.path.join(_base, _of)
+                    if os.path.exists(_fp):
+                        pdf_path = _fp
+                        break
+                if pdf_path:
+                    break
+
+        # Priority 3: scan output directory by solicitation number
+        if not pdf_path and sol:
+            output_dir = os.path.join(DATA_DIR, "output", sol)
+            if os.path.isdir(output_dir):
+                pdfs = sorted([f for f in os.listdir(output_dir) if f.endswith(".pdf")], reverse=True)
+                if pdfs:
+                    pdf_path = os.path.join(output_dir, pdfs[0])
+
+        # Priority 4: scan output directory by RFQ ID
+        if not pdf_path:
+            output_dir_rid = os.path.join(DATA_DIR, "output", rid)
+            if os.path.isdir(output_dir_rid):
+                pdfs = sorted([f for f in os.listdir(output_dir_rid) if f.endswith(".pdf")], reverse=True)
+                if pdfs:
+                    pdf_path = os.path.join(output_dir_rid, pdfs[0])
+
+        # Priority 5: rfq_files DB
+        if not pdf_path:
+            try:
+                from src.core.db import get_db
+                with get_db() as conn:
+                    row = conn.execute(
+                        "SELECT id, filename FROM rfq_files WHERE rfq_id = ? AND filename LIKE '%.pdf' ORDER BY uploaded_at DESC LIMIT 1",
+                        (rid,)).fetchone()
+                    if row:
+                        from src.api.modules.routes_rfq import get_rfq_file
+                        f = get_rfq_file(row[0])
+                        if f and f.get("data"):
+                            import tempfile
+                            _tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, prefix="rfq_send_")
+                            _tmp.write(f["data"])
+                            _tmp.close()
+                            pdf_path = _tmp.name
+            except Exception as _db_err:
+                log.debug("rfq_files PDF lookup: %s", _db_err)
 
     # Send via Gmail
     try:
