@@ -212,10 +212,12 @@ def _pc_pricing_node(state: PCPipelineState) -> PCPipelineState:
     if pc_id in pcs:
         pcs[pc_id]["items"] = items
         pcs[pc_id]["status"] = "priced"
-        _save_json("price_checks.json", pcs)
-        if _HAS_DB_DAL:
-            for _pid, _pc in pcs.items():
-                try: upsert_price_check(_pid, _pc)
+        try:
+            from src.api.dashboard import _save_single_pc
+            _save_single_pc(pc_id, pcs[pc_id])
+        except Exception:
+            if _HAS_DB_DAL:
+                try: upsert_price_check(pc_id, pcs[pc_id])
                 except Exception: pass
 
     return _step(state, "pricing")
@@ -254,11 +256,13 @@ def _pc_generate_node(state: PCPipelineState) -> PCPipelineState:
             # Update PC status
             pcs[pc_id]["status"] = "completed"
             pcs[pc_id]["output_pdf"] = output_path
-            _save_json("price_checks.json", pcs)
-        if _HAS_DB_DAL:
-            for _pid, _pc in pcs.items():
-                try: upsert_price_check(_pid, _pc)
-                except Exception: pass
+            try:
+                from src.api.dashboard import _save_single_pc
+                _save_single_pc(pc_id, pcs[pc_id])
+            except Exception:
+                if _HAS_DB_DAL:
+                    try: upsert_price_check(pc_id, pcs[pc_id])
+                    except Exception: pass
         else:
             state["error"] = result.get("error", "PDF generation failed")
         return _step(state, "generate_704")

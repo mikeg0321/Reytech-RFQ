@@ -2550,14 +2550,16 @@ def api_v1_recovery_restore():
                 results["steps"].append(f"Downloaded rfqs.json: {len(data)} RFQs, {total_items} items")
 
                 if total_items > 0:
-                    # Backup current
-                    if _os.path.exists("/data/rfqs.json"):
-                        _os.rename("/data/rfqs.json", "/data/rfqs.json.pre_restore")
-                    with open("/data/rfqs.json", "w") as f:
-                        _json.dump(data, f, indent=2, default=str)
+                    # Import directly to SQLite (single source of truth)
+                    try:
+                        from src.api.dashboard import _save_single_rfq
+                        for rid, r in data.items():
+                            _save_single_rfq(rid, r)
+                    except Exception as _re:
+                        results["steps"].append(f"SQLite import error: {_re}")
                     results["restored_rfqs"] = len(data)
                     results["restored_rfq_items"] = total_items
-                    results["steps"].append(f"RESTORED rfqs.json: {len(data)} RFQs, {total_items} items")
+                    results["steps"].append(f"RESTORED {len(data)} RFQs to SQLite, {total_items} items")
                 else:
                     results["steps"].append("WARNING: backup rfqs.json has 0 items")
 
@@ -2578,13 +2580,16 @@ def api_v1_recovery_restore():
                 results["steps"].append(f"Downloaded price_checks.json: {len(data)} PCs, {total_items} items")
 
                 if total_items > 0:
-                    if _os.path.exists("/data/price_checks.json"):
-                        _os.rename("/data/price_checks.json", "/data/price_checks.json.pre_restore")
-                    with open("/data/price_checks.json", "w") as f:
-                        _json.dump(data, f, indent=2, default=str)
+                    # Import directly to SQLite (single source of truth)
+                    try:
+                        from src.api.dashboard import _save_single_pc
+                        for pcid, pc in data.items():
+                            _save_single_pc(pcid, pc)
+                    except Exception as _pe:
+                        results["steps"].append(f"SQLite import error: {_pe}")
                     results["restored_pcs"] = len(data)
                     results["restored_pc_items"] = total_items
-                    results["steps"].append(f"RESTORED price_checks.json: {len(data)} PCs, {total_items} items")
+                    results["steps"].append(f"RESTORED {len(data)} PCs to SQLite, {total_items} items")
 
         results["steps"].append("DONE — reload the app to pick up restored data")
     except Exception as e:
