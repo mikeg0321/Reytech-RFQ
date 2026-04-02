@@ -619,6 +619,20 @@ def run_award_check(force: bool = False) -> dict:
                 except Exception as pfe:
                     log.debug("Pricing feedback: %s", pfe)
 
+                # Generate action items from loss analysis
+                try:
+                    from src.agents.pricing_feedback import generate_action_items
+                    generate_action_items(analysis, quote_number=quote_num, agency=agency, institution=institution)
+                except Exception as _ai_e:
+                    log.debug("Action items generation: %s", _ai_e)
+
+                # Check for competitive trends
+                try:
+                    from src.agents.pricing_feedback import check_competitive_trends
+                    check_competitive_trends(competitor=supplier, agency=agency)
+                except Exception:
+                    pass
+
                 notes = (
                     f"Lost to {supplier} — PO {po_number} ${scprs_total:,.2f} "
                     f"(delta: ${our_total - scprs_total:+,.2f})"
@@ -1563,3 +1577,94 @@ def get_status() -> dict:
         "total_wins_detected": total_wins,
         "recent_checks": [dict(r) for r in recent],
     }
+
+
+def get_monitoring_queue():
+    """Return detailed monitoring state for all sent quotes."""
+    from src.core.scprs_schedule import get_check_phase, get_next_check_time, business_days_since
+
+    result = []
+    try:
+        _ensure_tables()
+        db = _db()
+
+        # All sent/resolved quotes (recent)
+        try:
+            quotes = db.execute("""
+                SELECT quote_number, agency, institution, total, sent_at, created_at, status
+                FROM quotes WHERE status IN ('sent', 'lost', 'won', 'pending_award')
+                AND (sent_at IS NOT NULL OR created_at >= date('now', '-90 days'))
+                ORDER BY sent_at DESC LIMIT 50
+            """).fetchall()
+        except Exception:
+            quotes = []
+
+        for q in quotes:
+            try:
+                qnum = q["quote_number"] if q["quote_number"] else ""
+                sent = q["sent_at"] or q["created_at"] or ""
+
+                # Phase info
+                phase = "unknown"
+                biz_days = 0
+                try:
+                    if sent:
+                        sent_dt = None
+                        for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                            try:
+                                sent_dt = datetime.strptime(str(sent)[:19], fmt)
+                                break
+                            except (ValueError, TypeError):
+                                continue
+                        if sent_dt:
+                            biz_days = business_days_since(sent_dt)
+                            phase = get_check_phase(sent_dt)
+                except Exception:
+                    pass
+
+                # Last check from award_tracker_log
+                last_check = None
+                try:
+                    last_check = db.execute("""
+                        SELECT checked_at, outcome, notes FROM award_tracker_log
+                        WHERE quote_number=? ORDER BY checked_at DESC LIMIT 1
+                    """, (qnum,)).fetchone()
+                except Exception:
+                    pass
+
+                # Best match from quote_po_matches
+                best_match = None
+                try:
+                    best_match = db.execute("""
+                        SELECT po_number, match_confidence, outcome, scprs_supplier
+                        FROM quote_po_matches WHERE quote_number=?
+                        ORDER BY match_confidence DESC LIMIT 1
+                    """, (qnum,)).fetchone()
+                except Exception:
+                    pass
+
+                entry = {
+                    "quote_number": qnum,
+                    "agency": q["agency"] or "" if q["agency"] is not None else "",
+                    "institution": q["institution"] or "" if q["institution"] is not None else "",
+                    "total": q["total"] or 0,
+                    "sent_at": str(sent)[:10] if sent else "",
+                    "status": q["status"] or "",
+                    "biz_days": biz_days,
+                    "phase": phase,
+                    "last_checked": str(last_check["checked_at"])[:16] if last_check and last_check["checked_at"] else "",
+                    "last_result": last_check["outcome"] if last_check and last_check["outcome"] else "",
+                    "match_po": best_match["po_number"] if best_match and best_match["po_number"] else "",
+                    "match_confidence": round(best_match["match_confidence"] * 100) if best_match and best_match["match_confidence"] else 0,
+                    "match_outcome": best_match["outcome"] if best_match and best_match["outcome"] else "",
+                    "winner": best_match["scprs_supplier"] if best_match and best_match["scprs_supplier"] else "",
+                }
+                result.append(entry)
+            except Exception:
+                continue
+
+        db.close()
+    except Exception as e:
+        log.debug("get_monitoring_queue: %s", e)
+
+    return result

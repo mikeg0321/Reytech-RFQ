@@ -182,7 +182,7 @@ function loadOverview(){
    var color=delta>0?'#f87171':'#3fb950';
    html+='<tr>';
    html+='<td style="font-size:13px;color:var(--tx2)">'+(l.found_at||'').slice(0,10)+'</td>';
-   html+='<td style="font-weight:600">'+escHtml(l.quote_number)+'</td>';
+   html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+escHtml(l.quote_number)+'</a></td>';
    html+='<td>'+escHtml(l.agency)+'</td>';
    html+='<td style="font-weight:500">'+escHtml(l.competitor_name)+'</td>';
    html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.our_price)+'</td>';
@@ -274,7 +274,7 @@ function loadMargin(){
   mth.forEach(function(m){
    html+='<tr>';
    html+='<td style="font-size:13px;color:var(--tx2)">'+(m.found_at||'').slice(0,10)+'</td>';
-   html+='<td style="font-weight:600">'+escHtml(m.quote_number)+'</td>';
+   html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(m.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+escHtml(m.quote_number)+'</a></td>';
    html+='<td>'+escHtml(m.competitor_name)+'</td>';
    html+='<td style="font-size:13px;color:var(--tx2)">'+escHtml((m.item_summary||'').slice(0,50))+'</td>';
    html+='<td style="text-align:right;font-family:monospace">'+fmt2(m.our_price)+'</td>';
@@ -340,7 +340,7 @@ function loadCompetitor(){
     var delta=l.price_delta_pct||0;
     html+='<tr>';
     html+='<td style="font-size:13px;color:var(--tx2)">'+(l.found_at||'').slice(0,10)+'</td>';
-    html+='<td style="font-weight:600">'+escHtml(l.quote_number)+'</td>';
+    html+='<td style="font-weight:600"><a href="/loss-detail/'+encodeURIComponent(l.quote_number)+'" style="color:#58a6ff;text-decoration:none">'+escHtml(l.quote_number)+'</a></td>';
     html+='<td>'+escHtml(l.agency)+'</td>';
     html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.our_price)+'</td>';
     html+='<td style="text-align:right;font-family:monospace">'+fmt2(l.competitor_price)+'</td>';

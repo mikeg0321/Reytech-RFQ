@@ -515,6 +515,21 @@ CREATE INDEX IF NOT EXISTS idx_lp_type ON loss_patterns(pattern_type);
 CREATE INDEX IF NOT EXISTS idx_lp_severity ON loss_patterns(severity);
 CREATE INDEX IF NOT EXISTS idx_lp_unack ON loss_patterns(acknowledged);
 
+-- Action items from competitive loss analysis
+CREATE TABLE IF NOT EXISTS action_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    source_quote TEXT,
+    action_type TEXT,
+    description TEXT NOT NULL,
+    priority TEXT DEFAULT 'medium',
+    status TEXT DEFAULT 'pending',
+    completed_at TEXT,
+    notes TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_ai_status ON action_items(status);
+CREATE INDEX IF NOT EXISTS idx_ai_type ON action_items(action_type);
+
 -- Pricing recommendation audit — tracks oracle accuracy
 CREATE TABLE IF NOT EXISTS recommendation_audit (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

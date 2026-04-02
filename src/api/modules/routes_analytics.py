@@ -1645,6 +1645,62 @@ def loss_intelligence_page():
     return render_page("loss_intelligence.html", active_page="Analytics")
 
 
+@bp.route("/loss-detail/<quote_number>")
+@auth_required
+def loss_detail_page(quote_number):
+    """Detailed loss analysis for a specific quote."""
+    import json as _json
+
+    context = {"quote_number": quote_number}
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+
+            # Get competitor_intel record
+            ci = conn.execute("""
+                SELECT * FROM competitor_intel WHERE quote_number=? LIMIT 1
+            """, (quote_number,)).fetchone()
+            if ci:
+                context["loss"] = dict(ci)
+                # Parse items_detail JSON
+                try:
+                    context["items"] = _json.loads(ci["items_detail"]) if ci["items_detail"] else []
+                except (ValueError, TypeError, KeyError):
+                    context["items"] = []
+            else:
+                context["loss"] = None
+                context["items"] = []
+
+            # Get quote info
+            q = conn.execute("""
+                SELECT quote_number, agency, institution, total, sent_at, status, close_reason
+                FROM quotes WHERE quote_number=? LIMIT 1
+            """, (quote_number,)).fetchone()
+            context["quote"] = dict(q) if q else {}
+
+            # Run supplier inference on each item
+            if context["items"]:
+                try:
+                    from src.agents.supplier_inference import infer_supply_chain
+                    for item in context["items"]:
+                        item["inference"] = infer_supply_chain(
+                            competitor_name=context["loss"].get("competitor_name", "") if context["loss"] else "",
+                            competitor_price=item.get("winner_unit_price", 0),
+                            our_cost=item.get("our_cost", 0),
+                            our_supplier=item.get("our_supplier", ""),
+                            item_description=item.get("our_description", item.get("description", "")),
+                        )
+                except Exception:
+                    pass
+    except Exception as e:
+        log.exception("loss-detail error for %s", quote_number)
+        context["error"] = str(e)
+
+    return render_page("loss_detail.html", active_page="Analytics", **context)
+
+
 @bp.route("/api/analytics/win-loss")
 @auth_required
 def api_win_loss_analysis():

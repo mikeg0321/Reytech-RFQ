@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Loss Detail — {{ quote_number }}{% endblock %}
+{% block content %}
+<div style="max-width:1200px;margin:0 auto;padding:20px">
+ <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+  <a href="/loss-intelligence" style="color:var(--ac);font-size:14px">&larr; Loss Intelligence</a>
+  <h1 style="font-size:22px;margin:0">Loss Analysis: {{ quote_number }}</h1>
+ </div>
+
+ {% if error|default('') %}
+ <div style="padding:16px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);border-radius:8px;color:#f87171;margin-bottom:16px">
+  Error loading loss data: {{ error }}
+ </div>
+ {% endif %}
+
+ {% if not loss %}
+ <div style="text-align:center;padding:40px;color:var(--tx2)">
+  <div style="font-size:32px;margin-bottom:8px">No Data</div>
+  <div>No loss data found for {{ quote_number }}</div>
+  <div style="font-size:13px;margin-top:8px">This quote may not have been matched to a SCPRS PO yet.</div>
+ </div>
+ {% else %}
+
+ <!-- Side-by-side header -->
+ <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:16px;margin-bottom:24px">
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px">
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">Our Quote</div>
+   <div style="font-size:28px;font-weight:700;color:#58a6ff">${{ "%.2f"|format(loss.our_price|default(0)|float) }}</div>
+   <div style="font-size:14px;color:var(--tx2);margin-top:4px">{{ quote.agency|default(loss.agency|default('')) }} &middot; {{ quote.institution|default(loss.institution|default('')) }}</div>
+   <div style="font-size:13px;color:var(--tx2)">Sent: {{ (quote.sent_at|default(''))[:10] }}</div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 12px">
+   {% set delta_pct = loss.price_delta_pct|default(0)|float %}
+   <div style="font-size:36px;font-weight:700;color:{{ '#f85149' if delta_pct > 0 else '#3fb950' }}">
+    {{ "%+.1f"|format(delta_pct) }}%
+   </div>
+   <div style="font-size:13px;color:var(--tx2)">{{ "Over" if delta_pct > 0 else "Under" }}</div>
+   {% set abs_delta = loss.price_delta|default(0)|float %}
+   {% if abs_delta < 0 %}{% set abs_delta = abs_delta * -1 %}{% endif %}
+   <div style="font-size:14px;color:var(--tx2);margin-top:4px">${{ "%.2f"|format(abs_delta) }} gap</div>
+  </div>
+
+  <div style="background:var(--sf);border:1px solid #f8514930;border-radius:10px;padding:20px">
+   <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;margin-bottom:8px">Winner</div>
+   <div style="font-size:28px;font-weight:700;color:#f85149">${{ "%.2f"|format(loss.competitor_price|default(0)|float) }}</div>
+   <div style="font-size:14px;color:#f0883e;margin-top:4px">{{ loss.competitor_name|default('Unknown') }}</div>
+   <div style="font-size:13px;color:var(--tx2)">PO: {{ loss.po_number|default('—') }}</div>
+  </div>
+ </div>
+
+ <!-- Loss classification badge -->
+ {% set lrc = loss.loss_reason_class|default('price_higher') %}
+ {% if lrc == 'margin_too_high' %}
+  {% set lrc_color = '#d29922' %}
+  {% set lrc_desc = 'Margin Too High — had cost advantage but markup was too fat' %}
+ {% elif lrc == 'cost_too_high' %}
+  {% set lrc_color = '#f85149' %}
+  {% set lrc_desc = 'Cost Too High — our COGS exceeds their sell price' %}
+ {% elif lrc == 'relationship_incumbent' %}
+  {% set lrc_color = '#a371f7' %}
+  {% set lrc_desc = 'Relationship/Incumbent — we were cheaper but they chose existing vendor' %}
+ {% else %}
+  {% set lrc_color = '#8b949e' %}
+  {% set lrc_desc = 'Price Higher — we simply bid more' %}
+ {% endif %}
+ <div style="padding:12px 18px;border-radius:8px;margin-bottom:20px;background:{{ lrc_color }}15;border:1px solid {{ lrc_color }}40;color:{{ lrc_color }};font-size:14px;font-weight:600">
+  {{ lrc_desc }}
+ </div>
+
+ <!-- Per-item comparison table -->
+ {% if items|default([]) %}
+ <h2 style="font-size:16px;margin-bottom:12px;color:var(--tx)">Line Item Comparison ({{ items|length }} items)</h2>
+ <div style="overflow-x:auto">
+ <table style="width:100%;border-collapse:collapse;font-size:14px">
+  <thead>
+   <tr style="border-bottom:2px solid var(--bd);color:var(--tx2);font-size:13px">
+    <th style="padding:10px 8px;text-align:left">Item</th>
+    <th style="padding:10px 8px;text-align:right">Our Price</th>
+    <th style="padding:10px 8px;text-align:right">Their Price</th>
+    <th style="padding:10px 8px;text-align:right">Delta</th>
+    <th style="padding:10px 8px;text-align:right">Our Cost</th>
+    <th style="padding:10px 8px;text-align:right">Our Margin</th>
+    <th style="padding:10px 8px;text-align:left">Should Bid</th>
+    <th style="padding:10px 8px;text-align:left">Supply Chain Inference</th>
+   </tr>
+  </thead>
+  <tbody>
+  {% for item in items %}
+   {% set our_p = item.our_unit_price|default(0)|float %}
+   {% set their_p = item.winner_unit_price|default(0)|float %}
+   {% set delta = our_p - their_p if our_p and their_p else 0 %}
+   {% set cost = item.our_cost|default(0)|float %}
+   {% set margin = ((our_p - cost) / our_p * 100) if our_p and cost else 0 %}
+   {% set should_bid = their_p * 0.98 if their_p else 0 %}
+   {% set inf = item.inference|default({}) %}
+   <tr style="border-bottom:1px solid var(--bd)">
+    <td style="padding:10px 8px;color:var(--tx);max-width:250px">{{ (item.our_description|default(item.description|default(item.winner_description|default(''))))[:60] }}</td>
+    <td style="padding:10px 8px;text-align:right;color:#58a6ff;font-weight:600">${{ "%.2f"|format(our_p) }}</td>
+    <td style="padding:10px 8px;text-align:right;color:#f85149;font-weight:600">${{ "%.2f"|format(their_p) }}</td>
+    <td style="padding:10px 8px;text-align:right;color:{{ '#f85149' if delta > 0 else '#3fb950' }};font-weight:600">{{ "%+.2f"|format(delta) }}</td>
+    <td style="padding:10px 8px;text-align:right;color:var(--tx)">{{ "$%.2f"|format(cost) if cost else '&mdash;' }}</td>
+    <td style="padding:10px 8px;text-align:right;color:{{ '#3fb950' if margin > 15 else ('#d29922' if margin > 0 else '#f85149') }}">{{ "%.0f"|format(margin) }}%</td>
+    <td style="padding:10px 8px;color:#3fb950;font-weight:600">{{ "$%.2f"|format(should_bid) if should_bid else '&mdash;' }}</td>
+    <td style="padding:10px 8px;font-size:13px">
+     {% if inf.inferred_source|default('') %}
+      <span style="color:{{ '#d29922' if inf.confidence|default('') == 'medium' else ('#3fb950' if inf.confidence|default('') == 'high' else '#8b949e') }}">{{ inf.inferred_source }}</span>
+      {% if inf.action|default('') %}<div style="font-size:12px;color:var(--tx2);margin-top:2px">&rarr; {{ inf.action }}</div>{% endif %}
+     {% else %}&mdash;{% endif %}
+    </td>
+   </tr>
+  {% endfor %}
+  </tbody>
+ </table>
+ </div>
+ {% endif %}
+
+ <!-- Notes / loss reasons -->
+ {% if loss.notes|default('') %}
+ <div style="margin-top:20px;padding:16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+  <h3 style="font-size:15px;margin:0 0 8px;color:var(--tx)">Loss Analysis Notes</h3>
+  <pre style="white-space:pre-wrap;font-size:13px;color:var(--tx2);margin:0;font-family:inherit">{{ loss.notes }}</pre>
+ </div>
+ {% endif %}
+
+ {% endif %}
+</div>
+{% endblock %}

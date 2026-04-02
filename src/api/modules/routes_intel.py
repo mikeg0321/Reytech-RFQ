@@ -6258,3 +6258,83 @@ def api_supplier_auth_test():
     except Exception as e:
         log.exception("supplier-auth-test")
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ── Award Monitor Dashboard ──────────────────────────────────────────────────
+
+@bp.route("/award-monitor")
+@auth_required
+def award_monitor_page():
+    """Live SCPRS award monitoring dashboard."""
+    return render_page("award_monitor.html", active_page="Awards")
+
+
+@bp.route("/api/intel/award-tracker/queue")
+@auth_required
+def api_award_tracker_queue():
+    """Get monitoring queue for all sent quotes."""
+    try:
+        from src.agents.award_tracker import get_monitoring_queue, get_status
+        queue = get_monitoring_queue()
+        status = get_status()
+        return jsonify({"ok": True, "queue": queue, "status": status})
+    except Exception as e:
+        log.exception("award-tracker-queue")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/award-tracker/run", methods=["POST"])
+@auth_required
+def api_award_tracker_run():
+    """Manually trigger an award tracker check cycle."""
+    try:
+        from src.agents.award_tracker import run_award_check
+        result = run_award_check(force=True)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.exception("award-tracker-run")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/intel/action-items")
+@auth_required
+def api_action_items():
+    """Get pending action items from loss analysis."""
+    try:
+        import sqlite3
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+            items = conn.execute("""
+                SELECT * FROM action_items WHERE status='pending'
+                ORDER BY CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
+                         created_at DESC LIMIT 50
+            """).fetchall()
+            return jsonify({"ok": True, "items": [dict(r) for r in items]})
+    except Exception as e:
+        return jsonify({"ok": True, "items": [], "note": str(e)})
+
+
+@bp.route("/api/intel/action-items/<int:item_id>/complete", methods=["POST"])
+@auth_required
+def api_action_item_complete(item_id):
+    """Mark an action item as completed."""
+    try:
+        with get_db() as conn:
+            conn.execute("UPDATE action_items SET status='done', completed_at=datetime('now') WHERE id=?", (item_id,))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/intel/action-items/<int:item_id>/dismiss", methods=["POST"])
+@auth_required
+def api_action_item_dismiss(item_id):
+    """Dismiss an action item."""
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        with get_db() as conn:
+            conn.execute("UPDATE action_items SET status='dismissed', notes=?, completed_at=datetime('now') WHERE id=?",
+                        (data.get("reason", ""), item_id))
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})

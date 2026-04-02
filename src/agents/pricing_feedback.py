@@ -823,3 +823,172 @@ def _recommendation_for_class(loss_class: str) -> str:
                                   "leverage DVBE advantage.",
     }
     return recs.get(loss_class, "Review pricing strategy for this category of losses.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ACTION ITEM GENERATION (Phase 4)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def generate_action_items(analysis, quote_number="", agency="", institution=""):
+    """Generate specific action items from a loss analysis.
+
+    Called by award_tracker after each loss detection.
+    Creates entries in action_items table for operator review.
+    """
+    actions = []
+    loss_class = analysis.get("loss_reason_class", "price_higher")
+
+    # Margin too high items — specific markup reduction recommendations
+    mth_items = analysis.get("margin_too_high_items", [])
+    for item in mth_items:
+        our_sell = item.get("our_sell", 0)
+        their_sell = item.get("their_sell", 0)
+        our_cost = item.get("our_cost", 0)
+        could_bid = item.get("could_have_bid", 0)
+        possible_margin = item.get("possible_margin_pct", 0)
+        desc = item.get("description", "item")[:80]
+        if our_sell and their_sell and our_cost:
+            current_margin = round((our_sell - our_cost) / our_sell * 100) if our_sell else 0
+            actions.append({
+                "action_type": "adjust_margin",
+                "priority": "high",
+                "description": (f"Lower markup on '{desc}' — "
+                                f"bid ${our_sell:.2f} ({current_margin}% margin) but winner was ${their_sell:.2f}. "
+                                f"Could have bid ${could_bid:.2f} at {possible_margin:.0f}% margin and still won."),
+            })
+
+    # Cost too high items — sourcing recommendations
+    line_comp = analysis.get("line_comparison", [])
+    for comp in line_comp:
+        our_cost = comp.get("our_cost", 0)
+        their_price = comp.get("winner_unit_price", 0)
+        if our_cost > 0 and their_price > 0 and our_cost > their_price:
+            desc = comp.get("our_description", comp.get("description", "item"))[:80]
+            gap_pct = round((our_cost - their_price) / their_price * 100)
+            actions.append({
+                "action_type": "source_alternate",
+                "priority": "high",
+                "description": (f"Find alternate supplier for '{desc}' — "
+                                f"our cost ${our_cost:.2f} exceeds competitor sell ${their_price:.2f} by {gap_pct}%. "
+                                f"Cannot compete at current COGS."),
+            })
+
+    # Relationship/incumbent losses — follow-up recommendation
+    if loss_class == "relationship_incumbent":
+        actions.append({
+            "action_type": "build_relationship",
+            "priority": "medium",
+            "description": (f"Schedule follow-up with {agency or 'agency'} "
+                            f"{'(' + institution + ')' if institution else ''} buyer — "
+                            f"lost despite lower pricing (incumbent/relationship pattern). "
+                            f"Build rapport for next opportunity."),
+        })
+
+    # General price_higher — catalog price update
+    if loss_class == "price_higher" and line_comp:
+        overpriced = [c for c in line_comp if c.get("unit_price_delta", 0) > 0]
+        if overpriced:
+            desc = overpriced[0].get("our_description", "item")[:60]
+            their_p = overpriced[0].get("winner_unit_price", 0)
+            actions.append({
+                "action_type": "update_catalog",
+                "priority": "medium",
+                "description": (f"Update catalog pricing for '{desc}' — "
+                                f"competitor floor is ${their_p:.2f}. "
+                                f"Review markup strategy for this product category."),
+            })
+
+    # Save to DB
+    if actions:
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for a in actions:
+                    conn.execute("""
+                        INSERT INTO action_items (created_at, source_quote, action_type, description, priority)
+                        VALUES (datetime('now'), ?, ?, ?, ?)
+                    """, (quote_number, a["action_type"], a["description"], a["priority"]))
+            log.info("ACTION_ITEMS: Generated %d actions from loss on %s", len(actions), quote_number)
+        except Exception as e:
+            log.debug("Action items save: %s", e)
+
+    return actions
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# COMPETITIVE TREND ALERTS (Phase 5)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def check_competitive_trends(competitor="", agency="", category=""):
+    """Check for concerning competitive patterns and send proactive alerts.
+
+    Called after each loss detection. Alerts if a competitor is dominating
+    a specific agency/category combination.
+    """
+    if not competitor:
+        return
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+            # Count losses to this competitor at this agency in last 90 days
+            params = [competitor]
+            where = "competitor_name=? AND found_at >= date('now', '-90 days')"
+            if agency:
+                where += " AND agency=?"
+                params.append(agency)
+
+            losses = conn.execute(f"""
+                SELECT COUNT(*) as cnt,
+                       AVG(price_delta_pct) as avg_delta,
+                       SUM(competitor_price) as total_won
+                FROM competitor_intel WHERE {where}
+            """, params).fetchone()
+
+            if not losses or not losses[0]:
+                return
+
+            count = losses[0]
+            avg_delta = losses[1] or 0
+            total_won = losses[2] or 0
+
+            # Alert threshold: 3+ losses to same competitor (at same agency if specified)
+            if count >= 3:
+                scope = f"at {agency}" if agency else "across agencies"
+
+                # Check total quotes to this agency for context
+                total_quotes = 0
+                if agency:
+                    row = conn.execute("""
+                        SELECT COUNT(*) FROM quotes
+                        WHERE agency=? AND status IN ('won','lost')
+                        AND created_at >= date('now', '-90 days')
+                    """, (agency,)).fetchone()
+                    total_quotes = row[0] if row else 0
+
+                win_context = f" ({count}/{total_quotes} quotes)" if total_quotes > count else ""
+
+                title = f"TREND: {competitor} winning {scope}"
+                body = (f"{competitor} has won {count} quotes {scope}{win_context} "
+                        f"in last 90 days. Avg price gap: {avg_delta:+.1f}%. "
+                        f"Total value won: ${total_won:,.0f}. "
+                        f"Review markup strategy for this competitor.")
+
+                try:
+                    from src.agents.notify_agent import send_alert
+                    send_alert(
+                        event_type="competitor_trend",
+                        title=title,
+                        body=body,
+                        urgency="warning",
+                        channels=["sms", "bell"],
+                        cooldown_key=f"comp_trend:{competitor}:{agency}:{datetime.now().strftime('%Y%m')}",
+                    )
+                except Exception:
+                    pass
+
+                log.info("COMPETITOR_TREND: %s — %d losses %s, avg delta %+.1f%%",
+                         competitor, count, scope, avg_delta)
+    except Exception as e:
+        log.debug("check_competitive_trends: %s", e)

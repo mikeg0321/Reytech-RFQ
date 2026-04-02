@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}Award Monitor — Reytech{% endblock %}
+{% block content %}
+<div style="max-width:1400px;margin:0 auto;padding:0 16px">
+
+<!-- Top Nav (matches analytics pages) -->
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+ <a href="/analytics" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Pipeline</a>
+ <a href="/business-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Business Intel</a>
+ <a href="/win-loss" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Win/Loss</a>
+ <a href="/loss-intelligence" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Loss Intel</a>
+ <a href="/competitor-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Competitors</a>
+ <a href="/award-monitor" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">Awards</a>
+</div>
+
+<!-- Header -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+ <div>
+  <h2 style="margin:0;color:var(--tx)">Award Monitor</h2>
+  <p style="margin:4px 0 0;color:var(--tx2);font-size:14px">Live SCPRS monitoring for sent quotes — detect wins and losses automatically</p>
+ </div>
+ <div style="display:flex;gap:8px;align-items:center">
+  <span id="autoRefreshLabel" style="font-size:12px;color:var(--tx2)">Auto-refresh: 60s</span>
+  <button id="runCheckBtn" onclick="runCheck()" style="padding:8px 16px;background:var(--ac);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600">Run Check Now</button>
+ </div>
+</div>
+
+<!-- KPI Cards -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:20px">
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:26px;font-weight:700;color:var(--ac)" id="kpi-watched">--</div>
+  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Quotes Watched</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:18px;font-weight:700;color:#4f8cff" id="kpi-next-window">--</div>
+  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Next SCPRS Window</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:18px;font-weight:700;color:var(--tx)" id="kpi-last-run">--</div>
+  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Last Run</div>
+ </div>
+ <div class="card" style="text-align:center;padding:14px">
+  <div style="font-size:26px;font-weight:700;color:#f87171" id="kpi-losses">--</div>
+  <div style="font-size:12px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Losses (30d)</div>
+ </div>
+</div>
+
+<!-- Main Table -->
+<div class="card" style="padding:16px">
+ <div style="font-size:14px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:12px">Monitoring Queue</div>
+ <div id="queueTable" style="overflow-x:auto">
+  <div style="text-align:center;padding:40px;color:var(--tx2)">Loading monitoring data...</div>
+ </div>
+</div>
+
+<!-- Status Footer -->
+<div id="statusFooter" style="margin-top:12px;padding:10px 14px;background:var(--sf);border-radius:6px;font-size:12px;color:var(--tx2)">
+ Scheduler: checking...
+</div>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+var _refreshTimer = null;
+
+function escHtml(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML}
+function fmt(n){return '$'+Number(n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2})}
+
+function statusBadge(status, phase) {
+ var colors = {
+  'sent': {bg:'rgba(63,185,80,.15)', color:'#3fb950', label:'Watching'},
+  'won': {bg:'rgba(79,140,255,.15)', color:'#4f8cff', label:'Won'},
+  'lost': {bg:'rgba(248,113,113,.15)', color:'#f87171', label:'Lost'},
+  'pending_award': {bg:'rgba(251,191,36,.15)', color:'#fbbf24', label:'Pending'},
+  'expired': {bg:'rgba(128,128,128,.15)', color:'#888', label:'Expired'}
+ };
+ var key = status;
+ if (phase === 'expired' && status === 'sent') key = 'expired';
+ var c = colors[key] || {bg:'rgba(128,128,128,.15)', color:'#888', label: status || 'Unknown'};
+ return '<span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:'+c.bg+';color:'+c.color+'">'+escHtml(c.label)+'</span>';
+}
+
+function matchBadge(confidence, outcome) {
+ if (!confidence && !outcome) return '<span style="color:var(--tx2);font-size:12px">No match</span>';
+ var color = '#888';
+ if (confidence >= 80) color = outcome === 'we_won' ? '#3fb950' : '#f87171';
+ else if (confidence >= 55) color = '#fbbf24';
+ var label = outcome ? outcome.replace(/_/g,' ') : 'checking';
+ return '<span style="font-weight:600;color:'+color+'">'+confidence+'%</span> <span style="font-size:11px;color:var(--tx2)">'+escHtml(label)+'</span>';
+}
+
+function phaseBadge(phase, bizDays) {
+ var colors = {
+  'daily': {bg:'rgba(79,140,255,.15)', color:'#4f8cff'},
+  'intensive': {bg:'rgba(251,191,36,.15)', color:'#fbbf24'},
+  'expired': {bg:'rgba(128,128,128,.15)', color:'#888'},
+  'unknown': {bg:'rgba(128,128,128,.15)', color:'#888'}
+ };
+ var c = colors[phase] || colors['unknown'];
+ return '<span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:'+c.bg+';color:'+c.color+'">'+escHtml(phase)+'</span>' +
+        (bizDays ? ' <span style="font-size:11px;color:var(--tx2)">day '+bizDays+'</span>' : '');
+}
+
+function loadQueue() {
+ fetch('/api/intel/award-tracker/queue', {credentials:'same-origin'})
+ .then(function(r){return r.json()})
+ .then(function(d) {
+  if (!d.ok) {
+   document.getElementById('queueTable').innerHTML = '<div style="color:#f87171;padding:20px">Error: '+escHtml(d.error)+'</div>';
+   return;
+  }
+  var queue = d.queue || [];
+  var status = d.status || {};
+
+  // KPIs
+  var watched = 0;
+  var losses30d = 0;
+  queue.forEach(function(q) {
+   if (q.status === 'sent' && q.phase !== 'expired') watched++;
+   if (q.status === 'lost') losses30d++;
+  });
+  document.getElementById('kpi-watched').textContent = watched;
+  document.getElementById('kpi-losses').textContent = status.total_losses_detected || losses30d;
+
+  // Last run
+  var lastRun = status.last_run || '';
+  var el = document.getElementById('kpi-last-run');
+  if (el) el.textContent = lastRun ? lastRun.slice(0,16).replace('T',' ') : 'Never';
+
+  // Next SCPRS window — calculate from known schedule
+  var nextEl = document.getElementById('kpi-next-window');
+  if (nextEl) {
+   var now = new Date();
+   var pstOffset = -8;
+   var utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+   var pst = new Date(utcMs + pstOffset * 3600000);
+   var windows = [700,930,1200,1700];
+   var curMin = pst.getHours() * 100 + pst.getMinutes();
+   var nextW = null;
+   for (var i = 0; i < windows.length; i++) {
+    if (windows[i] > curMin) { nextW = windows[i]; break; }
+   }
+   if (nextW !== null) {
+    var h = Math.floor(nextW/100), m = nextW%100;
+    nextEl.textContent = (h > 12 ? h-12 : h) + ':' + (m < 10 ? '0'+m : m) + (h >= 12 ? ' PM' : ' AM') + ' PT';
+   } else {
+    nextEl.textContent = 'Tomorrow 7:00 AM PT';
+   }
+  }
+
+  // Status footer
+  var footer = document.getElementById('statusFooter');
+  if (footer) {
+   var parts = [];
+   parts.push('Scheduler: ' + (status.scheduler_running ? 'Running' : 'Stopped'));
+   parts.push('Eligible: ' + (status.eligible_quotes || 0));
+   if (status.total_wins_detected) parts.push('Wins: ' + status.total_wins_detected);
+   if (status.total_losses_detected) parts.push('Losses: ' + status.total_losses_detected);
+   footer.textContent = parts.join('  |  ');
+  }
+
+  // Table
+  if (!queue.length) {
+   document.getElementById('queueTable').innerHTML = '<div style="text-align:center;padding:40px;color:var(--tx2)">No sent quotes to monitor. Send a quote to start tracking.</div>';
+   return;
+  }
+
+  var html = '<table class="it" style="width:100%"><thead><tr>';
+  html += '<th>Quote</th><th>Agency</th><th>Institution</th><th style="text-align:right">Total</th>';
+  html += '<th>Sent</th><th>Status</th><th>Phase</th><th>Last Check</th><th>Best Match</th><th>Winner</th>';
+  html += '</tr></thead><tbody>';
+
+  queue.forEach(function(q) {
+   var rowBg = '';
+   if (q.status === 'lost') rowBg = 'background:rgba(248,113,113,.05);';
+   else if (q.status === 'won') rowBg = 'background:rgba(63,185,80,.05);';
+   else if (q.match_confidence >= 55 && q.match_confidence < 80) rowBg = 'background:rgba(251,191,36,.05);';
+
+   html += '<tr style="'+rowBg+'">';
+   html += '<td style="font-weight:600">'+escHtml(q.quote_number)+'</td>';
+   html += '<td>'+escHtml(q.agency)+'</td>';
+   html += '<td style="font-size:13px">'+escHtml(q.institution)+'</td>';
+   html += '<td style="text-align:right;font-family:monospace">'+fmt(q.total)+'</td>';
+   html += '<td style="font-size:13px;color:var(--tx2)">'+escHtml(q.sent_at)+'</td>';
+   html += '<td>'+statusBadge(q.status, q.phase)+'</td>';
+   html += '<td>'+phaseBadge(q.phase, q.biz_days)+'</td>';
+   html += '<td style="font-size:12px;color:var(--tx2)">'+escHtml(q.last_checked)+'</td>';
+   html += '<td>'+matchBadge(q.match_confidence, q.match_outcome)+'</td>';
+   html += '<td style="font-size:13px">'+escHtml(q.winner)+'</td>';
+   html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  document.getElementById('queueTable').innerHTML = html;
+ })
+ .catch(function(err) {
+  console.error('Award monitor load error:', err);
+ });
+}
+
+function runCheck() {
+ var btn = document.getElementById('runCheckBtn');
+ if (btn) {
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+ }
+ fetch('/api/intel/award-tracker/run', {
+  method: 'POST',
+  credentials: 'same-origin',
+  headers: {'Content-Type': 'application/json'}
+ })
+ .then(function(r){return r.json()})
+ .then(function(d) {
+  if (btn) {
+   btn.disabled = false;
+   btn.textContent = d.ok ? 'Done! Refreshing...' : 'Error: ' + (d.error || 'unknown');
+   setTimeout(function() {
+    btn.textContent = 'Run Check Now';
+    loadQueue();
+   }, 2000);
+  }
+ })
+ .catch(function(err) {
+  if (btn) {
+   btn.disabled = false;
+   btn.textContent = 'Run Check Now';
+  }
+  console.error('Run check error:', err);
+ });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+ loadQueue();
+ _refreshTimer = setInterval(loadQueue, 60000);
+});
+</script>
+{% endblock %}

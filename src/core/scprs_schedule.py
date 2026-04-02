@@ -5,16 +5,17 @@ SCPRS (California PeopleSoft procurement system) updates daily Mon-Fri.
 PeopleSoft batch jobs run overnight; data is available by early morning PST.
 
 Schedule phases for sent quotes/RFQs:
-  Phase 1 (biz days 1-4):  Check once per day at first SCPRS window
+  Phase 1 (biz days 1-2):  Check once per day at first SCPRS window
   Phase 2 (biz days 5-45): Check 3x/day at all SCPRS windows
   Phase 3 (day 45+):       Expire — stop checking indefinitely
 
 Config:
   SCPRS_UPDATE_TIMES env var: comma-separated HH:MM in Pacific time
-  Default: "07:00,12:00,17:00"
-    7am  — catch overnight batch results
-    12pm — catch morning manual entries
-    5pm  — catch afternoon activity
+  Default: "07:00,09:30,12:00,17:00"
+    7:00am  — catch overnight batch results
+    9:30am  — catch early morning manual entries
+    12:00pm — catch late morning activity
+    5:00pm  — catch afternoon activity
 """
 
 import logging
@@ -72,7 +73,7 @@ def _parse_update_times(env_val: str) -> list[dt_time]:
     return sorted(times)
 
 
-_DEFAULT_TIMES = [dt_time(7, 0), dt_time(12, 0), dt_time(17, 0)]
+_DEFAULT_TIMES = [dt_time(7, 0), dt_time(9, 30), dt_time(12, 0), dt_time(17, 0)]
 
 _env_times = os.environ.get("SCPRS_UPDATE_TIMES", "").strip()
 if _env_times:
@@ -83,10 +84,10 @@ else:
     SCPRS_UPDATE_TIMES_PT = _DEFAULT_TIMES
 
 # Phase config
-DAILY_CHECK_PHASE_DAYS = int(os.environ.get("AWARD_DAILY_PHASE_DAYS", "4"))
+DAILY_CHECK_PHASE_DAYS = int(os.environ.get("AWARD_DAILY_PHASE_DAYS", "2"))
 EXPIRY_DAYS = int(os.environ.get("AWARD_EXPIRY_DAYS", "45"))
 CHECK_WINDOW_MINUTES = 15  # Time window around SCPRS update to trigger check
-MAX_SCPRS_PER_RUN = int(os.environ.get("SCPRS_MAX_SEARCHES", "15"))
+MAX_SCPRS_PER_RUN = int(os.environ.get("SCPRS_MAX_SEARCHES", "20"))
 MAX_SCPRS_PER_HOUR = 45  # Hard ceiling — halt if exceeded
 
 log.info("SCPRS_SCHEDULE: times=%s daily_phase=%d_biz_days expiry=%d_days window=%dmin",
