@@ -1323,28 +1323,40 @@ document.addEventListener('DOMContentLoaded',function(){
  try{
   var _rfqBk=localStorage.getItem('rfq_autosave_'+RID);
   if(_rfqBk){var _b=JSON.parse(_rfqBk);
+   var _age=Math.round((Date.now()-_b.ts)/1000);
+   console.log('[RFQ] Backup found: '+_age+'s old, rid='+_b.rid);
    if(_b&&(Date.now()-_b.ts)<3600000&&_b.data){
-    var _bData=JSON.parse(_b.data);
-    // Count costs in backup vs server
-    var bkCosts=0,svCosts=0;
-    if(_bData.items)_bData.items.forEach(function(it){if(parseFloat(it.supplier_cost)>0)bkCosts++;});
+    var _bData;
+    try{_bData=typeof _b.data==='string'?JSON.parse(_b.data):_b.data;}catch(e){_bData=_b.data;}
+    var bkCosts=0,svCosts=0,bkPrices=0,svPrices=0;
+    if(_bData&&_bData.items)_bData.items.forEach(function(it){
+     if(parseFloat(it.supplier_cost)>0)bkCosts++;
+     if(parseFloat(it.price_per_unit)>0)bkPrices++;
+    });
     document.querySelectorAll('input[name^="cost_"]').forEach(function(el){if(parseFloat(el.value)>0)svCosts++;});
-    if(bkCosts>svCosts){
-     console.log('[RFQ] Auto-restoring: backup has '+bkCosts+' costs vs server '+svCosts);
+    document.querySelectorAll('input[name^="price_"]').forEach(function(el){if(parseFloat(el.value)>0)svPrices++;});
+    console.log('[RFQ] Backup: '+bkCosts+' costs, '+bkPrices+' prices. Server: '+svCosts+' costs, '+svPrices+' prices');
+    if(bkCosts>svCosts||bkPrices>svPrices){
+     console.log('[RFQ] AUTO-RESTORING from backup');
      if(_bData.items)_bData.items.forEach(function(it,i){
-      ['qty','uom','description','item_number','item_link','supplier_cost','price_per_unit','markup_pct'].forEach(function(f){
-       var name=f.replace('description','desc').replace('item_number','part').replace('item_link','link').replace('supplier_cost','cost').replace('price_per_unit','price').replace('markup_pct','markup');
-       var el=document.querySelector('[name='+name+'_'+i+']');
-       if(el&&it[f])el.value=it[f];
+      var fields={qty:'qty',uom:'uom',description:'desc',item_number:'part',item_link:'link',
+                  supplier_cost:'cost',price_per_unit:'price',markup_pct:'markup'};
+      Object.keys(fields).forEach(function(f){
+       var el=document.querySelector('[name='+fields[f]+'_'+i+']');
+       if(el&&it[f]!=null&&it[f]!=='')el.value=it[f];
       });
      });
+     if(_bData.quote_notes){var qn=document.querySelector('[name=quote_notes]');if(qn)qn.value=_bData.quote_notes;}
      if(typeof recalc==='function')recalc();
-     _doAutosave();
-     if(typeof showMsg==='function')showMsg('Restored '+bkCosts+' prices from browser backup','warn');
+     setTimeout(_doAutosave,1000);
+     var _restored=Math.max(bkCosts,bkPrices);
+     if(typeof showMsg==='function')showMsg('Restored '+_restored+' prices from browser backup ('+_age+'s ago)','warn');
+    } else {
+     console.log('[RFQ] Server data is current, no restore needed');
     }
    }
   }
- }catch(e){console.warn('RFQ restore:',e)}
+ }catch(e){console.warn('RFQ restore error:',e)}
  _lastSaveData=_getFormData(); // snapshot on load
  document.querySelectorAll('#pf input').forEach(function(inp){
   inp.addEventListener('change',triggerAutosave);
