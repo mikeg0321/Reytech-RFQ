@@ -506,6 +506,47 @@
      </div>
     </div>
 
+    <!-- Email Composer Panel -->
+    {% if pc.get('status') in ['priced', 'completed', 'generated', 'sent', 'draft', 'auto_drafted', 'ready', 'quoted', 'enriched', 'converted'] %}
+    <div id="email-composer" style="margin-top:20px;background:#161b22;border:2px solid #30363d;border-radius:10px;padding:20px">
+     <h3 style="font-size:16px;color:var(--tx);margin:0 0 14px;display:flex;align-items:center;gap:8px">
+      📧 Send Quote
+      {% if pc.get('sent_at') %}<span style="font-size:13px;color:#3fb950;font-weight:400">✓ Sent {{ pc.get('sent_at','')[:10] }}</span>{% endif %}
+     </h3>
+
+     <div style="display:grid;gap:10px">
+      <!-- To -->
+      <div style="display:flex;align-items:center;gap:8px">
+       <label style="font-size:13px;color:#8b949e;width:60px">To:</label>
+       <input type="email" id="compose-to" style="flex:1;background:#0d1117;border:1px solid #484f58;border-radius:5px;padding:8px 12px;color:#e6edf3;font-size:14px" placeholder="buyer@agency.gov">
+      </div>
+
+      <!-- Subject -->
+      <div style="display:flex;align-items:center;gap:8px">
+       <label style="font-size:13px;color:#8b949e;width:60px">Subject:</label>
+       <input type="text" id="compose-subject" style="flex:1;background:#0d1117;border:1px solid #484f58;border-radius:5px;padding:8px 12px;color:#e6edf3;font-size:14px" placeholder="Re: Price Check...">
+      </div>
+
+      <!-- Body -->
+      <div>
+       <label style="font-size:13px;color:#8b949e;display:block;margin-bottom:4px">Body:</label>
+       <textarea id="compose-body" rows="10" style="width:100%;background:#0d1117;border:1px solid #484f58;border-radius:5px;padding:10px 12px;color:#e6edf3;font-size:14px;font-family:inherit;resize:vertical;line-height:1.5;box-sizing:border-box" placeholder="Loading email preview..."></textarea>
+      </div>
+
+      <!-- Attachments -->
+      <div id="compose-attachments" style="display:flex;gap:8px;flex-wrap:wrap;font-size:13px">
+       <!-- Populated by JS -->
+      </div>
+
+      <!-- Send -->
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
+       <span id="compose-status" style="font-size:13px;color:#8b949e;align-self:center"></span>
+       <button id="compose-send-btn" onclick="composeSend()" style="padding:10px 28px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" disabled>📨 Send Quote</button>
+      </div>
+     </div>
+    </div>
+    {% endif %}
+
     <!-- DATA ISLANDS: server data in non-executing script tags (safe from JS parse errors) -->
     <script type="application/json" id="server-crm-data">{{ crm_json | safe }}</script>
     <script type="application/json" id="server-history-data">{{ history_json | safe }}</script>
@@ -2975,120 +3016,118 @@
      }
     });
 
-    // ── SEND PC QUOTE EMAIL ──
+    // ── SEND PC QUOTE — scrolls to embedded composer panel ──
     function sendPcQuote(){
-     var v=_validateBeforeGenerate();
-     if(!v.ok){
-      alert('Cannot send — fix these errors first:\n\n'+v.errors.slice(0,10).join('\n'));
-      return;
+     var composer = document.getElementById('email-composer');
+     if(composer){
+      composer.scrollIntoView({behavior:'smooth'});
+      // Flash the border to draw attention
+      composer.style.borderColor = '#58a6ff';
+      setTimeout(function(){ composer.style.borderColor = '#30363d'; }, 1500);
+     } else {
+      alert('Email composer not available — save prices first to enable sending.');
      }
-     if(v.warnings.length>0){
-      if(!confirm('Warnings:\n\n'+v.warnings.join('\n')+'\n\nSend anyway?')) return;
-     }
-     // Pre-fill with original buyer email (handles forwarded emails)
-     var buyerEmail = {{ (pc.get('original_sender', '') or pc.get('requestor_email', '') or pc.get('requestor', '') or '')|tojson }};
-     var origSubject = {{ (pc.get('email_subject', '') or '')|tojson }};
-     // Clean subject for reply — strip Re:/Fwd:/FW: prefixes
-     var cleanSubj = origSubject.replace(/^(Re:\s*|Fwd?:\s*|FW:\s*)*/gi, '').trim();
-     var pcNum={{(pc.get('pc_number','')|tojson)}};
-     var replySubject = cleanSubj ? 'Re: ' + cleanSubj : 'Price Quote — ' + pcNum;
-
-     // Fetch personalized email body from server, then show compose dialog
-     fetch('/api/pricecheck/'+_pcid+'/email-preview',{credentials:'same-origin'})
-     .then(function(r){return r.json()})
-     .then(function(d){
-      var defaultBody = (d.ok && d.body) ? d.body : 'Please find attached our price quote for '+pcNum+'.\n\nThank you,\nReytech Inc.';
-      _showSendDialog(buyerEmail, replySubject, defaultBody);
-     })
-     .catch(function(){
-      _showSendDialog(buyerEmail, replySubject, 'Please find attached our price quote for '+pcNum+'.\n\nThank you,\nReytech Inc.');
-     });
     }
 
-    function _showSendDialog(defaultTo, defaultSubject, defaultBody){
-     // Remove existing dialog if any
-     var old = document.getElementById('sendQuoteDialog');
-     if(old) old.remove();
+    // ── Email Composer (embedded panel) ──
+    (function(){
+      var composer = document.getElementById('email-composer');
+      if (!composer) return;
 
-     var overlay = document.createElement('div');
-     overlay.id = 'sendQuoteDialog';
-     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:10000;display:flex;align-items:center;justify-content:center';
+      var toEl = document.getElementById('compose-to');
+      var subjEl = document.getElementById('compose-subject');
+      var bodyEl = document.getElementById('compose-body');
+      var sendBtn = document.getElementById('compose-send-btn');
+      var statusEl = document.getElementById('compose-status');
+      var attachEl = document.getElementById('compose-attachments');
 
-     var modal = document.createElement('div');
-     modal.style.cssText = 'background:#161b22;border:1px solid #30363d;border-radius:12px;padding:24px;width:600px;max-width:90vw;max-height:90vh;overflow-y:auto;color:#e6edf3;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif';
+      // Pre-fill To and Subject from server data
+      var buyerEmail = {{ (pc.get('original_sender', '') or pc.get('requestor_email', '') or pc.get('requestor', '') or '')|tojson }};
+      var origSubject = {{ (pc.get('email_subject', '') or '')|tojson }};
+      var cleanSubj = origSubject.replace(/^(Re:\s*|Fwd?:\s*|FW:\s*)*/gi, '').trim();
+      var pcNum = {{ (pc.get('pc_number', '') or pcid)|tojson }};
 
-     modal.innerHTML = '<h3 style="margin:0 0 16px;font-size:18px;color:#58a6ff">Send Quote Email</h3>'
-      +'<label style="display:block;font-size:13px;color:#8b949e;margin-bottom:4px">To:</label>'
-      +'<input id="sqTo" type="email" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:14px;margin-bottom:12px;box-sizing:border-box">'
-      +'<label style="display:block;font-size:13px;color:#8b949e;margin-bottom:4px">Subject:</label>'
-      +'<input id="sqSubject" type="text" style="width:100%;padding:8px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:14px;margin-bottom:12px;box-sizing:border-box">'
-      +'<label style="display:block;font-size:13px;color:#8b949e;margin-bottom:4px">Body:</label>'
-      +'<textarea id="sqBody" rows="14" style="width:100%;padding:10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:13px;line-height:1.5;font-family:inherit;resize:vertical;margin-bottom:16px;box-sizing:border-box"></textarea>'
-      +'<div style="display:flex;justify-content:flex-end;gap:10px">'
-      +'<button id="sqCancel" style="padding:8px 18px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:14px;cursor:pointer">Cancel</button>'
-      +'<button id="sqSend" style="padding:8px 18px;background:#238636;border:none;border-radius:6px;color:#fff;font-size:14px;font-weight:600;cursor:pointer">Send</button>'
-      +'</div>';
+      if (toEl) toEl.value = buyerEmail;
+      if (subjEl) subjEl.value = cleanSubj ? 'Re: ' + cleanSubj : 'Price Quote — ' + pcNum;
 
-     overlay.appendChild(modal);
-     document.body.appendChild(overlay);
-
-     // Set field values after DOM insertion to avoid escaping issues
-     var toEl = document.getElementById('sqTo');
-     if(toEl) toEl.value = defaultTo;
-     var subjEl = document.getElementById('sqSubject');
-     if(subjEl) subjEl.value = defaultSubject;
-     var bodyEl = document.getElementById('sqBody');
-     if(bodyEl) bodyEl.value = defaultBody;
-
-     // Close on overlay click
-     overlay.addEventListener('click', function(ev){ if(ev.target===overlay) overlay.remove(); });
-     // Close on Escape
-     var escHandler = function(ev){ if(ev.key==='Escape'){ overlay.remove(); document.removeEventListener('keydown',escHandler); }};
-     document.addEventListener('keydown', escHandler);
-
-     // Cancel button
-     var cancelBtn = document.getElementById('sqCancel');
-     if(cancelBtn) cancelBtn.addEventListener('click', function(){ overlay.remove(); });
-
-     // Send button
-     var sendBtn = document.getElementById('sqSend');
-     if(sendBtn) sendBtn.addEventListener('click', function(){
-      var to = toEl ? toEl.value.trim() : '';
-      var subject = subjEl ? subjEl.value.trim() : '';
-      var body = bodyEl ? bodyEl.value : '';
-      if(!to){ alert('Please enter a recipient email.'); return; }
-
-      sendBtn.disabled = true;
-      sendBtn.textContent = 'Sending...';
-
-      fetch('/api/pricecheck/'+_pcid+'/send-quote',{
-       method:'POST',
-       headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({to:to, subject:subject, body:body}),
-       credentials:'same-origin'
-      })
-      .then(function(r){return r.json()})
-      .then(function(d){
-       if(d.ok){
-        overlay.remove();
-        alert('Quote sent to '+d.sent_to);
-        location.reload();
-       } else {
-        alert('Error: '+(d.error||'unknown'));
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
-       }
-      })
-      .catch(function(e){
-       alert('Send failed: '+e.message);
-       sendBtn.disabled = false;
-       sendBtn.textContent = 'Send';
+      // Fetch personalized body
+      fetch('/api/pricecheck/' + _pcid + '/email-preview', {credentials:'same-origin'})
+      .then(function(r){return r.json()}).then(function(d){
+        if (d.ok && bodyEl) bodyEl.value = d.body || '';
+      }).catch(function(){
+        if (bodyEl) bodyEl.value = 'Please find attached our price quote for ' + pcNum + '.\n\nThank you,\nReytech Inc.';
       });
-     });
 
-     // Focus the To field
-     if(toEl) toEl.focus();
-    }
+      // Show attachments
+      var attachments = [];
+      var quotePdf = {{ (pc.get('reytech_quote_pdf', '') or '')|tojson }};
+      var outputPdf = {{ (pc.get('output_pdf', '') or '')|tojson }};
+      if (quotePdf) attachments.push({name: 'Reytech Quote', path: quotePdf});
+      if (outputPdf) attachments.push({name: 'AMS 704', path: outputPdf});
+
+      if (attachEl) {
+        var html = '';
+        attachments.forEach(function(a) {
+          var fname = a.path.split('/').pop().split('\\').pop();
+          html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff">'
+            + '📎 ' + (a.name || fname)
+            + '</span>';
+        });
+        if (!html) html = '<span style="color:#d29922">⚠ No PDF generated yet — Save & Generate first</span>';
+        attachEl.innerHTML = html;
+      }
+
+      // Enable/disable send button based on To field + body + attachments
+      function validateCompose() {
+        var valid = toEl && toEl.value.includes('@') && bodyEl && bodyEl.value.length > 10;
+        var hasAttachments = attachments.length > 0;
+        if (sendBtn) {
+          sendBtn.disabled = !valid || !hasAttachments;
+          if (!hasAttachments) sendBtn.title = 'Generate quote PDF first';
+          else if (!valid) sendBtn.title = 'Enter a valid recipient email and body text';
+          else sendBtn.title = '';
+        }
+      }
+      if (toEl) toEl.addEventListener('input', validateCompose);
+      if (bodyEl) bodyEl.addEventListener('input', validateCompose);
+      setTimeout(validateCompose, 1500);
+
+      // Send function
+      window.composeSend = function() {
+        if (!sendBtn || sendBtn.disabled) return;
+        sendBtn.disabled = true;
+        sendBtn.textContent = '⏳ Sending...';
+        if (statusEl) statusEl.textContent = '';
+
+        fetch('/api/pricecheck/' + _pcid + '/send-quote', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'same-origin',
+          body: JSON.stringify({
+            to: toEl.value.trim(),
+            subject: subjEl.value.trim(),
+            body: bodyEl.value
+          })
+        })
+        .then(function(r){return r.json()}).then(function(d){
+          if (d.ok) {
+            sendBtn.textContent = '✅ Sent!';
+            sendBtn.style.background = '#238636';
+            if (statusEl) { statusEl.textContent = 'Sent to ' + toEl.value; statusEl.style.color = '#3fb950'; }
+            showMsg('✅ Quote sent to ' + toEl.value, 'ok');
+            setTimeout(function(){ location.reload(); }, 2000);
+          } else {
+            sendBtn.disabled = false;
+            sendBtn.textContent = '📨 Send Quote';
+            if (statusEl) { statusEl.textContent = '❌ ' + (d.error || 'Send failed'); statusEl.style.color = '#f85149'; }
+          }
+        }).catch(function(e){
+          sendBtn.disabled = false;
+          sendBtn.textContent = '📨 Send Quote';
+          if (statusEl) { statusEl.textContent = '❌ Network error'; statusEl.style.color = '#f85149'; }
+        });
+      };
+    })();
 
     // ── AUTO-SEQUENCE LINE NUMBERS — change one, rest follow ──
     function autoSequenceLineNums(changedIdx){

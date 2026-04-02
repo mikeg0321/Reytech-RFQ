@@ -2733,6 +2733,13 @@ def pricecheck_convert_to_quote(pcid):
             "price_source":     pricing.get("price_source", "manual"),
             "supplier_source":  pricing.get("price_source", "price_check"),
             "supplier_url":     pricing.get("amazon_url", ""),
+            # P0.2: Preserve enrichment fields through conversion
+            "item_link":        item.get("item_link", ""),
+            "item_supplier":    item.get("item_supplier", ""),
+            "notes":            item.get("notes", ""),
+            "pricing":          item.get("pricing", {}),
+            "sale_price":       item.get("sale_price", 0),
+            "list_price":       item.get("list_price", 0),
         }
         line_items.append(li)
 
@@ -2740,7 +2747,9 @@ def pricecheck_convert_to_quote(pcid):
         "id": rfq_id,
         "solicitation_number": f"PC-{pc.get('pc_number', 'unknown')}",
         "requestor_name": header.get("requestor", pc.get("requestor", "")),
-        "requestor_email": "",
+        "requestor_email": pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", "")),
+        "email_message_id": pc.get("email_message_id", ""),
+        "original_sender": pc.get("original_sender", ""),
         "department": header.get("institution", pc.get("institution", "")),
         "ship_to": pc.get("ship_to", ""),
         "delivery_zip": header.get("zip_code", ""),

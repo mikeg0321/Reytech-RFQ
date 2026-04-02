@@ -2383,6 +2383,19 @@ def fill_ams704(
             continue  # Skip price/extension fields
 
         qty_per_uom = item.get("qty_per_uom", 1)
+        # Write QTY PER UOM to PDF (e.g. "case of 24" → 24)
+        try:
+            qty_per_uom = int(float(qty_per_uom)) if qty_per_uom else 1
+        except (ValueError, TypeError):
+            qty_per_uom = 1
+        if qty_per_uom > 1:
+            qpu_field = ROW_FIELDS["qty_per_uom"].format(n=row) + _field_suffix
+            _qpu_page = int(_field_suffix.replace("_", "")) if _field_suffix else 1
+            field_values.append({
+                "field_id": qpu_field,
+                "page": _qpu_page,
+                "value": str(qty_per_uom),
+            })
         extension = round(unit_price * qty, 2)
         subtotal += extension
         items_priced += 1

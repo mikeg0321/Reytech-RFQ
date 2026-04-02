@@ -497,6 +497,22 @@ def home():
         pass
     action_items.sort(key=lambda x: x.get("priority", 9))
 
+    # P0.4: Compute readiness scoring for each PC
+    for _rid, _rpc in sorted_pcs.items():
+        _ritems = _rpc.get("items", [])
+        _ractive = [it for it in _ritems if not it.get("no_bid")]
+        _rtotal = len(_ractive)
+        _rwith_cost = sum(1 for it in _ractive
+                         if (it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0) > 0)
+        _rwith_price = sum(1 for it in _ractive
+                          if (it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0) > 0)
+        _rpc["_readiness"] = {
+            "total": _rtotal,
+            "costed": _rwith_cost,
+            "priced": _rwith_price,
+            "pct": round(_rwith_price / _rtotal * 100) if _rtotal > 0 else 0,
+        }
+
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
     return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs, sent_rfqs=sent_rfqs, sent_pcs=sent_pcs, action_items=action_items)

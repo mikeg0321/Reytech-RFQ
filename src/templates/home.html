@@ -493,6 +493,7 @@ function sortTable(th, col) {
      <th onclick="sortTable(this,2)" style="cursor:pointer">Buyer ⇅</th>
      <th onclick="sortTable(this,3)" style="cursor:pointer;width:90px">Due ⇅</th>
      <th onclick="sortTable(this,4)" style="cursor:pointer;width:56px;text-align:center">Items ⇅</th>
+     <th style="padding:8px 6px;text-align:center;width:70px">Priced</th>
      <th style="width:74px;text-align:center">Quote</th>
      <th onclick="sortTable(this,6)" style="cursor:pointer;width:80px;text-align:center">Status ⇅</th>
      <th style="width:32px"></th>
@@ -516,6 +517,13 @@ function sortTable(th, col) {
       </div>{% endif %}
      </td>
      <td style="text-align:center" class="mono">{{pc.get('items',[])|length}}</td>
+     <td style="padding:8px 6px;text-align:center">
+      {% set r = pc.get('_readiness', {}) %}
+      {% set pct = r.get('pct', 0) if r else 0 %}
+      <span style="color:{{ '#3fb950' if pct == 100 else ('#d29922' if pct >= 50 else '#f85149') }};font-weight:600;font-size:13px">
+        {{ r.get('priced', 0)|default(0) }}/{{ r.get('total', 0)|default(0) }}
+      </span>
+     </td>
      <td style="text-align:center" onclick="event.stopPropagation()">{% if pc.reytech_quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:14px">{{pc.reytech_quote_number}}</span>{% else %}—{% endif %}</td>
      <td style="text-align:center">
       {% set pc_display = {'new':'New','parsed':'New','parse_error':'New','draft':'Draft','priced':'Draft','ready':'Draft','auto_drafted':'Draft','quoted':'Draft','generated':'Draft','completed':'Draft','converted':'Draft','sent':'Sent','pending_award':'Sent','won':'Sent','lost':'Not Responding','expired':'Not Responding','no_response':'Not Responding','dismissed':'Not Responding','archived':'Not Responding','duplicate':'Not Responding'} %}
