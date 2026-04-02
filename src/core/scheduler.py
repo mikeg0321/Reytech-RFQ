@@ -26,9 +26,15 @@ _shutdown_event = threading.Event()
 
 
 def request_shutdown():
-    """Signal all background threads to stop."""
+    """Signal all background threads to stop and clean up thread-local DB connections."""
     _shutdown_event.set()
     log.info("Shutdown requested — all background threads signaled")
+    # Close thread-local DB connection for THIS thread (main/signal handler thread)
+    try:
+        from src.core.db import close_thread_db
+        close_thread_db()
+    except Exception:
+        pass
 
 
 def should_run():

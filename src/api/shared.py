@@ -155,6 +155,23 @@ def _global_auth_guard():
     request._start_time = time.time()
 
 
+@bp.before_request
+def _csrf_origin_check():
+    """Basic CSRF protection — verify Origin header on state-changing requests."""
+    if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+        origin = request.headers.get("Origin", "")
+        if origin:
+            # Allow same-origin and Railway URLs
+            allowed = [request.host_url.rstrip("/")]
+            if "railway.app" in request.host:
+                allowed.append("https://" + request.host)
+            if not any(origin.startswith(a) for a in allowed):
+                from flask import abort
+                log.warning("CSRF: blocked %s %s from origin %s",
+                            request.method, request.path, origin)
+                abort(403)
+
+
 @bp.after_request
 def _log_request_end(response):
     if hasattr(request, '_start_time'):

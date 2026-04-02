@@ -117,6 +117,18 @@ def api_outbox_retry_failed():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
+@bp.route("/api/outbox/pending-count")
+@auth_required
+def api_outbox_pending_count():
+    """Return count of draft emails in outbox for notification bell."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM email_outbox WHERE status='draft'").fetchone()[0]
+        return jsonify({"ok": True, "count": count})
+    except Exception:
+        return jsonify({"ok": True, "count": 0})
+
 @bp.route("/api/outbox/engagement-stats")
 @auth_required
 def api_outbox_engagement():

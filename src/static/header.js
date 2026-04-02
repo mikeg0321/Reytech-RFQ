@@ -130,8 +130,17 @@ function _resetBtn(btn,label){
       var badge=document.getElementById('notif-badge');
       if(!badge||!d.ok)return;
       var total=d.total_badge||0;
-      if(total>0){badge.textContent=total>99?'99+':total;badge.classList.add('show')}
-      else{badge.classList.remove('show')}
+      // Also fetch pending draft count and add to badge
+      fetch('/api/outbox/pending-count',{credentials:'same-origin'})
+      .then(function(r2){return r2.json()}).then(function(d2){
+        var draftCount=(d2.ok&&d2.count)?d2.count:0;
+        var combined=total+draftCount;
+        if(combined>0){badge.textContent=combined>99?'99+':combined;badge.classList.add('show')}
+        else{badge.classList.remove('show')}
+      }).catch(function(){
+        if(total>0){badge.textContent=total>99?'99+':total;badge.classList.add('show')}
+        else{badge.classList.remove('show')}
+      });
       var csEl=document.getElementById('notif-cs-count');
       if(csEl&&d.cs_drafts>0){csEl.textContent=d.cs_drafts+' CS draft(s)';csEl.style.display='inline'}
       else if(csEl){csEl.style.display='none'}
@@ -147,6 +156,25 @@ function toggleNotifPanel(){
   if(panel.classList.contains('open')) loadNotifications();
 }
 function loadNotifications(){
+  // Fetch pending drafts for inline outbox section
+  fetch('/api/outbox/pending-count',{credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){
+    var panel=document.getElementById('notif-panel');
+    if(!panel||!d.ok||!d.count)return;
+    // Remove existing draft section if any
+    var existing=document.getElementById('notif-draft-section');
+    if(existing)existing.remove();
+    if(d.count>0){
+      var draftSection=document.createElement('div');
+      draftSection.id='notif-draft-section';
+      draftSection.style.cssText='padding:8px 12px;border-bottom:1px solid var(--bd);background:rgba(210,153,34,.08)';
+      draftSection.innerHTML='<div style="font-size:13px;font-weight:600;color:#d29922;margin-bottom:4px">' + d.count + ' draft(s) pending</div>'
+        + '<a href="/outbox" style="font-size:12px;color:var(--ac)">Review in Outbox &rarr;</a>';
+      var body=document.getElementById('notif-list');
+      if(body&&body.parentNode)body.parentNode.insertBefore(draftSection,body);
+    }
+  }).catch(function(){});
+  // Fetch regular notifications
   fetch('/api/notifications/persistent?limit=20',{credentials:'same-origin'})
   .then(function(r){return r.json()}).then(function(d){
     var list=document.getElementById('notif-list');

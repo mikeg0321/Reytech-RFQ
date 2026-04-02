@@ -63,25 +63,55 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 _db_lock = threading.RLock()   # RLock: allows same-thread reentry (boot sync → upsert)
 
+# ── Thread-local connection pool ─────────────────────────────────────────────
+_local = threading.local()
+
+
+def _make_connection():
+    """Create and configure a new SQLite connection."""
+    conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    conn.execute("PRAGMA busy_timeout=30000")
+    return conn
+
+
+def close_thread_db():
+    """Close the thread-local DB connection. Call on thread exit."""
+    conn = getattr(_local, 'conn', None)
+    if conn:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        _local.conn = None
+
+
 # ── Connection factory ────────────────────────────────────────────────────────
 @contextmanager
 def get_db():
-    """Thread-safe SQLite connection with WAL mode for 2-worker gunicorn."""
-    with _db_lock:
-        conn = sqlite3.connect(DB_PATH, timeout=60, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=30000")
+    """Get a thread-local SQLite connection. WAL mode allows concurrent reads.
+
+    Reuses a per-thread connection instead of creating a new one each call.
+    This removes the global RLock serialization — threads read concurrently.
+    Writes are still serialized by SQLite's internal WAL locking.
+    """
+    conn = getattr(_local, 'conn', None)
+    if conn is None:
+        conn = _make_connection()
+        _local.conn = conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
         try:
-            yield conn
-            conn.commit()
-        except Exception:
             conn.rollback()
-            raise
-        finally:
-            conn.close()
+        except Exception:
+            # Connection is broken — discard it so next call gets a fresh one
+            close_thread_db()
+        raise
 
 
 def db_retry(fn, max_retries=3, delay=1.0):

@@ -1,6 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Follow-Ups — Reytech{% endblock %}
 {% block content %}
+<style>
+@media (max-width: 768px) {
+    /* Stats grid: 2 columns on tablet, 1 on phone */
+    [style*="grid-template-columns:repeat(5"] { grid-template-columns: repeat(2, 1fr) !important; }
+    /* Full-width buttons */
+    .btn, button { width: 100%; margin-bottom: 4px; }
+    /* Readable table */
+    table { font-size: 13px; }
+    td, th { padding: 6px 4px; white-space: normal !important; }
+    /* Readable fonts */
+    body { font-size: 14px; }
+}
+@media (max-width: 480px) {
+    [style*="grid-template-columns:repeat(5"] { grid-template-columns: 1fr !important; }
+}
+</style>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
  <div>
   <h2 style="margin:0;font-size:22px;font-weight:700">📬 Stale Quotes & Follow-Ups</h2>

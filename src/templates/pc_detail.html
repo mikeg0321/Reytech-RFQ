@@ -262,6 +262,57 @@
      </div>
      {% endif %}
 
+     <!-- ═══ WORKFLOW GUIDE PANEL ═══ -->
+     <div id="workflow-guide" style="margin-bottom:12px;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:12px 16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+       <span style="font-size:13px;font-weight:600;color:var(--tx2,#8b949e)">Workflow Guide</span>
+       <button onclick="document.getElementById('workflow-guide').style.display='none';localStorage.setItem('pc_hide_guide','1')" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px" title="Dismiss">&times;</button>
+      </div>
+      <div id="workflow-steps" style="display:flex;gap:4px;align-items:center;font-size:12px">
+      </div>
+     </div>
+     <script>
+     (function(){
+       if (localStorage.getItem('pc_hide_guide') === '1') return;
+       var guide = document.getElementById('workflow-guide');
+       if (!guide) return;
+       guide.style.display = 'block';
+
+       var steps = [
+         {id:'new', label:'New', desc:'Email received'},
+         {id:'parsed', label:'Parsed', desc:'Items extracted from PDF'},
+         {id:'priced', label:'Priced', desc:'Run Auto-Price or enter costs manually'},
+         {id:'completed', label:'Generated', desc:'704 PDF created — review before sending'},
+         {id:'sent', label:'Sent', desc:'Quote emailed to buyer — monitor for award'},
+         {id:'won', label:'Won', desc:'Awarded! Create order with PO#'}
+       ];
+
+       var status = {{ (pc.get('status', 'new'))|tojson }};
+       var statusMap = {new:'new', parsed:'parsed', parse_error:'parsed', priced:'priced',
+         draft:'priced', auto_drafted:'priced', ready:'priced',
+         completed:'completed', generated:'completed', quoted:'completed', converted:'completed',
+         sent:'sent', pending_award:'sent', won:'won', lost:'won'};
+       var currentStep = statusMap[status] || 'new';
+       var currentIdx = steps.findIndex(function(s){return s.id===currentStep});
+
+       var html = '';
+       steps.forEach(function(step, i) {
+         var isActive = (step.id === currentStep);
+         var isDone = (i < currentIdx);
+         var color = isActive ? '#58a6ff' : (isDone ? '#3fb950' : '#484f58');
+         var bg = isActive ? '#1f6feb22' : (isDone ? '#23863622' : 'transparent');
+         var border = isActive ? '#1f6feb' : (isDone ? '#238636' : '#30363d');
+         html += '<div style="flex:1;text-align:center;padding:8px 4px;border-radius:6px;background:'+bg+';border:1px solid '+border+'">';
+         html += '<div style="font-size:13px;font-weight:'+(isActive?'700':'400')+';color:'+color+'">'+step.label+'</div>';
+         if (isActive) html += '<div style="font-size:11px;color:#8b949e;margin-top:2px">'+step.desc+'</div>';
+         html += '</div>';
+         if (i < steps.length - 1) html += '<div style="color:#484f58;font-size:10px">&rarr;</div>';
+       });
+       var stepsEl = document.getElementById('workflow-steps');
+       if (stepsEl) stepsEl.innerHTML = html;
+     })();
+     </script>
+
      <!-- ═══ STAGE-AWARE ACTION BAR ═══ -->
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       {% set st = pc.get('status','new') %}

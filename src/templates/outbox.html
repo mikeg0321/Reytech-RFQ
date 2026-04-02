@@ -7,6 +7,15 @@
 .btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}
 .btn:hover{opacity:.8}
 .btn-sm{font-size:14px;padding:4px 10px}
+@media (max-width: 768px) {
+    /* Stack grid layouts */
+    [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+    /* Full-width buttons */
+    .btn { width: 100%; margin-bottom: 4px; }
+    /* Readable table */
+    table { font-size: 13px; }
+    td, th { padding: 6px 4px; }
+}
 </style>
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
  <div>
