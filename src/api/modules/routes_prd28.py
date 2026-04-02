@@ -1101,6 +1101,57 @@ def api_activity_feed():
     except Exception:
         pass
 
+    # 5) Notifications (award losses, alerts, etc.)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            notifs = conn.execute("""
+                SELECT title, body, event_type, urgency, context_json, created_at
+                FROM notifications ORDER BY created_at DESC LIMIT ?
+            """, (limit,)).fetchall()
+            for n in notifs:
+                nd = dict(n)
+                etype = nd.get("event_type", "")
+                title = nd.get("title", "")
+                body = nd.get("body", "")
+                ctx = {}
+                try:
+                    ctx = json.loads(nd.get("context_json") or "{}")
+                except Exception:
+                    pass
+                # Build link based on event type
+                link = None
+                if "award_loss" in etype or "quote_lost" in etype:
+                    # Link to loss detail page
+                    qn = ctx.get("quote_number", "")
+                    pc_id = ctx.get("pc_id", "")
+                    if qn:
+                        link = f"/loss-detail/{qn}"
+                    elif pc_id:
+                        link = f"/pricecheck/{pc_id}"
+                elif "quote_won" in etype or "award_won" in etype:
+                    link = f"/pricecheck/{ctx.get('pc_id', '')}" if ctx.get("pc_id") else None
+                elif "rfq" in etype:
+                    link = f"/rfq/{ctx.get('rfq_id', '')}" if ctx.get("rfq_id") else None
+                elif "pc_" in etype:
+                    link = f"/pricecheck/{ctx.get('pc_id', '')}" if ctx.get("pc_id") else None
+
+                icon = {"award_loss_detected": "📉", "award_loss_margin_too_high": "🔴",
+                        "quote_won": "🏆", "rfq_arrived": "📄", "cs_draft_ready": "📧",
+                        "auto_draft_ready": "📝", "competitor_trend": "📊",
+                        "pc_recalled": "↩️"}.get(etype, "🔔")
+                events.append({
+                    "ts": nd.get("created_at", ""),
+                    "type": etype,
+                    "icon": icon,
+                    "title": title[:120],
+                    "detail": (body or "")[:120],
+                    "link": link,
+                    "source": "alerts",
+                })
+    except Exception as _ne:
+        log.debug("notifications feed: %s", _ne)
+
     # Sort all by timestamp descending, take top N
     events.sort(key=lambda e: e.get("ts", ""), reverse=True)
     events = events[:limit]
