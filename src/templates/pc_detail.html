@@ -623,7 +623,16 @@
     function _fetchWithRetry(url, opts, retries) {
      retries = retries || 2;
      return fetch(url, opts).then(function(r) {
-      if (r.status === 401) { alert('Session expired — reloading page'); location.reload(); throw new Error('Session expired'); }
+      if (r.status === 401) {
+        // Save to localStorage before reloading — don't lose data on session expiry
+        try {
+          var _p = collectPrices();
+          localStorage.setItem('pc_autosave_' + _pcid, JSON.stringify({ts: Date.now(), pcid: _pcid, data: _p}));
+        } catch(_e) {}
+        alert('Session expired — your data is backed up locally. Reloading...');
+        location.reload();
+        throw new Error('Session expired');
+      }
       if (r.ok || r.status < 500) return r;
       if (retries <= 0) return r;
       return new Promise(function(resolve) {
@@ -2155,22 +2164,33 @@
         if (!raw) return;
         var backup = JSON.parse(raw);
         var age = (Date.now() - backup.ts) / 1000;
-        if (age < 3600 && backup.pcid === _pcid && backup.data) {
-          // Check if backup has more data than server (costs filled vs empty)
+        if (age < 7200 && backup.pcid === _pcid && backup.data) {
+          // Compare backup vs server: count costs AND check total cost value
           var backupCosts = 0, serverCosts = 0;
+          var backupTotal = 0, serverTotal = 0;
+          var backupPrices = 0, serverPrices = 0;
           Object.keys(backup.data).forEach(function(k) {
-            if (k.match(/^cost_\d/) && parseFloat(backup.data[k]) > 0) backupCosts++;
+            var v = parseFloat(backup.data[k]) || 0;
+            if (k.match(/^cost_\d/) && v > 0) { backupCosts++; backupTotal += v; }
+            if (k.match(/^price_\d/) && v > 0) { backupPrices++; }
           });
           document.querySelectorAll('input[name^="cost_"]').forEach(function(el) {
-            if (parseFloat(el.value) > 0) serverCosts++;
+            var v = parseFloat(el.value) || 0;
+            if (v > 0) { serverCosts++; serverTotal += v; }
           });
-          if (backupCosts > serverCosts) {
-            // Auto-restore — backup has more data than server
-            console.log('[PC] Auto-restoring from backup: ' + backupCosts + ' costs vs server ' + serverCosts);
+          document.querySelectorAll('input[name^="price_"]').forEach(function(el) {
+            if ((parseFloat(el.value) || 0) > 0) serverPrices++;
+          });
+          // Restore if backup has MORE data OR DIFFERENT cost totals (data was lost)
+          var shouldRestore = (backupCosts > serverCosts)
+            || (backupPrices > serverPrices)
+            || (backupCosts === serverCosts && backupCosts > 0 && Math.abs(backupTotal - serverTotal) > 0.01);
+          if (shouldRestore) {
+            console.log('[PC] Auto-restoring from backup: ' + backupCosts + ' costs ($' + backupTotal.toFixed(2) + ') vs server ' + serverCosts + ' costs ($' + serverTotal.toFixed(2) + ')');
             restoreLocalBackup();
-            showMsg('Restored ' + backupCosts + ' prices from browser backup (server save was lost during deploy)', 'warn');
+            showMsg('Restored ' + backupCosts + ' prices from browser backup (server data was stale or lost)', 'warn');
           } else {
-            // Server has same or more data — discard backup
+            // Server matches backup — safe to discard
             localStorage.removeItem('pc_autosave_' + _pcid);
           }
         }
@@ -2210,8 +2230,15 @@
       });
       setInterval(doPcAutosave, 30000);
       window.addEventListener('beforeunload', function(e) {
-        var payload = JSON.stringify(collectPrices());
-        if (_pcLastSaved !== null && payload !== _pcLastSaved) {
+        // ALWAYS save to localStorage on page unload — last line of defense
+        try {
+          var payload = collectPrices();
+          localStorage.setItem('pc_autosave_' + _pcid, JSON.stringify({
+            ts: Date.now(), pcid: _pcid, data: payload
+          }));
+        } catch(ex) {}
+        var snap = JSON.stringify(collectPrices());
+        if (_pcLastSaved !== null && snap !== _pcLastSaved) {
           e.preventDefault();
           e.returnValue = 'You have unsaved changes.';
         }
@@ -2923,31 +2950,8 @@
      }).catch(function(e){btn.disabled=false;btn.textContent='🔄 Re-scrape Missing';alert('Error: '+e.message);});
     }
 
-    // ── AUTOSAVE — every 60 seconds if changes detected ──
-    var _lastSaveHash = JSON.stringify(collectPrices());
-    setInterval(function() {
-        try {
-            var current = JSON.stringify(collectPrices());
-            if (current !== _lastSaveHash) {
-                _lastSaveHash = current;
-                fetch('/pricecheck/'+_pcid+'/save-prices', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: current,
-                    credentials: 'same-origin'
-                }).then(function(r) { return r.json(); }).then(function(d) {
-                    if (d.ok) {
-                        var s = document.getElementById('saveBtn');
-                        if (s) {
-                            var orig = s.textContent;
-                            s.textContent = '\u2713 Auto-saved';
-                            setTimeout(function() { s.textContent = orig; }, 2000);
-                        }
-                    }
-                }).catch(function() {});
-            }
-        } catch(e) {}
-    }, 60000);
+    // Duplicate autosave removed — doPcAutosave handles all saves
+    // (30s interval + event-triggered + localStorage backup + retry)
 
     function viewOriginalPc() {
       _openPdfPreview('/pricecheck/' + _pcid + '/source-pdf', 'Original PC — ' + (PC_META && PC_META.institution ? PC_META.institution : 'Source Document'));
