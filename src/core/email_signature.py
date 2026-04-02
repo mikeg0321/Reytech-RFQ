@@ -70,31 +70,26 @@ SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)"""
 
 
 def get_html_signature(closing: str = "Respectfully,") -> str:
-    """HTML email signature — compact, no horizontal rule, CID logo."""
-    # NOTE: Logo uses cid:logo reference — the send function must attach
-    # the logo as an inline image with Content-ID <logo>. If not attached,
-    # the img tag gracefully falls back to alt text.
-    logo_html = '<img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block;margin-bottom:4px">'
+    """HTML email signature — matches Gmail signature format exactly.
+    Vertical stack: closing → logo → company → details → certifications."""
+    logo_html = '<img src="cid:reytech_logo" alt="ReyTech Inc." style="width:140px;height:auto;display:block">'
 
     return f"""{closing}
-<table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif;margin-top:12px">
- <tr>
-  <td style="padding-right:14px;vertical-align:top">{logo_html}</td>
-  <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
-   <strong style="font-size:14px;color:#1a1a2e">{COMPANY}</strong><br>
-   {NAME}<br>
-   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a><br>
-   Trabuco Canyon, CA<br>
-   <a href="tel:{PHONE.replace('-','')}" style="color:#2563eb;text-decoration:none">{PHONE}</a>
-  </td>
- </tr>
-</table>
-<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.5">
+<div style="font-family:'Segoe UI',Arial,sans-serif;margin-top:16px;line-height:1.6">
+{logo_html}
+<br>
+<strong style="font-size:14px;color:#1a1a2e">{COMPANY}</strong><br>
+<span style="font-size:13px;color:#444">Sales Support</span><br>
+<a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none;font-size:13px">www.reytechinc.com</a><br>
+<span style="font-size:13px;color:#444">Trabuco Canyon, CA</span><br>
+<span style="font-size:13px;color:#444">{PHONE}</span><br>
+<span style="font-size:12px;color:#666;line-height:1.5">
 CA MB/SB/SB-PW/DVBE #2002605<br>
 NY SDVOB - 221449<br>
 DOT - Disadvantaged Business Enterprise DBE #44511<br>
 MBE - SC6550<br>
 SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)
+</span>
 </div>"""
 
 
