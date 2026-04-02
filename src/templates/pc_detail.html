@@ -990,6 +990,51 @@
      });
     }
 
+    function loadOracleDetail(idx) {
+     var row = document.querySelector('tr[data-row="'+idx+'"]');
+     if (!row) return;
+     // Toggle existing panel
+     var existing = document.getElementById('oracle-panel-'+idx);
+     if (existing) { existing.remove(); return; }
+     // Create panel row
+     var panel = document.createElement('tr');
+     panel.id = 'oracle-panel-'+idx;
+     panel.innerHTML = '<td colspan="14" style="padding:12px 20px;background:#161b22;border:1px solid #30363d"><div style="color:#8b949e;font-size:13px">⏳ Loading oracle analysis...</div></td>';
+     row.insertAdjacentElement('afterend', panel);
+     fetch('/api/pricecheck/'+_pcid+'/oracle/'+idx,{credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      if (!d.ok) { panel.querySelector('td div').innerHTML='<span style="color:#f85149">'+d.error+'</span>'; return; }
+      var html='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:13px">';
+      // Market data
+      var m=d.market||{};
+      html+='<div><b style="color:#58a6ff">Market Data</b> <span style="color:#8b949e">('+m.data_points+' points)</span>';
+      if(m.median)html+='<div style="margin-top:4px">Median: <b>$'+(m.median||0).toFixed(2)+'</b></div>';
+      if(m.p25)html+='<div>Range: $'+(m.p25||0).toFixed(2)+' – $'+(m.p75||0).toFixed(2)+'</div>';
+      html+='<div>Freshness: '+(m.freshness||'unknown')+'</div></div>';
+      // Recommendation
+      var r=d.recommendation||{};
+      html+='<div><b style="color:#3fb950">Recommendation</b>';
+      if(r.quote_price)html+='<div style="margin-top:4px;font-size:16px;font-weight:700;color:#3fb950">$'+r.quote_price.toFixed(2)+'</div>';
+      if(r.confidence)html+='<div>Confidence: '+r.confidence+'</div>';
+      if(r.rationale)html+='<div style="color:#8b949e;margin-top:2px">'+r.rationale+'</div>';
+      html+='</div>';
+      // Sources
+      html+='<div><b style="color:#d29922">Sources Used</b>';
+      (d.sources_used||[]).forEach(function(s){html+='<div style="margin-top:2px">✓ '+s+'</div>'});
+      html+='</div></div>';
+      // Competitors
+      if(d.competitors&&d.competitors.length){
+       html+='<div style="margin-top:10px"><b style="color:#f0883e">Competitors ('+d.competitors.length+')</b>';
+       html+='<table style="width:100%;font-size:12px;margin-top:4px;border-collapse:collapse"><tr style="color:#8b949e"><th style="text-align:left;padding:3px 6px">Supplier</th><th style="text-align:right;padding:3px 6px">Price</th><th style="padding:3px 6px">Agency</th><th style="padding:3px 6px">Date</th></tr>';
+       d.competitors.slice(0,8).forEach(function(c){
+        html+='<tr style="border-top:1px solid #21262d"><td style="padding:3px 6px;color:#c9d1d9">'+(c.name||c.supplier||'?')+'</td><td style="padding:3px 6px;text-align:right;color:#e6edf3">$'+(c.price||0).toFixed(2)+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.department||'')+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.date||'').substring(0,10)+'</td></tr>';
+       });
+       html+='</table></div>';
+      }
+      panel.querySelector('td div').innerHTML=html;
+     }).catch(function(e){panel.querySelector('td div').innerHTML='<span style="color:#f85149">Error: '+e.message+'</span>'});
+    }
+
     function retryAutoPrice(btn) {
      btn.disabled=true;btn.textContent='⏳ Running...';
      fetch('/api/pricecheck/'+_pcid+'/retry-auto-price',{method:'POST'})

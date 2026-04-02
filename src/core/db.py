@@ -515,6 +515,28 @@ CREATE INDEX IF NOT EXISTS idx_lp_type ON loss_patterns(pattern_type);
 CREATE INDEX IF NOT EXISTS idx_lp_severity ON loss_patterns(severity);
 CREATE INDEX IF NOT EXISTS idx_lp_unack ON loss_patterns(acknowledged);
 
+-- Pricing recommendation audit — tracks oracle accuracy
+CREATE TABLE IF NOT EXISTS recommendation_audit (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at     TEXT NOT NULL,
+    pc_id           TEXT,
+    quote_number    TEXT,
+    item_index      INTEGER,
+    description     TEXT,
+    item_number     TEXT,
+    oracle_price    REAL,
+    oracle_source   TEXT,
+    oracle_confidence TEXT,
+    user_price      REAL,
+    delta_pct       REAL,
+    followed        INTEGER DEFAULT 0,
+    outcome         TEXT DEFAULT 'pending',
+    outcome_price   REAL,
+    updated_at      TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ra_pc ON recommendation_audit(pc_id);
+CREATE INDEX IF NOT EXISTS idx_ra_outcome ON recommendation_audit(outcome);
+
 -- PRD-28 WI-1: Quote revision history
 CREATE TABLE IF NOT EXISTS quote_revisions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

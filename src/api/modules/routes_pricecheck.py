@@ -613,6 +613,31 @@ def _pricecheck_detail_inner(pcid):
                 chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:13px;text-decoration:none" title="Use this price">⬇</a>'
             source_chips.append(chip)
         source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
+        # Oracle pricing intelligence badge
+        _oracle_price = _safe_float(item.get("oracle_price"), 0)
+        _oracle_conf = item.get("oracle_confidence", "")
+        _oracle_rationale = item.get("oracle_rationale", "")
+        if _oracle_price > 0:
+            _oc_color = "#3fb950" if _oracle_conf == "high" else ("#d29922" if _oracle_conf == "medium" else "#8b949e")
+            _oc_dot = "●" if _oracle_conf in ("high", "medium") else "○"
+            _oc_title = f"Oracle: ${_oracle_price:.2f} ({_oracle_conf}) — {_oracle_rationale}" if _oracle_rationale else f"Oracle recommends ${_oracle_price:.2f}"
+            source_html += (
+                f'<div style="margin-top:3px">'
+                f'<a href="#" onclick="loadOracleDetail({idx});return false" '
+                f'style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;'
+                f'font-size:12px;background:{_oc_color}15;border:1px solid {_oc_color}40;color:{_oc_color};'
+                f'text-decoration:none;cursor:pointer" title="{_oc_title}">'
+                f'{_oc_dot} Oracle <b>${_oracle_price:.2f}</b></a></div>'
+            )
+        # Price trend indicator
+        _price_trend = p.get("price_trend", "")
+        if _price_trend:
+            _trend_arrow = "↗" if _price_trend == "rising" else "↘"
+            _trend_color = "#f85149" if _price_trend == "rising" else "#3fb950"
+            _trend_data = p.get("trend_data", {})
+            _trend_title = f"Prices {_price_trend}: avg ${_trend_data.get('avg', 0):.2f} → recent ${_trend_data.get('recent_avg', 0):.2f}" if _trend_data else ""
+            source_html += f'<span style="font-size:12px;color:{_trend_color};margin-left:4px" title="{_trend_title}">{_trend_arrow} {_price_trend}</span>'
+
         # Guardrail warning badge
         if item.get("_cost_override_reason"):
             source_html += f'<div style="font-size:11px;color:#f85149;margin-top:2px" title="{item["_cost_override_reason"]}">⚠ Cost auto-corrected</div>'
@@ -7052,6 +7077,36 @@ def api_admin_rfq_cleanup():
     # ═══════════════════════════════════════════════════════════════════════════════
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+@bp.route("/api/pricecheck/<pcid>/oracle/<int:item_idx>")
+@auth_required
+def api_pc_item_oracle(pcid, item_idx):
+    """Get full oracle analysis for a single PC item (on-demand)."""
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+        items = pc.get("items", [])
+        if item_idx < 0 or item_idx >= len(items):
+            return jsonify({"ok": False, "error": "Item not found"})
+        item = items[item_idx]
+        desc = item.get("description", "")
+        cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        item_num = item.get("mfg_number", "") or item.get("item_number", "")
+        qty = item.get("qty", 1) or 1
+        from src.core.pricing_oracle_v2 import get_pricing
+        result = get_pricing(
+            description=desc, quantity=qty, cost=cost if cost > 0 else None,
+            item_number=item_num
+        )
+        result["ok"] = True
+        result["item_idx"] = item_idx
+        return jsonify(result)
+    except Exception as e:
+        log.error("Oracle lookup for %s item %d: %s", pcid, item_idx, e)
+        return jsonify({"ok": False, "error": str(e)})
+
 
 @bp.route("/api/item-link/lookup", methods=["POST"])
 @auth_required

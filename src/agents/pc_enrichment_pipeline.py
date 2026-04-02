@@ -193,9 +193,12 @@ def _run_pipeline(pc_id: str, force: bool):
             if r.get("recommended_price") and not it["pricing"].get("recommended_price"):
                 it["pricing"]["catalog_recommended"] = r["recommended_price"]
                 it["pricing"]["recommended_price"] = r["recommended_price"]
+                it["pricing"]["price_source"] = "catalog"
             cat_cost = r.get("best_cost") or r.get("last_cost", 0)
             if cat_cost > 0 and not it["pricing"].get("unit_cost"):
                 it["pricing"]["unit_cost"] = cat_cost
+                if not it["pricing"].get("price_source"):
+                    it["pricing"]["price_source"] = "catalog"
             if not it.get("mfg_number") and r.get("mfg_number"):
                 it["mfg_number"] = r["mfg_number"]
             if not it.get("item_link") and r.get("supplier_url"):
@@ -446,6 +449,26 @@ def _run_pipeline(pc_id: str, force: bool):
     except Exception as e:
         log.debug("ENRICH %s: oracle v2 error: %s", pc_id, e)
     ENRICHMENT_STATUS[pc_id]["steps_done"].append("oracle_v2")
+
+    # ── Record oracle recommendations for accuracy tracking ──
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for i, it in enumerate(items):
+                oracle_price = it.get("oracle_price", 0)
+                if oracle_price and oracle_price > 0:
+                    conn.execute("""
+                        INSERT OR REPLACE INTO recommendation_audit
+                        (recorded_at, pc_id, item_index, description, item_number,
+                         oracle_price, oracle_source, oracle_confidence, outcome)
+                        VALUES (datetime('now'), ?, ?, ?, ?, ?, ?, ?, 'pending')
+                    """, (pc_id, i, it.get("description", "")[:200],
+                          it.get("mfg_number", "") or it.get("item_number", ""),
+                          oracle_price,
+                          it["pricing"].get("price_source", "oracle_v2"),
+                          it.get("oracle_confidence", "")))
+    except Exception as _ra_e:
+        log.debug("ENRICH %s: recommendation audit: %s", pc_id, _ra_e)
 
     # ── Step 8: Price trend detection (flag items with falling/rising prices) ─
     _update_status(pc_id, "trends", "analyzing price trends")

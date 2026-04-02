@@ -49,9 +49,11 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     if cost:
         result["cost"]["provided_cost"] = cost
 
-    # Step 3: Gather market prices
+    # Step 3: Gather market prices (won_quotes + winning_prices first — richest data)
     market_prices = []
     for fn, name in [
+        (_search_won_quotes, "won_quotes"),
+        (_search_winning_prices, "winning_prices"),
         (_search_scprs_catalog, "scprs_catalog"),
         (_search_po_lines, "scprs_po_lines"),
         (_search_product_catalog, "product_catalog"),
@@ -145,6 +147,86 @@ def _get_locked_cost(db, description, item_number=""):
     except Exception:
         pass
     return None
+
+
+def _search_won_quotes(db, description, item_number=""):
+    """Search won_quotes KB — SCPRS competitors' winning prices.
+    This is the richest data source: actual prices that won contracts."""
+    prices = []
+    try:
+        token_groups = _tokenize(description)[:4]
+        if not token_groups:
+            return prices
+        where_parts = []
+        params = []
+        for group in token_groups:
+            if len(group) == 1:
+                where_parts.append("LOWER(normalized_description) LIKE ?")
+                params.append(f"%{group[0]}%")
+            else:
+                or_clause = " OR ".join(["LOWER(normalized_description) LIKE ?" for _ in group])
+                where_parts.append(f"({or_clause})")
+                params.extend([f"%{v}%" for v in group])
+        where = " AND ".join(where_parts)
+        if item_number:
+            where = f"({where}) OR LOWER(item_number) = ?"
+            params.append(item_number.lower())
+        rows = db.execute(f"""
+            SELECT description, unit_price, quantity, supplier, department,
+                   award_date, category, confidence
+            FROM won_quotes WHERE {where} ORDER BY award_date DESC LIMIT 20
+        """, params).fetchall()
+        for r in rows:
+            p = r[1]
+            if p and p > 0:
+                prices.append({"price": p, "description": r[0], "quantity": r[2] or 1,
+                               "supplier": r[3] or "", "department": r[4] or "",
+                               "date": r[5] or "", "category": r[6] or "",
+                               "source": "won_quotes",
+                               "is_reytech": "REYTECH" in (r[3] or "").upper()})
+    except Exception as e:
+        log.debug("won_quotes search: %s", e)
+    return prices
+
+
+def _search_winning_prices(db, description, item_number=""):
+    """Search winning_prices — OUR won order prices (items Reytech sold).
+    These are the most authoritative: prices we actually won contracts at."""
+    prices = []
+    try:
+        token_groups = _tokenize(description)[:3]
+        if not token_groups:
+            return prices
+        where_parts = []
+        params = []
+        for group in token_groups:
+            if len(group) == 1:
+                where_parts.append("LOWER(description) LIKE ?")
+                params.append(f"%{group[0]}%")
+            else:
+                or_clause = " OR ".join(["LOWER(description) LIKE ?" for _ in group])
+                where_parts.append(f"({or_clause})")
+                params.extend([f"%{v}%" for v in group])
+        where = " AND ".join(where_parts)
+        if item_number:
+            where = f"({where}) OR LOWER(part_number) = ?"
+            params.append(item_number.lower())
+        rows = db.execute(f"""
+            SELECT description, sell_price, qty, supplier, agency,
+                   recorded_at, cost, margin_pct
+            FROM winning_prices WHERE {where} ORDER BY recorded_at DESC LIMIT 15
+        """, params).fetchall()
+        for r in rows:
+            p = r[1]
+            if p and p > 0:
+                prices.append({"price": p, "description": r[0], "quantity": r[2] or 1,
+                               "supplier": r[3] or "", "department": r[4] or "",
+                               "date": r[5] or "", "cost": r[6] or 0,
+                               "margin": r[7] or 0, "source": "winning_prices",
+                               "is_reytech": True})
+    except Exception as e:
+        log.debug("winning_prices search: %s", e)
+    return prices
 
 
 def _search_scprs_catalog(db, description, item_number=""):
