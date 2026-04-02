@@ -315,10 +315,10 @@ def _normalize_rfq_fields(rfqs: dict) -> dict:
 
 
 def load_rfqs():
-    """Load RFQs — SQLite primary with data_json blob for full fidelity.
+    """Load RFQs from SQLite (single source of truth).
 
-    Priority: data_json blob (complete dict) > structured columns > JSON file fallback.
-    Structured columns are kept for indexing/querying. data_json has ALL fields.
+    Priority: data_json blob (complete dict) > structured columns.
+    One-time migration from JSON if SQLite is empty.
     """
     try:
         from src.core.db import get_db
@@ -327,8 +327,24 @@ def load_rfqs():
                 "SELECT * FROM rfqs ORDER BY received_at DESC LIMIT 10000"
             ).fetchall()
             if not rows:
-                # Empty DB — fall back to JSON
-                return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
+                # Empty DB — try one-time JSON migration
+                json_path = rfq_db_path()
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path) as f:
+                            json_data = json.load(f)
+                        if json_data:
+                            log.info("MIGRATION: Importing %d RFQs from JSON to SQLite (one-time)", len(json_data))
+                            for rid, r in json_data.items():
+                                try:
+                                    _save_single_rfq(rid, r)
+                                except Exception:
+                                    pass
+                            os.rename(json_path, json_path + ".migrated")
+                            return _normalize_rfq_fields(json_data)
+                    except Exception as e:
+                        log.warning("RFQ JSON migration failed: %s", e)
+                return _normalize_rfq_fields({})
 
             result = {}
             for row in rows:
@@ -362,23 +378,11 @@ def load_rfqs():
                         d["items"] = []
                 result[rid] = d
 
-            # Merge any fields from JSON file not yet in data_json (one-time migration)
-            json_data = _cached_json_load(rfq_db_path(), fallback={})
-            if json_data:
-                for rid, r in result.items():
-                    jr = json_data.get(rid, {})
-                    if not jr:
-                        continue
-                    # Only merge fields missing from the loaded record
-                    for key, val in jr.items():
-                        if key not in r or (not r[key] and val):
-                            r[key] = val
-
             return _normalize_rfq_fields(result)
     except Exception as e:
         log.warning("load_rfqs failed: %s", str(e)[:200])
 
-    return _normalize_rfq_fields(_cached_json_load(rfq_db_path(), fallback={}))
+    return _normalize_rfq_fields({})
 
 def _save_single_rfq(rfq_id, r):
     """Save a SINGLE RFQ to SQLite without touching any other RFQs.
@@ -1205,10 +1209,10 @@ _pc_cache = None
 _pc_cache_time = 0
 
 def _load_price_checks(include_items=True):
-    """Load price checks — DAL (SQLite) primary, JSON fallback.
+    """Load price checks from SQLite (single source of truth).
 
-    Layer 4 migration: DAL first, JSON fallback if DAL empty/fails.
     In-memory cache (30s TTL) prevents repeated DB queries.
+    One-time migration from JSON if SQLite is empty.
     """
     global _pc_cache, _pc_cache_time
     import time as _t
@@ -1250,17 +1254,27 @@ def _load_price_checks(include_items=True):
                         d["items"] = []
                 data[pcid] = d
     except Exception as e:
-        log.warning("SQLite load_pcs failed, falling back to JSON: %s", str(e)[:200])
+        log.warning("SQLite load_pcs failed: %s", str(e)[:200])
 
-    # JSON fallback — only if SQLite returned nothing
+    # One-time migration: if SQLite empty but JSON has records, migrate them
     if not data:
         json_path = os.path.join(DATA_DIR, "price_checks.json")
         if os.path.exists(json_path):
             try:
                 with open(json_path) as f:
-                    data = json.load(f)
-            except Exception:
-                data = {}
+                    json_data = json.load(f)
+                if json_data:
+                    log.info("MIGRATION: Importing %d PCs from JSON to SQLite (one-time)", len(json_data))
+                    for pcid, pc in json_data.items():
+                        try:
+                            _save_single_pc(pcid, pc)
+                        except Exception:
+                            pass
+                    data = json_data  # Use for this request
+                    # Rename the JSON file so we don't migrate again
+                    os.rename(json_path, json_path + ".migrated")
+            except Exception as e:
+                log.warning("PC JSON migration failed: %s", e)
 
     # Normalize: ensure items/line_items both exist
     for pcid, pc in data.items():
@@ -1325,7 +1339,7 @@ def _save_single_pc(pc_id, pc):
 
 
 def _save_price_checks(pcs):
-    """Save price checks to SQLite (primary) + JSON backup cache."""
+    """Save price checks to SQLite (single source of truth)."""
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
         _pc_cache = None  # Invalidate cache
@@ -5857,50 +5871,8 @@ def _deferred_boot_checks():
     except Exception as _e:
         log.warning("Boot health check failed: %s", _e)
 
-    # Boot Recovery (inside deferred thread)
-    for _json_name, _table, _id_col in [("price_checks.json", "price_checks", "id"),
-                                          ("rfqs.json", "rfqs", "id")]:
-        try:
-            _jpath = os.path.join(DATA_DIR, _json_name)
-            _is_empty = True
-            if os.path.exists(_jpath) and os.path.getsize(_jpath) > 100:
-                try:
-                    with open(_jpath) as _jf:
-                        _jdata = json.load(_jf)
-                    if _jdata and len(_jdata) > 0:
-                        _is_empty = False
-                except Exception:
-                    pass
-            if _is_empty:
-                log.warning("BOOT: %s empty — rebuilding from SQLite", _json_name)
-                from src.core.db import get_db as _bdb
-                with _bdb() as _bc:
-                    if _table == "price_checks":
-                        _rows = _bc.execute("SELECT id, pc_data FROM price_checks WHERE pc_data IS NOT NULL").fetchall()
-                        _rebuilt = {}
-                        for _r in _rows:
-                            try:
-                                _pd = json.loads(_r[1]) if isinstance(_r[1], str) else _r[1]
-                                if isinstance(_pd, dict):
-                                    _rebuilt[_r[0]] = {k: v for k, v in _pd.items() if k != "pc_data"}
-                            except Exception:
-                                pass
-                    else:
-                        _rows = _bc.execute("SELECT * FROM rfqs").fetchall()
-                        _rebuilt = {}
-                        for _r in _rows:
-                            _d = dict(_r)
-                            _items = json.loads(_d.get("items", "[]")) if isinstance(_d.get("items"), str) else _d.get("items", [])
-                            _rebuilt[_d["id"]] = {"id": _d["id"], "line_items": _items, "items": _items,
-                                                   "status": _d.get("status", ""), "requestor_name": _d.get("requestor_name", ""),
-                                                   "requestor_email": _d.get("requestor_email", ""), "solicitation_number": _d.get("solicitation_number", _d.get("rfq_number", "")),
-                                                   "agency": _d.get("agency", ""), "source": _d.get("source", "")}
-                    if _rebuilt:
-                        from src.core.data_guard import safe_save_json
-                        safe_save_json(_jpath, _rebuilt, reason="boot_recovery")
-                        log.info("BOOT: Rebuilt %s: %d records", _json_name, len(_rebuilt))
-        except Exception as _re:
-            log.warning("BOOT: %s recovery failed: %s", _json_name, _re)
+    # Boot Recovery: JSON dual-write removed — SQLite is the single source of truth.
+    # One-time migration from JSON → SQLite happens in load_rfqs() / _load_price_checks().
 
 import threading as _boot_thr
 _boot_thr.Thread(target=_deferred_boot_checks, daemon=True, name="boot-checks").start()
