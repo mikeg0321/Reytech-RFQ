@@ -593,6 +593,83 @@ def api_awards_pending():
     return jsonify({"ok": True, "count": len(pending), "pending": pending})
 
 
+@bp.route("/api/rfq/<rid>/mark-won", methods=["POST"])
+@auth_required
+def api_rfq_mark_won(rid):
+    """Mark an RFQ as won with PO number."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    po_number = data.get("po_number", "")
+    now = datetime.now().isoformat()
+    r["status"] = "won"
+    r["outcome"] = "won"
+    r["outcome_date"] = now
+    r["po_number"] = po_number
+    r["closed_at"] = now
+    r["closed_reason"] = f"Manually marked won — PO {po_number}" if po_number else "Manually marked won"
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+    # Log activity
+    try:
+        from src.api.dashboard import _log_crm_activity
+        _log_crm_activity(
+            r.get("reytech_quote_number", rid), "quote_won",
+            f"RFQ marked WON — PO {po_number}. Total: ${r.get('total', 0):,.2f}",
+            actor="user", metadata={"po_number": po_number, "rfq_id": rid})
+    except Exception:
+        pass
+    # Log revenue
+    try:
+        from src.core.db_dal import log_revenue
+        _total = 0
+        for it in r.get("line_items", r.get("items", [])):
+            _p = float(it.get("price_per_unit") or it.get("unit_price") or it.get("bid_price") or 0)
+            _q = float(it.get("quantity") or it.get("qty") or 1)
+            _total += _p * _q
+        if _total > 0:
+            log_revenue(amount=_total, source="rfq_won", quote_number=r.get("reytech_quote_number", ""),
+                        po_number=po_number, agency=r.get("agency", ""), date=now[:10])
+    except Exception:
+        pass
+    # Notify
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert(event_type="quote_won",
+                   title=f"RFQ Won — PO {po_number or 'manual'}",
+                   body=f"RFQ {r.get('solicitation_number', rid)} marked won. PO: {po_number}",
+                   urgency="deal", context={"rfq_id": rid, "po_number": po_number})
+    except Exception:
+        pass
+    log.info("RFQ %s marked WON (PO: %s)", rid, po_number)
+    return jsonify({"ok": True, "status": "won", "po_number": po_number})
+
+
+@bp.route("/api/rfq/<rid>/mark-lost", methods=["POST"])
+@auth_required
+def api_rfq_mark_lost(rid):
+    """Mark an RFQ as lost."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    now = datetime.now().isoformat()
+    r["status"] = "lost"
+    r["outcome"] = "lost"
+    r["outcome_date"] = now
+    r["competitor_name"] = data.get("competitor", "")
+    r["competitor_price"] = data.get("competitor_price", "")
+    r["closed_at"] = now
+    r["closed_reason"] = data.get("reason", "Lost to competitor")
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+    log.info("RFQ %s marked LOST (reason: %s)", rid, r["closed_reason"][:50])
+    return jsonify({"ok": True, "status": "lost"})
+
+
 @bp.route("/api/rfq/create-manual", methods=["POST"])
 @auth_required
 def api_rfq_create_manual():

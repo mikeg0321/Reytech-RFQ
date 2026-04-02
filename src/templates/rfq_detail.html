@@ -2189,23 +2189,53 @@ function updateRfqStatus(newStatus) {
 }
 
 function recordRfqOutcome(outcome) {
-  var reason = prompt(outcome === 'won' ? 'What helped win? (price, relationship, speed, etc)' :
-                      outcome === 'lost' ? 'Why lost? (price, competitor, no response, etc)' :
-                      'Notes (optional)', '');
+  var msg = document.getElementById('rfq-status-msg');
+  var body = {};
+
+  if (outcome === 'won') {
+    var po = prompt('PO Number:', '');
+    if (po === null) return;
+    body = {po_number: po};
+    msg.style.display = 'block';
+    msg.textContent = '⏳ Marking as won...';
+    fetch('/api/rfq/' + RID + '/mark-won', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){msg.textContent='🏆 Marked WON — PO '+d.po_number;msg.style.color='#3fb950';setTimeout(function(){location.reload()},1500);}
+      else{msg.textContent='❌ '+d.error;msg.style.color='#f85149';}
+    }).catch(function(e){msg.textContent='❌ '+e;msg.style.color='#f85149';});
+    return;
+  }
+
+  if (outcome === 'lost') {
+    var competitor = prompt('Who won? (competitor name):', '');
+    if (competitor === null) return;
+    var compPrice = prompt('Their winning price? (optional):', '');
+    body = {competitor: competitor, competitor_price: compPrice, reason: 'Lost to ' + competitor};
+    msg.style.display = 'block';
+    msg.textContent = '⏳ Recording loss...';
+    fetch('/api/rfq/' + RID + '/mark-lost', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){msg.textContent='❌ Marked LOST';msg.style.color='#f85149';setTimeout(function(){location.reload()},1500);}
+      else{msg.textContent='Error: '+d.error;msg.style.color='#f85149';}
+    }).catch(function(e){msg.textContent='Error: '+e;msg.style.color='#f85149';});
+    return;
+  }
+
+  var reason = prompt('Notes (optional)', '');
   if (reason === null) return;
 
-  var msg = document.getElementById('rfq-status-msg');
   msg.style.display = 'block';
   msg.textContent = '⏳ Recording...';
 
   fetch('/api/rfq/' + RID + '/outcome', {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Requested-With': 'XMLHttpRequest',
-      'Origin': window.location.origin
-    },
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({outcome: outcome, reason: reason})
   })
   .then(function(r) { return r.json(); })
