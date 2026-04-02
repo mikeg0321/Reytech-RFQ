@@ -2172,20 +2172,36 @@ def fill_ams704(
         else:
             log.info("fill_ams704: Ship to already has value '%s' — not overwriting", _existing_ship[:40])
 
+    # Read PDF fields early for FOB detection + multi-page detection later
+    try:
+        _pdf_fields = PdfReader(source_pdf).get_fields() or {}
+    except Exception:
+        _pdf_fields = {}
+    if _pdf_fields:
+        log.info("fill_ams704: %d PDF fields found. Checkbox fields: %s",
+                 len(_pdf_fields),
+                 [fn for fn in sorted(_pdf_fields.keys())
+                  if any(k in fn.lower() for k in ("check", "fob", "box", "dest", "freight"))][:10])
+
     # FOB Destination, Freight Prepaid checkbox — try all known field name variants
     # AND scan actual PDF fields for any checkbox containing "FOB" or "Destination"
     _fob_names_to_check = {"Check Box4", "FOB Destination Freight Prepaid",
                            "FOB Destination  Freight Prepaid",
                            "CheckBox4", "fob_prepaid", "FOBDestinationFreightPrepaid"}
-    # Dynamic scan: find FOB checkboxes by field name pattern
-    if _pdf_fields:
-        for _fn in _pdf_fields:
-            _fn_lower = _fn.lower().replace(" ", "")
-            if ("fob" in _fn_lower and "dest" in _fn_lower) or \
-               ("fobdestination" in _fn_lower) or \
-               (_fn_lower in ("checkbox4", "checkboxfob")):
+    # Dynamic scan: find FOB/checkbox fields by name pattern
+    for _fn in _pdf_fields:
+        _fn_lower = _fn.lower().replace(" ", "")
+        if ("fob" in _fn_lower and "dest" in _fn_lower) or \
+           ("fobdestination" in _fn_lower) or \
+           (_fn_lower in ("checkbox4", "checkboxfob")):
+            _fob_names_to_check.add(_fn)
+            log.info("fill_ams704: Found FOB checkbox field by name: '%s'", _fn)
+        # Also check by field type — any /Btn checkbox that contains FOB or Destination
+        _fd = _pdf_fields[_fn]
+        if isinstance(_fd, dict) and str(_fd.get("/FT", "")) == "/Btn":
+            if "fob" in _fn_lower or "destination" in _fn_lower or "freight" in _fn_lower:
                 _fob_names_to_check.add(_fn)
-                log.info("fill_ams704: Found FOB checkbox field: '%s'", _fn)
+                log.info("fill_ams704: Found FOB button field: '%s'", _fn)
     for _fob_name in _fob_names_to_check:
         field_values.append({
             "field_id": _fob_name,
@@ -2230,11 +2246,7 @@ def fill_ams704(
             occupied_rows.add(_r)
     overflow_rows = set()  # Track rows used for description overflow
 
-    # Read PDF fields to detect multi-page naming convention
-    try:
-        _pdf_fields = PdfReader(source_pdf).get_fields() or {}
-    except Exception:
-        _pdf_fields = {}
+    # _pdf_fields already read above (before FOB check)
     _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
 
     for item_idx, item in enumerate(items):
