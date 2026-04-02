@@ -835,6 +835,11 @@
          // Update download button if exists
          var dlBtn=document.querySelector('a[href*="/api/pricecheck/download/"]');
          if(dlBtn) dlBtn.href=g.download;
+         // Refresh composer attachments
+         if(typeof _refreshComposeAttachments==='function') _refreshComposeAttachments(g.quote_url||null, g.download);
+         // Scroll to composer
+         var _comp=document.getElementById('email-composer');
+         if(_comp) setTimeout(function(){_comp.scrollIntoView({behavior:'smooth',block:'start'})},500);
         } else {
          btn.textContent='✅ Saved (PDF: '+( g.error||'error').substring(0,30)+')';
          showMsg('✅ Prices saved. PDF generation: '+(g.error||'failed'),'warn');
@@ -2640,15 +2645,16 @@
       if(!d) return; // earlier step failed
       btn.disabled=false; _hideGenOverlay();
       if(d&&d.ok){
-       showMsg('✅ AMS 704 filled! Downloading...','ok');
+       showMsg('✅ AMS 704 filled!','ok');
        btn.textContent='♻️ Re-fill 704';btn.className='btn btn-g';
        btn.onclick=function(){saveAndGenerate(this)};
-       // Auto-download the generated PDF
-       if(d.download){
-        var a=document.createElement('a');a.href=d.download;a.download='';
-        document.body.appendChild(a);a.click();document.body.removeChild(a);
+       // Update composer attachments with new PDF URL
+       if(d.download && typeof _refreshComposeAttachments === 'function'){
+        _refreshComposeAttachments(null, d.download);
        }
-       setTimeout(()=>location.reload(),2500);
+       // Scroll to composer so user can review and send
+       var composer = document.getElementById('email-composer');
+       if(composer) composer.scrollIntoView({behavior:'smooth',block:'start'});
       }
       else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
      }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false; _hideGenOverlay(); showMsg('❌ '+e.message,'err')});
@@ -2676,11 +2682,10 @@
       if(!d) return;
       btn.disabled=false; _hideGenOverlay();
       if(d&&d.ok){
-       showMsg('✅ Original 704 generated! Downloading...','ok');
+       showMsg('✅ Original 704 generated!','ok');
        btn.textContent='✅ Original 704 Done';
-       if(d.download){
-        var a=document.createElement('a');a.href=d.download;a.download='';
-        document.body.appendChild(a);a.click();document.body.removeChild(a);
+       if(d.download && typeof _refreshComposeAttachments==='function'){
+        _refreshComposeAttachments(null, d.download);
        }
        setTimeout(()=>{btn.textContent=origText;},3000);
       }
@@ -3077,24 +3082,50 @@
         if (bodyEl) bodyEl.value = 'Please find attached our price quote for ' + pcNum + '.\n\nThank you,\nReytech Inc.';
       });
 
-      // Show attachments
+      // Show attachments — check both server-rendered values AND dynamic generation
       var attachments = [];
       var quotePdf = {{ (pc.get('reytech_quote_pdf', '') or '')|tojson }};
       var outputPdf = {{ (pc.get('output_pdf', '') or '')|tojson }};
-      if (quotePdf) attachments.push({name: 'Reytech Quote', path: quotePdf});
-      if (outputPdf) attachments.push({name: 'AMS 704', path: outputPdf});
+      var existing704 = {{ (existing_704_url|default(''))|tojson }};
+      var existingQuote = {{ (existing_quote_url|default(''))|tojson }};
 
-      if (attachEl) {
-        var html = '';
-        attachments.forEach(function(a) {
-          var fname = a.path.split('/').pop().split('\\').pop();
-          html += '<span style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;background:#21262d;border:1px solid #30363d;border-radius:4px;color:#58a6ff">'
-            + '📎 ' + (a.name || fname)
-            + '</span>';
-        });
-        if (!html) html = '<span style="color:#d29922">⚠ No PDF generated yet — Save & Generate first</span>';
-        attachEl.innerHTML = html;
+      function refreshAttachments() {
+        attachments = [];
+        // Check all possible PDF sources
+        if (quotePdf) attachments.push({name: 'Reytech Quote', path: quotePdf, url: existingQuote});
+        if (outputPdf) attachments.push({name: 'AMS 704', path: outputPdf, url: existing704});
+        // If no server-rendered PDFs, check if URLs exist from generation
+        if (!attachments.length) {
+          if (existing704) attachments.push({name: 'AMS 704', path: '', url: existing704});
+          if (existingQuote) attachments.push({name: 'Reytech Quote', path: '', url: existingQuote});
+        }
+
+        if (attachEl) {
+          var html = '';
+          attachments.forEach(function(a) {
+            var fname = a.path ? a.path.split('/').pop().split('\\').pop() : a.name;
+            var dlUrl = a.url || '';
+            html += '<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#58a6ff">'
+              + '📎 ' + (a.name || fname);
+            if (dlUrl) {
+              html += ' <a href="' + dlUrl + '?inline=1" target="_blank" style="color:#3fb950;text-decoration:none;font-size:12px" title="Preview">👁</a>'
+                + ' <a href="' + dlUrl + '" download style="color:#58a6ff;text-decoration:none;font-size:12px" title="Download">📥</a>';
+            }
+            html += '</span>';
+          });
+          if (!html) html = '<span style="color:#d29922">⚠ No PDF generated yet — Save & Generate first</span>';
+          attachEl.innerHTML = html;
+        }
+        validateCompose();
       }
+      refreshAttachments();
+
+      // Global hook: after PDF generation, refresh attachments
+      window._refreshComposeAttachments = function(newQuoteUrl, new704Url) {
+        if (newQuoteUrl) { existingQuote = newQuoteUrl; quotePdf = newQuoteUrl; }
+        if (new704Url) { existing704 = new704Url; outputPdf = new704Url; }
+        refreshAttachments();
+      };
 
       // Enable/disable send button based on To field + body + attachments
       function validateCompose() {
