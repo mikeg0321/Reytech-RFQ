@@ -2031,10 +2031,12 @@
     function collectPrices() {
      let data={};
      document.querySelectorAll('input[name^=price_]').forEach(inp=>{
-      data[inp.name]=parseFloat(inp.value)||0;
+      var v=parseFloat(inp.value)||0;
+      data[inp.name]=v?v.toFixed(2):'0';
      });
      document.querySelectorAll('input[name^=cost_]').forEach(inp=>{
-      data[inp.name]=parseFloat(inp.value)||0;
+      var v=parseFloat(inp.value)||0;
+      data[inp.name]=v?v.toFixed(2):'0';
      });
      document.querySelectorAll('input[name^=markup_]').forEach(inp=>{
       data[inp.name]=parseFloat(inp.value)||0;
@@ -2208,7 +2210,10 @@
           var el = document.querySelector('[name="' + key + '"]');
           if (!el) return;
           if (el.type === 'checkbox') el.checked = !!data[key];
-          else el.value = data[key];
+          else if (key.match(/^(cost_|price_)\d/) && data[key]) {
+            var v = parseFloat(data[key]);
+            el.value = isNaN(v) ? '' : v.toFixed(2);
+          } else el.value = data[key];
         });
         recalcPC();
         doPcAutosave();
