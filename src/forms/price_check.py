@@ -2507,15 +2507,27 @@ def fill_ams704(
     _pages_with_items = max(1, ((_max_item_row - 1) // 8) + 1) if _max_item_row > 0 else 1
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
-    # Page numbering — ONLY set on pages that have items
-    for pg in range(1, _pages_with_items + 1):
+    # Page numbering — set on pages with items, BLANK on empty pages
+    for pg in range(1, _pdf_total_pages + 1):
         suffix = "" if pg == 1 else f"_{pg}"
         page_field = f"Page{suffix}"
         of_field = f"of{suffix}"
-        if page_field in _pdf_fields:
-            field_values.append({"field_id": page_field, "page": pg, "value": str(pg)})
-        if of_field in _pdf_fields:
-            field_values.append({"field_id": of_field, "page": pg, "value": str(_pages_with_items)})
+        if pg <= _pages_with_items:
+            # Page has items — set correct numbering
+            if page_field in _pdf_fields:
+                field_values.append({"field_id": page_field, "page": pg, "value": str(pg)})
+            if of_field in _pdf_fields:
+                field_values.append({"field_id": of_field, "page": pg, "value": str(_pages_with_items)})
+        else:
+            # Empty page — blank out any pre-filled page numbers and supplier
+            if page_field in _pdf_fields:
+                field_values.append({"field_id": page_field, "page": pg, "value": " "})
+            if of_field in _pdf_fields:
+                field_values.append({"field_id": of_field, "page": pg, "value": " "})
+            # Blank out supplier name on empty continuation pages
+            sup_field = f"SUPPLIER NAME{suffix}"
+            if sup_field in _pdf_fields:
+                field_values.append({"field_id": sup_field, "page": pg, "value": " "})
 
     # Multi-page: grand total on page 2 ONLY if page 2 has items
     if _pages_with_items >= 2 and _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
@@ -2813,7 +2825,13 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                         drew = True
 
         # ── CONTINUATION HEADER (mask + fill SUPPLIER NAME) ──
-        if not is_pg1:
+        # Only fill page 2+ header if items actually overflow to that page
+        _page_has_items = any(
+            ((it.get("row_index") or (i + 1)) > 8 * pg_idx)
+            and ((it.get("row_index") or (i + 1)) <= 8 * (pg_idx + 1))
+            for i, it in enumerate(items)
+        ) if not is_pg1 else True
+        if not is_pg1 and _page_has_items:
             company = fv_map.get("COMPANY NAME", "")
             if company:
                 sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
