@@ -753,56 +753,50 @@ def _pricecheck_detail_inner(pcid):
     institution = header.get("institution", pc.get("institution", ""))
     inst_upper = institution.upper() if institution else ""
     if institution:
+        # Step 1: Resolve institution via authoritative resolver FIRST
+        _resolved = {"canonical": "", "agency": "", "facility_code": ""}
         try:
-            # _load_customers and _guess_agency are in dashboard globals (exec'd from routes_crm)
+            from src.core.institution_resolver import resolve as _resolve_inst
+            _resolved = _resolve_inst(institution) or _resolved
+        except Exception:
+            pass
+        _canonical = _resolved.get("canonical", "") or institution
+        _canonical_upper = _canonical.upper()
+        _resolved_agency = _resolved.get("agency", "")
+        # Map resolver agency keys to display names
+        _agency_display = {"cchcs": "CCHCS", "cdcr": "CDCR", "calvet": "CalVet",
+                           "dsh": "DSH", "dgs": "DGS"}.get(
+                           _resolved_agency.lower(), _resolved_agency.upper()) if _resolved_agency else ""
+
+        try:
             customers = _load_customers()
-            # Exact match
+            # Exact match on raw institution name
             for c in customers:
                 names = [c.get("display_name",""), c.get("company",""),
                          c.get("abbreviation",""), c.get("qb_name","")]
                 if any(inst_upper == n.upper() for n in names if n):
                     crm_data = {"matched": True, "customer": c, "is_new": False}
                     break
-            # Abbreviation expansion
-            if not crm_data["matched"]:
-                _ABBR = {"CSP":"California State Prison","SCC":"Sierra Conservation Center",
-                         "CIM":"California Institution for Men","CIW":"California Institution for Women",
-                         "CMC":"California Men's Colony","CMF":"California Medical Facility",
-                         "CTF":"Correctional Training Facility","CHCF":"California Health Care Facility",
-                         "SATF":"Substance Abuse Treatment Facility"}
-                expanded = institution
-                for abbr, full in _ABBR.items():
-                    if inst_upper.startswith(abbr + "-") or inst_upper.startswith(abbr + " "):
-                        suffix = institution[len(abbr):].lstrip("- ")
-                        expanded = f"{full}, {suffix}" if suffix else full
+            # Match on resolver's canonical name (e.g. "California State Prison, Sacramento")
+            if not crm_data["matched"] and _canonical_upper != inst_upper:
+                for c in customers:
+                    c_name = c.get("display_name", "").upper()
+                    if c_name and (c_name == _canonical_upper
+                                   or c_name in _canonical_upper
+                                   or _canonical_upper in c_name):
+                        crm_data = {"matched": True, "customer": c, "is_new": False}
                         break
-                if expanded != institution:
-                    exp_upper = expanded.upper()
-                    for c in customers:
-                        c_name = c.get("display_name", "").upper()
-                        # Match if expanded name contains the customer name OR vice versa
-                        if c_name and (c_name in exp_upper or exp_upper in c_name):
-                            crm_data = {"matched": True, "customer": c, "is_new": False}
-                            break
-                    # Also try matching just the base facility name (without suffix)
-                    if not crm_data["matched"]:
-                        for abbr, full in _ABBR.items():
-                            if inst_upper.startswith(abbr + "-") or inst_upper.startswith(abbr + " "):
-                                base_upper = full.upper()
-                                for c in customers:
-                                    c_name = c.get("display_name", "").upper()
-                                    if c_name and (base_upper in c_name or c_name in base_upper):
-                                        crm_data = {"matched": True, "customer": c, "is_new": False}
-                                        break
-                                break
-            # Fuzzy fallback
+            # Fuzzy fallback — tokenize on whitespace AND hyphens/slashes
             if not crm_data["matched"]:
-                q_tokens = set(inst_upper.split())
+                import re as _re_crm
+                q_tokens = set(_re_crm.split(r'[\s\-/]+', _canonical_upper))
+                q_tokens.discard("")
                 scored = []
                 for c in customers:
                     search_text = " ".join([c.get("display_name",""), c.get("company",""),
                                             c.get("abbreviation","")]).upper()
-                    c_tokens = set(search_text.split())
+                    c_tokens = set(_re_crm.split(r'[\s\-/,]+', search_text))
+                    c_tokens.discard("")
                     overlap = len(q_tokens & c_tokens)
                     if overlap > 0:
                         scored.append((overlap / max(len(q_tokens), 1), c))
@@ -811,40 +805,34 @@ def _pricecheck_detail_inner(pcid):
                 if candidates and scored[0][0] >= 0.6:
                     crm_data = {"matched": True, "customer": candidates[0], "is_new": False, "candidates": candidates[:3]}
                 else:
-                    _agency = _guess_agency(institution) if callable(_guess_agency) else "CDCR"
+                    # Auto-create CRM customer for known CA facilities
+                    _agency = _agency_display or (
+                        _guess_agency(institution) if callable(_guess_agency) else "CDCR")
                     if not _agency or _agency == "DEFAULT":
                         _agency = "CDCR"
-                    # Auto-create CRM customer for known CA facilities
-                    _auto_customer = None
-                    try:
-                        from src.core.institution_resolver import resolve as _resolve
-                        _resolved = _resolve(institution)
-                        if _resolved and _resolved.get("canonical"):
-                            _auto_customer = {
-                                "display_name": _resolved["canonical"],
-                                "abbreviation": _resolved.get("facility_code", ""),
-                                "agency": _agency,
-                                "company": _resolved["canonical"],
-                                "source": "auto_resolved",
-                                "state": "CA",
-                            }
-                            # Save to CRM DB so it matches next time
-                            try:
-                                from src.core.db import get_db as _crm_db
-                                with _crm_db() as _conn:
-                                    _conn.execute("""
-                                        INSERT OR IGNORE INTO contacts
-                                        (display_name, company, abbreviation, agency, state, source, created_at)
-                                        VALUES (?,?,?,?,?,?,datetime('now'))
-                                    """, (_resolved["canonical"], _resolved["canonical"],
-                                          _resolved.get("facility_code", ""), _agency, "CA", "auto_resolved"))
-                                log.info("CRM_AUTO: Created customer '%s' (%s) from institution resolver",
-                                         _resolved["canonical"], _resolved.get("facility_code", ""))
-                            except Exception as _ce:
-                                log.debug("CRM auto-create: %s", _ce)
-                    except Exception:
-                        pass
-                    if _auto_customer:
+                    if _resolved.get("canonical") and _resolved.get("agency"):
+                        _auto_customer = {
+                            "display_name": _resolved["canonical"],
+                            "abbreviation": _resolved.get("facility_code", ""),
+                            "agency": _agency,
+                            "company": _resolved["canonical"],
+                            "source": "auto_resolved",
+                            "state": "CA",
+                        }
+                        # Persist to CRM DB so it matches next time
+                        try:
+                            from src.core.db import get_db as _crm_db
+                            with _crm_db() as _conn:
+                                _conn.execute("""
+                                    INSERT OR IGNORE INTO contacts
+                                    (display_name, company, abbreviation, agency, state, source, created_at)
+                                    VALUES (?,?,?,?,?,?,datetime('now'))
+                                """, (_resolved["canonical"], _resolved["canonical"],
+                                      _resolved.get("facility_code", ""), _agency, "CA", "auto_resolved"))
+                            log.info("CRM_AUTO: Created customer '%s' (%s/%s) from institution resolver",
+                                     _resolved["canonical"], _resolved.get("facility_code", ""), _agency)
+                        except Exception as _ce:
+                            log.debug("CRM auto-create DB: %s", _ce)
                         crm_data = {"matched": True, "customer": _auto_customer, "is_new": False,
                                     "auto_created": True}
                     else:
@@ -852,6 +840,16 @@ def _pricecheck_detail_inner(pcid):
                                     "suggested_agency": _agency}
         except Exception as e:
             log.debug("CRM match error: %s", e)
+            # Even if _load_customers fails, try auto-create from resolver
+            if _resolved.get("canonical") and _resolved.get("agency"):
+                _agency = _agency_display or "CDCR"
+                crm_data = {"matched": True, "auto_created": True, "is_new": False,
+                            "customer": {
+                                "display_name": _resolved["canonical"],
+                                "abbreviation": _resolved.get("facility_code", ""),
+                                "agency": _agency, "company": _resolved["canonical"],
+                                "source": "auto_resolved", "state": "CA",
+                            }}
     
     # ── Server-side quote history ──
     # P2-E: Normalize institution name via resolver for better history matching
