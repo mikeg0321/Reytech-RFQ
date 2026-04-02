@@ -462,6 +462,82 @@ def _lookup_mcmaster(url: str) -> dict:
     return result
 
 
+def _lookup_uline(url: str) -> dict:
+    """Uline: extract product data from JSON-LD + page content.
+    Uline serves clean JSON-LD with Product schema."""
+    import json as _json
+    result = _scrape_generic(url)
+    result["supplier"] = "Uline"
+
+    # Extract SKU from URL: /Product/Detail/S-XXXXX/...
+    sku_match = re.search(r'/Detail/(S-\d{4,6})/', url)
+    if sku_match:
+        result["part_number"] = sku_match.group(1)
+        result["mfg_number"] = sku_match.group(1)
+
+    # Try JSON-LD for structured data (Uline serves clean Product schema)
+    try:
+        html = result.get("_html", "")
+        if not html:
+            resp = requests.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }, timeout=12)
+            html = resp.text
+
+        ld_matches = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
+        for ld_text in ld_matches:
+            try:
+                ld = _json.loads(ld_text)
+                if ld.get("@type") == "Product":
+                    if ld.get("name"):
+                        result["title"] = ld["name"].replace("&quot;", '"').replace("&amp;", "&")
+                        result["description"] = result["title"]
+                    if ld.get("sku"):
+                        result["part_number"] = ld["sku"]
+                        result["mfg_number"] = ld["sku"]
+                    if ld.get("description"):
+                        desc = ld["description"][:200]
+                        if len(desc) > len(result.get("description", "")):
+                            result["description"] = desc
+                    # Price from offers
+                    offers = ld.get("offers", {})
+                    if isinstance(offers, dict) and offers.get("price"):
+                        result["price"] = float(offers["price"])
+                        result["cost"] = result["price"]
+                    break
+            except (ValueError, TypeError):
+                pass
+
+        # Also check for productPrice (per-unit, more useful than case price)
+        pp_match = re.search(r"'productPrice'\s*:\s*'([\d.]+)'", html)
+        if pp_match:
+            per_unit = float(pp_match.group(1))
+            if per_unit > 0:
+                # Use per-unit price if different from offers price (case vs each)
+                if result.get("price") and per_unit < result["price"]:
+                    result["list_price"] = result["price"]  # Case price
+                    result["price"] = per_unit               # Per-unit price
+                    result["cost"] = per_unit
+                    result["shipping_note"] = (
+                        f"Per-unit: ${per_unit:.2f} "
+                        f"(case: ${result['list_price']:.2f})"
+                    )
+                elif not result.get("price"):
+                    result["price"] = per_unit
+                    result["cost"] = per_unit
+
+    except Exception as e:
+        log.debug("Uline JSON-LD parse: %s", e)
+
+    # Ensure photo URL
+    if not result.get("photo_url"):
+        img_match = re.search(r'"image"\s*:\s*"([^"]+)"', html if 'html' in dir() else "")
+        if img_match:
+            result["photo_url"] = img_match.group(1)
+
+    return result
+
+
 def _extract_ssww_item(url: str):
     """Extract S&S Worldwide item# and description from URL slug.
     URL format: /item/{slug-with-dashes-ITEMNUM}/
@@ -732,6 +808,8 @@ def lookup_from_url(url: str) -> dict:
     try:
         if "amazon.com" in host:
             result = _lookup_amazon(url)
+        elif "uline.com" in host:
+            result = _lookup_uline(url)
         elif "grainger.com" in host:
             result = _lookup_grainger(url)
         elif "mcmaster.com" in host:
