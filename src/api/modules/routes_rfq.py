@@ -643,6 +643,38 @@ def api_rfq_mark_won(rid):
                    urgency="deal", context={"rfq_id": rid, "po_number": po_number})
     except Exception:
         pass
+    # Create Drive folder: Year/Quarter/PO-XXXXX/{RFQ,Supplier,Delivery,Invoice,Misc}
+    try:
+        from src.core.gdrive import is_configured, enqueue_task
+        if is_configured():
+            enqueue_task({
+                "action": "create_po_folder",
+                "po_number": po_number or f"RFQ-{rid[:8]}",
+                "solicitation_number": r.get("solicitation_number", ""),
+                "year": str(datetime.now().year),
+                "quarter": f"Q{(datetime.now().month - 1) // 3 + 1}",
+            })
+            log.info("Drive: PO folder queued for %s (Q%d %d)",
+                     po_number, (datetime.now().month - 1) // 3 + 1, datetime.now().year)
+    except Exception as _de:
+        log.debug("Drive folder creation: %s", _de)
+
+    # Update award tracker — stop SCPRS checking
+    try:
+        import sqlite3 as _sql
+        from src.core.paths import DATA_DIR as _DD
+        _aconn = _sql.connect(os.path.join(_DD, "reytech.db"), timeout=10)
+        _aconn.execute("""
+            INSERT INTO award_tracker_log
+            (checked_at, quote_number, scprs_searched, matches_found, outcome, notes)
+            VALUES (?,?,0,1,?,?)
+        """, (now, r.get("reytech_quote_number", rid),
+              "won_manual", f"PO {po_number} — manually marked won"))
+        _aconn.commit()
+        _aconn.close()
+    except Exception:
+        pass
+
     log.info("RFQ %s marked WON (PO: %s)", rid, po_number)
     return jsonify({"ok": True, "status": "won", "po_number": po_number})
 
