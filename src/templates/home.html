@@ -212,6 +212,33 @@ function _runAwardTracker(btn){
 }
 </script>
 
+<!-- ═══ SCPRS & Award Monitoring ═══ -->
+<div id="scprs-monitor-card" class="card" style="margin-top:0;margin-bottom:14px;display:none">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+  <h3 style="font-size:16px;margin:0;color:var(--tx)">SCPRS & Award Monitor</h3>
+  <a href="/intel/scprs" style="font-size:13px;color:var(--ac)">Full Dashboard &rarr;</a>
+ </div>
+ <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px">
+  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
+   <div style="font-size:22px;font-weight:700;color:var(--tx)" id="scprs-po-count">&mdash;</div>
+   <div style="font-size:12px;color:var(--tx2)">POs Tracked</div>
+  </div>
+  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
+   <div style="font-size:22px;font-weight:700;color:var(--tx)" id="scprs-wq-count">&mdash;</div>
+   <div style="font-size:12px;color:var(--tx2)">Won Quotes KB</div>
+  </div>
+  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
+   <div style="font-size:22px;font-weight:700;color:#3fb950" id="scprs-wins">&mdash;</div>
+   <div style="font-size:12px;color:var(--tx2)">Wins (30d)</div>
+  </div>
+  <div style="text-align:center;padding:10px;background:var(--sf);border-radius:8px;border:1px solid var(--bd)">
+   <div style="font-size:22px;font-weight:700;color:#f85149" id="scprs-losses">&mdash;</div>
+   <div style="font-size:12px;color:var(--tx2)">Losses (30d)</div>
+  </div>
+ </div>
+ <div id="scprs-freshness" style="font-size:13px;color:var(--tx2)"></div>
+</div>
+
 <!-- ═══ Action Dashboard — PRD-28 WI-6 ═══ -->
 <div id="action-dash" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px">
  <!-- Urgent -->
@@ -262,6 +289,30 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   if(d.qa) _renderQA(d.qa);
   // ── Manager metrics ──
   if(d.metrics && d.metrics.ok) _renderMetrics(d.metrics);
+  // ── Award Intel (SCPRS monitoring) ──
+  if(d.award_intel){
+    var card=document.getElementById('scprs-monitor-card');
+    if(card)card.style.display='block';
+    var ai=d.award_intel;
+    var el;
+    el=document.getElementById('scprs-po-count');if(el)el.textContent=(ai.po_count||0).toLocaleString();
+    el=document.getElementById('scprs-wq-count');if(el)el.textContent=(ai.wq_count||0).toLocaleString();
+    el=document.getElementById('scprs-wins');if(el)el.textContent=ai.recent_wins||0;
+    el=document.getElementById('scprs-losses');if(el)el.textContent=ai.recent_losses||0;
+    // Freshness indicators
+    var freshEl=document.getElementById('scprs-freshness');
+    if(freshEl&&ai.scprs_freshness&&ai.scprs_freshness.length){
+      var html='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+      ai.scprs_freshness.forEach(function(f){
+        var hours=f.last_pull?Math.round((Date.now()-new Date(f.last_pull).getTime())/3600000):999;
+        var color=hours<24?'#3fb950':(hours<72?'#d29922':'#f85149');
+        var label=hours<24?hours+'h ago':Math.round(hours/24)+'d ago';
+        html+='<span style="padding:3px 8px;border-radius:4px;font-size:12px;background:'+color+'15;border:1px solid '+color+'40;color:'+color+'">'+f.agency+': '+label+'</span>';
+      });
+      html+='</div>';
+      freshEl.innerHTML=html;
+    }
+  }
 }).catch(function(e){console.debug('fetch error:',e)});
 </script>
 

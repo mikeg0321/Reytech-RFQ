@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Pricing Intelligence{% endblock %}
+{% block content %}
+<div style="max-width:1200px;margin:0 auto;padding:20px">
+ <h1 style="font-size:22px;margin-bottom:16px">Pricing Intelligence</h1>
+
+ <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--bd);padding-bottom:0">
+  <button class="pi-tab active" onclick="piTab('scorecard',this)" style="padding:10px 20px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid var(--ac);color:var(--tx);cursor:pointer;margin-bottom:-2px">Scorecard</button>
+  <button class="pi-tab" onclick="piTab('position',this)" style="padding:10px 20px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);cursor:pointer;margin-bottom:-2px">Competitive Position</button>
+  <button class="pi-tab" onclick="piTab('accuracy',this)" style="padding:10px 20px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);cursor:pointer;margin-bottom:-2px">Recommendation Accuracy</button>
+  <button class="pi-tab" onclick="piTab('attribution',this)" style="padding:10px 20px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);cursor:pointer;margin-bottom:-2px">Data Source Attribution</button>
+ </div>
+
+ <div id="pi-loading" style="text-align:center;padding:40px;color:var(--tx2)">Loading pricing intelligence...</div>
+
+ <!-- Tab 1: Scorecard -->
+ <div id="tab-scorecard" class="pi-panel" style="display:none">
+  <div id="scorecard-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+  <div id="scorecard-trends" style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px">
+   <h3 style="font-size:15px;color:var(--tx);margin:0 0 12px">Monthly Win Rate Trend</h3>
+   <div id="scorecard-chart"></div>
+  </div>
+ </div>
+
+ <!-- Tab 2: Competitive Position -->
+ <div id="tab-position" class="pi-panel" style="display:none">
+  <div id="position-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px"></div>
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+   <table id="position-table" style="width:100%;border-collapse:collapse;font-size:14px">
+    <thead><tr style="border-bottom:1px solid var(--bd);color:var(--tx2);font-size:13px">
+     <th style="padding:10px 8px;text-align:left">Item</th><th style="padding:10px 8px;text-align:left">Category</th>
+     <th style="padding:10px 8px;text-align:right">Our Price</th><th style="padding:10px 8px;text-align:right">Market</th>
+     <th style="padding:10px 8px;text-align:right">Gap %</th><th style="padding:10px 8px;text-align:right">Win Rate</th>
+     <th style="padding:10px 8px;text-align:center">Quoted</th>
+    </tr></thead>
+    <tbody id="position-body"></tbody>
+   </table>
+  </div>
+ </div>
+
+ <!-- Tab 3: Recommendation Accuracy -->
+ <div id="tab-accuracy" class="pi-panel" style="display:none">
+  <div id="accuracy-kpis" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+  <div id="accuracy-detail" style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px"></div>
+ </div>
+
+ <!-- Tab 4: Data Source Attribution -->
+ <div id="tab-attribution" class="pi-panel" style="display:none">
+  <div id="attribution-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px"></div>
+  <div id="attribution-detail" style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px"></div>
+ </div>
+</div>
+
+<script>
+function piTab(name, btn) {
+ document.querySelectorAll('.pi-panel').forEach(function(p){p.style.display='none'});
+ document.querySelectorAll('.pi-tab').forEach(function(t){t.style.borderBottomColor='transparent';t.style.color='var(--tx2)';t.classList.remove('active')});
+ var panel = document.getElementById('tab-'+name);
+ if(panel) panel.style.display='block';
+ if(btn){btn.style.borderBottomColor='var(--ac)';btn.style.color='var(--tx)';btn.classList.add('active')}
+}
+
+function kpiCard(label, value, color, subtitle) {
+ return '<div style="text-align:center;padding:16px;background:var(--sf);border-radius:10px;border:1px solid var(--bd)">'
+  +'<div style="font-size:28px;font-weight:700;color:'+(color||'var(--tx)')+'">'+value+'</div>'
+  +'<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+label+'</div>'
+  +(subtitle?'<div style="font-size:12px;color:var(--tx2);margin-top:2px">'+subtitle+'</div>':'')
+  +'</div>';
+}
+
+var sourceColors = {scprs:'#3fb950',catalog:'#58a6ff',oracle_v2:'#d29922',manual:'#8b949e',oracle_high:'#3fb950',oracle_medium:'#d29922'};
+
+fetch('/api/pricing-intelligence/data',{credentials:'same-origin'})
+.then(function(r){return r.json()}).then(function(d){
+ var loadEl = document.getElementById('pi-loading');
+ if(loadEl) loadEl.style.display='none';
+
+ // Tab 1: Scorecard
+ var sc = d.scorecard || {};
+ var kpis = document.getElementById('scorecard-kpis');
+ if(kpis) {
+  kpis.innerHTML = kpiCard('Win Rate', (sc.win_rate||0)+'%', sc.win_rate>50?'#3fb950':'#d29922')
+   + kpiCard('Won', sc.won||0, '#3fb950')
+   + kpiCard('Lost', sc.lost||0, '#f85149')
+   + kpiCard('Avg Margin', (sc.avg_margin||0)+'%', sc.avg_margin>15?'#3fb950':'#d29922');
+ }
+ // Trend chart (simple bar chart)
+ var chart = document.getElementById('scorecard-chart');
+ if(chart && sc.monthly_trends && sc.monthly_trends.length) {
+  var html='<div style="display:flex;align-items:flex-end;gap:4px;height:120px">';
+  sc.monthly_trends.forEach(function(m){
+   var h = Math.max(m.win_rate, 5);
+   var color = m.win_rate>=50?'#3fb950':(m.win_rate>=30?'#d29922':'#f85149');
+   html+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">'
+    +'<div style="font-size:11px;color:var(--tx2)">'+m.win_rate+'%</div>'
+    +'<div style="width:100%;height:'+h+'%;background:'+color+';border-radius:4px 4px 0 0;min-height:4px" title="'+m.month+': '+m.won+'W/'+m.lost+'L"></div>'
+    +'<div style="font-size:10px;color:var(--tx2)">'+m.month.substring(5)+'</div></div>';
+  });
+  html+='</div>';
+  chart.innerHTML=html;
+ } else if(chart) {
+  chart.innerHTML='<div style="color:var(--tx2);text-align:center;padding:20px">No monthly data yet</div>';
+ }
+ var tabSc = document.getElementById('tab-scorecard');
+ if(tabSc) tabSc.style.display='block';
+
+ // Tab 2: Competitive Position
+ var cp = d.competitive_position || {};
+ var ps = document.getElementById('position-summary');
+ if(ps) {
+  ps.innerHTML = kpiCard('Below Market', cp.below_market||0, '#3fb950', 'Competitive advantage')
+   + kpiCard('At Market (\u00b15%)', cp.at_market||0, '#d29922', 'Correctly priced')
+   + kpiCard('Above Market', cp.above_market||0, '#f85149', 'Risk zone');
+ }
+ var pb = document.getElementById('position-body');
+ if(pb && cp.items) {
+  var html='';
+  cp.items.forEach(function(item){
+   var gc = item.gap_pct>5?'#f85149':(item.gap_pct<-5?'#3fb950':'#d29922');
+   html+='<tr style="border-bottom:1px solid var(--bd)">'
+    +'<td style="padding:8px;color:var(--tx)">'+item.name.substring(0,50)+'</td>'
+    +'<td style="padding:8px;color:var(--tx2)">'+item.category+'</td>'
+    +'<td style="padding:8px;text-align:right;color:var(--tx)">$'+item.our_price.toFixed(2)+'</td>'
+    +'<td style="padding:8px;text-align:right;color:var(--tx)">$'+item.market_price.toFixed(2)+'</td>'
+    +'<td style="padding:8px;text-align:right;font-weight:700;color:'+gc+'">'+(item.gap_pct>0?'+':'')+item.gap_pct+'%</td>'
+    +'<td style="padding:8px;text-align:right;color:var(--tx)">'+(item.win_rate||0)+'%</td>'
+    +'<td style="padding:8px;text-align:center;color:var(--tx2)">'+item.times_quoted+'</td></tr>';
+  });
+  pb.innerHTML=html;
+ }
+
+ // Tab 3: Recommendation Accuracy
+ var acc = d.accuracy || {};
+ var ak = document.getElementById('accuracy-kpis');
+ if(ak) {
+  if(acc.total) {
+   var fColor = acc.followed_win_rate > acc.override_win_rate ? '#3fb950' : '#f85149';
+   var oColor = acc.override_win_rate > acc.followed_win_rate ? '#3fb950' : '#f85149';
+   ak.innerHTML = kpiCard('Follow Rate', (acc.follow_rate||0)+'%', '#58a6ff', 'Items priced within 5% of oracle')
+    + kpiCard('Followed Win Rate', (acc.followed_win_rate||0)+'%', fColor, 'Won when following oracle')
+    + kpiCard('Override Win Rate', (acc.override_win_rate||0)+'%', oColor, 'Won when overriding oracle')
+    + kpiCard('Missed Wins', acc.missed_wins||0, '#f85149', 'Oracle was right, you went higher');
+  } else {
+   ak.innerHTML = '<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--tx2);background:var(--sf);border-radius:10px;border:1px solid var(--bd)">'
+    +'<div style="font-size:18px;margin-bottom:8px">No data yet</div>'
+    +'<div>'+(acc.note||'No recommendation data yet \u2014 re-enrich PCs to start tracking')+'</div></div>';
+  }
+ }
+ // Missed wins detail
+ var ad = document.getElementById('accuracy-detail');
+ if(ad && acc.missed_wins_detail && acc.missed_wins_detail.length) {
+  var html='<h3 style="font-size:15px;color:var(--tx);margin:0 0 12px">Missed Wins \u2014 Oracle Was Right</h3>';
+  html+='<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:var(--tx2);border-bottom:1px solid var(--bd)">'
+   +'<th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:right">Oracle Price</th>'
+   +'<th style="padding:8px;text-align:right">You Quoted</th><th style="padding:8px;text-align:right">Winner Price</th></tr></thead><tbody>';
+  acc.missed_wins_detail.forEach(function(m){
+   html+='<tr style="border-bottom:1px solid var(--bd)">'
+    +'<td style="padding:8px;color:var(--tx)">'+m.description.substring(0,60)+'</td>'
+    +'<td style="padding:8px;text-align:right;color:#3fb950;font-weight:700">$'+m.oracle_price.toFixed(2)+'</td>'
+    +'<td style="padding:8px;text-align:right;color:#f85149">$'+m.user_price.toFixed(2)+'</td>'
+    +'<td style="padding:8px;text-align:right;color:var(--tx)">$'+m.winner_price.toFixed(2)+'</td></tr>';
+  });
+  html+='</tbody></table>';
+  ad.innerHTML=html;
+ } else if(ad) {
+  ad.innerHTML='<div style="color:var(--tx2);text-align:center;padding:20px">No missed wins detected yet</div>';
+ }
+
+ // Tab 4: Data Source Attribution
+ var attr = d.attribution || {};
+ var atc = document.getElementById('attribution-cards');
+ if(atc && attr.by_source && attr.by_source.length) {
+  var total = attr.by_source.reduce(function(s,x){return s+x.count},0);
+  var html='';
+  attr.by_source.forEach(function(s){
+   var pct = total>0?Math.round(s.count/total*100):0;
+   var color = sourceColors[s.source] || '#8b949e';
+   html += kpiCard(s.source||'Unknown', s.count, color, pct+'% of items');
+  });
+  atc.innerHTML=html;
+ } else if(atc) {
+  atc.innerHTML='<div style="grid-column:1/-1;text-align:center;padding:30px;color:var(--tx2);background:var(--sf);border-radius:10px;border:1px solid var(--bd)">'
+   +'<div style="font-size:18px;margin-bottom:8px">No data yet</div>'
+   +'<div>No source attribution data yet \u2014 re-enrich PCs to start tracking price sources</div></div>';
+ }
+ var atd = document.getElementById('attribution-detail');
+ if(atd && attr.by_source && attr.by_source.length) {
+  var total = attr.by_source.reduce(function(s,x){return s+x.count},0);
+  var html='<h3 style="font-size:15px;color:var(--tx);margin:0 0 12px">Source Distribution</h3>';
+  html+='<div style="display:flex;height:24px;border-radius:6px;overflow:hidden;margin-bottom:12px">';
+  attr.by_source.forEach(function(s){
+   var pct = total>0?(s.count/total*100):0;
+   var color = sourceColors[s.source] || '#8b949e';
+   if(pct>0) html+='<div style="width:'+pct+'%;background:'+color+'" title="'+s.source+': '+s.count+' items ('+Math.round(pct)+'%)"></div>';
+  });
+  html+='</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:12px">';
+  attr.by_source.forEach(function(s){
+   var color = sourceColors[s.source] || '#8b949e';
+   html+='<span style="display:flex;align-items:center;gap:4px;font-size:13px"><span style="width:10px;height:10px;border-radius:2px;background:'+color+'"></span> '+s.source+': '+s.count+'</span>';
+  });
+  html+='</div>';
+  atd.innerHTML=html;
+ }
+}).catch(function(e){
+ var loadEl = document.getElementById('pi-loading');
+ if(loadEl) loadEl.innerHTML='<span style="color:#f85149">Error loading data: '+e.message+'</span>';
+});
+</script>
+{% endblock %}

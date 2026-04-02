@@ -626,6 +626,23 @@ def run_award_check(force: bool = False) -> dict:
                 log.info("❌ %s: LOST to %s — PO %s $%.2f vs our $%.2f",
                          quote_num, supplier, po_number, scprs_total, our_total)
 
+        # ── Update recommendation_audit with outcome ────────────────────
+        if outcome in ("we_won", "lost_to_competitor"):
+            try:
+                from src.core.db import get_db
+                with get_db() as ra_conn:
+                    pc_id = q.get("source_pc_id", "") or q.get("pc_id", "")
+                    quote_num_ra = q.get("quote_number", "")
+                    ra_outcome = "won" if outcome == "we_won" else "lost"
+                    competitor_price = scprs_total if outcome == "lost_to_competitor" else 0
+                    ra_conn.execute("""
+                        UPDATE recommendation_audit
+                        SET outcome=?, outcome_price=?, updated_at=datetime('now')
+                        WHERE (pc_id=? OR quote_number=?) AND outcome='pending'
+                    """, (ra_outcome, competitor_price, pc_id, quote_num_ra))
+            except Exception:
+                pass
+
         # ── Log check attempt (include SCPRS window for adaptive schedule) ──
         try:
             from src.core.scprs_schedule import current_scprs_window, get_check_phase

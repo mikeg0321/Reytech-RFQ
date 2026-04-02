@@ -1589,6 +1589,23 @@ def _do_save_prices(pcid):
 
     _sync_pc_items(pc, items)
 
+    # Update recommendation_audit with user's actual prices
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for i, it in enumerate(items):
+                user_price = it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0
+                if user_price and user_price > 0:
+                    conn.execute("""
+                        UPDATE recommendation_audit
+                        SET user_price=?, delta_pct=ROUND((? - oracle_price) / NULLIF(oracle_price, 0) * 100, 1),
+                            followed=CASE WHEN ABS(? - oracle_price) / NULLIF(oracle_price, 0) <= 0.05 THEN 1 ELSE 0 END,
+                            updated_at=datetime('now')
+                        WHERE pc_id=? AND item_index=? AND outcome='pending' AND oracle_price > 0
+                    """, (user_price, user_price, user_price, pcid, i))
+    except Exception as _ra_e:
+        log.debug("recommendation_audit update: %s", _ra_e)
+
     # Auto-compute missing prices: if cost exists but price doesn't, apply markup
     for it in items:
         if it.get("no_bid"):

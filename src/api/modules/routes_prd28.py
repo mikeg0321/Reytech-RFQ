@@ -892,6 +892,27 @@ def api_dashboard_init():
     except Exception as e:
         result["growth"] = {"ok": False, "error": str(e)}
 
+    # ── 8. Award Intel (SCPRS monitoring) ──
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # SCPRS data volume
+            po_count = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
+            line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+            wq_count = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
+            # Recent award tracker activity
+            recent_wins = conn.execute("SELECT COUNT(*) FROM award_tracker_log WHERE outcome='won' AND checked_at > datetime('now', '-30 days')").fetchone()[0]
+            recent_losses = conn.execute("SELECT COUNT(*) FROM award_tracker_log WHERE outcome='lost' AND checked_at > datetime('now', '-30 days')").fetchone()[0]
+            # SCPRS freshness
+            freshness = conn.execute("SELECT agency_key, last_pull FROM scprs_pull_schedule ORDER BY last_pull DESC").fetchall()
+        result["award_intel"] = {
+            "po_count": po_count, "line_count": line_count, "wq_count": wq_count,
+            "recent_wins": recent_wins, "recent_losses": recent_losses,
+            "scprs_freshness": [{"agency": r[0], "last_pull": r[1]} for r in freshness] if freshness else [],
+        }
+    except Exception:
+        result["award_intel"] = {}
+
     result["_ms"] = round((_time.time() - t0) * 1000)
     _dash_init_cache["data"] = result
     _dash_init_cache["ts"] = _time.time()

@@ -4595,3 +4595,158 @@ def api_save_integrations():
             env_key = key.upper()
             os.environ[env_key] = data[key]
     return jsonify({"ok": True})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Pricing Intelligence Dashboard (Phase 5)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/pricing-intelligence")
+@auth_required
+def pricing_intelligence_page():
+    """Pricing Intelligence Dashboard — 4-tab analytics."""
+    from src.api.render import render_page
+    return render_page("pricing_intelligence.html", active_page="Pricing Intel")
+
+
+@bp.route("/api/pricing-intelligence/data")
+@auth_required
+def api_pricing_intelligence():
+    """Combined data for all 4 tabs of the pricing intelligence dashboard."""
+    from src.core.db import get_db
+    result = {"ok": True}
+
+    try:
+        with get_db() as conn:
+            # Tab 1: Scorecard
+            scorecard = {}
+            # Win rate from quotes
+            row = conn.execute(
+                "SELECT COUNT(*) as total, "
+                "SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as won, "
+                "SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as lost "
+                "FROM quotes WHERE status IN ('won','lost','sent','pending_award')"
+            ).fetchone()
+            if row:
+                total = row[0] or 0
+                won = row[1] or 0
+                lost = row[2] or 0
+                decided = won + lost
+                scorecard["total_quotes"] = total
+                scorecard["won"] = won
+                scorecard["lost"] = lost
+                scorecard["win_rate"] = round(won / decided * 100, 1) if decided > 0 else 0
+
+            # Win rate trend (monthly, last 12 months)
+            trends = conn.execute("""
+                SELECT strftime('%Y-%m', created_at) as month,
+                       SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as won,
+                       SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as lost
+                FROM quotes WHERE status IN ('won','lost')
+                AND created_at >= date('now', '-12 months')
+                GROUP BY month ORDER BY month
+            """).fetchall()
+            scorecard["monthly_trends"] = [
+                {"month": r[0], "won": r[1], "lost": r[2],
+                 "win_rate": round(r[1] / max(r[1] + r[2], 1) * 100, 1)}
+                for r in trends
+            ]
+
+            # Avg margin on wins
+            margins = conn.execute("""
+                SELECT AVG(CAST(json_extract(data_json, '$.profit_summary.margin_pct') AS REAL))
+                FROM price_checks WHERE status='won' AND data_json IS NOT NULL
+            """).fetchone()
+            scorecard["avg_margin"] = round(margins[0], 1) if margins and margins[0] else 0
+
+            result["scorecard"] = scorecard
+
+            # Tab 2: Competitive Position
+            position = []
+            pos_rows = conn.execute("""
+                SELECT name, category, sell_price, scprs_last_price, cost,
+                       times_quoted, times_won, times_lost, win_rate
+                FROM product_catalog
+                WHERE sell_price > 0 AND scprs_last_price > 0
+                ORDER BY ((sell_price - scprs_last_price) / NULLIF(scprs_last_price, 0)) DESC
+                LIMIT 50
+            """).fetchall()
+            for r in pos_rows:
+                gap = round((r[2] - r[3]) / r[3] * 100, 1) if r[3] > 0 else 0
+                position.append({
+                    "name": r[0], "category": r[1] or "",
+                    "our_price": r[2], "market_price": r[3], "cost": r[4] or 0,
+                    "gap_pct": gap, "times_quoted": r[5] or 0,
+                    "times_won": r[6] or 0, "times_lost": r[7] or 0,
+                    "win_rate": r[8] or 0,
+                })
+            below = sum(1 for p in position if p["gap_pct"] < -5)
+            at_market = sum(1 for p in position if -5 <= p["gap_pct"] <= 5)
+            above = sum(1 for p in position if p["gap_pct"] > 5)
+            result["competitive_position"] = {
+                "items": position, "below_market": below,
+                "at_market": at_market, "above_market": above,
+            }
+
+            # Tab 3: Recommendation Accuracy
+            accuracy = {}
+            try:
+                acc_row = conn.execute("""
+                    SELECT COUNT(*) as total,
+                           SUM(followed) as followed_count,
+                           SUM(CASE WHEN outcome='won' AND followed=1 THEN 1 ELSE 0 END) as followed_won,
+                           SUM(CASE WHEN outcome='won' AND followed=0 THEN 1 ELSE 0 END) as override_won,
+                           SUM(CASE WHEN outcome='lost' AND followed=0 THEN 1 ELSE 0 END) as override_lost,
+                           SUM(CASE WHEN outcome='lost' AND oracle_price < outcome_price THEN 1 ELSE 0 END) as missed_wins
+                    FROM recommendation_audit WHERE outcome IN ('won','lost')
+                """).fetchone()
+                if acc_row and acc_row[0]:
+                    t = acc_row[0]
+                    followed = acc_row[1] or 0
+                    accuracy["total"] = t
+                    accuracy["follow_rate"] = round(followed / t * 100, 1) if t > 0 else 0
+                    f_total = followed
+                    f_won = acc_row[2] or 0
+                    o_total = t - followed
+                    o_won = acc_row[3] or 0
+                    accuracy["followed_win_rate"] = round(f_won / max(f_total, 1) * 100, 1)
+                    accuracy["override_win_rate"] = round(o_won / max(o_total, 1) * 100, 1)
+                    accuracy["missed_wins"] = acc_row[5] or 0
+
+                # Missed wins detail
+                missed = conn.execute("""
+                    SELECT description, oracle_price, user_price, outcome_price, pc_id
+                    FROM recommendation_audit
+                    WHERE outcome='lost' AND oracle_price > 0 AND outcome_price > 0
+                    AND oracle_price < outcome_price
+                    ORDER BY recorded_at DESC LIMIT 20
+                """).fetchall()
+                accuracy["missed_wins_detail"] = [
+                    {"description": r[0], "oracle_price": r[1], "user_price": r[2],
+                     "winner_price": r[3], "pc_id": r[4]}
+                    for r in missed
+                ]
+            except Exception:
+                accuracy = {"total": 0, "note": "No recommendation data yet — re-enrich PCs to start tracking"}
+            result["accuracy"] = accuracy
+
+            # Tab 4: Data Source Attribution
+            attribution = {}
+            try:
+                # Count items by price_source from price_checks
+                src_rows = conn.execute("""
+                    SELECT json_extract(value, '$.pricing.price_source') as src,
+                           COUNT(*) as cnt
+                    FROM price_checks, json_each(json_extract(data_json, '$.items'))
+                    WHERE data_json IS NOT NULL AND status IN ('won','lost','sent')
+                    GROUP BY src ORDER BY cnt DESC
+                """).fetchall()
+                attribution["by_source"] = [{"source": r[0] or "manual", "count": r[1]} for r in src_rows]
+            except Exception:
+                attribution["by_source"] = []
+            result["attribution"] = attribution
+
+    except Exception as e:
+        result["error"] = str(e)
+
+    return jsonify(result)
