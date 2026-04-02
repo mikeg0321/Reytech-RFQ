@@ -38,7 +38,7 @@ def _get_logo_src():
     except ImportError:
         DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 
-    for fname in ("reytech_logo_white.png", "logo.png", "logo.jpg", "reytech_logo.png", "reytech_logo.jpg"):
+    for fname in ("reytech_logo.png", "reytech_logo_email.png", "logo.png", "logo.jpg", "reytech_logo.jpg", "reytech_logo_white.png"):
         path = os.path.join(DATA_DIR, fname)
         if os.path.exists(path):
             try:
