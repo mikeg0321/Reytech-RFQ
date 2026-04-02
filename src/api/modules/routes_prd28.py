@@ -930,6 +930,46 @@ def api_dashboard_init():
     except Exception:
         result["parse_errors"] = 0
 
+    # ── Morning Summary ──
+    try:
+        from src.core.db import get_db
+        morning = {}
+        with get_db() as conn:
+            # New PCs in last 24h
+            new_pcs = conn.execute("""
+                SELECT COUNT(*) FROM price_checks
+                WHERE created_at >= date('now', '-1 day')
+                AND status IN ('new', 'parsed')
+            """).fetchone()[0]
+            morning["new_pcs"] = new_pcs
+
+            # PCs ready for review (have items with prices)
+            ready = conn.execute("""
+                SELECT COUNT(*) FROM price_checks
+                WHERE status IN ('priced', 'auto_drafted', 'draft', 'ready')
+            """).fetchone()[0]
+            morning["ready_for_review"] = ready
+
+            # Follow-ups due (sent > 3 days ago, not yet followed up)
+            followups_due = conn.execute("""
+                SELECT COUNT(*) FROM price_checks
+                WHERE status = 'sent'
+                AND sent_at <= date('now', '-3 days')
+            """).fetchone()[0]
+            morning["followups_due"] = followups_due
+
+            # Total open PCs
+            open_pcs = conn.execute("""
+                SELECT COUNT(*) FROM price_checks
+                WHERE status NOT IN ('won', 'lost', 'expired', 'cancelled', 'dismissed')
+            """).fetchone()[0]
+            morning["open_pcs"] = open_pcs
+
+        result["morning"] = morning
+    except Exception as e:
+        log.debug("morning summary: %s", e)
+        result["morning"] = {}
+
     result["_ms"] = round((_time.time() - t0) * 1000)
     _dash_init_cache["data"] = result
     _dash_init_cache["ts"] = _time.time()

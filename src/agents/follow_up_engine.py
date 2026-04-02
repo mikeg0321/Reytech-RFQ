@@ -45,26 +45,38 @@ FOLLOW_UP_SCHEDULE = [
 TEMPLATES = {
     "gentle": (
         "Hi {name},\n\n"
-        "I wanted to follow up on my previous email regarding medical supplies for {facility}. "
-        "I know procurement timelines can be busy — just checking if you had a chance to review.\n\n"
-        "Happy to answer any questions or send over a quote for specific items.\n\n"
-        "Best regards,\nMichael Guadan\nReytech Inc.\n(949) 872-8676"
+        "I wanted to follow up on the pricing I sent for {pc_number} on {sent_date}. "
+        "The quote covers {item_count} items totaling ${total:.2f}.\n\n"
+        "Please let me know if you have any questions or need any adjustments to the pricing.\n\n"
+        "Best regards,\n"
+        "Michael Guadan\n"
+        "Reytech Inc.\n"
+        "(619) 985-8610"
     ),
     "value_add": (
         "Hi {name},\n\n"
-        "I wanted to share a quick update — we recently expanded our catalog with competitive pricing "
-        "on several high-volume items that facilities like {facility} use regularly.\n\n"
-        "Would it be helpful if I sent over a price comparison on your most-ordered items? "
-        "Many of our state agency partners save 10-15% through our SB/DVBE pricing.\n\n"
-        "Best regards,\nMichael Guadan\nReytech Inc.\n(949) 872-8676"
+        "Just checking in on our quote {pc_number} from {sent_date}. "
+        "I know procurement timelines can be tight.\n\n"
+        "If any of the items need different specifications or quantities, "
+        "I'm happy to revise the quote. We also carry related products that "
+        "may be useful for your facility.\n\n"
+        "Let me know how I can help.\n\n"
+        "Best regards,\n"
+        "Michael Guadan\n"
+        "Reytech Inc.\n"
+        "(619) 985-8610"
     ),
     "final": (
         "Hi {name},\n\n"
-        "I'll keep this brief — I've reached out a couple of times about medical supply pricing "
-        "for {facility}. I understand if the timing isn't right.\n\n"
-        "If your needs change in the future, feel free to reach out anytime. "
-        "I'll keep your facility on file for any new contract opportunities.\n\n"
-        "Best regards,\nMichael Guadan\nReytech Inc.\n(949) 872-8676"
+        "I wanted to reach out one last time regarding quote {pc_number}. "
+        "Our pricing is valid for 45 days from {sent_date}.\n\n"
+        "If the timing isn't right, no worries — I'll keep your requirements on file "
+        "and can provide updated pricing whenever you're ready.\n\n"
+        "Thank you for considering Reytech.\n\n"
+        "Best regards,\n"
+        "Michael Guadan\n"
+        "Reytech Inc.\n"
+        "(619) 985-8610"
     ),
 }
 
@@ -151,6 +163,7 @@ def scan_outbox_for_follow_ups():
                 "to_name": email.get("to_name", "") or _parse_name_from_email(email.get("to", "")),
                 "facility": email.get("facility", "") or email.get("subject", ""),
                 "original_subject": email.get("subject", ""),
+                "email_message_id": email.get("message_id", "") or email.get("email_message_id", ""),
                 "sent_date": sent_date,
                 "days_since": days_since,
                 "urgency": urgency,
@@ -240,14 +253,51 @@ def scan_quotes_for_follow_ups():
     return needs_follow_up
 
 
+def _get_pc_details(pc_id):
+    """Load PC details for follow-up template variables."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT pc_number, sent_at, email_message_id, requestor_name, total "
+                "FROM price_checks WHERE id = ?", (pc_id,)
+            ).fetchone()
+            if row:
+                pc = dict(row)
+                # Count items
+                items = conn.execute(
+                    "SELECT COUNT(*) FROM pc_items WHERE pc_id = ?", (pc_id,)
+                ).fetchone()[0]
+                pc["item_count"] = items
+                return pc
+    except Exception as e:
+        log.debug("_get_pc_details(%s): %s", pc_id, e)
+    return {}
+
+
 def create_follow_up_draft(item, follow_up_type):
     """Create a follow-up email draft in the outbox."""
     template = TEMPLATES.get(follow_up_type, TEMPLATES["gentle"])
     schedule = next((s for s in FOLLOW_UP_SCHEDULE if s["type"] == follow_up_type), FOLLOW_UP_SCHEDULE[0])
 
+    # Gather PC-specific details for improved templates
+    pc_details = {}
+    if item.get("source") in ("outbox", "quote"):
+        pc_details = _get_pc_details(item.get("original_id", ""))
+
+    pc_number = pc_details.get("pc_number") or item.get("original_id", "")
+    sent_date_obj = item.get("sent_date")
+    sent_date_str = sent_date_obj.strftime("%B %d") if isinstance(sent_date_obj, datetime) else str(sent_date_obj)[:10]
+    item_count = pc_details.get("item_count", 0)
+    total = pc_details.get("total") or 0.0
+
     body = template.format(
         name=item["to_name"],
         facility=item["facility"] or "your facility",
+        pc_number=pc_number,
+        sent_date=sent_date_str,
+        item_count=item_count,
+        total=float(total),
     )
 
     draft = {
@@ -266,6 +316,13 @@ def create_follow_up_draft(item, follow_up_type):
         "created": datetime.now().isoformat(),
         "days_since_original": item["days_since"],
     }
+
+    # In-Reply-To threading — keeps follow-ups in same email thread
+    email_message_id = pc_details.get("email_message_id") or item.get("email_message_id")
+    if email_message_id:
+        draft["in_reply_to"] = email_message_id
+        draft["references"] = email_message_id
+
     return draft
 
 

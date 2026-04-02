@@ -3335,6 +3335,61 @@
  _setHighlight(_hl);
 })();
 </script>
+<script>
+// ── Smart Review: highlight items needing attention ──
+(function(){
+  var needsAttention = 0;
+  var totalItems = 0;
+  document.querySelectorAll('tr[data-row]:not(.notes-row)').forEach(function(row) {
+    var idx = row.getAttribute('data-row');
+    totalItems++;
+
+    var costEl = document.querySelector('[name="cost_' + idx + '"]');
+    var priceEl = document.querySelector('[name="price_' + idx + '"]');
+    var bidEl = document.querySelector('[name="bid_' + idx + '"]');
+
+    // Skip no-bid items
+    if (bidEl && !bidEl.checked) return;
+
+    var cost = costEl ? parseFloat(costEl.value) || 0 : 0;
+    var price = priceEl ? parseFloat(priceEl.value) || 0 : 0;
+
+    var issues = [];
+    if (cost <= 0) issues.push('No cost');
+    if (price <= 0 && cost <= 0) issues.push('No price');
+    if (cost > 0 && price > 0) {
+      var margin = (price - cost) / price * 100;
+      if (margin < 10) issues.push('Low margin (' + margin.toFixed(0) + '%)');
+    }
+
+    if (issues.length > 0) {
+      needsAttention++;
+      row.style.borderLeft = '3px solid #f85149';
+      // Add attention label to first cell
+      var firstTd = row.querySelector('td');
+      if (firstTd && !firstTd.querySelector('.attn-badge')) {
+        var badge = document.createElement('div');
+        badge.className = 'attn-badge';
+        badge.style.cssText = 'font-size:10px;color:#f85149;white-space:nowrap;margin-top:2px';
+        badge.textContent = issues.join(' \u00b7 ');
+        firstTd.appendChild(badge);
+      }
+    }
+  });
+
+  // Show attention banner if any items need work
+  if (needsAttention > 0 && totalItems > 0) {
+    var banner = document.createElement('div');
+    banner.style.cssText = 'padding:10px 16px;border-radius:8px;font-size:14px;display:flex;align-items:center;gap:10px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.25);color:#f85149;margin-bottom:12px';
+    banner.innerHTML = '<span style="font-size:18px">\u26a0\ufe0f</span><div><b>' + needsAttention + ' of ' + totalItems + ' items need attention</b> \u2014 missing cost or low margin</div>';
+    // Insert before the items table
+    var tableWrap = document.querySelector('.pc-table-wrap');
+    if (tableWrap && tableWrap.parentNode) {
+      tableWrap.parentNode.insertBefore(banner, tableWrap);
+    }
+  }
+})();
+</script>
     </body></html>
 
 {% endblock %}

@@ -1546,6 +1546,17 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
             log.warning("Tax rate lookup failed for PC: %s — using CA base 7.25%%", _te)
             kwargs["tax_rate"] = 0.0725
 
+    # ── Agency-specific defaults from agency_config ──
+    try:
+        from src.core.agency_config import get_agency_config
+        _pc_agency = pc.get("agency", "")
+        _pc_agency_cfg = get_agency_config(_pc_agency)
+        if "terms" not in kwargs:
+            _pc_user_terms = pc.get("payment_terms", "")
+            kwargs["terms"] = _pc_user_terms or _pc_agency_cfg.get("payment_terms", "Net 45")
+    except Exception:
+        pass
+
     kwargs.setdefault("shipping", 0.0)
     if "notes" not in kwargs and pc.get("quote_notes"):
         kwargs["notes"] = pc["quote_notes"]
@@ -1766,6 +1777,18 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         except Exception as _te:
             log.warning("Tax rate lookup failed: %s — using CA base 7.25%%", _te)
             kwargs["tax_rate"] = 0.0725
+
+    # ── Agency-specific defaults from agency_config ──
+    # Only apply when user hasn't explicitly set the value
+    try:
+        from src.core.agency_config import get_agency_config
+        _agency_key = rfq.get("agency", "")
+        _agency_cfg = get_agency_config(_agency_key)
+        if "terms" not in kwargs:
+            _user_terms = rfq.get("payment_terms", "")
+            kwargs["terms"] = _user_terms or _agency_cfg.get("payment_terms", "Net 45")
+    except Exception:
+        pass
 
     # No shipping line — shipping is baked into item cost/margin
     kwargs.setdefault("shipping", 0.0)

@@ -1524,9 +1524,20 @@ def detail(rid):
             rfqs[rid] = r
             r["_needs_save"] = True  # Deferred to POST /rfq/{rid}/save-restore
 
-    # ── Enrichment DISABLED — was crashing page with Undefined serialization ──
-    # TODO: re-enable after fixing stored Undefined values in rfqs.json
-    pass  # enrichment disabled
+    # ── Enrichment: catalog matches + price history on detail load ──
+    try:
+        _enrich_items = r.get("line_items") or r.get("items", [])
+        if isinstance(_enrich_items, str):
+            import json as _json
+            _enrich_items = _json.loads(_enrich_items)
+        if isinstance(_enrich_items, list) and _enrich_items:
+            _enrich_items_with_intel(
+                _enrich_items,
+                rfq_number=r.get("solicitation_number", r.get("rfq_number", "")),
+                agency=r.get("agency", ""),
+            )
+    except Exception as _enrich_err:
+        log.warning("RFQ enrichment error (non-fatal): %s", _enrich_err)
 
     # Map items → line_items (SQLite column is "items", template expects "line_items")
     # Also handle: items might be a JSON string, a list, or missing

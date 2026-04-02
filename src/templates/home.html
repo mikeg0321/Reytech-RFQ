@@ -302,6 +302,17 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
     var peCount = document.getElementById('parse-error-count');
     if(peCount) peCount.textContent = d.parse_errors;
   }
+  // ── Morning Summary ──
+  if(d.morning){
+    var ms = document.getElementById('morning-summary');
+    if(ms) ms.style.display = 'block';
+    var m = d.morning;
+    var el;
+    el = document.getElementById('morning-new'); if(el) el.textContent = m.new_pcs || 0;
+    el = document.getElementById('morning-ready'); if(el) el.textContent = m.ready_for_review || 0;
+    el = document.getElementById('morning-followups'); if(el) el.textContent = m.followups_due || 0;
+    el = document.getElementById('morning-open'); if(el) el.textContent = m.open_pcs || 0;
+  }
   // ── Award Intel (SCPRS monitoring) ──
   if(d.award_intel){
     var card=document.getElementById('scprs-monitor-card');
@@ -339,6 +350,29 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  <div style="display:flex;gap:8px">
   <button onclick="location.href='/awards'" class="btn" style="font-size:13px;padding:6px 14px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);border-radius:6px">🏆 Awards</button>
   <button onclick="location.href='/settings'" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px">⚙️ Settings</button>
+ </div>
+</div>
+
+<!-- Morning Summary -->
+<div id="morning-summary" style="display:none;margin-bottom:16px;padding:16px 20px;background:#161b22;border:1px solid #30363d;border-radius:10px">
+ <div style="font-size:15px;font-weight:600;color:var(--tx);margin-bottom:10px">Today's Queue</div>
+ <div style="display:flex;gap:16px;flex-wrap:wrap">
+  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
+   <div style="font-size:22px;font-weight:700;color:#58a6ff" id="morning-new">0</div>
+   <div style="font-size:12px;color:var(--tx2)">New PCs</div>
+  </div>
+  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
+   <div style="font-size:22px;font-weight:700;color:#3fb950" id="morning-ready">0</div>
+   <div style="font-size:12px;color:var(--tx2)">Ready to Review</div>
+  </div>
+  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
+   <div style="font-size:22px;font-weight:700;color:#d29922" id="morning-followups">0</div>
+   <div style="font-size:12px;color:var(--tx2)">Follow-Ups Due</div>
+  </div>
+  <div style="text-align:center;padding:8px 16px;background:var(--sf);border-radius:8px;border:1px solid var(--bd);min-width:80px">
+   <div style="font-size:22px;font-weight:700;color:var(--tx)" id="morning-open">0</div>
+   <div style="font-size:12px;color:var(--tx2)">Open PCs</div>
+  </div>
  </div>
 </div>
 

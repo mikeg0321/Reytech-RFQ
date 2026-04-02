@@ -54,6 +54,10 @@ DEFAULT_AGENCY_CONFIGS = {
                           "cv012_cuf", "std204", "std205", "std1000", "sellers_permit"],
         "optional_forms": ["barstow_cuf", "obs_1600", "drug_free"],
         "notes": "California Department of Veterans Affairs. No AMS 703B/704B — uses Reytech quote + compliance forms. STD 205 supplement required.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 30",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "3-5 business days",
     },
     "calvet_barstow": {
         "name": "Cal Vet — Barstow",
@@ -62,6 +66,10 @@ DEFAULT_AGENCY_CONFIGS = {
                           "cv012_cuf", "barstow_cuf", "std204", "std205", "std1000", "sellers_permit"],
         "optional_forms": ["obs_1600", "drug_free"],
         "notes": "Cal Vet Barstow facility — requires BOTH CV 012 CUF AND Barstow-specific CUF.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 30",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "3-5 business days",
     },
     "cchcs": {
         "name": "CCHCS / CDCR",
@@ -81,6 +89,10 @@ DEFAULT_AGENCY_CONFIGS = {
         "optional_forms": ["703c", "sellers_permit", "dvbe843", "std204", "calrecycle74",
                           "bidder_decl", "darfur_act", "obs_1600", "drug_free", "std1000"],
         "notes": "CCHCS / CDCR. Package: 703B (or 703C) + 704B + CCHCS Bid Package. DVBE 843 and seller's permit are inside the bid package.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "5-7 business days",
     },
     "dsh": {
         "name": "DSH — State Hospitals",
@@ -91,6 +103,10 @@ DEFAULT_AGENCY_CONFIGS = {
                           "darfur_act", "calrecycle74"],
         "optional_forms": ["std1000", "drug_free"],
         "notes": "Department of State Hospitals. Similar to DGS but with CalRecycle requirement.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "5-7 business days",
     },
     "dgs": {
         "name": "DGS",
@@ -98,6 +114,10 @@ DEFAULT_AGENCY_CONFIGS = {
         "required_forms": ["quote", "std204", "sellers_permit", "dvbe843", "bidder_decl", "darfur_act"],
         "optional_forms": ["std1000", "calrecycle74"],
         "notes": "Department of General Services. No AMS forms — uses their own bid format.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 30",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "5-7 business days",
     },
     "calfire": {
         "name": "CAL FIRE",
@@ -105,6 +125,10 @@ DEFAULT_AGENCY_CONFIGS = {
         "required_forms": ["quote", "std204", "sellers_permit", "dvbe843"],
         "optional_forms": ["bidder_decl", "darfur_act"],
         "notes": "California Department of Forestry and Fire Protection.",
+        "default_markup_pct": 20,
+        "payment_terms": "Net 30",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "5-7 business days",
     },
     "other": {
         "name": "Other / Unknown",
@@ -112,8 +136,25 @@ DEFAULT_AGENCY_CONFIGS = {
         "required_forms": ["quote", "std204", "sellers_permit"],
         "optional_forms": ["dvbe843", "bidder_decl"],
         "notes": "Default config for unrecognized agencies. Minimal forms.",
+        "default_markup_pct": 25,
+        "payment_terms": "Net 45",
+        "shipping_terms": "FOB Destination, Freight Prepaid",
+        "delivery_days": "5-7 business days",
     },
 }
+
+
+def get_agency_config(agency_key):
+    """Get the config dict for an agency key (case-insensitive).
+    Returns the 'other' config as fallback if key not found."""
+    if not agency_key:
+        return DEFAULT_AGENCY_CONFIGS.get("other", {})
+    key = agency_key.lower().strip()
+    # Try direct match first, then mapped aliases
+    _alias_map = {"cdcr": "cchcs", "calvet": "calvet", "cal vet": "calvet",
+                  "cal fire": "calfire", "cal_fire": "calfire"}
+    resolved = _alias_map.get(key, key)
+    return DEFAULT_AGENCY_CONFIGS.get(resolved, DEFAULT_AGENCY_CONFIGS.get("other", {}))
 
 
 def extract_required_forms_from_text(text):
