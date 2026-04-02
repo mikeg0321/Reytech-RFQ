@@ -6294,6 +6294,7 @@ def api_action_items():
             """).fetchall()
             return jsonify({"ok": True, "items": [dict(r) for r in items]})
     except Exception as e:
+        log.debug("action_items query: %s", e)
         return jsonify({"ok": True, "items": [], "note": str(e)})
 
 
@@ -6306,6 +6307,7 @@ def api_action_item_complete(item_id):
             conn.execute("UPDATE action_items SET status='done', completed_at=datetime('now') WHERE id=?", (item_id,))
         return jsonify({"ok": True})
     except Exception as e:
+        log.error("action-item-complete %d: %s", item_id, e)
         return jsonify({"ok": False, "error": str(e)})
 
 
@@ -6320,4 +6322,5 @@ def api_action_item_dismiss(item_id):
                         (data.get("reason", ""), item_id))
         return jsonify({"ok": True})
     except Exception as e:
+        log.error("action-item-dismiss %d: %s", item_id, e)
         return jsonify({"ok": False, "error": str(e)})

@@ -1706,8 +1706,8 @@ def loss_detail_page(quote_number):
                             our_supplier=item.get("our_supplier", ""),
                             item_description=item.get("our_description", item.get("description", "")),
                         )
-                except Exception:
-                    pass
+                except Exception as _si_e:
+                    log.debug("loss-detail supplier inference: %s", _si_e)
     except Exception as e:
         log.exception("loss-detail error for %s", quote_number)
         context["error"] = str(e)

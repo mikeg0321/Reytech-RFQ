@@ -630,8 +630,8 @@ def run_award_check(force: bool = False) -> dict:
                 try:
                     from src.agents.pricing_feedback import check_competitive_trends
                     check_competitive_trends(competitor=supplier, agency=agency)
-                except Exception:
-                    pass
+                except Exception as _ct_e:
+                    log.debug("competitive_trends check: %s", _ct_e)
 
                 notes = (
                     f"Lost to {supplier} — PO {po_number} ${scprs_total:,.2f} "
@@ -649,13 +649,16 @@ def run_award_check(force: bool = False) -> dict:
                     quote_num_ra = q.get("quote_number", "")
                     ra_outcome = "won" if outcome == "we_won" else "lost"
                     competitor_price = scprs_total if outcome == "lost_to_competitor" else 0
-                    ra_conn.execute("""
+                    updated = ra_conn.execute("""
                         UPDATE recommendation_audit
                         SET outcome=?, outcome_price=?, updated_at=datetime('now')
                         WHERE (pc_id=? OR quote_number=?) AND outcome='pending'
-                    """, (ra_outcome, competitor_price, pc_id, quote_num_ra))
-            except Exception:
-                pass
+                    """, (ra_outcome, competitor_price, pc_id, quote_num_ra)).rowcount
+                    if updated:
+                        log.info("RECOMMENDATION_AUDIT: %s %s — updated %d rows",
+                                 quote_num_ra, ra_outcome, updated)
+            except Exception as _ra_e:
+                log.debug("recommendation_audit outcome update: %s", _ra_e)
 
         # ── Log check attempt (include SCPRS window for adaptive schedule) ──
         try:
@@ -1668,8 +1671,12 @@ def get_monitoring_queue():
             except Exception:
                 continue
 
-        db.close()
     except Exception as e:
         log.debug("get_monitoring_queue: %s", e)
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
     return result

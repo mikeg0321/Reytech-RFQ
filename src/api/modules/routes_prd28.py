@@ -126,7 +126,8 @@ def api_outbox_pending_count():
         with get_db() as conn:
             count = conn.execute("SELECT COUNT(*) FROM email_outbox WHERE status='draft'").fetchone()[0]
         return jsonify({"ok": True, "count": count})
-    except Exception:
+    except Exception as e:
+        log.debug("outbox pending-count: %s", e)
         return jsonify({"ok": True, "count": 0})
 
 @bp.route("/api/outbox/engagement-stats")

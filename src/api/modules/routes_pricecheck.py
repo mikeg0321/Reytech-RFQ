@@ -8728,13 +8728,17 @@ def api_pc_send_quote(pcid):
 @auth_required
 def api_pc_email_preview(pcid):
     """Return pre-built email body for the send-quote dialog."""
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"})
-    buyer_email = pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
-    body = _build_pc_quote_email_body(pc, pcid, buyer_email)
-    return jsonify({"ok": True, "body": body})
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+        buyer_email = pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
+        body = _build_pc_quote_email_body(pc, pcid, buyer_email)
+        return jsonify({"ok": True, "body": body})
+    except Exception as e:
+        log.error("email-preview %s: %s", pcid, e)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/pricecheck/<pcid>/duplicate", methods=["POST"])
