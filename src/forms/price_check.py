@@ -3205,9 +3205,9 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
     fw = fr - fl
     fh = ft - fb
 
-    # Layout: signature image takes left 50%, date in right 25%
-    sig_w = min(fw * 0.45, 160)
-    sig_h = fh - 4  # 2pt padding top/bottom
+    # Layout: signature image takes left 60%, date in right 20%
+    sig_w = min(fw * 0.60, 220)
+    sig_h = fh + 4  # slightly taller than cell for visual weight
     date_x = fr - fw * 0.22  # right quarter
     date_y = fb + (fh - 9) / 2  # vertically centered for ~9pt font
 
