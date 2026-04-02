@@ -2172,8 +2172,21 @@ def fill_ams704(
         else:
             log.info("fill_ams704: Ship to already has value '%s' — not overwriting", _existing_ship[:40])
 
-    # FOB Destination, Freight Prepaid checkbox — try both field name variants
-    for _fob_name in ("Check Box4", "FOB Destination Freight Prepaid"):
+    # FOB Destination, Freight Prepaid checkbox — try all known field name variants
+    # AND scan actual PDF fields for any checkbox containing "FOB" or "Destination"
+    _fob_names_to_check = {"Check Box4", "FOB Destination Freight Prepaid",
+                           "FOB Destination  Freight Prepaid",
+                           "CheckBox4", "fob_prepaid", "FOBDestinationFreightPrepaid"}
+    # Dynamic scan: find FOB checkboxes by field name pattern
+    if _pdf_fields:
+        for _fn in _pdf_fields:
+            _fn_lower = _fn.lower().replace(" ", "")
+            if ("fob" in _fn_lower and "dest" in _fn_lower) or \
+               ("fobdestination" in _fn_lower) or \
+               (_fn_lower in ("checkbox4", "checkboxfob")):
+                _fob_names_to_check.add(_fn)
+                log.info("fill_ams704: Found FOB checkbox field: '%s'", _fn)
+    for _fob_name in _fob_names_to_check:
         field_values.append({
             "field_id": _fob_name,
             "page": 1,
@@ -3020,9 +3033,25 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
                 annot = annot_ref.get_object()
                 name = str(annot.get("/T", ""))
                 if name in checkbox_fields:
-                    state = checkbox_fields[name]
-                    annot[NameObject("/V")] = NameObject(f"/{state}")
-                    annot[NameObject("/AS")] = NameObject(f"/{state}")
+                    desired = checkbox_fields[name]  # "Yes" or "Off"
+                    # Find the correct appearance state name for "checked"
+                    # Different PDFs use: /Yes, /1, /On, or custom names
+                    ap = annot.get("/AP", {})
+                    ap_n = ap.get("/N", {}) if isinstance(ap, dict) else {}
+                    # Get all available states (keys in /AP/N dict)
+                    if isinstance(ap_n, dict):
+                        available = [str(k) for k in ap_n.keys() if str(k) != "/Off"]
+                    else:
+                        available = []
+                    if desired in ("Yes", "On", "1") and available:
+                        # Use the actual "on" state from the PDF (could be /1, /Yes, /On, etc.)
+                        on_state = available[0].lstrip("/")
+                        annot[NameObject("/V")] = NameObject(f"/{on_state}")
+                        annot[NameObject("/AS")] = NameObject(f"/{on_state}")
+                    else:
+                        # Fallback to standard names
+                        annot[NameObject("/V")] = NameObject(f"/{desired}")
+                        annot[NameObject("/AS")] = NameObject(f"/{desired}")
             except Exception:
                 pass
 
