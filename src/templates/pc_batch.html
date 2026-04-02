@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Today's Price Checks{% endblock %}
+{% block content %}
+<div style="max-width:1100px;margin:0 auto;padding:20px">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+  <h1 style="font-size:22px;margin:0">Today's Price Checks ({{ pcs|length }})</h1>
+  <a href="/pricechecks" style="font-size:13px;color:var(--ac)">All PCs &rarr;</a>
+ </div>
+
+ {% set needs = pcs|selectattr("pct", "lt", 100)|list %}
+ {% set ready = pcs|selectattr("pct", "equalto", 100)|list %}
+
+ <!-- Summary -->
+ <div style="display:flex;gap:12px;margin-bottom:20px">
+  <div style="flex:1;padding:16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;text-align:center">
+   <div style="font-size:28px;font-weight:700;color:#f85149">{{ needs|length }}</div>
+   <div style="font-size:13px;color:var(--tx2)">Need Pricing</div>
+  </div>
+  <div style="flex:1;padding:16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;text-align:center">
+   <div style="font-size:28px;font-weight:700;color:#3fb950">{{ ready|length }}</div>
+   <div style="font-size:13px;color:var(--tx2)">Ready to Review</div>
+  </div>
+  <div style="flex:1;padding:16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;text-align:center">
+   <div style="font-size:28px;font-weight:700;color:var(--tx)">{{ pcs|length }}</div>
+   <div style="font-size:13px;color:var(--tx2)">Total</div>
+  </div>
+ </div>
+
+ <!-- PC Table -->
+ <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow:hidden">
+  <table style="width:100%;border-collapse:collapse;font-size:14px">
+   <thead>
+    <tr style="border-bottom:2px solid var(--bd);color:var(--tx2);font-size:13px">
+     <th style="padding:10px 8px;text-align:left">PC #</th>
+     <th style="padding:10px 8px;text-align:left">Institution</th>
+     <th style="padding:10px 8px;text-align:center">Items</th>
+     <th style="padding:10px 8px;text-align:center">Priced</th>
+     <th style="padding:10px 8px;text-align:left">Status</th>
+     <th style="padding:10px 8px;text-align:left">Due</th>
+     <th style="padding:10px 8px;text-align:center">Action</th>
+    </tr>
+   </thead>
+   <tbody>
+   {% for pc in pcs %}
+    <tr style="border-bottom:1px solid var(--bd);{{ 'border-left:3px solid #f85149' if pc.pct < 100 else 'border-left:3px solid #3fb950' }}">
+     <td style="padding:10px 8px"><a href="/pricecheck/{{ pc.id }}" style="color:var(--ac);font-weight:600">{{ pc.pc_number|default(pc.id) }}</a></td>
+     <td style="padding:10px 8px;color:var(--tx)">{{ pc.institution|default('—') }}</td>
+     <td style="padding:10px 8px;text-align:center;color:var(--tx)">{{ pc.total_items }}</td>
+     <td style="padding:10px 8px;text-align:center">
+      <span style="color:{{ '#3fb950' if pc.pct == 100 else ('#d29922' if pc.pct >= 50 else '#f85149') }};font-weight:600">
+       {{ pc.priced }}/{{ pc.total_items }}
+      </span>
+      <div style="height:3px;background:#21262d;border-radius:2px;margin-top:3px">
+       <div style="height:100%;width:{{ pc.pct }}%;background:{{ '#3fb950' if pc.pct == 100 else ('#d29922' if pc.pct >= 50 else '#f85149') }};border-radius:2px"></div>
+      </div>
+     </td>
+     <td style="padding:10px 8px">
+      {% set sc = {'new':'#8b949e','parsed':'#58a6ff','priced':'#3fb950','sent':'#a371f7','enriching':'#d29922'} %}
+      <span style="padding:2px 8px;border-radius:4px;font-size:12px;background:{{ sc.get(pc.status, '#8b949e') }}20;color:{{ sc.get(pc.status, '#8b949e') }}">{{ pc.status }}</span>
+     </td>
+     <td style="padding:10px 8px;color:var(--tx2);font-size:13px">{{ pc.due_date|default('—') }}</td>
+     <td style="padding:10px 8px;text-align:center">
+      <a href="/pricecheck/{{ pc.id }}" class="btn" style="padding:6px 14px;font-size:13px;background:#21262d;color:var(--ac);border:1px solid var(--bd);border-radius:4px;text-decoration:none">
+       {{ 'Review' if pc.pct == 100 else 'Price' }}
+      </a>
+     </td>
+    </tr>
+   {% endfor %}
+   {% if not pcs %}
+    <tr><td colspan="7" style="padding:40px;text-align:center;color:var(--tx2)">No price checks in the last 48 hours</td></tr>
+   {% endif %}
+   </tbody>
+  </table>
+ </div>
+</div>
+{% endblock %}

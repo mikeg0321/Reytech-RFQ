@@ -529,10 +529,8 @@ def _pricecheck_detail_inner(pcid):
         if _sale_price > 0 and unit_cost > 0 and _sale_price < unit_cost:
             _disc_pct = round((1 - _sale_price / unit_cost) * 100)
             supplier_badge += f'<span style="font-size:12px;color:#34d399;display:block">sale ${_sale_price:.2f} ({_disc_pct}% off)</span>'
-        # Price history toggle link for this item
-        _ph_num = (item.get("mfg_number") or p.get("mfg_number") or p.get("manufacturer_part") or "").strip()
-        _ph_num_safe = str(_ph_num).replace("'", "\\'").replace('"', '&quot;')
-        ph_link = f' <a onclick="togglePriceHistory(\'{pcid}\',\'{_ph_num_safe}\',this)" style="cursor:pointer;color:#8b949e;font-size:12px;margin-left:4px">&#x25b8; Price history</a>' if _ph_num else ""
+        # Price history toggle link for this item (P2.1 — uses item index, not mfg_number)
+        ph_link = f' <a onclick="loadItemPriceHistory({idx},this)" style="cursor:pointer;color:#8b949e;font-size:12px;margin-left:4px">&#x25b8; Price history</a>'
 
         # ── Unified Sources column: all price sources as compact chips ──
         sources = []  # list of (price, label, url, color, is_preferred)
@@ -4626,6 +4624,48 @@ def pricecheck_redirect():
     return redirect("/pricechecks")
 
 
+@bp.route("/pricechecks/today")
+@auth_required
+def pricechecks_today():
+    """Today's price checks — batch review dashboard."""
+    from src.api.render import render_page
+    pcs = _load_price_checks()
+
+    # Get PCs from last 48h, sorted by creation time
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(hours=48)).isoformat()
+    recent = []
+    for pcid, pc in pcs.items():
+        created = pc.get("created_at", "")
+        if created >= cutoff or pc.get("status") in ("new", "parsed"):
+            # Compute readiness
+            items = pc.get("items", [])
+            active = [it for it in items if not it.get("no_bid")]
+            total = len(active)
+            costed = sum(1 for it in active if (it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0) > 0)
+            priced = sum(1 for it in active if (it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0) > 0)
+
+            recent.append({
+                "id": pcid,
+                "pc_number": pc.get("pc_number", pcid),
+                "institution": pc.get("institution", ""),
+                "requestor": pc.get("requestor", ""),
+                "status": pc.get("status", "new"),
+                "created_at": created[:16] if created else "",
+                "due_date": pc.get("due_date", ""),
+                "total_items": total,
+                "costed": costed,
+                "priced": priced,
+                "pct": round(priced / total * 100) if total > 0 else 0,
+                "enrichment_status": pc.get("enrichment_status", ""),
+            })
+
+    # Sort: needs attention first (lowest pct), then by creation time
+    recent.sort(key=lambda x: (x["pct"], x["created_at"]))
+
+    return render_page("pc_batch.html", active_page="Today", pcs=recent)
+
+
 @bp.route("/pricechecks")
 @auth_required
 def pricechecks_archive():
@@ -7174,6 +7214,30 @@ def api_pc_item_oracle(pcid, item_idx):
         return jsonify(result)
     except Exception as e:
         log.error("Oracle lookup for %s item %d: %s", pcid, item_idx, e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/price-history/<int:item_idx>")
+@auth_required
+def api_pc_item_price_history(pcid, item_idx):
+    """Get historical pricing for a specific PC item (P2.1 Pricing Memory)."""
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+        items = pc.get("items", [])
+        if item_idx < 0 or item_idx >= len(items):
+            return jsonify({"ok": False, "error": "Item not found"})
+        item = items[item_idx]
+        desc = item.get("description", "")
+        item_num = item.get("mfg_number", "") or item.get("item_number", "")
+        agency = pc.get("institution", "") or pc.get("agency", "")
+        from src.core.pricing_oracle_v2 import get_price_history_for_item
+        history = get_price_history_for_item(desc, item_num, agency)
+        return jsonify({"ok": True, "history": history})
+    except Exception as e:
+        log.error("price-history %s item %d: %s", pcid, item_idx, e)
         return jsonify({"ok": False, "error": str(e)})
 
 

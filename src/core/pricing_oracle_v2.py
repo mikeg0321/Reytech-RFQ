@@ -854,3 +854,80 @@ def get_speed_stats():
             stats[name] = {"sample": 0}
     db.close()
     return stats
+
+
+# ── Price History for Tooltips (P2.1) ─────────────────────────
+
+def get_price_history_for_item(description, item_number="", agency="", limit=5):
+    """Get historical quoted prices for a similar item.
+    Returns list of {price, agency, date, outcome, quote_number} dicts."""
+    import sqlite3
+    from src.core.db import DB_PATH
+    results = []
+    try:
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        db.row_factory = sqlite3.Row
+
+        # Build WHERE clause from tokenized description
+        token_groups = _tokenize(description)[:3]
+        if not token_groups:
+            db.close()
+            return results
+        where_parts = []
+        params = []
+        for group in token_groups:
+            if len(group) == 1:
+                where_parts.append("LOWER(description) LIKE ?")
+                params.append(f"%{group[0]}%")
+            else:
+                or_clause = " OR ".join(["LOWER(description) LIKE ?" for _ in group])
+                where_parts.append(f"({or_clause})")
+                params.extend([f"%{v}%" for v in group])
+        where = " AND ".join(where_parts)
+
+        # Search winning_prices (our won orders)
+        try:
+            rows = db.execute(f"""
+                SELECT description, sell_price, cost, agency, institution,
+                       recorded_at, quote_number, margin_pct
+                FROM winning_prices WHERE {where}
+                ORDER BY recorded_at DESC LIMIT ?
+            """, params + [limit]).fetchall()
+            for r in rows:
+                results.append({
+                    "price": r["sell_price"], "cost": r["cost"] or 0,
+                    "agency": r["agency"] or "", "institution": r["institution"] or "",
+                    "date": (r["recorded_at"] or "")[:10],
+                    "outcome": "won", "quote_number": r["quote_number"] or "",
+                    "margin": r["margin_pct"] or 0,
+                })
+        except Exception:
+            pass
+
+        # Search competitor_intel (our losses)
+        try:
+            rows = db.execute(f"""
+                SELECT item_summary, our_price, competitor_price, agency, institution,
+                       found_at, quote_number, competitor_name
+                FROM competitor_intel WHERE {where.replace('description', 'item_summary')}
+                ORDER BY found_at DESC LIMIT ?
+            """, params + [limit]).fetchall()
+            for r in rows:
+                results.append({
+                    "price": r["our_price"] or 0,
+                    "competitor_price": r["competitor_price"] or 0,
+                    "agency": r["agency"] or "", "institution": r["institution"] or "",
+                    "date": (r["found_at"] or "")[:10],
+                    "outcome": "lost", "quote_number": r["quote_number"] or "",
+                    "competitor": r["competitor_name"] or "",
+                })
+        except Exception:
+            pass
+
+        db.close()
+    except Exception:
+        pass
+
+    # Sort by date descending
+    results.sort(key=lambda x: x.get("date", ""), reverse=True)
+    return results[:limit]
