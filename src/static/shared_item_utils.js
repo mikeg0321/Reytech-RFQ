@@ -204,20 +204,15 @@ function _applyLinkData(idx, d, mode) {
     }
   }
 
-  // Cost: update when new URL pasted — but guardrail against wildly wrong prices
+  // Cost: always update when new URL pasted — warn if big delta but don't block
   var costEl = document.querySelector('[name="cost_' + idx + '"]');
   if (costEl && d.price && d.price > 0) {
-    // Guardrail: check if existing cost is much lower (user entered or catalog)
     var existingCost = parseFloat(costEl.value) || 0;
+    costEl.value = d.price.toFixed(2);
+    filled.push('cost $' + d.price.toFixed(2));
+    // Warn (but don't block) if price is very different from catalog
     if (existingCost > 0 && d.price > existingCost * 3) {
-      // New price is >3x current — likely a bad scrape. Don't overwrite.
-      if (metaEl) metaEl.innerHTML = '<span style="color:#f85149">Lookup returned $'
-        + d.price.toFixed(2) + ' (>3x current $' + existingCost.toFixed(2)
-        + ') — keeping current cost</span>';
-      filled.push('SKIPPED $' + d.price.toFixed(2) + ' (too high)');
-    } else {
-      costEl.value = d.price.toFixed(2);
-      filled.push('cost $' + d.price.toFixed(2));
+      filled.push('was $' + existingCost.toFixed(2) + ' catalog');
     }
     if (typeof recalcFromMarkup === 'function') recalcFromMarkup(idx);
     else if (typeof recalcRow === 'function') recalcRow(idx, true);
