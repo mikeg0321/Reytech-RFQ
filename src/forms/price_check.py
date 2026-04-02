@@ -2502,19 +2502,23 @@ def fill_ams704(
     if "SUPPLIER NAME" in _pdf_fields:
         field_values.append({"field_id": "SUPPLIER NAME", "page": 1, "value": info.get("company_name", "Reytech Inc.")})
 
-    # Page numbering — set on ALL pages (Page_2, of_2 for page 2, etc.)
-    total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
-    for pg in range(1, total_pages + 1):
+    # Determine how many pages actually have items
+    _max_item_row = max((it.get("row_index") or (i + 1) for i, it in enumerate(items)), default=0)
+    _pages_with_items = max(1, ((_max_item_row - 1) // 8) + 1) if _max_item_row > 0 else 1
+    _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
+
+    # Page numbering — ONLY set on pages that have items
+    for pg in range(1, _pages_with_items + 1):
         suffix = "" if pg == 1 else f"_{pg}"
         page_field = f"Page{suffix}"
         of_field = f"of{suffix}"
         if page_field in _pdf_fields:
             field_values.append({"field_id": page_field, "page": pg, "value": str(pg)})
         if of_field in _pdf_fields:
-            field_values.append({"field_id": of_field, "page": pg, "value": str(total_pages)})
+            field_values.append({"field_id": of_field, "page": pg, "value": str(_pages_with_items)})
 
-    # Multi-page: grand total on page 2 ("ENTER GRAND TOTAL ON FRONT PAGE")
-    if _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
+    # Multi-page: grand total on page 2 ONLY if page 2 has items
+    if _pages_with_items >= 2 and _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
         field_values.append({"field_id": "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE",
                              "page": 2, "value": f"{total:,.2f}"})
 
