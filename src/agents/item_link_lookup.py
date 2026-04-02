@@ -76,6 +76,7 @@ SUPPLIER_MAP = {
     "techlinemedical.com":   "TechLine Medical",
     "myotcstore.com":        "MyOTCStore",
     "allegromedical.com":    "Allegro Medical",
+    "target.com":            "Target",
 }
 
 def detect_supplier(url: str) -> str:
@@ -724,6 +725,157 @@ def _lookup_ssww(url: str) -> dict:
     return result
 
 
+def _extract_target_tcin(url: str) -> str:
+    """Extract Target TCIN from URL.  /A-XXXXXXXXXX at end of path."""
+    m = re.search(r'/A-(\d{8,12})(?:\?|$|/)', url)
+    return m.group(1) if m else ""
+
+
+def _lookup_target(url: str) -> dict:
+    """Target.com: extract product data from __TGT_DATA__ embedded JSON.
+    Returns MSRP (reg_retail) as list_price and sale price when discounted."""
+    import json as _json
+    if not HAS_REQUESTS:
+        return {"error": "requests not available", "supplier": "Target"}
+
+    tcin = _extract_target_tcin(url)
+    result = {"supplier": "Target", "url": url}
+    if tcin:
+        result["part_number"] = f"A-{tcin}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        html = resp.text
+    except requests.exceptions.Timeout:
+        return {**result, "error": "Request timed out"}
+    except Exception as e:
+        return {**result, "error": str(e)}
+
+    # Parse __TGT_DATA__ — it's inside deepFreeze(JSON.parse("..."))
+    # The JSON is escaped inside a JS string literal
+    tgt_match = re.search(
+        r"'__TGT_DATA__'\s*:\s*\{[^}]*value:\s*deepFreeze\(JSON\.parse\(\"(.*?)\"\)\)",
+        html, re.DOTALL)
+    tgt_data = None
+    if tgt_match:
+        try:
+            unescaped = tgt_match.group(1).encode().decode('unicode_escape')
+            tgt_data = _json.loads(unescaped)
+        except (ValueError, TypeError, UnicodeDecodeError):
+            pass
+
+    if not tgt_data:
+        # Fallback: try generic scrape
+        fallback = _scrape_generic(url)
+        fallback["supplier"] = "Target"
+        if tcin:
+            fallback.setdefault("part_number", f"A-{tcin}")
+        return fallback
+
+    # Navigate to product data in preloaded queries
+    product = None
+    try:
+        queries = tgt_data.get("__PRELOADED_QUERIES__", {}).get("queries", [])
+        for q in queries:
+            if not isinstance(q, (list, tuple)) or len(q) < 2:
+                continue
+            qdata = q[1] if isinstance(q[1], dict) else {}
+            prod = qdata.get("data", {}).get("product")
+            if prod and isinstance(prod, dict):
+                product = prod
+                break
+    except Exception:
+        pass
+
+    if not product:
+        fallback = _scrape_generic(url)
+        fallback["supplier"] = "Target"
+        return fallback
+
+    # Title / description
+    item = product.get("item", {})
+    result["title"] = item.get("product_description", {}).get("title", "")
+    result["description"] = (
+        item.get("product_description", {}).get("downstream_description", "")
+        or result["title"])
+    if len(result["description"]) > 300:
+        result["description"] = result["description"][:300]
+
+    # Brand
+    brand = item.get("primary_brand", {}).get("name", "")
+    if brand:
+        result["manufacturer"] = brand
+
+    # DPCI / part number
+    dpci = item.get("dpci", "")
+    if dpci:
+        result["mfg_number"] = dpci
+
+    # Image
+    enrichment = item.get("enrichment", {})
+    images = enrichment.get("images", {}).get("primary_image_url", "")
+    if images:
+        result["photo_url"] = images
+
+    # ── Pricing — find the matching variant by TCIN ──
+    price_data = product.get("price", {})
+    children = product.get("children", [])
+
+    # Try variant-specific pricing first (multi-variant products)
+    variant_price = None
+    if tcin and children:
+        for child in children:
+            if not isinstance(child, dict):
+                continue
+            child_tcin = str(child.get("tcin", ""))
+            if child_tcin == tcin:
+                variant_price = child.get("price", {})
+                # Also grab variant-specific item data
+                child_item = child.get("item", {})
+                if child_item.get("product_description", {}).get("title"):
+                    result["title"] = child_item["product_description"]["title"]
+                break
+
+    px = variant_price or price_data
+    reg_retail = px.get("reg_retail")
+    current_retail = px.get("current_retail")
+    price_type = px.get("formatted_current_price_type", "")
+
+    if reg_retail:
+        result["list_price"] = float(reg_retail)
+    if current_retail:
+        current = float(current_retail)
+        if price_type == "sale" and reg_retail:
+            # Sale price — MSRP is reg_retail, sale is current_retail
+            result["price"] = float(reg_retail)       # Use MSRP as cost basis
+            result["cost"] = float(reg_retail)
+            result["sale_price"] = current
+            result["discount_pct"] = round(
+                (1 - current / float(reg_retail)) * 100, 1)
+            result["shipping_note"] = (
+                f"MSRP ${reg_retail:.2f} | Sale ${current:.2f} "
+                f"({result['discount_pct']}% off)")
+        else:
+            # Regular price — no discount
+            result["price"] = current
+            result["cost"] = current
+
+    # Shipping
+    if "free" in str(enrichment.get("shipping", "")).lower():
+        result["shipping"] = 0.0
+        result["shipping_note"] = (result.get("shipping_note", "") +
+                                   " | Free shipping").strip(" |")
+
+    return result
+
+
 def _lookup_aedstore(url: str) -> dict:
     """AED Store / AED Superstore: extract product details."""
     result = _scrape_generic(url)
@@ -853,6 +1005,8 @@ def lookup_from_url(url: str) -> dict:
             result = _lookup_aedstore(url)
         elif "ssww.com" in host:
             result = _lookup_ssww(url)
+        elif "target.com" in host:
+            result = _lookup_target(url)
         else:
             # Generic HTML scrape for all other suppliers
             result = _scrape_generic(url)
