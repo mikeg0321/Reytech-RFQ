@@ -508,23 +508,58 @@ def _lookup_uline(url: str) -> dict:
             except (ValueError, TypeError):
                 pass
 
-        # Also check for productPrice (per-unit, more useful than case price)
-        pp_match = re.search(r"'productPrice'\s*:\s*'([\d.]+)'", html)
-        if pp_match:
-            per_unit = float(pp_match.group(1))
-            if per_unit > 0:
-                # Use per-unit price if different from offers price (case vs each)
-                if result.get("price") and per_unit < result["price"]:
-                    result["list_price"] = result["price"]  # Case price
-                    result["price"] = per_unit               # Per-unit price
-                    result["cost"] = per_unit
-                    result["shipping_note"] = (
-                        f"Per-unit: ${per_unit:.2f} "
-                        f"(case: ${result['list_price']:.2f})"
-                    )
-                elif not result.get("price"):
-                    result["price"] = per_unit
-                    result["cost"] = per_unit
+        # Extract pricing table from attrib tags (Uline-specific)
+        attribs = re.findall(r'<attrib[^>]*>(.*?)</attrib>', html, re.DOTALL)
+        clean_attribs = [re.sub(r'<[^>]+>', ' ', a).strip() for a in attribs]
+        # Find case qty, per-unit prices at different tiers
+        _case_qty = 0
+        _tier_prices = []
+        for i, a in enumerate(clean_attribs):
+            # Case quantity (the number after "ROLLS/CASE" or "PER CASE" header)
+            if a.isdigit() and int(a) >= 2 and int(a) <= 500:
+                # Check context: is the previous attrib "ROLLS/CASE" or similar?
+                if i > 0 and any(w in clean_attribs[i-1].upper() for w in ['CASE', 'ROLL', 'PACK']):
+                    _case_qty = int(a)
+                elif not _case_qty and i > 1:
+                    _case_qty = int(a)
+            # Price tiers ($X.XX)
+            if a.startswith('$'):
+                try:
+                    _tier_prices.append(float(a.replace('$', '').replace(',', '')))
+                except ValueError:
+                    pass
+
+        if _tier_prices:
+            # Best price for state orders = 1-case tier (usually middle price)
+            # Tiers are typically: half-case, 1 case, 2+ cases
+            if len(_tier_prices) >= 2:
+                _one_case_price = _tier_prices[1]  # 1-case tier
+                _half_case_price = _tier_prices[0]  # half-case tier
+                _bulk_price = _tier_prices[-1] if len(_tier_prices) >= 3 else _one_case_price
+            else:
+                _one_case_price = _tier_prices[0]
+                _half_case_price = _one_case_price
+                _bulk_price = _one_case_price
+
+            result["price"] = _one_case_price
+            result["cost"] = _one_case_price
+            uom = "CS" if _case_qty else "EA"
+            note_parts = [f"${_one_case_price:.2f}/ea (1 case)"]
+            if _half_case_price != _one_case_price:
+                note_parts.append(f"${_half_case_price:.2f}/ea (1/2 case)")
+            if _bulk_price != _one_case_price:
+                note_parts.append(f"${_bulk_price:.2f}/ea (2+ cases)")
+            if _case_qty:
+                note_parts.append(f"{_case_qty}/case")
+                result["uom"] = "CS"
+                result["qty_per_uom"] = _case_qty
+            result["shipping_note"] = " | ".join(note_parts)
+        elif not result.get("price"):
+            # Fallback to productPrice
+            pp_match = re.search(r"'productPrice'\s*:\s*'([\d.]+)'", html)
+            if pp_match:
+                result["price"] = float(pp_match.group(1))
+                result["cost"] = result["price"]
 
     except Exception as e:
         log.debug("Uline JSON-LD parse: %s", e)
