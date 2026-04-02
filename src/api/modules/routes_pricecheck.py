@@ -5658,9 +5658,49 @@ def api_pricecheck_mark_won(pcid):
                 )
     except Exception as e:
         log.debug("FI$Cal catalog learning on win: %s", e)
+    # ── Auto-create order if PO number provided (P1.1) ──
+    po_number = data.get("po_number", "")
+    order_created = False
+    if po_number:
+        try:
+            import uuid as _uuid
+            order_id = str(_uuid.uuid4())[:12]
+            order_items = []
+            order_total = 0
+            for it in pc.get("items", []):
+                if it.get("no_bid"):
+                    continue
+                unit_price = it.get("unit_price") or (it.get("pricing") or {}).get("recommended_price", 0) or 0
+                cost = it.get("vendor_cost") or (it.get("pricing") or {}).get("unit_cost", 0) or 0
+                qty = it.get("qty", 1) or 1
+                order_items.append({
+                    "description": it.get("description", ""),
+                    "qty": qty,
+                    "unit_price": unit_price,
+                    "cost": cost,
+                    "mfg_number": it.get("mfg_number", ""),
+                    "supplier": it.get("item_supplier", ""),
+                })
+                order_total += float(unit_price) * int(qty)
+            from src.core.db import get_db
+            with get_db() as _oconn:
+                _oconn.execute("""
+                    INSERT OR IGNORE INTO orders (id, quote_number, agency, institution, po_number, status, total, items, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?)
+                """, (order_id, pc.get("reytech_quote_number", ""),
+                      pc.get("institution") or pc.get("agency", ""),
+                      pc.get("institution", ""),
+                      po_number, "new", order_total,
+                      json.dumps(order_items, default=str),
+                      datetime.now().isoformat(), datetime.now().isoformat()))
+            order_created = True
+            log.info("AUTO_ORDER: Created order %s for PO %s from PC %s", order_id, po_number, pcid)
+        except Exception as _oe:
+            log.warning("Auto-order creation failed for %s: %s", pcid, _oe)
+
     log.info("PC %s marked WON: pc#=%s institution=%s", pcid, pc.get("pc_number"), pc.get("institution"))
-    return jsonify({"ok": True, "status": "won",
-                    "message": "Pricing accepted. When official RFQ/PO arrives, create the order to generate supplier POs."})
+    return jsonify({"ok": True, "status": "won", "order_created": order_created,
+                    "message": "Pricing accepted." + (" Order created for PO " + po_number if order_created else " When official RFQ/PO arrives, create the order to generate supplier POs.")})
 
 
 

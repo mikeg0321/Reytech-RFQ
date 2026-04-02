@@ -15,6 +15,30 @@ log = logging.getLogger("reytech.data_guard")
 SNAPSHOT_DIR = os.path.join(DATA_DIR, "snapshots")
 
 
+def atomic_json_save(filepath, data, indent=2):
+    """Write JSON atomically — crash-safe.
+
+    Writes to a temp file first, then atomically replaces the target.
+    If the process crashes mid-write, the original file is preserved.
+    """
+    import tempfile
+    dir_path = os.path.dirname(filepath) or "."
+    os.makedirs(dir_path, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=indent, default=str)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, filepath)  # atomic on POSIX
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 MAX_SNAPSHOTS_PER_FILE = 10  # Keep only the most recent N snapshots per file
 SNAPSHOT_THROTTLE_SEC = 60   # Don't snapshot if last one was <60s ago
 

@@ -1901,8 +1901,8 @@ def audit_catalog_matches(fix: bool = False) -> dict:
                 good_matches += 1
 
     if fix and bad_matches:
-        with open(pcs_path, "w") as f:
-            _json.dump(pcs, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(pcs_path, pcs)
 
     return {
         "ok": True,

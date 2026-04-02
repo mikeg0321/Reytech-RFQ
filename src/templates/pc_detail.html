@@ -578,6 +578,25 @@
     var _existing704Url={{ existing_704_url|default('')|tojson }};
     var _existingQuoteUrl={{ existing_quote_url|default('')|tojson }};
 
+    // ── P0.2: PDF Generation Progress Lock ──
+    var _isGenerating = false;
+    function _showGenOverlay() {
+      var overlay = document.getElementById('pdf-gen-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'pdf-gen-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
+        overlay.innerHTML = '<div style="background:#161b22;border:1px solid #30363d;border-radius:12px;padding:30px 40px;text-align:center"><div style="width:32px;height:32px;border:3px solid #30363d;border-top-color:#58a6ff;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 12px"></div><div style="color:#c9d1d9;font-size:15px">Generating PDF...</div></div>';
+        document.body.appendChild(overlay);
+      }
+      overlay.style.display = 'flex';
+    }
+    function _hideGenOverlay() {
+      _isGenerating = false;
+      var overlay = document.getElementById('pdf-gen-overlay');
+      if (overlay) overlay.style.display = 'none';
+    }
+
     // Auto-save ship-to on blur so it persists before PDF upload
     function saveShipTo(val) {
       fetch('/pricecheck/'+_pcid+'/save-prices', {
@@ -684,6 +703,7 @@
     }
 
     function savePrices(btn) {
+     if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
      // Pre-flight validation
      var v=_validateBeforeGenerate();
      if(!v.ok){
@@ -699,6 +719,7 @@
       wmsg+='\n\nGenerate anyway?';
       if(!confirm(wmsg)) return;
      }
+     _isGenerating = true; _showGenOverlay();
      const origText=btn.textContent;
      btn.disabled=true;btn.textContent='⏳ Saving...';
      _fetchWithRetry('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
@@ -711,7 +732,7 @@
        // Smart Save: auto-generate PDF after saving prices
        btn.textContent='📄 Generating PDF...';
        fetch('/pricecheck/'+_pcid+'/generate',{method:'POST'}).then(r=>r.json()).then(g=>{
-        btn.disabled=false;
+        btn.disabled=false; _hideGenOverlay();
         if(g.ok){
          btn.textContent='✅ Saved + PDF Ready';btn.style.background='#238636';
          showMsg('✅ Saved & PDF generated. <a href="'+g.download+'" style="color:#58a6ff">📥 Download</a>','ok');
@@ -724,15 +745,17 @@
         }
         setTimeout(()=>{btn.textContent=origText;btn.style.background=''},3000);
        }).catch(()=>{
-        btn.disabled=false;btn.textContent='✅ Saved';btn.style.background='#238636';
+        btn.disabled=false; _hideGenOverlay();
+        btn.textContent='✅ Saved';btn.style.background='#238636';
         showMsg('✅ Prices saved. PDF will generate on next Save & Fill.','ok');
         setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
        });
       } else {
-       btn.disabled=false;btn.textContent=origText;
+       btn.disabled=false; _hideGenOverlay();
+       btn.textContent=origText;
        showMsg('❌ Save failed: '+(d.error||'unknown'),'err');
       }
-     }).catch(e=>{btn.disabled=false;btn.textContent=origText;showMsg('❌ Error: '+e.message,'err')});
+     }).catch(e=>{btn.disabled=false; _hideGenOverlay(); btn.textContent=origText;showMsg('❌ Error: '+e.message,'err')});
     }
 
     function getCurrentBuffer() {
@@ -1713,6 +1736,8 @@
      let url, method = 'POST', body = {};
      if (action === 'won') {
       url = '/api/pricecheck/'+_pcid+'/mark-won';
+      var po = prompt('PO Number (enter if available, or leave blank):');
+      body = {po_number: po || ''};
      } else if (action === 'lost') {
       const competitor = prompt('Who won? (optional — competitor name)') || '';
       const price = prompt('Their winning price? (optional — e.g. 12.50)') || '';
@@ -2499,6 +2524,8 @@
     document.addEventListener('keydown',function(e){if(e.key==='Escape') closePreview();});
 
     function saveAndGenerate(btn) {
+     if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
+     _isGenerating = true; _showGenOverlay();
      btn.disabled=true;btn.textContent='⏳ Saving prices...';
      showMsg('Saving prices and filling AMS 704 PDF...','warn');
      fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
@@ -2515,7 +2542,7 @@
       return r.json();
      }).then(d=>{
       if(!d) return; // earlier step failed
-      btn.disabled=false;
+      btn.disabled=false; _hideGenOverlay();
       if(d&&d.ok){
        showMsg('✅ AMS 704 filled! Downloading...','ok');
        btn.textContent='♻️ Re-fill 704';btn.className='btn btn-g';
@@ -2528,10 +2555,12 @@
        setTimeout(()=>location.reload(),2500);
       }
       else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
-     }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
+     }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false; _hideGenOverlay(); showMsg('❌ '+e.message,'err')});
     }
 
     function generateOriginal704(btn) {
+     if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
+     _isGenerating = true; _showGenOverlay();
      var origText = btn.textContent;
      btn.disabled=true; btn.textContent='⏳ Saving...';
      showMsg('Saving prices, then generating Original 704...','warn');
@@ -2549,7 +2578,7 @@
       return r.json();
      }).then(d=>{
       if(!d) return;
-      btn.disabled=false;
+      btn.disabled=false; _hideGenOverlay();
       if(d&&d.ok){
        showMsg('✅ Original 704 generated! Downloading...','ok');
        btn.textContent='✅ Original 704 Done';
@@ -2560,11 +2589,12 @@
        setTimeout(()=>{btn.textContent=origText;},3000);
       }
       else{btn.textContent=origText;showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
-     }).catch(e=>{btn.textContent=origText;btn.disabled=false;showMsg('❌ '+e.message,'err')});
+     }).catch(e=>{btn.textContent=origText;btn.disabled=false; _hideGenOverlay(); showMsg('❌ '+e.message,'err')});
     }
 
     // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══
     function generateQuote1Click(btn) {
+     if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
      // Pre-flight: check for items missing cost
      let missingCost = [];
      document.querySelectorAll('input[name^=price_]').forEach((inp, i) => {
@@ -2587,6 +2617,7 @@
       if (!proceed) return;
      }
 
+     _isGenerating = true; _showGenOverlay();
      const banner = document.getElementById('quote-gen-banner');
      const meta = document.getElementById('quote-gen-meta');
      btn.disabled = true;
@@ -2617,7 +2648,7 @@
      })
      .then(r => r.json())
      .then(d => {
-       btn.disabled = false;
+       btn.disabled = false; _hideGenOverlay();
        if (d && d.ok) {
          const qn = d.quote_number || '?';
          const total = d.total ? ' — $' + parseFloat(d.total).toLocaleString('en-US', {minimumFractionDigits:2}) : '';
@@ -2642,7 +2673,7 @@
        }
      })
      .catch(e => {
-       btn.disabled = false;
+       btn.disabled = false; _hideGenOverlay();
        btn.textContent = '📋 Generate Quote →';
        btn.style.background = '#1f6feb';
        if(banner) banner.style.borderColor = '#f85149';

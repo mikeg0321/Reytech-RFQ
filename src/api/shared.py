@@ -70,8 +70,12 @@ def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
             return False
         window.append(now)
         _rate_limiter[key] = window
-        if len(_rate_limiter) > 1000:
-            _rate_limiter.clear()
+        # Evict stale entries instead of wiping all state
+        if len(_rate_limiter) > 200:
+            stale_keys = [k for k, v in _rate_limiter.items()
+                          if not v or (now - v[-1]) > RATE_LIMIT_WINDOW]
+            for k in stale_keys:
+                del _rate_limiter[k]
     return True
 
 

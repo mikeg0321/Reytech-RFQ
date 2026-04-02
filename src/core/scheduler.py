@@ -20,6 +20,22 @@ from typing import Optional, Callable
 
 log = logging.getLogger("reytech.scheduler")
 
+# ── Graceful Shutdown ────────────────────────────────────────────────────────
+
+_shutdown_event = threading.Event()
+
+
+def request_shutdown():
+    """Signal all background threads to stop."""
+    _shutdown_event.set()
+    log.info("Shutdown requested — all background threads signaled")
+
+
+def should_run():
+    """Check if threads should continue running. Returns False after shutdown requested."""
+    return not _shutdown_event.is_set()
+
+
 # ── Job Registry ──────────────────────────────────────────────────────────────
 
 _jobs = {}  # name -> JobInfo

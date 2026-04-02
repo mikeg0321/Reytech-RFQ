@@ -639,8 +639,8 @@ def run_award_check() -> dict:
     
     # Save updated PCs
     try:
-        with open(pc_path, "w") as f:
-            json.dump(pcs, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(pc_path, pcs)
     except Exception as e:
         results["errors"].append(f"Save failed: {e}")
     

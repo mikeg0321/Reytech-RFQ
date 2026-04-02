@@ -2946,7 +2946,7 @@ def next_quote_number() -> str:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")
     try:
-        conn.execute("BEGIN EXCLUSIVE")
+        conn.execute("BEGIN IMMEDIATE")
 
         # Ensure app_settings table exists
         conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (

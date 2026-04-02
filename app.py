@@ -393,6 +393,19 @@ def create_app():
     return app
 
 
+# ── SIGTERM handler for graceful shutdown ──
+import signal as _signal
+
+def _handle_sigterm(signum, frame):
+    try:
+        from src.core.scheduler import request_shutdown
+        request_shutdown()
+    except Exception:
+        pass
+    logging.getLogger("reytech").info("SIGTERM received — requesting graceful shutdown")
+
+_signal.signal(_signal.SIGTERM, _handle_sigterm)
+
 # For gunicorn: gunicorn app:app
 print("[BOOT] Creating app at module level...", flush=True)
 app = create_app()

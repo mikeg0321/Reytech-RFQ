@@ -44,6 +44,12 @@
  </div>
 </div>
 
+<!-- ═══ Parse Error Banner (P0.3) ═══ -->
+<div id="parse-error-banner" style="display:none;padding:12px 18px;background:rgba(248,81,73,0.1);border:1px solid rgba(248,81,73,0.3);border-radius:8px;margin-bottom:12px;color:#f85149;font-size:14px">
+  <span style="font-size:18px">⚠️</span> <b id="parse-error-count">0</b> price check(s) failed to parse in the last 48 hours.
+  <a href="/pricechecks?status=parse_error" style="color:#58a6ff;margin-left:8px">Review →</a>
+</div>
+
 <!-- ═══ Deploy Health Banner (auto-hides if all pass) ═══ -->
 <div id="health-banner" style="display:none;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.35);border-radius:8px;padding:10px 16px;margin-bottom:10px;font-size:14px;color:#f85149">
  <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
@@ -289,6 +295,13 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   if(d.qa) _renderQA(d.qa);
   // ── Manager metrics ──
   if(d.metrics && d.metrics.ok) _renderMetrics(d.metrics);
+  // ── Parse Error Banner (P0.3) ──
+  if(d.parse_errors > 0){
+    var peBanner = document.getElementById('parse-error-banner');
+    if(peBanner) peBanner.style.display = 'block';
+    var peCount = document.getElementById('parse-error-count');
+    if(peCount) peCount.textContent = d.parse_errors;
+  }
   // ── Award Intel (SCPRS monitoring) ──
   if(d.award_intel){
     var card=document.getElementById('scprs-monitor-card');

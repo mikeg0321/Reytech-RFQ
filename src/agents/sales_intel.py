@@ -79,8 +79,8 @@ except ImportError:
             with open(p) as f: return json.load(f)
         except Exception: return []
     def _save_json(p, d):
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w") as f: json.dump(d, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(p, d)
     # Mirror buyers to contacts table
     if _HAS_DB:
         for buyer in d.get("buyers", []):
@@ -878,9 +878,8 @@ def sync_buyers_to_crm() -> dict:
             }
             created += 1
 
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(crm_path, "w") as f:
-        json.dump(contacts, f, indent=2, default=str)
+    from src.core.data_guard import atomic_json_save
+    atomic_json_save(crm_path, contacts)
 
     return {
         "ok": True,

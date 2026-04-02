@@ -65,10 +65,10 @@ def _load_json(path):
         return []
 
 def _save_json(path, data):
+    """Save JSON atomically — crash-safe."""
+    from src.core.data_guard import atomic_json_save
     with _json_write_lock:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
+        atomic_json_save(path, data)
 
 
 def _load_prospects_list():
@@ -1931,8 +1931,8 @@ def _log_email_to_crm(prospect_id: str, email: str, subject: str, body: str, age
                 "metadata": {"subject": subject, "to": email, "source": "growth_campaign"},
             })
             contacts[prospect_id]["updated_at"] = datetime.now().isoformat()
-            with open(crm_path, "w") as f:
-                json.dump(contacts, f, indent=2, default=str)
+            from src.core.data_guard import atomic_json_save
+            atomic_json_save(crm_path, contacts)
     except Exception as e:
         log.debug("CRM log suppressed: %s", e)
 
@@ -1956,8 +1956,8 @@ def _log_email_to_crm(prospect_id: str, email: str, subject: str, body: str, age
             "agency": agency,
             "metadata": {"type": "growth_outreach"},
         })
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(outbox_path, outbox)
     except Exception as e:
         log.debug("Outbox log suppressed: %s", e)
 

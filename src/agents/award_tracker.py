@@ -1409,8 +1409,8 @@ def _sync_quote_loss_to_json(quote_number: str, loss_note: str):
                 q["closed_by_agent"] = "award_tracker"
                 q["updated_at"] = datetime.now(timezone.utc).isoformat()
                 break
-        with open(path, "w") as f:
-            json.dump(quotes, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(path, quotes)
     except Exception as e:
         log.debug("JSON sync failed: %s", e)
 
@@ -1432,8 +1432,8 @@ def _sync_linked_pc(pc_id: str, status: str, notes: str):
             pcs[pc_id]["closed_at"] = datetime.now(timezone.utc).isoformat()
             pcs[pc_id]["closed_reason"] = notes[:200]
             pcs[pc_id]["closed_by"] = "award_tracker_cross_sync"
-            with open(pc_path, "w") as f:
-                json.dump(pcs, f, indent=2, default=str)
+            from src.core.data_guard import atomic_json_save
+            atomic_json_save(pc_path, pcs)
             log.info("CROSS_SYNC: PC %s synced to status=%s (from linked quote)", pc_id, status)
     except Exception as e:
         log.debug("PC cross-sync: %s", e)
@@ -1472,9 +1472,13 @@ def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
         pass
 
     def _loop():
-        time.sleep(120)  # Wait for app boot + other agents to start
+        from src.core.scheduler import _shutdown_event
+        _shutdown_event.wait(120)  # Wait for app boot + other agents to start
+        if _shutdown_event.is_set():
+            log.info("Shutdown requested — award tracker exiting before first cycle")
+            return
         _cycle = 0
-        while True:
+        while not _shutdown_event.is_set():
             try:
                 from src.core.scprs_schedule import (
                     is_scprs_check_time, seconds_until_next_window,
@@ -1519,7 +1523,8 @@ def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
                 sleep_sec = 1800  # 30 min on error
 
             _cycle += 1
-            time.sleep(sleep_sec)
+            _shutdown_event.wait(sleep_sec)  # Wakes immediately on shutdown
+        log.info("Shutdown requested — award tracker exiting")
 
     t = threading.Thread(target=_loop, daemon=True, name="award-tracker")
     t.start()

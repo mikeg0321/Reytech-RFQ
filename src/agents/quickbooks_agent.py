@@ -142,9 +142,8 @@ def _load_tokens() -> dict:
 
 
 def _save_tokens(tokens: dict):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(TOKEN_FILE, "w") as f:
-        json.dump(tokens, f)
+    from src.core.data_guard import atomic_json_save
+    atomic_json_save(TOKEN_FILE, tokens, indent=None)
 
 
 def _refresh_access_token() -> Optional[str]:

@@ -23,17 +23,13 @@ except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "data")
 
-# Files to back up
-BACKUP_FILES = [
-    "rfqs.json",
-    "orders.json",
-    "price_checks.json",
-    "quotes_log.json",
-    "crm_activity.json",
-    "processed_emails.json",
-    "processed_emails_mike.json",
-    "email_templates.json",
-]
+# Files to back up — dynamically scan all JSON, excluding caches
+import glob as _glob
+_BACKUP_EXCLUDE = {"product_research_cache.json", "scprs_public_cache.json", "qa_reports.json"}
+BACKUP_FILES = sorted(
+    os.path.basename(f) for f in _glob.glob(os.path.join(DATA_DIR, "*.json"))
+    if os.path.basename(f) not in _BACKUP_EXCLUDE
+)
 
 BACKUP_DBS = [
     "reytech.db",
@@ -265,7 +261,11 @@ def start_backup_scheduler():
     _backup_scheduler_started = True
 
     def _loop():
-        time.sleep(120)  # Wait 2 min after startup
+        from src.core.scheduler import _shutdown_event
+        _shutdown_event.wait(120)  # Wait 2 min after startup
+        if _shutdown_event.is_set():
+            log.info("Shutdown requested — drive backup exiting before first cycle")
+            return
         # Run disaster recovery check on startup
         try:
             result = check_and_restore()
@@ -274,7 +274,7 @@ def start_backup_scheduler():
         except Exception as e:
             log.error("Startup restore check failed: %s", e)
 
-        while True:
+        while not _shutdown_event.is_set():
             try:
                 # PST = UTC-8
                 now_pst = datetime.now(timezone(timedelta(hours=-8)))
@@ -295,7 +295,8 @@ def start_backup_scheduler():
                             pass
             except Exception as e:
                 log.error("Backup scheduler error: %s", e)
-            time.sleep(900)  # Check every 15 minutes
+            _shutdown_event.wait(900)  # Wakes immediately on shutdown
+        log.info("Shutdown requested — drive backup exiting")
 
     t = threading.Thread(target=_loop, daemon=True, name="drive-backup")
     t.start()

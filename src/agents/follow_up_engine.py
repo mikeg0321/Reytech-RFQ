@@ -78,10 +78,8 @@ def _load_json(path):
 
 
 def _save_json(path, data):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(data, f, indent=2, default=str)
-    os.replace(tmp, path)
+    from src.core.data_guard import atomic_json_save
+    atomic_json_save(path, data)
 
 
 def _load_state():
@@ -372,8 +370,12 @@ def start_follow_up_scheduler(interval_seconds=3600):
     _scheduler_started = True
 
     def _loop():
-        time.sleep(30)  # Wait for app boot
-        while True:
+        from src.core.scheduler import _shutdown_event
+        _shutdown_event.wait(30)  # Wait for app boot
+        if _shutdown_event.is_set():
+            log.info("Shutdown requested — follow-up engine exiting before first cycle")
+            return
+        while not _shutdown_event.is_set():
             try:
                 result = run_follow_up_scan()
                 if result["new_drafts"] > 0:
@@ -390,7 +392,8 @@ def start_follow_up_scheduler(interval_seconds=3600):
                     heartbeat("follow-up-engine", success=False, error=str(e)[:200])
                 except Exception:
                     pass
-            time.sleep(interval_seconds)
+            _shutdown_event.wait(interval_seconds)  # Wakes immediately on shutdown
+        log.info("Shutdown requested — follow-up engine exiting")
 
     t = threading.Thread(target=_loop, daemon=True, name="follow-up-engine")
     t.start()

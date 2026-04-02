@@ -177,15 +177,20 @@ def _send_sms_reminder(message):
 def start_reminder_scheduler():
     """Start hourly due date check."""
     def _loop():
-        time.sleep(60)  # Wait 1 min after boot
-        while True:
+        from src.core.scheduler import _shutdown_event
+        _shutdown_event.wait(60)  # Wait 1 min after boot
+        if _shutdown_event.is_set():
+            log.info("Shutdown requested — due date reminders exiting before first cycle")
+            return
+        while not _shutdown_event.is_set():
             try:
                 alerts = check_due_dates()
                 if alerts:
                     log.info("Due date check: %d alerts sent", len(alerts))
             except Exception as e:
                 log.warning("Reminder loop: %s", e)
-            time.sleep(3600)  # Every hour
+            _shutdown_event.wait(3600)  # Wakes immediately on shutdown
+        log.info("Shutdown requested — due date reminders exiting")
 
     t = threading.Thread(target=_loop, daemon=True, name="due-date-reminders")
     t.start()

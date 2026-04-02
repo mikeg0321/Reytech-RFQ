@@ -23,6 +23,14 @@ import json, os, re, logging, time
 from datetime import datetime, timedelta
 
 try:
+    from src.core.circuit_breaker import get_breaker, CircuitOpenError
+    _scprs_breaker = get_breaker("scprs")
+except ImportError:
+    _scprs_breaker = None
+    class CircuitOpenError(Exception):
+        pass
+
+try:
     import requests
     from bs4 import BeautifulSoup
     HAS_SCRAPER = True
@@ -114,9 +122,8 @@ def _load_db():
 
 def _save_db(db):
     try:
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-        with open(DB_PATH, "w") as f:
-            json.dump(db, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(DB_PATH, db)
     except Exception as e:
         log.warning(f"Price DB save error: {e}")
 
@@ -730,9 +737,19 @@ def lookup_price(item_number=None, description=None):
             return {"price": best["price"], "source": "local_db_fuzzy",
                     "date": best.get("date", ""), "confidence": "medium",
                     "vendor": best.get("vendor", "")}
-    # 3. Live FI$Cal search
+    # 3. Live FI$Cal search (circuit-breaker protected)
     if HAS_SCRAPER and (item_number or description):
-        result = _scrape_fiscal(item_number, description)
+        if _scprs_breaker:
+            try:
+                result = _scprs_breaker.call(_scrape_fiscal, item_number, description)
+            except CircuitOpenError:
+                log.warning("SCPRS circuit breaker OPEN — skipping live search")
+                return None
+            except Exception:
+                # _scrape_fiscal handles its own exceptions and returns None
+                result = None
+        else:
+            result = _scrape_fiscal(item_number, description)
         if result:
             save_price(
                 item_number=item_number or "", description=description or "",

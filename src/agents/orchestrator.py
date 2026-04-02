@@ -130,9 +130,9 @@ def _load_json(filename: str, default=None):
 
 
 def _save_json(filename: str, data):
+    from src.core.data_guard import atomic_json_save
     path = os.path.join(DATA_DIR, filename)
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2, default=str)
+    atomic_json_save(path, data)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -540,8 +540,8 @@ def _log_run(name: str, inputs: dict, result: dict):
     # Keep last 100 runs
     runs = runs[-100:]
     try:
-        with open(log_path, "w") as f:
-            json.dump(runs, f, indent=2, default=str)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(log_path, runs)
     except Exception:
         pass
 

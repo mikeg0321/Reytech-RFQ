@@ -913,6 +913,18 @@ def api_dashboard_init():
     except Exception:
         result["award_intel"] = {}
 
+    # ── 9. Parse error count (last 48h) ──
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            parse_errors = conn.execute("""
+                SELECT COUNT(*) FROM price_checks
+                WHERE status='parse_error' AND created_at >= datetime('now', '-2 days')
+            """).fetchone()[0]
+        result["parse_errors"] = parse_errors
+    except Exception:
+        result["parse_errors"] = 0
+
     result["_ms"] = round((_time.time() - t0) * 1000)
     _dash_init_cache["data"] = result
     _dash_init_cache["ts"] = _time.time()

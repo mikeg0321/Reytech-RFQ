@@ -1287,8 +1287,8 @@ class EmailPoller:
         d = os.path.dirname(self.processed_file)
         if d:
             os.makedirs(d, exist_ok=True)
-        with open(self.processed_file, "w") as f:
-            json.dump(list(self._processed), f)
+        from src.core.data_guard import atomic_json_save
+        atomic_json_save(self.processed_file, list(self._processed), indent=None)
         # Also persist to SQLite
         try:
             from src.core.db import get_db
@@ -1704,8 +1704,8 @@ class EmailPoller:
                                                 if not po_institution:
                                                     po_institution = q.get("institution", "") or q.get("ship_to_name", "")
                                                 break
-                                        with open(os.path.join(DATA_DIR, "quotes_log.json"), "w") as _qf3:
-                                            _json.dump(_all_quotes, _qf3, indent=2, default=str)
+                                        from src.core.data_guard import atomic_json_save
+                                        atomic_json_save(os.path.join(DATA_DIR, "quotes_log.json"), _all_quotes)
                                         log.info("Quote %s marked WON in quotes_log.json", matched_quote)
                                 except Exception as _qe:
                                     log.error("Failed to update quote status: %s", _qe)
@@ -2097,8 +2097,8 @@ class EmailPoller:
                                 })
                                 if len(_ships) > 500:
                                     _ships = _ships[-500:]
-                                with open(_ship_file, "w") as _sf:
-                                    json.dump(_ships, _sf, indent=2, default=str)
+                                from src.core.data_guard import atomic_json_save
+                                atomic_json_save(_ship_file, _ships)
                                 
                                 # Auto-update order tracking — find active orders with pending/ordered items
                                 try:
