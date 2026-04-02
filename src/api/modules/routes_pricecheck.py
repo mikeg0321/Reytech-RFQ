@@ -8656,11 +8656,22 @@ def _resolve_buyer_name(pc, buyer_email):
             pass
     # Fallback: parse from requestor field
     if not buyer_name:
-        requestor = pc.get("original_sender", "") or pc.get("requestor", "")
-        if "@" in requestor:
-            buyer_name = requestor.split("@")[0].replace(".", " ").title()
+        requestor = pc.get("requestor", "") or ""
+        original = pc.get("original_sender", "") or ""
+        # Prefer full email for parsing (has first.last pattern)
+        if original and "." in original.split("@")[0]:
+            buyer_name = original.split("@")[0].replace(".", " ").title()
+        elif "@" in requestor:
+            # "katrina.valencia@cdcr.ca.gov" → "Katrina Valencia"
+            local = requestor.split("@")[0]
+            buyer_name = local.replace(".", " ").replace("_", " ").title()
         elif requestor:
-            buyer_name = requestor.split()[0] if " " in requestor else requestor
+            # Strip any @Agency suffix: "Katrina@CDCR" → "Katrina"
+            clean = requestor.split("@")[0].strip() if "@" in requestor else requestor
+            buyer_name = clean.split()[0] if " " in clean else clean
+    # Final cleanup: remove agency codes that snuck in
+    if buyer_name and "@" in buyer_name:
+        buyer_name = buyer_name.split("@")[0].strip()
     return buyer_name or "Team"
 
 
