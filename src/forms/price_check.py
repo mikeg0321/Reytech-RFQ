@@ -2550,7 +2550,8 @@ def fill_ams704(
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
 
-    # Strip empty pages — if items only fill page 1, remove page 2+
+    # Remove empty pages — if items fit on page 1, strip page 2+ from output
+    # Use a separate step that preserves form field appearances
     if _pages_with_items < _pdf_total_pages and os.path.exists(output_pdf):
         try:
             from pypdf import PdfReader as _StripReader, PdfWriter as _StripWriter
@@ -2559,12 +2560,19 @@ def fill_ams704(
                 _sw = _StripWriter()
                 for _pi in range(_pages_with_items):
                     _sw.add_page(_sr.pages[_pi])
-                with open(output_pdf, "wb") as _sf:
+                # Clone the root form/catalog to preserve field appearances
+                if _sr.trailer and "/Root" in _sr.trailer:
+                    root = _sr.trailer["/Root"].get_object()
+                    if "/AcroForm" in root:
+                        _sw._root_object[NameObject("/AcroForm")] = root["/AcroForm"]
+                _tmp_out = output_pdf + ".stripped"
+                with open(_tmp_out, "wb") as _sf:
                     _sw.write(_sf)
+                os.replace(_tmp_out, output_pdf)
                 log.info("fill_ams704: Stripped %d empty page(s) — output now %d page(s)",
                          len(_sr.pages) - _pages_with_items, _pages_with_items)
         except Exception as _strip_e:
-            log.debug("Page stripping failed (non-fatal): %s", _strip_e)
+            log.warning("Page stripping failed (non-fatal, keeping all pages): %s", _strip_e)
 
     log.info("fill_ams704 COMPLETE%s: %d/%d items priced, %d skipped(no row), %d skipped(no price), "
              "subtotal=$%.2f, %d field_values written to %s",
