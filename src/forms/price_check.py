@@ -2837,6 +2837,31 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
                 _cell(c, sp0, sp1, sp2, sp3, company, fs=12)
                 drew = True
+        elif not is_pg1 and not _page_has_items:
+            # BLANK page — mask page numbers, supplier name, and grand total
+            # White-out the Page ___ of ___ area (top-right of page 2)
+            # Typical 704 page number location: near top-right
+            _pg_x1, _pg_y1 = 580 * _scale_x, 690 * _scale_y
+            _pg_x2, _pg_y2 = 760 * _scale_x, 720 * _scale_y
+            c.saveState()
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(_pg_x1, _pg_y1, _pg_x2 - _pg_x1, _pg_y2 - _pg_y1, fill=1, stroke=0)
+            c.restoreState()
+            # White-out supplier name area
+            sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
+            c.saveState()
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(sp0, sp1, sp2 - sp0, sp3 - sp1, fill=1, stroke=0)
+            c.restoreState()
+            # White-out grand total area
+            _gt_x1, _gt_y1 = 580 * _scale_x, 68 * _scale_y
+            _gt_x2, _gt_y2 = 760 * _scale_x, 95 * _scale_y
+            c.saveState()
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(_gt_x1, _gt_y1, _gt_x2 - _gt_x1, _gt_y2 - _gt_y1, fill=1, stroke=0)
+            c.restoreState()
+            drew = True
+            log.info("fill_ams704: Blanked page %d (no items)", pg_idx + 1)
 
         # ── ROW PRICING: only PRICE PER UNIT + EXTENSION columns ──
         for slot_idx, (y_bot, y_top) in enumerate(rows):
