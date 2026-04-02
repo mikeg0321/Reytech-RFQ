@@ -99,6 +99,76 @@ _DSH_FACILITIES = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Facility Mailing Addresses (for ship-to auto-fill)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_FACILITY_ADDRESSES = {
+    # CDCR / CCHCS
+    "CIW":  "16756 Chino-Corona Road, Corona, CA 92880",
+    "CIM":  "14901 Central Avenue, Chino, CA 91710",
+    "SAC":  "100 Prison Road, Represa, CA 95671",
+    "FSP":  "300 Prison Road, Represa, CA 95671",
+    "SQ":   "San Quentin State Prison, San Quentin, CA 94964",
+    "CMC":  "Highway 1, San Luis Obispo, CA 93409",
+    "CMF":  "1600 California Drive, Vacaville, CA 95696",
+    "SOL":  "2399 Peabody Road, Vacaville, CA 95696",
+    "CHCF": "7707 S. Arch Road, Stockton, CA 95215",
+    "RJD":  "480 Alta Road, San Diego, CA 92179",
+    "CTF":  "Highway 101 North, Soledad, CA 93960",
+    "SVSP": "31625 Highway 101, Soledad, CA 93960",
+    "LAC":  "44750 60th Street West, Lancaster, CA 93536",
+    "COR":  "4001 King Avenue, Corcoran, CA 93212",
+    "SATF": "900 Quebec Avenue, Corcoran, CA 93212",
+    "KVSP": "3000 W. Cecil Avenue, Delano, CA 93215",
+    "NKSP": "2737 W. Cecil Avenue, Delano, CA 93215",
+    "WSP":  "701 Scofield Avenue, Wasco, CA 93280",
+    "MCSP": "4001 Highway 104, Ione, CA 95640",
+    "HDSP": "475-750 Rice Canyon Road, Susanville, CA 96127",
+    "CCC":  "711-045 Center Road, Susanville, CA 96130",
+    "PBSP": "5905 Lake Earl Drive, Crescent City, CA 95531",
+    "ASP":  "1 Kings Way, Avenal, CA 93204",
+    "PVSP": "24203 W. Jayne Avenue, Coalinga, CA 93210",
+    "CCWF": "23370 Road 22, Chowchilla, CA 93610",
+    "VSP":  "21633 Avenue 24, Chowchilla, CA 93610",
+    "SCC":  "5100 O'Byrnes Ferry Road, Jamestown, CA 95327",
+    "ISP":  "19005 Wiley's Well Road, Blythe, CA 92225",
+    "CVSP": "19025 Wiley's Well Road, Blythe, CA 92225",
+    "CEN":  "2302 Brown Road, Imperial, CA 92251",
+    "CAL":  "7018 Blair Road, Calipatria, CA 92233",
+    "DVI":  "23500 Kasson Road, Tracy, CA 95304",
+    # CalVet
+    "VHC-Yountville":  "260 California Drive, Yountville, CA 94599",
+    "VHC-Barstow":     "100 East Veterans Parkway, Barstow, CA 92311",
+    "VHC-ChulaVista":  "700 East Naples Court, Chula Vista, CA 91911",
+    "VHC-Fresno":      "2811 West California Avenue, Fresno, CA 93706",
+    "VHC-Lancaster":   "44944 North 25th Street West, Lancaster, CA 93536",
+    "VHC-Ventura":     "10900 Telephone Road, Ventura, CA 93004",
+    "VHC-WLA":         "11500 Nimitz Avenue, Los Angeles, CA 90049",
+    "VHC-Redding":     "3400 Knighton Road, Redding, CA 96002",
+    # DSH
+    "DSH-Atascadero":  "10333 El Camino Real, Atascadero, CA 93422",
+    "DSH-Coalinga":    "24511 West Jayne Avenue, Coalinga, CA 93210",
+    "DSH-Metropolitan":"11401 Bloomfield Avenue, Norwalk, CA 90650",
+    "DSH-Napa":        "2100 Napa-Vallejo Highway, Napa, CA 94558",
+    "DSH-Patton":      "3102 East Highland Avenue, Patton, CA 92369",
+}
+
+
+def get_ship_to_address(raw_name: str) -> str:
+    """Get the mailing address for a facility. Returns empty string if unknown."""
+    resolved = resolve(raw_name)
+    code = resolved.get("facility_code", "")
+    if code and code in _FACILITY_ADDRESSES:
+        return _FACILITY_ADDRESSES[code]
+    # Try canonical name lookup
+    canonical = resolved.get("canonical", "")
+    for fc, addr in _FACILITY_ADDRESSES.items():
+        if canonical and canonical.lower() in addr.lower():
+            return addr
+    return ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Address / ZIP → Facility Mapping (for ship-to address resolution)
 # ═══════════════════════════════════════════════════════════════════════════════
 

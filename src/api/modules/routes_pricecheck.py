@@ -943,6 +943,18 @@ def _pricecheck_detail_inner(pcid):
         except Exception as e:
             log.debug("Quote history error: %s", e)
     
+    # ── Auto-fill ship-to from institution resolver if empty ──
+    if not pc.get("ship_to") and (pc.get("institution") or header.get("institution")):
+        try:
+            from src.core.institution_resolver import get_ship_to_address
+            _inst = pc.get("institution") or header.get("institution", "")
+            _auto_addr = get_ship_to_address(_inst)
+            if _auto_addr:
+                pc["ship_to"] = _auto_addr
+                log.info("SHIP_TO auto-filled for %s: %s", _inst, _auto_addr[:50])
+        except Exception as _sta:
+            log.debug("ship_to auto-fill: %s", _sta)
+
     # ── Server-side tax rate ──
     tax_rate = 0.0725
     tax_source = "CA Default"
