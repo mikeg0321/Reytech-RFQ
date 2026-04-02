@@ -145,6 +145,33 @@ RFQ_STRONG = [
 
 # Known Price Check sender patterns (first/last name fragments)
 # These senders always send AMS 704 price checks, NOT RFQs
+# Senders/domains that should NEVER create PCs or RFQs
+# (invoices, payment processors, newsletters, internal tools)
+BLOCKED_SENDERS = [
+    "payments-noreply@google.com", "noreply@google.com",
+    "no-reply@accounts.google.com", "googlecommerce-",
+    "@paypal.com", "service@paypal.com",
+    "@intuit.com", "quickbooks@notification.intuit.com",
+    "@square.com", "@stripe.com", "@bill.com",
+    "noreply@", "no-reply@", "donotreply@", "do-not-reply@",
+    "mailer-daemon@", "postmaster@",
+    "@linkedin.com", "@facebook.com", "@twitter.com",
+    "@mailchimp.com", "@constantcontact.com",
+    "newsletter@", "marketing@", "promotions@",
+    "@railway.app", "@github.com", "@sentry.io",
+]
+
+# Subject patterns that indicate non-procurement emails (invoices, receipts, etc.)
+BLOCKED_SUBJECTS = [
+    r"(?:invoice|receipt|payment|billing|subscription)\s*(?:#|number|confirmation)",
+    r"^your\s+(?:order|receipt|invoice|payment|subscription)",
+    r"(?:monthly|weekly|daily)\s+(?:statement|summary|report|digest)",
+    r"password\s+reset",
+    r"verify\s+your\s+(?:email|account)",
+    r"sign[\s-]?in\s+(?:alert|notification)",
+    r"two[\s-]?(?:factor|step)\s+(?:authentication|verification)",
+]
+
 PC_KNOWN_SENDERS = [
     "demidenko", "valentina.demidenko",   # Valentina Demidenko — CSP-Sacramento
     "delgado", "matt.delgado",            # Matt Delgado
@@ -1479,16 +1506,31 @@ class EmailPoller:
                         pass  # Dedup is best-effort, don't block processing
                     # ── END CROSS-INBOX DEDUP ──────────────────────────────────
 
-                    # ── SENDER BLOCKLIST — skip emails from blocked senders ──
-                    # _blocked_senders is loaded once per poll cycle (before the uid loop)
-                    if _blocked_senders:
+                    # ── SENDER + SUBJECT BLOCKLIST — skip non-procurement emails ──
+                    # Hardcoded blocklist (invoices, payment processors, newsletters)
+                    _is_blocked = False
+                    for _bl in BLOCKED_SENDERS:
+                        if _bl in sender_email_raw:
+                            _is_blocked = True
+                            break
+                    # Also check settings-based blocklist
+                    if not _is_blocked and _blocked_senders:
                         if sender_email_raw in _blocked_senders or any(b in sender_email_raw for b in _blocked_senders if "@" not in b):
-                            log.info("🚫 Blocked sender: %s — skipping", sender_email_raw)
-                            self._diag.setdefault("blocked", 0)
-                            self._diag["blocked"] = self._diag.get("blocked", 0) + 1
-                            self._processed.add(uid)
-                            continue
-                    # ── END SENDER BLOCKLIST ──────────────────────────────────
+                            _is_blocked = True
+                    # Subject blocklist (invoices, receipts, etc.)
+                    if not _is_blocked:
+                        _subj_lower = subject.lower().strip()
+                        for _bp in BLOCKED_SUBJECTS:
+                            if re.search(_bp, _subj_lower):
+                                _is_blocked = True
+                                break
+                    if _is_blocked:
+                        log.info("BLOCKED: %s — %s (non-procurement)", sender_email_raw, subject[:50])
+                        self._diag.setdefault("blocked", 0)
+                        self._diag["blocked"] = self._diag.get("blocked", 0) + 1
+                        self._processed.add(uid)
+                        continue
+                    # ── END BLOCKLIST ──────────────────────────────────────────
 
                     # ── RECALL DETECTION — fires FIRST ─────────────────────
                     # Outlook/Exchange recall requests delete the original PC
