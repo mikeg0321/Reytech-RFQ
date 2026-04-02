@@ -6283,19 +6283,6 @@ def api_award_tracker_queue():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@bp.route("/api/intel/award-tracker/run", methods=["POST"])
-@auth_required
-def api_award_tracker_run():
-    """Manually trigger an award tracker check cycle."""
-    try:
-        from src.agents.award_tracker import run_award_check
-        result = run_award_check(force=True)
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        log.exception("award-tracker-run")
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
 @bp.route("/api/intel/action-items")
 @auth_required
 def api_action_items():
