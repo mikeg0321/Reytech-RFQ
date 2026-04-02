@@ -613,27 +613,8 @@ def send_quote_email(rid):
             msg["In-Reply-To"] = email_message_id
             msg["References"] = email_message_id
 
-        # HTML body + inline logo in a 'related' sub-part
-        msg_related = MIMEMultipart("related")
-        msg_related.attach(MIMEText(body, "html"))
-
-        # Embed logo as inline CID attachment (renders in email clients)
-        try:
-            from src.core.paths import DATA_DIR as _dd
-            for _logo_name in ("reytech_logo_email.png", "email_logo.png", "reytech_logo.png", "logo.png"):
-                _logo_path = os.path.join(_dd, _logo_name)
-                if os.path.exists(_logo_path):
-                    from email.mime.image import MIMEImage
-                    with open(_logo_path, "rb") as _lf:
-                        logo_part = MIMEImage(_lf.read(), _subtype="png")
-                    logo_part.add_header("Content-ID", "<reytech_logo>")
-                    logo_part.add_header("Content-Disposition", "inline", filename="reytech_logo.png")
-                    msg_related.attach(logo_part)
-                    break
-        except Exception as _le:
-            log.debug("Logo CID embed failed: %s", _le)
-
-        msg.attach(msg_related)
+        # Plain text only — Gmail auto-appends the configured signature
+        msg.attach(MIMEText(body, "plain"))
 
         # Attach PDF if available
         if pdf_path and os.path.exists(pdf_path):
@@ -692,19 +673,11 @@ def _default_quote_email_body(r):
     # Use first name only
     first_name = requestor.split()[0] if requestor and " " in requestor else requestor
     
-    try:
-        from src.core.email_signature import wrap_html_email
-        body_text = (f"Dear {first_name},\n\n"
-                     f"Please find attached our bid response for Solicitation #{sol}.\n\n"
-                     f"Please let us know if you have any questions.\n\n")
-        return wrap_html_email(body_text, closing="Respectfully,")
-    except Exception:
-        return f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
-<p>Dear {first_name},</p>
-<p>Please find attached our bid response for Solicitation #{sol}.</p>
-<p>Please let us know if you have any questions.</p>
-<p>Respectfully,<br>Reytech Inc.<br>949-229-1575</p>
-</div>"""
+    # Plain text only — Gmail auto-appends the configured signature
+    return (f"Dear {first_name},\n\n"
+            f"Please find attached our bid response for Solicitation #{sol}.\n\n"
+            f"Please let us know if you have any questions.\n\n"
+            f"Thank you for the opportunity.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
