@@ -623,7 +623,7 @@ def api_rfq_mark_won(rid):
         pass
     # Log revenue
     try:
-        from src.core.db_dal import log_revenue
+        from src.core.db import log_revenue
         _total = 0
         for it in r.get("line_items", r.get("items", [])):
             _p = float(it.get("price_per_unit") or it.get("unit_price") or it.get("bid_price") or 0)
@@ -645,9 +645,9 @@ def api_rfq_mark_won(rid):
         pass
     # Create Drive folder: Year/Quarter/PO-XXXXX/{RFQ,Supplier,Delivery,Invoice,Misc}
     try:
-        from src.core.gdrive import is_configured, enqueue_task
+        from src.core.gdrive import is_configured, enqueue
         if is_configured():
-            enqueue_task({
+            enqueue({
                 "action": "create_po_folder",
                 "po_number": po_number or f"RFQ-{rid[:8]}",
                 "solicitation_number": r.get("solicitation_number", ""),
@@ -698,6 +698,71 @@ def api_rfq_mark_lost(rid):
     r["closed_reason"] = data.get("reason", "Lost to competitor")
     from src.api.dashboard import _save_single_rfq
     _save_single_rfq(rid, r)
+
+    # CRM Activity
+    try:
+        from src.api.dashboard import _log_crm_activity
+        _log_crm_activity(
+            r.get("reytech_quote_number", rid), "quote_lost",
+            f"RFQ lost to {data.get('competitor', 'unknown')}. "
+            f"Their price: {data.get('competitor_price', 'unknown')}",
+            actor="user", metadata={"rfq_id": rid, "competitor": data.get("competitor", "")})
+    except Exception:
+        pass
+
+    # Competitor intel — feed into loss intelligence
+    try:
+        from src.core.db import get_db
+        _our_total = sum(
+            float(it.get("price_per_unit") or it.get("unit_price") or 0)
+            * float(it.get("quantity") or it.get("qty") or 1)
+            for it in r.get("line_items", r.get("items", []))
+        )
+        _comp_price = float(data.get("competitor_price", 0) or 0)
+        _delta = _our_total - _comp_price if _comp_price > 0 else 0
+        _delta_pct = (_delta / _comp_price * 100) if _comp_price > 0 else 0
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO competitor_intel
+                (found_at, quote_number, our_price, competitor_name, competitor_price,
+                 price_delta, price_delta_pct, agency, institution, outcome, notes,
+                 loss_reason_class)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (now, r.get("reytech_quote_number", rid), _our_total,
+                  data.get("competitor", "Unknown"), _comp_price,
+                  round(_delta, 2), round(_delta_pct, 1),
+                  r.get("agency", ""), r.get("institution", ""), "lost",
+                  f"Manually marked lost: {data.get('reason', '')}",
+                  "price_higher" if _delta > 0 else "relationship_incumbent"))
+    except Exception as _ce:
+        log.debug("Competitor intel: %s", _ce)
+
+    # Notification
+    try:
+        from src.agents.notify_agent import send_alert
+        send_alert(event_type="quote_lost_signal",
+                   title=f"RFQ Lost — {data.get('competitor', 'unknown')}",
+                   body=f"RFQ {r.get('solicitation_number', rid)} lost to {data.get('competitor', 'unknown')}",
+                   urgency="warning", context={"rfq_id": rid})
+    except Exception:
+        pass
+
+    # Award tracker — stop SCPRS checking
+    try:
+        import sqlite3 as _sql
+        from src.core.paths import DATA_DIR as _DD
+        _aconn = _sql.connect(os.path.join(_DD, "reytech.db"), timeout=10)
+        _aconn.execute("""
+            INSERT INTO award_tracker_log
+            (checked_at, quote_number, scprs_searched, matches_found, outcome, notes)
+            VALUES (?,?,0,1,?,?)
+        """, (now, r.get("reytech_quote_number", rid),
+              "lost_manual", f"Lost to {data.get('competitor', 'unknown')}"))
+        _aconn.commit()
+        _aconn.close()
+    except Exception:
+        pass
+
     log.info("RFQ %s marked LOST (reason: %s)", rid, r["closed_reason"][:50])
     return jsonify({"ok": True, "status": "lost"})
 
