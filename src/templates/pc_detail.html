@@ -20,7 +20,7 @@
      .num-in:focus{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}
      .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
      .notes-row td{border-top:none!important;padding-top:0!important}
-     #itemsTable{table-layout:auto}
+     #itemsTable{table-layout:auto;width:100%}
      .num-in.sm{width:52px;font-size:14px;padding:6px 6px}
      /* Active row highlight — hover + focus-within */
      #itemsTable tr[data-row]:hover{background:#1a233280}
@@ -433,7 +433,7 @@
      </div>
      <div class="pc-table-wrap">
      <table id="itemsTable">
-      <tr><th style="width:28px">Bid</th><th style="width:40px">Line#</th><th>MFG#</th><th>Qty</th><th>UOM</th><th style="min-width:250px">Description</th><th style="width:36px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:160px">Item Link</th><th style="min-width:160px">Sources</th><th>Unit Cost</th><th>Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
+      <tr><th style="width:28px">Bid</th><th style="width:36px">Line#</th><th>MFG#</th><th>Qty</th><th style="width:40px">UOM</th><th style="min-width:180px">Description</th><th style="width:30px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:130px">Item Link</th><th style="min-width:130px">Sources</th><th>Unit Cost</th><th style="width:50px">Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
       {{ items_html | default('') | safe }}
      </table>
      </div>
