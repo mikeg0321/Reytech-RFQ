@@ -32,7 +32,7 @@
    <div style="font-size:20px;font-weight:700;color:#3fb950">${{ "%.2f"|format(po.total or 0) }}</div>
   </div>
 
-  {% if po.items %}
+  {% if po.get('items', []) %}
   <table style="width:100%;font-size:14px;border-collapse:collapse;margin-bottom:14px">
    <tr style="background:var(--sf2);border-bottom:1px solid var(--bd)">
     <th style="padding:8px;text-align:left;color:var(--tx2)">#</th>
@@ -42,7 +42,7 @@
     <th style="padding:8px;text-align:right;color:var(--tx2)">Price</th>
     <th style="padding:8px;text-align:right;color:var(--tx2)">Extended</th>
    </tr>
-   {% for item in po.items %}
+   {% for item in po.get('items', []) %}
    <tr style="border-bottom:1px solid var(--bd)">
     <td style="padding:8px;color:var(--tx2)">{{ loop.index }}</td>
     <td style="padding:8px;color:var(--tx)">{{ (item.description or item.name or '')[:60] }}</td>

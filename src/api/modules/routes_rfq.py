@@ -511,7 +511,6 @@ def growth_redirect():
 
 @bp.route("/awards")
 @auth_required
-@safe_route
 def awards_page():
     """Pending PO Award Review page."""
     from src.api.dashboard import _load_pending_pos
