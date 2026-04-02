@@ -2464,12 +2464,16 @@ def fill_ams704(
     if "SUPPLIER NAME" in _pdf_fields:
         field_values.append({"field_id": "SUPPLIER NAME", "page": 1, "value": info.get("company_name", "Reytech Inc.")})
 
-    # Page numbering
+    # Page numbering — set on ALL pages (Page_2, of_2 for page 2, etc.)
     total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
-    if "Page" in _pdf_fields:
-        field_values.append({"field_id": "Page", "page": 1, "value": "1"})
-    if "of" in _pdf_fields:
-        field_values.append({"field_id": "of", "page": 1, "value": str(total_pages)})
+    for pg in range(1, total_pages + 1):
+        suffix = "" if pg == 1 else f"_{pg}"
+        page_field = f"Page{suffix}"
+        of_field = f"of{suffix}"
+        if page_field in _pdf_fields:
+            field_values.append({"field_id": page_field, "page": pg, "value": str(pg)})
+        if of_field in _pdf_fields:
+            field_values.append({"field_id": of_field, "page": pg, "value": str(total_pages)})
 
     # Multi-page: grand total on page 2 ("ENTER GRAND TOTAL ON FRONT PAGE")
     if _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
