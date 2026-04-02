@@ -1273,8 +1273,9 @@ function _fetchWithRetry(url, opts, retries) {
 function _doAutosave(){
  var data;
  try{ data=_getFormData(); }catch(e){ console.error('_getFormData failed:',e); _showSaveStatus('error'); return; }
- if(data===_lastSaveData)return;
+ // ALWAYS write to localStorage as crash backup (even if data unchanged)
  try{localStorage.setItem('rfq_autosave_'+RID,JSON.stringify({ts:Date.now(),rid:RID,data:data}));}catch(e){}
+ if(data===_lastSaveData)return;
  _showSaveStatus('saving');
  _fetchWithRetry('/api/rfq/'+RID+'/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:data,credentials:'same-origin'})
  .then(r=>r.json()).then(d=>{

@@ -2094,13 +2094,14 @@
         return;
       }
       var snapshot = JSON.stringify(payload);
-      if (snapshot === _pcLastSaved) return;
-      _pcSaveInFlight = true;
+      // ALWAYS write to localStorage as crash backup (even if data unchanged)
       try {
         localStorage.setItem('pc_autosave_' + _pcid, JSON.stringify({
           ts: Date.now(), pcid: _pcid, data: payload
         }));
       } catch(e) {}
+      if (snapshot === _pcLastSaved) return;
+      _pcSaveInFlight = true;
       _showPcSaveStatus('saving');
       _fetchWithRetry('/pricecheck/' + _pcid + '/save-prices', {
         method: 'POST',
