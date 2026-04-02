@@ -643,27 +643,18 @@ def _default_quote_email_body(r):
     # Use first name only
     first_name = requestor.split()[0] if requestor and " " in requestor else requestor
     
-    return f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
+    try:
+        from src.core.email_signature import wrap_html_email
+        body_text = (f"Dear {first_name},\n\n"
+                     f"Please find attached our bid response for Solicitation #{sol}.\n\n"
+                     f"Please let us know if you have any questions.\n\n")
+        return wrap_html_email(body_text, closing="Respectfully,")
+    except Exception:
+        return f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Dear {first_name},</p>
 <p>Please find attached our bid response for Solicitation #{sol}.</p>
 <p>Please let us know if you have any questions.</p>
-<p>Respectfully,</p>
-<table cellpadding="0" cellspacing="0" style="margin-top:8px">
- <tr>
-  <td style="padding-right:14px;vertical-align:top"><img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block"></td>
-  <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
-   <strong style="font-size:14px;color:#1a1a2e">Reytech Inc.</strong><br>
-   Sales Support<br>
-   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a><br>
-   Trabuco Canyon, CA<br>
-   949-229-1575
-  </td>
- </tr>
-</table>
-<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.4">
-CA MB/SB/SB-PW/DVBE #2002605 &middot; NY SDVOB 221449<br>
-DOT DBE #44511 &middot; MBE SC6550 &middot; SBA-SDVOB (FWWSKE9113T7)
-</div>
+<p>Respectfully,<br>Reytech Inc.<br>949-229-1575</p>
 </div>"""
 
 

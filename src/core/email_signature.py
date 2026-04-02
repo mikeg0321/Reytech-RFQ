@@ -54,15 +54,19 @@ def _get_logo_src():
 
 
 def get_plain_signature(closing: str = "Respectfully,") -> str:
-    """Plain text email signature."""
+    """Plain text email signature — matches Gmail signature format."""
     return f"""{closing}
 
-{NAME}
 {COMPANY}
-{ADDRESS}
+Sales Support
+{WEBSITE.replace('https://', '').replace('http://', '')}
+Trabuco Canyon, CA
 {PHONE}
-{EMAIL}
-{CERT}"""
+CA MB/SB/SB-PW/DVBE #2002605
+NY SDVOB - 221449
+DOT - Disadvantaged Business Enterprise DBE #44511
+MBE - SC6550
+SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)"""
 
 
 def get_html_signature(closing: str = "Respectfully,") -> str:
@@ -85,9 +89,12 @@ def get_html_signature(closing: str = "Respectfully,") -> str:
   </td>
  </tr>
 </table>
-<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.4">
-CA MB/SB/SB-PW/DVBE #2002605 · NY SDVOB 221449<br>
-DOT DBE #44511 · MBE SC6550 · SBA-SDVOB (FWWSKE9113T7)
+<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.5">
+CA MB/SB/SB-PW/DVBE #2002605<br>
+NY SDVOB - 221449<br>
+DOT - Disadvantaged Business Enterprise DBE #44511<br>
+MBE - SC6550<br>
+SBA-SDVOB (Unique Entity ID: FWWSKE9113T7)
 </div>"""
 
 

@@ -8685,12 +8685,13 @@ def _build_pc_quote_email_body(pc, pcid, buyer_email):
         "Pricing is valid for 45 days from the date of this quote. "
         "Please don't hesitate to reach out with any questions.\n\n"
         "Thank you for the opportunity.\n\n"
-        "Best regards,\n"
-        "Michael Guadan\n"
-        "Reytech Inc.\n"
-        "(619) 985-8610\n"
-        "mike@reytechinc.com"
     )
+    # Append standard Gmail signature
+    try:
+        from src.core.email_signature import get_plain_signature
+        body += get_plain_signature("Respectfully,")
+    except Exception:
+        body += "Respectfully,\nMichael Guadan\nReytech Inc.\n949-229-1575"
     return body
 
 
@@ -8765,7 +8766,7 @@ def api_pc_send_quote(pcid):
         from email.mime.base import MIMEBase
         from email import encoders
 
-        msg = MIMEMultipart()
+        msg = MIMEMultipart("mixed")
         msg["From"] = f"Reytech Inc. <{gmail_user}>"
         msg["To"] = to_email
         msg["Subject"] = subject
@@ -8776,7 +8777,32 @@ def api_pc_send_quote(pcid):
             msg["In-Reply-To"] = email_message_id
             msg["References"] = email_message_id
 
-        msg.attach(MIMEText(body_text, "plain"))
+        # Send HTML email with signature (matches Gmail signature format)
+        try:
+            from src.core.email_signature import wrap_html_email
+            html_body = wrap_html_email(body_text, closing="Respectfully,")
+            # Alternative part: plain text + HTML
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(body_text, "plain"))
+            alt.attach(MIMEText(html_body, "html"))
+            msg.attach(alt)
+            # Attach logo inline for HTML signature
+            try:
+                from src.core.email_signature import _get_logo_src
+                logo_src = _get_logo_src()
+                if logo_src and logo_src.startswith("data:"):
+                    # Base64 inline image
+                    import base64 as _b64
+                    _logo_data = _b64.b64decode(logo_src.split(",", 1)[1])
+                    from email.mime.image import MIMEImage
+                    logo_part = MIMEImage(_logo_data, _subtype="png")
+                    logo_part.add_header("Content-ID", "<reytech_logo>")
+                    logo_part.add_header("Content-Disposition", "inline", filename="logo.png")
+                    msg.attach(logo_part)
+            except Exception:
+                pass  # Logo is optional — signature degrades gracefully
+        except Exception:
+            msg.attach(MIMEText(body_text, "plain"))
 
         with open(pdf_path, "rb") as f:
             part = MIMEBase("application", "pdf")
