@@ -4002,6 +4002,9 @@ def generate_rfq_package(rid):
                     fill_cv012_cuf(cuf_tmpl, r, CONFIG, f"{out_dir}/{sol}_CV012_CUF_Reytech.pdf")
                     output_files.append(f"{sol}_CV012_CUF_Reytech.pdf")
                     t.step("CV 012 CUF filled")
+                else:
+                    errors.append(f"CV 012 CUF: template not found at {cuf_tmpl}")
+                    log.error("FORM TEMPLATE MISSING: %s", cuf_tmpl)
             except Exception as e:
                 t.warn("CV 012 CUF failed", error=str(e))
         
@@ -4063,6 +4066,9 @@ def generate_rfq_package(rid):
                     fill_calrecycle_standalone(cr_tmpl, r, CONFIG, f"{out_dir}/{sol}_CalRecycle74_Reytech.pdf")
                     output_files.append(f"{sol}_CalRecycle74_Reytech.pdf")
                     t.step("CalRecycle 74 filled")
+                else:
+                    errors.append(f"CalRecycle 74: template not found at {cr_tmpl}")
+                    log.error("FORM TEMPLATE MISSING: %s", cr_tmpl)
             except Exception as e:
                 t.warn("CalRecycle 74 failed", error=str(e))
         
@@ -4075,6 +4081,9 @@ def generate_rfq_package(rid):
                     fill_std1000(std1000_tmpl, r, CONFIG, f"{out_dir}/{sol}_STD1000_Reytech.pdf")
                     output_files.append(f"{sol}_STD1000_Reytech.pdf")
                     t.step("STD 1000 filled")
+                else:
+                    errors.append(f"STD 1000: template not found at {std1000_tmpl}")
+                    log.error("FORM TEMPLATE MISSING: %s", std1000_tmpl)
             except Exception as e:
                 t.warn("STD 1000 failed", error=str(e))
         
