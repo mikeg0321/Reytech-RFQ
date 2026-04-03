@@ -243,9 +243,13 @@ function _applyLinkData(idx, d, mode) {
     }
   }
 
-  // Normalize URL field to canonical form
+  // Normalize URL field to canonical form (preserve scroll position)
   var linkEl = document.querySelector('[name="link_' + idx + '"]');
-  if (linkEl && d.url && d.url !== linkEl.value) { linkEl.value = d.url; }
+  if (linkEl && d.url && d.url !== linkEl.value) {
+    var _scrollY = window.scrollY;
+    linkEl.value = d.url;
+    window.scrollTo(0, _scrollY);
+  }
 
   // Supplier badge
   if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
@@ -344,13 +348,17 @@ function _applyLinkData(idx, d, mode) {
         if (document.activeElement !== _qeDiscInput) _applyQeDual();
       }, 200);
     });
-    _qeInput.focus();
+    var _sy = window.scrollY;
+    _qeInput.focus({preventScroll: true});
+    window.scrollTo(0, _sy);
   }
 
-  // Autosave + recalc
+  // Autosave + recalc (preserve scroll position)
   if (filled.length) {
+    var _sy2 = window.scrollY;
     if (typeof triggerAutosave === 'function') triggerAutosave();
     if (typeof recalcPC === 'function') recalcPC();
+    requestAnimationFrame(function(){ window.scrollTo(0, _sy2); });
   }
 }
 
