@@ -6136,13 +6136,13 @@ def _generate_standalone_obs1600(food_items, config, rfq_data, output_path):
     c.save()
 
 
-@bp.route("/api/download/<sol>/<filename>")
+@bp.route("/api/download/<path:sol>/<filename>")
 @auth_required
 def api_download_file(sol, filename):
     """Download a generated file."""
     import re as _re
-    # Sanitize inputs
-    sol = _re.sub(r'[^a-zA-Z0-9_-]', '', sol)
+    # Sanitize: block path traversal but preserve spaces
+    sol = sol.replace("..", "").replace("/", "").replace("\\", "")
     filename = os.path.basename(filename)
     filepath = os.path.join(OUTPUT_DIR, sol, filename)
     # Backwards compat: Compliance_Forms_ → RFQ_Package_ rename
