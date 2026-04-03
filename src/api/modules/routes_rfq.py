@@ -4438,6 +4438,7 @@ def generate_rfq_package(rid):
     try:
         from src.core.dal import create_package_manifest, log_lifecycle_event as _lle
 
+        log.info("PACKAGE %s: output_files=%s", rid, output_files)
         _gen_forms = []
         for _of in output_files:
             _fid = "unknown"
@@ -4461,6 +4462,8 @@ def generate_rfq_package(rid):
 
         _gen_ids = {f["form_id"] for f in _gen_forms}
         _missing = [f for f in _req_forms if f not in _gen_ids]
+        log.info("PACKAGE %s: gen_forms=%s | gen_ids=%s | missing=%s | req=%s",
+                 rid, [f["form_id"] for f in _gen_forms], _gen_ids, _missing, _req_forms)
 
         # ── Source validation: cross-reference email ──
         _source_val = None
