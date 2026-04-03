@@ -734,7 +734,7 @@
     function showMsg(text, type) {
      const el=document.getElementById('statusMsg');
      el.innerHTML='<div class="msg msg-'+type+'" style="animation:slideIn .3s ease">'+text+'</div>';
-     el.scrollIntoView({behavior:'smooth',block:'nearest'});
+     // Don't scroll — user is working in the table and shouldn't be interrupted
      if(type==='ok') setTimeout(()=>el.innerHTML='',5000);
     }
 
