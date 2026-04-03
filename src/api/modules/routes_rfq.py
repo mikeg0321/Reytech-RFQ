@@ -7841,16 +7841,20 @@ def api_rfq_refill_form(rid, form_id):
     # Map form_id → fill function + template + output filename
     TEMPLATE_DIR = os.path.join(DATA_DIR, "templates")
     FORM_MAP = {
-        "703b":         {"fn": "fill_703b",    "tmpl_key": "703b",    "filename": f"{sol}_703B_Reytech.pdf"},
-        "703c":         {"fn": "fill_703c",    "tmpl_key": "703c",    "filename": f"{sol}_703C_Reytech.pdf"},
-        "704b":         {"fn": "fill_704b",    "tmpl_key": "704b",    "filename": f"{sol}_704B_Reytech.pdf"},
-        "bidpkg":       {"fn": "fill_bid_package", "tmpl_key": "bidpkg", "filename": f"{sol}_BidPackage_Reytech.pdf"},
-        "calrecycle74": {"fn": "fill_calrecycle_standalone", "tmpl_file": "calrecycle_74_blank.pdf", "filename": f"{sol}_CalRecycle74_Reytech.pdf"},
-        "darfur":       {"fn": "fill_darfur_standalone", "tmpl_file": "darfur_act_blank.pdf", "filename": f"{sol}_DarfurAct_Reytech.pdf"},
-        "cv012_cuf":    {"fn": "fill_cv012_cuf", "tmpl_file": "cv012_cuf_blank.pdf", "filename": f"{sol}_CV012_CUF_Reytech.pdf"},
-        "std204":       {"fn": "fill_std204",  "tmpl_file": "std204_blank.pdf", "filename": f"{sol}_STD204_Reytech.pdf"},
-        "std1000":      {"fn": "fill_std1000", "tmpl_file": "std1000_blank.pdf", "filename": f"{sol}_STD1000_Reytech.pdf"},
-        "bidder_decl":  {"fn": "fill_bidder_declaration", "tmpl_file": "bidder_declaration_blank.pdf", "filename": f"{sol}_BidderDecl_Reytech.pdf"},
+        "703b":          {"fn": "fill_703b",    "tmpl_key": "703b",    "filename": f"{sol}_703B_Reytech.pdf"},
+        "703c":          {"fn": "fill_703c",    "tmpl_key": "703c",    "filename": f"{sol}_703C_Reytech.pdf"},
+        "704b":          {"fn": "fill_704b",    "tmpl_key": "704b",    "filename": f"{sol}_704B_Reytech.pdf"},
+        "bidpkg":        {"fn": "fill_bid_package", "tmpl_key": "bidpkg", "filename": f"{sol}_BidPackage_Reytech.pdf"},
+        "calrecycle74":  {"fn": "fill_calrecycle_standalone", "tmpl_file": "calrecycle_74_blank.pdf", "filename": f"{sol}_CalRecycle74_Reytech.pdf"},
+        "darfur_act":    {"fn": "fill_darfur_standalone", "tmpl_file": "darfur_act_blank.pdf", "filename": f"{sol}_DarfurAct_Reytech.pdf"},
+        "darfur":        {"fn": "fill_darfur_standalone", "tmpl_file": "darfur_act_blank.pdf", "filename": f"{sol}_DarfurAct_Reytech.pdf"},  # alias
+        "cv012_cuf":     {"fn": "fill_cv012_cuf", "tmpl_file": "cv012_cuf_blank.pdf", "filename": f"{sol}_CV012_CUF_Reytech.pdf"},
+        "std204":        {"fn": "fill_std204",  "tmpl_file": "std204_blank.pdf", "filename": f"{sol}_STD204_Reytech.pdf"},
+        "std205":        {"fn": "fill_std205",  "tmpl_file": "std205_blank.pdf", "filename": f"{sol}_STD205_Reytech.pdf"},
+        "std1000":       {"fn": "fill_std1000", "tmpl_file": "std1000_blank.pdf", "filename": f"{sol}_STD1000_Reytech.pdf"},
+        "bidder_decl":   {"fn": "fill_bidder_declaration", "tmpl_file": "bidder_declaration_blank.pdf", "filename": f"{sol}_BidderDecl_Reytech.pdf"},
+        "dvbe843":       {"fn": "generate_dvbe_843", "tmpl_file": "dvbe_843_blank.pdf", "filename": f"{sol}_DVBE843_Reytech.pdf", "no_template_arg": True},
+        "sellers_permit": {"fn": "_copy_static", "tmpl_file": "sellers_permit_reytech.pdf", "filename": f"{sol}_SellersPermit_Reytech.pdf", "static": True},
     }
 
     if form_id == "quote":
@@ -7876,10 +7880,20 @@ def api_rfq_refill_form(rid, form_id):
 
         # Call the fill function
         try:
-            import src.forms.reytech_filler_v4 as filler
-            fill_fn = getattr(filler, fm["fn"])
             output_path = os.path.join(out_dir, fm["filename"])
-            fill_fn(template_path, r, CONFIG, output_path)
+            if fm.get("static"):
+                # Static file — just copy the template (e.g., sellers_permit)
+                import shutil
+                shutil.copy2(template_path, output_path)
+            elif fm.get("no_template_arg"):
+                # Function generates from scratch (e.g., generate_dvbe_843)
+                import src.forms.reytech_filler_v4 as filler
+                fill_fn = getattr(filler, fm["fn"])
+                fill_fn(r, CONFIG, output_path)
+            else:
+                import src.forms.reytech_filler_v4 as filler
+                fill_fn = getattr(filler, fm["fn"])
+                fill_fn(template_path, r, CONFIG, output_path)
         except Exception as e:
             log.error("Refill %s failed: %s", form_id, e, exc_info=True)
             return jsonify({"ok": False, "error": f"Fill failed: {e}"}), 500
