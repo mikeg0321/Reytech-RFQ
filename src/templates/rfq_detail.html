@@ -618,7 +618,7 @@
   <div style="display:grid;grid-template-columns:60px 1fr;gap:8px;margin-bottom:10px;align-items:center">
    <label style="font-size:13px;color:var(--tx2);font-weight:600">To:</label>
    <div style="display:flex;gap:6px;align-items:center">
-    <input type="email" name="to" id="emailTo" value="{{r.get('requestor_email','') or (r.get('draft_email',{}).get('to','') if r.get('draft_email') else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
+    <input type="email" name="to" id="emailTo" value="{{r.get('original_sender','') or r.get('requestor_email','') or (r.get('draft_email',{}).get('to','') if r.get('draft_email') else '')}}" class="text-in" style="font-size:14px;padding:8px 12px;flex:1">
     <button type="button" class="btn btn-sm" onclick="document.getElementById('ccBccFields').style.display=document.getElementById('ccBccFields').style.display==='none'?'contents':'none'" style="font-size:14px;padding:4px 8px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)" aria-label="CC/BCC">CC/BCC ▾</button>
    </div>
    <div id="ccBccFields" style="display:none;grid-column:1/-1">
@@ -637,7 +637,10 @@
    {% set default_subj = draft_subj or reply_subj or ('Re: ' + (r.get('solicitation_number','') or 'Quote')) %}
    <input type="text" name="subject" id="emailSubject" value="{{default_subj}}" class="text-in" style="font-size:14px;padding:8px 12px">
   </div>
-  <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else ''}}</textarea>
+  {% set _buyer_name = (r.get('requestor_name','') or '').split(',')[0].split('@')[0].split()[0] if r.get('requestor_name') else 'Team' %}
+  {% set _sol = r.get('solicitation_number','') or '' %}
+  {% set _default_body = 'Dear ' + _buyer_name + ',\n\nPlease find attached our bid response for Solicitation #' + _sol + '.\n\nAll items are quoted F.O.B. Destination, freight prepaid and included. Pricing is valid for 45 calendar days from the due date.\n\nPlease let us know if you have any questions.\n\nThank you for the opportunity.' %}
+  <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else _default_body}}</textarea>
   
   <!-- Signature handled by Gmail — not included in app -->
   
@@ -652,12 +655,39 @@
   <input type="hidden" name="attach_files" id="attachFilesInput" value="">
   
   <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
-   <button type="submit" class="btn btn-o" style="font-size:14px;padding:10px 24px">📤 Send Now</button>
-   <button type="button" class="btn btn-s" style="font-size:14px;padding:10px 24px" onclick="saveDraft()">💾 Save to Gmail Draft</button>
-   <a id="mailAppLink" href="#" class="btn btn-s" style="font-size:13px;padding:8px 16px">📋 Open in Mail App</a>
+   <button type="button" id="rfqSendBtn" class="btn" style="font-size:14px;padding:10px 28px;background:#238636;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="rfqComposeSend()">📨 Send Quote</button>
    <span id="emailStatus" style="font-size:14px;color:var(--tx2)"></span>
   </div>
  </form>
+ <script>
+ function rfqComposeSend() {
+   var btn = document.getElementById('rfqSendBtn');
+   var toEl = document.getElementById('emailTo');
+   var subjEl = document.getElementById('emailSubject');
+   var bodyEl = document.getElementById('emailBody');
+   var statusEl = document.getElementById('emailStatus');
+   if (!toEl || !toEl.value.includes('@')) { alert('Enter a valid email address'); return; }
+   btn.disabled = true; btn.textContent = '⏳ Sending...';
+   if (statusEl) statusEl.textContent = '';
+   fetch('/api/rfq/{{rid}}/send-quote', {
+     method: 'POST', credentials: 'same-origin',
+     headers: {'Content-Type': 'application/json'},
+     body: JSON.stringify({to: toEl.value.trim(), subject: subjEl.value.trim(), body: bodyEl.value})
+   }).then(function(r){return r.json()}).then(function(d){
+     if (d.ok) {
+       btn.textContent = '✅ Sent!'; btn.style.background = '#238636';
+       if (statusEl) { statusEl.textContent = 'Sent to ' + toEl.value; statusEl.style.color = '#3fb950'; }
+       setTimeout(function(){ location.reload(); }, 2000);
+     } else {
+       btn.disabled = false; btn.textContent = '📨 Send Quote';
+       if (statusEl) { statusEl.textContent = '❌ ' + (d.error || 'Send failed'); statusEl.style.color = '#f85149'; }
+     }
+   }).catch(function(e){
+     btn.disabled = false; btn.textContent = '📨 Send Quote';
+     if (statusEl) { statusEl.textContent = '❌ Network error'; statusEl.style.color = '#f85149'; }
+   });
+ }
+ </script>
 </div>
 {% endif %}
 
