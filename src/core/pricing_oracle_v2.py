@@ -178,10 +178,11 @@ def _search_won_quotes(db, description, item_number=""):
         """, params).fetchall()
         for r in rows:
             p = r[1]
+            qty = r[2] or 1
             if p and p > 0:
-                prices.append({"price": p, "description": r[0], "quantity": r[2] or 1,
-                               "supplier": r[3] or "", "department": r[4] or "",
-                               "date": r[5] or "", "category": r[6] or "",
+                # Normalize to per-unit if quantity > 1 (SCPRS stores line totals)
+                per_unit = p / qty if qty > 1 else p
+                prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "source": "won_quotes",
                                "is_reytech": "REYTECH" in (r[3] or "").upper()})
     except Exception as e:
@@ -218,8 +219,11 @@ def _search_winning_prices(db, description, item_number=""):
         """, params).fetchall()
         for r in rows:
             p = r[1]
+            qty = r[2] or 1
             if p and p > 0:
-                prices.append({"price": p, "description": r[0], "quantity": r[2] or 1,
+                # sell_price should already be per-unit, but normalize just in case
+                per_unit = p / qty if qty > 1 and p > qty * 2 else p
+                prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "supplier": r[3] or "", "department": r[4] or "",
                                "date": r[5] or "", "cost": r[6] or 0,
                                "margin": r[7] or 0, "source": "winning_prices",
@@ -256,7 +260,10 @@ def _search_scprs_catalog(db, description, item_number=""):
         """, params).fetchall()
         for r in rows:
             if r[1] and r[1] > 0:
-                prices.append({"price": r[1], "description": r[0], "quantity": r[2] or 1,
+                qty = r[2] or 1
+                # Normalize to per-unit
+                per_unit = r[1] / qty if qty > 1 else r[1]
+                prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "uom": r[3] or "", "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "source": "scprs_catalog",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
@@ -294,8 +301,11 @@ def _search_po_lines(db, description, item_number=""):
             except (ValueError, TypeError):
                 continue
             if p > 0:
-                prices.append({"price": p, "description": r[0],
-                               "quantity": float(str(r[2] or "1").replace(",", "")),
+                qty = float(str(r[2] or "1").replace(",", ""))
+                # SCPRS unit_price is sometimes the line total — normalize
+                per_unit = p / qty if qty > 1 else p
+                prices.append({"price": per_unit, "description": r[0],
+                               "quantity": qty,
                                "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "buyer_email": r[7] or "",
                                "source": "scprs_po_lines",
