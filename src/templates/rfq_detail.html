@@ -630,35 +630,16 @@
     </div>
    </div>
    <label style="font-size:13px;color:var(--tx2);font-weight:600">Subject:</label>
-   {% set orig_subj = r.get('email_subject', '') %}
-   {% set reply_subj = ('Re: ' + orig_subj) if orig_subj and not orig_subj.startswith('Re:') else orig_subj %}
+   {% set _raw_subj = r.get('email_subject', '') or '' %}
+   {% set orig_subj = _raw_subj.replace('Re: ','').replace('RE: ','').replace('Fwd: ','').replace('FW: ','').replace('Fwd:','').replace('FW:','').strip() %}
+   {% set reply_subj = ('Re: ' + orig_subj) if orig_subj else '' %}
    {% set draft_subj = r.draft_email.subject if r.draft_email else '' %}
-   {% set default_subj = draft_subj or reply_subj or ('Reytech Inc. - Bid Response - Solicitation #' + r.get('solicitation_number','')) %}
+   {% set default_subj = draft_subj or reply_subj or ('Re: ' + (r.get('solicitation_number','') or 'Quote')) %}
    <input type="text" name="subject" id="emailSubject" value="{{default_subj}}" class="text-in" style="font-size:14px;padding:8px 12px">
   </div>
   <textarea name="body" id="emailBody" class="text-in" style="width:100%;min-height:260px;font-size:14px;line-height:1.6;padding:12px 14px;resize:vertical;font-family:'Segoe UI',system-ui,sans-serif">{{r.draft_email.body if r.draft_email else ''}}</textarea>
   
-  <!-- Email Signature -->
-  <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
-   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-    <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx);cursor:pointer">
-     <input type="checkbox" id="sigToggle" name="include_signature" value="1" checked onchange="toggleSigPreview()" style="accent-color:var(--ac)">
-     <span style="font-weight:600">Include Signature</span>
-    </label>
-    <button type="button" class="btn btn-sm" onclick="editSignature()" style="font-size:14px;padding:3px 8px" aria-label="Edit">✏️ Edit</button>
-   </div>
-   <div id="sigPreview" style="padding:8px 10px;background:var(--bg);border-radius:6px;border:1px solid var(--bd);font-size:14px;max-height:160px;overflow-y:auto"></div>
-   <div id="sigEditor" style="display:none;margin-top:6px">
-    <textarea id="sigHtml" class="text-in" style="width:100%;min-height:120px;font-size:14px;font-family:'JetBrains Mono',monospace;padding:8px;resize:vertical"></textarea>
-    <div style="display:flex;gap:6px;margin-top:6px;align-items:center;flex-wrap:wrap">
-     <button type="button" class="btn btn-sm btn-go" onclick="saveSignature()" style="font-size:14px" aria-label="Save Signature">💾 Save Signature</button>
-     <button type="button" class="btn btn-sm" onclick="cancelSigEdit()" style="font-size:14px" aria-label="Cancel">Cancel</button>
-     <button type="button" class="btn btn-sm" onclick="uploadSigLogo()" style="font-size:14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd)" aria-label="Upload Logo PNG">🖼️ Upload Logo PNG</button>
-     <input type="file" id="sigLogoFile" accept="image/png,image/jpeg,image/gif" style="display:none" onchange="handleSigLogoUpload(this)">
-     <span style="font-size:13px;color:var(--tx2)">Supports HTML: &lt;img&gt;, &lt;a&gt;, styles</span>
-    </div>
-   </div>
-  </div>
+  <!-- Signature handled by Gmail — not included in app -->
   
   <!-- Attachment Selector -->
   <div style="margin-top:12px;padding:12px;background:var(--sf2);border-radius:8px;border:1px solid var(--bd)">
