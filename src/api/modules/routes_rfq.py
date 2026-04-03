@@ -3816,10 +3816,16 @@ def generate_rfq_package(rid):
         # Helper: should this form be included?
         _user_forms = r.get("package_forms", {})
         def _include(form_id):
-            # User checklist overrides if set
+            # User checklist overrides if set — BUT if agency requires it, always include
+            if form_id in _req_forms:
+                # Agency requires this form — include regardless of user override
+                if form_id in _user_forms and not bool(_user_forms[form_id]):
+                    log.warning("FORM OVERRIDE: %s is required by %s but user disabled it — including anyway",
+                                form_id, _agency_key)
+                return True
             if form_id in _user_forms:
                 return bool(_user_forms[form_id])
-            return form_id in _req_forms
+            return False
 
         # ── Check buyer preferences before generating ──
         try:
