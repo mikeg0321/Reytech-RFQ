@@ -3982,22 +3982,27 @@ def generate_rfq_package(rid):
                 t.warn("Seller's Permit copy failed", error=str(e))
         
         # DVBE 843 — skip standalone if already inside bid package
+        log.info("FORM CHECK dvbe843: _include=%s, _843_in_bidpkg=%s", _include("dvbe843"), _843_in_bidpkg)
         if _include("dvbe843") and not _843_in_bidpkg:
             try:
                 from src.forms.reytech_filler_v4 import generate_dvbe_843
+                log.info("FORM GENERATING dvbe843 → %s/%s_DVBE843_Reytech.pdf", out_dir, sol)
                 generate_dvbe_843(r, CONFIG, f"{out_dir}/{sol}_DVBE843_Reytech.pdf")
                 output_files.append(f"{sol}_DVBE843_Reytech.pdf")
                 t.step("DVBE 843 generated (standalone)")
             except Exception as e:
+                log.error("FORM FAILED dvbe843: %s", e, exc_info=True)
                 errors.append(f"DVBE 843: {e}")
         elif _843_in_bidpkg and _include("dvbe843"):
             t.step("DVBE 843 skipped — already inside bid package")
         
         # CV 012 CUF (Cal Vet)
+        log.info("FORM CHECK cv012_cuf: _include=%s", _include("cv012_cuf"))
         if _include("cv012_cuf"):
             try:
                 from src.forms.reytech_filler_v4 import fill_cv012_cuf
                 cuf_tmpl = os.path.join(DATA_DIR, "templates", "cv012_cuf_blank.pdf")
+                log.info("FORM cv012_cuf: template exists=%s path=%s", os.path.exists(cuf_tmpl), cuf_tmpl)
                 if os.path.exists(cuf_tmpl):
                     fill_cv012_cuf(cuf_tmpl, r, CONFIG, f"{out_dir}/{sol}_CV012_CUF_Reytech.pdf")
                     output_files.append(f"{sol}_CV012_CUF_Reytech.pdf")
@@ -4006,6 +4011,7 @@ def generate_rfq_package(rid):
                     errors.append(f"CV 012 CUF: template not found at {cuf_tmpl}")
                     log.error("FORM TEMPLATE MISSING: %s", cuf_tmpl)
             except Exception as e:
+                log.error("FORM FAILED cv012_cuf: %s", e, exc_info=True)
                 t.warn("CV 012 CUF failed", error=str(e))
         
         # Barstow CUF (facility-specific)
@@ -4058,10 +4064,12 @@ def generate_rfq_package(rid):
                 t.warn("Darfur Act failed", error=str(e))
         
         # CalRecycle 74
+        log.info("FORM CHECK calrecycle74: _include=%s", _include("calrecycle74"))
         if _include("calrecycle74"):
             try:
                 from src.forms.reytech_filler_v4 import fill_calrecycle_standalone
                 cr_tmpl = os.path.join(DATA_DIR, "templates", "calrecycle_74_blank.pdf")
+                log.info("FORM calrecycle74: template exists=%s path=%s", os.path.exists(cr_tmpl), cr_tmpl)
                 if os.path.exists(cr_tmpl):
                     fill_calrecycle_standalone(cr_tmpl, r, CONFIG, f"{out_dir}/{sol}_CalRecycle74_Reytech.pdf")
                     output_files.append(f"{sol}_CalRecycle74_Reytech.pdf")
@@ -4070,6 +4078,7 @@ def generate_rfq_package(rid):
                     errors.append(f"CalRecycle 74: template not found at {cr_tmpl}")
                     log.error("FORM TEMPLATE MISSING: %s", cr_tmpl)
             except Exception as e:
+                log.error("FORM FAILED calrecycle74: %s", e, exc_info=True)
                 t.warn("CalRecycle 74 failed", error=str(e))
         
         # STD 1000 GenAI
