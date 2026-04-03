@@ -7,7 +7,6 @@
 <form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
  <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:6px 14px;font-size:14px;font-weight:600" onclick="return confirm('Delete this RFQ?')" aria-label="Delete">Delete</button>
 </form>
-<button type="button" onclick="if(confirm('Convert this RFQ to a Price Check? The RFQ will be marked as converted.')){fetch('/api/rfq/{{rid}}/convert-to-pc',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>{if(d.ok){window.location.href='/pricecheck/'+d.pc_id;}else{alert('Failed: '+(d.error||'unknown'));}}).catch(e=>alert('Error: '+e));}" class="btn btn-sm" style="background:rgba(251,191,36,.12);color:#d29922;border:1px solid rgba(251,191,36,.3);font-size:13px;padding:6px 14px;margin-left:6px;font-weight:600" title="This was mis-routed as an RFQ — convert it to a Price Check">Convert to PC</button>
 
 <!-- Preview Modal -->
 <div class="modal-overlay" id="previewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:1000;overflow-y:auto;padding:20px;justify-content:center;align-items:flex-start">
