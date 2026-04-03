@@ -398,16 +398,41 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
                 except (ValueError, TypeError):
                     pass
 
+        # Extract typical/list price (MSRP) — use as cost basis instead of sale price
+        typical = None
+        for _tp_field in ("typical_price", "list_price", "before_price"):
+            _tp = product.get(_tp_field)
+            if isinstance(_tp, dict):
+                _tv = _tp.get("value") or _tp.get("raw", "")
+                if _tv:
+                    try:
+                        typical = float(str(_tv).replace("$", "").replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
+            elif isinstance(_tp, (int, float)) and _tp > 0:
+                typical = float(_tp)
+            elif isinstance(_tp, str) and _tp:
+                try:
+                    typical = float(_tp.replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    pass
+            if typical and typical > 0:
+                break
+
         mfg_info = _extract_mfg_info(title, asin)
         result = {
             "title": title[:200],
-            "price": price,
+            "price": typical or price,  # MSRP first, sale price fallback
+            "list_price": typical,
+            "sale_price": price if typical and price and price < typical else None,
             "asin": asin,
             "url": f"https://www.amazon.com/dp/{asin}",
             "source": "amazon_product",
             "manufacturer": mfg_info.get("manufacturer", ""),
             "mfg_number": mfg_info.get("mfg_number", ""),
         }
+        if typical and price and price < typical:
+            result["discount_pct"] = round((1 - price / typical) * 100, 1)
         log.info(f"SerpApi product lookup: {asin} → ${price} '{title[:50]}'")
         return result
     except Exception as e:
