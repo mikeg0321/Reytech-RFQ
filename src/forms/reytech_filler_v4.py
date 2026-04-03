@@ -2679,12 +2679,19 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     items = rfq_data.get("line_items", [])
 
     # Common company fields (Date handled by _calrecycle_fix_date overlay)
+    # Clear buyer-area fields (Purchasing Agent, Phone, Email) — those are
+    # for the STATE agency to fill, not the supplier
     base_values = {
         "ContractorCompany Name": company["name"],
         "Address": company["address"],
         "Phone_2": company["phone"],
         "Print Name": company["owner"],
         "Title": company["title"],
+        # Blank out buyer fields — not our data to fill
+        "Purchasing Agent": " ",
+        "Phone": " ",
+        "E-mail": " ",
+        "PO": " ",
     }
 
     # Maximum chars for CalRecycle description field (246pt wide).
