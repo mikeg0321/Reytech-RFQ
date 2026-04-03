@@ -68,7 +68,7 @@ TWILIO_SID     = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN   = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_FROM    = os.environ.get("TWILIO_PHONE_NUMBER", "")
 
-SMS_ENABLED    = os.environ.get("NOTIFY_SMS", "true").lower() not in ("false","0","off")
+SMS_ENABLED    = os.environ.get("NOTIFY_SMS", "false").lower() not in ("false","0","off","no","disabled")
 EMAIL_ENABLED  = os.environ.get("NOTIFY_EMAIL_ALERTS", "true").lower() not in ("false","0","off")
 COOLDOWN_MIN   = int(os.environ.get("ALERT_COOLDOWN_MIN", "15"))
 
