@@ -4441,6 +4441,7 @@ def generate_rfq_package(rid):
             elif "dvbe" in _of_lower or "843" in _of_lower: _fid = "dvbe843"
             elif "darfur" in _of_lower: _fid = "darfur_act"
             elif "cuf" in _of_lower or "cv012" in _of_lower: _fid = "cv012_cuf"
+            elif "std205" in _of_lower: _fid = "std205"
             elif "std204" in _of_lower or "payee" in _of_lower: _fid = "std204"
             elif "std1000" in _of_lower: _fid = "std1000"
             elif "seller" in _of_lower or "permit" in _of_lower: _fid = "sellers_permit"
