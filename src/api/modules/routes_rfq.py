@@ -3982,7 +3982,7 @@ def generate_rfq_package(rid):
                 t.warn("Seller's Permit copy failed", error=str(e))
         
         # DVBE 843 — skip standalone if already inside bid package
-        log.info("FORM CHECK dvbe843: _include=%s, _843_in_bidpkg=%s", _include("dvbe843"), _843_in_bidpkg)
+        log.warning("XXXDEBUG dvbe843: include=%s bidpkg=%s req=%s", _include("dvbe843"), _843_in_bidpkg, "dvbe843" in _req_forms)
         if _include("dvbe843") and not _843_in_bidpkg:
             try:
                 from src.forms.reytech_filler_v4 import generate_dvbe_843
