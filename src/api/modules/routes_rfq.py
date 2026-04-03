@@ -3811,6 +3811,7 @@ def generate_rfq_package(rid):
             _req_forms = {"703b", "704b", "bidpkg", "quote"}
             _opt_forms = set()
             _agency_key = "cchcs"
+            _agency_cfg = {"name": "CCHCS / CDCR (fallback)", "required_forms": list(_req_forms)}
         
         # Helper: should this form be included?
         _user_forms = r.get("package_forms", {})
