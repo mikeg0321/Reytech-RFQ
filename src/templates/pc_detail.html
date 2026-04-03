@@ -18,8 +18,10 @@
      .totals{text-align:right;font-size:16px;margin-top:12px} .totals b{color:#3fb950}
      .num-in{width:82px;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px 8px;border-radius:5px;text-align:right;font-size:15px;font-weight:600;font-family:'JetBrains Mono','Segoe UI',system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:-0.3px}
      .num-in:focus{border-color:#58a6ff;outline:none;box-shadow:0 0 0 2px #1f6feb44}
-     html{scroll-padding-top:70px}
+     html{scroll-padding-top:70px;overflow-anchor:none}
      #itemsTable tr[data-row]{scroll-margin-top:70px}
+     /* Prevent browser auto-scroll bounce on focus within table */
+     #itemsTable input,#itemsTable textarea,#itemsTable select{scroll-margin-top:70px}
      .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
      .notes-row td{border-top:none!important;padding-top:0!important}
      #itemsTable{table-layout:auto;width:100%}
@@ -3031,7 +3033,17 @@
      });
     });
 
-    // ── FIX PAGE BOUNCE ON PASTE — prevent textarea auto-scroll ──
+    // ── FIX PAGE BOUNCE — prevent scroll jump on focus/paste in table ──
+    // The sticky margin strip causes the browser to overshoot when scrolling
+    // focused elements into view. Fix: lock scroll position on focus within table.
+    (function(){
+     var table = document.getElementById('itemsTable');
+     if (!table) return;
+     table.addEventListener('focusin', function(e) {
+      var scrollY = window.scrollY;
+      requestAnimationFrame(function(){ window.scrollTo(0, scrollY); });
+     });
+    })();
     document.addEventListener('paste',function(e){
      var el=e.target;
      if(el&&(el.tagName==='TEXTAREA'||el.tagName==='INPUT')){
