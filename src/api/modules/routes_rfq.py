@@ -19,7 +19,7 @@ import re as _re_mod
 def _validate_rid(rid: str):
     """Validate rfq_id to prevent path traversal. Returns None if valid,
     or a (response, status_code) tuple if invalid."""
-    if not rid or not _re_mod.match(r'^[a-zA-Z0-9_-]+$', rid):
+    if not rid or ".." in rid or "/" in rid or "\\" in rid:
         return jsonify({"ok": False, "error": "Invalid RFQ ID"}), 400
     return None
 
@@ -1482,6 +1482,14 @@ def detail(rid):
         return redirect(f"/pricecheck/{rid}")
     rfqs = load_rfqs()
     _r_orig = rfqs.get(rid)
+    # Fallback: search by solicitation_number if direct ID lookup fails
+    if not _r_orig:
+        for _frid, _fr in rfqs.items():
+            if (_fr.get("solicitation_number") == rid or _fr.get("rfq_number") == rid
+                    or _fr.get("id") == rid):
+                _r_orig = _fr
+                rid = _frid  # use the actual dict key
+                break
     if not _r_orig: flash("Not found", "error"); return redirect("/")
 
     # CRITICAL: deep copy for rendering — never mutate cached objects.
