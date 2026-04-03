@@ -220,7 +220,11 @@ def load_agency_configs():
 
 def match_agency(rfq_data):
     """Match an RFQ to an agency config based on agency name, email, institution, etc.
-    Also checks buyer history for learned agency preferences."""
+    Also checks buyer history for learned agency preferences.
+
+    Returns: (agency_key, agency_config_dict)
+    The config dict includes 'matched_by' with the pattern/source that triggered the match.
+    """
     configs = load_agency_configs()
 
     search_text = " ".join([
@@ -234,20 +238,28 @@ def match_agency(rfq_data):
         str(rfq_data.get("solicitation_number", "")),
         str(rfq_data.get("email_subject", "")),
     ]).upper()
-    
+
+    def _matched(key, cfg, pattern, source="pattern"):
+        cfg = dict(cfg)  # copy to avoid mutating
+        cfg["matched_by"] = f"{source}: '{pattern}'"
+        log.info("AGENCY_MATCH: %s → %s (matched by %s: '%s') | required_forms=%s",
+                 (rfq_data.get("institution") or rfq_data.get("agency") or "?")[:40],
+                 key, source, pattern, cfg.get("required_forms", []))
+        return key, cfg
+
     # Check Barstow before general CalVet (more specific first)
     for key in ["calvet_barstow", "dsh"]:
         cfg = configs.get(key, {})
         for pattern in cfg.get("match_patterns", []):
             if pattern in search_text:
-                return key, cfg
+                return _matched(key, cfg, pattern)
 
     for key, cfg in configs.items():
         if key in ("other", "calvet_barstow", "dsh"):
             continue
         for pattern in cfg.get("match_patterns", []):
             if pattern in search_text:
-                return key, cfg
+                return _matched(key, cfg, pattern)
 
     # Check buyer history — what agency did this buyer's past RFQs match?
     buyer_email = (rfq_data.get("requestor_email") or rfq_data.get("email_sender") or "").lower()
@@ -261,10 +273,12 @@ def match_agency(rfq_data):
                     ORDER BY received_at DESC LIMIT 1
                 """, (buyer_email,)).fetchone()
                 if row and row[0] in configs:
-                    return row[0], configs[row[0]]
+                    return _matched(row[0], configs[row[0]], buyer_email, "buyer_history")
         except Exception:
             pass
 
+    log.warning("AGENCY_MATCH: No match for '%s' — falling back to 'other' (minimal forms)",
+                (rfq_data.get("institution") or rfq_data.get("agency") or "?")[:40])
     return "other", configs["other"]
 
 

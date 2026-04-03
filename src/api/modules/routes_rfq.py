@@ -1641,15 +1641,28 @@ def detail(rid):
 
     # Pass agency required_forms so checkboxes default correctly
     _agency_req = set()
+    _agency_key = "other"
+    _agency_name = "Unknown"
+    _agency_matched_by = ""
     try:
         from src.core.agency_config import match_agency
         _ak, _ac = match_agency(r)
+        _agency_key = _ak
+        _agency_name = _ac.get("name", _ak)
+        _agency_matched_by = _ac.get("matched_by", "")
         _agency_req = set(_ac.get("required_forms", []))
+        # Store matched agency on RFQ for persistence
+        if _ak != "other" and r.get("agency_key") != _ak:
+            r["agency_key"] = _ak
+            r["agency_name_resolved"] = _agency_name
     except Exception:
         pass
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid,
-                       agency_required_forms=_agency_req)
+                       agency_required_forms=_agency_req,
+                       agency_key=_agency_key,
+                       agency_name=_agency_name,
+                       agency_matched_by=_agency_matched_by)
 
 
 @bp.route("/rfq/<rid>/review-package")
