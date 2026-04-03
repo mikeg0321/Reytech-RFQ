@@ -2690,8 +2690,10 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         # Blank out buyer fields — not our data to fill
         "Purchasing Agent": " ",
         "Phone": " ",
-        "E-mail": " ",
+        "Email": " ",
+        "E-mail": " ",  # alternate field name
         "PO": " ",
+        "State Agency": " ",
     }
 
     # Maximum chars for CalRecycle description field (246pt wide).
