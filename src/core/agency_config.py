@@ -2,6 +2,8 @@
 Agency package configurations — determines which forms each state agency requires.
 Standalone module (no Flask imports) so it can be imported from anywhere.
 """
+import logging
+log = logging.getLogger("reytech.agency_config")
 
 AVAILABLE_FORMS = [
     {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form"},
