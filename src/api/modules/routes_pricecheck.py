@@ -2927,9 +2927,11 @@ def api_pc_create_manual():
         "items": [],
     }
 
-    pcs = _load_price_checks()
-    pcs[pcid] = pc
-    _save_single_pc(pcid, pc)
+    try:
+        _save_single_pc(pcid, pc)
+    except Exception as e:
+        log.error("create-manual save failed: %s", e)
+        return jsonify({"ok": False, "error": f"Save failed: {e}"}), 500
 
     return jsonify({"ok": True, "pc_id": pcid, "sol": sol or inst})
 
