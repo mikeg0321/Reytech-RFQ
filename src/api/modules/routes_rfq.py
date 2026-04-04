@@ -2950,17 +2950,20 @@ def rfq_remove_item(rid, idx):
     if not r:
         return _item_response(rid, False, "RFQ not found")
 
-    items = r.get("line_items", [])
+    items = r.get("line_items") or r.get("items") or []
+    # Ensure canonical key is set
+    item_key = "line_items" if "line_items" in r else "items"
     if 0 <= idx < len(items):
         removed = items.pop(idx)
         _renumber_items(items)
+        r[item_key] = items
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
         _log_rfq_activity(rid, "item_removed",
             f"Line item removed: {removed.get('description','')[:60]}",
             actor="user")
         return _item_response(rid, True, "Item removed")
-    return _item_response(rid, False, "Invalid item index")
+    return _item_response(rid, False, f"Invalid item index {idx} (have {len(items)} items)")
 
 
 @bp.route("/rfq/<rid>/duplicate-item/<int:idx>", methods=["POST"])
@@ -2973,13 +2976,14 @@ def rfq_duplicate_item(rid, idx):
     if not r:
         return _item_response(rid, False, "RFQ not found")
 
-    items = r.get("line_items", [])
+    items = r.get("line_items") or r.get("items") or []
     if 0 <= idx < len(items):
         import copy
         dupe = copy.deepcopy(items[idx])
         dupe.pop("_catalog_product_id", None)
         items.insert(idx + 1, dupe)
         _renumber_items(items)
+        r["line_items"] = items
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
         return _item_response(rid, True, f"Item duplicated at #{idx + 2}")
@@ -2996,7 +3000,7 @@ def rfq_move_item(rid, idx, direction):
     if not r:
         return _item_response(rid, False, "RFQ not found")
 
-    items = r.get("line_items", [])
+    items = r.get("line_items") or r.get("items") or []
     if direction == "up" and idx > 0:
         items[idx], items[idx - 1] = items[idx - 1], items[idx]
     elif direction == "down" and idx < len(items) - 1:
@@ -3005,6 +3009,7 @@ def rfq_move_item(rid, idx, direction):
         return _item_response(rid, False, "Cannot move")
 
     _renumber_items(items)
+    r["line_items"] = items
     from src.api.dashboard import _save_single_rfq
     _save_single_rfq(rid, r)
     return _item_response(rid, True, f"Item moved {direction}")
@@ -3020,8 +3025,9 @@ def rfq_reset_items(rid):
     if not r:
         return _item_response(rid, False, "RFQ not found")
 
-    old_count = len(r.get("line_items", []))
+    old_count = len(r.get("line_items") or r.get("items") or [])
     r["line_items"] = []
+    r.pop("items", None)  # Remove legacy key to avoid confusion
     r.pop("linked_pc_id", None)
     r.pop("linked_pc_number", None)
     r.pop("linked_pc_match_reason", None)
