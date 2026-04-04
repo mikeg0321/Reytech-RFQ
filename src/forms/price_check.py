@@ -2544,26 +2544,40 @@ def fill_ams704(
     with open(fv_path, "w") as f:
         json.dump(field_values, f, indent=2)
 
-    # If items fit on page 1, trim the source template to 1 page before filling
+    # Adjust source template pages to match needed pages
     _fill_source = source_pdf
     _trimmed_tmp = None
-    if _pages_with_items < _pdf_total_pages:
-        try:
-            import tempfile as _tmpmod
-            from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW
-            _tr = _TrimR(source_pdf)
-            if len(_tr.pages) > _pages_with_items:
-                _tw = _TrimW()
-                for _tpi in range(_pages_with_items):
-                    _tw.add_page(_tr.pages[_tpi])
-                _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
-                _tw.write(_trimmed_tmp)
-                _trimmed_tmp.close()
-                _fill_source = _trimmed_tmp.name
-                log.info("fill_ams704: Trimmed source from %d to %d pages for fill",
-                         len(_tr.pages), _pages_with_items)
-        except Exception as _trim_e:
-            log.debug("Source trimming failed (non-fatal): %s", _trim_e)
+    try:
+        import tempfile as _tmpmod
+        from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW
+        _tr = _TrimR(source_pdf)
+        _src_pages = len(_tr.pages)
+        if _pages_with_items < _src_pages:
+            # Trim extra pages (items fit on fewer pages)
+            _tw = _TrimW()
+            for _tpi in range(_pages_with_items):
+                _tw.add_page(_tr.pages[_tpi])
+            _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
+            _tw.write(_trimmed_tmp)
+            _trimmed_tmp.close()
+            _fill_source = _trimmed_tmp.name
+            log.info("fill_ams704: Trimmed source from %d to %d pages", _src_pages, _pages_with_items)
+        elif _pages_with_items > _src_pages and _src_pages >= 2:
+            # Need MORE pages than template has — duplicate continuation page (page 2)
+            _tw = _TrimW()
+            for _tpi in range(_src_pages):
+                _tw.add_page(_tr.pages[_tpi])
+            # Duplicate the last page (continuation template) for extra pages
+            for _extra in range(_pages_with_items - _src_pages):
+                _tw.add_page(_tr.pages[-1])  # clone continuation page
+            _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
+            _tw.write(_trimmed_tmp)
+            _trimmed_tmp.close()
+            _fill_source = _trimmed_tmp.name
+            log.info("fill_ams704: Extended source from %d to %d pages (duplicated continuation)",
+                     _src_pages, _pages_with_items)
+    except Exception as _trim_e:
+        log.debug("Source page adjustment failed (non-fatal): %s", _trim_e)
 
     # Fill the PDF
     try:
