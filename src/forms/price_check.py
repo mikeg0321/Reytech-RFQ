@@ -2249,30 +2249,14 @@ def fill_ams704(
     # _pdf_fields already read above (before FOB check)
     _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
 
-    # Detect how many unsuffixed rows exist on page 1
-    # Some templates have 8 (standard), others have 11 (DocuSign expanded)
-    import re as _row_re
-    _max_unsuffixed_row = 0
-    for fname in _pdf_fields:
-        m = _row_re.search(r'Row(\d+)$', fname)  # ends with Row{n}, no suffix
-        if m:
-            _max_unsuffixed_row = max(_max_unsuffixed_row, int(m.group(1)))
-    _pg1_rows = _max_unsuffixed_row or 8  # default 8 if can't detect
-    log.info("fill_ams704: page 1 has %d unsuffixed rows, _has_suffix=%s", _pg1_rows, _has_suffix_fields)
-
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
-        # Map items to correct field suffix based on actual template layout
+        # For multi-page PDFs with _2 suffix fields: map items 9-16 to Row1_2-Row8_2
         _field_suffix = ""
-        if _has_suffix_fields and row > _pg1_rows:
-            # Items beyond page 1 → map to _2 suffix fields
-            _page2_row = row - _pg1_rows
-            if _page2_row > 8:
-                # Items beyond page 2 have no form fields (_3 doesn't exist).
-                # Skip — handled by _append_overflow_pages() after fill.
-                continue
-            _field_suffix = "_2"
-            row = _page2_row  # reset to 1-8 within page 2
+        if _has_suffix_fields and row > 8:
+            _page = ((row - 1) // 8) + 1  # page 2 for rows 9-16, page 3 for 17-24
+            _field_suffix = f"_{_page}" if _page > 1 else ""
+            row = ((row - 1) % 8) + 1  # reset to 1-8 within page
         elif row <= 8 and item_idx >= 8 and not _has_suffix_fields:
             # No suffix fields — use sequential numbering (Row9, Row10, etc.)
             row = item_idx + 1
@@ -2518,23 +2502,9 @@ def fill_ams704(
     if "SUPPLIER NAME" in _pdf_fields:
         field_values.append({"field_id": "SUPPLIER NAME", "page": 1, "value": info.get("company_name", "Reytech Inc.")})
 
-    # Detect page 1 row count from template (8 standard, 11 for DocuSign expanded)
-    import re as _pgr_re
-    _pg1_field_rows = 0
-    for fname in _pdf_fields:
-        m = _pgr_re.search(r'Row(\d+)$', fname)
-        if m:
-            _pg1_field_rows = max(_pg1_field_rows, int(m.group(1)))
-    _pg1_rows_for_calc = _pg1_field_rows or 8
-
     # Determine how many pages actually have items
     _max_item_row = max((it.get("row_index") or (i + 1) for i, it in enumerate(items)), default=0)
-    if _max_item_row <= _pg1_rows_for_calc:
-        _pages_with_items = 1
-    elif _max_item_row <= _pg1_rows_for_calc + 8:
-        _pages_with_items = 2
-    else:
-        _pages_with_items = 2 + ((_max_item_row - _pg1_rows_for_calc - 1) // 8) + 1
+    _pages_with_items = max(1, ((_max_item_row - 1) // 8) + 1) if _max_item_row > 0 else 1
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
     # Page numbering — set on pages with items, BLANK on empty pages
@@ -2574,39 +2544,32 @@ def fill_ams704(
     with open(fv_path, "w") as f:
         json.dump(field_values, f, indent=2)
 
-    # Adjust source template pages to match needed pages
+    # If items fit on page 1, trim the source template to 1 page before filling
     _fill_source = source_pdf
     _trimmed_tmp = None
-    try:
-        import tempfile as _tmpmod
-        from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW
-        _tr = _TrimR(source_pdf)
-        _src_pages = len(_tr.pages)
-        if _pages_with_items < _src_pages:
-            # Trim extra pages (items fit on fewer pages)
-            _tw = _TrimW()
-            for _tpi in range(_pages_with_items):
-                _tw.add_page(_tr.pages[_tpi])
-            _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
-            _tw.write(_trimmed_tmp)
-            _trimmed_tmp.close()
-            _fill_source = _trimmed_tmp.name
-            log.info("fill_ams704: Trimmed source from %d to %d pages", _src_pages, _pages_with_items)
-        # Pages 3+ handled AFTER fill by appending reportlab-drawn pages
-        # Do NOT duplicate page 2 — shared field objects corrupt both pages
-    except Exception as _trim_e:
-        log.debug("Source page adjustment failed (non-fatal): %s", _trim_e)
+    if _pages_with_items < _pdf_total_pages:
+        try:
+            import tempfile as _tmpmod
+            from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW
+            _tr = _TrimR(source_pdf)
+            if len(_tr.pages) > _pages_with_items:
+                _tw = _TrimW()
+                for _tpi in range(_pages_with_items):
+                    _tw.add_page(_tr.pages[_tpi])
+                _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
+                _tw.write(_trimmed_tmp)
+                _trimmed_tmp.close()
+                _fill_source = _trimmed_tmp.name
+                log.info("fill_ams704: Trimmed source from %d to %d pages for fill",
+                         len(_tr.pages), _pages_with_items)
+        except Exception as _trim_e:
+            log.debug("Source trimming failed (non-fatal): %s", _trim_e)
 
-    # Fill the PDF (form fields handle pages 1-2)
+    # Fill the PDF
     try:
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
-
-    # FOB checkbox is handled by _fill_pdf_fields form field fill.
-    # For DocuSign PDFs without /Btn fields, the checkbox cannot be checked
-    # via form fields — this is a known limitation. The buyer's template
-    # pre-selects FOB Destination in most cases.
     finally:
         # Clean up temp trimmed source
         if _trimmed_tmp:
@@ -2614,17 +2577,6 @@ def fill_ams704(
                 os.unlink(_trimmed_tmp.name)
             except Exception:
                 pass
-
-    # Pages 3+: append new pages with ALL content drawn by reportlab
-    # Form fields only exist for pages 1-2 (_2 suffix). Pages 3+ have no fields,
-    # so we draw everything (item#, qty, uom, desc, price, extension) from scratch.
-    _pg2_max_row = _pg1_rows_for_calc + 8  # max item row that fits on pages 1-2
-    if _max_item_row > _pg2_max_row and os.path.exists(output_pdf):
-        try:
-            _append_overflow_pages(output_pdf, field_values, items, _pages_with_items,
-                                    source_pdf, subtotal, _pg2_max_row)
-        except Exception as _oe:
-            log.warning("Overflow page append failed (pages 3+ may be missing): %s", _oe)
 
     # Post-fill page stripping removed — handled by pre-fill source trimming above
 
@@ -2648,255 +2600,12 @@ def fill_ams704(
     }
 
 
-def _append_overflow_pages(output_pdf, field_values, items, total_pages, source_pdf, subtotal, pg2_max_row=16):
-    """Append pages 3+ to a filled 2-page 704 PDF.
-
-    Creates new continuation pages using the source template's page 2 as the
-    visual background, then draws ALL item content via reportlab overlay.
-    No form fields — pure canvas drawing. No shared field conflicts.
+def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
     """
-    import io
-    from reportlab.pdfgen import canvas as rl_canvas
-
-    # Detect row coordinates from the source PDF
-    detected_rows, detected_px, detected_ex = _detect_row_coordinates(source_pdf)
-
-    # Get continuation page row positions (from page 2 of source)
-    cont_rows = detected_rows.get(1, [])  # page index 1 = page 2
-    if not cont_rows:
-        log.warning("_append_overflow_pages: no row coordinates detected on page 2")
-        return
-
-    price_x = detected_px or (637.0, 686.0)
-    ext_x = detected_ex or (691.0, 754.0)
-
-    # Column X positions from form field rects (measured from source)
-    # Use detected or hardcoded fallback
-    col_x = {}
-    try:
-        reader_src = PdfReader(source_pdf)
-        for annot_ref in (reader_src.pages[1].get("/Annots") or []):
-            obj = annot_ref.get_object()
-            name = str(obj.get("/T", ""))
-            rect = obj.get("/Rect")
-            if not rect:
-                continue
-            r = [float(x) for x in rect]
-            if "ITEM Row1_2" == name:
-                col_x["item"] = (r[0], r[2])
-            elif "QTYRow1_2" == name:
-                col_x["qty"] = (r[0], r[2])
-            elif "UNIT OF MEASURE" in name and "Row1_2" in name:
-                col_x["uom"] = (r[0], r[2])
-            elif "QTY PER UOM" in name and "Row1_2" in name:
-                col_x["qpu"] = (r[0], r[2])
-            elif "ITEM DESCRIPTION" in name and "Row1_2" in name:
-                col_x["desc"] = (r[0], r[2])
-    except Exception:
-        pass
-
-    # Fallback column positions
-    col_x.setdefault("item", (32.2, 62.3))
-    col_x.setdefault("qty", (64.1, 98.3))
-    col_x.setdefault("uom", (100.1, 152.3))
-    col_x.setdefault("qpu", (154.1, 197.3))
-    col_x.setdefault("desc", (199.1, 580.0))
-
-    # Read the filled 2-page output
-    reader_out = PdfReader(output_pdf)
-    writer = PdfWriter()
-    # Keep existing pages
-    for p in reader_out.pages:
-        writer.add_page(p)
-
-    # Also read the source template for the continuation page background
-    reader_tmpl = PdfReader(source_pdf)
-    cont_page_tmpl = reader_tmpl.pages[-1]  # last page = continuation template
-    pw = float(cont_page_tmpl.mediabox.width)
-    ph = float(cont_page_tmpl.mediabox.height)
-
-    # Items beyond what pages 1-2 can hold
-    overflow_items = []
-    for idx, item in enumerate(items):
-        row_idx = item.get("row_index") or (idx + 1)
-        if row_idx > pg2_max_row:
-            overflow_items.append((row_idx, item))
-
-    if not overflow_items:
-        return
-
-    items_per_page = min(len(cont_rows), 8)  # max 8 items per continuation page
-    page_num = 3  # start at page 3
-
-    for chunk_start in range(0, len(overflow_items), items_per_page):
-        chunk = overflow_items[chunk_start:chunk_start + items_per_page]
-
-        # Create overlay canvas
-        buf = io.BytesIO()
-        c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
-
-        # Draw supplier name
-        c.setFont("Helvetica", 12)
-        c.drawString(340, 530, "Reytech Inc.")
-
-        # Draw page number
-        c.setFont("Helvetica", 12)
-        c.drawString(690, 555, str(page_num))
-        c.drawString(735, 555, str(total_pages))
-
-        # Draw each item in this chunk
-        for slot_idx, (row_idx, item) in enumerate(chunk):
-            if slot_idx >= len(cont_rows):
-                break
-            y_bot, y_top = cont_rows[slot_idx]
-            y_mid = y_bot + (y_top - y_bot) * 0.3  # text baseline
-
-            p = item.get("pricing") or {}
-            desc = item.get("description", "")
-            qty = str(item.get("qty", 1))
-            uom = (item.get("uom") or "EA").upper()
-            qpu = str(item.get("qty_per_uom", 1))
-            price = item.get("unit_price") or p.get("recommended_price") or 0
-            ext = float(price) * float(item.get("qty", 1)) if price else 0
-
-            # Item number
-            c.setFont("Helvetica", 10)
-            x1, x2 = col_x["item"]
-            c.drawRightString(x2 - 2, y_mid, str(row_idx))
-
-            # QTY
-            x1, x2 = col_x["qty"]
-            c.drawRightString(x2 - 2, y_mid, qty)
-
-            # UOM
-            x1, x2 = col_x["uom"]
-            c.drawString(x1 + 2, y_mid, uom)
-
-            # QPU
-            x1, x2 = col_x["qpu"]
-            c.drawRightString(x2 - 2, y_mid, qpu)
-
-            # Description (auto-fit font)
-            x1, x2 = col_x["desc"]
-            fs = 9
-            c.setFont("Helvetica", fs)
-            while c.stringWidth(desc, "Helvetica", fs) > (x2 - x1 - 4) and fs > 5:
-                fs -= 0.5
-                c.setFont("Helvetica", fs)
-            c.drawString(x1 + 2, y_mid, desc[:80])
-
-            # Price
-            if price and float(price) > 0:
-                px1, px2 = price_x
-                c.setFont("Helvetica", 9)
-                price_str = f"{float(price):,.2f}"
-                c.drawRightString(px2 - 2, y_mid, price_str)
-
-            # Extension
-            if ext > 0:
-                ex1, ex2 = ext_x
-                c.setFont("Helvetica", 9)
-                ext_str = f"{ext:,.2f}"
-                c.drawRightString(ex2 - 2, y_mid, ext_str)
-
-        # Grand total on last overflow page
-        if chunk_start + items_per_page >= len(overflow_items):
-            c.setFont("Helvetica", 10)
-            c.drawRightString(ext_x[1] - 2, 107, f"{subtotal:,.2f}")
-
-        c.save()
-        buf.seek(0)
-
-        # Merge overlay onto a copy of the continuation template page
-        import copy
-        new_page = copy.deepcopy(cont_page_tmpl)
-        # Strip form field annotations from the copy to avoid shared field issues
-        if "/Annots" in new_page:
-            del new_page["/Annots"]
-
-        overlay_reader = PdfReader(buf)
-        if overlay_reader.pages:
-            new_page.merge_page(overlay_reader.pages[0])
-
-        writer.add_page(new_page)
-        page_num += 1
-
-    # Write the final multi-page PDF
-    with open(output_pdf, "wb") as f:
-        writer.write(f)
-
-    log.info("fill_ams704: Appended %d overflow page(s) for items 17+",
-             page_num - 3)
-
-
-def _detect_row_coordinates(source_pdf: str):
-    """Detect item row Y positions and column X ranges from the actual PDF.
-
-    Reads PRICE PER UNITRow{n} field /Rect annotations to get exact positions.
-    Falls back to hardcoded coordinates if no fields found.
-
-    Returns: (page_rows, price_x, ext_x)
-      page_rows: dict {page_idx: [(y_bot, y_top), ...]}
-      price_x: (x1, x2) for price column
-      ext_x: (x1, x2) for extension column
-    """
-    import re as _det_re
-    page_rows = {}
-    price_x = None
-    ext_x = None
-
-    try:
-        reader = PdfReader(source_pdf)
-        for pg_idx, page in enumerate(reader.pages):
-            rows = []
-            for annot_ref in (page.get("/Annots") or []):
-                try:
-                    obj = annot_ref.get_object()
-                    name = str(obj.get("/T", ""))
-                    rect = obj.get("/Rect")
-                    if not rect:
-                        continue
-                    r = [float(x) for x in rect]
-
-                    # Match PRICE PER UNITRow{n} or PRICE PER UNITRow{n}_2
-                    if "PRICE PER UNIT" in name and "Row" in name:
-                        rows.append((r[1], r[3]))  # (bottom, top) in PDF coords
-                        if price_x is None:
-                            price_x = (r[0], r[2])
-
-                    # Match EXTENSIONRow{n}
-                    if "EXTENSION" in name and "Row" in name and "GRAND" not in name:
-                        if ext_x is None:
-                            ext_x = (r[0], r[2])
-                except Exception:
-                    continue
-
-            if rows:
-                # Sort by Y descending (top of page first in reportlab coords)
-                rows.sort(key=lambda r: r[1], reverse=True)
-                page_rows[pg_idx] = rows
-
-    except Exception as e:
-        log.debug("_detect_row_coordinates: %s", e)
-
-    if page_rows:
-        log.info("COORD DETECT: Found rows on %d pages. price_x=%s ext_x=%s rows_per_page=%s",
-                 len(page_rows), price_x, ext_x,
-                 {k: len(v) for k, v in page_rows.items()})
-    else:
-        log.info("COORD DETECT: No fields found — will use hardcoded fallback")
-
-    return page_rows, price_x, ext_x
-
-
-def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str, pricing_only: bool = False):
-    """
-    Draw pricing overlay on AMS 704 PDFs.
-    Detects row coordinates dynamically from the source PDF's form fields.
-    Falls back to hardcoded coordinates if no fields found.
-
-    pricing_only=False: draws everything (supplier info, pricing, totals) — for flat PDFs
-    pricing_only=True: draws ONLY prices, extensions, page numbers — for after form field fill
+    Fallback for flat/DocuSign PDFs with no fillable form fields.
+    Uses exact coordinates from AMS 704 Rev 1/2019 template.
+    ONLY draws: supplier info + pricing + totals. Never touches item descriptions.
+    Page type by index: 0,2,4=page-1-format  1,3,5=continuation.
     """
     import io
     import re as _re
@@ -2908,11 +2617,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
 
     fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
 
-    # ═══ DYNAMIC COORDINATE DETECTION ═══
-    # Read actual row positions from this specific PDF's form field rects
-    _detected_rows, _detected_price_x, _detected_ext_x = _detect_row_coordinates(source_pdf)
-
-    # ═══ FALLBACK COORDINATES from Reytech AMS 704 template ═══
+    # ═══ COORDINATES from PC_Karaoke_Reytech.pdf (real AMS 704 template) ═══
     SUPPLIER_FIELDS = {
         # Row 1: full-height cells (no baked-in labels)
         "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
@@ -2956,32 +2661,21 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
     # Measured MAIN row boundaries (vertical border rects at x=620 and x=689):
     #   Item 1: bot=291.0  top=312.8    Item 2: bot=236.5  top=258.6    Item 3: bot=191.6  top=213.7
     # Previous coords were 9px too high → white mask crossed cell top border → erased lines
-    # Page 1: 8 item rows (measured from Reytech AMS 704 template via pdfplumber)
     PG1_ROWS = [
-        (322.5, 351.8),  # row 1
-        (300.1, 322.5),  # row 2
-        (277.6, 300.1),  # row 3
-        (255.2, 277.6),  # row 4
-        (232.7, 255.2),  # row 5
-        (210.3, 232.7),  # row 6
-        (187.9, 210.3),  # row 7
-        (165.4, 187.9),  # row 8
+        (292.0, 311.5),  # row 1 — cell (291.0, 312.8), 1pt inset
+        (237.5, 257.5),  # row 2 — cell (236.5, 258.6)
+        (192.5, 212.5),  # row 3 — cell (191.6, 213.7)
     ]
     # Continuation-format: 5 item rows on page 2
     # Measured MAIN row boundaries (rects at x=639 and x=689):
     #   Item 4: bot=456.4 top=485.2   Item 5: bot=397.9 top=426.7
     #   Item 6: bot=339.3 top=368.1   Item 7: bot=287.6 top=309.7   Item 8: bot=233.9 top=264.8
-    # Continuation page: 8 item rows (measured from actual DocuSign AMS 704)
-    # Coordinates measured via pdfplumber rects, converted to reportlab bottom-up Y
     PG2_ROWS = [
-        (431.3, 453.7),  # row 1 on continuation
-        (408.8, 431.3),  # row 2
-        (386.4, 408.8),  # row 3
-        (363.9, 386.4),  # row 4
-        (341.5, 363.9),  # row 5
-        (319.0, 341.5),  # row 6
-        (296.6, 319.0),  # row 7
-        (274.1, 296.6),  # row 8
+        (457.5, 484.0),  # row 4 — cell (456.4, 485.2)
+        (399.0, 425.5),  # row 5 — cell (397.9, 426.7)
+        (340.5, 367.0),  # row 6 — cell (339.3, 368.1)
+        (288.7, 308.5),  # row 7 — cell (287.6, 309.7)
+        (235.0, 263.5),  # row 8 — cell (233.9, 264.8)
     ]
     # Continuation header: SUPPLIER NAME area
     PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
@@ -3102,16 +2796,9 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
         def _sc(x1, y1, x2, y2):
             return (x1 * _scale_x, y1 * _scale_y, x2 * _scale_x, y2 * _scale_y)
 
-        # Page type: index 0 = page-1-format, all others = continuation
-        is_pg1 = (pg_idx == 0)
-        # Use dynamically detected rows if available, else hardcoded fallback
-        if pg_idx in _detected_rows:
-            rows = _detected_rows[pg_idx]
-        else:
-            rows = PG1_ROWS if is_pg1 else PG2_ROWS
-        # Use detected column positions if available
-        _eff_price_x = _detected_price_x or PRICE_X
-        _eff_ext_x = _detected_ext_x or EXT_X
+        # Page type: 0,2,4=page-1-format  1,3,5=continuation
+        is_pg1 = (pg_idx % 2 == 0)
+        rows = PG1_ROWS if is_pg1 else PG2_ROWS
 
         # Skip if all rows on this page are beyond our data
         page_first_row = current_row
@@ -3124,8 +2811,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
         drew = False
 
-        # ── SUPPLIER INFO + TOTALS (page-1 only, skip when pricing_only) ──
-        if is_pg1 and not pricing_only:
+        # ── SUPPLIER INFO (page-1-format only) ──
+        if is_pg1:
             for fname, (x1, y1, x2, y2) in SUPPLIER_FIELDS.items():
                 val = fv_map.get(fname, "")
                 if val:
@@ -3145,16 +2832,20 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
             if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
                 scx1, scy1, scx2, scy2 = _sc(cx1, cy1, cx2, cy2)
                 c.saveState()
+                # White background mask
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(scx1 + 2, scy1 + 2, scx2 - scx1 - 4, scy2 - scy1 - 4, fill=1, stroke=0)
+                # Draw X using vector lines — ZapfDingbats glyph "4" in DocuSign
+                # PDFs has inverted ascender (-22pt), making drawString unusable.
+                # c.line() uses coords directly with no font metric transforms.
                 _pad = 3
                 c.setStrokeColorRGB(0, 0, 0)
                 c.setLineWidth(1.5)
-                c.line(scx1 + _pad, scy1 + _pad, scx2 - _pad, scy2 - _pad)
-                c.line(scx1 + _pad, scy2 - _pad, scx2 - _pad, scy1 + _pad)
+                c.line(scx1 + _pad, scy1 + _pad, scx2 - _pad, scy2 - _pad)  # diagonal \
+                c.line(scx1 + _pad, scy2 - _pad, scx2 - _pad, scy1 + _pad)  # diagonal /
                 c.restoreState()
                 drew = True
-            # Totals
+            # Totals (first page only)
             if pg_idx == 0:
                 for fname, (x1, y1, x2, y2) in TOTALS.items():
                     val = fv_map.get(fname, "")
@@ -3170,105 +2861,29 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
             and ((it.get("row_index") or (i + 1)) <= 8 * (pg_idx + 1))
             for i, it in enumerate(items)
         ) if not is_pg1 else True
-        if not is_pg1 and _page_has_items and not pricing_only:
+        if not is_pg1 and _page_has_items:
             company = fv_map.get("COMPANY NAME", "")
             if company:
                 sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
                 _cell(c, sp0, sp1, sp2, sp3, company, fs=12)
                 drew = True
-            # Page numbering — draw correct "Page X of Y" over shared form fields
-            _total_filled_pages = max(pg_idx + 1 for pi in range(num_pages)
-                                       if pi == 0 or any(
-                                           ((it.get("row_index") or (i+1)) > 8 * pi)
-                                           and ((it.get("row_index") or (i+1)) <= 8 * (pi+1))
-                                           for i, it in enumerate(items)))
-            # Detect page number field positions from this page's annotations
-            _pg_rect = None
-            _of_rect = None
-            try:
-                for _ar in (reader.pages[pg_idx].get("/Annots") or []):
-                    _ao = _ar.get_object()
-                    _an = str(_ao.get("/T", ""))
-                    if _an == "Page" or _an == "Page_2":
-                        _pg_rect = [float(x) for x in _ao.get("/Rect", [0,0,0,0])]
-                    elif _an == "of" or _an == "of_2":
-                        _of_rect = [float(x) for x in _ao.get("/Rect", [0,0,0,0])]
-            except Exception:
-                pass
-            if _pg_rect:
-                _cell_right(c, _pg_rect[0], _pg_rect[1], _pg_rect[2], _pg_rect[3], str(pg_idx + 1), fs=12)
-                drew = True
-            if _of_rect:
-                _cell_right(c, _of_rect[0], _of_rect[1], _of_rect[2], _of_rect[3], str(_total_filled_pages), fs=12)
-                drew = True
         # Empty continuation pages are stripped entirely after fill (no overlay needed)
 
-        # ── ROW CONTENT ──
-        # Pages 1-2: overlay only draws PRICE + EXTENSION (form fields handle the rest)
-        # Pages 3+: overlay draws ALL content (no form fields exist for _3+ suffixes)
-        _needs_full_overlay = (pg_idx >= 2)  # page 3+ has no form fields
-
-        # Column X ranges for full overlay on pages 3+ (measured from form field rects)
-        ITEM_X = (32.2, 62.3)
-        QTY_X = (64.1, 98.3)
-        UOM_X = (100.1, 152.3)
-        QPU_X = (154.1, 197.3)
-        DESC_X = (199.1, 444.8)
-
+        # ── ROW PRICING: only PRICE PER UNIT + EXTENSION columns ──
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
-            _using_detected = (pg_idx in _detected_rows)
-            if _using_detected:
-                # Detected coords are in actual PDF space — no scaling needed
-                px1, px2 = _eff_price_x
-                ex1, ex2 = _eff_ext_x
-            else:
-                px1, _, px2, _ = _sc(_eff_price_x[0], 0, _eff_price_x[1], 0)
-                ex1, _, ex2, _ = _sc(_eff_ext_x[0], 0, _eff_ext_x[1], 0)
-            if _using_detected:
-                sy_bot, sy_top = y_bot, y_top  # already in PDF space
-            else:
-                sy_bot = y_bot * _scale_y
-                sy_top = y_top * _scale_y
-
-            # On pages 3+, draw ALL columns via overlay
-            if _needs_full_overlay:
-                # Map row number to the page-local row (1-8) and figure out suffix
-                _local_row = ((rn - 1) % 8) + 1
-                _page_num = ((rn - 1) // 8) + 1
-                _suffix = f"_{_page_num}" if _page_num > 1 else ""
-                # Find the item data from field_values (use suffixed field names)
-                for _col_name, _col_x, _align in [
-                    ("item_number", ITEM_X, "right"),
-                    ("qty", QTY_X, "right"),
-                    ("uom", UOM_X, "left"),
-                    ("qty_per_uom", QPU_X, "right"),
-                    ("description", DESC_X, "left"),
-                ]:
-                    fn_base = ROW_FIELDS.get(_col_name, "").format(n=_local_row) if _col_name in ROW_FIELDS else ""
-                    fn = fn_base + _suffix if fn_base else ""
-                    val = fv_map.get(fn, "") if fn else ""
-                    if val and val.strip():
-                        cx1, _, cx2, _ = _sc(_col_x[0], 0, _col_x[1], 0)
-                        if _align == "right":
-                            _cell_right(c, cx1, sy_bot, cx2, sy_top, val, fs=9)
-                        else:
-                            _cell(c, cx1, sy_bot, cx2, sy_top, val, fs=8)
-                        drew = True
-
-            # Price (always drawn by overlay on all pages)
-            # Use suffixed field name for pages 2+ (Row1_2, Row1_3, etc.)
-            if not _needs_full_overlay:
-                _local_row = ((rn - 1) % 8) + 1
-                _page_num = ((rn - 1) // 8) + 1
-                _suffix = f"_{_page_num}" if _page_num > 1 else ""
-            pf = ROW_FIELDS["unit_price"].format(n=_local_row) + _suffix
+            px1, _, px2, _ = _sc(PRICE_X[0], 0, PRICE_X[1], 0)
+            ex1, _, ex2, _ = _sc(EXT_X[0], 0, EXT_X[1], 0)
+            sy_bot = y_bot * _scale_y
+            sy_top = y_top * _scale_y
+            # Price
+            pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
                 _cell_right(c, px1, sy_bot, px2, sy_top, pv, fs=9)
                 drew = True
             # Extension
-            ef = ROW_FIELDS["extension"].format(n=_local_row) + _suffix
+            ef = ROW_FIELDS["extension"].format(n=rn)
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
                 _cell_right(c, ex1, sy_bot, ex2, sy_top, ev, fs=9)
@@ -3290,7 +2905,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
     pages_with_items = set()
     check_row = 1
     for pg_idx in range(len(reader.pages)):
-        is_pg1 = (pg_idx == 0)
+        is_pg1 = (pg_idx % 2 == 0)
         rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
         page_first = check_row
         page_last = check_row + rows_on_page - 1
