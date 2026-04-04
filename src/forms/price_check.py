@@ -2249,19 +2249,30 @@ def fill_ams704(
     # _pdf_fields already read above (before FOB check)
     _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
 
+    # Detect how many unsuffixed rows exist on page 1
+    # Some templates have 8 (standard), others have 11 (DocuSign expanded)
+    import re as _row_re
+    _max_unsuffixed_row = 0
+    for fname in _pdf_fields:
+        m = _row_re.search(r'Row(\d+)$', fname)  # ends with Row{n}, no suffix
+        if m:
+            _max_unsuffixed_row = max(_max_unsuffixed_row, int(m.group(1)))
+    _pg1_rows = _max_unsuffixed_row or 8  # default 8 if can't detect
+    log.info("fill_ams704: page 1 has %d unsuffixed rows, _has_suffix=%s", _pg1_rows, _has_suffix_fields)
+
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
-        # For multi-page PDFs with _2 suffix fields: map items 9-16 to Row1_2-Row8_2
+        # Map items to correct field suffix based on actual template layout
         _field_suffix = ""
-        if _has_suffix_fields and row > 8:
-            _page = ((row - 1) // 8) + 1  # page 2 for rows 9-16, page 3 for 17-24
-            if _page > 2:
-                # Items 17+ have no form fields (_3 suffix doesn't exist).
-                # Skip — these are handled by _append_overflow_pages() after fill.
-                # Writing to nonexistent _3 fields causes pypdf to overwrite page 1!
+        if _has_suffix_fields and row > _pg1_rows:
+            # Items beyond page 1 → map to _2 suffix fields
+            _page2_row = row - _pg1_rows
+            if _page2_row > 8:
+                # Items beyond page 2 have no form fields (_3 doesn't exist).
+                # Skip — handled by _append_overflow_pages() after fill.
                 continue
-            _field_suffix = f"_{_page}" if _page > 1 else ""
-            row = ((row - 1) % 8) + 1  # reset to 1-8 within page
+            _field_suffix = "_2"
+            row = _page2_row  # reset to 1-8 within page 2
         elif row <= 8 and item_idx >= 8 and not _has_suffix_fields:
             # No suffix fields — use sequential numbering (Row9, Row10, etc.)
             row = item_idx + 1
@@ -2507,9 +2518,23 @@ def fill_ams704(
     if "SUPPLIER NAME" in _pdf_fields:
         field_values.append({"field_id": "SUPPLIER NAME", "page": 1, "value": info.get("company_name", "Reytech Inc.")})
 
+    # Detect page 1 row count from template (8 standard, 11 for DocuSign expanded)
+    import re as _pgr_re
+    _pg1_field_rows = 0
+    for fname in _pdf_fields:
+        m = _pgr_re.search(r'Row(\d+)$', fname)
+        if m:
+            _pg1_field_rows = max(_pg1_field_rows, int(m.group(1)))
+    _pg1_rows_for_calc = _pg1_field_rows or 8
+
     # Determine how many pages actually have items
     _max_item_row = max((it.get("row_index") or (i + 1) for i, it in enumerate(items)), default=0)
-    _pages_with_items = max(1, ((_max_item_row - 1) // 8) + 1) if _max_item_row > 0 else 1
+    if _max_item_row <= _pg1_rows_for_calc:
+        _pages_with_items = 1
+    elif _max_item_row <= _pg1_rows_for_calc + 8:
+        _pages_with_items = 2
+    else:
+        _pages_with_items = 2 + ((_max_item_row - _pg1_rows_for_calc - 1) // 8) + 1
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
     # Page numbering — set on pages with items, BLANK on empty pages
@@ -2578,43 +2603,10 @@ def fill_ams704(
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
 
-    # FOB checkbox fallback: if no /Btn fields exist (DocuSign flat PDFs),
-    # draw the checkbox via overlay on page 1
-    try:
-        _fob_reader = PdfReader(output_pdf)
-        _has_btn = any(
-            str((a.get_object() or {}).get("/FT", "")) == "/Btn"
-            for p in _fob_reader.pages[:1]
-            for a in (p.get("/Annots") or [])
-        )
-        if not _has_btn:
-            # Detect FOB checkbox position from field rects or use hardcoded
-            import io as _fob_io
-            from reportlab.pdfgen import canvas as _fob_canvas
-            _fob_mb = _fob_reader.pages[0].mediabox
-            _fob_pw, _fob_ph = float(_fob_mb.width), float(_fob_mb.height)
-            # Search for the FOB checkbox area — it's near "FOB Destination, Freight Prepaid"
-            # Hardcoded position for standard AMS 704 layout
-            _fob_x, _fob_y = 241.0 * _fob_pw / 792.0, 127.5 * _fob_ph / 612.0
-            _fob_sz = 12
-            _fob_buf = _fob_io.BytesIO()
-            _fob_c = _fob_canvas.Canvas(_fob_buf, pagesize=(_fob_pw, _fob_ph))
-            _fob_c.setStrokeColorRGB(0, 0, 0)
-            _fob_c.setLineWidth(1.5)
-            _fob_c.line(_fob_x, _fob_y, _fob_x + _fob_sz, _fob_y + _fob_sz)
-            _fob_c.line(_fob_x, _fob_y + _fob_sz, _fob_x + _fob_sz, _fob_y)
-            _fob_c.save()
-            _fob_buf.seek(0)
-            _fob_overlay = PdfReader(_fob_buf)
-            _fob_writer = PdfWriter()
-            _fob_writer.append(_fob_reader)
-            if _fob_overlay.pages:
-                _fob_writer.pages[0].merge_page(_fob_overlay.pages[0])
-            with open(output_pdf, "wb") as _fob_f:
-                _fob_writer.write(_fob_f)
-            log.info("fill_ams704: FOB checkbox drawn via overlay (no /Btn fields)")
-    except Exception as _fob_e:
-        log.debug("FOB overlay fallback: %s", _fob_e)
+    # FOB checkbox is handled by _fill_pdf_fields form field fill.
+    # For DocuSign PDFs without /Btn fields, the checkbox cannot be checked
+    # via form fields — this is a known limitation. The buyer's template
+    # pre-selects FOB Destination in most cases.
     finally:
         # Clean up temp trimmed source
         if _trimmed_tmp:
@@ -2626,10 +2618,11 @@ def fill_ams704(
     # Pages 3+: append new pages with ALL content drawn by reportlab
     # Form fields only exist for pages 1-2 (_2 suffix). Pages 3+ have no fields,
     # so we draw everything (item#, qty, uom, desc, price, extension) from scratch.
-    if _pages_with_items > 2 and os.path.exists(output_pdf):
+    _pg2_max_row = _pg1_rows_for_calc + 8  # max item row that fits on pages 1-2
+    if _max_item_row > _pg2_max_row and os.path.exists(output_pdf):
         try:
             _append_overflow_pages(output_pdf, field_values, items, _pages_with_items,
-                                    source_pdf, subtotal)
+                                    source_pdf, subtotal, _pg2_max_row)
         except Exception as _oe:
             log.warning("Overflow page append failed (pages 3+ may be missing): %s", _oe)
 
@@ -2655,7 +2648,7 @@ def fill_ams704(
     }
 
 
-def _append_overflow_pages(output_pdf, field_values, items, total_pages, source_pdf, subtotal):
+def _append_overflow_pages(output_pdf, field_values, items, total_pages, source_pdf, subtotal, pg2_max_row=16):
     """Append pages 3+ to a filled 2-page 704 PDF.
 
     Creates new continuation pages using the source template's page 2 as the
@@ -2722,11 +2715,11 @@ def _append_overflow_pages(output_pdf, field_values, items, total_pages, source_
     pw = float(cont_page_tmpl.mediabox.width)
     ph = float(cont_page_tmpl.mediabox.height)
 
-    # Items on pages 3+ (index 16+)
+    # Items beyond what pages 1-2 can hold
     overflow_items = []
     for idx, item in enumerate(items):
         row_idx = item.get("row_index") or (idx + 1)
-        if row_idx > 16:
+        if row_idx > pg2_max_row:
             overflow_items.append((row_idx, item))
 
     if not overflow_items:
