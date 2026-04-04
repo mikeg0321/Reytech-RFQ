@@ -2888,21 +2888,63 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 drew = True
         # Empty continuation pages are stripped entirely after fill (no overlay needed)
 
-        # ── ROW PRICING: only PRICE PER UNIT + EXTENSION columns ──
+        # ── ROW CONTENT ──
+        # Pages 1-2: overlay only draws PRICE + EXTENSION (form fields handle the rest)
+        # Pages 3+: overlay draws ALL content (no form fields exist for _3+ suffixes)
+        _needs_full_overlay = (pg_idx >= 2)  # page 3+ has no form fields
+
+        # Column X ranges for full overlay on pages 3+
+        ITEM_X = (33.0, 55.0)
+        QTY_X = (55.0, 90.0)
+        UOM_X = (90.0, 148.0)
+        QPU_X = (148.0, 175.0)
+        DESC_X = (175.0, 580.0)
+
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
             px1, _, px2, _ = _sc(PRICE_X[0], 0, PRICE_X[1], 0)
             ex1, _, ex2, _ = _sc(EXT_X[0], 0, EXT_X[1], 0)
             sy_bot = y_bot * _scale_y
             sy_top = y_top * _scale_y
-            # Price
-            pf = ROW_FIELDS["unit_price"].format(n=rn)
+
+            # On pages 3+, draw ALL columns via overlay
+            if _needs_full_overlay:
+                # Map row number to the page-local row (1-8) and figure out suffix
+                _local_row = ((rn - 1) % 8) + 1
+                _page_num = ((rn - 1) // 8) + 1
+                _suffix = f"_{_page_num}" if _page_num > 1 else ""
+                # Find the item data from field_values (use suffixed field names)
+                for _col_name, _col_x, _align in [
+                    ("item_number", ITEM_X, "right"),
+                    ("qty", QTY_X, "right"),
+                    ("uom", UOM_X, "left"),
+                    ("qty_per_uom", QPU_X, "right"),
+                    ("description", DESC_X, "left"),
+                ]:
+                    fn_base = ROW_FIELDS.get(_col_name, "").format(n=_local_row) if _col_name in ROW_FIELDS else ""
+                    fn = fn_base + _suffix if fn_base else ""
+                    val = fv_map.get(fn, "") if fn else ""
+                    if val and val.strip():
+                        cx1, _, cx2, _ = _sc(_col_x[0], 0, _col_x[1], 0)
+                        if _align == "right":
+                            _cell_right(c, cx1, sy_bot, cx2, sy_top, val, fs=9)
+                        else:
+                            _cell(c, cx1, sy_bot, cx2, sy_top, val, fs=8)
+                        drew = True
+
+            # Price (always drawn by overlay on all pages)
+            # Use suffixed field name for pages 2+ (Row1_2, Row1_3, etc.)
+            if not _needs_full_overlay:
+                _local_row = ((rn - 1) % 8) + 1
+                _page_num = ((rn - 1) // 8) + 1
+                _suffix = f"_{_page_num}" if _page_num > 1 else ""
+            pf = ROW_FIELDS["unit_price"].format(n=_local_row) + _suffix
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
                 _cell_right(c, px1, sy_bot, px2, sy_top, pv, fs=9)
                 drew = True
             # Extension
-            ef = ROW_FIELDS["extension"].format(n=rn)
+            ef = ROW_FIELDS["extension"].format(n=_local_row) + _suffix
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
                 _cell_right(c, ex1, sy_bot, ex2, sy_top, ev, fs=9)
@@ -2924,7 +2966,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     pages_with_items = set()
     check_row = 1
     for pg_idx in range(len(reader.pages)):
-        is_pg1 = (pg_idx % 2 == 0)
+        is_pg1 = (pg_idx == 0)
         rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
         page_first = check_row
         page_last = check_row + rows_on_page - 1
