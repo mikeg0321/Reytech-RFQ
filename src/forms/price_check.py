@@ -2086,20 +2086,67 @@ def lookup_prices(parsed_pc: dict) -> dict:
 # ─── Fill AMS 704 PDF ────────────────────────────────────────────────────────
 
 
-def _detect_pg1_rows(pdf_fields: dict) -> int:
-    """Detect how many unsuffixed row fields page 1 has.
+def _detect_page_layout(pdf_fields: dict, source_pdf: str = None):
+    """Detect the AMS 704 page layout: how many rows on page 1, page 2 suffix rows,
+    and page 2 unsuffixed continuation rows.
 
-    Scans for QTYRow1, QTYRow2, ... QTYRowN (no suffix).
-    Returns the highest N found. The Reytech blank template has 11;
-    some older/DocuSign templates have 8. Falls back to 8 if unknown.
+    Returns (pg1_rows, pg2_suffix_rows, pg2_extra_rows) where:
+      pg1_rows: unsuffixed row fields physically on page 1 (usually 8)
+      pg2_suffix_rows: _2 suffix row fields on page 2 (usually 8)
+      pg2_extra_rows: unsuffixed row fields physically on page 2 (e.g. Row9-11 → 3)
+
+    The form_capacity = pg1_rows + pg2_suffix_rows + pg2_extra_rows (usually 19).
     """
-    import re as _det_re
+    pg1_rows = 0
+    pg2_extra_rows = 0
+    pg2_suffix_rows = 0
+
+    # Count _2 suffix rows from field names (always reliable)
+    for fname in pdf_fields:
+        m = re.search(r'QTYRow(\d+)_2$', fname)
+        if m:
+            pg2_suffix_rows = max(pg2_suffix_rows, int(m.group(1)))
+
+    # If we have the source PDF, check physical page of each unsuffixed annotation
+    if source_pdf:
+        try:
+            reader = PdfReader(source_pdf)
+            pg1_unsuf = set()
+            pg2_unsuf = set()
+            for pg_idx, page in enumerate(reader.pages[:2]):
+                for annot_ref in (page.get("/Annots") or []):
+                    try:
+                        obj = annot_ref.get_object()
+                        name = str(obj.get("/T", ""))
+                        m = re.search(r'QTYRow(\d+)$', name)
+                        if m:
+                            row_n = int(m.group(1))
+                            if pg_idx == 0:
+                                pg1_unsuf.add(row_n)
+                            else:
+                                pg2_unsuf.add(row_n)
+                    except Exception:
+                        pass
+            if pg1_unsuf:
+                pg1_rows = max(pg1_unsuf)
+                pg2_extra_rows = len(pg2_unsuf)
+                log.info("_detect_page_layout: pg1=%d unsuffixed on page 1, pg2_suffix=%d, "
+                         "pg2_extra=%d unsuffixed on page 2 (rows %s)",
+                         pg1_rows, pg2_suffix_rows, pg2_extra_rows, sorted(pg2_unsuf))
+                return pg1_rows, pg2_suffix_rows, pg2_extra_rows
+        except Exception as e:
+            log.debug("_detect_page_layout: annotation scan failed: %s", e)
+
+    # Fallback: count all unsuffixed field names, assume all on page 1
     max_unsuffixed = 0
     for fname in pdf_fields:
-        m = _det_re.search(r'QTYRow(\d+)$', fname)
+        m = re.search(r'QTYRow(\d+)$', fname)
         if m:
             max_unsuffixed = max(max_unsuffixed, int(m.group(1)))
-    return max_unsuffixed or 8
+    pg1_rows = max_unsuffixed or 8
+    log.info("_detect_page_layout: pg1=%d (fallback name scan), pg2_suffix=%d, pg2_extra=0",
+             pg1_rows, pg2_suffix_rows)
+    return pg1_rows, pg2_suffix_rows, 0
 
 
 def fill_ams704(
@@ -2266,29 +2313,35 @@ def fill_ams704(
     # _pdf_fields already read above (before FOB check)
     _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
 
-    # Detect page 1 row count from actual PDF fields (11 for Reytech template, 8 for some DocuSign)
-    _pg1_rows = _detect_pg1_rows(_pdf_fields)
-    _pg2_rows = 8  # Page 2 always has 8 rows (Row1_2 through Row8_2)
-    _form_capacity = _pg1_rows + _pg2_rows  # Total items fillable via form fields
-    log.info("fill_ams704: detected pg1_rows=%d, pg2_rows=%d, form_capacity=%d, has_suffix=%s",
-             _pg1_rows, _pg2_rows, _form_capacity, _has_suffix_fields)
+    # Detect page layout from actual PDF field positions
+    _pg1_rows, _pg2_rows, _pg2_extra = _detect_page_layout(_pdf_fields, source_pdf=source_pdf)
+    _form_capacity = _pg1_rows + _pg2_rows + _pg2_extra  # Total items fillable via form fields
+    log.info("fill_ams704: layout pg1=%d, pg2_suffix=%d, pg2_extra=%d, capacity=%d, has_suffix=%s",
+             _pg1_rows, _pg2_rows, _pg2_extra, _form_capacity, _has_suffix_fields)
 
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
         # Map items to correct form fields based on detected page layout
+        # Page 1: items 1.._pg1_rows → unsuffixed Row1..Row{_pg1_rows}
+        # Page 2 top: items _pg1_rows+1.._pg1_rows+_pg2_rows → _2 suffix Row1_2..Row{_pg2_rows}_2
+        # Page 2 bottom: items _pg1_rows+_pg2_rows+1..+_pg2_extra → unsuffixed Row{_pg1_rows+1}..
+        # Beyond: overflow pages (no form fields)
         _field_suffix = ""
         _page_num = 1
         if _has_suffix_fields and row > _pg1_rows:
-            # Item is beyond page 1 — map to page 2 (_2 suffix) or skip for overflow
-            _overflow_row = row - _pg1_rows  # 1-based within page-2+ space
-            _pg2_page = ((_overflow_row - 1) // _pg2_rows) + 1  # 1=page2, 2=page3...
-            if _pg2_page == 1:
+            _beyond_pg1 = row - _pg1_rows  # 1-based offset past page 1
+            if _beyond_pg1 <= _pg2_rows:
+                # Page 2 — _2 suffix fields (Row1_2 through Row{_pg2_rows}_2)
                 _field_suffix = "_2"
                 _page_num = 2
-                row = _overflow_row  # reset to 1-8 within page 2
+                row = _beyond_pg1
+            elif _beyond_pg1 <= _pg2_rows + _pg2_extra:
+                # Page 2 — unsuffixed continuation rows (Row9, Row10, Row11)
+                _field_suffix = ""
+                _page_num = 2
+                row = _pg1_rows + (_beyond_pg1 - _pg2_rows)  # maps to Row9, Row10, Row11
             else:
-                # Beyond page 2 — no form fields exist (_3+ don't exist in template)
-                # Will be handled by _append_overflow_pages() after fill
+                # Beyond all form fields — handled by _append_overflow_pages()
                 continue
         elif row > _pg1_rows and not _has_suffix_fields:
             # No suffix fields — use sequential numbering (Row9, Row10, etc.)
@@ -2550,6 +2603,21 @@ def fill_ams704(
                     })
                 _cleared += 1
 
+        # Page 2 extra unsuffixed rows (Row9-Row11 on page 2)
+        if _pg2_extra > 0:
+            for i in range(1, _pg2_extra + 1):
+                _unsuf_row = _pg1_rows + i  # Row9, Row10, Row11
+                _global_row = _pg1_rows + _pg2_rows + i
+                if _global_row in filled_rows:
+                    continue
+                for key, pattern in ROW_FIELDS.items():
+                    field_values.append({
+                        "field_id": pattern.format(n=_unsuf_row),
+                        "page": 2,
+                        "value": " ",
+                    })
+                _cleared += 1
+
         log.info("fill_ams704: cleared %d unused rows (filled: %d items + %d overflow)",
                  _cleared, len(occupied_rows), len(overflow_rows))
     else:
@@ -2574,15 +2642,17 @@ def fill_ams704(
         _pages_with_items = 1
     elif _max_item_row <= _pg1_rows:
         _pages_with_items = 1
-    elif _max_item_row <= _pg1_rows + _pg2_rows:
-        _pages_with_items = 2
+    elif _max_item_row <= _form_capacity:
+        _pages_with_items = 2  # pg2 suffix rows + pg2 extra unsuffixed all fit on page 2
     else:
-        # Pages 3+: each holds _pg2_rows items
-        _overflow = _max_item_row - _pg1_rows - _pg2_rows
+        # Pages 3+: overflow items beyond form capacity
+        _overflow = _max_item_row - _form_capacity
         _pages_with_items = 2 + ((_overflow - 1) // _pg2_rows) + 1
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
     # Page numbering — set on pages with items, BLANK on empty pages
+    # Track whether page-specific fields exist (if not, need overlay for page 2+)
+    _page_fields_are_shared = "Page" in _pdf_fields and "Page_2" not in _pdf_fields
     for pg in range(1, _pdf_total_pages + 1):
         suffix = "" if pg == 1 else f"_{pg}"
         page_field = f"Page{suffix}"
@@ -2603,6 +2673,9 @@ def fill_ams704(
             sup_field = f"SUPPLIER NAME{suffix}"
             if sup_field in _pdf_fields:
                 field_values.append({"field_id": sup_field, "page": pg, "value": " "})
+    # For shared Page/of fields: form fill sets page 1 value, overlay corrects page 2+
+    if _page_fields_are_shared and _pages_with_items >= 2:
+        log.info("fill_ams704: Page/of are shared fields — will overlay correct numbers on page 2+")
 
     # Multi-page: grand total on page 2 ONLY if page 2 has items
     if _pages_with_items >= 2 and _has_suffix_fields and "EXTENSIONENTER GRAND TOTAL ON FRONT PAGE" in _pdf_fields:
@@ -2654,6 +2727,13 @@ def fill_ams704(
             except Exception:
                 pass
 
+    # Fix shared Page/of fields: overlay correct numbers on page 2+
+    if _page_fields_are_shared and _pages_with_items >= 2 and os.path.exists(output_pdf):
+        try:
+            _fix_shared_page_numbers(output_pdf, source_pdf, _pages_with_items)
+        except Exception as _pne:
+            log.warning("fill_ams704: page number overlay failed: %s", _pne)
+
     # Pages 3+: append overflow pages with ALL content drawn by reportlab
     # Form fields only exist on pages 1-2. Pages 3+ need full overlay.
     if _max_item_row > _form_capacity and os.path.exists(output_pdf):
@@ -2663,7 +2743,7 @@ def fill_ams704(
                 items=items,
                 field_values=field_values,
                 source_pdf=source_pdf,
-                pg1_rows=_pg1_rows,
+                form_capacity=_form_capacity,
                 pg2_rows=_pg2_rows,
                 pages_with_items=_pages_with_items,
                 subtotal=subtotal,
@@ -2692,6 +2772,91 @@ def fill_ams704(
             "price_tier": price_tier,
         },
     }
+
+
+def _fix_shared_page_numbers(output_pdf: str, source_pdf: str, pages_with_items: int):
+    """Overlay correct page numbers on pages 2+ when Page/of are shared fields.
+
+    Shared PDF form fields show the same value on all pages. The form fill sets
+    Page="1" (correct for page 1), but page 2+ inherits "1" too. This function
+    detects the Page/of field positions from the source PDF and draws the correct
+    numbers via reportlab overlay on each continuation page.
+    """
+    import io
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    reader = PdfReader(output_pdf)
+    if len(reader.pages) < 2:
+        return
+
+    writer = PdfWriter()
+    writer.append(reader)
+
+    # Find Page and of field rects from source PDF page 2 (continuation page)
+    src_reader = PdfReader(source_pdf)
+    page_rect = None
+    of_rect = None
+    for annot_ref in (src_reader.pages[min(1, len(src_reader.pages) - 1)].get("/Annots") or []):
+        try:
+            obj = annot_ref.get_object()
+            name = str(obj.get("/T", ""))
+            rect = obj.get("/Rect")
+            if not rect:
+                continue
+            r = [float(x) for x in rect]
+            if name == "Page":
+                page_rect = r
+            elif name == "of":
+                of_rect = r
+        except Exception:
+            pass
+
+    if not page_rect and not of_rect:
+        log.debug("_fix_shared_page_numbers: no Page/of rects found on page 2")
+        return
+
+    modified = False
+    for pg_idx in range(1, len(writer.pages)):  # skip page 0 (correct already)
+        pg_num = pg_idx + 1
+        if pg_num > pages_with_items:
+            break
+
+        page = writer.pages[pg_idx]
+        pw = float(page.mediabox.width)
+        ph = float(page.mediabox.height)
+
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+
+        if page_rect:
+            # White mask over the shared field value, then draw correct number
+            x1, y1, x2, y2 = page_rect
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(x1 + 1, y1 + 1, x2 - x1 - 2, y2 - y1 - 2, fill=1, stroke=0)
+            c.setFillColorRGB(0, 0, 0)
+            c.setFont("Helvetica", 12)
+            c.drawRightString(x2 - 2, y1 + 2, str(pg_num))
+
+        if of_rect:
+            x1, y1, x2, y2 = of_rect
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(x1 + 1, y1 + 1, x2 - x1 - 2, y2 - y1 - 2, fill=1, stroke=0)
+            c.setFillColorRGB(0, 0, 0)
+            c.setFont("Helvetica", 12)
+            c.drawRightString(x2 - 2, y1 + 2, str(pages_with_items))
+
+        c.save()
+        buf.seek(0)
+
+        overlay = PdfReader(buf)
+        if overlay.pages:
+            page.merge_page(overlay.pages[0])
+            modified = True
+
+    if modified:
+        with open(output_pdf, "wb") as f:
+            writer.write(f)
+        log.info("_fix_shared_page_numbers: overlaid correct page numbers on pages 2-%d", pages_with_items)
 
 
 def _detect_row_y_positions(source_pdf: str, page_idx: int, suffix: str = ""):
@@ -2763,7 +2928,7 @@ def _append_overflow_pages(
     items: list,
     field_values: list,
     source_pdf: str,
-    pg1_rows: int,
+    form_capacity: int,
     pg2_rows: int,
     pages_with_items: int,
     subtotal: float,
@@ -2780,8 +2945,6 @@ def _append_overflow_pages(
     import io
     import copy
     from reportlab.pdfgen import canvas as rl_canvas
-
-    form_capacity = pg1_rows + pg2_rows
 
     # Detect row positions from page 2 of source (continuation page layout)
     cont_rows, price_x, ext_x, col_x = _detect_row_y_positions(source_pdf, 1, "_2")
@@ -3424,33 +3587,75 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
             auto_regenerate=True,
         )
 
+    # ── Check checkboxes: scan page annotations AND /Kids of parent fields ──
+    def _set_checkbox(annot_obj, desired):
+        """Set a checkbox widget to desired state ('Yes' or 'Off')."""
+        ap = annot_obj.get("/AP", {})
+        if hasattr(ap, 'get_object'):
+            ap = ap.get_object()
+        ap_n = ap.get("/N", {}) if isinstance(ap, dict) else {}
+        if hasattr(ap_n, 'get_object'):
+            ap_n = ap_n.get_object()
+        available = [str(k) for k in ap_n.keys() if str(k) != "/Off"] if isinstance(ap_n, dict) else []
+        if desired in ("Yes", "On", "1") and available:
+            on_state = available[0].lstrip("/")
+            annot_obj[NameObject("/V")] = NameObject(f"/{on_state}")
+            annot_obj[NameObject("/AS")] = NameObject(f"/{on_state}")
+            return True
+        elif desired in ("Yes", "On", "1"):
+            annot_obj[NameObject("/V")] = NameObject(f"/{desired}")
+            annot_obj[NameObject("/AS")] = NameObject(f"/{desired}")
+            return True
+        return False
+
+    _checked_fields = set()
+    # Method 1: scan page /Annots directly (works for simple checkbox widgets)
     for page in writer.pages:
         for annot_ref in (page.get("/Annots") or []):
             try:
                 annot = annot_ref.get_object()
                 name = str(annot.get("/T", ""))
                 if name in checkbox_fields:
-                    desired = checkbox_fields[name]  # "Yes" or "Off"
-                    # Find the correct appearance state name for "checked"
-                    # Different PDFs use: /Yes, /1, /On, or custom names
-                    ap = annot.get("/AP", {})
-                    ap_n = ap.get("/N", {}) if isinstance(ap, dict) else {}
-                    # Get all available states (keys in /AP/N dict)
-                    if isinstance(ap_n, dict):
-                        available = [str(k) for k in ap_n.keys() if str(k) != "/Off"]
-                    else:
-                        available = []
-                    if desired in ("Yes", "On", "1") and available:
-                        # Use the actual "on" state from the PDF (could be /1, /Yes, /On, etc.)
-                        on_state = available[0].lstrip("/")
-                        annot[NameObject("/V")] = NameObject(f"/{on_state}")
-                        annot[NameObject("/AS")] = NameObject(f"/{on_state}")
-                    else:
-                        # Fallback to standard names
-                        annot[NameObject("/V")] = NameObject(f"/{desired}")
-                        annot[NameObject("/AS")] = NameObject(f"/{desired}")
+                    if _set_checkbox(annot, checkbox_fields[name]):
+                        _checked_fields.add(name)
             except Exception:
                 pass
+
+    # Method 2: traverse AcroForm /Fields for parent fields with /Kids
+    # DocuSign PDFs use parent/child structure where the parent has /T and /FT=/Btn
+    # but the actual widget with /AP is in /Kids, not in page /Annots.
+    _unchecked = set(checkbox_fields.keys()) - _checked_fields
+    if _unchecked:
+        try:
+            acroform = writer._root_object.get("/AcroForm")
+            if acroform:
+                if hasattr(acroform, 'get_object'):
+                    acroform = acroform.get_object()
+                for field_ref in (acroform.get("/Fields") or []):
+                    try:
+                        field = field_ref.get_object()
+                        fname = str(field.get("/T", ""))
+                        if fname not in _unchecked:
+                            continue
+                        ft = str(field.get("/FT", ""))
+                        if ft != "/Btn":
+                            continue
+                        # Check /Kids for child widgets
+                        kids = field.get("/Kids", [])
+                        for kid_ref in kids:
+                            kid = kid_ref.get_object()
+                            if _set_checkbox(kid, checkbox_fields[fname]):
+                                _checked_fields.add(fname)
+                                log.info("_fill_pdf_fields: checked '%s' via /Kids widget", fname)
+                                break
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("_fill_pdf_fields: AcroForm /Kids checkbox scan failed: %s", e)
+
+    if _unchecked - _checked_fields:
+        log.warning("_fill_pdf_fields: unchecked checkbox fields (no widget found): %s",
+                     _unchecked - _checked_fields)
 
     _add_signature_to_pdf(writer, source_pdf_path=source_pdf)
 

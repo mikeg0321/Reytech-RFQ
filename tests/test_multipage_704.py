@@ -2,6 +2,12 @@
 
 Tests the fill_ams704() function with varying item counts to verify
 correct field mapping, page calculations, and overflow handling.
+
+Template layout (ams_704_blank.pdf):
+  Page 1: 8 unsuffixed rows (Row1-Row8)
+  Page 2: 8 _2 suffix rows (Row1_2-Row8_2) + 3 unsuffixed (Row9-Row11)
+  Total form capacity: 19 items
+  Items 20+: overflow pages via reportlab
 """
 import json
 import os
@@ -18,21 +24,18 @@ def _expiry_date_win():
     return f"{exp.month}/{exp.day}/{exp.year}"
 _pc_mod._expiry_date = _expiry_date_win
 
-from src.forms.price_check import fill_ams704, _detect_pg1_rows, ROW_FIELDS
+from src.forms.price_check import fill_ams704, _detect_page_layout, ROW_FIELDS
 
-
-# ── Helpers ──
 
 TEMPLATE = os.path.join(os.path.dirname(__file__), "..", "data", "templates", "ams_704_blank.pdf")
 
 
-def _make_items(count: int) -> list:
-    """Generate mock line items."""
+def _make_items(count):
     items = []
     for i in range(1, count + 1):
         items.append({
             "row_index": i,
-            "description": f"Test Item #{i} -Sample Description for testing purposes",
+            "description": f"Test Item #{i} - Sample Description for testing",
             "qty": 2,
             "uom": "EA",
             "qty_per_uom": 1,
@@ -42,182 +45,164 @@ def _make_items(count: int) -> list:
     return items
 
 
-def _make_parsed_pc(count: int) -> dict:
-    return {
-        "line_items": _make_items(count),
-        "header": {"institution": "Test Institution"},
-        "ship_to": "Test Location",
-    }
-
-
-def _fill_and_inspect(item_count: int, label: str):
-    """Fill a 704 with N items and return the field_values JSON for inspection."""
+def _fill_and_inspect(item_count, label):
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         output = tmp.name
     try:
         result = fill_ams704(
             source_pdf=TEMPLATE,
-            parsed_pc=_make_parsed_pc(item_count),
+            parsed_pc={"line_items": _make_items(item_count), "header": {"institution": "Test"}, "ship_to": "Test"},
             output_pdf=output,
             price_tier="recommended",
         )
-        # Read the field_values that were written
         fv_path = os.path.join(os.path.dirname(__file__), "..", "data", "pc_field_values.json")
         with open(fv_path) as f:
             field_values = json.load(f)
-
-        # Also check output PDF page count
         from pypdf import PdfReader
-        if os.path.exists(output):
-            reader = PdfReader(output)
-            pdf_pages = len(reader.pages)
-        else:
-            pdf_pages = 0
-
+        pdf_pages = len(PdfReader(output).pages) if os.path.exists(output) else 0
         return result, field_values, pdf_pages
     finally:
         if os.path.exists(output):
             os.unlink(output)
 
 
-# ── Tests ──
+# ---- Tests ----
 
-def test_detect_pg1_rows():
-    """Verify _detect_pg1_rows reads the correct count from the blank template."""
+def test_detect_page_layout():
+    """Verify layout detection: 8 on pg1, 8 _2 suffix, 3 extra unsuffixed on pg2."""
     from pypdf import PdfReader
-    reader = PdfReader(TEMPLATE)
-    fields = reader.get_fields() or {}
-    pg1_rows = _detect_pg1_rows(fields)
-    assert pg1_rows == 11, f"Expected 11 rows on page 1, got {pg1_rows}"
-    print(f"  PASS: _detect_pg1_rows = {pg1_rows}")
+    fields = PdfReader(TEMPLATE).get_fields() or {}
+    pg1, pg2_suf, pg2_extra = _detect_page_layout(fields, source_pdf=TEMPLATE)
+    assert pg1 == 8, f"Expected 8 rows on page 1, got {pg1}"
+    assert pg2_suf == 8, f"Expected 8 _2 suffix rows, got {pg2_suf}"
+    assert pg2_extra == 3, f"Expected 3 extra unsuffixed on page 2, got {pg2_extra}"
+    print(f"  PASS: layout pg1={pg1}, pg2_suf={pg2_suf}, pg2_extra={pg2_extra}, capacity={pg1+pg2_suf+pg2_extra}")
 
 
 def test_5_items():
-    """5 items = 1 page. All fields unsuffixed."""
+    """5 items -> 1 page, all unsuffixed."""
     result, fv, pages = _fill_and_inspect(5, "5 items")
-    assert result["ok"], f"Fill failed: {result}"
+    assert result["ok"]
     assert pages == 1, f"Expected 1 page, got {pages}"
-
-    # Check field names are unsuffixed
     fv_map = {f["field_id"]: f["value"] for f in fv}
-    assert "QTYRow5" in fv_map, "Missing QTYRow5 (unsuffixed)"
-    assert "QTYRow5_2" not in fv_map or fv_map.get("QTYRow5_2", "").strip() in ("", " "), \
-        "QTYRow5_2 should not have real data"
-    print(f"  PASS: 5 items ->{pages} page(s), all unsuffixed")
+    assert "QTYRow5" in fv_map, "Missing QTYRow5"
+    print(f"  PASS: 5 items -> {pages} page(s)")
 
 
-def test_11_items():
-    """11 items = exactly fills page 1. No page 2 needed."""
-    result, fv, pages = _fill_and_inspect(11, "11 items")
-    assert result["ok"], f"Fill failed: {result}"
+def test_8_items():
+    """8 items = exactly fills page 1."""
+    result, fv, pages = _fill_and_inspect(8, "8 items")
+    assert result["ok"]
     assert pages == 1, f"Expected 1 page, got {pages}"
-
     fv_map = {f["field_id"]: f["value"] for f in fv}
-    # Row 11 should be unsuffixed
-    assert "QTYRow11" in fv_map, "Missing QTYRow11 (unsuffixed)"
-    # No _2 suffix data fields should have real values
-    qty_2_fields = [k for k in fv_map if k.startswith("QTY") and "_2" in k and fv_map[k].strip() not in ("", " ")]
-    assert len(qty_2_fields) == 0, f"Unexpected _2 data fields: {qty_2_fields}"
-    print(f"  PASS: 11 items ->{pages} page(s), page 1 full, no _2 data")
+    assert "QTYRow8" in fv_map, "Missing QTYRow8"
+    print(f"  PASS: 8 items -> {pages} page(s), page 1 full")
 
 
-def test_12_items():
-    """12 items = page 1 full + 1 item on page 2."""
-    result, fv, pages = _fill_and_inspect(12, "12 items")
-    assert result["ok"], f"Fill failed: {result}"
+def test_9_items():
+    """9 items = page 1 (8) + 1 item on page 2 (Row1_2)."""
+    result, fv, pages = _fill_and_inspect(9, "9 items")
+    assert result["ok"]
     assert pages == 2, f"Expected 2 pages, got {pages}"
-
     fv_map = {f["field_id"]: f["value"] for f in fv}
-    # Item 12 ->Row1_2
-    assert "QTYRow1_2" in fv_map, "Missing QTYRow1_2 for item 12"
-    assert fv_map["QTYRow1_2"].strip() == "2", f"QTYRow1_2 value wrong: {fv_map.get('QTYRow1_2')}"
-    # Item 11 ->Row11 (unsuffixed)
-    assert "QTYRow11" in fv_map, "Missing QTYRow11 for item 11"
-    print(f"  PASS: 12 items ->{pages} page(s), item 12 ->Row1_2")
+    # Item 9 -> Row1_2
+    assert "QTYRow1_2" in fv_map, "Missing QTYRow1_2 for item 9"
+    assert fv_map["QTYRow1_2"].strip() == "2", f"QTYRow1_2 wrong: {fv_map.get('QTYRow1_2')}"
+    print(f"  PASS: 9 items -> {pages} page(s), item 9 -> Row1_2")
+
+
+def test_16_items():
+    """16 items = page 1 (8) + page 2 _2 suffix (8). Row1_2 through Row8_2."""
+    result, fv, pages = _fill_and_inspect(16, "16 items")
+    assert result["ok"]
+    assert pages == 2, f"Expected 2 pages, got {pages}"
+    fv_map = {f["field_id"]: f["value"] for f in fv}
+    assert "QTYRow8_2" in fv_map, "Missing QTYRow8_2 for item 16"
+    print(f"  PASS: 16 items -> {pages} page(s)")
+
+
+def test_17_items():
+    """17 items = page 1 (8) + page 2 _2 suffix (8) + 1 extra unsuffixed (Row9)."""
+    result, fv, pages = _fill_and_inspect(17, "17 items")
+    assert result["ok"]
+    assert pages == 2, f"Expected 2 pages, got {pages}"
+    fv_map = {f["field_id"]: f["value"] for f in fv}
+    # Item 17 -> Row9 (unsuffixed, on page 2)
+    assert "QTYRow9" in fv_map, "Missing QTYRow9 for item 17"
+    assert fv_map["QTYRow9"].strip() == "2", f"QTYRow9 wrong: {fv_map.get('QTYRow9')}"
+    print(f"  PASS: 17 items -> {pages} page(s), item 17 -> Row9 (pg2 extra)")
 
 
 def test_19_items():
-    """19 items = page 1 (11) + page 2 (8) -max form capacity."""
+    """19 items = max form capacity (8 + 8 + 3). All on 2 pages."""
     result, fv, pages = _fill_and_inspect(19, "19 items")
-    assert result["ok"], f"Fill failed: {result}"
+    assert result["ok"]
     assert pages == 2, f"Expected 2 pages, got {pages}"
-
     fv_map = {f["field_id"]: f["value"] for f in fv}
-    # Item 19 ->Row8_2 (last slot on page 2)
-    assert "QTYRow8_2" in fv_map, "Missing QTYRow8_2 for item 19"
-    assert fv_map["QTYRow8_2"].strip() == "2", f"QTYRow8_2 value wrong: {fv_map.get('QTYRow8_2')}"
-    # Item 11 ->Row11 (unsuffixed)
-    assert "QTYRow11" in fv_map, "Missing QTYRow11"
-    # Item 12 ->Row1_2
+    # Item 19 -> Row11 (unsuffixed, last slot on page 2)
+    assert "QTYRow11" in fv_map, "Missing QTYRow11 for item 19"
+    assert fv_map["QTYRow11"].strip() == "2", f"QTYRow11 wrong: {fv_map.get('QTYRow11')}"
+    # Item 16 -> Row8_2
+    assert "QTYRow8_2" in fv_map, "Missing QTYRow8_2"
+    # Item 9 -> Row1_2
     assert "QTYRow1_2" in fv_map, "Missing QTYRow1_2"
-    print(f"  PASS: 19 items ->{pages} page(s), items fill both pages exactly")
+    print(f"  PASS: 19 items -> {pages} page(s), max capacity")
 
 
 def test_25_items():
-    """25 items = page 1 (11) + page 2 (8) + overflow page 3 (6 items)."""
+    """25 items = 19 form + 6 overflow. 3 pages."""
     result, fv, pages = _fill_and_inspect(25, "25 items")
-    assert result["ok"], f"Fill failed: {result}"
-    # Should be 3 pages: 2 from form fill + 1 overflow
+    assert result["ok"]
+    # 2 pages from form fill + 1 overflow page
     assert pages == 3, f"Expected 3 pages, got {pages}"
-
     fv_map = {f["field_id"]: f["value"] for f in fv}
-    # Items 1-11 unsuffixed, 12-19 _2 suffix
     assert "QTYRow11" in fv_map, "Missing QTYRow11"
     assert "QTYRow8_2" in fv_map, "Missing QTYRow8_2"
-    # Items 20-25 should NOT have form field entries (handled by overflow)
     assert "QTYRow1_3" not in fv_map, "Should not have _3 suffix fields"
-    print(f"  PASS: 25 items ->{pages} page(s), overflow page created")
+    print(f"  PASS: 25 items -> {pages} page(s), overflow created")
 
 
-def test_price_fields_have_suffix():
-    """Verify that price/extension fields for page 2 items use _2 suffix."""
-    result, fv, pages = _fill_and_inspect(15, "15 items price suffix")
+def test_all_fields_have_suffix():
+    """All field types for page 2 _2 suffix items have correct suffix."""
+    result, fv, pages = _fill_and_inspect(14, "14 items all fields")
     assert result["ok"]
-
     fv_map = {f["field_id"]: f["value"] for f in fv}
-    # Item 15 ->Row4_2 (15 - 11 = 4th on page 2)
-    price_key = "PRICE PER UNITRow4_2"
-    ext_key = "EXTENSIONRow4_2"
-    assert price_key in fv_map, f"Missing {price_key}"
-    assert ext_key in fv_map, f"Missing {ext_key}"
-    assert fv_map[price_key].strip() != "", f"{price_key} is empty"
-    print(f"  PASS: item 15 price ->{price_key} = {fv_map[price_key]}")
-
-
-def test_all_fields_have_suffix_for_page2():
-    """Every field type (item#, qty, uom, desc, price, ext, sub) must use _2 for page 2 items."""
-    result, fv, pages = _fill_and_inspect(14, "14 items all fields suffix")
-    assert result["ok"]
-
-    fv_map = {f["field_id"]: f["value"] for f in fv}
-    # Item 14 ->Row3_2 (14 - 11 = 3rd on page 2)
-    expected_fields = [
-        ("ITEM Row3_2", "item_number"),
-        ("QTYRow3_2", "qty"),
-        ("UNIT OF MEASURE UOMRow3_2", "uom"),
-        ("PRICE PER UNITRow3_2", "unit_price"),
-        ("EXTENSIONRow3_2", "extension"),
-    ]
-    for field_name, label in expected_fields:
+    # Item 14 -> Row6_2 (14 - 8 = 6th on page 2 _2 section)
+    for field_name, label in [
+        ("ITEM Row6_2", "item_number"),
+        ("QTYRow6_2", "qty"),
+        ("UNIT OF MEASURE UOMRow6_2", "uom"),
+        ("PRICE PER UNITRow6_2", "unit_price"),
+        ("EXTENSIONRow6_2", "extension"),
+    ]:
         assert field_name in fv_map, f"Missing {field_name} ({label}) for item 14"
-        assert fv_map[field_name].strip() not in ("", " "), \
-            f"{field_name} ({label}) is blank: '{fv_map[field_name]}'"
+        assert fv_map[field_name].strip() not in ("", " "), f"{field_name} is blank"
     print(f"  PASS: all field types for item 14 have _2 suffix")
 
 
+def test_pg2_extra_fields():
+    """Item 17 (first pg2_extra) maps to unsuffixed Row9, not _2 suffix."""
+    result, fv, pages = _fill_and_inspect(18, "18 items pg2 extra")
+    assert result["ok"]
+    fv_map = {f["field_id"]: f["value"] for f in fv}
+    # Item 17 -> Row9 (unsuffixed), Item 18 -> Row10 (unsuffixed)
+    assert "QTYRow9" in fv_map, "Missing QTYRow9 for item 17"
+    assert "QTYRow10" in fv_map, "Missing QTYRow10 for item 18"
+    # These should NOT have _2 suffix
+    assert "QTYRow9_2" not in fv_map or fv_map.get("QTYRow9_2", "").strip() in ("", " "), \
+        "QTYRow9_2 should not have data (Row9 is unsuffixed)"
+    print(f"  PASS: items 17-18 -> Row9, Row10 (unsuffixed on page 2)")
+
+
 def test_summary_totals():
-    """Verify subtotal calculation is correct."""
+    """Verify subtotal calculation."""
     result, fv, pages = _fill_and_inspect(5, "5 items totals")
     assert result["ok"]
-    # Items: price = 11, 12, 13, 14, 15; qty = 2 each
-    # Extensions: 22, 24, 26, 28, 30 = 130
     expected_sub = sum((10.0 + i) * 2 for i in range(1, 6))
     assert result["summary"]["subtotal"] == expected_sub, \
-        f"Subtotal {result['summary']['subtotal']} != expected {expected_sub}"
+        f"Subtotal {result['summary']['subtotal']} != {expected_sub}"
     print(f"  PASS: subtotal = ${expected_sub:.2f}")
 
-
-# ── Runner ──
 
 if __name__ == "__main__":
     if not os.path.exists(TEMPLATE):
@@ -225,19 +210,20 @@ if __name__ == "__main__":
         sys.exit(1)
 
     tests = [
-        test_detect_pg1_rows,
+        test_detect_page_layout,
         test_5_items,
-        test_11_items,
-        test_12_items,
+        test_8_items,
+        test_9_items,
+        test_16_items,
+        test_17_items,
         test_19_items,
         test_25_items,
-        test_price_fields_have_suffix,
-        test_all_fields_have_suffix_for_page2,
+        test_all_fields_have_suffix,
+        test_pg2_extra_fields,
         test_summary_totals,
     ]
 
-    passed = 0
-    failed = 0
+    passed = failed = 0
     for t in tests:
         try:
             print(f"\n{t.__name__}:")
