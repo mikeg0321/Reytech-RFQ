@@ -2085,6 +2085,23 @@ def lookup_prices(parsed_pc: dict) -> dict:
 
 # ─── Fill AMS 704 PDF ────────────────────────────────────────────────────────
 
+
+def _detect_pg1_rows(pdf_fields: dict) -> int:
+    """Detect how many unsuffixed row fields page 1 has.
+
+    Scans for QTYRow1, QTYRow2, ... QTYRowN (no suffix).
+    Returns the highest N found. The Reytech blank template has 11;
+    some older/DocuSign templates have 8. Falls back to 8 if unknown.
+    """
+    import re as _det_re
+    max_unsuffixed = 0
+    for fname in pdf_fields:
+        m = _det_re.search(r'QTYRow(\d+)$', fname)
+        if m:
+            max_unsuffixed = max(max_unsuffixed, int(m.group(1)))
+    return max_unsuffixed or 8
+
+
 def fill_ams704(
     source_pdf: str,
     parsed_pc: dict,
@@ -2249,15 +2266,31 @@ def fill_ams704(
     # _pdf_fields already read above (before FOB check)
     _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
 
+    # Detect page 1 row count from actual PDF fields (11 for Reytech template, 8 for some DocuSign)
+    _pg1_rows = _detect_pg1_rows(_pdf_fields)
+    _pg2_rows = 8  # Page 2 always has 8 rows (Row1_2 through Row8_2)
+    _form_capacity = _pg1_rows + _pg2_rows  # Total items fillable via form fields
+    log.info("fill_ams704: detected pg1_rows=%d, pg2_rows=%d, form_capacity=%d, has_suffix=%s",
+             _pg1_rows, _pg2_rows, _form_capacity, _has_suffix_fields)
+
     for item_idx, item in enumerate(items):
         row = item.get("row_index") or (item_idx + 1)  # default to 1-based position
-        # For multi-page PDFs with _2 suffix fields: map items 9-16 to Row1_2-Row8_2
+        # Map items to correct form fields based on detected page layout
         _field_suffix = ""
-        if _has_suffix_fields and row > 8:
-            _page = ((row - 1) // 8) + 1  # page 2 for rows 9-16, page 3 for 17-24
-            _field_suffix = f"_{_page}" if _page > 1 else ""
-            row = ((row - 1) % 8) + 1  # reset to 1-8 within page
-        elif row <= 8 and item_idx >= 8 and not _has_suffix_fields:
+        _page_num = 1
+        if _has_suffix_fields and row > _pg1_rows:
+            # Item is beyond page 1 — map to page 2 (_2 suffix) or skip for overflow
+            _overflow_row = row - _pg1_rows  # 1-based within page-2+ space
+            _pg2_page = ((_overflow_row - 1) // _pg2_rows) + 1  # 1=page2, 2=page3...
+            if _pg2_page == 1:
+                _field_suffix = "_2"
+                _page_num = 2
+                row = _overflow_row  # reset to 1-8 within page 2
+            else:
+                # Beyond page 2 — no form fields exist (_3+ don't exist in template)
+                # Will be handled by _append_overflow_pages() after fill
+                continue
+        elif row > _pg1_rows and not _has_suffix_fields:
             # No suffix fields — use sequential numbering (Row9, Row10, etc.)
             row = item_idx + 1
         if row < 1 or row > max_row:
@@ -2294,7 +2327,6 @@ def fill_ams704(
                     items_priced += 1
                     price_field = ROW_FIELDS["unit_price"].format(n=row) + _field_suffix
                     ext_field = ROW_FIELDS["extension"].format(n=row) + _field_suffix
-                    _page_num = int(_field_suffix.replace("_", "")) if _field_suffix else 1
                     field_values.append({"field_id": price_field, "page": _page_num, "value": f"{unit_price:,.2f}"})
                     field_values.append({"field_id": ext_field, "page": _page_num, "value": f"{extension:,.2f}"})
                     log.info("fill_ams704 ORIGINAL row=%d idx=%d: price=%.2f qty=%d ext=%.2f",
@@ -2313,18 +2345,18 @@ def fill_ams704(
         # These fields appear on every 704 regardless of pricing status
 
         # ITEM NUMBER field: sequential line numbers (1, 2, 3...)
-        item_num_field = ROW_FIELDS["item_number"].format(n=row)
+        item_num_field = ROW_FIELDS["item_number"].format(n=row) + _field_suffix
         field_values.append({
             "field_id": item_num_field,
-            "page": 1,
+            "page": _page_num,
             "value": str(seq),
         })
 
         # QTY field
-        qty_field = ROW_FIELDS["qty"].format(n=row)
+        qty_field = ROW_FIELDS["qty"].format(n=row) + _field_suffix
         field_values.append({
             "field_id": qty_field,
-            "page": 1,
+            "page": _page_num,
             "value": str(qty),
         })
 
@@ -2336,7 +2368,7 @@ def fill_ams704(
         desc_clean = clean_description(desc_source) if desc_source else ""
         desc_final = desc_clean or desc_source
         if desc_final:
-            desc_field = ROW_FIELDS["description"].format(n=row)
+            desc_field = ROW_FIELDS["description"].format(n=row) + _field_suffix
             # Always append MFG# to PDF description so purchasing sees the part number
             mfg_num = (item.get("mfg_number") or pricing.get("mfg_number") 
                        or pricing.get("manufacturer_part") or "")
@@ -2353,8 +2385,10 @@ def fill_ams704(
             # Description overflow into next empty row
             DESC_CHAR_LIMIT = 140
             if len(desc_final) > DESC_CHAR_LIMIT:
-                next_row = row + 1
-                if next_row <= max_row and next_row not in occupied_rows and next_row not in overflow_rows:
+                # Compute the global next_row for overflow check
+                _global_row = (row + _pg1_rows) if _field_suffix == "_2" else row
+                _global_next = _global_row + 1
+                if _global_next <= max_row and _global_next not in occupied_rows and _global_next not in overflow_rows:
                     split_at = DESC_CHAR_LIMIT
                     for break_char in ['\n', ', ', ' ']:
                         pos = desc_final.rfind(break_char, 0, split_at + 10)
@@ -2364,27 +2398,41 @@ def fill_ams704(
                     part1 = desc_final[:split_at].rstrip()
                     part2 = desc_final[split_at:].lstrip()
                     if part2:
-                        overflow_field = ROW_FIELDS["description"].format(n=next_row)
-                        field_values.append({
-                            "field_id": overflow_field,
-                            "page": 1,
-                            "value": part2,
-                        })
-                        overflow_rows.add(next_row)
-                        desc_final = part1
-                        log.info("fill_ams704 row=%d: desc overflow into row %d (%d chars)", row, next_row, len(part2))
+                        # Determine overflow field name respecting page boundaries
+                        _ovf_suffix = _field_suffix
+                        _ovf_row = row + 1
+                        _ovf_page = _page_num
+                        if _field_suffix == "" and _ovf_row > _pg1_rows and _has_suffix_fields:
+                            # Crossed from page 1 to page 2
+                            _ovf_suffix = "_2"
+                            _ovf_row = 1
+                            _ovf_page = 2
+                        elif _field_suffix == "_2" and _ovf_row > _pg2_rows:
+                            # Beyond page 2 — can't overflow via form fields
+                            _ovf_suffix = None
+                        if _ovf_suffix is not None:
+                            overflow_field = ROW_FIELDS["description"].format(n=_ovf_row) + _ovf_suffix
+                            field_values.append({
+                                "field_id": overflow_field,
+                                "page": _ovf_page,
+                                "value": part2,
+                            })
+                            overflow_rows.add(_global_next)
+                            desc_final = part1
+                            log.info("fill_ams704 row=%d: desc overflow into global row %d (%d chars)",
+                                     _global_row, _global_next, len(part2))
             field_values.append({
                 "field_id": desc_field,
-                "page": 1,
+                "page": _page_num,
                 "value": desc_final,
             })
 
         # UOM (uppercase)
         uom_val = (item.get("uom") or "EA").upper()
-        uom_field = ROW_FIELDS["uom"].format(n=row)
+        uom_field = ROW_FIELDS["uom"].format(n=row) + _field_suffix
         field_values.append({
             "field_id": uom_field,
-            "page": 1,
+            "page": _page_num,
             "value": uom_val,
         })
 
@@ -2397,14 +2445,14 @@ def fill_ams704(
             log.info("fill_ams704 row=%d: desc WRITTEN, but NO PRICE (desc='%s')",
                      row, (desc_final or "")[:40])
             # Still write substituted item if applicable, but skip price fields
-            sub_field = ROW_FIELDS["substituted"].format(n=row)
+            sub_field = ROW_FIELDS["substituted"].format(n=row) + _field_suffix
             if item.get("is_substitute"):
                 sub_text = desc_clean or item.get("description", "")
                 _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
                              or pricing.get("manufacturer_part") or "")
                 if _sub_mfg:
                     sub_text = f"{_sub_mfg} — {sub_text}" if sub_text else _sub_mfg
-                field_values.append({"field_id": sub_field, "page": 1, "value": sub_text[:120]})
+                field_values.append({"field_id": sub_field, "page": _page_num, "value": sub_text[:120]})
             continue  # Skip price/extension fields
 
         qty_per_uom = item.get("qty_per_uom", 1)
@@ -2415,10 +2463,9 @@ def fill_ams704(
             qty_per_uom = 1
         if qty_per_uom > 1:
             qpu_field = ROW_FIELDS["qty_per_uom"].format(n=row) + _field_suffix
-            _qpu_page = int(_field_suffix.replace("_", "")) if _field_suffix else 1
             field_values.append({
                 "field_id": qpu_field,
-                "page": _qpu_page,
+                "page": _page_num,
                 "value": str(qty_per_uom),
             })
         extension = round(unit_price * qty, 2)
@@ -2428,23 +2475,23 @@ def fill_ams704(
                  row, (desc_final or "")[:40], unit_price, qty, extension)
 
         # Fill price and extension
-        price_field = ROW_FIELDS["unit_price"].format(n=row)
-        ext_field = ROW_FIELDS["extension"].format(n=row)
+        price_field = ROW_FIELDS["unit_price"].format(n=row) + _field_suffix
+        ext_field = ROW_FIELDS["extension"].format(n=row) + _field_suffix
 
         field_values.append({
             "field_id": price_field,
-            "page": 1,
+            "page": _page_num,
             "value": f"{unit_price:,.2f}",
         })
         field_values.append({
             "field_id": ext_field,
-            "page": 1,
+            "page": _page_num,
             "value": f"{extension:,.2f}",
         })
 
         # Fill SUBSTITUTED ITEM column: only when quoting a replacement/substitute item
         # (controlled by the "Sub?" checkbox on the pricecheck detail page)
-        sub_field = ROW_FIELDS["substituted"].format(n=row)
+        sub_field = ROW_FIELDS["substituted"].format(n=row) + _field_suffix
         if item.get("is_substitute"):
             # Use the description of what we're actually quoting (the substitute)
             sub_text = desc_clean or item.get("description", "")
@@ -2457,7 +2504,7 @@ def fill_ams704(
             if sub_text:
                 field_values.append({
                     "field_id": sub_field,
-                    "page": 1,
+                    "page": _page_num,
                     "value": sub_text,
                 })
         else:
@@ -2465,27 +2512,46 @@ def fill_ams704(
             # Use space (not empty string) to force pypdf to overwrite the field
             field_values.append({
                 "field_id": sub_field,
-                "page": 1,
+                "page": _page_num,
                 "value": " ",
             })
 
     # Clear unused rows to prevent ghost data from previous fills
+    # Only clear rows that actually exist as form fields:
+    #   Page 1: rows 1.._pg1_rows (unsuffixed)
+    #   Page 2: rows 1.._pg2_rows (with _2 suffix)
     if not original_mode:
         filled_rows = occupied_rows | overflow_rows
+        _cleared = 0
 
-        for empty_row in range(1, max_row + 1):
+        # Page 1 rows (unsuffixed)
+        for empty_row in range(1, _pg1_rows + 1):
             if empty_row in filled_rows:
                 continue
-            # Blank out all fields for this row
             for key, pattern in ROW_FIELDS.items():
                 field_values.append({
                     "field_id": pattern.format(n=empty_row),
                     "page": 1,
-                    "value": " ",  # Space forces pypdf to overwrite (empty string may not)
+                    "value": " ",
                 })
+            _cleared += 1
+
+        # Page 2 rows (_2 suffix) — only if template has page 2 fields
+        if _has_suffix_fields:
+            for empty_row in range(1, _pg2_rows + 1):
+                _global_row = _pg1_rows + empty_row
+                if _global_row in filled_rows:
+                    continue
+                for key, pattern in ROW_FIELDS.items():
+                    field_values.append({
+                        "field_id": pattern.format(n=empty_row) + "_2",
+                        "page": 2,
+                        "value": " ",
+                    })
+                _cleared += 1
 
         log.info("fill_ams704: cleared %d unused rows (filled: %d items + %d overflow)",
-                 max_row - len(filled_rows), len(occupied_rows), len(overflow_rows))
+                 _cleared, len(occupied_rows), len(overflow_rows))
     else:
         log.info("fill_ams704 ORIGINAL MODE: skipped row clearing (preserving buyer fields)")
 
@@ -2504,7 +2570,16 @@ def fill_ams704(
 
     # Determine how many pages actually have items
     _max_item_row = max((it.get("row_index") or (i + 1) for i, it in enumerate(items)), default=0)
-    _pages_with_items = max(1, ((_max_item_row - 1) // 8) + 1) if _max_item_row > 0 else 1
+    if _max_item_row <= 0:
+        _pages_with_items = 1
+    elif _max_item_row <= _pg1_rows:
+        _pages_with_items = 1
+    elif _max_item_row <= _pg1_rows + _pg2_rows:
+        _pages_with_items = 2
+    else:
+        # Pages 3+: each holds _pg2_rows items
+        _overflow = _max_item_row - _pg1_rows - _pg2_rows
+        _pages_with_items = 2 + ((_overflow - 1) // _pg2_rows) + 1
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
     # Page numbering — set on pages with items, BLANK on empty pages
@@ -2544,28 +2619,29 @@ def fill_ams704(
     with open(fv_path, "w") as f:
         json.dump(field_values, f, indent=2)
 
-    # If items fit on page 1, trim the source template to 1 page before filling
+    # Trim source template to needed pages for form fill (max 2 — pages 3+ added by overflow)
+    _fill_pages = min(_pages_with_items, 2)  # Form fields only on pages 1-2
     _fill_source = source_pdf
     _trimmed_tmp = None
-    if _pages_with_items < _pdf_total_pages:
+    if _fill_pages < _pdf_total_pages:
         try:
             import tempfile as _tmpmod
             from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW
             _tr = _TrimR(source_pdf)
-            if len(_tr.pages) > _pages_with_items:
+            if len(_tr.pages) > _fill_pages:
                 _tw = _TrimW()
-                for _tpi in range(_pages_with_items):
+                for _tpi in range(_fill_pages):
                     _tw.add_page(_tr.pages[_tpi])
                 _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
                 _tw.write(_trimmed_tmp)
                 _trimmed_tmp.close()
                 _fill_source = _trimmed_tmp.name
-                log.info("fill_ams704: Trimmed source from %d to %d pages for fill",
-                         len(_tr.pages), _pages_with_items)
+                log.info("fill_ams704: Trimmed source from %d to %d pages for form fill",
+                         len(_tr.pages), _fill_pages)
         except Exception as _trim_e:
             log.debug("Source trimming failed (non-fatal): %s", _trim_e)
 
-    # Fill the PDF
+    # Fill the PDF (form fields handle pages 1-2)
     try:
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
     except Exception as e:
@@ -2578,7 +2654,25 @@ def fill_ams704(
             except Exception:
                 pass
 
-    # Post-fill page stripping removed — handled by pre-fill source trimming above
+    # Pages 3+: append overflow pages with ALL content drawn by reportlab
+    # Form fields only exist on pages 1-2. Pages 3+ need full overlay.
+    if _max_item_row > _form_capacity and os.path.exists(output_pdf):
+        try:
+            _append_overflow_pages(
+                output_pdf=output_pdf,
+                items=items,
+                field_values=field_values,
+                source_pdf=source_pdf,
+                pg1_rows=_pg1_rows,
+                pg2_rows=_pg2_rows,
+                pages_with_items=_pages_with_items,
+                subtotal=subtotal,
+                tax=tax,
+                total=total,
+                company_name=info.get("company_name", "Reytech Inc."),
+            )
+        except Exception as _oe:
+            log.warning("fill_ams704: overflow page append failed (pages 3+ may be missing): %s", _oe, exc_info=True)
 
     log.info("fill_ams704 COMPLETE%s: %d/%d items priced, %d skipped(no row), %d skipped(no price), "
              "subtotal=$%.2f, %d field_values written to %s",
@@ -2598,6 +2692,245 @@ def fill_ams704(
             "price_tier": price_tier,
         },
     }
+
+
+def _detect_row_y_positions(source_pdf: str, page_idx: int, suffix: str = ""):
+    """Extract item row Y positions from PDF field /Rect annotations on a given page.
+
+    Returns list of (y_bot, y_top) tuples sorted top-to-bottom, plus
+    (price_x1, price_x2) and (ext_x1, ext_x2) column ranges.
+    Falls back to empty list if no fields found.
+    """
+    rows = []
+    price_x = None
+    ext_x = None
+    col_x = {}
+    _suffix_pat = re.escape(suffix) if suffix else ""
+    try:
+        reader = PdfReader(source_pdf)
+        if page_idx >= len(reader.pages):
+            return rows, price_x, ext_x, col_x
+        page = reader.pages[page_idx]
+        for annot_ref in (page.get("/Annots") or []):
+            try:
+                obj = annot_ref.get_object()
+                name = str(obj.get("/T", ""))
+                rect = obj.get("/Rect")
+                if not rect:
+                    continue
+                r = [float(x) for x in rect]
+
+                # Match PRICE PER UNITRow{n}{suffix}
+                if "PRICE PER UNIT" in name and "Row" in name:
+                    m = re.search(r'Row(\d+)' + _suffix_pat + r'$', name)
+                    if m:
+                        rows.append((int(m.group(1)), r[1], r[3]))
+                        if price_x is None:
+                            price_x = (r[0], r[2])
+
+                # Match EXTENSIONRow{n}{suffix}
+                if "EXTENSION" in name and "Row" in name and "GRAND" not in name:
+                    m = re.search(r'Row(\d+)' + _suffix_pat + r'$', name)
+                    if m and ext_x is None:
+                        ext_x = (r[0], r[2])
+
+                # Collect column X positions from Row1 fields
+                _row1_suffix = f"Row1{suffix}"
+                if name.endswith(_row1_suffix):
+                    if name.startswith("ITEM ") and "DESCRIPTION" not in name:
+                        col_x["item"] = (r[0], r[2])
+                    elif name.startswith("QTY") and "PER" not in name:
+                        col_x["qty"] = (r[0], r[2])
+                    elif "UNIT OF MEASURE" in name:
+                        col_x["uom"] = (r[0], r[2])
+                    elif "QTY PER" in name:
+                        col_x["qpu"] = (r[0], r[2])
+                    elif "DESCRIPTION" in name:
+                        col_x["desc"] = (r[0], r[2])
+            except Exception:
+                continue
+    except Exception as e:
+        log.debug("_detect_row_y_positions: %s", e)
+
+    # Sort by row number (ascending), which gives us top-to-bottom in PDF coords
+    rows.sort(key=lambda r: r[0])
+    result = [(y_bot, y_top) for _, y_bot, y_top in rows]
+    return result, price_x, ext_x, col_x
+
+
+def _append_overflow_pages(
+    output_pdf: str,
+    items: list,
+    field_values: list,
+    source_pdf: str,
+    pg1_rows: int,
+    pg2_rows: int,
+    pages_with_items: int,
+    subtotal: float,
+    tax: float,
+    total: float,
+    company_name: str = "Reytech Inc.",
+):
+    """Append pages 3+ to a filled PDF for items beyond form field capacity.
+
+    Pages 1-2 are filled via form fields. Pages 3+ have no form fields,
+    so we create new pages using the continuation page as background and
+    draw ALL content via reportlab canvas overlay.
+    """
+    import io
+    import copy
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    form_capacity = pg1_rows + pg2_rows
+
+    # Detect row positions from page 2 of source (continuation page layout)
+    cont_rows, price_x, ext_x, col_x = _detect_row_y_positions(source_pdf, 1, "_2")
+    if not cont_rows:
+        log.warning("_append_overflow_pages: no row positions detected on page 2 — cannot create overflow pages")
+        return
+
+    # Fallback column positions
+    col_x.setdefault("item", (32.2, 62.3))
+    col_x.setdefault("qty", (64.1, 98.3))
+    col_x.setdefault("uom", (100.1, 152.3))
+    col_x.setdefault("qpu", (154.1, 197.3))
+    col_x.setdefault("desc", (199.1, 580.0))
+    if not price_x:
+        price_x = (637.0, 686.0)
+    if not ext_x:
+        ext_x = (691.0, 754.0)
+
+    log.info("_append_overflow_pages: cont_rows=%d, price_x=%s, ext_x=%s",
+             len(cont_rows), price_x, ext_x)
+
+    # Collect overflow items (beyond form capacity)
+    overflow_items = []
+    for idx, item in enumerate(items):
+        row_idx = item.get("row_index") or (idx + 1)
+        if row_idx > form_capacity:
+            overflow_items.append((row_idx, item))
+    if not overflow_items:
+        return
+
+    # Read the filled output and source template
+    reader_out = PdfReader(output_pdf)
+    writer = PdfWriter()
+    for p in reader_out.pages:
+        writer.add_page(p)
+
+    reader_tmpl = PdfReader(source_pdf)
+    # Use last page (continuation) as template background
+    cont_tmpl_idx = min(1, len(reader_tmpl.pages) - 1)
+    cont_page_tmpl = reader_tmpl.pages[cont_tmpl_idx]
+    pw = float(cont_page_tmpl.mediabox.width)
+    ph = float(cont_page_tmpl.mediabox.height)
+
+    items_per_page = min(len(cont_rows), pg2_rows)
+    page_num = 3  # Overflow starts at page 3
+
+    for chunk_start in range(0, len(overflow_items), items_per_page):
+        chunk = overflow_items[chunk_start:chunk_start + items_per_page]
+
+        # Create reportlab overlay
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+
+        # Supplier name
+        c.setFont("Helvetica", 12)
+        c.drawString(340, 530, company_name)
+
+        # Page number — detect position from cont page annotations or use fallback
+        c.setFont("Helvetica", 12)
+        c.drawString(690, 555, str(page_num))
+        c.drawString(735, 555, str(pages_with_items))
+
+        # Draw each item
+        for slot_idx, (row_idx, item) in enumerate(chunk):
+            if slot_idx >= len(cont_rows):
+                break
+            y_bot, y_top = cont_rows[slot_idx]
+            y_mid = y_bot + (y_top - y_bot) * 0.3  # text baseline
+
+            p = item.get("pricing") or {}
+            desc = item.get("description", "")
+            qty = str(item.get("qty", 1))
+            uom = (item.get("uom") or "EA").upper()
+            qpu = str(item.get("qty_per_uom", 1))
+            price = item.get("unit_price") or p.get("recommended_price") or 0
+            try:
+                price = float(price)
+            except (ValueError, TypeError):
+                price = 0
+            ext = round(price * float(item.get("qty", 1)), 2) if price else 0
+
+            # Item number
+            c.setFont("Helvetica", 10)
+            x1, x2 = col_x["item"]
+            c.drawRightString(x2 - 2, y_mid, str(row_idx))
+
+            # QTY
+            x1, x2 = col_x["qty"]
+            c.drawRightString(x2 - 2, y_mid, qty)
+
+            # UOM
+            x1, x2 = col_x["uom"]
+            c.drawString(x1 + 2, y_mid, uom)
+
+            # QPU
+            x1, x2 = col_x["qpu"]
+            c.drawRightString(x2 - 2, y_mid, qpu)
+
+            # Description (auto-fit font)
+            x1, x2 = col_x["desc"]
+            fs = 9
+            c.setFont("Helvetica", fs)
+            desc_trunc = desc[:100]
+            while c.stringWidth(desc_trunc, "Helvetica", fs) > (x2 - x1 - 4) and fs > 5:
+                fs -= 0.5
+                c.setFont("Helvetica", fs)
+            c.drawString(x1 + 2, y_mid, desc_trunc)
+
+            # Price
+            if price > 0:
+                px1, px2 = price_x
+                c.setFont("Helvetica", 9)
+                c.drawRightString(px2 - 2, y_mid, f"{price:,.2f}")
+
+            # Extension
+            if ext > 0:
+                ex1, ex2 = ext_x
+                c.setFont("Helvetica", 9)
+                c.drawRightString(ex2 - 2, y_mid, f"{ext:,.2f}")
+
+        # Grand total on the LAST overflow page
+        is_last_page = (chunk_start + items_per_page >= len(overflow_items))
+        if is_last_page:
+            ex1, ex2 = ext_x
+            c.setFont("Helvetica", 10)
+            c.drawRightString(ex2 - 2, 107, f"{total:,.2f}")
+
+        c.save()
+        buf.seek(0)
+
+        # Create new page from continuation template + overlay
+        new_page = copy.deepcopy(cont_page_tmpl)
+        # Strip form field annotations to prevent shared field corruption
+        if "/Annots" in new_page:
+            del new_page["/Annots"]
+
+        overlay_reader = PdfReader(buf)
+        if overlay_reader.pages:
+            new_page.merge_page(overlay_reader.pages[0])
+
+        writer.add_page(new_page)
+        page_num += 1
+
+    # Write final multi-page PDF
+    with open(output_pdf, "wb") as f:
+        writer.write(f)
+
+    log.info("_append_overflow_pages: appended %d overflow page(s) for %d items beyond form capacity",
+             page_num - 3, len(overflow_items))
 
 
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
@@ -2797,7 +3130,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return (x1 * _scale_x, y1 * _scale_y, x2 * _scale_x, y2 * _scale_y)
 
         # Page type: 0,2,4=page-1-format  1,3,5=continuation
-        is_pg1 = (pg_idx % 2 == 0)
+        is_pg1 = (pg_idx == 0)
         rows = PG1_ROWS if is_pg1 else PG2_ROWS
 
         # Skip if all rows on this page are beyond our data
@@ -2855,11 +3188,10 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                         drew = True
 
         # ── CONTINUATION HEADER (mask + fill SUPPLIER NAME) ──
-        # Only fill page 2+ header if items actually overflow to that page
+        # Check if this page has any priced items by looking at field_values (not items — out of scope)
         _page_has_items = any(
-            ((it.get("row_index") or (i + 1)) > 8 * pg_idx)
-            and ((it.get("row_index") or (i + 1)) <= 8 * (pg_idx + 1))
-            for i, it in enumerate(items)
+            fv_map.get(ROW_FIELDS["unit_price"].format(n=rn), "").strip()
+            for rn in range(current_row, current_row + len(rows))
         ) if not is_pg1 else True
         if not is_pg1 and _page_has_items:
             company = fv_map.get("COMPANY NAME", "")
@@ -2905,7 +3237,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     pages_with_items = set()
     check_row = 1
     for pg_idx in range(len(reader.pages)):
-        is_pg1 = (pg_idx % 2 == 0)
+        is_pg1 = (pg_idx == 0)
         rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
         page_first = check_row
         page_last = check_row + rows_on_page - 1

@@ -31,7 +31,40 @@
 - Trace the full call chain: route → function → template → data structure
 - Check for type mismatches (dict vs list, missing keys, None values)
 
-### 4. Demand Elegance (Balanced)
+### 4. Three Strikes Rule — Stop Fixing, Start Diagnosing
+If **3 consecutive fix attempts for the same issue** fail (compile error, wrong output,
+new bug introduced), you MUST:
+1. **STOP coding immediately.** Do not attempt a 4th fix.
+2. **Tell the user:** "This fix is not converging. I've failed 3 times and the root cause
+   is likely deeper than what I'm patching. I recommend starting a fresh session to
+   audit this properly."
+3. **Revert to the last known working state** (git stash or revert) so the user isn't
+   left with broken code.
+4. **Write a handoff note** explaining: what was attempted, what broke each time, and
+   what the likely root cause is. Save it so the next session (or a fresh agent) can
+   pick up without repeating the same mistakes.
+
+**Why this matters:** The 2026-04-03 multi-page 704 incident had 11 consecutive failed
+fix commits because each one patched a symptom without diagnosing the shared root cause
+(hardcoded 8 rows vs actual 11). A fresh session with full audit found 7 bugs and fixed
+all of them in one change. Incremental patching of multi-bug problems makes things worse.
+
+**Signs you're in a fix-forward spiral:**
+- Each "fix" creates a NEW bug you didn't expect
+- You're changing coordinates, constants, or thresholds by trial and error
+- You're adding flags like `pricing_only=True` to work around your own recent code
+- The diff is growing past 200 lines with no test passing yet
+
+### 5. Audit Before Fix — Find ALL Bugs First
+For any bug that touches PDF generation, form filling, or multi-page logic:
+1. **Read the actual template/data first** — run pdfplumber, dump field names, count rows.
+   Never assume structure from code comments or variable names.
+2. **List ALL bugs before fixing ANY.** A single root cause often manifests as 3-7 symptoms.
+   If you fix symptom #1 without knowing about #2-#7, your fix will break something else.
+3. **Write automated tests for each scenario BEFORE pushing.** At minimum: boundary cases
+   (exactly N items, N+1 items, 2N items where N is a page capacity).
+
+### 6. Demand Elegance (Balanced)
 - For non-trivial changes: pause and ask "is there a more elegant way?"
 - Skip this for simple, obvious fixes — don't over-engineer
 - Challenge your own work before presenting it
@@ -217,9 +250,24 @@ Never lower these without testing cross-category accuracy.
 
 ## PDF Parsing Guard Rails (Production Incidents 2026-03-31)
 
-### Multi-Page AMS 704 Forms
-PDF form fields use `_2`, `_3`, `_4` suffixes for pages 2-4 (e.g., `QTYRow1_2`
-for page 2 item 1). Always scan field names for these suffixes.
+### Multi-Page AMS 704 Forms — Ground Truth (verified 2026-04-03)
+The Reytech blank template (`ams_704_blank.pdf`) has **exactly** this structure:
+- **Page 1:** 11 unsuffixed row fields (Row1 through Row11)
+- **Page 2:** 8 suffixed row fields (Row1_2 through Row8_2)
+- **NO `_3` or `_4` suffix fields exist.** Pages 3+ have zero form fields.
+- **Total form field capacity: 19 items** (11 + 8)
+- Shared fields (`Page`, `of`, `SUPPLIER NAME`) show same value on ALL pages.
+
+Row mapping in `fill_ams704()`:
+- Items 1-11 → unsuffixed fields (Row1..Row11)
+- Items 12-19 → `_2` suffix fields (Row1_2..Row8_2)
+- Items 20+ → `_append_overflow_pages()` draws via reportlab canvas
+
+**Use `_detect_pg1_rows()` to get the actual count** — some buyer PDFs have 8
+rows on page 1 instead of 11. NEVER hardcode the row count.
+
+**NEVER assume row count = 8.** This caused 11 failed commits on 2026-04-03.
+Run `tests/test_multipage_704.py` after ANY change to `fill_ams704()`.
 
 ### MFG# Extraction Patterns
 Must handle: `W12919` (single letter + digits), `FN4368` (2 letter + digits),
