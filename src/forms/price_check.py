@@ -2808,6 +2808,8 @@ def _fix_shared_page_numbers(output_pdf: str, source_pdf: str, pages_with_items:
         log.debug("_fix_shared_page_numbers: no Page/of rects found on page 2")
         return
 
+    from pypdf.generic import NameObject, ArrayObject
+
     modified = False
     for pg_idx in range(1, len(writer.pages)):  # skip page 0 (correct already)
         pg_num = pg_idx + 1
@@ -2818,22 +2820,33 @@ def _fix_shared_page_numbers(output_pdf: str, source_pdf: str, pages_with_items:
         pw = float(page.mediabox.width)
         ph = float(page.mediabox.height)
 
+        # Remove Page/of annotations from this page so the shared field "1"
+        # doesn't render. The overlay will draw the correct number instead.
+        annots = page.get("/Annots")
+        if annots:
+            cleaned = []
+            for annot_ref in annots:
+                try:
+                    annot = annot_ref.get_object()
+                    name = str(annot.get("/T", ""))
+                    if name in ("Page", "of"):
+                        continue  # strip this annotation
+                    cleaned.append(annot_ref)
+                except Exception:
+                    cleaned.append(annot_ref)
+            page[NameObject("/Annots")] = ArrayObject(cleaned)
+
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
 
         if page_rect:
-            # White mask fully covers the shared field to hide underlying "1"
             x1, y1, x2, y2 = page_rect
-            c.setFillColorRGB(1, 1, 1)
-            c.rect(x1 - 1, y1 - 1, x2 - x1 + 2, y2 - y1 + 2, fill=1, stroke=0)
             c.setFillColorRGB(0, 0, 0)
             c.setFont("Helvetica", 12)
             c.drawRightString(x2 - 2, y1 + 2, str(pg_num))
 
         if of_rect:
             x1, y1, x2, y2 = of_rect
-            c.setFillColorRGB(1, 1, 1)
-            c.rect(x1 - 1, y1 - 1, x2 - x1 + 2, y2 - y1 + 2, fill=1, stroke=0)
             c.setFillColorRGB(0, 0, 0)
             c.setFont("Helvetica", 12)
             c.drawRightString(x2 - 2, y1 + 2, str(pages_with_items))
