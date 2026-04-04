@@ -280,3 +280,100 @@ Without it, browser downloads the PDF instead of rendering it.
 - **Prices Have Roles**: SCPRS = ceiling, Amazon = reference, Catalog = cost, S&S = cost.
 - **Test With Real Numbers**: Before pushing ANY calculation change, manually verify: input × formula = expected output. "40.0% markup on $82.24 = ?" must equal $115.14, not $411.20. Compile-check is not enough.
 - **Test All UI States**: Every new UI element must be tested in all states: empty, filled, error, re-run. If a field appears conditionally, test the condition being true AND false. Never mix.
+
+## Build Quality Rules (Production Incidents 2026-04-03)
+
+### Never Add Logging Without Checking Imports
+Adding `log.info()` or `log.warning()` to a module that has NO `import logging`
+will crash the entire function silently. Always check the top of the file for
+`import logging` and `log = logging.getLogger(...)` BEFORE adding log calls.
+Incident: `agency_config.py` had no logging import — `match_agency()` crashed
+on every call, fell to CCHCS fallback, wrong agency forms generated.
+
+### Never Reference Variables Across try/except Boundaries
+If a variable is set inside a `try:` block, the `except:` block MUST also
+set it. Otherwise `UnboundLocalError` crashes downstream code.
+```python
+# WRONG:
+try:
+    _key, _cfg = match_agency(r)
+except:
+    _key = "fallback"
+    # _cfg is UNBOUND if match_agency failed!
+
+# RIGHT:
+try:
+    _key, _cfg = match_agency(r)
+except:
+    _key = "fallback"
+    _cfg = {"name": "Fallback", "required_forms": [...]}
+```
+
+### PDF Form Fields Are Shared Across Pages
+PDF form fields with the same name (e.g., `Page`, `SUPPLIER NAME`) show
+the SAME value on ALL pages. You CANNOT set different values per page.
+For multi-page PDFs:
+- Pages 1-2: Use form field fill (template has `_2` suffix fields)
+- Pages 3+: Use reportlab overlay to draw ALL content (no `_3` fields exist)
+- To remove an unused page: strip it from the source BEFORE filling, or
+  use the overlay to mask content. Never try to "blank" shared fields.
+- The `_fill_pdf_text_overlay` function draws independently per page.
+
+### Measure Before Drawing — Never Guess PDF Coordinates
+All PDF overlay coordinates MUST be measured from the actual template:
+```python
+# Use pdfplumber to measure:
+import pdfplumber
+pdf = pdfplumber.open("template.pdf")
+edges = pdf.pages[1].edges  # horizontal/vertical lines
+rects = pdf.pages[1].rects  # cell boundaries
+# Convert: reportlab_y = page_height - pdfplumber_y
+```
+Never extrapolate row positions. Never assume row heights. The AMS 704
+has different row heights on page 1 vs continuation pages. Measure both.
+Incident: `PG1_ROWS` had 3 rows (from old DocuSign layout) but template
+had 8 → `current_row` counter was off → all pages misaligned.
+
+### Test Multi-Page PDFs With 1, 8, 9, 16, 17+ Items
+The 704 form has page boundaries at 8 and 16 items:
+- 1-8 items: 1 page (strip page 2)
+- 9-16 items: 2 pages (form fields with `_2` suffix)
+- 17-24 items: 3 pages (page 3 uses overlay, not form fields)
+Test ALL three cases before pushing any 704 fill change.
+
+### URL Sanitization Must Preserve Spaces
+`re.sub(r'[^a-zA-Z0-9_-]', '', path)` strips spaces from directory names.
+Output directories like "RFQ Elastic Bandage" become "RFQElasticBandage"
+→ file not found → 404. Only block path traversal: `..`, `/`, `\`.
+
+### Agency Config: Required Forms Always Win
+The `_include(form_id)` function must check agency `required_forms` FIRST.
+User `package_forms` overrides should NEVER block agency-required forms.
+Stale `package_forms` from a previous agency match can silently disable
+forms that the current agency requires.
+
+### Oracle Prices Must Be Per-Unit
+SCPRS stores line totals in `unit_price` fields. A 5-qty order at $20/ea
+shows `unit_price = $100`. Always divide by quantity:
+```python
+per_unit = price / qty if qty > 1 else price
+```
+Apply this in ALL search functions: `_search_won_quotes`, `_search_po_lines`,
+`_search_scprs_catalog`, `_search_winning_prices`.
+
+### Amazon MSRP vs Sale Price
+SerpApi returns `typical_price` (MSRP) and `price` (sale/current).
+Always use MSRP as cost basis — it's the stable price. Log the sale price
+separately for the discount profit calculator. Never quote from sale prices
+that may expire.
+
+### Gmail Handles Signatures
+Never add an app-level email signature. Gmail auto-appends the configured
+signature. Adding our own creates a double signature. Send plain text body
+only — no HTML wrapping, no signature block.
+
+### scrollIntoView Steals Focus
+Never call `el.scrollIntoView()` from status messages, link lookups, or
+background operations. It yanks the user away from their current position
+in the table. Save `window.scrollY` before DOM updates and restore via
+`requestAnimationFrame`.
