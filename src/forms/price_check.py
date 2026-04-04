@@ -2562,24 +2562,12 @@ def fill_ams704(
             _trimmed_tmp.close()
             _fill_source = _trimmed_tmp.name
             log.info("fill_ams704: Trimmed source from %d to %d pages", _src_pages, _pages_with_items)
-        elif _pages_with_items > _src_pages and _src_pages >= 2:
-            # Need MORE pages than template has — duplicate continuation page (page 2)
-            _tw = _TrimW()
-            for _tpi in range(_src_pages):
-                _tw.add_page(_tr.pages[_tpi])
-            # Duplicate the last page (continuation template) for extra pages
-            for _extra in range(_pages_with_items - _src_pages):
-                _tw.add_page(_tr.pages[-1])  # clone continuation page
-            _trimmed_tmp = _tmpmod.NamedTemporaryFile(suffix=".pdf", delete=False)
-            _tw.write(_trimmed_tmp)
-            _trimmed_tmp.close()
-            _fill_source = _trimmed_tmp.name
-            log.info("fill_ams704: Extended source from %d to %d pages (duplicated continuation)",
-                     _src_pages, _pages_with_items)
+        # Pages 3+ handled AFTER fill by appending reportlab-drawn pages
+        # Do NOT duplicate page 2 — shared field objects corrupt both pages
     except Exception as _trim_e:
         log.debug("Source page adjustment failed (non-fatal): %s", _trim_e)
 
-    # Fill the PDF (form fields for descriptions + overlay for pricing)
+    # Fill the PDF (form fields handle pages 1-2)
     try:
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
     except Exception as e:
@@ -2591,6 +2579,16 @@ def fill_ams704(
                 os.unlink(_trimmed_tmp.name)
             except Exception:
                 pass
+
+    # Pages 3+: append new pages with ALL content drawn by reportlab
+    # Form fields only exist for pages 1-2 (_2 suffix). Pages 3+ have no fields,
+    # so we draw everything (item#, qty, uom, desc, price, extension) from scratch.
+    if _pages_with_items > 2 and os.path.exists(output_pdf):
+        try:
+            _append_overflow_pages(output_pdf, field_values, items, _pages_with_items,
+                                    source_pdf, subtotal)
+        except Exception as _oe:
+            log.warning("Overflow page append failed (pages 3+ may be missing): %s", _oe)
 
     # Post-fill page stripping removed — handled by pre-fill source trimming above
 
@@ -2612,6 +2610,187 @@ def fill_ams704(
             "price_tier": price_tier,
         },
     }
+
+
+def _append_overflow_pages(output_pdf, field_values, items, total_pages, source_pdf, subtotal):
+    """Append pages 3+ to a filled 2-page 704 PDF.
+
+    Creates new continuation pages using the source template's page 2 as the
+    visual background, then draws ALL item content via reportlab overlay.
+    No form fields — pure canvas drawing. No shared field conflicts.
+    """
+    import io
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    # Detect row coordinates from the source PDF
+    detected_rows, detected_px, detected_ex = _detect_row_coordinates(source_pdf)
+
+    # Get continuation page row positions (from page 2 of source)
+    cont_rows = detected_rows.get(1, [])  # page index 1 = page 2
+    if not cont_rows:
+        log.warning("_append_overflow_pages: no row coordinates detected on page 2")
+        return
+
+    price_x = detected_px or (637.0, 686.0)
+    ext_x = detected_ex or (691.0, 754.0)
+
+    # Column X positions from form field rects (measured from source)
+    # Use detected or hardcoded fallback
+    col_x = {}
+    try:
+        reader_src = PdfReader(source_pdf)
+        for annot_ref in (reader_src.pages[1].get("/Annots") or []):
+            obj = annot_ref.get_object()
+            name = str(obj.get("/T", ""))
+            rect = obj.get("/Rect")
+            if not rect:
+                continue
+            r = [float(x) for x in rect]
+            if "ITEM Row1_2" == name:
+                col_x["item"] = (r[0], r[2])
+            elif "QTYRow1_2" == name:
+                col_x["qty"] = (r[0], r[2])
+            elif "UNIT OF MEASURE" in name and "Row1_2" in name:
+                col_x["uom"] = (r[0], r[2])
+            elif "QTY PER UOM" in name and "Row1_2" in name:
+                col_x["qpu"] = (r[0], r[2])
+            elif "ITEM DESCRIPTION" in name and "Row1_2" in name:
+                col_x["desc"] = (r[0], r[2])
+    except Exception:
+        pass
+
+    # Fallback column positions
+    col_x.setdefault("item", (32.2, 62.3))
+    col_x.setdefault("qty", (64.1, 98.3))
+    col_x.setdefault("uom", (100.1, 152.3))
+    col_x.setdefault("qpu", (154.1, 197.3))
+    col_x.setdefault("desc", (199.1, 580.0))
+
+    # Read the filled 2-page output
+    reader_out = PdfReader(output_pdf)
+    writer = PdfWriter()
+    # Keep existing pages
+    for p in reader_out.pages:
+        writer.add_page(p)
+
+    # Also read the source template for the continuation page background
+    reader_tmpl = PdfReader(source_pdf)
+    cont_page_tmpl = reader_tmpl.pages[-1]  # last page = continuation template
+    pw = float(cont_page_tmpl.mediabox.width)
+    ph = float(cont_page_tmpl.mediabox.height)
+
+    # Items on pages 3+ (index 16+)
+    overflow_items = []
+    for idx, item in enumerate(items):
+        row_idx = item.get("row_index") or (idx + 1)
+        if row_idx > 16:
+            overflow_items.append((row_idx, item))
+
+    if not overflow_items:
+        return
+
+    items_per_page = min(len(cont_rows), 8)  # max 8 items per continuation page
+    page_num = 3  # start at page 3
+
+    for chunk_start in range(0, len(overflow_items), items_per_page):
+        chunk = overflow_items[chunk_start:chunk_start + items_per_page]
+
+        # Create overlay canvas
+        buf = io.BytesIO()
+        c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+
+        # Draw supplier name
+        c.setFont("Helvetica", 12)
+        c.drawString(340, 530, "Reytech Inc.")
+
+        # Draw page number
+        c.setFont("Helvetica", 12)
+        c.drawString(690, 555, str(page_num))
+        c.drawString(735, 555, str(total_pages))
+
+        # Draw each item in this chunk
+        for slot_idx, (row_idx, item) in enumerate(chunk):
+            if slot_idx >= len(cont_rows):
+                break
+            y_bot, y_top = cont_rows[slot_idx]
+            y_mid = y_bot + (y_top - y_bot) * 0.3  # text baseline
+
+            p = item.get("pricing") or {}
+            desc = item.get("description", "")
+            qty = str(item.get("qty", 1))
+            uom = (item.get("uom") or "EA").upper()
+            qpu = str(item.get("qty_per_uom", 1))
+            price = item.get("unit_price") or p.get("recommended_price") or 0
+            ext = float(price) * float(item.get("qty", 1)) if price else 0
+
+            # Item number
+            c.setFont("Helvetica", 10)
+            x1, x2 = col_x["item"]
+            c.drawRightString(x2 - 2, y_mid, str(row_idx))
+
+            # QTY
+            x1, x2 = col_x["qty"]
+            c.drawRightString(x2 - 2, y_mid, qty)
+
+            # UOM
+            x1, x2 = col_x["uom"]
+            c.drawString(x1 + 2, y_mid, uom)
+
+            # QPU
+            x1, x2 = col_x["qpu"]
+            c.drawRightString(x2 - 2, y_mid, qpu)
+
+            # Description (auto-fit font)
+            x1, x2 = col_x["desc"]
+            fs = 9
+            c.setFont("Helvetica", fs)
+            while c.stringWidth(desc, "Helvetica", fs) > (x2 - x1 - 4) and fs > 5:
+                fs -= 0.5
+                c.setFont("Helvetica", fs)
+            c.drawString(x1 + 2, y_mid, desc[:80])
+
+            # Price
+            if price and float(price) > 0:
+                px1, px2 = price_x
+                c.setFont("Helvetica", 9)
+                price_str = f"{float(price):,.2f}"
+                c.drawRightString(px2 - 2, y_mid, price_str)
+
+            # Extension
+            if ext > 0:
+                ex1, ex2 = ext_x
+                c.setFont("Helvetica", 9)
+                ext_str = f"{ext:,.2f}"
+                c.drawRightString(ex2 - 2, y_mid, ext_str)
+
+        # Grand total on last overflow page
+        if chunk_start + items_per_page >= len(overflow_items):
+            c.setFont("Helvetica", 10)
+            c.drawRightString(ext_x[1] - 2, 107, f"{subtotal:,.2f}")
+
+        c.save()
+        buf.seek(0)
+
+        # Merge overlay onto a copy of the continuation template page
+        import copy
+        new_page = copy.deepcopy(cont_page_tmpl)
+        # Strip form field annotations from the copy to avoid shared field issues
+        if "/Annots" in new_page:
+            del new_page["/Annots"]
+
+        overlay_reader = PdfReader(buf)
+        if overlay_reader.pages:
+            new_page.merge_page(overlay_reader.pages[0])
+
+        writer.add_page(new_page)
+        page_num += 1
+
+    # Write the final multi-page PDF
+    with open(output_pdf, "wb") as f:
+        writer.write(f)
+
+    log.info("fill_ams704: Appended %d overflow page(s) for items 17+",
+             page_num - 3)
 
 
 def _detect_row_coordinates(source_pdf: str):
