@@ -2618,12 +2618,72 @@ def fill_ams704(
     }
 
 
+def _detect_row_coordinates(source_pdf: str):
+    """Detect item row Y positions and column X ranges from the actual PDF.
+
+    Reads PRICE PER UNITRow{n} field /Rect annotations to get exact positions.
+    Falls back to hardcoded coordinates if no fields found.
+
+    Returns: (page_rows, price_x, ext_x)
+      page_rows: dict {page_idx: [(y_bot, y_top), ...]}
+      price_x: (x1, x2) for price column
+      ext_x: (x1, x2) for extension column
+    """
+    import re as _det_re
+    page_rows = {}
+    price_x = None
+    ext_x = None
+
+    try:
+        reader = PdfReader(source_pdf)
+        for pg_idx, page in enumerate(reader.pages):
+            rows = []
+            for annot_ref in (page.get("/Annots") or []):
+                try:
+                    obj = annot_ref.get_object()
+                    name = str(obj.get("/T", ""))
+                    rect = obj.get("/Rect")
+                    if not rect:
+                        continue
+                    r = [float(x) for x in rect]
+
+                    # Match PRICE PER UNITRow{n} or PRICE PER UNITRow{n}_2
+                    if "PRICE PER UNIT" in name and "Row" in name:
+                        rows.append((r[1], r[3]))  # (bottom, top) in PDF coords
+                        if price_x is None:
+                            price_x = (r[0], r[2])
+
+                    # Match EXTENSIONRow{n}
+                    if "EXTENSION" in name and "Row" in name and "GRAND" not in name:
+                        if ext_x is None:
+                            ext_x = (r[0], r[2])
+                except Exception:
+                    continue
+
+            if rows:
+                # Sort by Y descending (top of page first in reportlab coords)
+                rows.sort(key=lambda r: r[1], reverse=True)
+                page_rows[pg_idx] = rows
+
+    except Exception as e:
+        log.debug("_detect_row_coordinates: %s", e)
+
+    if page_rows:
+        log.info("COORD DETECT: Found rows on %d pages. price_x=%s ext_x=%s rows_per_page=%s",
+                 len(page_rows), price_x, ext_x,
+                 {k: len(v) for k, v in page_rows.items()})
+    else:
+        log.info("COORD DETECT: No fields found — will use hardcoded fallback")
+
+    return page_rows, price_x, ext_x
+
+
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
     """
-    Fallback for flat/DocuSign PDFs with no fillable form fields.
-    Uses exact coordinates from AMS 704 Rev 1/2019 template.
+    Draw pricing overlay on AMS 704 PDFs.
+    Detects row coordinates dynamically from the source PDF's form fields.
+    Falls back to hardcoded coordinates if no fields found.
     ONLY draws: supplier info + pricing + totals. Never touches item descriptions.
-    Page type by index: 0,2,4=page-1-format  1,3,5=continuation.
     """
     import io
     import re as _re
@@ -2635,7 +2695,11 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
 
     fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
 
-    # ═══ COORDINATES from PC_Karaoke_Reytech.pdf (real AMS 704 template) ═══
+    # ═══ DYNAMIC COORDINATE DETECTION ═══
+    # Read actual row positions from this specific PDF's form field rects
+    _detected_rows, _detected_price_x, _detected_ext_x = _detect_row_coordinates(source_pdf)
+
+    # ═══ FALLBACK COORDINATES from Reytech AMS 704 template ═══
     SUPPLIER_FIELDS = {
         # Row 1: full-height cells (no baked-in labels)
         "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
@@ -2827,7 +2891,14 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
 
         # Page type: index 0 = page-1-format, all others = continuation
         is_pg1 = (pg_idx == 0)
-        rows = PG1_ROWS if is_pg1 else PG2_ROWS
+        # Use dynamically detected rows if available, else hardcoded fallback
+        if pg_idx in _detected_rows:
+            rows = _detected_rows[pg_idx]
+        else:
+            rows = PG1_ROWS if is_pg1 else PG2_ROWS
+        # Use detected column positions if available
+        _eff_price_x = _detected_price_x or PRICE_X
+        _eff_ext_x = _detected_ext_x or EXT_X
 
         # Skip if all rows on this page are beyond our data
         page_first_row = current_row
@@ -2912,10 +2983,19 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
 
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
-            px1, _, px2, _ = _sc(PRICE_X[0], 0, PRICE_X[1], 0)
-            ex1, _, ex2, _ = _sc(EXT_X[0], 0, EXT_X[1], 0)
-            sy_bot = y_bot * _scale_y
-            sy_top = y_top * _scale_y
+            _using_detected = (pg_idx in _detected_rows)
+            if _using_detected:
+                # Detected coords are in actual PDF space — no scaling needed
+                px1, px2 = _eff_price_x
+                ex1, ex2 = _eff_ext_x
+            else:
+                px1, _, px2, _ = _sc(_eff_price_x[0], 0, _eff_price_x[1], 0)
+                ex1, _, ex2, _ = _sc(_eff_ext_x[0], 0, _eff_ext_x[1], 0)
+            if _using_detected:
+                sy_bot, sy_top = y_bot, y_top  # already in PDF space
+            else:
+                sy_bot = y_bot * _scale_y
+                sy_top = y_top * _scale_y
 
             # On pages 3+, draw ALL columns via overlay
             if _needs_full_overlay:
