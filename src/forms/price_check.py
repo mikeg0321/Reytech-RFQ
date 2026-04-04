@@ -2684,12 +2684,17 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     # Measured MAIN row boundaries (rects at x=639 and x=689):
     #   Item 4: bot=456.4 top=485.2   Item 5: bot=397.9 top=426.7
     #   Item 6: bot=339.3 top=368.1   Item 7: bot=287.6 top=309.7   Item 8: bot=233.9 top=264.8
+    # Continuation page: 8 item rows (measured from actual DocuSign AMS 704)
+    # Coordinates measured via pdfplumber rects, converted to reportlab bottom-up Y
     PG2_ROWS = [
-        (457.5, 484.0),  # row 4 — cell (456.4, 485.2)
-        (399.0, 425.5),  # row 5 — cell (397.9, 426.7)
-        (340.5, 367.0),  # row 6 — cell (339.3, 368.1)
-        (288.7, 308.5),  # row 7 — cell (287.6, 309.7)
-        (235.0, 263.5),  # row 8 — cell (233.9, 264.8)
+        (431.3, 453.7),  # row 1 on continuation
+        (408.8, 431.3),  # row 2
+        (386.4, 408.8),  # row 3
+        (363.9, 386.4),  # row 4
+        (341.5, 363.9),  # row 5
+        (319.0, 341.5),  # row 6
+        (296.6, 319.0),  # row 7
+        (274.1, 296.6),  # row 8
     ]
     # Continuation header: SUPPLIER NAME area
     PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
@@ -2810,8 +2815,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         def _sc(x1, y1, x2, y2):
             return (x1 * _scale_x, y1 * _scale_y, x2 * _scale_x, y2 * _scale_y)
 
-        # Page type: 0,2,4=page-1-format  1,3,5=continuation
-        is_pg1 = (pg_idx % 2 == 0)
+        # Page type: index 0 = page-1-format, all others = continuation
+        is_pg1 = (pg_idx == 0)
         rows = PG1_ROWS if is_pg1 else PG2_ROWS
 
         # Skip if all rows on this page are beyond our data
