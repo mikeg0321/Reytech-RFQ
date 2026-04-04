@@ -2967,6 +2967,31 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
                 _cell(c, sp0, sp1, sp2, sp3, company, fs=12)
                 drew = True
+            # Page numbering — draw correct "Page X of Y" over shared form fields
+            _total_filled_pages = max(pg_idx + 1 for pi in range(num_pages)
+                                       if pi == 0 or any(
+                                           ((it.get("row_index") or (i+1)) > 8 * pi)
+                                           and ((it.get("row_index") or (i+1)) <= 8 * (pi+1))
+                                           for i, it in enumerate(items)))
+            # Detect page number field positions from this page's annotations
+            _pg_rect = None
+            _of_rect = None
+            try:
+                for _ar in (reader.pages[pg_idx].get("/Annots") or []):
+                    _ao = _ar.get_object()
+                    _an = str(_ao.get("/T", ""))
+                    if _an == "Page" or _an == "Page_2":
+                        _pg_rect = [float(x) for x in _ao.get("/Rect", [0,0,0,0])]
+                    elif _an == "of" or _an == "of_2":
+                        _of_rect = [float(x) for x in _ao.get("/Rect", [0,0,0,0])]
+            except Exception:
+                pass
+            if _pg_rect:
+                _cell_right(c, _pg_rect[0], _pg_rect[1], _pg_rect[2], _pg_rect[3], str(pg_idx + 1), fs=12)
+                drew = True
+            if _of_rect:
+                _cell_right(c, _of_rect[0], _of_rect[1], _of_rect[2], _of_rect[3], str(_total_filled_pages), fs=12)
+                drew = True
         # Empty continuation pages are stripped entirely after fill (no overlay needed)
 
         # ── ROW CONTENT ──
