@@ -2582,10 +2582,11 @@ def fill_ams704(
     # Fill the PDF (form fields for descriptions + overlay for pricing)
     try:
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
-        # ALWAYS run the pricing overlay after form field fill — handles both
-        # flat/DocuSign PDFs (overlay draws everything) and fillable PDFs
-        # (overlay draws prices that form fields may miss on pages 2+)
-        _fill_pdf_text_overlay(output_pdf, field_values, output_pdf)
+        # Run pricing-only overlay after form field fill —
+        # draws prices/extensions/page numbers that form fields can't handle
+        # (shared fields across pages). pricing_only=True skips supplier info,
+        # totals, and other fields that form fill already handled.
+        _fill_pdf_text_overlay(output_pdf, field_values, output_pdf, pricing_only=True)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
     finally:
@@ -2678,12 +2679,14 @@ def _detect_row_coordinates(source_pdf: str):
     return page_rows, price_x, ext_x
 
 
-def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
+def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str, pricing_only: bool = False):
     """
     Draw pricing overlay on AMS 704 PDFs.
     Detects row coordinates dynamically from the source PDF's form fields.
     Falls back to hardcoded coordinates if no fields found.
-    ONLY draws: supplier info + pricing + totals. Never touches item descriptions.
+
+    pricing_only=False: draws everything (supplier info, pricing, totals) — for flat PDFs
+    pricing_only=True: draws ONLY prices, extensions, page numbers — for after form field fill
     """
     import io
     import re as _re
@@ -2911,8 +2914,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
         drew = False
 
-        # ── SUPPLIER INFO (page-1-format only) ──
-        if is_pg1:
+        # ── SUPPLIER INFO + TOTALS (page-1 only, skip when pricing_only) ──
+        if is_pg1 and not pricing_only:
             for fname, (x1, y1, x2, y2) in SUPPLIER_FIELDS.items():
                 val = fv_map.get(fname, "")
                 if val:
@@ -2932,20 +2935,16 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
                 scx1, scy1, scx2, scy2 = _sc(cx1, cy1, cx2, cy2)
                 c.saveState()
-                # White background mask
                 c.setFillColorRGB(1, 1, 1)
                 c.rect(scx1 + 2, scy1 + 2, scx2 - scx1 - 4, scy2 - scy1 - 4, fill=1, stroke=0)
-                # Draw X using vector lines — ZapfDingbats glyph "4" in DocuSign
-                # PDFs has inverted ascender (-22pt), making drawString unusable.
-                # c.line() uses coords directly with no font metric transforms.
                 _pad = 3
                 c.setStrokeColorRGB(0, 0, 0)
                 c.setLineWidth(1.5)
-                c.line(scx1 + _pad, scy1 + _pad, scx2 - _pad, scy2 - _pad)  # diagonal \
-                c.line(scx1 + _pad, scy2 - _pad, scx2 - _pad, scy1 + _pad)  # diagonal /
+                c.line(scx1 + _pad, scy1 + _pad, scx2 - _pad, scy2 - _pad)
+                c.line(scx1 + _pad, scy2 - _pad, scx2 - _pad, scy1 + _pad)
                 c.restoreState()
                 drew = True
-            # Totals (first page only)
+            # Totals
             if pg_idx == 0:
                 for fname, (x1, y1, x2, y2) in TOTALS.items():
                     val = fv_map.get(fname, "")
@@ -2961,7 +2960,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             and ((it.get("row_index") or (i + 1)) <= 8 * (pg_idx + 1))
             for i, it in enumerate(items)
         ) if not is_pg1 else True
-        if not is_pg1 and _page_has_items:
+        if not is_pg1 and _page_has_items and not pricing_only:
             company = fv_map.get("COMPANY NAME", "")
             if company:
                 sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
