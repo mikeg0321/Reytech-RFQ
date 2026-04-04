@@ -2579,9 +2579,13 @@ def fill_ams704(
     except Exception as _trim_e:
         log.debug("Source page adjustment failed (non-fatal): %s", _trim_e)
 
-    # Fill the PDF
+    # Fill the PDF (form fields for descriptions + overlay for pricing)
     try:
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
+        # ALWAYS run the pricing overlay after form field fill — handles both
+        # flat/DocuSign PDFs (overlay draws everything) and fillable PDFs
+        # (overlay draws prices that form fields may miss on pages 2+)
+        _fill_pdf_text_overlay(output_pdf, field_values, output_pdf)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
     finally:
