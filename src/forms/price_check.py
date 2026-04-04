@@ -2582,11 +2582,6 @@ def fill_ams704(
     # Fill the PDF (form fields for descriptions + overlay for pricing)
     try:
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
-        # Run pricing-only overlay after form field fill —
-        # draws prices/extensions/page numbers that form fields can't handle
-        # (shared fields across pages). pricing_only=True skips supplier info,
-        # totals, and other fields that form fill already handled.
-        _fill_pdf_text_overlay(output_pdf, field_values, output_pdf, pricing_only=True)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
     finally:
