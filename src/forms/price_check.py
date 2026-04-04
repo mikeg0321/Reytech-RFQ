@@ -2247,25 +2247,18 @@ def fill_ams704(
                  [fn for fn in sorted(_pdf_fields.keys())
                   if any(k in fn.lower() for k in ("check", "fob", "box", "dest", "freight"))][:10])
 
-    # FOB Destination, Freight Prepaid checkbox — try all known field name variants
-    # AND scan actual PDF fields for any checkbox containing "FOB" or "Destination"
+    # FOB Destination, Freight Prepaid checkbox — ONLY this specific checkbox.
+    # Do NOT check FOB Destination (PP/ADD) or FOB Origin Freight Collect.
     _fob_names_to_check = {"Check Box4", "FOB Destination Freight Prepaid",
                            "FOB Destination  Freight Prepaid",
                            "CheckBox4", "fob_prepaid", "FOBDestinationFreightPrepaid"}
-    # Dynamic scan: find FOB/checkbox fields by name pattern
+    # Dynamic scan: find the FOB Destination Freight Prepaid field specifically
+    # Must match "destination" AND "prepaid" (not just "destination" alone)
     for _fn in _pdf_fields:
         _fn_lower = _fn.lower().replace(" ", "")
-        if ("fob" in _fn_lower and "dest" in _fn_lower) or \
-           ("fobdestination" in _fn_lower) or \
-           (_fn_lower in ("checkbox4", "checkboxfob")):
+        if "fobdestination" in _fn_lower and "prepaid" in _fn_lower:
             _fob_names_to_check.add(_fn)
-            log.info("fill_ams704: Found FOB checkbox field by name: '%s'", _fn)
-        # Also check by field type — any /Btn checkbox that contains FOB or Destination
-        _fd = _pdf_fields[_fn]
-        if isinstance(_fd, dict) and str(_fd.get("/FT", "")) == "/Btn":
-            if "fob" in _fn_lower or "destination" in _fn_lower or "freight" in _fn_lower:
-                _fob_names_to_check.add(_fn)
-                log.info("fill_ams704: Found FOB button field: '%s'", _fn)
+            log.info("fill_ams704: Found FOB Prepaid checkbox field: '%s'", _fn)
     for _fob_name in _fob_names_to_check:
         field_values.append({
             "field_id": _fob_name,
@@ -2829,10 +2822,10 @@ def _fix_shared_page_numbers(output_pdf: str, source_pdf: str, pages_with_items:
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
 
         if page_rect:
-            # White mask over the shared field value, then draw correct number
+            # White mask fully covers the shared field to hide underlying "1"
             x1, y1, x2, y2 = page_rect
             c.setFillColorRGB(1, 1, 1)
-            c.rect(x1 + 1, y1 + 1, x2 - x1 - 2, y2 - y1 - 2, fill=1, stroke=0)
+            c.rect(x1 - 1, y1 - 1, x2 - x1 + 2, y2 - y1 + 2, fill=1, stroke=0)
             c.setFillColorRGB(0, 0, 0)
             c.setFont("Helvetica", 12)
             c.drawRightString(x2 - 2, y1 + 2, str(pg_num))
@@ -2840,7 +2833,7 @@ def _fix_shared_page_numbers(output_pdf: str, source_pdf: str, pages_with_items:
         if of_rect:
             x1, y1, x2, y2 = of_rect
             c.setFillColorRGB(1, 1, 1)
-            c.rect(x1 + 1, y1 + 1, x2 - x1 - 2, y2 - y1 - 2, fill=1, stroke=0)
+            c.rect(x1 - 1, y1 - 1, x2 - x1 + 2, y2 - y1 + 2, fill=1, stroke=0)
             c.setFillColorRGB(0, 0, 0)
             c.setFont("Helvetica", 12)
             c.drawRightString(x2 - 2, y1 + 2, str(pages_with_items))
