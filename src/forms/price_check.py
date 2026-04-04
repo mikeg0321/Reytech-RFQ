@@ -2255,6 +2255,11 @@ def fill_ams704(
         _field_suffix = ""
         if _has_suffix_fields and row > 8:
             _page = ((row - 1) // 8) + 1  # page 2 for rows 9-16, page 3 for 17-24
+            if _page > 2:
+                # Items 17+ have no form fields (_3 suffix doesn't exist).
+                # Skip — these are handled by _append_overflow_pages() after fill.
+                # Writing to nonexistent _3 fields causes pypdf to overwrite page 1!
+                continue
             _field_suffix = f"_{_page}" if _page > 1 else ""
             row = ((row - 1) % 8) + 1  # reset to 1-8 within page
         elif row <= 8 and item_idx >= 8 and not _has_suffix_fields:
@@ -2572,6 +2577,44 @@ def fill_ams704(
         _fill_pdf_fields(_fill_source, field_values, output_pdf)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
+
+    # FOB checkbox fallback: if no /Btn fields exist (DocuSign flat PDFs),
+    # draw the checkbox via overlay on page 1
+    try:
+        _fob_reader = PdfReader(output_pdf)
+        _has_btn = any(
+            str((a.get_object() or {}).get("/FT", "")) == "/Btn"
+            for p in _fob_reader.pages[:1]
+            for a in (p.get("/Annots") or [])
+        )
+        if not _has_btn:
+            # Detect FOB checkbox position from field rects or use hardcoded
+            import io as _fob_io
+            from reportlab.pdfgen import canvas as _fob_canvas
+            _fob_mb = _fob_reader.pages[0].mediabox
+            _fob_pw, _fob_ph = float(_fob_mb.width), float(_fob_mb.height)
+            # Search for the FOB checkbox area — it's near "FOB Destination, Freight Prepaid"
+            # Hardcoded position for standard AMS 704 layout
+            _fob_x, _fob_y = 241.0 * _fob_pw / 792.0, 127.5 * _fob_ph / 612.0
+            _fob_sz = 12
+            _fob_buf = _fob_io.BytesIO()
+            _fob_c = _fob_canvas.Canvas(_fob_buf, pagesize=(_fob_pw, _fob_ph))
+            _fob_c.setStrokeColorRGB(0, 0, 0)
+            _fob_c.setLineWidth(1.5)
+            _fob_c.line(_fob_x, _fob_y, _fob_x + _fob_sz, _fob_y + _fob_sz)
+            _fob_c.line(_fob_x, _fob_y + _fob_sz, _fob_x + _fob_sz, _fob_y)
+            _fob_c.save()
+            _fob_buf.seek(0)
+            _fob_overlay = PdfReader(_fob_buf)
+            _fob_writer = PdfWriter()
+            _fob_writer.append(_fob_reader)
+            if _fob_overlay.pages:
+                _fob_writer.pages[0].merge_page(_fob_overlay.pages[0])
+            with open(output_pdf, "wb") as _fob_f:
+                _fob_writer.write(_fob_f)
+            log.info("fill_ams704: FOB checkbox drawn via overlay (no /Btn fields)")
+    except Exception as _fob_e:
+        log.debug("FOB overlay fallback: %s", _fob_e)
     finally:
         # Clean up temp trimmed source
         if _trimmed_tmp:
