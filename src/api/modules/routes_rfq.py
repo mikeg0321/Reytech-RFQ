@@ -8263,3 +8263,150 @@ def api_export_supplier_po(rid):
     except Exception as e:
         log.error("Supplier PO export: %s", e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Bookkeeper Export — QBO CSV + deal summary
+# ═══════════════════════════════════════════════════════════════════════
+
+def _build_bookkeeper_data(r, rid):
+    """Build QBO CSV content and deal summary from an RFQ dict.
+    Returns (csv_content, summary, filename)."""
+    import csv
+    import io
+
+    items = r.get("line_items", r.get("items", []))
+    sol = r.get("solicitation_number", "")
+    po = r.get("po_number", "")
+    agency = r.get("agency_name", r.get("agency", ""))
+    institution = r.get("institution", "")
+    ship_to = r.get("delivery_location", r.get("ship_to", ""))
+
+    # Build QBO CSV
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "Product/Service Name", "Sales Description", "Purchase Description",
+        "Sales Price / Rate", "Purchase Cost", "SKU", "Taxable", "Type",
+        "Income Account", "Expense Account"
+    ])
+
+    subtotal = 0
+    cost_total = 0
+    bid_count = 0
+    for item in items:
+        if item.get("no_bid"):
+            continue
+        bid_count += 1
+        desc = (item.get("description", "") or "")[:100]
+        mfg = item.get("mfg_number", "") or item.get("part_number", "") or ""
+        product_name = mfg if mfg else desc[:40]
+        sell_price = (item.get("unit_price")
+                      or item.get("price_per_unit")
+                      or (item.get("pricing", {}) or {}).get("recommended_price")
+                      or 0)
+        cost = (item.get("vendor_cost")
+                or item.get("supplier_cost")
+                or (item.get("pricing", {}) or {}).get("unit_cost")
+                or 0)
+        qty = item.get("qty", 1) or 1
+        uom = (item.get("uom") or "EA").upper()
+
+        subtotal += float(sell_price) * float(qty)
+        cost_total += float(cost) * float(qty)
+
+        writer.writerow([
+            product_name,
+            f"{product_name} {desc[:60]}",
+            f"{product_name} {desc[:60]}",
+            f"{float(sell_price):.2f}",
+            f"{float(cost):.2f}",
+            uom,
+            "Yes",
+            "Non-inventory",
+            "Sales of Product Income",
+            "Cost of Goods Sold",
+        ])
+
+    csv_content = output.getvalue()
+
+    # Deal summary
+    tax_rate = 0.0725
+    tax = round(subtotal * tax_rate, 2)
+    total = round(subtotal + tax, 2)
+    profit = round(subtotal - cost_total, 2)
+    margin = round(profit / subtotal * 100, 1) if subtotal > 0 else 0
+
+    summary_lines = [
+        f"DEAL SUMMARY — PO #{po or 'TBD'}",
+        f"Agency: {agency}",
+        f"Institution: {institution}",
+        f"Ship To: {ship_to}",
+        f"Solicitation: {sol}",
+        "",
+        f"Items: {bid_count}",
+        f"Subtotal: ${subtotal:,.2f}",
+        f"Sales Tax ({tax_rate * 100:.2f}%): ${tax:,.2f}",
+        f"Total: ${total:,.2f}",
+        "",
+        f"Cost Total: ${cost_total:,.2f}",
+        f"Profit: ${profit:,.2f} ({margin}% margin)",
+    ]
+    summary = "\n".join(summary_lines)
+    filename = f"QBO_Import_{po or sol or rid}.csv"
+
+    return csv_content, summary, filename
+
+
+@bp.route("/api/rfq/<rid>/bookkeeper-export", methods=["POST"])
+@auth_required
+def api_bookkeeper_export(rid):
+    """Generate QBO CSV + deal summary for bookkeeper."""
+    try:
+        bad = _validate_rid(rid)
+        if bad:
+            return bad
+        from src.api.dashboard import load_rfqs
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+        csv_content, summary, filename = _build_bookkeeper_data(r, rid)
+
+        return jsonify({
+            "ok": True,
+            "csv": csv_content,
+            "summary": summary,
+            "filename": filename,
+        })
+    except Exception as e:
+        log.error("Bookkeeper export error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/rfq/<rid>/bookkeeper-csv")
+@auth_required
+def api_bookkeeper_csv(rid):
+    """Download QBO CSV directly."""
+    try:
+        bad = _validate_rid(rid)
+        if bad:
+            return bad
+        from src.api.dashboard import load_rfqs
+        from flask import Response
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+        csv_content, _summary, filename = _build_bookkeeper_data(r, rid)
+
+        return Response(
+            csv_content,
+            mimetype="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        log.error("Bookkeeper CSV download error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500

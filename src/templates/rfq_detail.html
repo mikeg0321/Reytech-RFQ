@@ -581,6 +581,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <a href="/api/rfq/{{ rid }}/export-invoice" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);color:var(--ac);flex:1;text-align:center;padding:8px">📄 Invoice (Excel)</a>
       <a href="/api/rfq/{{ rid }}/export-supplier-po" class="btn btn-sm" style="font-size:13px;background:rgba(63,185,80,.1);color:#3fb950;flex:1;text-align:center;padding:8px">📦 Supplier PO (Excel)</a>
+      <button onclick="exportBookkeeper()" class="btn btn-sm" style="font-size:13px;background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.3);flex:1;text-align:center;padding:8px">📊 QBO CSV Export</button>
     </div>
   </div>
   {% endif %}
@@ -792,6 +793,30 @@ window.onerror=function(msg,src,line){
  setTimeout(function(){if(el.parentElement)el.remove();},15000);
  return false;
 };
+
+// Bookkeeper QBO CSV export + deal summary to clipboard
+function exportBookkeeper() {
+  fetch('/api/rfq/{{ rid }}/bookkeeper-export', {method:'POST', credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){
+    if (!d.ok) { alert(d.error || 'Export failed'); return; }
+    // Download CSV
+    var blob = new Blob([d.csv], {type: 'text/csv'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = d.filename;
+    a.click();
+    // Copy summary to clipboard
+    if (d.summary && navigator.clipboard) {
+      navigator.clipboard.writeText(d.summary).then(function(){
+        showMsg('CSV downloaded + deal summary copied to clipboard', 'ok');
+      }).catch(function(){
+        showMsg('CSV downloaded. Could not copy summary to clipboard.', 'warn');
+      });
+    } else {
+      showMsg('CSV downloaded', 'ok');
+    }
+  }).catch(function(e){ alert('Export failed: ' + (e.message || e)); });
+}
 
 // Toast notification — non-blocking feedback
 function showMsg(msg, type) {
