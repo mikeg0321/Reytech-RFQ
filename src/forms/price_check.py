@@ -2675,10 +2675,16 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     # Measured MAIN row boundaries (vertical border rects at x=620 and x=689):
     #   Item 1: bot=291.0  top=312.8    Item 2: bot=236.5  top=258.6    Item 3: bot=191.6  top=213.7
     # Previous coords were 9px too high → white mask crossed cell top border → erased lines
+    # Page 1: 8 item rows (measured from Reytech AMS 704 template via pdfplumber)
     PG1_ROWS = [
-        (292.0, 311.5),  # row 1 — cell (291.0, 312.8), 1pt inset
-        (237.5, 257.5),  # row 2 — cell (236.5, 258.6)
-        (192.5, 212.5),  # row 3 — cell (191.6, 213.7)
+        (322.5, 351.8),  # row 1
+        (300.1, 322.5),  # row 2
+        (277.6, 300.1),  # row 3
+        (255.2, 277.6),  # row 4
+        (232.7, 255.2),  # row 5
+        (210.3, 232.7),  # row 6
+        (187.9, 210.3),  # row 7
+        (165.4, 187.9),  # row 8
     ]
     # Continuation-format: 5 item rows on page 2
     # Measured MAIN row boundaries (rects at x=639 and x=689):
@@ -2893,12 +2899,12 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         # Pages 3+: overlay draws ALL content (no form fields exist for _3+ suffixes)
         _needs_full_overlay = (pg_idx >= 2)  # page 3+ has no form fields
 
-        # Column X ranges for full overlay on pages 3+
-        ITEM_X = (33.0, 55.0)
-        QTY_X = (55.0, 90.0)
-        UOM_X = (90.0, 148.0)
-        QPU_X = (148.0, 175.0)
-        DESC_X = (175.0, 580.0)
+        # Column X ranges for full overlay on pages 3+ (measured from form field rects)
+        ITEM_X = (32.2, 62.3)
+        QTY_X = (64.1, 98.3)
+        UOM_X = (100.1, 152.3)
+        QPU_X = (154.1, 197.3)
+        DESC_X = (199.1, 444.8)
 
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
