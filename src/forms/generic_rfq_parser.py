@@ -596,6 +596,8 @@ def _clean_description(text):
 def _is_header_text(text):
     """Check if text is a header/footer/boilerplate."""
     lower = text.lower().strip()
+    # Strip leading punctuation (parsed fragments may start with ", ")
+    lower = re.sub(r'^[\s,;:\.\-]+', '', lower).strip()
     headers = [
         "page ", "total", "subtotal", "grand total", "terms", "conditions",
         "signature", "date:", "vendor", "ship to", "bill to", "attn:",
@@ -603,7 +605,24 @@ def _is_header_text(text):
         "request for quotation", "request for quote", "rfq", "purchase order",
         "all rights reserved", "copyright", "www.", "http",
     ]
-    return any(lower.startswith(h) or lower == h for h in headers)
+    if any(lower.startswith(h) or lower == h for h in headers):
+        return True
+
+    # Government form boilerplate — contains these phrases anywhere in the text
+    boilerplate = [
+        "i certify under penalty", "penalty of perjury", "postconsumer recycled",
+        "recycled-content material", "recycled content certification",
+        "product category refers", "categories listed below", "enter n/a",
+        "reportable purchase", "calrecycle", "commercially useful function",
+        "bidder declaration", "iran contracting act", "darfur contracting act",
+        "disabled veteran business", "nondiscrimination clause", "drug-free workplace",
+        "conflict of interest", "general provisions", "instructions to bidders",
+        "contractor certification", "minimum content requirement", "pcc 12209",
+        "percent postconsumer", "reused or refurbished products",
+        "it is not an order", "used for informational purposes",
+        "ams 704", "price check worksheet", "state of california",
+    ]
+    return any(bp in lower for bp in boilerplate)
 
 
 def _deduplicate_items(items):

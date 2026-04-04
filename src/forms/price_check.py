@@ -437,12 +437,39 @@ def _filter_junk_items(items: list) -> list:
         "in accordance with",
         "hereby certify",
         "authorized signature",
+        # CalRecycle 74 form content
+        "reused or refurbished products",
+        "minimum content requirement",
+        "pcc 12209",
+        "percent postconsumer",
+        "percent by weight",
+        "postconsumer material",
+        "calrecycle",
+        "recycled content certification",
+        "recycled-content certification",
+        "product categories, enter",
+        "product category",
+        "commercially useful function",
+        # Other government form boilerplate
+        "bidder declaration",
+        "iran contracting act",
+        "darfur contracting act",
+        "disabled veteran business",
+        "nondiscrimination clause",
+        "small business preference",
+        "drug-free workplace",
+        "conflict of interest",
+        "general provisions",
+        "instructions to bidders",
+        "contractor certification",
     ]
 
     filtered = []
     removed = 0
     for item in items:
         desc = (item.get("description") or "").strip().lower()
+        # Strip leading punctuation/whitespace (parsed fragments often start with ", ")
+        desc = re.sub(r'^[\s,;:\.\-]+', '', desc).strip()
 
         # Skip items with no description
         if not desc or len(desc) < 3:
