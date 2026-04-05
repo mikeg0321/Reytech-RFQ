@@ -442,9 +442,16 @@ def _start_po_poller():
 
 @bp.route("/po-tracking")
 @auth_required
-@safe_page
 def po_tracking_dashboard():
-    """Purchase Order tracking dashboard."""
+    """DEPRECATED (V2): Redirects to unified /orders page."""
+    return redirect("/orders", code=301)
+
+
+@bp.route("/po-tracking-legacy")
+@auth_required
+@safe_page
+def po_tracking_dashboard_legacy():
+    """Purchase Order tracking dashboard (legacy — kept for reference)."""
     from src.core.db import get_db
     pos = []
     try:

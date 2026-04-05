@@ -147,6 +147,14 @@ def _render_order_detail(order, oid):
 
 # ─── Order API Routes ──────────────────────────────────────────────────────
 
+@bp.route("/order/new")
+@auth_required
+@safe_page
+def order_create_page():
+    """V2: Manual order creation form with line items, PO PDF import, quote lookup."""
+    return render_page("order_create.html", active_page="Orders")
+
+
 @bp.route("/po-upload")
 @auth_required
 @safe_page

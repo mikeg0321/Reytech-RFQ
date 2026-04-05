@@ -8,7 +8,8 @@
 # - data_layer.py: _load_orders (delegation)
 #
 # Storage: SQLite `orders` table (header) + `order_line_items` table (normalized lines).
-# During transition, also dual-writes `data_json` blob for backward compatibility.
+# Reads from data_json blob as fallback for unmigrated orders.
+# Blob dual-write STOPPED as of V2 phase 3 — normalized tables are authoritative.
 
 import json
 import logging
@@ -295,9 +296,10 @@ def get_order_margins(order_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
-    """Save/update order header. Also dual-writes data_json blob for backward compat.
+    """Save/update order header to structured columns.
 
     Does NOT save line items — use save_line_item() or save_line_items_batch() for that.
+    data_json blob write STOPPED — normalized tables are authoritative.
     """
     from src.core.db import get_db, db_retry
 
@@ -307,25 +309,13 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
             st = order.get("status", "new")
             st = LEGACY_STATUS_MAP.get(st, st)
 
-            # Build the data_json blob for backward compat
-            blob_dict = dict(order)
-            blob_dict["order_id"] = order_id
-            if "line_items" not in blob_dict:
-                # Pull from normalized table
-                line_rows = conn.execute(
-                    "SELECT * FROM order_line_items WHERE order_id=? ORDER BY line_number",
-                    (order_id,)
-                ).fetchall()
-                if line_rows:
-                    blob_dict["line_items"] = [_row_to_line_item(lr) for lr in line_rows]
-
             conn.execute("""
                 INSERT INTO orders
                 (id, quote_number, po_number, agency, institution,
-                 total, status, items, created_at, updated_at, data_json,
+                 total, status, items, created_at, updated_at,
                  buyer_name, buyer_email, ship_to, ship_to_address,
                  total_cost, margin_pct, po_pdf_path, fulfillment_type, notes)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                     quote_number=excluded.quote_number,
                     po_number=excluded.po_number,
@@ -335,7 +325,6 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
                     status=excluded.status,
                     items=excluded.items,
                     updated_at=excluded.updated_at,
-                    data_json=excluded.data_json,
                     buyer_name=excluded.buyer_name,
                     buyer_email=excluded.buyer_email,
                     ship_to=excluded.ship_to,
@@ -356,7 +345,6 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
                 json.dumps(order.get("line_items", order.get("items", [])), default=str),
                 order.get("created_at", _now_iso()),
                 _now_iso(),
-                json.dumps(blob_dict, default=str),
                 order.get("buyer_name", ""),
                 order.get("buyer_email", ""),
                 order.get("ship_to", order.get("ship_to_name", "")),
@@ -932,42 +920,7 @@ def _find_line_item(conn, order_id: str, line_id) -> dict | None:
 
 
 def _sync_blob(conn, order_id: str):
-    """Re-sync data_json blob from normalized line items. Backward compat during transition."""
-    try:
-        order_row = conn.execute("SELECT * FROM orders WHERE id=?", (order_id,)).fetchone()
-        if not order_row:
-            return
-        order = dict(order_row)
-
-        line_rows = conn.execute(
-            "SELECT * FROM order_line_items WHERE order_id=? ORDER BY line_number",
-            (order_id,)
-        ).fetchall()
-
-        if line_rows:
-            items = [_row_to_line_item(lr) for lr in line_rows]
-        else:
-            items = _safe_json(order.get("items"), [])
-
-        # Merge existing blob data with updated items
-        existing_blob = {}
-        if order.get("data_json"):
-            try:
-                existing_blob = json.loads(order["data_json"])
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        existing_blob["line_items"] = items
-        existing_blob["status"] = order.get("status", "new")
-        existing_blob["total"] = order.get("total", 0)
-        existing_blob["updated_at"] = _now_iso()
-        existing_blob["order_id"] = order_id
-
-        conn.execute(
-            "UPDATE orders SET data_json=?, items=?, updated_at=? WHERE id=?",
-            (json.dumps(existing_blob, default=str),
-             json.dumps(items, default=str),
-             _now_iso(), order_id)
-        )
-    except Exception as e:
-        log.debug("_sync_blob(%s): %s", order_id, e)
+    """No-op since V2 phase 3 — data_json blob write stopped.
+    Normalized tables (orders + order_line_items) are authoritative.
+    Kept as function stub so callers don't need updating."""
+    pass

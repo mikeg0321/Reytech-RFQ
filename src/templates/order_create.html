@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}New Order — Reytech{% endblock %}
+
+{% block content %}
+<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px">
+ <a href="/orders" class="btn btn-s" style="font-size:15px">← Orders</a>
+ <h2 style="margin:0;font-size:24px;font-weight:700">📦 Create New Order</h2>
+</div>
+
+<div class="bento bento-2" style="margin-bottom:14px">
+ <div class="card" style="margin:0">
+  <div class="card-t" style="font-size:17px">Order Details</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+   <div>
+    <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">PO Number *</label>
+    <input id="po-number" type="text" placeholder="e.g. 4500123456" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px 14px;color:var(--tx);font-size:16px;font-family:'JetBrains Mono',monospace" required>
+   </div>
+   <div>
+    <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">Quote Number (optional)</label>
+    <input id="quote-number" type="text" placeholder="e.g. R26Q42" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px 14px;color:var(--tx);font-size:16px;font-family:'JetBrains Mono',monospace">
+    <div id="quote-match" style="font-size:13px;margin-top:4px;color:var(--tx2)"></div>
+   </div>
+   <div>
+    <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">Agency</label>
+    <select id="agency" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px 14px;color:var(--tx);font-size:15px">
+     <option value="">Select Agency</option>
+     <option value="CDCR">CDCR</option>
+     <option value="CCHCS">CCHCS</option>
+     <option value="CalVet">CalVet</option>
+     <option value="DSH">DSH</option>
+     <option value="DGS">DGS</option>
+     <option value="Other">Other</option>
+    </select>
+   </div>
+   <div>
+    <label style="font-size:14px;color:var(--tx2);display:block;margin-bottom:4px">Institution / Ship-To</label>
+    <input id="institution" type="text" placeholder="e.g. San Quentin State Prison" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:10px 14px;color:var(--tx);font-size:15px">
+   </div>
+  </div>
+ </div>
+
+ <div class="card" style="margin:0">
+  <div class="card-t" style="font-size:17px">Quick Import</div>
+  <div style="text-align:center;padding:20px 0">
+   <div style="border:2px dashed var(--bd);border-radius:12px;padding:24px;margin-bottom:12px;cursor:pointer" onclick="document.getElementById('po-pdf-input').click()" id="drop-zone">
+    <div style="font-size:32px;margin-bottom:8px">📄</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:4px">Drop PO PDF here</div>
+    <div style="font-size:14px;color:var(--tx2)">or click to browse</div>
+   </div>
+   <input type="file" id="po-pdf-input" accept=".pdf" style="display:none" onchange="parsePOFile(this)">
+   <div id="parse-status" style="font-size:14px;color:var(--tx2)"></div>
+  </div>
+ </div>
+</div>
+
+{# ── Line Items Table ── #}
+<div class="card">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+  <div class="card-t" style="margin:0;font-size:17px">Line Items</div>
+  <button onclick="addRow()" class="btn btn-s" style="font-size:15px">➕ Add Item</button>
+ </div>
+ <div style="overflow-x:auto">
+  <table class="home-tbl" style="min-width:800px;font-size:15px" id="items-table">
+   <thead><tr>
+    <th style="width:40px">#</th>
+    <th>Description</th>
+    <th style="width:120px">Part # / ASIN</th>
+    <th style="width:60px;text-align:center">Qty</th>
+    <th style="width:100px;text-align:right">Unit Price</th>
+    <th style="width:100px;text-align:right">Unit Cost</th>
+    <th style="width:120px">Supplier</th>
+    <th style="width:40px"></th>
+   </tr></thead>
+   <tbody id="items-body">
+    <tr class="item-row">
+     <td class="mono" style="color:var(--tx2)">1</td>
+     <td><input type="text" class="li-desc" placeholder="Item description" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 10px;color:var(--tx);font-size:15px"></td>
+     <td><input type="text" class="li-pn" placeholder="B0..." style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 10px;color:var(--tx);font-size:14px;font-family:'JetBrains Mono',monospace"></td>
+     <td><input type="number" class="li-qty" value="1" min="1" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 8px;color:var(--tx);font-size:15px;text-align:center"></td>
+     <td><input type="number" class="li-price" value="0" min="0" step="0.01" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 8px;color:var(--tx);font-size:15px;text-align:right;font-family:'JetBrains Mono',monospace"></td>
+     <td><input type="number" class="li-cost" value="0" min="0" step="0.01" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 8px;color:var(--tx);font-size:15px;text-align:right;font-family:'JetBrains Mono',monospace"></td>
+     <td><input type="text" class="li-supplier" placeholder="Amazon" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 10px;color:var(--tx);font-size:14px"></td>
+     <td><button onclick="removeRow(this)" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)">🗑️</button></td>
+    </tr>
+   </tbody>
+  </table>
+ </div>
+ <div style="display:flex;justify-content:flex-end;gap:16px;margin-top:12px;padding-top:12px;border-top:1px solid var(--bd)">
+  <div style="font-size:16px;color:var(--tx2)">Total: <span id="total-display" style="font-weight:700;font-family:'JetBrains Mono',monospace;color:var(--gn);font-size:18px">$0.00</span></div>
+ </div>
+</div>
+
+<div style="display:flex;gap:12px;justify-content:flex-end;margin-top:16px">
+ <a href="/orders" class="btn btn-s" style="font-size:16px;padding:10px 24px">Cancel</a>
+ <button onclick="submitOrder()" class="btn btn-g" style="font-size:16px;padding:10px 32px" id="submit-btn">📦 Create Order</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var rowCount = 1;
+
+function addRow() {
+  rowCount++;
+  var tbody = document.getElementById('items-body');
+  var tr = document.createElement('tr');
+  tr.className = 'item-row';
+  tr.innerHTML = '<td class="mono" style="color:var(--tx2)">' + rowCount + '</td>'
+    + '<td><input type="text" class="li-desc" placeholder="Item description" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 10px;color:var(--tx);font-size:15px"></td>'
+    + '<td><input type="text" class="li-pn" placeholder="B0..." style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 10px;color:var(--tx);font-size:14px;font-family:\'JetBrains Mono\',monospace"></td>'
+    + '<td><input type="number" class="li-qty" value="1" min="1" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 8px;color:var(--tx);font-size:15px;text-align:center"></td>'
+    + '<td><input type="number" class="li-price" value="0" min="0" step="0.01" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 8px;color:var(--tx);font-size:15px;text-align:right;font-family:\'JetBrains Mono\',monospace"></td>'
+    + '<td><input type="number" class="li-cost" value="0" min="0" step="0.01" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 8px;color:var(--tx);font-size:15px;text-align:right;font-family:\'JetBrains Mono\',monospace"></td>'
+    + '<td><input type="text" class="li-supplier" placeholder="Amazon" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px 10px;color:var(--tx);font-size:14px"></td>'
+    + '<td><button onclick="removeRow(this)" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)">🗑️</button></td>';
+  tbody.appendChild(tr);
+  tr.querySelector('.li-desc').focus();
+  updateTotal();
+}
+
+function removeRow(btn) {
+  var rows = document.querySelectorAll('.item-row');
+  if (rows.length <= 1) return;
+  btn.closest('tr').remove();
+  renumberRows();
+  updateTotal();
+}
+
+function renumberRows() {
+  document.querySelectorAll('.item-row').forEach(function(tr, i) {
+    tr.querySelector('td').textContent = i + 1;
+  });
+  rowCount = document.querySelectorAll('.item-row').length;
+}
+
+function updateTotal() {
+  var total = 0;
+  document.querySelectorAll('.item-row').forEach(function(tr) {
+    var qty = parseFloat(tr.querySelector('.li-qty').value) || 0;
+    var price = parseFloat(tr.querySelector('.li-price').value) || 0;
+    total += qty * price;
+  });
+  var el = document.getElementById('total-display');
+  if (el) el.textContent = '$' + total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+document.addEventListener('input', function(e) {
+  if (e.target.classList.contains('li-qty') || e.target.classList.contains('li-price')) updateTotal();
+});
+
+// Quote lookup
+var quoteInput = document.getElementById('quote-number');
+if (quoteInput) {
+  var debounce = null;
+  quoteInput.addEventListener('input', function() {
+    clearTimeout(debounce);
+    var qn = quoteInput.value.trim();
+    if (qn.length < 3) { document.getElementById('quote-match').textContent = ''; return; }
+    debounce = setTimeout(function() {
+      fetch('/api/quote/lookup?q=' + encodeURIComponent(qn)).then(function(r){return r.json()}).then(function(d) {
+        var el = document.getElementById('quote-match');
+        if (d.ok && d.quote) {
+          el.innerHTML = '<span style="color:#3fb950">✅ Found: ' + d.quote.quote_number + ' — $' + (d.quote.total||0).toLocaleString() + ' · ' + (d.quote.institution||'') + '</span>';
+        } else {
+          el.innerHTML = '<span style="color:var(--tx2)">No match</span>';
+        }
+      }).catch(function(){});
+    }, 400);
+  });
+}
+
+// PO PDF parse
+function parsePOFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  var status = document.getElementById('parse-status');
+  if (status) status.textContent = '⏳ Parsing PDF...';
+  var fd = new FormData();
+  fd.append('file', file);
+  fetch('/api/po/upload-parse', {method: 'POST', body: fd}).then(function(r){return r.json()}).then(function(d) {
+    if (!d.ok) { if(status) status.textContent = '❌ ' + (d.error||'Parse failed'); return; }
+    // Fill form fields
+    if (d.po_number) document.getElementById('po-number').value = d.po_number;
+    if (d.agency) document.getElementById('agency').value = d.agency;
+    if (d.institution) document.getElementById('institution').value = d.institution;
+    // Fill line items
+    if (d.items && d.items.length > 0) {
+      document.getElementById('items-body').innerHTML = '';
+      rowCount = 0;
+      d.items.forEach(function(it) {
+        addRow();
+        var rows = document.querySelectorAll('.item-row');
+        var tr = rows[rows.length - 1];
+        if (it.description) tr.querySelector('.li-desc').value = it.description;
+        if (it.part_number || it.sku) tr.querySelector('.li-pn').value = it.part_number || it.sku || '';
+        if (it.qty || it.quantity) tr.querySelector('.li-qty').value = it.qty || it.quantity || 1;
+        if (it.unit_price || it.price) tr.querySelector('.li-price').value = it.unit_price || it.price || 0;
+        if (it.supplier) tr.querySelector('.li-supplier').value = it.supplier;
+      });
+      updateTotal();
+    }
+    if (status) status.textContent = '✅ Parsed ' + (d.items||[]).length + ' items from PDF';
+  }).catch(function(e) {
+    if (status) status.textContent = '❌ ' + e;
+  });
+}
+
+function submitOrder() {
+  var po = document.getElementById('po-number').value.trim();
+  if (!po) { alert('PO Number is required'); document.getElementById('po-number').focus(); return; }
+
+  var items = [];
+  document.querySelectorAll('.item-row').forEach(function(tr) {
+    var desc = tr.querySelector('.li-desc').value.trim();
+    var pn = tr.querySelector('.li-pn').value.trim();
+    if (!desc && !pn) return;
+    items.push({
+      description: desc,
+      part_number: pn,
+      qty: parseInt(tr.querySelector('.li-qty').value) || 1,
+      unit_price: parseFloat(tr.querySelector('.li-price').value) || 0,
+      cost: parseFloat(tr.querySelector('.li-cost').value) || 0,
+      supplier: tr.querySelector('.li-supplier').value.trim()
+    });
+  });
+
+  var total = 0;
+  items.forEach(function(it) { total += it.qty * it.unit_price; });
+
+  var btn = document.getElementById('submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating...'; }
+
+  fetch('/api/order/create', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      po_number: po,
+      quote_number: document.getElementById('quote-number').value.trim(),
+      agency: document.getElementById('agency').value,
+      institution: document.getElementById('institution').value.trim(),
+      items: items,
+      total: total
+    })
+  }).then(function(r){return r.json()}).then(function(d) {
+    if (d.ok) {
+      location.href = '/order/' + d.order_id;
+    } else {
+      alert('Error: ' + (d.error || 'unknown'));
+      if (btn) { btn.disabled = false; btn.textContent = '📦 Create Order'; }
+    }
+  }).catch(function(e) {
+    alert('Error: ' + e);
+    if (btn) { btn.disabled = false; btn.textContent = '📦 Create Order'; }
+  });
+}
+</script>
+{% endblock %}
