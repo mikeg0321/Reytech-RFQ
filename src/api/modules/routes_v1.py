@@ -1796,7 +1796,7 @@ def api_v1_browser_screenshots():
 def api_v1_harvest_browser_test():
     """Test Playwright-based SCPRS detail scraping."""
     try:
-        from src.agents.scprs_browser import scrape_details
+        from src.agents.scprs_scraper_client import scrape_details
         results = scrape_details(
             supplier_name="reytech",
             from_date="",

@@ -452,7 +452,7 @@ class FiscalSession:
             # Try browser-based detail extraction (Playwright)
             if po_number:
                 try:
-                    from src.agents.scprs_browser import scrape_po_detail
+                    from src.agents.scprs_scraper_client import scrape_po_detail
                     browser_detail = scrape_po_detail(po_number)
                     if browser_detail and browser_detail.get("line_items"):
                         log.info("Detail via browser: PO=%s, %d lines",

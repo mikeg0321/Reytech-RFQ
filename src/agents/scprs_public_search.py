@@ -88,15 +88,22 @@ def search_scprs_public(
 ) -> dict:
     """
     Search the public SCPRS using Playwright (headless browser).
-    Works on Railway — no credentials needed, just public web access.
-
-    Returns:
-      {"ok": True, "results": [...], "count": N, "keyword": "...", "dept": "..."}
+    Prefers the remote scraper service if SCRAPER_SERVICE_URL is configured.
+    Falls back to local Playwright.
     """
+    # Try remote scraper service first
+    try:
+        from src.agents.scprs_scraper_client import search_scprs_public as _remote
+        import os
+        if os.environ.get("SCRAPER_SERVICE_URL"):
+            return _remote(keyword=keyword, department_code=department_code, max_results=max_results)
+    except Exception:
+        pass
+
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
-        return {"ok": False, "error": "Playwright not installed. Run: pip install playwright && playwright install chromium"}
+        return {"ok": False, "error": "Playwright not installed. Set SCRAPER_SERVICE_URL to use the remote scraper service."}
 
     results = []
     error_msg = None
@@ -289,12 +296,21 @@ def search_scprs_public(
 def search_scprs_intercept(keyword: str, department_code: str = "3860") -> dict:
     """
     Use Playwright with network interception to capture the API call
-    that the SCPRS page makes internally. This finds the real JSON endpoint.
+    that the SCPRS page makes internally. Prefers remote scraper service.
     """
+    # Try remote scraper service first
+    try:
+        from src.agents.scprs_scraper_client import search_scprs_intercept as _remote
+        import os
+        if os.environ.get("SCRAPER_SERVICE_URL"):
+            return _remote(keyword=keyword, department_code=department_code)
+    except Exception:
+        pass
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        return {"ok": False, "error": "Playwright not installed"}
+        return {"ok": False, "error": "Playwright not installed. Set SCRAPER_SERVICE_URL to use the remote scraper service."}
 
     captured_requests = []
     captured_responses = []

@@ -353,7 +353,15 @@ def _parse_browser_detail(html):
 
 def scrape_details(supplier_name="reytech", from_date="",
                    max_rows=500):
-    """Synchronous wrapper for async browser scraping."""
+    """Synchronous wrapper for async browser scraping. Prefers remote scraper service."""
+    # Try remote scraper service first
+    try:
+        from src.agents.scprs_scraper_client import scrape_details as _remote
+        import os
+        if os.environ.get("SCRAPER_SERVICE_URL"):
+            return _remote(supplier_name=supplier_name, from_date=from_date, max_rows=max_rows)
+    except Exception:
+        pass
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -368,7 +376,15 @@ def scrape_details(supplier_name="reytech", from_date="",
 
 
 def scrape_po_detail(po_number):
-    """Scrape detail for a single PO number."""
+    """Scrape detail for a single PO number. Prefers remote scraper service."""
+    # Try remote scraper service first
+    try:
+        from src.agents.scprs_scraper_client import scrape_po_detail as _remote
+        import os
+        if os.environ.get("SCRAPER_SERVICE_URL"):
+            return _remote(po_number)
+    except Exception:
+        pass
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)

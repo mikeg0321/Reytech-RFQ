@@ -1,10 +1,5 @@
 [phases.setup]
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils",
-           "libnss3", "libnspr4", "libatk1.0-0", "libatk-bridge2.0-0",
-           "libcups2", "libdrm2", "libxkbcommon0", "libxcomposite1",
-           "libxdamage1", "libxrandr2", "libgbm1", "libpango-1.0-0",
-           "libcairo2", "libasound2t64", "libxshmfence1", "libx11-xcb1",
-           "libxfixes3"]
+aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils"]
 
 [phases.install]
-cmds = ["python -m venv --copies /opt/venv", "/opt/venv/bin/pip install -r requirements.txt", "/opt/venv/bin/playwright install chromium"]
+cmds = ["python -m venv --copies /opt/venv", "/opt/venv/bin/pip install -r requirements.txt"]
