@@ -232,17 +232,21 @@ class TestQuoteGeneration:
         for page in reader.pages:
             text += page.extract_text() or ""
         assert "Nitrile" in text, "Item description not found in quote PDF"
-        assert "Reytech" in text, "Company name not found in quote PDF"
+        assert "reytechinc" in text.lower().replace(" ", ""), \
+            "Company name not found in quote PDF"
 
     def test_quote_math_correct(self, output_dir):
         from src.forms.quote_generator import generate_quote
         out = os.path.join(output_dir, "quote.pdf")
         result = generate_quote(SAMPLE_RFQ, out, agency="CDCR",
                                 quote_number="R26QTEST003")
-        # 50 * 15.00 = 750.00 + 100 * 4.50 = 450.00 = $1,200.00
+        # 50 * 15.00 = 750.00 + 100 * 4.50 = 450.00 = $1,200.00 subtotal
+        # Default tax = 7.25% → $87.00 → total $1,287.00
         assert result.get("ok")
         log_total = result.get("total", 0)
-        expected = 50 * 15.00 + 100 * 4.50
+        subtotal = 50 * 15.00 + 100 * 4.50
+        tax = round(subtotal * 0.0725, 2)
+        expected = subtotal + tax
         assert abs(log_total - expected) < 0.01, \
             f"Quote total {log_total} != expected {expected}"
 
