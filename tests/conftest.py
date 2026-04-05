@@ -149,6 +149,15 @@ def app(temp_data_dir, monkeypatch):
     monkeypatch.setenv("ENABLE_EMAIL_POLLING", "false")
     monkeypatch.setenv("ENABLE_BACKGROUND_AGENTS", "false")
 
+    # Patch DB_PATH so get_db() uses an isolated test database
+    try:
+        import src.core.db as _db_mod
+        _db_path = os.path.join(temp_data_dir, "reytech_test.db")
+        monkeypatch.setattr(_db_mod, "DB_PATH", _db_path)
+        _db_mod.close_thread_db()  # Force new connection with patched path
+    except Exception:
+        pass
+
     from app import create_app
     _app = create_app()
     _app.config["TESTING"] = True

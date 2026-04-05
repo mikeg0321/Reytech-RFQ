@@ -25,7 +25,7 @@ from src.agents.email_poller import EmailPoller, EmailSender
 
 # ── Shared config + feature flags (extracted to src/api/config.py) ────────────
 from src.api.config import (
-    CONFIG as _CFG_CHECK, BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
+    CONFIG, BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
     PRICING_ORACLE_AVAILABLE, PRODUCT_RESEARCH_AVAILABLE,
     PRICE_CHECK_AVAILABLE, QUOTE_GEN_AVAILABLE, AUTO_PROCESSOR_AVAILABLE,
 )
