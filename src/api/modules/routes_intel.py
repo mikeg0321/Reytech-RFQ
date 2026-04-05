@@ -80,8 +80,8 @@ def api_intel_engine_status():
         }
         return jsonify({"ok": True, **status})
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/intel/scprs/test-connection")
@@ -104,8 +104,8 @@ def api_scprs_test_connection():
             "results_sample": [{"po": r.get("po_number",""), "dept": r.get("dept",""), "total": r.get("grand_total","")} for r in results[:3]],
         })
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/intel/scprs/po-monitor", methods=["POST"])
@@ -339,8 +339,8 @@ def api_scprs_backfill():
         result = backfill_historical(year=year, notify_fn=_notify_wrapper, force=force)
         return jsonify(result)
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/intel/scprs/test-pull", methods=["POST", "GET"])
@@ -429,8 +429,8 @@ def api_scprs_test_pull():
             } for r in results[:5] if r not in matched],
         })
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/intel/competitors")
@@ -650,8 +650,8 @@ def api_buyers():
             "agencies_list": sorted(a for a in agencies_seen if a),
         })
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/buyers/save-draft", methods=["POST"])
@@ -3000,12 +3000,12 @@ def api_manager_brief_debug():
             val = fn(**kw)
             results[name] = {"ok": True, "type": type(val).__name__}
         except Exception as e:
-            results[name] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+            results[name] = {"ok": False, "error": str(e)}
     try:
         generate_brief()
         results["generate_brief"] = {"ok": True}
     except Exception as e:
-        results["generate_brief"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-1000:]}
+        results["generate_brief"] = {"ok": False, "error": str(e)}
     all_ok = all(v.get("ok") for v in results.values())
     return jsonify({"ok": all_ok, "results": results})
 

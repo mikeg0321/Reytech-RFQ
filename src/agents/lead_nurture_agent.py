@@ -503,18 +503,18 @@ def auto_start_nurture_new_leads() -> dict:
 
 # ── Background Scheduler ─────────────────────────────────────────────────────
 
-def _run_daily_check():
-    global _scheduler_running
-    if not _scheduler_running:
-        return
-    try:
-        process_nurture_queue()
-        rescore_all_leads()
-    except Exception as e:
-        log.error("Lead nurture scheduler: %s", e)
-    finally:
-        if _scheduler_running:
-            threading.Timer(CHECK_INTERVAL, _run_daily_check).start()
+def _nurture_loop():
+    """Daemon loop for daily nurture checks — shutdown-aware."""
+    from src.core.scheduler import _shutdown_event
+    _shutdown_event.wait(300)  # initial delay for app boot
+    while not _shutdown_event.is_set():
+        try:
+            process_nurture_queue()
+            rescore_all_leads()
+        except Exception as e:
+            log.error("Lead nurture scheduler: %s", e, exc_info=True)
+        _shutdown_event.wait(CHECK_INTERVAL)
+    log.info("Lead nurture scheduler shutting down")
 
 
 def start_nurture_scheduler():
@@ -522,7 +522,7 @@ def start_nurture_scheduler():
     if _scheduler_running:
         return
     _scheduler_running = True
-    threading.Timer(300, _run_daily_check).start()  # First run after 5 min
+    threading.Thread(target=_nurture_loop, daemon=True, name="lead-nurture").start()
     log.info("Lead nurture scheduler started (daily)")
 
 

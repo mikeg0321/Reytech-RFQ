@@ -202,7 +202,7 @@ def order_detail(oid):
         return _wrap_page(f"""
         <div class="card" style="padding:24px">
          <h2 style="color:var(--rd)">⚠️ Error rendering order {oid}</h2>
-         <pre style="color:var(--tx2);font-size:14px;overflow:auto;max-height:400px">{traceback.format_exc()}</pre>
+         <pre style="color:var(--tx2);font-size:14px;overflow:auto;max-height:400px">{type(e).__name__}: {e}</pre>
          <a href="/orders" class="btn btn-s" style="margin-top:12px">← Back to Orders</a>
         </div>""", f"Error: {oid}")
 
@@ -1769,7 +1769,8 @@ def api_drive_backup_now():
         return jsonify(result)
     except Exception as e:
         import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/drive/restore", methods=["POST"])
@@ -1820,7 +1821,8 @@ def api_orders_digest():
         return jsonify(result)
     except Exception as e:
         import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/orders/context/<po_number>")
@@ -1850,7 +1852,8 @@ def api_test_sms():
         return jsonify({"diag": diag, "sms_result": result})
     except Exception as e:
         import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

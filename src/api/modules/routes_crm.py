@@ -746,8 +746,8 @@ def api_pricecheck_process():
             result["download_url"] = f"/api/pricecheck/download/{os.path.basename(result['output_pdf'])}"
         return jsonify(json.loads(json.dumps(result, default=str)))
     except Exception as e:
-        import traceback
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/pricecheck/download/<filename>")

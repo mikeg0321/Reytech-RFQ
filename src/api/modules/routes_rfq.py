@@ -5048,7 +5048,8 @@ def api_quote_regenerate(qn):
     except Exception as e:
         import traceback
         t.fail(str(e))
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/rfq/<rid>/dismiss", methods=["POST"])
@@ -6069,7 +6070,8 @@ def api_generate_obs1600(rid):
     except Exception as e:
         import traceback
         t.fail(str(e))
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 def _generate_standalone_obs1600(food_items, config, rfq_data, output_path):
@@ -6299,7 +6301,8 @@ def api_fill_bid_package(rid):
     except Exception as e:
         import traceback
         t.fail(str(e))
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/fill-forms", methods=["POST"])
@@ -6365,7 +6368,8 @@ def api_fill_forms_standalone():
     except Exception as e:
         import traceback
         t.fail(str(e))
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()}), 500
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/rfq/<rid>/price-intel")

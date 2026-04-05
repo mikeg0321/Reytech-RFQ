@@ -1474,7 +1474,7 @@ def api_v1_harvest_debug_modal():
     except Exception as e:
         import traceback
         log.error("debug-modal error: %s", e, exc_info=True)
-        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+        return api_response(error=str(e), status=500)
 
 
 @bp.route("/api/v1/harvest/debug-modal2")
@@ -1614,7 +1614,7 @@ def api_v1_harvest_debug_modal2():
     except Exception as e:
         import traceback
         log.error("debug-modal2 error: %s", e, exc_info=True)
-        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+        return api_response(error=str(e), status=500)
 
 
 @bp.route("/api/v1/harvest/debug-click")
@@ -1718,7 +1718,7 @@ def api_v1_harvest_debug_click():
     except Exception as e:
         import traceback
         log.error("debug-click: %s", e, exc_info=True)
-        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+        return api_response(error=str(e), status=500)
 
 
 @bp.route("/api/v1/harvest/browser-screenshot")
@@ -1811,10 +1811,8 @@ def api_v1_harvest_browser_test():
         })
     except Exception as e:
         import traceback
-        return api_response(
-            error=f"{e}\n{traceback.format_exc()}",
-            status=500
-        )
+        log.error("Route error: %s", e, exc_info=True)
+        return api_response(error=str(e), status=500)
 
 
 @bp.route("/api/v1/harvest/fiscal-scrape-now")
@@ -1996,7 +1994,7 @@ def api_v1_populate_catalog():
         })
     except Exception as e:
         import traceback
-        return api_response(error=f"{e}\n{traceback.format_exc()}", status=500)
+        return api_response(error=str(e), status=500)
 
 
 @bp.route("/api/v1/buyers/refresh")
@@ -2506,7 +2504,7 @@ def api_v1_recovery_from_db():
     except Exception as e:
         import traceback
         results["error"] = str(e)
-        results["traceback"] = traceback.format_exc()
+        log.error("Route error: %s", e, exc_info=True)
 
     return api_response(results)
 
@@ -2595,7 +2593,7 @@ def api_v1_recovery_restore():
     except Exception as e:
         import traceback
         results["error"] = str(e)
-        results["traceback"] = traceback.format_exc()
+        log.error("Route error: %s", e, exc_info=True)
 
     return api_response(results)
 

@@ -4744,8 +4744,8 @@ def api_sync_scprs():
         result["coverage_pct"] = round(wq / max(eligible, 1) * 100, 1)
         return jsonify({"ok": True, **result})
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/system/pipeline-health")

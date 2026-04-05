@@ -644,13 +644,13 @@ def api_voice_import_twilio():
 @bp.route("/api/voice/webhook", methods=["POST"])
 def api_voice_vapi_webhook():
     """Vapi server URL webhook — handles function calls during live conversations.
-    Auth via shared secret header (VAPI_WEBHOOK_SECRET) or falls back to open."""
-    # Verify webhook secret if configured
+    Auth via shared secret header (VAPI_WEBHOOK_SECRET). Rejects if not configured."""
     webhook_secret = os.environ.get("VAPI_WEBHOOK_SECRET", "")
-    if webhook_secret:
-        auth_header = request.headers.get("X-Vapi-Secret", "")
-        if auth_header != webhook_secret:
-            return jsonify({"error": "Unauthorized"}), 401
+    if not webhook_secret:
+        return jsonify({"error": "Webhook not configured"}), 503
+    auth_header = request.headers.get("X-Vapi-Secret", "")
+    if auth_header != webhook_secret:
+        return jsonify({"error": "Unauthorized"}), 401
 
     data = request.get_json(silent=True) or {}
     msg_type = data.get("message", {}).get("type", "")

@@ -2322,8 +2322,8 @@ def rfq_relink_pc(rid):
                 "trace": trace,
             })
     except Exception as e:
-        import traceback
-        return jsonify({"ok": False, "error": str(e), "traceback": traceback.format_exc()[:500]})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/rfqs/relink-all", methods=["POST", "GET"])

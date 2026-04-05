@@ -2410,6 +2410,12 @@ def _do_generate(pcid):
         resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
         if _qa_warnings:
             resp["qa_warnings"] = _qa_warnings
+        try:
+            if not _qa.get("passed", True):
+                resp["qa_failed"] = True
+                resp["qa_issues"] = _qa.get("issues", [])
+        except NameError:
+            pass  # _qa not defined if QA was skipped
         return jsonify(resp)
     return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
 
@@ -2585,6 +2591,12 @@ def _do_generate_original(pcid):
         resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
         if _qa_warnings:
             resp["qa_warnings"] = _qa_warnings
+        try:
+            if not _qa.get("passed", True):
+                resp["qa_failed"] = True
+                resp["qa_issues"] = _qa.get("issues", [])
+        except NameError:
+            pass
         return jsonify(resp)
 
     log.error("GENERATE-ORIGINAL %s FAILED: %s", pcid, result.get("error"))
@@ -3579,8 +3591,8 @@ def api_scprs_test():
         from src.agents.scprs_lookup import test_search
         return jsonify(test_search(q))
     except Exception as e:
-        import traceback
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/scprs-bulk/<rid>")
@@ -3669,8 +3681,8 @@ def api_scprs_bulk(rid):
         })
     
     except Exception as e:
-        import traceback
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/scprs-raw")
@@ -3742,8 +3754,8 @@ def api_scprs_raw():
             "grid_tables": grid_tables[:5],
         })
     except Exception as e:
-        import traceback
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/status")
@@ -3922,7 +3934,8 @@ def api_inbox_peek():
         })
     except Exception as e:
         import traceback
-        return jsonify({"ok": False, "error": str(e), "tb": traceback.format_exc()})
+        log.error("Route error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/diag/nuke-and-poll")
@@ -4139,7 +4152,8 @@ def api_diag():
     try:
         return _api_diag_inner()
     except Exception as e:
-        return jsonify({"error": str(e), "traceback": traceback.format_exc()})
+        log.error("Diagnostics error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 def _api_diag_inner():
     import traceback
@@ -4228,7 +4242,7 @@ def _api_diag_inner():
             diag["connection_test"] = f"LOGIN ERROR: {e}"
     except Exception as e:
         diag["connection_test"] = f"SSL CONNECT FAILED: {e}"
-        diag["connection_traceback"] = traceback.format_exc()
+        log.error("IMAP connection test failed: %s", e, exc_info=True)
     
     # Check processed emails file
     proc_file = email_cfg.get("processed_file", os.path.join(DATA_DIR, "processed_emails.json"))

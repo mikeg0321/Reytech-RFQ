@@ -298,29 +298,28 @@ def get_outbox_summary() -> dict:
 
 # ── Background Scheduler ─────────────────────────────────────────────────────
 
-def _run_retry_check():
-    """Periodic retry check."""
-    global _scheduler_running
-    if not _scheduler_running:
-        return
-    try:
-        result = retry_failed_emails()
-        if result.get("retried", 0) > 0:
-            log.info("Retry check: re-queued %d emails", result["retried"])
-    except Exception as e:
-        log.error("Retry scheduler: %s", e)
-    finally:
-        if _scheduler_running:
-            threading.Timer(RETRY_CHECK_INTERVAL, _run_retry_check).start()
+def _retry_loop():
+    """Daemon loop for periodic retry checks — shutdown-aware."""
+    from src.core.scheduler import _shutdown_event
+    _shutdown_event.wait(120)  # initial delay for app boot
+    while not _shutdown_event.is_set():
+        try:
+            result = retry_failed_emails()
+            if result.get("retried", 0) > 0:
+                log.info("Retry check: re-queued %d emails", result["retried"])
+        except Exception as e:
+            log.error("Retry scheduler: %s", e, exc_info=True)
+        _shutdown_event.wait(RETRY_CHECK_INTERVAL)
+    log.info("Email retry scheduler shutting down")
 
 
 def start_retry_scheduler():
-    """Start background retry scheduler."""
+    """Start background retry scheduler as a daemon thread."""
     global _scheduler_running
     if _scheduler_running:
         return
     _scheduler_running = True
-    threading.Timer(120, _run_retry_check).start()
+    threading.Thread(target=_retry_loop, daemon=True, name="email-retry").start()
     log.info("Email retry scheduler started (checks every %ds)", RETRY_CHECK_INTERVAL)
 
 

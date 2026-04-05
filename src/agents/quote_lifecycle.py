@@ -389,40 +389,37 @@ def get_pipeline_summary() -> dict:
 
 # ── Background Scheduler ─────────────────────────────────────────────────────
 
-def _run_lifecycle_check():
-    """Periodic lifecycle check — expirations + follow-ups."""
-    global _scheduler_running
-    if not _scheduler_running:
-        return
-    try:
-        result = check_expirations()
-        if result.get("expired", 0) > 0 or result.get("follow_ups_due", 0) > 0:
-            log.info("Lifecycle check: expired=%d follow_ups_due=%d",
-                     result.get("expired", 0), result.get("follow_ups_due", 0))
+def _lifecycle_loop():
+    """Daemon loop for periodic lifecycle checks — shutdown-aware."""
+    from src.core.scheduler import _shutdown_event, heartbeat
+    _shutdown_event.wait(60)  # initial delay for app boot
+    while not _shutdown_event.is_set():
         try:
-            from src.core.scheduler import heartbeat
-            heartbeat("quote-lifecycle", success=True)
-        except Exception:
-            pass
-    except Exception as e:
-        log.error("Lifecycle scheduler error: %s", e)
-        try:
-            from src.core.scheduler import heartbeat
-            heartbeat("quote-lifecycle", success=False, error=str(e)[:200])
-        except Exception:
-            pass
-    finally:
-        if _scheduler_running:
-            threading.Timer(CHECK_INTERVAL, _run_lifecycle_check).start()
+            result = check_expirations()
+            if result.get("expired", 0) > 0 or result.get("follow_ups_due", 0) > 0:
+                log.info("Lifecycle check: expired=%d follow_ups_due=%d",
+                         result.get("expired", 0), result.get("follow_ups_due", 0))
+            try:
+                heartbeat("quote-lifecycle", success=True)
+            except Exception:
+                pass
+        except Exception as e:
+            log.error("Lifecycle scheduler error: %s", e, exc_info=True)
+            try:
+                heartbeat("quote-lifecycle", success=False, error=str(e)[:200])
+            except Exception:
+                pass
+        _shutdown_event.wait(CHECK_INTERVAL)
+    log.info("Quote lifecycle scheduler shutting down")
 
 
 def start_lifecycle_scheduler():
-    """Start the background lifecycle checker."""
+    """Start the background lifecycle checker as a daemon thread."""
     global _scheduler_running
     if _scheduler_running:
         return
     _scheduler_running = True
-    threading.Timer(60, _run_lifecycle_check).start()  # First run after 60s
+    threading.Thread(target=_lifecycle_loop, daemon=True, name="quote-lifecycle").start()
     log.info("Quote lifecycle scheduler started (checks every %ds)", CHECK_INTERVAL)
 
 

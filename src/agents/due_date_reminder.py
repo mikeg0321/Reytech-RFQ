@@ -150,10 +150,10 @@ def check_due_dates():
 
 def _send_sms_reminder(message):
     """Send SMS via Twilio if configured."""
-    account_sid = os.environ.get("TWILIO_SID", "")
-    auth_token = os.environ.get("TWILIO_TOKEN", "")
-    from_number = os.environ.get("TWILIO_FROM", "")
-    to_number = os.environ.get("TWILIO_TO", os.environ.get("OWNER_PHONE", ""))
+    account_sid = os.environ.get("TWILIO_ACCOUNT_SID", "")
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    from_number = os.environ.get("TWILIO_FROM_NUMBER", "")
+    to_number = os.environ.get("NOTIFY_PHONE", os.environ.get("OWNER_PHONE", ""))
 
     if not all([account_sid, auth_token, from_number, to_number]):
         log.debug("SMS not configured - skipping")
