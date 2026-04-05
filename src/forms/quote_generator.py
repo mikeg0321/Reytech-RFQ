@@ -572,7 +572,7 @@ def update_quote_status(quote_number: str, status: str, po_number: str = "",
     if status == "won" and not (po_number or "").strip() and actor == "user":
         log.warning("Blocked won status for %s — no PO number (actor=%s)", quote_number, actor)
         return False
-    quotes = get_all_quotes()
+    quotes = get_all_quotes(include_test=True)
     found = False
     now = datetime.now().isoformat()
     for qt in quotes:
@@ -656,10 +656,12 @@ def _log_quote(result: dict):
                 break
     
     # Determine if this is a test quote — never let test data touch real records
+    import re as _re_test
     is_test = bool(
         result.get("is_test") or
         (qn and (str(qn).startswith("TEST-") or str(qn).startswith("QA-"))) or
-        result.get("source_pc_id", "").startswith("test_")
+        result.get("source_pc_id", "").startswith("test_") or
+        (qn and not _re_test.match(r"^R\d{2}Q\d+$", str(qn)))  # non-standard format = test
     )
 
     entry = {
@@ -687,17 +689,6 @@ def _log_quote(result: dict):
         "is_test":       is_test,
     }
 
-    # Contract enforcement (Law 28) — block empty shells
-    try:
-        from src.core.contracts import validate_quote, log_blocked_save
-        is_valid, violations = validate_quote(entry, strict=True)
-        if not is_valid:
-            log_blocked_save("quote", qn, violations, "_log_quote")
-            log.warning("Quote %s NOT saved — contract: %s", qn, violations)
-            return
-    except ImportError:
-        pass
-
     # TEST GUARD: test quotes never write to SQLite or appear in real data
     if is_test:
         log.info("Test quote %s logged with is_test=True — excluded from real records", qn)
@@ -708,7 +699,18 @@ def _log_quote(result: dict):
         existing.append(entry)
         _save_all_quotes(existing)
         return  # Do NOT write test quotes to SQLite
-    
+
+    # Contract enforcement (Law 28) — block empty shells (skipped for test quotes above)
+    try:
+        from src.core.contracts import validate_quote, log_blocked_save
+        is_valid, violations = validate_quote(entry, strict=True)
+        if not is_valid:
+            log_blocked_save("quote", qn, violations, "_log_quote")
+            log.warning("Quote %s NOT saved — contract: %s", qn, violations)
+            return
+    except ImportError:
+        pass
+
     if existing_idx is not None:
         # UPDATE existing — preserve status, history, and created_at
         old = quotes[existing_idx]

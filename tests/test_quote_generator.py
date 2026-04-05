@@ -386,7 +386,6 @@ class TestLogoText:
         generate_quote(sample_stryker_quote, out, quote_number="LOGO1")
         with pdfplumber.open(out) as pdf:
             text = pdf.pages[0].extract_text()
-            # Logo may be image; check for address/cert text as branding proof
             assert ("Reytech" in text or "Carnoustie" in text or
                     "Trabuco Canyon" in text or "Michael Guadan" in text)
 
