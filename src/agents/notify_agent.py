@@ -528,8 +528,9 @@ def start_stale_watcher():
     _stale_watcher_started = True
 
     def _watch():
-        while True:
-            time.sleep(3600)  # check every hour
+        from src.core.scheduler import _shutdown_event
+        _shutdown_event.wait(3600)  # initial delay + check every hour
+        while not _shutdown_event.is_set():
             try:
                 outbox_path = os.path.join(DATA_DIR, "email_outbox.json")  # fallback
                 try:
@@ -564,6 +565,8 @@ def start_stale_watcher():
                     )
             except Exception as e:
                 log.debug("Stale watcher error: %s", e)
+            _shutdown_event.wait(3600)
+        log.info("Stale watcher shutting down")
 
     t = threading.Thread(target=_watch, daemon=True, name="stale-watcher")
     t.start()

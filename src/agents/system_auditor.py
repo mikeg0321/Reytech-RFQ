@@ -20,23 +20,27 @@ def schedule_system_audit():
     import threading
     from datetime import timezone, timedelta
 
-    PST = timezone(timedelta(hours=-8))
+    from zoneinfo import ZoneInfo
+    PACIFIC = ZoneInfo("America/Los_Angeles")
 
     def _wait_and_run():
-        while True:
-            now = datetime.now(PST)
+        from src.core.scheduler import _shutdown_event
+        while not _shutdown_event.is_set():
+            now = datetime.now(PACIFIC)
             target = now.replace(hour=5, minute=30, second=0, microsecond=0)
             if target <= now:
                 target += timedelta(days=1)
             wait_seconds = (target - now).total_seconds()
-            log.info("System audit scheduled for %s PST (in %.1f hours)",
+            log.info("System audit scheduled for %s Pacific (in %.1f hours)",
                      target.strftime("%H:%M"), wait_seconds / 3600)
-            time.sleep(wait_seconds)
+            if _shutdown_event.wait(wait_seconds):
+                break
             try:
                 run_full_audit()
             except Exception as e:
-                log.error("System audit failed: %s", e)
-            time.sleep(60)
+                log.error("System audit failed: %s", e, exc_info=True)
+            _shutdown_event.wait(60)
+        log.info("System auditor shutting down")
 
     t = threading.Thread(target=_wait_and_run, daemon=True, name="system-auditor")
     t.start()
