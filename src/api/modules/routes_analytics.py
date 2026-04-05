@@ -4046,13 +4046,13 @@ def api_export_json():
 @safe_route
 def api_data_quality_duplicates():
     """Find duplicate contacts/vendors in CRM."""
-    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-    if not os.path.exists(crm_path):
+    try:
+        from src.core.db import get_all_contacts
+        _crm_dict = get_all_contacts()
+        contacts = list(_crm_dict.values()) if _crm_dict else []
+    except Exception:
         return jsonify({"ok": True, "duplicates": [], "count": 0})
     try:
-        with open(crm_path) as f:
-            crm = json.load(f)
-        contacts = crm.get("contacts", [])
 
         by_email = defaultdict(list)
         for c in contacts:
@@ -4103,18 +4103,15 @@ def api_data_quality_missing_data():
         except Exception:
             pass
 
-    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-    if os.path.exists(crm_path):
-        try:
-            with open(crm_path) as f:
-                crm = json.load(f)
-            contacts = crm.get("contacts", [])
-            no_email = sum(1 for c in contacts if not c.get("email"))
-            no_phone = sum(1 for c in contacts if not c.get("phone"))
-            if no_email: issues.append({"type": "crm", "issue": f"{no_email} contacts missing email"})
-            if no_phone: issues.append({"type": "crm", "issue": f"{no_phone} contacts missing phone"})
-        except Exception:
-            pass
+    try:
+        from src.core.db import get_all_contacts
+        _contacts = list(get_all_contacts().values())
+        no_email = sum(1 for c in _contacts if not c.get("buyer_email"))
+        no_phone = sum(1 for c in _contacts if not c.get("buyer_phone"))
+        if no_email: issues.append({"type": "crm", "issue": f"{no_email} contacts missing email"})
+        if no_phone: issues.append({"type": "crm", "issue": f"{no_phone} contacts missing phone"})
+    except Exception:
+        pass
 
     return jsonify({"ok": True, "issues": issues, "count": len(issues)})
 
@@ -4124,23 +4121,20 @@ def api_data_quality_missing_data():
 @safe_route
 def api_data_quality_orphaned_quotes():
     """Find quotes not linked to any CRM contact."""
-    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-    from src.core.db import DB_PATH as _DB_PATH
-    if not os.path.exists(_DB_PATH):
-        return jsonify({"ok": True, "orphaned": []})
+    from src.core.db import get_db
     try:
         crm_institutions = set()
-        if os.path.exists(crm_path):
-            with open(crm_path) as f:
-                crm = json.load(f)
-            for c in crm.get("contacts", []):
-                name = (c.get("display_name") or c.get("qb_name") or "").lower()
+        try:
+            from src.core.db import get_all_contacts
+            for c in get_all_contacts().values():
+                name = (c.get("buyer_name") or "").lower()
                 if name:
                     crm_institutions.add(name)
+        except Exception:
+            pass
 
-        conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
-        quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes WHERE is_test=0").fetchall()
-        conn.close()
+        with get_db() as conn:
+            quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes WHERE is_test=0").fetchall()
 
         orphaned = []
         for q in quotes:
@@ -4186,13 +4180,9 @@ def api_system_heartbeat():
         results["systems"]["catalog"] = {"status": "error", "error": str(e)}
 
     try:
-        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-        if os.path.exists(crm_path):
-            with open(crm_path) as f:
-                crm = json.load(f)
-            results["systems"]["crm"] = {"status": "ok", "contacts": len(crm.get("contacts", []))}
-        else:
-            results["systems"]["crm"] = {"status": "empty"}
+        from src.core.db import get_all_contacts
+        _crm = get_all_contacts()
+        results["systems"]["crm"] = {"status": "ok", "contacts": len(_crm)} if _crm else {"status": "empty"}
     except Exception as e:
         results["systems"]["crm"] = {"status": "error", "error": str(e)}
 
@@ -4449,15 +4439,13 @@ def api_business_health_score():
         score += 10
         factors.append({"name": "Follow-Ups", "score": 10, "max": 15, "detail": "No data"})
 
-    crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
     try:
-        with open(crm_path) as f:
-            crm = json.load(f)
-        contacts = crm.get("contacts", [])
-        with_email = len([c for c in contacts if c.get("email")])
-        pts = min(15, len(contacts) // 5)
+        from src.core.db import get_all_contacts
+        _contacts = list(get_all_contacts().values())
+        with_email = len([c for c in _contacts if c.get("buyer_email")])
+        pts = min(15, len(_contacts) // 5)
         score += pts
-        factors.append({"name": "CRM Contacts", "score": pts, "max": 15, "detail": f"{len(contacts)} contacts, {with_email} with email"})
+        factors.append({"name": "CRM Contacts", "score": pts, "max": 15, "detail": f"{len(_contacts)} contacts, {with_email} with email"})
     except Exception:
         factors.append({"name": "CRM Contacts", "score": 0, "max": 15, "detail": "No data"})
 

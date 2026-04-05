@@ -1417,7 +1417,7 @@ def _reconcile_quotes_json():
         if not quotes:
             return
 
-        conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+        conn = _make_connection()
         conn.row_factory = sqlite3.Row
         db_quotes = {r["quote_number"]: dict(r)
                      for r in conn.execute("SELECT quote_number, status FROM quotes").fetchall()}
@@ -2436,7 +2436,7 @@ def _jd(val) -> str:
 # ── CUSTOMERS ─────────────────────────────────────────────────────────────────
 
 def get_all_customers(agency: str = None) -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     conn.row_factory = sqlite3.Row
     if agency:
         rows = conn.execute(
@@ -2450,7 +2450,7 @@ def get_all_customers(agency: str = None) -> list:
 
 def upsert_customer(c: dict) -> bool:
     """Insert or update a customer record."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2482,7 +2482,7 @@ def upsert_customer(c: dict) -> bool:
 
 
 def get_customer(qb_name: str) -> dict:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM customers WHERE qb_name=?", (qb_name,)).fetchone()
     conn.close()
     return dict(row) if row else {}
@@ -2501,14 +2501,14 @@ def get_customers_by_agency() -> dict:
 # ── VENDORS ───────────────────────────────────────────────────────────────────
 
 def get_all_vendors() -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM vendors ORDER BY name").fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 def upsert_vendor(v: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2535,7 +2535,7 @@ def upsert_vendor(v: dict) -> bool:
 
 def get_all_price_checks(include_test: bool = False) -> dict:
     """Return {pc_id: pc_dict} matching the old price_checks.json format."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     q = "SELECT * FROM price_checks ORDER BY created_at DESC"
     rows = conn.execute(q).fetchall()
     conn.close()
@@ -2553,7 +2553,7 @@ def get_all_price_checks(include_test: bool = False) -> dict:
 
 
 def upsert_price_check(pc_id: str, pc: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2585,7 +2585,7 @@ def upsert_price_check(pc_id: str, pc: dict) -> bool:
 
 
 def get_price_check(pc_id: str) -> dict:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM price_checks WHERE id=?", (pc_id,)).fetchone()
     conn.close()
     if not row:
@@ -2600,7 +2600,7 @@ def get_price_check(pc_id: str) -> dict:
 # ── EMAIL OUTBOX ──────────────────────────────────────────────────────────────
 
 def get_outbox(status: str = None, limit: int = 200) -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     if status:
         rows = conn.execute(
             "SELECT * FROM email_outbox WHERE status=? ORDER BY created_at DESC LIMIT ?",
@@ -2624,7 +2624,7 @@ def get_outbox(status: str = None, limit: int = 200) -> list:
 
 def upsert_outbox_email(em: dict) -> str:
     """Insert or update an outbox email. Returns the id."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     eid = em.get('id') or f"em-{__import__('uuid').uuid4().hex[:12]}"
     try:
@@ -2655,7 +2655,7 @@ def upsert_outbox_email(em: dict) -> str:
 
 def update_outbox_status(email_id: str, status: str, **kwargs):
     ALLOWED_COLS = {'status', 'approved_at', 'sent_at', 'error', 'sent_by'}
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     updates = {'status': status}
     if status == 'approved':
@@ -2674,7 +2674,7 @@ def update_outbox_status(email_id: str, status: str, **kwargs):
 # ── QA REPORTS ────────────────────────────────────────────────────────────────
 
 def save_qa_report(report: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = report.get('timestamp', datetime.now(timezone.utc).isoformat())
     try:
         conn.execute("""
@@ -2693,7 +2693,7 @@ def save_qa_report(report: dict) -> bool:
 
 
 def get_qa_reports(limit: int = 50) -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT * FROM qa_reports ORDER BY timestamp DESC LIMIT ?", (limit,)
     ).fetchall()
@@ -2716,14 +2716,14 @@ def get_latest_qa_report() -> dict:
 
 def get_email_templates() -> dict:
     """Return {id: template_dict} matching old email_templates.json['templates']."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM email_templates").fetchall()
     conn.close()
     return {r['id']: dict(r) for r in rows}
 
 
 def upsert_email_template(tid: str, tmpl: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2747,7 +2747,7 @@ def upsert_email_template(tid: str, tmpl: dict) -> bool:
 
 def get_vendor_registrations() -> dict:
     """Return {vendor_key: data} matching old vendor_registration.json."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM vendor_registration").fetchall()
     conn.close()
     result = {}
@@ -2760,7 +2760,7 @@ def get_vendor_registrations() -> dict:
 
 
 def upsert_vendor_registration(key: str, data: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2789,14 +2789,14 @@ def upsert_vendor_registration(key: str, data: dict) -> bool:
 
 def get_market_intelligence() -> dict:
     """Return the full market intelligence dict (all sections)."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM market_intelligence").fetchall()
     conn.close()
     return {r['section']: _jl(r['data']) for r in rows}
 
 
 def upsert_market_intelligence(section: str, data) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2816,7 +2816,7 @@ def upsert_market_intelligence(section: str, data) -> bool:
 # ── INTEL AGENCIES ────────────────────────────────────────────────────────────
 
 def get_intel_agencies() -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM intel_agencies ORDER BY total_spend DESC").fetchall()
     conn.close()
     result = []
@@ -2829,7 +2829,7 @@ def get_intel_agencies() -> list:
 
 
 def upsert_intel_agency(ag: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -2859,7 +2859,7 @@ def upsert_intel_agency(ag: dict) -> bool:
 
 def get_growth_outreach() -> dict:
     """Return {'campaigns': [...]} matching old growth_outreach.json format."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False); conn.row_factory = sqlite3.Row
+    conn = _make_connection(); conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM growth_outreach ORDER BY created_at DESC").fetchall()
     conn.close()
     campaigns = []
@@ -2873,7 +2873,7 @@ def get_growth_outreach() -> dict:
 
 
 def save_growth_campaign(camp: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     cid = camp.get('id') or f"camp-{__import__('uuid').uuid4().hex[:8]}"
     try:
@@ -2930,7 +2930,7 @@ def sync_outbox_to_json():
 # ── RFQs ──────────────────────────────────────────────────────────────────────
 
 def upsert_rfq(rfq: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     rid = rfq.get('id') or f"rfq-{__import__('uuid').uuid4().hex[:12]}"
     try:
@@ -2957,7 +2957,7 @@ def upsert_rfq(rfq: dict) -> bool:
 
 
 def get_all_rfqs(status: str = None) -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     conn.row_factory = sqlite3.Row
     if status:
         rows = conn.execute(
@@ -2979,7 +2979,7 @@ def get_all_rfqs(status: str = None) -> list:
 # ── APP SETTINGS (quote counter, etc.) ───────────────────────────────────────
 
 def get_setting(key: str, default=None):
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
     conn.close()
     if row is None:
@@ -2992,7 +2992,7 @@ def get_setting(key: str, default=None):
 
 
 def set_setting(key: str, value) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         conn.execute("""
@@ -3011,7 +3011,7 @@ def set_setting(key: str, value) -> bool:
 # ── LEADS ─────────────────────────────────────────────────────────────────────
 
 def get_all_leads(status: str = None) -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     conn.row_factory = sqlite3.Row
     if status:
         rows = conn.execute(
@@ -3032,7 +3032,7 @@ def get_all_leads(status: str = None) -> list:
 
 
 def upsert_lead(lead: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     lid = lead.get('id') or f"lead-{__import__('uuid').uuid4().hex[:8]}"
     try:
@@ -3063,7 +3063,7 @@ def upsert_lead(lead: dict) -> bool:
 # ── EMAIL SENT LOG ────────────────────────────────────────────────────────────
 
 def log_email_sent(email: dict) -> bool:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     eid = email.get('id') or f"sent-{__import__('uuid').uuid4().hex[:10]}"
     try:
@@ -3085,7 +3085,7 @@ def log_email_sent(email: dict) -> bool:
 
 
 def get_email_sent_log(limit: int = 100) -> list:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
         "SELECT * FROM email_sent_log ORDER BY sent_at DESC LIMIT ?", (limit,)
@@ -3097,7 +3097,7 @@ def get_email_sent_log(limit: int = 100) -> list:
 # ── WORKFLOW RUNS ─────────────────────────────────────────────────────────────
 
 def log_workflow_run(run: dict) -> str:
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     rid = run.get('id') or f"run-{__import__('uuid').uuid4().hex[:10]}"
     try:
@@ -3123,7 +3123,7 @@ def create_sent_document(pc_id: str, filepath: str, items: list = None,
                          header: dict = None, notes: str = "", 
                          created_by: str = "user") -> int:
     """Create a sent document version. Returns the new document ID."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     now = datetime.now(timezone.utc).isoformat()
     try:
         row = conn.execute(
@@ -3185,7 +3185,7 @@ def create_sent_document(pc_id: str, filepath: str, items: list = None,
 
 def get_sent_documents(pc_id: str) -> list:
     """Get all document versions for a PC, newest first."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
@@ -3202,7 +3202,7 @@ def get_sent_documents(pc_id: str) -> list:
 
 def get_sent_document(doc_id: int) -> dict:
     """Get a single sent document by ID."""
-    conn = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
+    conn = _make_connection()
     conn.row_factory = sqlite3.Row
     try:
         row = conn.execute("SELECT * FROM sent_documents WHERE id = ?", (doc_id,)).fetchone()

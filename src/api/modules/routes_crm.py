@@ -2774,10 +2774,10 @@ def _build_expansion_intel_v4():
     from collections import Counter
     import sqlite3
 
-    # Load CRM contacts (defined in routes_intel.py, may not be in namespace)
+    # Load CRM contacts from SQLite (authoritative)
     try:
-        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-        _crm_data = _json.load(open(crm_path)) if os.path.exists(crm_path) else {}
+        from src.core.db import get_all_contacts
+        _crm_data = get_all_contacts()
     except Exception:
         _crm_data = {}
 
@@ -4187,9 +4187,8 @@ def api_data_quality():
 
     # CRM Contacts
     try:
-        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
-        contacts = _j.load(open(crm_path))
-        ct_list = list(contacts.values()) if isinstance(contacts, dict) else contacts
+        from src.core.db import get_all_contacts
+        ct_list = list(get_all_contacts().values())
         report["crm_contacts"] = {
             "total": len(ct_list),
             "with_email": sum(1 for ct in ct_list if isinstance(ct, dict) and ct.get("buyer_email", "").strip()),
