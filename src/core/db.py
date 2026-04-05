@@ -2467,6 +2467,103 @@ def _fix_data_on_boot():
                 except Exception as v2e:
                     log.error("Orders V2 migration failed: %s", v2e, exc_info=True)
 
+            # Fix 6: Orders V2 — merge purchase_orders into orders + order_line_items
+            po_migrated = conn.execute(
+                "SELECT name FROM migrations_applied WHERE name='orders_v2_merge_po'"
+            ).fetchone()
+            if not po_migrated:
+                try:
+                    # Check if purchase_orders table exists
+                    po_exists = conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='purchase_orders'"
+                    ).fetchone()
+                    if po_exists:
+                        po_rows = conn.execute("SELECT * FROM purchase_orders").fetchall()
+                        merged = 0
+                        for po in po_rows:
+                            po_d = dict(po)
+                            po_num = po_d.get("po_number", "")
+                            if not po_num:
+                                continue
+                            # Skip if order already exists with this PO number
+                            existing = conn.execute(
+                                "SELECT id FROM orders WHERE po_number=?", (po_num,)
+                            ).fetchone()
+                            if existing:
+                                continue
+                            # Create order from purchase_order
+                            oid = f"ORD-PO-{po_num}"
+                            existing_oid = conn.execute(
+                                "SELECT id FROM orders WHERE id=?", (oid,)
+                            ).fetchone()
+                            if existing_oid:
+                                continue
+                            conn.execute("""
+                                INSERT OR IGNORE INTO orders
+                                (id, po_number, agency, institution, total, status,
+                                 buyer_name, buyer_email, created_at, updated_at, notes)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                            """, (
+                                oid, po_num, "", po_d.get("institution", ""),
+                                po_d.get("total_amount", 0),
+                                po_d.get("status", "new"),
+                                po_d.get("buyer_name", ""),
+                                po_d.get("buyer_email", ""),
+                                po_d.get("created_at", datetime.now().isoformat()),
+                                datetime.now().isoformat(),
+                                po_d.get("notes", ""),
+                            ))
+                            # Migrate po_line_items → order_line_items
+                            po_lines = conn.execute(
+                                "SELECT * FROM po_line_items WHERE po_id=?", (po_d.get("id", ""),)
+                            ).fetchall()
+                            for i, pl in enumerate(po_lines):
+                                pl_d = dict(pl)
+                                conn.execute("""
+                                    INSERT INTO order_line_items
+                                    (order_id, line_number, description, part_number,
+                                     mfg_number, uom, qty_ordered, qty_backordered,
+                                     unit_price, extended_price,
+                                     sourcing_status, tracking_number, carrier,
+                                     ship_date, delivery_date, notes,
+                                     created_at, updated_at)
+                                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                """, (
+                                    oid, i + 1,
+                                    pl_d.get("description", ""),
+                                    pl_d.get("item_number", ""),
+                                    pl_d.get("mfg_number", ""),
+                                    pl_d.get("uom", "EA"),
+                                    pl_d.get("qty_ordered", 0),
+                                    pl_d.get("qty_backordered", 0),
+                                    pl_d.get("unit_price", 0),
+                                    pl_d.get("extended_price", 0),
+                                    pl_d.get("status", "pending"),
+                                    pl_d.get("tracking_number", ""),
+                                    pl_d.get("carrier", ""),
+                                    pl_d.get("ship_date", ""),
+                                    pl_d.get("delivery_date", ""),
+                                    pl_d.get("notes", ""),
+                                    po_d.get("created_at", datetime.now().isoformat()),
+                                    datetime.now().isoformat(),
+                                ))
+                            merged += 1
+                        conn.execute(
+                            "INSERT OR IGNORE INTO migrations_applied (name, applied_at) VALUES (?, ?)",
+                            ("orders_v2_merge_po", datetime.now().isoformat())
+                        )
+                        if merged:
+                            fixes.append(f"V2 PO merge: imported {merged} purchase_orders into orders")
+                        log.info("Orders V2 PO merge complete: %d POs imported", merged)
+                    else:
+                        # No purchase_orders table — mark as done
+                        conn.execute(
+                            "INSERT OR IGNORE INTO migrations_applied (name, applied_at) VALUES (?, ?)",
+                            ("orders_v2_merge_po", datetime.now().isoformat())
+                        )
+                except Exception as po_e:
+                    log.error("Orders V2 PO merge failed: %s", po_e, exc_info=True)
+
             if fixes:
                 log.info("Boot data fixes: %s", "; ".join(fixes))
 

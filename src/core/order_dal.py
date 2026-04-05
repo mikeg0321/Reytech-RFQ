@@ -101,26 +101,8 @@ def get_order(order_id: str) -> dict | None:
             if line_rows:
                 order["line_items"] = [_row_to_line_item(lr) for lr in line_rows]
             else:
-                # Fallback: parse from data_json blob
-                blob = order.pop("data_json", None)
-                if blob:
-                    try:
-                        full = json.loads(blob)
-                        order["line_items"] = full.get("line_items", full.get("items", []))
-                        # Merge any extra fields from blob that aren't in structured columns
-                        for k in ("ship_to_name", "ship_to_address", "subtotal", "tax",
-                                   "payment_terms", "source", "sender_email", "po_pdf",
-                                   "draft_invoice", "qb_invoice_id", "qb_invoice_number",
-                                   "qb_invoice_total", "qb_invoice_due", "invoice_status",
-                                   "invoice_pdf", "invoice_pdf_enhanced", "invoice_pdf_raw",
-                                   "invoice_sent_to", "invoice_sent_at", "delivered_at",
-                                   "qb_customer_id", "status_history"):
-                            if k not in order or not order[k]:
-                                order[k] = full.get(k, "")
-                    except (json.JSONDecodeError, TypeError):
-                        order["line_items"] = _safe_json(order.get("items"), [])
-                else:
-                    order["line_items"] = _safe_json(order.get("items"), [])
+                # No normalized line items — parse from items JSON column
+                order["line_items"] = _safe_json(order.get("items"), [])
 
             # Normalize legacy status
             st = order.get("status", "new")
@@ -180,22 +162,7 @@ def list_orders(status: str = None, agency: str = None,
                 if line_rows:
                     items = [_row_to_line_item(lr) for lr in line_rows]
                 else:
-                    # Fallback to blob
-                    blob = order.pop("data_json", None)
-                    if blob:
-                        try:
-                            full = json.loads(blob)
-                            items = full.get("line_items", full.get("items", []))
-                            # Carry forward extra blob fields
-                            for k in ("ship_to_name", "subtotal", "tax", "draft_invoice",
-                                       "qb_invoice_id", "qb_invoice_number", "invoice_status",
-                                       "delivered_at", "status_history"):
-                                if k not in order or not order[k]:
-                                    order[k] = full.get(k, "")
-                        except (json.JSONDecodeError, TypeError):
-                            items = _safe_json(order.get("items"), [])
-                    else:
-                        items = _safe_json(order.get("items"), [])
+                    items = _safe_json(order.get("items"), [])
 
                 order["line_items"] = items
 
