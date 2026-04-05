@@ -46,10 +46,9 @@ def _catalog_rebuild_from_history():
 
     # ── 1. Process all quotes ──
     try:
-        quotes_path = os.path.join(DATA_DIR, "quotes_log.json")
-        if os.path.exists(quotes_path):
-            with open(quotes_path) as f:
-                quotes = json.load(f)
+        from src.forms.quote_generator import get_all_quotes
+        quotes = get_all_quotes()
+        if quotes:
             for qt in quotes:
                 qn = qt.get("quote_number", "")
                 agency = qt.get("agency", "")
@@ -583,9 +582,9 @@ def api_win_loss_analytics():
 
     # Also check quotes log for status
     try:
-        with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
-            quotes = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        from src.forms.quote_generator import get_all_quotes as _gaq
+        quotes = _gaq()
+    except Exception:
         quotes = []
 
     quote_statuses = _defaultdict(int)
@@ -760,8 +759,8 @@ def _build_outreach_targets():
 
     # Get agencies we've done business with (for reference)
     try:
-        with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
-            quotes = json.load(f)
+        from src.forms.quote_generator import get_all_quotes as _gaq
+        quotes = _gaq()
         active_agencies = {q.get("agency", "") for q in quotes if q.get("status") in ("sent", "won")}
         active_institutions = {q.get("institution", "") for q in quotes if q.get("status") in ("sent", "won")}
     except (FileNotFoundError, json.JSONDecodeError):
@@ -867,8 +866,8 @@ def api_outreach_draft():
     # Find a reference facility (one we've served in the same agency)
     reference = ""
     try:
-        with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
-            for q in json.load(f):
+        from src.forms.quote_generator import get_all_quotes as _gaq
+        for q in _gaq():
                 if q.get("agency", "") == target.get("agency", "") and q.get("status") in ("sent", "won"):
                     reference = q.get("institution", "") or q.get("ship_to_name", "")
                     if reference:
@@ -1034,9 +1033,9 @@ def growth_intel_page():
     # Win/loss summary
     wl_log = _load_win_loss_log()
     try:
-        with open(os.path.join(DATA_DIR, "quotes_log.json")) as f:
-            quotes = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        from src.forms.quote_generator import get_all_quotes as _gaq
+        quotes = _gaq()
+    except Exception:
         quotes = []
 
     won_count = sum(1 for q in quotes if q.get("status") == "won")

@@ -1760,6 +1760,56 @@ def upsert_contact(c: dict) -> bool:
         return False
 
 
+def get_all_contacts() -> dict:
+    """Return all CRM contacts as a dict keyed by contact ID.
+    SQLite is the authoritative source. Returns {} on error."""
+    try:
+        with get_db() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("""
+                SELECT id, created_at, buyer_name, buyer_email, buyer_phone,
+                       agency, title, department, linkedin, notes, tags,
+                       total_spend, po_count, categories, items_purchased,
+                       purchase_orders, last_purchase, score, opportunity_score,
+                       is_reytech_customer, outreach_status, source,
+                       intel_synced_at, updated_at
+                FROM contacts ORDER BY updated_at DESC
+            """).fetchall()
+            contacts = {}
+            for r in rows:
+                cid = r["id"]
+                contacts[cid] = {
+                    "id": cid,
+                    "created_at": r["created_at"] or "",
+                    "buyer_name": r["buyer_name"] or "",
+                    "buyer_email": r["buyer_email"] or "",
+                    "buyer_phone": r["buyer_phone"] or "",
+                    "agency": r["agency"] or "",
+                    "title": r["title"] or "",
+                    "department": r["department"] or "",
+                    "linkedin": r["linkedin"] or "",
+                    "notes": r["notes"] or "",
+                    "tags": json.loads(r["tags"] or "[]"),
+                    "total_spend": r["total_spend"] or 0,
+                    "po_count": r["po_count"] or 0,
+                    "categories": json.loads(r["categories"] or "{}"),
+                    "items_purchased": json.loads(r["items_purchased"] or "[]"),
+                    "purchase_orders": json.loads(r["purchase_orders"] or "[]"),
+                    "last_purchase": r["last_purchase"] or "",
+                    "score": r["score"] or 0,
+                    "opportunity_score": r["opportunity_score"] or 0,
+                    "is_reytech_customer": bool(r["is_reytech_customer"]),
+                    "outreach_status": r["outreach_status"] or "new",
+                    "source": r["source"] or "manual",
+                    "intel_synced_at": r["intel_synced_at"] or "",
+                    "updated_at": r["updated_at"] or "",
+                }
+            return contacts
+    except Exception as e:
+        log.error("get_all_contacts: %s", e)
+        return {}
+
+
 def log_activity(contact_id: str, event_type: str, subject: str = "",
                   body: str = "", outcome: str = "", actor: str = "user",
                   metadata: dict = None) -> int | None:

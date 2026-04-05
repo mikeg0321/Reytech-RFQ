@@ -1099,16 +1099,15 @@ def api_order_link_quote(oid):
         log.debug("Suppressed: %s", _e)
 
     if not quote_data:
-        # Try quotes_log.json
+        # Fallback: search via get_all_quotes() (SQLite-primary)
         try:
-            ql_path = os.path.join(DATA_DIR, "quotes_log.json")
-            with open(ql_path) as f:
-                for q in json.load(f):
-                    if q.get("quote_number") == qn:
-                        quote_data = q
-                        break
+            from src.forms.quote_generator import get_all_quotes
+            for q in get_all_quotes():
+                if q.get("quote_number") == qn:
+                    quote_data = q
+                    break
         except Exception as _e:
-            log.debug("Suppressed: %s", _e)
+            log.debug("Quote fallback search: %s", _e)
 
     if not quote_data:
         return jsonify({"ok": False, "error": f"Quote {qn} not found"})

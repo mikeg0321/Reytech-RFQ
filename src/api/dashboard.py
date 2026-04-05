@@ -1512,60 +1512,18 @@ def _ensure_contact_from_email(rfq_email: dict):
         # 1) SQLite
         upsert_contact(contact_data)
         
-        # 2) crm_contacts.json (what the CRM page actually reads)
-        crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
+        # 2) Log activity to SQLite (CRM page now reads from SQLite via get_all_contacts)
         try:
-            with open(crm_path) as f:
-                crm = json.load(f)
+            from src.core.db import log_activity
+            log_activity(
+                contact_id, "email_received",
+                subject=rfq_email.get("subject", "")[:80],
+                body=f"Inbound from {sender_email}",
+                actor="email_poller",
+            )
         except Exception:
-            crm = {}
-        
-        if contact_id not in crm:
-            crm[contact_id] = {
-                "id": contact_id,
-                "buyer_name": sender_name,
-                "buyer_email": sender_email,
-                "buyer_phone": "",
-                "agency": agency,
-                "title": "",
-                "department": "",
-                "linkedin": "",
-                "notes": f"Auto-added from email {rfq_email.get('subject', '')[:60]}",
-                "tags": ["email_sender", "buyer"],
-                "total_spend": 0,
-                "po_count": 0,
-                "categories": {},
-                "items_purchased": [],
-                "purchase_orders": [],
-                "last_purchase": "",
-                "score": 50,
-                "opportunity_score": 0,
-                "outreach_status": "active",
-                "activity": [{
-                    "type": "email_received",
-                    "detail": f"Inbound: {rfq_email.get('subject', '')[:80]}",
-                    "timestamp": datetime.now().isoformat(),
-                }],
-            }
-            with open(crm_path, "w") as f:
-                json.dump(crm, f, indent=2, default=str)
-            log.info("CRM contact created: %s <%s> → %s", sender_name, sender_email, agency)
-        else:
-            # Update existing: add activity, refresh name/agency if better
-            existing = crm[contact_id]
-            if not existing.get("buyer_name") or existing["buyer_name"] == sender_email:
-                existing["buyer_name"] = sender_name
-            if agency and not existing.get("agency"):
-                existing["agency"] = agency
-            existing.setdefault("activity", []).append({
-                "type": "email_received",
-                "detail": f"Inbound: {rfq_email.get('subject', '')[:80]}",
-                "timestamp": datetime.now().isoformat(),
-            })
-            existing["outreach_status"] = "active"
-            with open(crm_path, "w") as f:
-                json.dump(crm, f, indent=2, default=str)
-            log.info("CRM contact updated: %s <%s>", sender_name, sender_email)
+            pass
+        log.info("CRM contact upserted: %s <%s> → %s", sender_name, sender_email, agency)
     except Exception as e:
         log.debug("Contact auto-create failed (non-critical): %s", e)
 

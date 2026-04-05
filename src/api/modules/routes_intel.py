@@ -3964,7 +3964,14 @@ def api_crm_agency_summary(agency_name):
 CRM_CONTACTS_FILE = os.path.join(DATA_DIR, "crm_contacts.json")
 
 def _load_crm_contacts() -> dict:
-    """Load persisted CRM contact enhancements (manual fields + activity)."""
+    """Load CRM contacts. SQLite is authoritative, JSON fallback."""
+    try:
+        from src.core.db import get_all_contacts
+        contacts = get_all_contacts()
+        if contacts:
+            return contacts
+    except Exception:
+        pass
     return _cached_json_load(CRM_CONTACTS_FILE, fallback={})
 
 def _save_crm_contacts(contacts: dict):
