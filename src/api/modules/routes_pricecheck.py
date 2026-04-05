@@ -9063,3 +9063,110 @@ def api_pc_update_status(pcid):
     _save_single_pc(pcid, pc)
     log.info("PC %s status: %s → %s", pcid, old, new_status)
     return jsonify({"ok": True, "old": old, "new": new_status})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PC Visibility Diagnostics
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TERMINAL_STATUSES = ("dismissed", "archived", "deleted", "duplicate",
+                      "no_response", "not_responding", "expired")
+
+
+def _diagnose_pc_visibility(pc, pcid):
+    """Run every homepage filter step and return a detailed verdict."""
+    import json as _json
+
+    status = pc.get("status", "new")
+    is_terminal = status in _TERMINAL_STATUSES
+
+    # Item count (mirrors _is_user_facing_pc logic)
+    items = pc.get("items", [])
+    items_type = type(items).__name__
+    if isinstance(items, str):
+        try:
+            items = _json.loads(items)
+            items_type = "json_string_parsed"
+        except Exception:
+            items = []
+            items_type = "json_string_corrupt"
+    item_count = len(items) if isinstance(items, list) else 0
+
+    # Solicitation check
+    sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
+    has_sol = bool(sol and sol != "unknown")
+
+    # Final verdict
+    if is_terminal:
+        visible = False
+        reason = f"Status '{status}' is terminal — hidden from homepage"
+    elif item_count > 0:
+        visible = True
+        reason = f"Has {item_count} items — visible"
+    elif has_sol:
+        visible = True
+        reason = f"Has solicitation '{sol}' — visible despite 0 items"
+    else:
+        visible = False
+        reason = "No items AND no solicitation number — hidden as empty ghost"
+
+    return {
+        "pc_id": pcid,
+        "visible_on_homepage": visible,
+        "reason": reason,
+        "filters": {
+            "status": status,
+            "is_terminal": is_terminal,
+            "item_count": item_count,
+            "items_storage_type": items_type,
+            "solicitation_number": sol or None,
+            "has_valid_solicitation": has_sol,
+        },
+        "metadata": {
+            "institution": pc.get("institution", ""),
+            "agency": pc.get("agency", ""),
+            "requestor": pc.get("requestor", ""),
+            "source": pc.get("source", ""),
+            "created_at": pc.get("created_at", ""),
+            "converted_to_rfq": pc.get("converted_to_rfq", False),
+            "linked_rfq_id": pc.get("linked_rfq_id", ""),
+        },
+    }
+
+
+@bp.route("/api/pc/<pcid>/diagnostic")
+@auth_required
+@safe_route
+def api_pc_diagnostic(pcid):
+    """Explain exactly why a specific PC is visible or hidden on the homepage."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found", "pc_id": pcid}), 404
+    result = _diagnose_pc_visibility(pc, pcid)
+    result["ok"] = True
+    return jsonify(result)
+
+
+@bp.route("/api/pcs/diagnostic-all")
+@auth_required
+@safe_route
+def api_pcs_diagnostic_all():
+    """Show why each hidden PC is filtered out. Returns up to 50 entries."""
+    from src.api.dashboard import _is_user_facing_pc
+    pcs = _load_price_checks()
+    hidden = []
+    visible_count = 0
+    for pid, pc in pcs.items():
+        if _is_user_facing_pc(pc):
+            visible_count += 1
+        else:
+            if len(hidden) < 50:
+                hidden.append(_diagnose_pc_visibility(pc, pid))
+    return jsonify({
+        "ok": True,
+        "total_pcs": len(pcs),
+        "visible_count": visible_count,
+        "hidden_count": len(pcs) - visible_count,
+        "hidden_pcs": hidden,
+    })

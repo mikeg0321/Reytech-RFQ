@@ -3907,6 +3907,40 @@ def generate_rfq_package(rid):
         except Exception:
             pass
 
+        # ── Pre-flight: verify required templates exist BEFORE generating ──
+        _buyer_templates = {"703b", "703c", "704b"}
+        _missing_templates = []
+        for _ft in _req_forms:
+            if _ft in _buyer_templates:
+                # 703b/703c — either one satisfies the requirement
+                if _ft in ("703b", "703c"):
+                    if not (("703b" in tmpl and os.path.exists(tmpl.get("703b", "")))
+                            or ("703c" in tmpl and os.path.exists(tmpl.get("703c", "")))):
+                        _missing_templates.append("703B/703C")
+                elif _ft == "704b":
+                    if not ("704b" in tmpl and os.path.exists(tmpl.get("704b", ""))):
+                        _missing_templates.append("704B")
+        if _missing_templates:
+            _mt_str = ", ".join(sorted(set(_missing_templates)))
+            t.warn(f"Missing required templates: {_mt_str}")
+            return jsonify({
+                "ok": False,
+                "error": f"Missing required templates: {_mt_str}. "
+                         f"Upload them on this page first (they must come from the buyer's RFQ email).",
+                "missing_templates": list(set(_missing_templates)),
+                "agency_key": _agency_key,
+                "required_forms": list(_req_forms),
+            }), 400
+
+        # Pre-flight: verify signature image exists
+        try:
+            from src.forms.form_qa import verify_signature_file_exists
+            _sig_check = verify_signature_file_exists(CONFIG)
+            if not _sig_check["passed"]:
+                t.warn(f"Signature image not found: {_sig_check.get('issue', '')}")
+        except Exception:
+            pass
+
         # ── Template-based forms (only if agency requires them) ──
         # 703B or 703C — use whichever template was provided by the buyer
         if _include("703b") or _include("703c") or "703c" in tmpl or "703b" in tmpl:
@@ -4501,7 +4535,11 @@ def generate_rfq_package(rid):
             elif "bidpkg" in _of_lower or "bidpackage" in _of_lower: _fid = "bidpkg"
             elif "obs" in _of_lower or "1600" in _of_lower: _fid = "obs_1600"
             elif "drug" in _of_lower: _fid = "drug_free"
-            _gen_forms.append({"form_id": _fid, "filename": _of})
+            _entry = {"form_id": _fid, "filename": _of}
+            # Pass template path for buyer field contamination check
+            if _fid == "704b" and "704b" in tmpl:
+                _entry["template_path"] = tmpl["704b"]
+            _gen_forms.append(_entry)
 
         _gen_ids = {f["form_id"] for f in _gen_forms}
         _missing = [f for f in _req_forms if f not in _gen_ids]

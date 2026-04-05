@@ -1577,6 +1577,31 @@ def convert_pc_to_rfq(pcid):
     rfq_data.setdefault("delivery_location", pc.get("ship_to", ""))
     rfq_data.setdefault("reytech_quote_number", pc.get("reytech_quote_number", ""))
 
+    # ── Infer agency and required forms ──────────────────────────────────
+    _agency_key = "other"
+    _agency_cfg = {}
+    _conversion_warnings = []
+    try:
+        from src.core.agency_config import match_agency as _match_agency, get_agency_config as _get_cfg
+        _agency_key, _agency_cfg = _match_agency(rfq_data)
+        rfq_data["agency_key"] = _agency_key
+        rfq_data["agency_name"] = _agency_cfg.get("name", _agency_key)
+        log.info("PC→RFQ agency inference: %s (matched_by: %s)",
+                 _agency_key, _agency_cfg.get("matched_by", "?"))
+    except Exception as _ae:
+        log.warning("Agency inference failed for PC→RFQ %s: %s", pcid, _ae)
+        _conversion_warnings.append("Could not auto-detect agency — set it manually on the RFQ page.")
+
+    # Check which buyer-provided templates are needed but missing
+    _req_forms = _agency_cfg.get("required_forms", [])
+    _buyer_templates = {"703b", "703c", "704b"}  # must come from buyer's RFQ email
+    for _ft in _req_forms:
+        if _ft in _buyer_templates:
+            _conversion_warnings.append(
+                f"Upload {_ft.upper()} template before generating package "
+                f"(must come from the buyer's RFQ email)."
+            )
+
     # Copy source PDF if it exists
     source_file = pc.get("source_file", "")
     if source_file and os.path.exists(source_file):
@@ -1662,7 +1687,14 @@ def convert_pc_to_rfq(pcid):
     except Exception as _e:
         log.debug("Activity log for PC→RFQ: %s", _e)
 
-    return jsonify({"ok": True, "rfq_id": rfq_id, "items": item_count, "files_copied": files_copied})
+    return jsonify({
+        "ok": True, "rfq_id": rfq_id, "items": item_count,
+        "files_copied": files_copied,
+        "agency_key": _agency_key,
+        "agency_name": _agency_cfg.get("name", _agency_key),
+        "required_forms": _req_forms,
+        "warnings": _conversion_warnings,
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

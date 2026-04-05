@@ -345,6 +345,43 @@ def verify_filled_form(pdf_path: str, form_id: str, rfq_data: dict, config: dict
         if unpriced:
             result["warnings"].append(f"{len(unpriced)} items have no price")
 
+    # Per-page field tracking
+    try:
+        page_stats = []
+        for pg_idx, page in enumerate(reader.pages):
+            annots = page.get("/Annots", []) or []
+            pg_total = 0
+            pg_filled = 0
+            for annot in annots:
+                obj = annot.get_object() if hasattr(annot, "get_object") else annot
+                ft = str(obj.get("/FT", ""))
+                if ft in ("/Tx", "/Btn", "/Ch", "/Sig"):
+                    pg_total += 1
+                    val = obj.get("/V")
+                    if val and str(val).strip():
+                        pg_filled += 1
+            page_stats.append({
+                "page": pg_idx + 1,
+                "total_fields": pg_total,
+                "filled_fields": pg_filled,
+            })
+            # Warn if page has fields but none filled
+            if pg_total > 0 and pg_filled == 0:
+                result["warnings"].append(
+                    f"Page {pg_idx + 1} has {pg_total} form fields but none are filled"
+                )
+        result["page_stats"] = page_stats
+
+        # 704B-specific: if items overflow to page 2, verify page 2 has pricing
+        if form_id == "704b" and len(page_stats) >= 2:
+            items = rfq_data.get("line_items", rfq_data.get("items", []))
+            if isinstance(items, list) and len(items) > 11 and page_stats[1]["filled_fields"] == 0:
+                result["warnings"].append(
+                    f"704B has {len(items)} items (overflow to page 2) but page 2 has no filled fields"
+                )
+    except Exception as _e:
+        result["warnings"].append(f"Per-page tracking error: {_e}")
+
     return result
 
 
@@ -413,10 +450,64 @@ def verify_signatures(pdf_path: str, form_id: str) -> dict:
             for m in missing:
                 result["warnings"].append(f"Expected signature field not found: {m}")
 
+        # Check for actual signature IMAGE on pages that should be signed
+        if expected_sigs or registry.get("positional_signature"):
+            for pg_idx, page in enumerate(reader.pages):
+                resources = page.get("/Resources", {})
+                xobjects = resources.get("/XObject", {})
+                has_image = False
+                if hasattr(xobjects, "get_object"):
+                    xobjects = xobjects.get_object()
+                for xname, xobj in (xobjects.items() if isinstance(xobjects, dict) else []):
+                    try:
+                        obj = xobj.get_object() if hasattr(xobj, "get_object") else xobj
+                        if str(obj.get("/Subtype", "")) == "/Image":
+                            has_image = True
+                            break
+                    except Exception:
+                        pass
+
+                # Only flag pages in the lower half where signatures live
+                page_h = float(page.get("/MediaBox", [0, 0, 612, 792])[3])
+                # Check if this page has a signature annotation
+                page_has_sig = any(
+                    d.get("page") == pg_idx + 1 and d.get("status") == "FOUND"
+                    for d in result["details"]
+                )
+                if page_has_sig and not has_image:
+                    result["warnings"].append(
+                        f"Page {pg_idx + 1} has signature field but no image XObject — "
+                        f"signature may not have rendered"
+                    )
+
     except Exception as e:
         result["warnings"].append(f"Signature check error: {e}")
 
     return result
+
+
+def verify_signature_file_exists(config: dict) -> dict:
+    """Pre-flight: check that the signature image file exists.
+
+    Returns: {"passed": bool, "path": str, "issue": str or None}
+    """
+    sig_path = config.get("signature_image", "")
+    if not sig_path:
+        # Try common locations
+        from src.core.paths import DATA_DIR
+        for candidate in ["signature_transparent.png", "signature.png"]:
+            p = os.path.join(DATA_DIR, candidate)
+            if os.path.exists(p):
+                return {"passed": True, "path": p, "issue": None}
+            # Check project root
+            root_p = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), candidate)
+            if os.path.exists(root_p):
+                return {"passed": True, "path": root_p, "issue": None}
+        return {"passed": False, "path": "", "issue": "Signature image file not found"}
+
+    if os.path.exists(sig_path):
+        return {"passed": True, "path": sig_path, "issue": None}
+    return {"passed": False, "path": sig_path, "issue": f"Signature image not found: {sig_path}"}
 
 
 def verify_package_completeness(
@@ -485,6 +576,232 @@ def verify_package_completeness(
     has_703c_file = any("703c" in fn.lower() for fn in generated_files)
     if has_703b_file and has_703c_file:
         result["warnings"].append("Both 703B and 703C generated — should be one or the other")
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Computed Field & Value Range Validation
+# ═══════════════════════════════════════════════════════════════════════
+
+def _parse_currency(val: str) -> Optional[float]:
+    """Parse a currency string like '$1,234.56' or '1234.56' into float."""
+    if not val:
+        return None
+    cleaned = re.sub(r"[$ ,]", "", str(val).strip())
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def verify_704b_computations(pdf_path: str, rfq_data: dict) -> dict:
+    """Verify 704B math: qty × unit_price == extension, sum of extensions == subtotal.
+
+    Returns: {"passed": bool, "issues": [str], "warnings": [str]}
+    """
+    result = {"passed": True, "issues": [], "warnings": []}
+
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(pdf_path)
+        fields = reader.get_fields() or {}
+    except Exception as e:
+        result["warnings"].append(f"Cannot read PDF for computation check: {e}")
+        return result
+
+    def _get(name):
+        f = fields.get(name)
+        return str(f.get("/V", "")).strip() if f else ""
+
+    # Check each row on page 1 (unsuffixed) and page 2 (_2 suffix)
+    suffixes = [("", range(1, 20)), ("_2", range(1, 9))]
+    computed_total = 0.0
+    rows_checked = 0
+
+    for suffix, row_range in suffixes:
+        for n in row_range:
+            row_key = f"Row{n}" if suffix == "" else f"Row{n}{suffix}"
+            qty_str = _get(f"QTYRow{n}{suffix}") or _get(f"QTY{row_key}")
+            price_str = _get(f"PRICE PER UNITRow{n}{suffix}") or _get(f"PRICE PER UNIT{row_key}")
+            ext_str = _get(f"EXTENSIONRow{n}{suffix}") or _get(f"EXTENSION{row_key}")
+
+            qty = _parse_currency(qty_str)
+            price = _parse_currency(price_str)
+            ext = _parse_currency(ext_str)
+
+            # Skip empty rows
+            if price is None and ext is None:
+                continue
+
+            rows_checked += 1
+
+            if qty is not None and price is not None and ext is not None:
+                expected_ext = round(qty * price, 2)
+                if abs(expected_ext - ext) > 0.01:
+                    result["passed"] = False
+                    result["issues"].append(
+                        f"Row {n}{suffix}: {qty} × ${price:.2f} = ${expected_ext:.2f}, "
+                        f"but extension shows ${ext:.2f}"
+                    )
+                computed_total += ext
+            elif ext is not None:
+                computed_total += ext
+                if qty is None and price is not None:
+                    result["warnings"].append(f"Row {n}{suffix}: quantity missing")
+
+    # Check merchandise subtotal
+    subtotal_str = _get("fill_154") or _get("MERCHANDISE SUBTOTAL")
+    subtotal = _parse_currency(subtotal_str)
+    if subtotal is not None and rows_checked > 0:
+        if abs(computed_total - subtotal) > 0.01:
+            result["passed"] = False
+            result["issues"].append(
+                f"Subtotal mismatch: sum of extensions = ${computed_total:.2f}, "
+                f"but MERCHANDISE SUBTOTAL = ${subtotal:.2f}"
+            )
+
+    if rows_checked == 0:
+        result["warnings"].append("No pricing rows found to verify")
+
+    return result
+
+
+def verify_value_ranges(pdf_path: str, form_id: str) -> dict:
+    """Check date formats and price ranges for sanity.
+
+    Returns: {"passed": bool, "issues": [str], "warnings": [str]}
+    """
+    result = {"passed": True, "issues": [], "warnings": []}
+    registry = FORM_FIELD_REGISTRY.get(form_id)
+    if not registry:
+        return result
+
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(pdf_path)
+        fields = reader.get_fields() or {}
+    except Exception as e:
+        result["warnings"].append(f"Cannot read PDF for range check: {e}")
+        return result
+
+    # Detect prefix
+    field_names = set(fields.keys())
+    prefix = ""
+    if registry.get("prefix_detect"):
+        prefix = _detect_prefix(field_names, registry.get("possible_prefixes", []))
+
+    # Validate date fields
+    date_pattern = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+    for date_template in registry.get("date_fields", []):
+        date_field = date_template.replace("{p}", prefix)
+        actual_field = fields.get(date_field)
+        val = str(actual_field.get("/V", "")).strip() if actual_field else ""
+        if not val:
+            continue
+        m = date_pattern.match(val)
+        if not m:
+            result["warnings"].append(f"Date '{date_field}' has unexpected format: '{val}'")
+        else:
+            month, day, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if year < 2024 or year > 2030:
+                result["warnings"].append(f"Date '{date_field}' has implausible year: {year}")
+            if month < 1 or month > 12:
+                result["issues"].append(f"Date '{date_field}' has invalid month: {month}")
+                result["passed"] = False
+            if day < 1 or day > 31:
+                result["issues"].append(f"Date '{date_field}' has invalid day: {day}")
+                result["passed"] = False
+
+    # Validate pricing fields (704b: check for negative prices)
+    if registry.get("pricing_required"):
+        suffixes = [("", range(1, 20)), ("_2", range(1, 9))]
+        for suffix, row_range in suffixes:
+            for n in row_range:
+                price_str = fields.get(f"PRICE PER UNITRow{n}{suffix}")
+                if price_str:
+                    val = _parse_currency(str(price_str.get("/V", "")))
+                    if val is not None and val < 0:
+                        result["passed"] = False
+                        result["issues"].append(f"Negative price in row {n}{suffix}: ${val:.2f}")
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Buyer Field Contamination Check (704B)
+# ═══════════════════════════════════════════════════════════════════════
+
+# 704B fields that belong to the BUYER — Reytech must never overwrite these
+_BUYER_OWNED_HEADER_FIELDS = {
+    "DEPARTMENT", "PHONE", "EMAIL", "PHONEEMAIL",
+    "SOLICITATION NUMBER", "CONTACT NAME",
+}
+
+# Per-row buyer fields (description, qty, UOM, item number)
+_BUYER_ROW_PREFIXES = ("Row", "QTYRow", "UOMRow", "ITEM NUMBERRow")
+
+
+def _is_buyer_field(name: str) -> bool:
+    """Check if a field name is buyer-owned on the 704B."""
+    upper = name.upper().strip()
+    if upper in _BUYER_OWNED_HEADER_FIELDS:
+        return True
+    # Row fields: "Row1", "QTYRow3", "UOMRow1_2", "ITEM NUMBERRow5"
+    for prefix in _BUYER_ROW_PREFIXES:
+        if upper.startswith(prefix.upper()):
+            return True
+    return False
+
+
+def verify_buyer_fields_untouched(pdf_path: str, template_path: str) -> dict:
+    """Compare buyer-owned fields between template and filled PDF.
+
+    If a buyer field had a non-empty value in the template and the filled PDF
+    has a DIFFERENT value, that's contamination — Reytech overwrote buyer data.
+
+    Returns: {"passed": bool, "issues": [str], "contaminated": [{name, template, filled}]}
+    """
+    result = {"passed": True, "issues": [], "contaminated": []}
+
+    if not template_path or not os.path.exists(template_path):
+        return result  # Can't check without template
+    if not os.path.exists(pdf_path):
+        result["issues"].append("Filled PDF not found")
+        result["passed"] = False
+        return result
+
+    try:
+        from pypdf import PdfReader
+        tmpl_fields = PdfReader(template_path).get_fields() or {}
+        filled_fields = PdfReader(pdf_path).get_fields() or {}
+    except Exception as e:
+        result["issues"].append(f"Cannot read PDFs for buyer check: {e}")
+        return result
+
+    for name, tmpl_field in tmpl_fields.items():
+        if not _is_buyer_field(name):
+            continue
+        tmpl_val = str(tmpl_field.get("/V", "")).strip()
+        if not tmpl_val:
+            continue  # Empty in template — not a contamination risk
+
+        filled_field = filled_fields.get(name)
+        filled_val = str(filled_field.get("/V", "")).strip() if filled_field else ""
+
+        if filled_val != tmpl_val:
+            result["passed"] = False
+            result["contaminated"].append({
+                "field": name,
+                "template_value": tmpl_val[:50],
+                "filled_value": filled_val[:50],
+            })
+            result["issues"].append(
+                f"Buyer field '{name}' was overwritten: "
+                f"'{tmpl_val[:30]}' → '{filled_val[:30]}'"
+            )
 
     return result
 
@@ -563,6 +880,20 @@ def run_form_qa(
         # Signature verification
         sig_result = verify_signatures(pdf_path, form_id)
 
+        # Computation check (704B only)
+        comp_result = None
+        if form_id == "704b":
+            comp_result = verify_704b_computations(pdf_path, rfq_data)
+
+        # Buyer field contamination check (704B with template)
+        buyer_result = None
+        template_path = form_info.get("template_path", "")
+        if form_id == "704b" and template_path:
+            buyer_result = verify_buyer_fields_untouched(pdf_path, template_path)
+
+        # Value range check
+        range_result = verify_value_ranges(pdf_path, form_id)
+
         # Combine
         form_report = {
             "filename": filename,
@@ -570,6 +901,17 @@ def run_form_qa(
             "signatures": sig_result,
             "passed": field_result["passed"] and sig_result["passed"],
         }
+        if comp_result:
+            form_report["computations"] = comp_result
+            if not comp_result["passed"]:
+                form_report["passed"] = False
+        if buyer_result:
+            form_report["buyer_fields"] = buyer_result
+            if not buyer_result["passed"]:
+                form_report["passed"] = False
+        if not range_result["passed"]:
+            form_report["passed"] = False
+        form_report["value_ranges"] = range_result
 
         report["form_results"][form_id] = form_report
         report["forms_checked"] += 1
@@ -577,9 +919,17 @@ def run_form_qa(
         if not form_report["passed"]:
             report["passed"] = False
             report["critical_issues"].extend(field_result.get("issues", []))
+            if comp_result:
+                report["critical_issues"].extend(comp_result.get("issues", []))
+            if buyer_result:
+                report["critical_issues"].extend(buyer_result.get("issues", []))
+            report["critical_issues"].extend(range_result.get("issues", []))
 
         report["warnings"].extend(field_result.get("warnings", []))
         report["warnings"].extend(sig_result.get("warnings", []))
+        if comp_result:
+            report["warnings"].extend(comp_result.get("warnings", []))
+        report["warnings"].extend(range_result.get("warnings", []))
 
     report["duration_ms"] = int((time.time() - start) * 1000)
 

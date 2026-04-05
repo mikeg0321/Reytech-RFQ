@@ -53,13 +53,16 @@ def _check_api_key() -> bool:
 # ── Rate Limiting ────────────────────────────────────────────────────────────
 _rate_limiter = {}
 _rate_limiter_lock = threading.Lock()
+_rate_limiter_last_cleanup = 0.0
 RATE_LIMIT_WINDOW = 60
 RATE_LIMIT_MAX = 600          # 600 req/min for authenticated users
 RATE_LIMIT_AUTH_MAX = 20      # 20 FAILED auth attempts/min
+_RATE_CLEANUP_INTERVAL = 60   # seconds between full eviction sweeps
 
 
 def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
     """Check if request is within rate limits. Returns True if OK. Thread-safe."""
+    global _rate_limiter_last_cleanup
     key = key or (request.remote_addr if request else "unknown") or "unknown"
     max_req = max_requests or RATE_LIMIT_MAX
     now = time.time()
@@ -70,8 +73,9 @@ def _check_rate_limit(key: str = None, max_requests: int = None) -> bool:
             return False
         window.append(now)
         _rate_limiter[key] = window
-        # Evict stale entries instead of wiping all state
-        if len(_rate_limiter) > 200:
+        # Periodic cleanup — evict stale entries every 60s
+        if now - _rate_limiter_last_cleanup > _RATE_CLEANUP_INTERVAL:
+            _rate_limiter_last_cleanup = now
             stale_keys = [k for k, v in _rate_limiter.items()
                           if not v or (now - v[-1]) > RATE_LIMIT_WINDOW]
             for k in stale_keys:
