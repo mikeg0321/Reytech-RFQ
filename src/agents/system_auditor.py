@@ -24,7 +24,7 @@ def schedule_system_audit():
     PACIFIC = ZoneInfo("America/Los_Angeles")
 
     def _wait_and_run():
-        from src.core.scheduler import _shutdown_event
+        from src.core.scheduler import _shutdown_event, heartbeat
         while not _shutdown_event.is_set():
             now = datetime.now(PACIFIC)
             target = now.replace(hour=5, minute=30, second=0, microsecond=0)
@@ -37,8 +37,10 @@ def schedule_system_audit():
                 break
             try:
                 run_full_audit()
+                heartbeat("system-auditor", success=True)
             except Exception as e:
                 log.error("System audit failed: %s", e, exc_info=True)
+                heartbeat("system-auditor", success=False, error=str(e)[:200])
             _shutdown_event.wait(60)
         log.info("System auditor shutting down")
 

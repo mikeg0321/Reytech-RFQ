@@ -554,16 +554,17 @@ def start_order_digest_scheduler(interval_hours: int = 4):
     _digest_started = True
 
     def _loop():
-        from src.core.scheduler import _shutdown_event
+        from src.core.scheduler import _shutdown_event, heartbeat
         _shutdown_event.wait(60)  # Initial delay
         while not _shutdown_event.is_set():
             try:
-                # Run daily digest (checks internally if already sent today)
                 now = datetime.now()
-                if 7 <= now.hour <= 10:  # Only attempt digest 7-10am
+                if 7 <= now.hour <= 10:
                     run_daily_digest()
+                heartbeat("order-digest", success=True)
             except Exception as e:
                 log.error("Order digest scheduler error: %s", e, exc_info=True)
+                heartbeat("order-digest", success=False, error=str(e)[:200])
             _shutdown_event.wait(interval_hours * 3600)
         log.info("Order digest scheduler shutting down")
 

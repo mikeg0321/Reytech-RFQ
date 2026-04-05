@@ -443,6 +443,7 @@ def _start_po_poller():
 
 @bp.route("/po-tracking")
 @auth_required
+@safe_page
 def po_tracking_dashboard():
     """DEPRECATED (V2): Redirects to unified /orders page."""
     return redirect("/orders", code=301)

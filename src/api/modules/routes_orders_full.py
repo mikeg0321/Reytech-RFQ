@@ -204,6 +204,7 @@ def api_po_upload_parse():
 
 @bp.route("/api/order/create", methods=["POST"])
 @auth_required
+@safe_route
 @rate_limit("api")
 @audit_action("order_create")
 def api_order_create():
@@ -601,6 +602,7 @@ def api_order_invoice(oid):
 
 @bp.route("/api/order/<oid>/invoice-pdf", methods=["POST"])
 @auth_required
+@safe_route
 @rate_limit("heavy")
 def api_order_invoice_pdf(oid):
     """Generate a branded invoice PDF from order's draft_invoice data.

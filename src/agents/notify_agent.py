@@ -528,7 +528,7 @@ def start_stale_watcher():
     _stale_watcher_started = True
 
     def _watch():
-        from src.core.scheduler import _shutdown_event
+        from src.core.scheduler import _shutdown_event, heartbeat
         _shutdown_event.wait(3600)  # initial delay + check every hour
         while not _shutdown_event.is_set():
             try:
@@ -563,8 +563,10 @@ def start_stale_watcher():
                         cooldown_key="outbox_stale",
                         run_async=False,
                     )
+                heartbeat("stale-watcher", success=True)
             except Exception as e:
                 log.debug("Stale watcher error: %s", e)
+                heartbeat("stale-watcher", success=False, error=str(e)[:200])
             _shutdown_event.wait(3600)
         log.info("Stale watcher shutting down")
 
