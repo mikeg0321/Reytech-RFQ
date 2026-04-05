@@ -35,7 +35,7 @@ def validate_quote(q, strict=True):
         if total == 0 and q.get("status") != "void":
             violations.append("$0 total")
         if not q.get("source_pc_id") and not q.get("source_rfq_id"):
-            violations.append("no source link")
+            log.debug("Quote %s has no source link (PC or RFQ) — allowed but noted", qn)
         if not (q.get("institution") or "").strip():
             violations.append("empty institution")
     is_valid = len(violations) == 0
