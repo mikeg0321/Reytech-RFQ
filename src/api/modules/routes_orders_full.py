@@ -101,8 +101,8 @@ def orders_page():
 @safe_page
 def order_detail(oid):
     """Order detail page — line item sourcing, tracking, invoicing."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         flash(f"Order {oid} not found", "error")
         return redirect("/orders")
@@ -121,171 +121,11 @@ def order_detail(oid):
 
 
 def _render_order_detail(order, oid):
-    """Actual order detail rendering (separated for error handling)."""
+    """Order detail rendering — V2: data only, all HTML in Jinja2 template."""
     st = order.get("status", "new")
     items = order.get("line_items", [])
     qn = order.get("quote_number", "")
     institution = order.get("institution", "")
-
-    sourcing_cfg = {
-        "pending":   ("⏳ Pending",   "#d29922", "rgba(210,153,34,.1)"),
-        "ordered":   ("🛒 Ordered",   "#58a6ff", "rgba(88,166,255,.1)"),
-        "shipped":   ("🚚 Shipped",   "#bc8cff", "rgba(188,140,255,.1)"),
-        "delivered": ("✅ Delivered", "#3fb950", "rgba(52,211,153,.1)"),
-    }
-    inv_cfg = {
-        "pending":  ("⏳", "#d29922"),
-        "partial":  ("½", "#58a6ff"),
-        "invoiced": ("✅", "#3fb950"),
-    }
-
-    # Line items table
-    items_rows = ""
-    for it in items:
-        lid = it.get("line_id", "")
-        desc = it.get("description", "")[:80]
-        pn = it.get("part_number", "")
-        sup_url = it.get("supplier_url", "")
-        supplier_name = it.get("supplier", "") or ""
-        
-        # Auto-detect Amazon ASIN and generate link if missing
-        asin = it.get("asin", "")
-        is_asin = bool(asin) or (pn and (pn.startswith("B0") or (len(pn) == 10 and pn.isalnum() and pn[0].isalpha())))
-        if is_asin and not sup_url:
-            _asin_val = asin or pn
-            sup_url = f"https://www.amazon.com/dp/{_asin_val}"
-            supplier_name = supplier_name or "Amazon"
-        
-        if sup_url:
-            sup_link = f'<a href="{sup_url}" target="_blank" style="color:var(--ac);font-size:15px" title="{sup_url}">🛒 {supplier_name or "Buy"}</a>'
-        elif pn:
-            # Search link for items with part numbers but no supplier URL
-            search_q = f"{pn} {desc[:30]}".strip()
-            import urllib.parse
-            amz_search = f"https://www.amazon.com/s?k={urllib.parse.quote_plus(search_q)}"
-            sup_link = f'<a href="{amz_search}" target="_blank" style="color:var(--tx2);font-size:15px" title="Search Amazon">🔍</a>'
-            if supplier_name:
-                sup_link = f'<span style="color:var(--tx2);font-size:15px">{supplier_name}</span> {sup_link}'
-        else:
-            sup_link = f'<span style="color:var(--tx2);font-size:15px">{supplier_name or "—"}</span>'
-        
-        # Edit link button
-        sup_edit = f'<button onclick="editSupplier(\'{oid}\',\'{lid}\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2);padding:0" title="Edit supplier/link">✏️</button>'
-
-        # Part number: make clickable if ASIN
-        if is_asin:
-            _asin_link = asin or pn
-            pn_html = f'<a href="https://www.amazon.com/dp/{_asin_link}" target="_blank" style="color:var(--ac);text-decoration:none" title="View on Amazon">{pn}</a>'
-        else:
-            pn_html = pn or '—'
-
-        ss = it.get("sourcing_status", "pending")
-        s_lbl, s_clr, s_bg = sourcing_cfg.get(ss, sourcing_cfg["pending"])
-        tracking = it.get("tracking_number", "")
-        # Auto-detect tracking URL based on carrier
-        carrier = it.get("carrier", "")
-        if tracking:
-            carrier_low = carrier.lower()
-            if "amazon" in carrier_low or tracking.startswith("TBA"):
-                track_url = f"https://www.amazon.com/gp/your-account/order-history?search={tracking}"
-            elif "ups" in carrier_low or tracking.startswith("1Z"):
-                track_url = f"https://www.ups.com/track?tracknum={tracking}"
-            elif "fedex" in carrier_low:
-                track_url = f"https://www.fedex.com/fedextrack/?trknbr={tracking}"
-            elif "usps" in carrier_low:
-                track_url = f"https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}"
-            else:
-                track_url = f"https://track.aftership.com/{tracking}"
-            tracking_html = f'<a href="{track_url}" target="_blank" style="color:var(--ac);font-size:14px">{tracking[:20]}</a>'
-        else:
-            tracking_html = '<button onclick="addTracking(\'' + oid + '\',\'' + lid + '\')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2)">+ tracking</button>'
-
-        is_lbl, is_clr = inv_cfg.get(it.get("invoice_status","pending"), inv_cfg["pending"])
-
-        # ETA countdown
-        eta_html = ""
-        ship_date = it.get("ship_date", "")
-        if ss == "delivered":
-            eta_html = '<span style="color:#3fb950;font-weight:600">✅</span>'
-        elif ss == "shipped" and ship_date:
-            try:
-                from datetime import datetime as _dt, timedelta as _td
-                shipped_dt = _dt.fromisoformat(ship_date) if ship_date else None
-                if shipped_dt:
-                    expected = shipped_dt + _td(days=5)
-                    days_left = (expected - _dt.now()).days
-                    if days_left < 0:
-                        eta_html = f'<span style="color:#f85149;font-weight:700">{abs(days_left)}d late</span>'
-                    elif days_left == 0:
-                        eta_html = '<span style="color:#f0883e;font-weight:700">Today</span>'
-                    elif days_left <= 2:
-                        eta_html = f'<span style="color:#d29922;font-weight:600">{days_left}d</span>'
-                    else:
-                        eta_html = f'<span style="color:var(--tx2)">{days_left}d</span>'
-            except Exception:
-                eta_html = '—'
-        elif ss == "ordered":
-            eta_html = '<span style="color:var(--tx2)">awaiting</span>'
-        else:
-            eta_html = '<span style="color:var(--tx2)">—</span>'
-
-        # Supplier tag — clickable pill with 2 sources:
-        # 1. supplier_url (from catalog/Amazon) → tag links to product page
-        # 2. supplier name (from email sender) → tag links to supplier record
-        import urllib.parse as _uparse
-        sup_name_q = _uparse.quote_plus(supplier_name) if supplier_name else ""
-        
-        if supplier_name and sup_url:
-            # Both name + URL: tag links to supplier record, small external link icon
-            sup_cell = (f'<a href="/supplier/{sup_name_q}" style="display:inline-block;padding:3px 10px;'
-                       f'background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.25);border-radius:14px;'
-                       f'color:var(--ac);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" '
-                       f'title="View supplier record">{supplier_name}</a>'
-                       f' <a href="{sup_url}" target="_blank" style="color:var(--tx2);font-size:15px" title="Product page">🔗</a>')
-        elif supplier_name:
-            # Name only (from email): tag links to supplier record
-            sup_cell = (f'<a href="/supplier/{sup_name_q}" style="display:inline-block;padding:3px 10px;'
-                       f'background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);border-radius:14px;'
-                       f'color:#3fb950;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" '
-                       f'title="Supplier from email">{supplier_name}</a>')
-        elif sup_url:
-            # URL only: tag shows domain
-            try:
-                from urllib.parse import urlparse
-                domain = urlparse(sup_url).netloc.replace("www.", "")[:20]
-            except Exception:
-                domain = "Buy"
-            sup_cell = (f'<a href="{sup_url}" target="_blank" style="display:inline-block;padding:3px 10px;'
-                       f'background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:14px;'
-                       f'color:#fbbf24;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" '
-                       f'title="{sup_url}">🛒 {domain}</a>')
-        else:
-            sup_cell = '<span style="color:var(--tx2)">—</span>'
-        sup_cell += (f' <button onclick="editSupplier(\'{oid}\',\'{lid}\')" '
-                    f'style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--tx2);padding:0" '
-                    f'title="Edit supplier">✏️</button>')
-
-        items_rows += f"""<tr data-lid="{lid}">
-         <td style="text-align:center"><input type="checkbox" class="line-check" value="{lid}" data-status="{ss}" data-desc="{desc[:40]}" data-tracking="{tracking}"></td>
-         <td style="color:var(--tx2);font-size:14px">{lid}</td>
-         <td style="max-width:350px;word-wrap:break-word;white-space:normal;font-size:16px;font-weight:500">{desc}</td>
-         <td class="mono" style="font-size:14px">{pn_html}</td>
-         <td style="font-size:14px">{sup_cell}</td>
-         <td class="mono" style="text-align:center;font-size:16px;font-weight:600">{it.get('qty',0)}</td>
-         <td class="mono" style="text-align:right;font-size:16px;font-weight:600">${it.get('unit_price',0):,.2f}</td>
-         <td style="text-align:center">
-          <select onchange="updateLine('{oid}','{lid}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:{s_clr};font-size:14px;padding:5px 6px;font-weight:600">
-           <option value="pending" {"selected" if ss=="pending" else ""}>⏳ Pending</option>
-           <option value="ordered" {"selected" if ss=="ordered" else ""}>🛒 Ordered</option>
-           <option value="shipped" {"selected" if ss=="shipped" else ""}>🚚 Shipped</option>
-           <option value="delivered" {"selected" if ss=="delivered" else ""}>✅ Delivered</option>
-          </select>
-         </td>
-         <td style="font-size:14px"><span style="font-weight:600">{carrier}</span> {tracking_html}</td>
-         <td style="text-align:center;font-size:15px">{eta_html}</td>
-         <td style="text-align:center;font-size:15px;color:{is_clr}" title="{it.get('invoice_status','pending')}">{is_lbl}</td>
-        </tr>"""
-
 
     status_cfg = {
         "new": "🆕 New", "sourcing": "🛒 Sourcing", "shipped": "🚚 Shipped",
@@ -293,45 +133,14 @@ def _render_order_detail(order, oid):
         "invoiced": "💰 Invoiced", "closed": "🏁 Closed"
     }
 
-    # Upload PO prompt (prominent when no items)
-    if not items:
-        upload_section = f"""
-    <div class="card" style="margin-bottom:14px;border:2px dashed var(--ac);text-align:center;padding:32px">
-     <div style="font-size:18px;font-weight:700;margin-bottom:8px">📄 Upload PO PDF to populate line items</div>
-     <div style="color:var(--tx2);font-size:15px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
-     <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
-     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-g" style="font-size:14px;padding:10px 24px">📄 Upload PO PDF</button>
-     <div id="upload-status" style="margin-top:12px;font-size:14px;color:var(--tx2)"></div>
-    </div>"""
-    else:
-        upload_section = f"""
-    <div style="margin-bottom:8px;display:flex;justify-content:flex-end">
-     <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{oid}',this)">
-     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-s" style="font-size:14px">📄 Re-import from PO PDF</button>
-     <div id="upload-status" style="margin-left:8px;font-size:14px;color:var(--tx2);line-height:28px"></div>
-    </div>"""
-
-    # Invoice items rows (for draft invoice section)
-    inv_items_rows = ""
-    for it in items:
-        inv_items_rows += f"""<tr>
-         <td>{it.get('description','')[:70]}</td>
-         <td>{it.get('part_number','')}</td>
-         <td style="text-align:center">{it.get('qty',0)}</td>
-         <td style="text-align:right">${it.get('unit_price',0):,.2f}</td>
-         <td style="text-align:right">${it.get('qty',0)*it.get('unit_price',0):,.2f}</td>
-        </tr>"""
-
-    # Precompute sourcing counts for template
     sourced_count = sum(1 for i in items if i.get('sourcing_status') in ('ordered','shipped','delivered'))
     shipped_count = sum(1 for i in items if i.get('sourcing_status') in ('shipped','delivered'))
     delivered_count = sum(1 for i in items if i.get('sourcing_status') == 'delivered')
     total_count = len(items)
 
     return render_page("order_detail.html", active_page="Orders",
-        oid=oid, order=order, items_rows=items_rows, items=items,
+        oid=oid, order=order, items=items,
         qn=qn, institution=institution, st=st, status_cfg=status_cfg,
-        upload_section=upload_section, inv_items_rows=inv_items_rows,
         sourced_count=sourced_count, shipped_count=shipped_count,
         delivered_count=delivered_count, total_count=total_count)
 
@@ -430,8 +239,8 @@ def api_order_add_line(oid):
     """Add a line item to an existing order.
     POST JSON: {description, qty, unit_price, part_number, supplier, supplier_url}
     """
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
@@ -465,8 +274,7 @@ def api_order_add_line(oid):
     order["line_items"] = items
     order["total"] = sum(it.get("extended", 0) for it in items)
     order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
     return jsonify({"ok": True, "line_id": new_item["line_id"], "total_items": len(items)})
 
 
@@ -478,8 +286,8 @@ def api_order_import_po(oid):
     Multipart form: file=<pdf>
     Returns: {ok, items_added, total, raw_text (on failure for debugging)}
     """
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 
@@ -574,8 +382,7 @@ def api_order_import_po(oid):
 
     order["po_pdf"] = pdf_path
     order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
 
     log.info("PO PDF imported for %s: %d items, $%.2f, po=%s",
              oid, len(new_items), total, parsed.get("po_number", "?"))
@@ -595,8 +402,8 @@ def api_order_import_po(oid):
 @safe_route
 def api_order_update_line(oid, lid):
     """Update a single line item. POST JSON with any fields to update."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
@@ -635,8 +442,7 @@ def api_order_update_line(oid, lid):
     if not updated:
         return jsonify({"ok": False, "error": "Line item not found"})
     order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
     _update_order_status(oid)
     
     # ── Line-item level notifications ──
@@ -689,8 +495,8 @@ def api_order_update_line(oid, lid):
 @safe_route
 def api_order_bulk_update(oid):
     """Bulk update all line items. POST JSON with fields to set on all items."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
@@ -699,8 +505,7 @@ def api_order_bulk_update(oid):
             if field in data:
                 it[field] = data[field]
     order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
     _update_order_status(oid)
     _log_crm_activity(order.get("quote_number",""), "order_bulk_update",
                       f"Order {oid}: bulk update — {data}",
@@ -713,8 +518,8 @@ def api_order_bulk_update(oid):
 @safe_route
 def api_order_bulk_tracking(oid):
     """Add tracking to all pending/ordered items. POST: {tracking, carrier}"""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
@@ -729,8 +534,7 @@ def api_order_bulk_tracking(oid):
             it["ship_date"] = datetime.now().strftime("%Y-%m-%d")
             updated += 1
     order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
     _update_order_status(oid)
     _log_crm_activity(order.get("quote_number",""), "tracking_added",
                       f"Order {oid}: tracking {tracking} ({carrier}) added to {updated} items",
@@ -743,8 +547,8 @@ def api_order_bulk_tracking(oid):
 @safe_route
 def api_order_invoice(oid):
     """Create partial or full invoice. POST: {type: 'partial'|'full', invoice_number}"""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
@@ -779,8 +583,7 @@ def api_order_invoice(oid):
         "actor": "user",
         "invoice_number": inv_num,
     })
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
     _update_order_status(oid)
     _log_crm_activity(order.get("quote_number",""), f"invoice_{inv_type}",
                       f"Order {oid}: {inv_type} invoice #{inv_num} — ${order.get('invoice_total',0):,.2f}",
@@ -794,8 +597,8 @@ def api_order_invoice(oid):
 def api_order_invoice_pdf(oid):
     """Generate a branded invoice PDF from order's draft_invoice data.
     Returns the PDF download URL."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     
@@ -811,8 +614,7 @@ def api_order_invoice_pdf(oid):
         # Store path on order
         order["draft_invoice"]["pdf_path"] = pdf_path
         order["updated_at"] = datetime.now().isoformat()
-        orders[oid] = order
-        _save_orders(orders)
+        _save_single_order(oid, order)
         
         fname = os.path.basename(pdf_path)
         return jsonify({
@@ -831,8 +633,8 @@ def api_order_invoice_pdf(oid):
 @safe_route
 def api_order_invoice_pdf_download(oid):
     """Download the generated invoice PDF."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return "Order not found", 404
     inv = order.get("draft_invoice", {})
@@ -882,8 +684,8 @@ def api_order_lookup_suppliers(oid):
     POST: {line_id: 'L001'} for single item, or {} for all items.
     Uses product_research.research_product() for Amazon SerpApi lookup.
     """
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 
@@ -944,8 +746,7 @@ def api_order_lookup_suppliers(oid):
 
     if updated > 0:
         order["updated_at"] = datetime.now().isoformat()
-        orders[oid] = order
-        _save_orders(orders)
+        _save_single_order(oid, order)
 
     return jsonify({"ok": True, "results": results, "updated": updated, "total": len(results)})
 
@@ -991,8 +792,8 @@ def api_order_link_quote(oid):
     """Link an order to a quote. Auto-populates line items with quote prices/suppliers.
     POST: {quote_number} or {} to auto-detect from PO number.
     """
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 
@@ -1073,8 +874,7 @@ def api_order_link_quote(oid):
     order["ship_to_name"] = order.get("ship_to_name") or quote_data.get("ship_to_name", "")
     order["total"] = order.get("total") or quote_data.get("total", 0)
     order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
+    _save_single_order(oid, order)
 
     # Record pricing intelligence
     try:
@@ -1131,8 +931,8 @@ def _auto_find_quote_for_order(order: dict) -> str:
 @safe_route
 def api_order_delete(oid):
     """Delete/dismiss a duplicate or erroneous order. POST: {reason}"""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
@@ -1144,8 +944,8 @@ def api_order_delete(oid):
                       f"Order {oid} deleted. Reason: {reason}. PO: {order.get('po_number','')} Total: ${order.get('total',0):,.2f}",
                       actor="user", metadata={"order_id": oid, "reason": reason})
 
-    del orders[oid]
-    _save_orders(orders)
+    from src.core.order_dal import delete_order as _delete_order
+    _delete_order(oid, actor="user", reason=reason)
     log.info("Order %s deleted. Reason: %s", oid, reason)
     return jsonify({"ok": True, "deleted": oid, "reason": reason})
 
@@ -1155,8 +955,8 @@ def api_order_delete(oid):
 @safe_route
 def api_order_reply_all(oid):
     """Draft PO confirmation reply-all email → saved to outbox for review + send."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         flash("Order not found", "error")
         return redirect("/orders")
@@ -1340,8 +1140,8 @@ SB/DVBE Cert #2002605"""
 @safe_route
 def api_order_purchase_urls(oid):
     """Get purchase URLs grouped by supplier for an order."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     
@@ -1528,8 +1328,8 @@ def learn_from_completed_order(oid: str):
     Called from _update_order_status when status changes to delivered/closed.
     Updates supplier reliability based on delivery performance.
     """
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return
     
@@ -1881,8 +1681,8 @@ def api_orders_diagnostic():
 @safe_route
 def api_order_items(oid):
     """Return order line items for PO Builder."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     items = order.get("line_items", [])
@@ -1899,8 +1699,8 @@ def api_order_create_qb_po(oid):
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured"})
 
-        orders = _load_orders()
-        order = orders.get(oid)
+        from src.core.order_dal import get_order as _get_order
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
@@ -1934,7 +1734,7 @@ def api_order_create_qb_po(oid):
         # Store on order
         if created:
             order.setdefault("qb_pos", []).extend(created)
-            _save_orders(orders)
+            _save_single_order(oid, order)
 
         return jsonify({"ok": True, "created": created, "failed": failed,
                        "message": f"Created {len(created)} PO(s)" + (f", {len(failed)} failed" if failed else "")})
@@ -1960,8 +1760,8 @@ def api_order_create_qb_invoice(oid):
         if not is_configured():
             return jsonify({"ok": False, "error": "QuickBooks not configured"})
 
-        orders = _load_orders()
-        order = orders.get(oid)
+        from src.core.order_dal import get_order as _get_order
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
@@ -2053,7 +1853,7 @@ def api_order_create_qb_invoice(oid):
             log.info("QB Invoice #%s created, emailed to %s. Awaiting pickup.",
                      result.get("doc_number"), our_email)
 
-        _save_orders(orders)
+        _save_single_order(oid, order)
 
         return jsonify({
             "ok": True,
@@ -2078,8 +1878,8 @@ def api_order_send_invoice(oid):
     """Send the enhanced invoice (with UOM + PO#) to the customer.
     Called after the invoice PDF has been received and enhanced."""
     try:
-        orders = _load_orders()
-        order = orders.get(oid)
+        from src.core.order_dal import get_order as _get_order
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
@@ -2122,7 +1922,7 @@ def api_order_send_invoice(oid):
             order["invoice_status"] = "sent"
             order["invoice_sent_to"] = to_email
             order["invoice_sent_at"] = __import__("datetime").datetime.now().isoformat()
-            _save_orders(orders)
+            _save_single_order(oid, order)
             return jsonify({"ok": True, "sent_to": to_email, "status": "sent"})
         return jsonify({"ok": False, "error": result.get("error", "Email send failed")})
     except Exception as e:
@@ -2147,8 +1947,8 @@ def api_invoices_poll_now():
 @safe_route
 def api_order_download_invoice(oid):
     """Download the enhanced invoice PDF."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 
@@ -2919,8 +2719,8 @@ def api_quote_lookup():
 @safe_route
 def api_check_amazon_urls(oid):
     """Check Amazon URLs for all items with amazon.com supplier links."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
 

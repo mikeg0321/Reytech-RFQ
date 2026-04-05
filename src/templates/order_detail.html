@@ -52,9 +52,35 @@
      </div>
     </div>
 
-    {{ upload_section | safe }}
+    {# ── Upload PO section (V2: native Jinja2) ── #}
+    {% if not items %}
+    <div class="card" style="margin-bottom:14px;border:2px dashed var(--ac);text-align:center;padding:32px">
+     <div style="font-size:18px;font-weight:700;margin-bottom:8px">📄 Upload PO PDF to populate line items</div>
+     <div style="color:var(--tx2);font-size:15px;margin-bottom:16px">The PO document has everything — items, quantities, prices, ship-to. Upload it and we'll parse all fields automatically.</div>
+     <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{{ oid }}',this)">
+     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-g" style="font-size:14px;padding:10px 24px">📄 Upload PO PDF</button>
+     <div id="upload-status" style="margin-top:12px;font-size:14px;color:var(--tx2)"></div>
+    </div>
+    {% else %}
+    <div style="margin-bottom:8px;display:flex;justify-content:flex-end">
+     <input type="file" id="po-pdf" accept=".pdf" style="display:none" onchange="uploadPO('{{ oid }}',this)">
+     <button onclick="document.getElementById('po-pdf').click()" class="btn btn-s" style="font-size:14px">📄 Re-import from PO PDF</button>
+     <div id="upload-status" style="margin-left:8px;font-size:14px;color:var(--tx2);line-height:28px"></div>
+    </div>
+    {% endif %}
 
-    <!-- Line Items with sourcing controls -->
+    {# ── Line Items Table (V2: native Jinja2, replaces items_rows|safe) ── #}
+    {% set sourcing_cfg = {
+      'pending':   ('⏳ Pending',   '#d29922', 'rgba(210,153,34,.1)'),
+      'ordered':   ('🛒 Ordered',   '#58a6ff', 'rgba(88,166,255,.1)'),
+      'shipped':   ('🚚 Shipped',   '#bc8cff', 'rgba(188,140,255,.1)'),
+      'delivered': ('✅ Delivered', '#3fb950', 'rgba(52,211,153,.1)')
+    } %}
+    {% set inv_cfg = {
+      'pending':  ('⏳', '#d29922'),
+      'partial':  ('½', '#58a6ff'),
+      'invoiced': ('✅', '#3fb950')
+    } %}
     <div class="card">
      <div class="card-t" style="font-size:17px">Line Items — Sourcing & Tracking</div>
      <div style="overflow-x:auto">
@@ -63,10 +89,91 @@
        <th style="width:30px"><input type="checkbox" id="check-all" onchange="toggleAllLines(this)"></th>
        <th style="width:50px">#</th><th>Description</th><th style="width:100px">Part #</th>
        <th style="width:140px">Supplier</th><th style="width:50px;text-align:center">Qty</th>
-       <th style="width:100px;text-align:right">Price</th><th style="width:120px;text-align:center">Status</th>
+       <th style="width:100px;text-align:right">Price</th><th style="width:80px;text-align:right">Cost</th>
+       <th style="width:120px;text-align:center">Status</th>
        <th style="width:180px">Tracking</th><th style="width:70px;text-align:center">ETA</th><th style="width:35px;text-align:center">Inv</th>
       </tr></thead>
-      <tbody>{{ items_rows | safe }}</tbody>
+      <tbody>
+      {% for it in items %}
+       {% set lid = it.get('line_id', '') %}
+       {% set desc = it.get('description', '')[:80] %}
+       {% set pn = it.get('part_number', '') %}
+       {% set asin = it.get('asin', '') %}
+       {% set sup_url = it.get('supplier_url', '') %}
+       {% set supplier_name = it.get('supplier', '') or '' %}
+       {% set is_asin = asin or (pn and (pn[:2] == 'B0' or (pn|length == 10 and pn[0].isalpha()))) %}
+       {% if is_asin and not sup_url %}
+        {% set sup_url = 'https://www.amazon.com/dp/' ~ (asin or pn) %}
+        {% if not supplier_name %}{% set supplier_name = 'Amazon' %}{% endif %}
+       {% endif %}
+       {% set ss = it.get('sourcing_status', 'pending') %}
+       {% set s_cfg = sourcing_cfg.get(ss, sourcing_cfg.get('pending')) %}
+       {% set tracking = it.get('tracking_number', '') %}
+       {% set carrier = it.get('carrier', '') %}
+       {% set carrier_low = carrier|lower %}
+       {% set is_inv = inv_cfg.get(it.get('invoice_status','pending'), inv_cfg.get('pending')) %}
+       {% set unit_cost = it.get('unit_cost', it.get('cost', 0)) or 0 %}
+       <tr data-lid="{{ lid }}">
+        <td style="text-align:center"><input type="checkbox" class="line-check" value="{{ lid }}" data-status="{{ ss }}" data-desc="{{ desc[:40] }}" data-tracking="{{ tracking }}"></td>
+        <td style="color:var(--tx2);font-size:14px">{{ lid }}</td>
+        <td style="max-width:350px;word-wrap:break-word;white-space:normal;font-size:16px;font-weight:500">{{ desc }}</td>
+        <td class="mono" style="font-size:14px">
+         {% if is_asin %}<a href="https://www.amazon.com/dp/{{ asin or pn }}" target="_blank" style="color:var(--ac);text-decoration:none" title="View on Amazon">{{ pn }}</a>{% else %}{{ pn or '—' }}{% endif %}
+        </td>
+        <td style="font-size:14px">
+         {% if supplier_name and sup_url %}
+          <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(79,140,255,.12);border:1px solid rgba(79,140,255,.25);border-radius:14px;color:var(--ac);font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap" title="View supplier record">{{ supplier_name }}</a>
+          <a href="{{ sup_url }}" target="_blank" style="color:var(--tx2);font-size:15px" title="Product page">🔗</a>
+         {% elif supplier_name %}
+          <a href="/supplier/{{ supplier_name|urlencode }}" style="display:inline-block;padding:3px 10px;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.25);border-radius:14px;color:#3fb950;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap">{{ supplier_name }}</a>
+         {% elif sup_url %}
+          <a href="{{ sup_url }}" target="_blank" style="display:inline-block;padding:3px 10px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.25);border-radius:14px;color:#fbbf24;font-weight:600;font-size:14px;text-decoration:none;white-space:nowrap">🛒 Buy</a>
+         {% else %}
+          <span style="color:var(--tx2)">—</span>
+         {% endif %}
+         <button onclick="editSupplier('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--tx2);padding:0" title="Edit supplier">✏️</button>
+        </td>
+        <td class="mono" style="text-align:center;font-size:16px;font-weight:600">{{ it.get('qty',0) }}</td>
+        <td class="mono" style="text-align:right;font-size:16px;font-weight:600">${{ "{:,.2f}".format(it.get('unit_price',0)) }}</td>
+        <td class="mono" style="text-align:right;font-size:14px">
+         {% if unit_cost %}<span style="color:var(--tx2)">${{ "{:,.2f}".format(unit_cost) }}</span>{% else %}<button onclick="editCostLine('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0" title="Add cost">+$</button>{% endif %}
+        </td>
+        <td style="text-align:center">
+         <select onchange="updateLine('{{ oid }}','{{ lid }}','sourcing_status',this.value)" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:{{ s_cfg[1] }};font-size:14px;padding:5px 6px;font-weight:600">
+          <option value="pending" {{ 'selected' if ss=='pending' }}>⏳ Pending</option>
+          <option value="ordered" {{ 'selected' if ss=='ordered' }}>🛒 Ordered</option>
+          <option value="shipped" {{ 'selected' if ss=='shipped' }}>🚚 Shipped</option>
+          <option value="delivered" {{ 'selected' if ss=='delivered' }}>✅ Delivered</option>
+         </select>
+        </td>
+        <td style="font-size:14px">
+         <span style="font-weight:600">{{ carrier }}</span>
+         {% if tracking %}
+          {% if 'amazon' in carrier_low or tracking[:3] == 'TBA' %}
+           <a href="https://www.amazon.com/gp/your-account/order-history?search={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+          {% elif 'ups' in carrier_low or tracking[:2] == '1Z' %}
+           <a href="https://www.ups.com/track?tracknum={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+          {% elif 'fedex' in carrier_low %}
+           <a href="https://www.fedex.com/fedextrack/?trknbr={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+          {% elif 'usps' in carrier_low %}
+           <a href="https://tools.usps.com/go/TrackConfirmAction?tLabels={{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+          {% else %}
+           <a href="https://track.aftership.com/{{ tracking }}" target="_blank" style="color:var(--ac);font-size:14px">{{ tracking[:20] }}</a>
+          {% endif %}
+         {% else %}
+          <button onclick="addTracking('{{ oid }}','{{ lid }}')" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--tx2)">+ tracking</button>
+         {% endif %}
+        </td>
+        <td style="text-align:center;font-size:15px">
+         {% if ss == 'delivered' %}<span style="color:#3fb950;font-weight:600">✅</span>
+         {% elif ss == 'shipped' %}<span style="color:#bc8cff">in transit</span>
+         {% elif ss == 'ordered' %}<span style="color:var(--tx2)">awaiting</span>
+         {% else %}<span style="color:var(--tx2)">—</span>{% endif %}
+        </td>
+        <td style="text-align:center;font-size:15px;color:{{ is_inv[1] }}" title="{{ it.get('invoice_status','pending') }}">{{ is_inv[0] }}</td>
+       </tr>
+      {% endfor %}
+      </tbody>
      </table>
      </div>
     </div>
@@ -407,6 +514,21 @@
       {lid: {{ it.get('line_id','')|tojson }}, pn: {{ it.get('part_number','')|tojson }}, asin: {{ it.get('asin','')|tojson }}, qty: {{ it.get('qty',0)|tojson }}, desc: {{ it.get('description','')[:60]|tojson }}, supplier_url: {{ it.get('supplier_url','')|tojson }}, supplier: {{ it.get('supplier','')|tojson }}},
       {% endfor %}
     ];
+
+    function editCostLine(oid, lid) {
+      var cost = prompt('Enter unit cost for line ' + lid + ':');
+      if (cost === null) return;
+      cost = parseFloat(cost);
+      if (isNaN(cost) || cost < 0) { alert('Invalid cost'); return; }
+      fetch('/api/order/' + oid + '/line/' + lid, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({field: 'unit_cost', value: cost})
+      }).then(function(r){return r.json()}).then(function(d) {
+        if (d.ok) location.reload();
+        else alert('Error: ' + (d.error||'unknown'));
+      });
+    }
 
     // Load margins + shipping on page load
     loadMargins();

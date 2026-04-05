@@ -741,6 +741,140 @@ def delete_order(order_id: str, actor: str = "user", reason: str = "") -> bool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Revenue & Lifecycle (migrated from order_lifecycle.py)
+# ═══════════════════════════════════════════════════════════════════════
+
+def get_revenue_ytd() -> dict:
+    """YTD revenue from paid/invoiced orders + revenue_log."""
+    from src.core.db import get_db
+    from datetime import timedelta
+    try:
+        now = datetime.now(timezone.utc)
+        year_start = f"{now.year}-01-01"
+
+        with get_db() as conn:
+            order_rev = conn.execute("""
+                SELECT COUNT(*) as count,
+                       SUM(CASE WHEN status IN ('paid','invoiced','delivered') THEN total ELSE 0 END) as revenue,
+                       SUM(CASE WHEN status = 'paid' THEN COALESCE(payment_amount, total) ELSE 0 END) as collected,
+                       SUM(CASE WHEN status = 'invoiced' AND invoice_date < ? THEN total ELSE 0 END) as overdue
+                FROM orders
+                WHERE created_at >= ?
+            """, ((now - timedelta(days=30)).isoformat(), year_start)).fetchone()
+
+            logged_rev = conn.execute("""
+                SELECT SUM(amount) as total FROM revenue_log
+                WHERE logged_at >= ?
+            """, (year_start,)).fetchone()
+
+            monthly = conn.execute("""
+                SELECT strftime('%Y-%m', created_at) as month,
+                       COUNT(*) as orders,
+                       SUM(total) as revenue
+                FROM orders
+                WHERE created_at >= ? AND status IN ('paid','invoiced','delivered','shipped')
+                GROUP BY month ORDER BY month
+            """, (year_start,)).fetchall()
+
+            overdue_invoices = conn.execute("""
+                SELECT id, quote_number, agency, institution, total,
+                       invoice_number, invoice_date
+                FROM orders
+                WHERE status = 'invoiced'
+                  AND invoice_date < ?
+                ORDER BY invoice_date ASC
+            """, ((now - timedelta(days=30)).strftime("%Y-%m-%d"),)).fetchall()
+
+            return {
+                "ok": True,
+                "ytd": {
+                    "total_orders": order_rev[0] or 0,
+                    "revenue": round(order_rev[1] or 0, 2),
+                    "collected": round(order_rev[2] or 0, 2),
+                    "logged_revenue": round((logged_rev[0] or 0), 2),
+                },
+                "monthly": [{"month": r[0], "orders": r[1], "revenue": round(r[2] or 0, 2)} for r in monthly],
+                "overdue_invoices": [
+                    {"id": r[0], "quote": r[1], "agency": r[2], "institution": r[3],
+                     "total": r[4], "invoice": r[5], "invoice_date": r[6]}
+                    for r in overdue_invoices
+                ],
+                "overdue_count": len(overdue_invoices),
+                "year": now.year,
+            }
+    except Exception as e:
+        log.error("get_revenue_ytd: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+def transition_order(order_id: str, new_status: str, actor: str = "system",
+                     notes: str = "", **kwargs) -> dict:
+    """Move an order to a new status with audit logging. V2 replacement for order_lifecycle.transition_order."""
+    # Map legacy statuses to V2
+    new_status = LEGACY_STATUS_MAP.get(new_status, new_status)
+    if new_status not in ORDER_STATUSES:
+        return {"ok": False, "error": f"Invalid status: {new_status}"}
+
+    from src.core.db import get_db
+    try:
+        with get_db() as conn:
+            row = conn.execute("SELECT status, status_history FROM orders WHERE id=?", (order_id,)).fetchone()
+            if not row:
+                return {"ok": False, "error": f"Order {order_id} not found"}
+
+            old_status = row["status"] or "new"
+            old_status = LEGACY_STATUS_MAP.get(old_status, old_status)
+
+            history = _safe_json(row.get("status_history"), [])
+            history.append({
+                "from": old_status, "to": new_status,
+                "at": _now_iso(), "actor": actor, "notes": notes,
+            })
+
+            updates = {"status": new_status, "updated_at": _now_iso(),
+                        "status_history": json.dumps(history)}
+
+            # Set milestone fields
+            if new_status == "shipped" and kwargs.get("tracking_number"):
+                updates["tracking_number"] = kwargs["tracking_number"]
+            if new_status == "invoiced" and kwargs.get("invoice_number"):
+                updates["invoice_number"] = kwargs["invoice_number"]
+
+            for k, v in kwargs.items():
+                if k in ("buyer_name", "buyer_email", "notes", "tracking_number",
+                          "ship_date", "delivery_date", "invoice_date",
+                          "payment_date", "payment_amount", "vendor_name"):
+                    updates[k] = v
+
+            set_clause = ", ".join(f"{k}=?" for k in updates)
+            values = list(updates.values()) + [order_id]
+            conn.execute("UPDATE orders SET " + set_clause + " WHERE id=?", values)
+
+            conn.execute("""
+                INSERT INTO order_audit_log
+                (order_id, action, field, old_value, new_value, actor, details, created_at)
+                VALUES (?, 'status_transition', 'status', ?, ?, ?, ?, ?)
+            """, (order_id, old_status, new_status, actor, notes, _now_iso()))
+
+            log.info("transition_order(%s): %s → %s by %s", order_id, old_status, new_status, actor)
+            return {"ok": True, "order_id": order_id, "old_status": old_status,
+                    "new_status": new_status, "transition_count": len(history)}
+    except Exception as e:
+        log.error("transition_order(%s) failed: %s", order_id, e, exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+
+def get_order_detail(order_id: str) -> dict:
+    """Full order detail with lifecycle timeline. V2 replacement for order_lifecycle.get_order_detail."""
+    order = get_order(order_id)
+    if not order:
+        return {"ok": False, "error": "Not found"}
+    order["status_label"] = STATUS_LABELS.get(order.get("status", ""), order.get("status", ""))
+    order["status_history"] = _safe_json(order.get("status_history"), [])
+    return {"ok": True, "order": order}
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════
 

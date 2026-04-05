@@ -5274,11 +5274,11 @@ def margins_item():
 def order_transition(order_id):
     """Move an order to a new status. POST JSON: {status, notes, tracking_number, ...}"""
     try:
-        from src.core.order_lifecycle import transition_order, ORDER_FLOW
+        from src.core.order_dal import transition_order, ORDER_STATUSES as _ORDER_STATUSES
         from src.core.validators import validate_required, validate_enum, sanitize_string, ValidationError
         data = request.get_json(silent=True) or {}
         try:
-            new_status = validate_enum(data, "status", list(ORDER_FLOW.keys()))
+            new_status = validate_enum(data, "status", _ORDER_STATUSES)
         except ValidationError as ve:
             return jsonify({"ok": False, "error": str(ve)}), 400
         # Sanitize optional fields
@@ -5301,7 +5301,7 @@ def order_transition(order_id):
 def order_detail_api(order_id):
     """Full order detail with lifecycle timeline."""
     try:
-        from src.core.order_lifecycle import get_order_detail
+        from src.core.order_dal import get_order_detail
         return jsonify(get_order_detail(order_id))
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -5312,7 +5312,7 @@ def order_detail_api(order_id):
 def revenue_ytd():
     """YTD revenue from orders + revenue log. Includes overdue invoices."""
     try:
-        from src.core.order_lifecycle import get_revenue_ytd
+        from src.core.order_dal import get_revenue_ytd
         return jsonify(get_revenue_ytd())
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
@@ -5335,7 +5335,7 @@ def growth_prospects():
 def unpaid_invoices():
     """Flag invoices older than N days without payment."""
     try:
-        from src.core.order_lifecycle import get_revenue_ytd
+        from src.core.order_dal import get_revenue_ytd
         # Unpaid invoice query
         threshold = request.args.get("days", 30, type=int)
         now = __import__("datetime").datetime.now()
