@@ -23,52 +23,35 @@ from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
 from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats
 from src.agents.email_poller import EmailPoller, EmailSender
 
-# v6.0: Pricing intelligence (graceful — module might not exist yet)
-try:
+# ── Shared config + feature flags (extracted to src/api/config.py) ────────────
+from src.api.config import (
+    CONFIG as _CFG_CHECK, BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR,
+    PRICING_ORACLE_AVAILABLE, PRODUCT_RESEARCH_AVAILABLE,
+    PRICE_CHECK_AVAILABLE, QUOTE_GEN_AVAILABLE, AUTO_PROCESSOR_AVAILABLE,
+)
+# Re-import conditionally-loaded modules that dashboard.py code uses directly
+if PRICING_ORACLE_AVAILABLE:
     from src.knowledge.pricing_oracle import recommend_prices_for_rfq, pricing_health_check
     from src.knowledge.won_quotes_db import (ingest_scprs_result, find_similar_items,
-                                get_kb_stats, get_price_history)
-    PRICING_ORACLE_AVAILABLE = True
-except ImportError:
-    PRICING_ORACLE_AVAILABLE = False
-
-# v6.1: Product Research Agent (graceful — requires API keys)
-try:
+                                             get_kb_stats, get_price_history)
+if PRODUCT_RESEARCH_AVAILABLE:
     from src.agents.product_research import (research_product, research_rfq_items,
-                                   quick_lookup, test_amazon_search,
-                                   get_research_cache_stats, RESEARCH_STATUS)
-    PRODUCT_RESEARCH_AVAILABLE = True
-except ImportError:
-    PRODUCT_RESEARCH_AVAILABLE = False
-
-# v6.2: Price Check Processor
-try:
+                                             quick_lookup, test_amazon_search,
+                                             get_research_cache_stats, RESEARCH_STATUS)
+if PRICE_CHECK_AVAILABLE:
     from src.forms.price_check import (parse_ams704, process_price_check, lookup_prices,
-                              test_parse, REYTECH_INFO, clean_description)
-    PRICE_CHECK_AVAILABLE = True
-except ImportError:
-    PRICE_CHECK_AVAILABLE = False
-
-# v7.1: Reytech Quote Generator
-try:
+                                       test_parse, REYTECH_INFO, clean_description)
+if QUOTE_GEN_AVAILABLE:
     from src.forms.quote_generator import (generate_quote, generate_quote_from_pc,
-                                  generate_quote_from_rfq, AGENCY_CONFIGS,
-                                  get_all_quotes, search_quotes,
-                                  peek_next_quote_number, update_quote_status,
-                                  get_quote_stats, set_quote_counter,
-                                  _detect_agency)
-    QUOTE_GEN_AVAILABLE = True
-except ImportError:
-    QUOTE_GEN_AVAILABLE = False
-
-# v7.0: Auto-Processor Engine
-try:
+                                           generate_quote_from_rfq, AGENCY_CONFIGS,
+                                           get_all_quotes, search_quotes,
+                                           peek_next_quote_number, update_quote_status,
+                                           get_quote_stats, set_quote_counter,
+                                           _detect_agency)
+if AUTO_PROCESSOR_AVAILABLE:
     from src.auto.auto_processor import (auto_process_price_check, detect_document_type,
-                                 score_quote_confidence, system_health_check,
-                                 get_audit_stats, track_response_time)
-    AUTO_PROCESSOR_AVAILABLE = True
-except ImportError:
-    AUTO_PROCESSOR_AVAILABLE = False
+                                         score_quote_confidence, system_health_check,
+                                         get_audit_stats, track_response_time)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 log = logging.getLogger("dashboard")
@@ -92,23 +75,7 @@ from src.api.shared import (bp, auth_required, check_auth, _check_rate_limit,
 import time as _time
 # Auth guard + request logging + CSRF now in src/api/shared.py
 
-try:
-    from src.core.paths import PROJECT_ROOT as BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR
-except ImportError:
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-    OUTPUT_DIR = os.path.join(BASE_DIR, "output")
-    DATA_DIR = os.path.join(BASE_DIR, "data")
-    for d in [UPLOAD_DIR, OUTPUT_DIR, DATA_DIR]:
-        os.makedirs(d, exist_ok=True)
-
-CONFIG = load_config()
-
-# Override config with env vars if present (for production)
-if os.environ.get("GMAIL_PASSWORD"):
-    CONFIG.setdefault("email", {})["email_password"] = os.environ["GMAIL_PASSWORD"]
-if os.environ.get("GMAIL_ADDRESS"):
-    CONFIG.setdefault("email", {})["email"] = os.environ["GMAIL_ADDRESS"]
+# BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, CONFIG — all from src.api.config import above
 
 POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None, "paused": False}
 
@@ -5770,25 +5737,11 @@ def api_route_map():
 # Split from dashboard.py for maintainability (was 13,831 lines)
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Cross-module globals: defined in later modules, used by earlier ones.
-# Pre-define defaults so modules loaded first can reference them safely.
-# These get overwritten to True when the defining module loads successfully.
-INTEL_AVAILABLE = False
-PREDICT_AVAILABLE = False
-QB_AVAILABLE = False
-GROWTH_AVAILABLE = False
-OUTREACH_AVAILABLE = False
-VOICE_AVAILABLE = False
-CAMPAIGNS_AVAILABLE = False
-SCANNER_AVAILABLE = False
-LEADGEN_AVAILABLE = False
-ITEM_ID_AVAILABLE = False
-REPLY_ANALYZER_AVAILABLE = False
-QA_AVAILABLE = False
-MANAGER_AVAILABLE = False
-ORCHESTRATOR_AVAILABLE = False
-CATALOG_AVAILABLE = False
-_WF_AVAILABLE = False
+# Cross-module feature flags — imported from src.api.config, updated by route modules at load time
+from src.api.config import (INTEL_AVAILABLE, PREDICT_AVAILABLE, QB_AVAILABLE, GROWTH_AVAILABLE,
+    OUTREACH_AVAILABLE, VOICE_AVAILABLE, CAMPAIGNS_AVAILABLE, SCANNER_AVAILABLE,
+    LEADGEN_AVAILABLE, ITEM_ID_AVAILABLE, REPLY_ANALYZER_AVAILABLE, QA_AVAILABLE,
+    MANAGER_AVAILABLE, ORCHESTRATOR_AVAILABLE, CATALOG_AVAILABLE, _WF_AVAILABLE)
 
 def _load_route_module(module_name: str):
     """
