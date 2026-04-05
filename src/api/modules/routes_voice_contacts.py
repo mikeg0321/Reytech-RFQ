@@ -13,6 +13,7 @@ from src.api.render import render_page
 
 @bp.route("/intelligence")
 @auth_required
+@safe_page
 def intelligence_page():
     """Sales Intelligence Dashboard — redirects to Growth Discovery."""
     if not INTEL_AVAILABLE:
@@ -572,6 +573,7 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
 
 @bp.route("/api/voice/call", methods=["POST"])
 @auth_required
+@safe_route
 def api_voice_call():
     """Place an outbound call. POST JSON: {"phone": "+19165550100", "script": "lead_intro", "variables": {...}}"""
     if not VOICE_AVAILABLE:
@@ -597,6 +599,7 @@ def api_voice_call():
 
 @bp.route("/api/voice/log")
 @auth_required
+@safe_route
 def api_voice_log():
     """Get call log."""
     if not VOICE_AVAILABLE:
@@ -607,6 +610,7 @@ def api_voice_log():
 
 @bp.route("/api/voice/scripts")
 @auth_required
+@safe_route
 def api_voice_scripts():
     """Get available call scripts."""
     if not VOICE_AVAILABLE:
@@ -616,6 +620,7 @@ def api_voice_scripts():
 
 @bp.route("/api/voice/status")
 @auth_required
+@safe_route
 def api_voice_status():
     """Voice agent status + setup instructions."""
     if not VOICE_AVAILABLE:
@@ -625,6 +630,7 @@ def api_voice_status():
 
 @bp.route("/api/voice/verify")
 @auth_required
+@safe_route
 def api_voice_verify():
     """Verify Twilio credentials are valid by pinging the API."""
     if not VOICE_AVAILABLE:
@@ -634,6 +640,7 @@ def api_voice_verify():
 
 @bp.route("/api/voice/import-twilio", methods=["POST"])
 @auth_required
+@safe_route
 def api_voice_import_twilio():
     """Import Twilio phone number into Vapi for Reytech caller ID."""
     if not VOICE_AVAILABLE:
@@ -693,6 +700,7 @@ def api_voice_vapi_webhook():
 
 @bp.route("/api/voice/vapi-calls")
 @auth_required
+@safe_route
 def api_voice_vapi_calls():
     """List recent Vapi calls with transcripts."""
     if not VOICE_AVAILABLE:
@@ -704,6 +712,7 @@ def api_voice_vapi_calls():
 
 @bp.route("/api/voice/call/<call_id>/details")
 @auth_required
+@safe_route
 def api_voice_call_details(call_id):
     """Get Vapi call details including transcript."""
     if not VOICE_AVAILABLE:
@@ -716,6 +725,7 @@ def api_voice_call_details(call_id):
 
 @bp.route("/contacts")
 @auth_required
+@safe_page
 def contacts_page():
     """CRM — Persistent buyer/contact database with activity tracking."""
     contacts_dict = _load_crm_contacts()
@@ -812,6 +822,7 @@ def contacts_page():
 
 @bp.route("/campaigns")
 @auth_required
+@safe_page
 def campaigns_page():
     """Campaigns management page."""
     campaigns = get_campaigns() if CAMPAIGNS_AVAILABLE else []
@@ -860,6 +871,7 @@ def campaigns_page():
 
 @bp.route("/campaign/<cid>")
 @auth_required
+@safe_page
 def campaign_detail(cid):
     """Campaign detail page with contact list and dialer."""
     if not CAMPAIGNS_AVAILABLE:
@@ -900,6 +912,7 @@ def campaign_detail(cid):
 
 @bp.route("/api/campaigns", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_campaigns():
     """List or create campaigns."""
     if not CAMPAIGNS_AVAILABLE:
@@ -918,6 +931,7 @@ def api_campaigns():
 
 @bp.route("/api/campaigns/<cid>/call", methods=["POST"])
 @auth_required
+@safe_route
 def api_campaign_call(cid):
     """Execute next call in campaign."""
     if not CAMPAIGNS_AVAILABLE or not VOICE_AVAILABLE:
@@ -930,6 +944,7 @@ def api_campaign_call(cid):
 
 @bp.route("/api/campaigns/<cid>/outcome", methods=["POST"])
 @auth_required
+@safe_route
 def api_campaign_outcome(cid):
     """Log call outcome for a campaign contact."""
     if not CAMPAIGNS_AVAILABLE:
@@ -941,6 +956,7 @@ def api_campaign_outcome(cid):
 
 @bp.route("/api/campaigns/<cid>")
 @auth_required
+@safe_route
 def api_campaign_detail(cid):
     """Get campaign details."""
     if not CAMPAIGNS_AVAILABLE:
@@ -953,6 +969,7 @@ def api_campaign_detail(cid):
 
 @bp.route("/api/campaigns/stats")
 @auth_required
+@safe_route
 def api_campaign_stats():
     """Aggregate campaign analytics."""
     if not CAMPAIGNS_AVAILABLE:

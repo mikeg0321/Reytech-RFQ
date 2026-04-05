@@ -14,6 +14,7 @@ log = logging.getLogger("reytech")
 
 @bp.route("/api/v1/rfq/<rfq_id>")
 @auth_required
+@safe_route
 def api_v1_get_rfq(rfq_id):
     """Get a single RFQ with line items.
     Returns: api_response({...rfq fields...}) or 404.
@@ -33,6 +34,7 @@ def api_v1_get_rfq(rfq_id):
 
 @bp.route("/api/v1/rfq/<rfq_id>/price", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_price_rfq(rfq_id):
     """Trigger pricing on an RFQ. Enqueues as async task.
     Accepts: {"force": bool} (optional)
@@ -61,6 +63,7 @@ def api_v1_price_rfq(rfq_id):
 
 @bp.route("/api/v1/pipeline")
 @auth_required
+@safe_route
 def api_v1_pipeline():
     """Current queue depths and agent status for external orchestrators.
     Returns: api_response({rfqs: {...}, pcs: {...}, orders: {...}, agents: {...}})
@@ -108,6 +111,7 @@ def api_v1_pipeline():
 
 @bp.route("/rfq/new")
 @auth_required
+@safe_page
 def rfq_new_form():
     """Manual RFQ creation form — fallback when email poller is down."""
     from src.api.render import render_page
@@ -116,6 +120,7 @@ def rfq_new_form():
 
 @bp.route("/api/v1/rfq/create", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_create_rfq():
     """Create an RFQ via DAL. Accepts JSON or form data.
     Returns: api_response({id, status}) with 201 on success.
@@ -188,6 +193,7 @@ def api_v1_create_rfq():
 
 @bp.route("/api/v1/webhook/rfq-created", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_webhook_rfq_created():
     """Manually fire the rfq.created webhook (for testing)."""
     data = request.get_json(force=True, silent=True) or {}
@@ -201,6 +207,7 @@ def api_v1_webhook_rfq_created():
 
 @bp.route("/api/v1/webhook/order-updated", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_webhook_order_updated():
     """Manually fire the order.updated webhook (for testing)."""
     data = request.get_json(force=True, silent=True) or {}
@@ -214,6 +221,7 @@ def api_v1_webhook_order_updated():
 
 @bp.route("/api/v1/webhook/test", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_webhook_test():
     """Fire a test webhook to verify n8n connectivity."""
     try:
@@ -229,6 +237,7 @@ def api_v1_webhook_test():
 
 @bp.route("/api/v1/notify/test-sms", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_test_sms():
     """Send a test SMS to NOTIFY_PHONE."""
     try:
@@ -245,6 +254,7 @@ def api_v1_test_sms():
 
 @bp.route("/api/v1/pc/<pc_id>/item/<path:item_number>/history")
 @auth_required
+@safe_route
 def api_v1_pc_item_history(pc_id, item_number):
     """Price history for a specific line item on a PC.
     Returns last 5 price records matching by part number or description.
@@ -277,6 +287,7 @@ _health_cache = {"data": None, "ts": 0}
 
 @bp.route("/api/v1/health")
 @auth_required
+@safe_route
 def api_v1_health():
     """Full system health for external orchestrators.
     Returns: version, uptime, DB state, queue depths, agent status.
@@ -420,6 +431,7 @@ def api_v1_health():
 
 @bp.route("/api/v1/audit/<entity_type>/<entity_id>")
 @auth_required
+@safe_route
 def api_v1_audit_trail(entity_type, entity_id):
     """Get audit trail for an entity. Returns last 20 records."""
     try:
@@ -437,6 +449,7 @@ def api_v1_audit_trail(entity_type, entity_id):
 
 @bp.route("/api/v1/snapshots/<entity_type>/<entity_id>")
 @auth_required
+@safe_route
 def api_v1_snapshots(entity_type, entity_id):
     """Get snapshots for an entity. Returns last 10."""
     try:
@@ -453,6 +466,7 @@ def api_v1_snapshots(entity_type, entity_id):
 
 @bp.route("/api/v1/rollback/<int:snapshot_id>", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_rollback(snapshot_id):
     """Restore an entity from a snapshot."""
     try:
@@ -481,6 +495,7 @@ def api_v1_rollback(snapshot_id):
 
 @bp.route("/api/v1/connectors")
 @auth_required
+@safe_route
 def api_v1_connectors():
     """List all connectors with status, health, record counts."""
     try:
@@ -494,6 +509,7 @@ def api_v1_connectors():
 
 @bp.route("/api/v1/connectors/<connector_id>/run", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_run_connector(connector_id):
     """Trigger a connector pull. Returns immediately with queued status."""
     try:
@@ -509,6 +525,7 @@ def api_v1_run_connector(connector_id):
 
 @bp.route("/api/v1/connectors/<connector_id>/health")
 @auth_required
+@safe_route
 def api_v1_connector_health(connector_id):
     """Health check a connector without pulling data."""
     try:
@@ -532,6 +549,7 @@ def api_v1_connector_health(connector_id):
 
 @bp.route("/api/v1/agencies")
 @auth_required
+@safe_route
 def api_v1_agencies():
     """List agencies from registry. Query: ?state=CA&limit=100"""
     try:
@@ -560,6 +578,7 @@ def api_v1_agencies():
 
 @bp.route("/api/v1/harvest/ca")
 @auth_required
+@safe_route
 def api_v1_harvest_ca():
     """Trigger CA SCPRS harvest. GET for easy browser trigger."""
     try:
@@ -579,6 +598,7 @@ def api_v1_harvest_ca():
 
 @bp.route("/api/v1/harvest/federal")
 @auth_required
+@safe_route
 def api_v1_harvest_federal():
     """Trigger federal USASpending harvest. GET for easy browser trigger."""
     try:
@@ -598,6 +618,7 @@ def api_v1_harvest_federal():
 
 @bp.route("/api/v1/harvest/status")
 @auth_required
+@safe_route
 def api_v1_harvest_status():
     """Current connector status."""
     try:
@@ -612,6 +633,7 @@ def api_v1_harvest_status():
 
 @bp.route("/api/v1/admin/db-repair")
 @auth_required
+@safe_route
 def api_v1_db_repair():
     """Check DB integrity and repair if corrupted.
     If corrupt: rebuilds DB from scratch, runs migrations, re-seeds.
@@ -728,6 +750,7 @@ def api_v1_db_repair():
 
 @bp.route("/api/v1/admin/db-info")
 @auth_required
+@safe_route
 def api_v1_db_info():
     """Quick DB diagnostic — path, size, table counts, volume status."""
     import sqlite3, os
@@ -774,6 +797,7 @@ def api_v1_db_info():
 
 @bp.route("/api/v1/harvest/rebuild-intel")
 @auth_required
+@safe_route
 def api_v1_rebuild_intel():
     """Rebuild intelligence tables from scprs_po_master data. Synchronous."""
     try:
@@ -800,6 +824,7 @@ def api_v1_rebuild_intel():
 
 @bp.route("/api/v1/tenant/profile")
 @auth_required
+@safe_route
 def api_v1_tenant_profile():
     """Get tenant profile."""
     try:
@@ -813,6 +838,7 @@ def api_v1_tenant_profile():
 
 @bp.route("/api/v1/tenant/profile", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_update_tenant_profile():
     """Update tenant profile fields."""
     try:
@@ -827,6 +853,7 @@ def api_v1_update_tenant_profile():
 
 @bp.route("/api/v1/tenant/compliance")
 @auth_required
+@safe_route
 def api_v1_tenant_compliance():
     """Get compliance alerts."""
     try:
@@ -849,6 +876,7 @@ def api_v1_tenant_compliance():
 
 @bp.route("/api/v1/harvest/reprocess")
 @auth_required
+@safe_route
 def api_v1_harvest_reprocess():
     """Rebuild intelligence tables from scprs_po_master. Synchronous."""
     try:
@@ -881,6 +909,7 @@ def api_v1_harvest_reprocess():
 
 @bp.route("/api/v1/harvest/vendor-search")
 @auth_required
+@safe_route
 def api_v1_harvest_vendor_search():
     """Run vendor name search across active connectors. Synchronous."""
     try:
@@ -896,6 +925,7 @@ def api_v1_harvest_vendor_search():
 
 @bp.route("/api/v1/harvest/diagnose")
 @auth_required
+@safe_route
 def api_v1_harvest_diagnose():
     """Diagnostic: row counts + sample rows from harvest tables."""
     try:
@@ -938,6 +968,7 @@ def api_v1_harvest_diagnose():
 
 @bp.route("/api/v1/harvest/deduplicate")
 @auth_required
+@safe_route
 def api_v1_harvest_deduplicate():
     """Remove duplicate POs from scprs_po_master. Synchronous.
     Groups by (supplier, dept_name, grand_total, start_date, search_term).
@@ -1000,6 +1031,7 @@ _harvest_progress = {"running": False}
 
 @bp.route("/api/v1/harvest/keywords")
 @auth_required
+@safe_route
 def api_v1_harvest_keywords():
     """Run keyword-based harvest that fetches PO line item detail. Background thread."""
     if _harvest_progress.get("running"):
@@ -1094,6 +1126,7 @@ def api_v1_harvest_keywords():
 
 @bp.route("/api/v1/harvest/keywords-sync")
 @auth_required
+@safe_route
 def api_v1_harvest_keywords_sync():
     """Run keyword harvest SYNCHRONOUSLY (first 3 keywords, 5 detail max, 30s timeout each)."""
     try:
@@ -1153,6 +1186,7 @@ def api_v1_harvest_keywords_sync():
 
 @bp.route("/api/v1/harvest/debug-buyer")
 @auth_required
+@safe_route
 def api_v1_debug_buyer():
     """Debug buyer_intel data. Query: ?email=buyer@agency.gov"""
     try:
@@ -1205,6 +1239,7 @@ _backfill_state = {"running": False}  # mutable container — avoids nested glob
 
 @bp.route("/api/v1/harvest/debug-detail")
 @auth_required
+@safe_route
 def api_v1_harvest_debug_detail():
     """Minimal standalone test: fresh session, search, click, log everything."""
     try:
@@ -1353,6 +1388,7 @@ def api_v1_harvest_debug_detail():
 
 @bp.route("/api/v1/harvest/debug-modal")
 @auth_required
+@safe_route
 def api_v1_harvest_debug_modal():
     """Analyze modal HTML to find where detail data actually lives."""
     try:
@@ -1479,6 +1515,7 @@ def api_v1_harvest_debug_modal():
 
 @bp.route("/api/v1/harvest/debug-modal2")
 @auth_required
+@safe_route
 def api_v1_harvest_debug_modal2():
     """Find how PeopleSoft actually loads detail data."""
     try:
@@ -1619,6 +1656,7 @@ def api_v1_harvest_debug_modal2():
 
 @bp.route("/api/v1/harvest/debug-click")
 @auth_required
+@safe_route
 def api_v1_harvest_debug_click():
     """Analyze what the non-modal $0 click actually returns."""
     try:
@@ -1723,6 +1761,7 @@ def api_v1_harvest_debug_click():
 
 @bp.route("/api/v1/harvest/browser-screenshot")
 @auth_required
+@safe_route
 def api_v1_browser_screenshot():
     """Serve browser screenshots."""
     import os
@@ -1737,6 +1776,7 @@ def api_v1_browser_screenshot():
 
 @bp.route("/api/v1/harvest/browser-screenshots")
 @auth_required
+@safe_route
 def api_v1_browser_screenshots():
     """List all available browser screenshots."""
     import os
@@ -1752,6 +1792,7 @@ def api_v1_browser_screenshots():
 
 @bp.route("/api/v1/harvest/browser-test")
 @auth_required
+@safe_route
 def api_v1_harvest_browser_test():
     """Test Playwright-based SCPRS detail scraping."""
     try:
@@ -1817,6 +1858,7 @@ def api_v1_harvest_browser_test():
 
 @bp.route("/api/v1/harvest/fiscal-scrape-now")
 @auth_required
+@safe_route
 def api_v1_fiscal_scrape_now():
     """Manually trigger full FI$Cal exhaustive scrape."""
     import threading as _th
@@ -1828,6 +1870,7 @@ def api_v1_fiscal_scrape_now():
 
 @bp.route("/api/v1/harvest/fiscal-scrape-status")
 @auth_required
+@safe_route
 def api_v1_fiscal_scrape_status():
     """Check scrape progress across all data layers."""
     import os
@@ -1884,6 +1927,7 @@ def api_v1_fiscal_scrape_status():
 
 @bp.route("/api/v1/harvest/po-screenshot/<po_number>")
 @auth_required
+@safe_route
 def api_v1_po_screenshot(po_number):
     """Serve stored PO screenshot."""
     import os
@@ -1896,6 +1940,7 @@ def api_v1_po_screenshot(po_number):
 
 @bp.route("/api/v1/harvest/populate-catalog")
 @auth_required
+@safe_route
 def api_v1_populate_catalog():
     """One-time: populate scprs_catalog from existing PO line data."""
     try:
@@ -1999,6 +2044,7 @@ def api_v1_populate_catalog():
 
 @bp.route("/api/v1/buyers/refresh")
 @auth_required
+@safe_route
 def api_v1_buyers_refresh():
     """Rebuild all buyer profiles from FI$Cal data."""
     from src.agents.buyer_intelligence import refresh_buyer_profiles
@@ -2008,6 +2054,7 @@ def api_v1_buyers_refresh():
 
 @bp.route("/api/v1/buyers/prospects")
 @auth_required
+@safe_route
 def api_v1_buyers_prospects():
     """Get ranked prospect list for outreach."""
     from src.agents.buyer_intelligence import get_top_prospects
@@ -2020,6 +2067,7 @@ def api_v1_buyers_prospects():
 
 @bp.route("/api/v1/buyers/profile/<path:email>")
 @auth_required
+@safe_route
 def api_v1_buyer_profile(email):
     """Get full buyer profile with history and Reytech overlap."""
     from src.agents.buyer_intelligence import get_buyer_profile
@@ -2031,6 +2079,7 @@ def api_v1_buyer_profile(email):
 
 @bp.route("/api/v1/buyers/search")
 @auth_required
+@safe_route
 def api_v1_buyers_search():
     """Search buyers by name, department, or category."""
     import sqlite3
@@ -2063,6 +2112,7 @@ def api_v1_buyers_search():
 
 @bp.route("/api/v1/harvest/fire-all-now")
 @auth_required
+@safe_route
 def api_v1_fire_all_now():
     """Trigger entire pipeline immediately."""
     import threading as _th
@@ -2170,6 +2220,7 @@ def api_v1_fire_all_now():
 
 @bp.route("/api/v1/quotes/underpriced")
 @auth_required
+@safe_route
 def api_v1_quotes_underpriced():
     """Sent quotes that were underpriced vs market."""
     try:
@@ -2187,6 +2238,7 @@ def api_v1_quotes_underpriced():
 
 @bp.route("/api/v1/system/validate-data")
 @auth_required
+@safe_route
 def api_v1_validate_data():
     """Run data validation checks across all layers."""
     from src.agents.data_validator import validate_all
@@ -2196,6 +2248,7 @@ def api_v1_validate_data():
 
 @bp.route("/api/v1/usage/track", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_usage_track():
     """Receive usage tracking beacons from frontend."""
     try:
@@ -2210,6 +2263,7 @@ def api_v1_usage_track():
 
 @bp.route("/api/v1/usage/stats")
 @auth_required
+@safe_route
 def api_v1_usage_stats():
     """Get usage analytics."""
     from src.core.usage_tracker import get_usage_stats
@@ -2219,6 +2273,7 @@ def api_v1_usage_stats():
 
 @bp.route("/api/v1/usage/dead-pages")
 @auth_required
+@safe_route
 def api_v1_usage_dead_pages():
     """Find pages with zero usage."""
     from src.core.usage_tracker import get_dead_pages
@@ -2228,6 +2283,7 @@ def api_v1_usage_dead_pages():
 
 @bp.route("/api/v1/pricing/lookup")
 @auth_required
+@safe_route
 def api_v1_pricing_lookup():
     """Unified pricing lookup — THE endpoint for all pricing."""
     from src.core.pricing_oracle_v2 import get_pricing
@@ -2249,6 +2305,7 @@ def api_v1_pricing_lookup():
 
 @bp.route("/api/v1/pricing/confirm-item", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_pricing_confirm_item():
     """Confirm an item mapping — persists forever."""
     from src.core.pricing_oracle_v2 import confirm_item_mapping
@@ -2267,6 +2324,7 @@ def api_v1_pricing_confirm_item():
 
 @bp.route("/api/v1/pricing/lock-cost", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_pricing_lock_cost():
     """Lock a supplier cost with expiry."""
     from src.core.pricing_oracle_v2 import lock_cost
@@ -2284,6 +2342,7 @@ def api_v1_pricing_lock_cost():
 
 @bp.route("/api/v1/pricing/expiring-costs")
 @auth_required
+@safe_route
 def api_v1_pricing_expiring_costs():
     from src.core.pricing_oracle_v2 import get_expiring_costs
     days = int(request.args.get("days", "7"))
@@ -2292,6 +2351,7 @@ def api_v1_pricing_expiring_costs():
 
 @bp.route("/api/v1/pricing/speed-stats")
 @auth_required
+@safe_route
 def api_v1_pricing_speed_stats():
     from src.core.pricing_oracle_v2 import get_speed_stats
     return api_response(get_speed_stats())
@@ -2299,6 +2359,7 @@ def api_v1_pricing_speed_stats():
 
 @bp.route("/api/v1/pricing/backfill-memory")
 @auth_required
+@safe_route
 def api_v1_pricing_backfill_memory():
     """Backfill item memory from all existing PCs, quotes, RFQs."""
     from src.core.pricing_oracle_v2 import backfill_item_memory
@@ -2308,6 +2369,7 @@ def api_v1_pricing_backfill_memory():
 
 @bp.route("/api/v1/pricing/cross-sell")
 @auth_required
+@safe_route
 def api_v1_pricing_cross_sell():
     from src.core.pricing_oracle_v2 import _get_cross_sell
     import sqlite3
@@ -2323,6 +2385,7 @@ def api_v1_pricing_cross_sell():
 
 @bp.route("/api/v1/recovery/restore-from-db-backup")
 @auth_required
+@safe_route
 def api_v1_recovery_from_db():
     """Restore rfqs + price_checks from the SQLite DB backup file."""
     import json as _json
@@ -2511,6 +2574,7 @@ def api_v1_recovery_from_db():
 
 @bp.route("/api/v1/recovery/restore-from-drive")
 @auth_required
+@safe_route
 def api_v1_recovery_restore():
     """Restore rfqs.json and price_checks.json from latest Google Drive backup."""
     import json as _json
@@ -2600,6 +2664,7 @@ def api_v1_recovery_restore():
 
 @bp.route("/api/v1/debug/rfq-raw/<rid>")
 @auth_required
+@safe_route
 def api_v1_debug_rfq_raw(rid):
     """Show raw RFQ data to debug missing items."""
     import json as _json
@@ -2632,6 +2697,7 @@ def api_v1_debug_rfq_raw(rid):
 
 @bp.route("/api/v1/debug/rfq-status")
 @auth_required
+@safe_route
 def api_v1_debug_rfq_status():
     """Check all RFQs for empty items and attempt recovery from DB."""
     import json as _json
@@ -2656,6 +2722,7 @@ def api_v1_debug_rfq_status():
 
 @bp.route("/api/v1/quotes/reprocess")
 @auth_required
+@safe_route
 def api_v1_quotes_reprocess():
     """Re-enrich all pending quotes + validate sent quotes with fresh market data."""
     import threading as _th
@@ -2667,6 +2734,7 @@ def api_v1_quotes_reprocess():
 
 @bp.route("/api/v1/quotes/price-alerts")
 @auth_required
+@safe_route
 def api_v1_price_alerts():
     """View underpricing alerts from last validation."""
     import os as _os
@@ -2680,6 +2748,7 @@ def api_v1_price_alerts():
 
 @bp.route("/api/v1/outreach/preview/<path:email>")
 @auth_required
+@safe_route
 def api_v1_outreach_preview(email):
     """Preview outreach email for a specific prospect."""
     from src.agents.outreach_agent import generate_outreach_email
@@ -2690,6 +2759,7 @@ def api_v1_outreach_preview(email):
 
 @bp.route("/api/v1/outreach/batch")
 @auth_required
+@safe_route
 def api_v1_outreach_batch():
     """Generate batch outreach for top prospects with A/B variants."""
     from src.agents.outreach_agent import generate_batch_outreach
@@ -2701,6 +2771,7 @@ def api_v1_outreach_batch():
 
 @bp.route("/api/v1/catalog/enrich")
 @auth_required
+@safe_route
 def api_v1_catalog_enrich():
     """Run catalog enrichment — parse identifiers from all items."""
     from src.agents.item_enricher import enrich_catalog
@@ -2710,6 +2781,7 @@ def api_v1_catalog_enrich():
 
 @bp.route("/api/v1/catalog/item-lookup")
 @auth_required
+@safe_route
 def api_v1_catalog_item_lookup():
     """Look up item — parse identifiers, generate search URLs."""
     from src.agents.item_enricher import search_product_url, parse_identifiers
@@ -2752,6 +2824,7 @@ def api_v1_catalog_item_lookup():
 
 @bp.route("/api/v1/catalog/set-url", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_catalog_set_url():
     """User confirms a product URL for a catalog item."""
     from src.agents.item_enricher import set_product_url
@@ -2766,6 +2839,7 @@ def api_v1_catalog_set_url():
 
 @bp.route("/api/v1/catalog/enrichment-stats")
 @auth_required
+@safe_route
 def api_v1_catalog_enrichment_stats():
     """Show catalog enrichment statistics."""
     import sqlite3
@@ -2796,6 +2870,7 @@ def api_v1_catalog_enrichment_stats():
 
 @bp.route("/api/v1/system/audit-now")
 @auth_required
+@safe_route
 def api_v1_audit_now():
     """Trigger system audit immediately."""
     import threading as _th
@@ -2807,6 +2882,7 @@ def api_v1_audit_now():
 
 @bp.route("/api/v1/system/audit-report")
 @auth_required
+@safe_route
 def api_v1_audit_report():
     """View the latest audit report."""
     import os as _os
@@ -2830,6 +2906,7 @@ def api_v1_audit_report():
 
 @bp.route("/api/v1/system/audit-report-md")
 @auth_required
+@safe_route
 def api_v1_audit_report_md():
     """View audit report as readable markdown."""
     from flask import Response
@@ -2844,6 +2921,7 @@ def api_v1_audit_report_md():
 
 @bp.route("/api/v1/quote/intelligence", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_quote_intelligence():
     """Match RFQ items against catalog and suggest pricing."""
     from src.agents.quote_intelligence import match_rfq_items
@@ -2862,6 +2940,7 @@ def api_v1_quote_intelligence():
 
 @bp.route("/api/v1/quote/catalog-search")
 @auth_required
+@safe_route
 def api_v1_catalog_search():
     """Search the catalog for items matching a query."""
     from src.agents.quote_intelligence import search_catalog, get_competitor_prices
@@ -2880,6 +2959,7 @@ def api_v1_catalog_search():
 
 @bp.route("/api/v1/quote/enrich", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_quote_enrich():
     """Full quote enrichment — takes RFQ data, returns draft with pricing."""
     from src.agents.quote_intelligence import enrich_quote_draft
@@ -2890,6 +2970,7 @@ def api_v1_quote_enrich():
 
 @bp.route("/api/v1/harvest/backfill-details")
 @auth_required
+@safe_route
 def api_v1_backfill_details():
     """Backfill detail pages for POs that have no line items. Background thread."""
     if _backfill_state["running"]:
@@ -3078,6 +3159,7 @@ def api_v1_backfill_details():
 
 @bp.route("/api/v1/rfq/backfill-metadata")
 @auth_required
+@safe_route
 def api_v1_rfq_backfill_metadata():
     """Backfill solicitation numbers and due dates for existing RFQs.
     ?dry_run=1 — show what would be recovered without saving
@@ -3093,6 +3175,7 @@ def api_v1_rfq_backfill_metadata():
 
 @bp.route("/api/v1/rfq/imap-backfill")
 @auth_required
+@safe_route
 def api_v1_rfq_imap_backfill():
     """Re-fetch original emails from IMAP to recover metadata and PDFs.
     ?dry_run=1 — show what would be recovered without saving
@@ -3108,6 +3191,7 @@ def api_v1_rfq_imap_backfill():
 
 @bp.route("/api/v1/rfq/diagnose-files")
 @auth_required
+@safe_route
 def api_v1_rfq_diagnose_files():
     """Show what PDFs are stored in rfq_files for each RFQ."""
     try:
@@ -3150,6 +3234,7 @@ def api_v1_rfq_diagnose_files():
 
 @bp.route("/api/v1/rfq/diagnose-fields")
 @auth_required
+@safe_route
 def api_v1_rfq_diagnose_fields():
     """Show what metadata fields each RFQ has — for debugging.
     ?source=json  → read raw JSON file only
@@ -3221,6 +3306,7 @@ def api_v1_rfq_diagnose_fields():
 
 @bp.route("/api/v1/reminders/check-now")
 @auth_required
+@safe_route
 def api_v1_reminders_check_now():
     """Manually trigger due date reminder check."""
     try:
@@ -3236,6 +3322,7 @@ def api_v1_reminders_check_now():
 
 @bp.route("/api/v1/system/snapshots")
 @auth_required
+@safe_route
 def api_v1_system_snapshots():
     """List data file snapshots."""
     try:
@@ -3249,6 +3336,7 @@ def api_v1_system_snapshots():
 
 @bp.route("/api/v1/system/restore", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_system_restore():
     """Restore a data file from a snapshot."""
     try:
@@ -3272,6 +3360,7 @@ def api_v1_system_restore():
 
 @bp.route("/api/v1/system/data-health")
 @auth_required
+@safe_route
 def api_v1_system_data_health():
     """Check data file integrity — item counts and snapshot status."""
     import json as _json
@@ -3324,6 +3413,7 @@ def api_v1_system_data_health():
 
 @bp.route("/api/v1/rfq/<rid>/validate")
 @auth_required
+@safe_route
 def api_v1_rfq_validate(rid):
     """Validate RFQ readiness to generate a quote."""
     try:
@@ -3340,6 +3430,7 @@ def api_v1_rfq_validate(rid):
 
 @bp.route("/api/v1/rfq/<rid>/checklist")
 @auth_required
+@safe_route
 def api_v1_rfq_checklist(rid):
     """Get completion checklist for an RFQ."""
     try:
@@ -3356,6 +3447,7 @@ def api_v1_rfq_checklist(rid):
 
 @bp.route("/api/v1/rfq/<rid>/link-pc", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_rfq_link_pc(rid):
     """Link an RFQ to a PC and import pricing."""
     try:
@@ -3389,6 +3481,7 @@ def api_v1_rfq_link_pc(rid):
 
 @bp.route("/api/v1/quotes/sent-tracker")
 @auth_required
+@safe_route
 def api_v1_quotes_sent_tracker():
     """Get all sent quotes with follow-up status."""
     try:
@@ -3409,6 +3502,7 @@ def api_v1_quotes_sent_tracker():
 
 @bp.route("/api/v1/system/recover-pcs")
 @auth_required
+@safe_route
 def api_v1_system_recover_pcs():
     """Recover PCs from SQLite into price_checks.json. Merges all sources, keeps version with most items."""
     import json as _json
@@ -3522,6 +3616,7 @@ def api_v1_system_recover_pcs():
 
 @bp.route("/api/v1/system/emergency-cleanup")
 @auth_required
+@safe_route
 def api_v1_system_emergency_cleanup():
     """Delete bloated snapshot files and restore from smallest good snapshot."""
     try:
@@ -3582,6 +3677,7 @@ def api_v1_system_emergency_cleanup():
 
 @bp.route("/api/v1/system/boot-health")
 @auth_required
+@safe_route
 def api_v1_system_boot_health():
     """Run full health check — same as boot but on demand."""
     try:
@@ -3594,6 +3690,7 @@ def api_v1_system_boot_health():
 
 @bp.route("/api/v1/system/disk-usage")
 @auth_required
+@safe_route
 def api_v1_system_disk_usage():
     """Show disk usage breakdown and clean up old files."""
     import subprocess
@@ -3732,6 +3829,7 @@ def api_v1_system_disk_usage():
 
 @bp.route("/api/v1/locations/search")
 @auth_required
+@safe_route
 def api_v1_locations_search():
     """Search state facility locations for autocomplete. ?q=keyword"""
     q = (request.args.get("q", "") or "").strip().lower()
@@ -3765,6 +3863,7 @@ def api_v1_locations_search():
 
 @bp.route("/api/v1/rfq/backfill-all-fields")
 @auth_required
+@safe_route
 def api_v1_rfq_backfill_all_fields():
     """Backfill empty fields on all RFQs from buyer SCPRS history + email text."""
     import json as _json
@@ -3861,6 +3960,7 @@ def api_v1_rfq_backfill_all_fields():
 
 @bp.route("/api/v1/system/parse-gaps")
 @auth_required
+@safe_route
 def api_v1_parse_gaps():
     """Report fields most often filled manually — parser improvement targets."""
     try:
@@ -3888,6 +3988,7 @@ def api_v1_parse_gaps():
 
 @bp.route("/api/v1/rfq/clean-intelligence")
 @auth_required
+@safe_route
 def api_v1_clean_intelligence():
     """Strip garbage catalog matches from all RFQs."""
     _NON_PRODUCT = ["amendment", "name change", "legal name",
@@ -3918,6 +4019,7 @@ def api_v1_clean_intelligence():
 
 @bp.route("/api/v1/agency/buyer-form-profile")
 @auth_required
+@safe_route
 def api_v1_agency_buyer_form_profile():
     """Get learned form preferences for a buyer email."""
     email = request.args.get("email", "")
@@ -3944,6 +4046,7 @@ def api_v1_agency_buyer_form_profile():
 
 @bp.route("/api/v1/system/templates")
 @auth_required
+@safe_route
 def api_v1_system_templates():
     """List master form templates on the volume."""
     try:
@@ -3967,6 +4070,7 @@ def api_v1_system_templates():
 
 @bp.route("/api/v1/system/templates/upload", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_system_templates_upload():
     """Upload form templates. Supports:
     - Single PDF: saved as-is (or with save_as name)
@@ -4026,6 +4130,7 @@ def api_v1_system_templates_upload():
 
 @bp.route("/api/v1/system/templates/<path:filename>", methods=["DELETE"])
 @auth_required
+@safe_route
 def api_v1_system_templates_delete(filename):
     """Delete a master form template."""
     try:
@@ -4044,6 +4149,7 @@ def api_v1_system_templates_delete(filename):
 
 @bp.route("/api/v1/system/templates/<path:filename>/rename", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_system_templates_rename(filename):
     """Rename a master form template."""
     try:
@@ -4072,6 +4178,7 @@ def api_v1_system_templates_rename(filename):
 
 @bp.route("/api/v1/system/templates/<path:filename>/download")
 @auth_required
+@safe_route
 def api_v1_system_templates_download(filename):
     """Download a master form template."""
     try:
@@ -4088,12 +4195,14 @@ def api_v1_system_templates_download(filename):
 
 @bp.route("/api/v1/rfq/<rid>/source-material")
 @auth_required
+@safe_route
 def api_v1_rfq_source_material(rid):
     """Return original email + attachments for an RFQ."""
     return _get_source_material("rfq", rid)
 
 @bp.route("/api/v1/pc/<pcid>/source-material")
 @auth_required
+@safe_route
 def api_v1_pc_source_material(pcid):
     """Return original email + attachments for a PC."""
     return _get_source_material("pc", pcid)
@@ -4171,6 +4280,7 @@ def _get_source_material(entity_type, entity_id):
 
 @bp.route("/api/v1/rfq/<rid>/mark-reviewed", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_rfq_mark_reviewed(rid):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
@@ -4184,6 +4294,7 @@ def api_v1_rfq_mark_reviewed(rid):
 
 @bp.route("/api/v1/pc/<pcid>/mark-reviewed", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_pc_mark_reviewed(pcid):
     from src.api.dashboard import _load_price_checks, _save_price_checks
     pcs = _load_price_checks()
@@ -4201,6 +4312,7 @@ def api_v1_pc_mark_reviewed(pcid):
 
 @bp.route("/api/v1/quotes/cleanup-ghosts", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_quotes_cleanup_ghosts():
     """Mark empty quote shells as VOID. Numbers preserved in ledger."""
     try:
@@ -4243,6 +4355,7 @@ def api_v1_quotes_cleanup_ghosts():
 
 @bp.route("/api/v1/quotes/backfill-items", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_quotes_backfill_items():
     """Fill items_detail on quotes from their source PC/RFQ."""
     import json as _json
@@ -4289,6 +4402,7 @@ def api_v1_quotes_backfill_items():
 
 @bp.route("/api/v1/email/missed")
 @auth_required
+@safe_route
 def api_v1_email_missed():
     """Find buyer/forward emails processed but never created a record."""
     try:
@@ -4306,6 +4420,7 @@ def api_v1_email_missed():
 
 @bp.route("/api/v1/email/reprocess/<uid>", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_email_reprocess(uid):
     """Remove a UID from ALL processed lists (sales@ + mike@) — will reprocess next cycle."""
     cleared = []
@@ -4345,6 +4460,7 @@ def api_v1_email_reprocess(uid):
 
 @bp.route("/api/v1/email/reprocess-all-missed", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_email_reprocess_all():
     """Find and reprocess ALL missed buyer/forward emails."""
     try:
@@ -4370,6 +4486,7 @@ def api_v1_email_reprocess_all():
 
 @bp.route("/api/v1/email/recover-stuck", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_recover_stuck():
     """Find ALL emails processed but never created a record. Covers:
     - Forwards from our domain (CalVet via mike@)
@@ -4515,6 +4632,7 @@ def api_v1_recover_stuck():
 # Keep old URL as alias
 @bp.route("/api/v1/email/recover-forwards", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_recover_forwards():
     """Alias for recover-stuck (broader recovery)."""
     return api_v1_recover_stuck()
@@ -4522,6 +4640,7 @@ def api_v1_recover_forwards():
 
 @bp.route("/api/v1/email/diagnose/<uid>")
 @auth_required
+@safe_route
 def api_v1_email_diagnose(uid):
     """Trace exactly what the poller would do with a specific email UID."""
     try:
@@ -4612,6 +4731,7 @@ def api_v1_email_diagnose(uid):
 
 @bp.route("/api/v1/email/force-process/<uid>", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_email_force_process(uid):
     """Bypass poller — fetch email by UID, extract attachments (including ZIP), create RFQ/PC directly."""
     try:
@@ -4750,6 +4870,7 @@ def api_v1_email_force_process(uid):
 
 @bp.route("/api/v1/data/fix-buyer-names", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_fix_buyer_names():
     """Fix garbage buyer names on existing PCs and RFQs using email sender."""
     try:
@@ -4803,6 +4924,7 @@ def api_v1_fix_buyer_names():
 
 @bp.route("/api/v1/quotes/fix-orphans", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_v1_fix_orphan_quotes():
     """Link orphan quotes (no source_pc_id/source_rfq_id) to matching PCs/RFQs."""
     try:
@@ -4855,6 +4977,7 @@ def api_v1_fix_orphan_quotes():
 
 @bp.route("/api/v1/data/contract-violations")
 @auth_required
+@safe_route
 def api_v1_contract_violations():
     """View recent contract violations."""
     try:
@@ -4866,6 +4989,7 @@ def api_v1_contract_violations():
 
 @bp.route("/api/v1/data/integrity-check")
 @auth_required
+@safe_route
 def api_v1_integrity_check():
     """Full data integrity audit — checks every record against its contract."""
     try:
@@ -4918,6 +5042,7 @@ def api_v1_integrity_check():
 
 @bp.route("/api/v1/forms/status")
 @auth_required
+@safe_route
 def api_v1_forms_status():
     """Status of all registered DGS form templates."""
     try:
@@ -4937,6 +5062,7 @@ def api_v1_forms_status():
 
 @bp.route("/api/v1/forms/update", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_forms_update():
     """Download/update all registered forms from DGS."""
     try:
@@ -4951,6 +5077,7 @@ def api_v1_forms_update():
 
 @bp.route("/api/v1/forms/update/<form_id>", methods=["POST"])
 @auth_required
+@safe_route
 def api_v1_forms_update_single(form_id):
     """Download a specific form by ID."""
     try:

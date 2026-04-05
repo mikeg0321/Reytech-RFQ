@@ -442,6 +442,7 @@ def _start_po_poller():
 
 @bp.route("/po-tracking")
 @auth_required
+@safe_page
 def po_tracking_dashboard():
     """Purchase Order tracking dashboard."""
     from src.core.db import get_db
@@ -473,6 +474,7 @@ def po_tracking_dashboard():
 
 @bp.route("/po-tracking/<po_id>")
 @auth_required
+@safe_page
 def po_detail(po_id):
     """PO detail page with line items, email history, status timeline."""
     from src.core.db import get_db
@@ -503,6 +505,7 @@ def po_detail(po_id):
 
 @bp.route("/api/po/create", methods=["POST"])
 @auth_required
+@safe_route
 def create_po():
     """Create a new PO from an RFQ/quote that was won."""
     data = request.get_json(silent=True) or {}
@@ -568,6 +571,7 @@ def create_po():
 
 @bp.route("/api/po/<po_id>/update-item", methods=["POST"])
 @auth_required
+@safe_route
 def update_po_item(po_id):
     """Update a single PO line item status."""
     data = request.get_json(silent=True) or {}
@@ -610,6 +614,7 @@ def update_po_item(po_id):
 
 @bp.route("/api/po/<po_id>/update-status", methods=["POST"])
 @auth_required
+@safe_route
 def update_po_status(po_id):
     """Update overall PO status."""
     data = request.get_json(silent=True) or {}
@@ -636,6 +641,7 @@ def update_po_status(po_id):
 
 @bp.route("/api/po/poll", methods=["POST"])
 @auth_required
+@safe_route
 def trigger_po_poll():
     """Manually trigger PO email polling."""
     result = _poll_po_inbox()
@@ -644,6 +650,7 @@ def trigger_po_poll():
 
 @bp.route("/api/po/status")
 @auth_required
+@safe_route
 def po_poll_status():
     """Get PO poller status."""
     cfg = _get_po_email_config()
@@ -656,6 +663,7 @@ def po_poll_status():
 
 @bp.route("/api/po/stats")
 @auth_required
+@safe_route
 def po_stats():
     """Get PO tracking statistics."""
     from src.core.db import get_db

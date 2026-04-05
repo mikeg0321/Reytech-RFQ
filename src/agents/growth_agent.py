@@ -2241,8 +2241,18 @@ def _scheduler_loop():
             if due_count > 0:
                 log.info(f"Scheduler: {due_count} prospects now due for voice follow-up")
 
+            try:
+                from src.core.scheduler import heartbeat
+                heartbeat("growth-agent", success=True)
+            except Exception:
+                pass
         except Exception as e:
             log.debug(f"Scheduler error: {e}")
+            try:
+                from src.core.scheduler import heartbeat
+                heartbeat("growth-agent", success=False, error=str(e)[:200])
+            except Exception:
+                pass
 
         _scheduler_stop.wait(SCHEDULER_INTERVAL)
 

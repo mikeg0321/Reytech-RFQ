@@ -505,14 +505,16 @@ def auto_start_nurture_new_leads() -> dict:
 
 def _nurture_loop():
     """Daemon loop for daily nurture checks — shutdown-aware."""
-    from src.core.scheduler import _shutdown_event
+    from src.core.scheduler import _shutdown_event, heartbeat
     _shutdown_event.wait(300)  # initial delay for app boot
     while not _shutdown_event.is_set():
         try:
             process_nurture_queue()
             rescore_all_leads()
+            heartbeat("lead-nurture", success=True)
         except Exception as e:
             log.error("Lead nurture scheduler: %s", e, exc_info=True)
+            heartbeat("lead-nurture", success=False, error=str(e)[:200])
         _shutdown_event.wait(CHECK_INTERVAL)
     log.info("Lead nurture scheduler shutting down")
 

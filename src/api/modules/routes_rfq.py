@@ -346,6 +346,7 @@ def health_check():
 
 @bp.route("/")
 @auth_required
+@safe_page
 def home():
     import time as _ht
     _t0 = _ht.time()
@@ -546,6 +547,7 @@ def growth_redirect():
 
 @bp.route("/awards")
 @auth_required
+@safe_page
 def awards_page():
     """Pending PO Award Review page."""
     from src.api.dashboard import _load_pending_pos
@@ -559,6 +561,7 @@ def awards_page():
 
 @bp.route("/api/award/<int:idx>/approve", methods=["POST"])
 @auth_required
+@safe_route
 def api_award_approve(idx):
     """Approve a pending PO — creates order and marks RFQ/quote as won."""
     from src.api.dashboard import _load_pending_pos, _save_pending_pos, _pending_po_reviews, _create_order_from_po_email
@@ -604,6 +607,7 @@ def api_award_approve(idx):
 
 @bp.route("/api/award/<int:idx>/dismiss", methods=["POST"])
 @auth_required
+@safe_route
 def api_award_dismiss(idx):
     """Dismiss a pending PO (not a real award)."""
     from src.api.dashboard import _load_pending_pos, _save_pending_pos, _pending_po_reviews
@@ -620,6 +624,7 @@ def api_award_dismiss(idx):
 
 @bp.route("/api/awards/pending")
 @auth_required
+@safe_route
 def api_awards_pending():
     """Get count of pending PO reviews (for home page banner)."""
     from src.api.dashboard import _load_pending_pos
@@ -629,6 +634,7 @@ def api_awards_pending():
 
 @bp.route("/api/rfq/<rid>/mark-won", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_mark_won(rid):
     """Mark an RFQ as won with PO number."""
     rfqs = load_rfqs()
@@ -715,6 +721,7 @@ def api_rfq_mark_won(rid):
 
 @bp.route("/api/rfq/<rid>/mark-lost", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_mark_lost(rid):
     """Mark an RFQ as lost."""
     rfqs = load_rfqs()
@@ -803,6 +810,7 @@ def api_rfq_mark_lost(rid):
 
 @bp.route("/api/rfq/create-manual", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_create_manual():
     """Create an RFQ manually from the dashboard."""
     data = request.get_json(force=True, silent=True) or {}
@@ -1061,6 +1069,7 @@ def api_rfq_upload_parse_doc(rid):
 
 @bp.route("/upload", methods=["POST"])
 @auth_required
+@safe_page
 def upload():
     files = request.files.getlist("files")
     if not files:
@@ -1822,6 +1831,7 @@ def rfq_support_view(rid):
 
 @bp.route("/api/rfq/<rid>/add-buyer-pref", methods=["POST"])
 @auth_required
+@safe_route
 def api_add_buyer_pref(rid):
     """Add a buyer preference from the support view."""
     rfqs = load_rfqs()
@@ -1850,6 +1860,7 @@ def api_add_buyer_pref(rid):
 
 @bp.route("/api/rfq/<rid>/lookup-tax-rate", methods=["POST"])
 @auth_required
+@safe_route
 def api_lookup_tax_rate(rid):
     """Look up CA sales tax rate from delivery address via CDTFA API."""
     rfqs = load_rfqs()
@@ -1915,6 +1926,7 @@ def api_lookup_tax_rate(rid):
 
 @bp.route("/api/rfq/<rid>/resend-package", methods=["POST"])
 @auth_required
+@safe_route
 def api_resend_package(rid):
     """Resend the latest approved package to a recipient."""
     rfqs = load_rfqs()
@@ -1992,6 +2004,7 @@ def api_resend_package(rid):
 
 @bp.route("/api/support/search-packages")
 @auth_required
+@safe_route
 def api_search_packages():
     """Search package manifests by form_id, agency, status, solicitation, or buyer."""
     form_id = request.args.get("form_id", "")
@@ -2192,6 +2205,7 @@ def update(rid):
 
 @bp.route("/api/rfq/<rid>/update-field", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_update_field(rid):
     """Update individual header fields (solicitation, requestor, due date, etc.)."""
     rfqs = load_rfqs()
@@ -2311,6 +2325,7 @@ def rfq_update_field(rid):
 
 @bp.route("/api/rfq/<rid>/bulk-scrape-urls", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_bulk_scrape_urls(rid):
     """Bulk paste URLs → scrape each → apply cost + supplier to items by index."""
     rfqs = load_rfqs()
@@ -2414,6 +2429,7 @@ def api_rfq_bulk_scrape_urls(rid):
 
 @bp.route("/api/rfq/<rid>/bulk-paste-data", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_bulk_paste_data(rid):
     """Bulk paste multi-column data (description, MFG#, URL, cost, markup) into line items."""
     rfqs = load_rfqs()
@@ -2567,6 +2583,7 @@ def _enrich_description_with_asin(description: str, asin: str) -> str:
 
 @bp.route("/api/rfq/<rid>/parse-screenshot", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_parse_screenshot(rid):
     """Upload a screenshot → parse URLs + descriptions → dedup → scrape → enrich → preview."""
     import os, tempfile
@@ -2697,6 +2714,7 @@ def api_rfq_parse_screenshot(rid):
 
 @bp.route("/api/rfq/<rid>/screenshot-confirm", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_screenshot_confirm(rid):
     """Confirm and add screenshot-parsed items to RFQ line items."""
     bad = _validate_rid(rid)
@@ -2754,6 +2772,7 @@ def api_rfq_screenshot_confirm(rid):
 
 @bp.route("/api/rfq/<rid>/autosave", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_autosave(rid):
     """AJAX auto-save: persist line item edits without page reload."""
     rfqs = load_rfqs()
@@ -3042,6 +3061,7 @@ def rfq_reset_items(rid):
 
 @bp.route("/api/rfq/<rid>/unlink-pc", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_unlink_pc(rid):
     """Remove PC linkage from an RFQ."""
     rfqs = load_rfqs()
@@ -3070,6 +3090,7 @@ def api_rfq_unlink_pc(rid):
 
 @bp.route("/rfq/<rid>/lookup-item/<int:idx>", methods=["POST"])
 @auth_required
+@safe_page
 def rfq_lookup_single_item(rid, idx):
     """Run SCPRS + Catalog + Amazon lookup on a single line item by index."""
     rfqs = load_rfqs()
@@ -3209,6 +3230,7 @@ def rfq_lookup_single_item(rid, idx):
 
 @bp.route("/rfq/<rid>/upload-supplier-quote", methods=["POST"])
 @auth_required
+@safe_page
 def rfq_upload_supplier_quote(rid):
     """Upload a supplier quote PDF → parse → match to RFQ items → fill costs + update catalog."""
     _bad = _validate_rid(rid)
@@ -4723,6 +4745,7 @@ def generate_rfq_package(rid):
 
 @bp.route("/rfq/<rid>/generate", methods=["POST"])
 @auth_required
+@safe_page
 def generate(rid):
     _bad = _validate_rid(rid)
     if _bad: return _bad
@@ -4894,6 +4917,7 @@ def rfq_generate_quote(rid):
 
 @bp.route("/rfq/<rid>/send", methods=["POST"])
 @auth_required
+@safe_page
 def send_email(rid):
     _bad = _validate_rid(rid)
     if _bad: return _bad
@@ -4958,6 +4982,7 @@ def send_email(rid):
 
 @bp.route("/api/quote/<qn>/regenerate", methods=["POST"])
 @auth_required
+@safe_route
 def api_quote_regenerate(qn):
     """Regenerate the formal quote PDF for a given quote number.
     Finds the quote in quotes_log.json, regenerates PDF, and updates pdf_path.
@@ -5054,6 +5079,7 @@ def api_quote_regenerate(qn):
 
 @bp.route("/api/rfq/<rid>/dismiss", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_dismiss(rid):
     """Dismiss an RFQ from the active queue with a reason.
     Keeps data for SCPRS intelligence. reason=delete does hard delete."""
@@ -5155,6 +5181,7 @@ def delete_rfq(rid):
 
 @bp.route("/api/rfq/<rid>/cancel", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_cancel(rid):
     """Cancel an RFQ — preserves record for tracking but stops follow-ups.
     Unlike delete, cancelled RFQs remain visible in analytics and can be reactivated."""
@@ -5182,6 +5209,7 @@ def api_rfq_cancel(rid):
 
 @bp.route("/api/rfq/<rid>/reactivate", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_reactivate(rid):
     """Reactivate a cancelled RFQ — restores previous status."""
     rfqs = load_rfqs()
@@ -5211,6 +5239,7 @@ def api_rfq_reactivate(rid):
 
 @bp.route("/rfq/<rid>/file/<file_id>")
 @auth_required
+@safe_page
 def rfq_download_file(rid, file_id):
     """Download an RFQ file from the database."""
     _bad = _validate_rid(rid)
@@ -5229,6 +5258,7 @@ def rfq_download_file(rid, file_id):
 
 @bp.route("/api/rfq/<rid>/files")
 @auth_required
+@safe_route
 def api_rfq_files(rid):
     """List all files for an RFQ."""
     category = request.args.get("category")
@@ -5271,6 +5301,7 @@ def rfq_reopen(rid):
 
 @bp.route("/api/rfq/<rid>/update-status", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_update_status_json(rid):
     """Update RFQ status via JSON (AJAX)."""
     rfqs = load_rfqs()
@@ -5352,6 +5383,7 @@ def rfq_update_status(rid):
 
 @bp.route("/api/rfq/<rid>/activity")
 @auth_required
+@safe_route
 def api_rfq_activity(rid):
     """Get activity log for an RFQ."""
     activities = _get_crm_activity(ref_id=rid, limit=50)
@@ -5364,6 +5396,7 @@ def api_rfq_activity(rid):
 
 @bp.route("/api/email-templates")
 @auth_required
+@safe_route
 def api_list_email_templates():
     """List email templates, optionally filtered by category."""
     category = request.args.get("category")
@@ -5373,6 +5406,7 @@ def api_list_email_templates():
 
 @bp.route("/api/email-templates/<tid>", methods=["GET"])
 @auth_required
+@safe_route
 def api_get_email_template(tid):
     """Get a single email template by ID."""
     templates = get_email_templates_db()
@@ -5384,6 +5418,7 @@ def api_get_email_template(tid):
 
 @bp.route("/api/email-templates", methods=["POST"])
 @auth_required
+@safe_route
 def api_create_email_template():
     """Create or update an email template."""
     data = request.get_json(force=True, silent=True) or request.form
@@ -5397,6 +5432,7 @@ def api_create_email_template():
 
 @bp.route("/api/email-templates/<tid>", methods=["DELETE"])
 @auth_required
+@safe_route
 def api_delete_email_template(tid):
     """Delete an email template."""
     try:
@@ -5410,6 +5446,7 @@ def api_delete_email_template(tid):
 
 @bp.route("/api/email-templates/render", methods=["POST"])
 @auth_required
+@safe_route
 def api_render_email_template():
     """Render a template with variables. POST {template_id, variables: {...}}"""
     data = request.get_json(force=True, silent=True) or {}
@@ -5436,6 +5473,7 @@ def api_render_email_template():
 
 @bp.route("/rfq/<rid>/preview/<file_id>")
 @auth_required
+@safe_page
 def rfq_preview_pdf(rid, file_id):
     """Serve a PDF for inline preview (Content-Disposition: inline)."""
     f = get_rfq_file(file_id)
@@ -5455,6 +5493,7 @@ def rfq_preview_pdf(rid, file_id):
 
 @bp.route("/api/email-signature")
 @auth_required
+@safe_route
 def get_email_signature():
     """Get current email signature config."""
     email_cfg = CONFIG.get("email", {})
@@ -5473,6 +5512,7 @@ def get_email_signature():
 
 @bp.route("/api/email-signature", methods=["POST"])
 @auth_required
+@safe_route
 def save_email_signature():
     """Save email signature HTML."""
     data = request.get_json(force=True)
@@ -5502,6 +5542,7 @@ def save_email_signature():
 
 @bp.route("/api/upload-sig-logo", methods=["POST"])
 @auth_required
+@safe_route
 def upload_sig_logo():
     """Upload a PNG/JPG logo for the email signature. Returns base64 data URI."""
     import base64 as _b64
@@ -5581,6 +5622,7 @@ DOT DBE #44511 &middot; MBE SC6550 &middot; SBA-SDVOB (FWWSKE9113T7)
 
 @bp.route("/rfq/<rid>/save-draft", methods=["POST"])
 @auth_required
+@safe_page
 def save_gmail_draft(rid):
     """Save email as Gmail draft — user reviews and sends manually from Gmail."""
     from src.api.trace import Trace
@@ -5889,6 +5931,7 @@ def send_email_enhanced(rid):
 
 @bp.route("/api/email-history")
 @auth_required
+@safe_route
 def api_email_history():
     """Get email history. Filter by ?rfq_id=, ?quote_number=, ?contact_id="""
     try:
@@ -5913,6 +5956,7 @@ def api_email_history():
 
 @bp.route("/api/food-classify", methods=["POST"])
 @auth_required
+@safe_route
 def api_food_classify():
     """Classify quote/RFQ items into CDCR food category codes.
     Body: {"items": [{"description": "..."}, ...]}
@@ -5932,6 +5976,7 @@ def api_food_classify():
 
 @bp.route("/api/rfq/<rid>/obs1600", methods=["POST"])
 @auth_required
+@safe_route
 def api_generate_obs1600(rid):
     """Generate filled OBS 1600 food certification form for an RFQ.
     Uses the bid package PDF if available, or a standalone template.
@@ -6173,6 +6218,7 @@ def _generate_standalone_obs1600(food_items, config, rfq_data, output_path):
 
 @bp.route("/api/download/<path:sol>/<filename>")
 @auth_required
+@safe_route
 def api_download_file(sol, filename):
     """Download a generated file."""
     import re as _re
@@ -6230,6 +6276,7 @@ def api_download_file(sol, filename):
 
 @bp.route("/api/rfq/<rid>/fill-bid-package", methods=["POST"])
 @auth_required
+@safe_route
 def api_fill_bid_package(rid):
     """Fill ALL forms in the CDCR bid package for an RFQ."""
     from src.api.trace import Trace
@@ -6307,6 +6354,7 @@ def api_fill_bid_package(rid):
 
 @bp.route("/api/fill-forms", methods=["POST"])
 @auth_required
+@safe_route
 def api_fill_forms_standalone():
     """Standalone form filler — fill bid package from manually entered items.
     Body: {
@@ -6374,6 +6422,7 @@ def api_fill_forms_standalone():
 
 @bp.route("/api/rfq/<rid>/price-intel")
 @auth_required
+@safe_route
 def api_rfq_price_intel(rid):
     """Return pricing intelligence for all items in an RFQ."""
     rfqs = load_rfqs()
@@ -6550,6 +6599,7 @@ _pricing_alerts_cache = {"data": None, "ts": 0}
 
 @bp.route("/api/pricing-alerts")
 @auth_required
+@safe_route
 def api_pricing_alerts():
     """F8: Dashboard pricing alerts — stale prices, drift, unpriced items."""
     import time as _time
@@ -6621,6 +6671,7 @@ def api_pricing_alerts():
 
 @bp.route("/api/rfq/<rid>/qa-check")
 @auth_required
+@safe_route
 def api_rfq_qa_check(rid):
     """QA gate: validate all items before package generation.
     Returns per-item pass/warn/fail with reasons."""
@@ -6751,6 +6802,7 @@ def api_rfq_qa_check(rid):
 
 @bp.route("/form-filler")
 @auth_required
+@safe_page
 def form_filler_page():
     """Standalone form filler page."""
     return render_page("form_filler.html", active_page="Forms")
@@ -6762,6 +6814,7 @@ def form_filler_page():
 
 @bp.route("/api/rfq/nuke/<rid>", methods=["POST"])
 @auth_required
+@safe_route
 def api_nuke_rfq(rid):
     """Nuclear delete: wipe RFQ from JSON + SQLite + processed UIDs, then re-poll.
     Usage: POST /api/rfq/nuke/<rfq_id>  or  POST /api/rfq/nuke/<solicitation_number>
@@ -6846,6 +6899,7 @@ def api_nuke_rfq(rid):
 
 @bp.route("/api/rfq/<rid>/clear-quote", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_rfq_clear_quote(rid):
     """Clear the quote number on an RFQ so regeneration assigns a new one."""
     rfqs = load_rfqs()
@@ -6864,6 +6918,7 @@ def api_rfq_clear_quote(rid):
 
 @bp.route("/api/rfq/<rid>/set-quote-number", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_set_quote_number(rid):
     """Force-set the quote number on an RFQ. Used to fix counter drift."""
     rfqs = load_rfqs()
@@ -7123,6 +7178,7 @@ def api_rfq_convert_to_pc(rid):
 
 @bp.route("/api/admin/relink-rfq/<rid>", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_admin_relink_rfq(rid):
     """Re-run auto-linking on an existing RFQ to find its matching PC.
     GET-accessible for browser use. Example: /api/admin/relink-rfq/abc123
@@ -7156,6 +7212,7 @@ def api_admin_relink_rfq(rid):
 
 @bp.route("/api/admin/fix-quote-number/<rid>/<new_qn>/<int:counter_seq>", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_admin_fix_quote_number(rid, new_qn, counter_seq):
     """One-shot admin: set RFQ quote number + reset counter. GET-accessible for browser.
 
@@ -7193,6 +7250,7 @@ def api_admin_fix_quote_number(rid, new_qn, counter_seq):
 
 @bp.route("/api/rfq/<rid>/clear-generated", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_rfq_clear_generated(rid):
     """
     Force-clear all generated files for an RFQ from both DB and JSON.
@@ -7253,6 +7311,7 @@ def api_rfq_clear_generated(rid):
 
 @bp.route("/api/rfq/<rid>/clean-slate", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_rfq_clean_slate(rid):
     """Nuclear clean: keep ONLY line_items with pricing. Clear everything else.
     Use when package is broken — stale templates, wrong forms, old data."""
@@ -7358,6 +7417,7 @@ def api_rfq_clean_slate(rid):
 
 @bp.route("/api/rfq/<rid>/debug-pages", methods=["GET"])
 @auth_required
+@safe_route
 def api_rfq_debug_pages(rid):
     """Debug: run page-skip logic against last generated package PDF. Returns per-page decisions."""
     from src.forms.reytech_filler_v4 import _bidpkg_page_skip_reason
@@ -7394,6 +7454,7 @@ def api_rfq_debug_pages(rid):
 
 @bp.route("/api/rfq/<rid>/debug-templates", methods=["GET"])
 @auth_required
+@safe_route
 def api_rfq_debug_templates(rid):
     """Dump all field names from uploaded 703B/704B/bidpkg templates. Use to diagnose fill mismatches."""
     from pypdf import PdfReader
@@ -7462,6 +7523,7 @@ def api_rfq_debug_templates(rid):
 
 @bp.route("/api/rfq/<rid>/diag-package")
 @auth_required
+@safe_route
 def api_diag_package(rid):
     """Diagnostic: test each form generation step and report what works/fails."""
     rfqs = load_rfqs()
@@ -7541,6 +7603,7 @@ def api_diag_package(rid):
 
 @bp.route("/api/email/queue-status")
 @auth_required
+@safe_route
 def api_email_queue_status():
     """Status of email drafts: pending, approved, sent."""
     outbox_path = os.path.join(DATA_DIR, "outbox.json")
@@ -7579,6 +7642,7 @@ def api_email_queue_status():
 
 @bp.route("/api/rfq/ready-to-quote")
 @auth_required
+@safe_route
 def api_rfq_ready_to_quote():
     """RFQs that need pricing/quoting — prioritized by deadline."""
     rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
@@ -7639,6 +7703,7 @@ def api_rfq_ready_to_quote():
 
 @bp.route("/api/rfq/<rid>/clean-items", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_clean_items(rid):
     """Remove junk items (legal text, instructions, boilerplate) from an RFQ."""
     from src.api.dashboard import load_rfqs, save_rfqs
@@ -7670,6 +7735,7 @@ def rfq_clean_items(rid):
 
 @bp.route("/api/rfq/<rid>/manifest")
 @auth_required
+@safe_route
 def api_rfq_manifest(rid):
     """Get the latest package manifest for an RFQ."""
     from src.core.dal import get_latest_manifest
@@ -7681,6 +7747,7 @@ def api_rfq_manifest(rid):
 
 @bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/review", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_review_form(rid, manifest_id):
     """Record a review verdict for a form in the manifest."""
     from src.core.dal import review_form, log_lifecycle_event
@@ -7700,6 +7767,7 @@ def api_rfq_review_form(rid, manifest_id):
 
 @bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/approve", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_approve_package(rid, manifest_id):
     """Approve the entire package (all forms must be reviewed first)."""
     from src.core.dal import get_package_manifest, update_manifest_status, log_lifecycle_event
@@ -7750,6 +7818,7 @@ def api_rfq_approve_package(rid, manifest_id):
 
 @bp.route("/api/rfq/<rid>/manifest/<int:manifest_id>/remove-form", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_remove_form(rid, manifest_id):
     """Remove a form from the package manifest and delete its file."""
     data = request.get_json(force=True, silent=True) or {}
@@ -7823,6 +7892,7 @@ def api_rfq_remove_form(rid, manifest_id):
 
 @bp.route("/api/rfq/<rid>/refill/<form_id>", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_refill_form(rid, form_id):
     """Refill a single form with updated data — inline editing from review page.
 
@@ -7971,6 +8041,7 @@ def api_rfq_refill_form(rid, form_id):
 
 @bp.route("/api/rfq/<rid>/timeline")
 @auth_required
+@safe_route
 def api_rfq_timeline(rid):
     """Get the full lifecycle timeline for an RFQ."""
     from src.core.dal import get_lifecycle_events
@@ -7980,6 +8051,7 @@ def api_rfq_timeline(rid):
 
 @bp.route("/api/rfq/<rid>/buyer-prefs")
 @auth_required
+@safe_route
 def api_rfq_buyer_prefs(rid):
     """Get buyer preferences for the RFQ's requestor."""
     rfqs = load_rfqs()
@@ -7996,6 +8068,7 @@ def api_rfq_buyer_prefs(rid):
 
 @bp.route("/api/rfq/<rid>/download-complete-package")
 @auth_required
+@safe_route
 def api_download_complete_package(rid):
     """Download ALL forms merged into one PDF — quote + compliance."""
     rfqs = load_rfqs()
@@ -8069,6 +8142,7 @@ def api_download_complete_package(rid):
 
 @bp.route("/api/rfq/<rid>/export-invoice")
 @auth_required
+@safe_route
 def api_export_invoice(rid):
     """Export buyer invoice as Excel for QB entry."""
     rfqs = load_rfqs()
@@ -8169,6 +8243,7 @@ def api_export_invoice(rid):
 
 @bp.route("/api/rfq/<rid>/export-supplier-po")
 @auth_required
+@safe_route
 def api_export_supplier_po(rid):
     """Export supplier PO as Excel for QB entry."""
     rfqs = load_rfqs()
@@ -8370,6 +8445,7 @@ def _build_bookkeeper_data(r, rid):
 
 @bp.route("/api/rfq/<rid>/bookkeeper-export", methods=["POST"])
 @auth_required
+@safe_route
 def api_bookkeeper_export(rid):
     """Generate QBO CSV + deal summary for bookkeeper."""
     try:
@@ -8397,6 +8473,7 @@ def api_bookkeeper_export(rid):
 
 @bp.route("/api/rfq/<rid>/bookkeeper-csv")
 @auth_required
+@safe_route
 def api_bookkeeper_csv(rid):
     """Download QBO CSV directly."""
     try:

@@ -17,6 +17,7 @@ if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
 # Import from src modules — no root-level fallbacks (root dupes deleted in S1.1)
+from src.core.error_handler import safe_route, safe_page
 from src.forms.reytech_filler_v4 import (load_config, get_pst_date, fill_703b, fill_704b, fill_bid_package, fill_obs1600, fill_obs1600_fields)
 from src.forms.rfq_parser import parse_rfq_attachments, identify_attachments
 from src.agents.scprs_lookup import bulk_lookup, save_prices_from_rfq, get_price_db_stats

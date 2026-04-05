@@ -96,6 +96,7 @@ def _save_pc_revision(pcid, pc, reason="edit"):
 
 @bp.route("/api/pricecheck/<pcid>/revisions")
 @auth_required
+@safe_route
 def api_pc_revisions(pcid):
     """Get revision history for a price check."""
     try:
@@ -109,6 +110,7 @@ def api_pc_revisions(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/revert", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_revert(pcid):
     """Revert a price check to a previous revision."""
     try:
@@ -147,6 +149,7 @@ def api_pc_revert(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/trim-items", methods=["POST"])
 @auth_required
+@safe_route
 def pricecheck_trim_items(pcid):
     """Trim items list to keep only the first N items. Used when a multi-page
     source PDF was parsed into too many items for this PC."""
@@ -188,6 +191,7 @@ def pricecheck_trim_items(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/split", methods=["POST"])
 @auth_required
+@safe_route
 def pricecheck_split(pcid):
     """Split a PC at a given item index. Creates a new PC with items from split_at onwards.
     Original PC keeps items 0..split_at-1."""
@@ -260,6 +264,7 @@ def pricecheck_split(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/merge-items", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_merge_items(pcid):
     """Merge an item into the one above it (for false multi-line splits).
     POST {index: 2} merges item[2] into item[1]."""
@@ -305,6 +310,7 @@ def api_pc_merge_items(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/status", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_change_status(pcid):
     """Change PC status with history tracking.
     POST {status: "sent"} or {status: "draft"}
@@ -361,6 +367,7 @@ def api_pc_change_status(pcid):
 
 @bp.route("/pricecheck/<pcid>")
 @auth_required
+@safe_page
 def pricecheck_detail(pcid):
     try:
         return _pricecheck_detail_inner(pcid)
@@ -1063,6 +1070,7 @@ def _pricecheck_detail_inner(pcid):
 
 @bp.route("/pricecheck/<pcid>/lookup")
 @auth_required
+@safe_page
 def pricecheck_lookup(pcid):
     """Run product price lookup — SerpApi first, Claude web search fallback."""
     pcs = _load_price_checks()
@@ -1143,6 +1151,7 @@ def pricecheck_lookup(pcid):
 
 @bp.route("/pricecheck/<pcid>/scprs-lookup")
 @auth_required
+@safe_page
 def pricecheck_scprs_lookup(pcid):
     """Run SCPRS Won Quotes lookup for all items."""
     pcs = _load_price_checks()
@@ -1213,6 +1222,7 @@ def pricecheck_scprs_lookup(pcid):
 
 @bp.route("/pricecheck/<pcid>/rescan-mfg", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_rescan_mfg(pcid):
     """Re-scan this PC's source PDF and items to extract MFG/part/reference numbers."""
     pcs = _load_price_checks()
@@ -1264,6 +1274,7 @@ def pricecheck_rescan_mfg(pcid):
 
 @bp.route("/pricecheck/<pcid>/client-error", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_client_error(pcid):
     """Receive JS errors from the PC detail page for server-side logging."""
     data = request.get_json(force=True, silent=True) or {}
@@ -1279,6 +1290,7 @@ def pricecheck_client_error(pcid):
 
 @bp.route("/pricecheck/<pcid>/rename", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_rename(pcid):
     """Rename a price check's display number."""
     pcs = _load_price_checks()
@@ -1296,6 +1308,7 @@ def pricecheck_rename(pcid):
 
 @bp.route("/pricecheck/<pcid>/diagnose")
 @auth_required
+@safe_page
 def pricecheck_diagnose(pcid):
     """Diagnostic endpoint — checks data integrity for a PC."""
     diag = {"pcid": pcid, "checks": [], "errors": []}
@@ -1402,6 +1415,7 @@ def pricecheck_diagnose(pcid):
 
 @bp.route("/pricecheck/<pcid>/save-prices", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_save_prices(pcid):
     """Save manually edited prices, costs, and markups from the UI."""
     try:
@@ -1977,6 +1991,7 @@ def _enrich_catalog_from_pc(pc):
 
 @bp.route("/pricecheck/<pcid>/reparse", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_reparse(pcid):
     """Re-parse a price check from its source PDF, preserving user-edited pricing."""
     if not PRICE_CHECK_AVAILABLE:
@@ -2084,6 +2099,7 @@ def pricecheck_reparse(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/lookup-tax-rate", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_lookup_tax_rate(pcid):
     """Look up CA sales tax rate from ship-to address for a PC."""
     pcs = _load_price_checks()
@@ -2122,6 +2138,7 @@ def api_pc_lookup_tax_rate(pcid):
 
 @bp.route("/pricecheck/<pcid>/upload-pdf", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_upload_pdf(pcid):
     """Upload a PDF to a PC and parse it. Use when source PDF is lost after deploy."""
     pcs = _load_price_checks()
@@ -2216,6 +2233,7 @@ def pricecheck_upload_pdf(pcid):
 
 @bp.route("/pricecheck/<pcid>/generate", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_generate(pcid):
     """Generate completed Price Check PDF and ingest into Won Quotes KB (POST only — writes data)."""
     try:
@@ -2422,6 +2440,7 @@ def _do_generate(pcid):
 
 @bp.route("/pricecheck/<pcid>/source-pdf")
 @auth_required
+@safe_page
 def pricecheck_source_pdf(pcid):
     """Serve the original source PDF for inline viewing."""
     pcs = _load_price_checks()
@@ -2450,6 +2469,7 @@ def pricecheck_source_pdf(pcid):
 
 @bp.route("/pricecheck/<pcid>/generate-original", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_generate_original(pcid):
     """Generate 'Original 704' — company info + pricing only, buyer fields untouched (POST only — writes data)."""
     try:
@@ -2609,6 +2629,7 @@ def _do_generate_original(pcid):
 
 @bp.route("/pricecheck/<pcid>/generate-quote", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_generate_quote(pcid):
     """Generate a standalone Reytech-branded quote PDF from a Price Check (POST only — writes data)."""
     from src.api.trace import Trace
@@ -2717,6 +2738,7 @@ def _ingest_pc_to_won_quotes(pc):
 
 @bp.route("/pricecheck/<pcid>/convert-to-quote")
 @auth_required
+@safe_page
 def pricecheck_convert_to_quote(pcid):
     """Convert a Price Check into a full RFQ with 704A/B and Bid Package."""
     pcs = _load_price_checks()
@@ -2823,6 +2845,7 @@ def pricecheck_convert_to_quote(pcid):
 
 @bp.route("/api/pricecheck/split-pdf", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_split_pdf():
     """Upload a combined AMS 704 PDF containing multiple price checks.
     Auto-detects boundaries, creates one PC record per section."""
@@ -2914,6 +2937,7 @@ def api_pc_split_pdf():
 
 @bp.route("/api/pricecheck/create-manual", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_create_manual():
     """Create a Price Check manually from the dashboard."""
     data = request.get_json(force=True, silent=True) or {}
@@ -2950,6 +2974,7 @@ def api_pc_create_manual():
 
 @bp.route("/api/resync")
 @auth_required
+@safe_route
 def api_resync():
     """Re-import emails WITHOUT destroying user work.
     
@@ -3081,6 +3106,7 @@ def _remove_processed_uid(uid):
 
 @bp.route("/api/email-debug")
 @auth_required
+@safe_route
 def api_email_debug():
     """Diagnostic: show processed email count, poller state, recent traces."""
     proc_file = os.path.join(DATA_DIR, "processed_emails.json")
@@ -3118,6 +3144,7 @@ def api_email_debug():
 
 @bp.route("/api/force-reprocess", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_force_reprocess():
     """Nuclear option: clear ALL processed UIDs and re-poll.
     Use when a specific email isn't being picked up despite code fixes."""
@@ -3153,6 +3180,7 @@ def api_force_reprocess():
 
 @bp.route("/api/force-recapture", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_force_recapture():
     """Delete a specific RFQ/PC by keyword match, clear its UID, and re-poll.
     
@@ -3272,6 +3300,7 @@ def api_force_recapture():
 
 @bp.route("/api/clear-queue", methods=["POST"])
 @auth_required
+@safe_route
 def api_clear_queue():
     """Clear all RFQs from the queue (POST only — destructive operation)."""
     rfqs = load_rfqs()
@@ -3286,6 +3315,7 @@ def api_clear_queue():
 
 @bp.route("/dl/<rid>/<fname>")
 @auth_required
+@safe_page
 def download(rid, fname):
     rfqs = load_rfqs()
     r = rfqs.get(rid)
@@ -3333,6 +3363,7 @@ def download(rid, fname):
 
 @bp.route("/api/scprs/<rid>")
 @auth_required
+@safe_route
 def api_scprs(rid):
     """SCPRS lookup API endpoint — batch search, single session."""
     log.info("SCPRS lookup requested for RFQ %s", rid)
@@ -3582,6 +3613,7 @@ def api_scprs(rid):
 
 @bp.route("/api/scprs-test")
 @auth_required
+@safe_route
 def api_scprs_test():
     """SCPRS search test — ?q=stryker+xpr"""
     q = (request.args.get("q", "") or "").strip()
@@ -3597,6 +3629,7 @@ def api_scprs_test():
 
 @bp.route("/api/scprs-bulk/<rid>")
 @auth_required
+@safe_route
 def api_scprs_bulk(rid):
     """Bulk SCPRS search — one session, searches each RFQ item, returns summary table.
     
@@ -3687,6 +3720,7 @@ def api_scprs_bulk(rid):
 
 @bp.route("/api/scprs-raw")
 @auth_required
+@safe_route
 def api_scprs_raw():
     """Raw SCPRS debug — shows HTML field IDs found in search results."""
     q = (request.args.get("q", "") or "").strip()
@@ -3760,6 +3794,7 @@ def api_scprs_raw():
 
 @bp.route("/api/status")
 @auth_required
+@safe_route
 def api_status():
     return jsonify({
         "poll": POLL_STATUS,
@@ -3770,6 +3805,7 @@ def api_status():
 
 @bp.route("/api/poll-now")
 @auth_required
+@safe_route
 def api_poll_now():
     """Manual trigger: check email inbox right now."""
     try:
@@ -3789,6 +3825,7 @@ def api_poll_now():
 
 @bp.route("/api/poll/reset-processed", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_poll_reset_processed():
     """Atomic: clear processed UIDs → immediately re-poll → return results.
     Prevents background thread from re-saving UIDs between reset and poll.
@@ -3840,6 +3877,7 @@ def api_poll_reset_processed():
 
 @bp.route("/api/diag/inbox-peek")
 @auth_required
+@safe_route
 def api_inbox_peek():
     """Show all emails in inbox with filter decisions - NO processing."""
     import imaplib, email as email_mod
@@ -3940,6 +3978,7 @@ def api_inbox_peek():
 
 @bp.route("/api/diag/nuke-and-poll")
 @auth_required
+@safe_route
 def api_nuke_and_poll():
     """Nuclear option: clear ALL dedup layers and re-poll. GET to bypass CSRF."""
     try:
@@ -4030,6 +4069,7 @@ def api_nuke_and_poll():
 
 @bp.route("/api/diag/find-rfq")
 @auth_required
+@safe_route
 def api_diag_find_rfq():
     """Search all RFQs and PCs for a keyword (sol number, subject, sender).
     Usage: /api/diag/find-rfq?q=10840486
@@ -4079,6 +4119,7 @@ def api_diag_find_rfq():
 
 @bp.route("/api/diag/rfq-inspect/<rid>")
 @auth_required
+@safe_route
 def api_diag_rfq_inspect(rid):
     """Inspect RFQ data + find matching PCs for debugging."""
     rfqs = load_rfqs()
@@ -4146,6 +4187,7 @@ def api_diag_rfq_inspect(rid):
 
 @bp.route("/api/diag")
 @auth_required
+@safe_route
 def api_diag():
     """Diagnostic endpoint — shows email config, connection test, and inbox status."""
     import traceback
@@ -4285,6 +4327,7 @@ def _api_diag_inner():
 
 @bp.route("/api/reset-processed")
 @auth_required
+@safe_route
 def api_reset_processed():
     """Clear the processed emails list so all recent emails get re-scanned."""
     global _shared_poller
@@ -4301,6 +4344,7 @@ def api_reset_processed():
 
 @bp.route("/api/pricing/recommend", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricing_recommend():
     """Get three-tier pricing recommendation for an RFQ's line items."""
     if not PRICING_ORACLE_AVAILABLE:
@@ -4323,6 +4367,7 @@ def api_pricing_recommend():
 
 @bp.route("/api/won-quotes/search")
 @auth_required
+@safe_route
 def api_won_quotes_search():
     """Search the Won Quotes Knowledge Base."""
     if not PRICING_ORACLE_AVAILABLE:
@@ -4345,6 +4390,7 @@ def api_won_quotes_search():
 
 @bp.route("/api/won-quotes/stats")
 @auth_required
+@safe_route
 def api_won_quotes_stats():
     """Get Won Quotes KB statistics and pricing health check."""
     if not PRICING_ORACLE_AVAILABLE:
@@ -4357,6 +4403,7 @@ def api_won_quotes_stats():
 
 @bp.route("/api/won-quotes/dump")
 @auth_required
+@safe_route
 def api_won_quotes_dump():
     """Debug: show first 10 raw KB records to verify what's stored."""
     if not PRICING_ORACLE_AVAILABLE:
@@ -4412,6 +4459,7 @@ def api_debug_paths():
 
 @bp.route("/api/debug/pcs")
 @auth_required
+@safe_route
 def api_debug_pcs():
     """Debug: show price_checks.json state for persistence troubleshooting."""
     pc_path = os.path.join(DATA_DIR, "price_checks.json")
@@ -4454,6 +4502,7 @@ def api_debug_pcs():
 
 @bp.route("/api/won-quotes/migrate")
 @auth_required
+@safe_route
 def api_won_quotes_migrate():
     """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
     try:
@@ -4466,6 +4515,7 @@ def api_won_quotes_migrate():
 
 @bp.route("/api/won-quotes/seed")
 @auth_required
+@safe_route
 def api_won_quotes_seed():
     """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
     ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
@@ -4482,6 +4532,7 @@ def api_won_quotes_seed():
 
 @bp.route("/api/won-quotes/seed-status")
 @auth_required
+@safe_route
 def api_won_quotes_seed_status():
     """Check progress of bulk SCPRS seed job."""
     try:
@@ -4493,6 +4544,7 @@ def api_won_quotes_seed_status():
 
 @bp.route("/api/pricecheck/<pcid>/dismiss", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_dismiss(pcid):
     """Dismiss a PC from the active queue with a reason.
     Keeps data for SCPRS intelligence. reason=delete does hard delete.
@@ -4552,6 +4604,7 @@ def api_pricecheck_dismiss(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/delete", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_pricecheck_delete(pcid):
     """Delete a price check by ID. Also removes linked quote draft and recalculates counter."""
     pcs = _load_price_checks()
@@ -4666,6 +4719,7 @@ PC_STATUS_LABELS = {
 
 @bp.route("/pricecheck")
 @auth_required
+@safe_page
 def pricecheck_redirect():
     """Redirect /pricecheck → /pricechecks (common typo/nav issue)"""
     return redirect("/pricechecks")
@@ -4673,6 +4727,7 @@ def pricecheck_redirect():
 
 @bp.route("/pricechecks/today")
 @auth_required
+@safe_page
 def pricechecks_today():
     """Today's price checks — batch review dashboard."""
     from src.api.render import render_page
@@ -4715,6 +4770,7 @@ def pricechecks_today():
 
 @bp.route("/pricechecks")
 @auth_required
+@safe_page
 def pricechecks_archive():
     """PC Archive — searchable, filterable list of all price checks."""
     pcs = _load_price_checks()
@@ -4936,6 +4992,7 @@ def pricechecks_archive():
 
 @bp.route("/api/pricechecks")
 @auth_required
+@safe_route
 def api_pricechecks_list():
     """API: List all PCs with optional status filter. Add ?debug=1 for filter diagnostics."""
     pcs = _load_price_checks()
@@ -4962,6 +5019,7 @@ def api_pricechecks_list():
 
 @bp.route("/api/pricecheck/<pcid>/mark-sent", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_mark_sent(pcid):
     """Mark PC as sent — creates versioned document record in DB."""
     pcs = _load_price_checks()
@@ -5038,6 +5096,7 @@ def api_pricecheck_mark_sent(pcid):
 
 @bp.route("/api/pricecheck/follow-up-scan")
 @auth_required
+@safe_route
 def api_pc_follow_up_scan():
     """Scan PCs in 'sent' status that need follow-up.
     Returns PCs where sent_at is 3+ days ago with no response.
@@ -5129,6 +5188,7 @@ def api_pc_follow_up_scan():
 
 @bp.route("/api/pricecheck/<pcid>/log-follow-up", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_log_follow_up(pcid):
     """Log that a follow-up was done on a sent PC."""
     from datetime import datetime as _dt
@@ -5166,6 +5226,7 @@ def api_pc_log_follow_up(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/mark-no-response", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_mark_no_response(pcid):
     """Mark a PC as not responding after follow-up attempts."""
     pcs = _load_price_checks()
@@ -5181,6 +5242,7 @@ def api_pc_mark_no_response(pcid):
 
 @bp.route("/pricecheck/<pcid>/documents")
 @auth_required
+@safe_page
 def pricecheck_documents(pcid):
     """List all sent document versions for a PC."""
     pcs = _load_price_checks()
@@ -5227,6 +5289,7 @@ def pricecheck_documents(pcid):
 
 @bp.route("/api/pricecheck/document/<int:doc_id>/pdf")
 @auth_required
+@safe_route
 def serve_sent_document_pdf(doc_id):
     """Serve a specific document version's PDF."""
     from src.core.db import get_sent_document
@@ -5241,6 +5304,7 @@ def serve_sent_document_pdf(doc_id):
 
 @bp.route("/pricecheck/<pcid>/document/<int:doc_id>")
 @auth_required
+@safe_page
 def pricecheck_document_editor(pcid, doc_id):
     """Inline PDF viewer + editor for a sent document version."""
     pcs = _load_price_checks()
@@ -5401,6 +5465,7 @@ def pricecheck_document_editor(pcid, doc_id):
 
 @bp.route("/pricecheck/<pcid>/document/save", methods=["POST"])
 @auth_required
+@safe_page
 def pricecheck_document_save(pcid):
     """Save edits from document editor → re-generates PDF → creates new version."""
     pcs = _load_price_checks()
@@ -5494,6 +5559,7 @@ def pricecheck_document_save(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/mark-auto-priced", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_mark_auto_priced(pcid):
     """Mark a PC as auto-priced so the on-load auto-pricing doesn't re-run."""
     pcs = _load_price_checks()
@@ -5514,6 +5580,7 @@ def api_pc_mark_auto_priced(pcid):
 
 @bp.route("/api/pricechecks/bulk-reenrich", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_pc_bulk_reenrich():
     """Re-enrich ALL price checks with corrected SCPRS prices. Runs in background."""
     import threading
@@ -5533,6 +5600,7 @@ def api_pc_bulk_reenrich():
 
 @bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_pc_retry_auto_price(pcid):
     """Manually retry auto-pricing — reads PC from DB or JSON directly, runs inline."""
     import sqlite3
@@ -5673,6 +5741,7 @@ def api_pc_retry_auto_price(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/auto-price-status")
 @auth_required
+@safe_route
 def api_pc_auto_price_status(pcid):
     """Check auto-price debug status for a PC."""
     import os, json
@@ -5688,6 +5757,7 @@ def api_pc_auto_price_status(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/enrichment-status")
 @auth_required
+@safe_route
 def api_pc_enrichment_status(pcid):
     """Poll enrichment pipeline status for a PC."""
     try:
@@ -5711,6 +5781,7 @@ def api_pc_enrichment_status(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/mark-won", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_mark_won(pcid):
     """Manually mark PC as won — records to DB, catalog, CRM."""
     pcs = _load_price_checks()
@@ -5802,6 +5873,7 @@ def api_pricecheck_mark_won(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/mark-lost", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_mark_lost(pcid):
     """Mark PC as lost with competitor details — records to DB, competitor tracking."""
     pcs = _load_price_checks()
@@ -5848,6 +5920,7 @@ def api_pricecheck_mark_lost(pcid):
 
 @bp.route("/api/award-monitor/run", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_award_monitor_run():
     """Manually trigger award check cycle."""
     try:
@@ -5859,6 +5932,7 @@ def api_award_monitor_run():
 
 @bp.route("/api/award-monitor/status")
 @auth_required
+@safe_route
 def api_award_monitor_status():
     try:
         from src.agents.award_monitor import get_monitor_status
@@ -5869,6 +5943,7 @@ def api_award_monitor_status():
 
 @bp.route("/api/competitors")
 @auth_required
+@safe_route
 def api_competitors():
     try:
         from src.agents.award_monitor import get_competitor_dashboard
@@ -5879,6 +5954,7 @@ def api_competitors():
 
 @bp.route("/api/pricecheck/<pcid>/suggestions")
 @auth_required
+@safe_route
 def api_pricecheck_suggestions(pcid):
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
@@ -5893,6 +5969,7 @@ def api_pricecheck_suggestions(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/auto-price", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_auto_price(pcid):
     """Smart per-item pricing using catalog history, SCPRS, competitor data."""
     pcs = _load_price_checks()
@@ -5925,6 +6002,7 @@ def api_pricecheck_auto_price(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/price-sweep", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_price_sweep(pcid):
     """Multi-supplier price sweep using Google Shopping via SerpApi."""
     pcs = _load_price_checks()
@@ -6048,6 +6126,7 @@ def api_pricecheck_price_sweep(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/web-search", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_web_search(pcid):
     """Claude-powered web price search — uses Anthropic API + web_search tool.
     Runs in background thread to avoid gunicorn timeout.
@@ -6083,6 +6162,7 @@ def api_pricecheck_web_search(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/web-search/status")
 @auth_required
+@safe_route
 def api_pricecheck_web_search_status(pcid):
     """Poll web search progress."""
     from src.api.dashboard import POLL_STATUS
@@ -6102,6 +6182,7 @@ def api_pricecheck_web_search_status(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/portfolio-price", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_portfolio_price(pcid):
     """Portfolio pricing — optimizes entire quote as a portfolio."""
     pcs = _load_price_checks()
@@ -6131,6 +6212,7 @@ def api_pricecheck_portfolio_price(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/competitor-intel")
 @auth_required
+@safe_route
 def api_pricecheck_competitor_intel(pcid):
     """Get competitor intelligence relevant to this PC's items."""
     pcs = _load_price_checks()
@@ -6183,6 +6265,7 @@ def api_pricecheck_competitor_intel(pcid):
 
 @bp.route("/api/catalog/freshness")
 @auth_required
+@safe_route
 def api_catalog_freshness():
     """Get catalog price freshness overview."""
     try:
@@ -6195,6 +6278,7 @@ def api_catalog_freshness():
 
 @bp.route("/api/catalog/stale-products")
 @auth_required
+@safe_route
 def api_catalog_stale_products():
     """Get products with stale pricing that need re-checking."""
     try:
@@ -6210,6 +6294,7 @@ def api_catalog_stale_products():
 
 @bp.route("/api/pricecheck/<pcid>/save-to-catalog", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_save_to_catalog(pcid):
     """Save all PC line items to the product catalog.
     Called automatically on PC save + available as manual action.
@@ -6230,6 +6315,7 @@ def api_pricecheck_save_to_catalog(pcid):
 
 @bp.route("/api/catalog/add-item", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_add_item():
     """Manually add a single item to the catalog from PC detail page."""
     try:
@@ -6260,6 +6346,7 @@ def api_catalog_add_item():
 
 @bp.route("/competitors")
 @auth_required
+@safe_page
 def competitors_page():
     """Competitor Intelligence Dashboard — combines award tracking + catalog margin analysis."""
     try:
@@ -6438,6 +6525,7 @@ def competitors_page():
 
 @bp.route("/api/admin/cleanup", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_cleanup():
     """
     Fix Railway data issues:
@@ -6547,6 +6635,7 @@ def api_admin_cleanup():
 
 @bp.route("/api/admin/rescan-item-numbers", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_rescan_item_numbers():
     """
     Re-scan ALL Price Checks to extract MFG/part/reference numbers.
@@ -6647,6 +6736,7 @@ def _is_sequential(val):
 
 @bp.route("/api/admin/status")
 @auth_required
+@safe_route
 def api_admin_status():
     """Quick system status — quote counter, PC count, quote count, full PC detail, RFQ queue."""
     try:
@@ -6699,6 +6789,7 @@ def api_admin_status():
 
 @bp.route("/api/admin/counter-set", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_counter_set():
     """Force-set the quote counter. POST body: {"seq": 16}
     Next quote will be R26Q(seq+1).
@@ -6726,6 +6817,7 @@ def api_admin_counter_set():
 
 @bp.route("/api/admin/delete-quotes", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_delete_quotes():
     """Delete quotes by number. POST body: {"quote_numbers": ["R26Q9","R26Q10"]}"""
     data = request.get_json(force=True, silent=True) or {}
@@ -6755,6 +6847,7 @@ def api_admin_delete_quotes():
 
 @bp.route("/api/admin/recall", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_recall():
     """Retroactive recall: delete PCs matching a pattern + free quote numbers.
     
@@ -6870,6 +6963,7 @@ def api_admin_recall():
 
 @bp.route("/api/admin/purge-rfqs", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_purge_rfqs():
     """Delete RFQs from the queue.
     
@@ -6938,6 +7032,7 @@ def api_admin_purge_rfqs():
 
 @bp.route("/api/admin/clean-activity", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_clean_activity():
     """Remove entries from crm_activity.json.
     
@@ -6988,6 +7083,7 @@ def api_admin_clean_activity():
 
 @bp.route("/api/admin/backfill-contacts", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_backfill_contacts():
     """Backfill CRM contacts from existing price checks and RFQ senders.
     Scans all PCs/RFQs for requestor emails and creates CRM contacts.
@@ -7078,6 +7174,7 @@ def api_admin_backfill_contacts():
 
 @bp.route("/api/admin/import-contacts", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_import_contacts():
     """Import contacts from a list.
     
@@ -7150,6 +7247,7 @@ def api_admin_import_contacts():
 
 @bp.route("/api/pricecheck/<pcid>/clear-quote", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_clear_quote(pcid):
     """Clear a stale/wrong reytech_quote_number from a PC."""
     pcs = _load_price_checks()
@@ -7171,6 +7269,7 @@ def api_pricecheck_clear_quote(pcid):
 
 @bp.route("/api/admin/rfq-cleanup", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_rfq_cleanup():
     """Remove AMS 704 price check PDFs that incorrectly landed in the RFQ queue.
     These appear when the same 704 email was processed before the routing fix.
@@ -7236,6 +7335,7 @@ def api_admin_rfq_cleanup():
 
 @bp.route("/api/pricecheck/<pcid>/oracle/<int:item_idx>")
 @auth_required
+@safe_route
 def api_pc_item_oracle(pcid, item_idx):
     """Get full oracle analysis for a single PC item (on-demand)."""
     try:
@@ -7266,6 +7366,7 @@ def api_pc_item_oracle(pcid, item_idx):
 
 @bp.route("/api/pricecheck/<pcid>/price-history/<int:item_idx>")
 @auth_required
+@safe_route
 def api_pc_item_price_history(pcid, item_idx):
     """Get historical pricing for a specific PC item (P2.1 Pricing Memory)."""
     try:
@@ -7290,6 +7391,7 @@ def api_pc_item_price_history(pcid, item_idx):
 
 @bp.route("/api/item-link/lookup", methods=["POST"])
 @auth_required
+@safe_route
 def api_item_link_lookup():
     """
     POST { url: "https://grainger.com/product/..." }
@@ -7356,6 +7458,7 @@ def api_item_link_lookup():
 
 @bp.route("/api/admin/system-reset", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_system_reset():
     """Full system reset: clean slate, re-process inbox through new auto-price pipeline.
     
@@ -7540,6 +7643,7 @@ def api_admin_system_reset():
 
 @bp.route("/api/admin/reset-and-poll", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_reset_and_poll():
     """Atomic operation: pause poller → reset → set counter → poll → unpause.
     
@@ -7764,6 +7868,7 @@ def api_admin_reset_and_poll():
 
 @bp.route("/api/admin/poll-result", methods=["GET"])
 @auth_required
+@safe_route
 def api_admin_poll_result():
     """Check the result of the async poll triggered by reset-and-poll."""
     from src.api.dashboard import POLL_STATUS
@@ -7773,6 +7878,7 @@ def api_admin_poll_result():
 
 @bp.route("/api/admin/poller-control", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_admin_poller_control():
     """Pause or unpause the background email poller.
     POST {"action": "pause"} or {"action": "unpause"}
@@ -7798,6 +7904,7 @@ def api_admin_poller_control():
 
 @bp.route("/api/qa/email-pipeline", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_qa_email_pipeline():
     """Run full email pipeline QA: inbox audit + classification tests."""
     try:
@@ -7811,6 +7918,7 @@ def api_qa_email_pipeline():
 
 @bp.route("/api/qa/classification-test")
 @auth_required
+@safe_route
 def api_qa_classification_test():
     """Run offline classification tests only (no IMAP needed)."""
     try:
@@ -7822,6 +7930,7 @@ def api_qa_classification_test():
 
 @bp.route("/api/qa/trends")
 @auth_required
+@safe_route
 def api_qa_trends():
     """Get QA score trends over time."""
     try:
@@ -7833,6 +7942,7 @@ def api_qa_trends():
 
 @bp.route("/qa/email-pipeline")
 @auth_required
+@safe_page
 def qa_email_pipeline_page():
     """Email Pipeline QA dashboard page."""
     try:
@@ -7943,6 +8053,7 @@ def qa_email_pipeline_page():
 
 @bp.route("/api/diag/pc/<pcid>")
 @auth_required
+@safe_route
 def api_diag_pc(pcid):
     """Full diagnostic: where does this PC exist?"""
     import os, json, sqlite3
@@ -8025,6 +8136,7 @@ def api_diag_pc(pcid):
 
 @bp.route("/api/disk-emergency", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_disk_emergency():
     """Emergency disk cleanup — delete backups + temp files."""
     import shutil
@@ -8065,6 +8177,7 @@ def api_disk_emergency():
 
 @bp.route("/api/diag/home-timing")
 @auth_required
+@safe_route
 def api_diag_home_timing():
     """Time every step of what the home page does."""
     import time as _t
@@ -8114,6 +8227,7 @@ def api_diag_home_timing():
 
 @bp.route("/api/db-repair", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_db_repair():
     """Repair corrupted SQLite DB by rebuilding it."""
     import sqlite3, shutil
@@ -8191,6 +8305,7 @@ def api_db_repair():
 
 @bp.route("/api/db-rebuild", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_db_rebuild():
     """Nuclear option: delete corrupt DB, create fresh, reimport from JSON files."""
     import sqlite3, shutil
@@ -8304,6 +8419,7 @@ def api_db_rebuild():
 
 @bp.route("/api/quote-fix", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_quote_fix():
     """Fix duplicate R26Q17 and set counter correctly."""
     from src.core.db import get_db
@@ -8376,6 +8492,7 @@ def api_quote_fix():
 
 @bp.route("/api/rfq/<rid>/package-contents")
 @auth_required
+@safe_route
 def api_rfq_package_contents(rid):
     """Show what's inside the generated package PDF."""
     from pypdf import PdfReader
@@ -8433,6 +8550,7 @@ def api_rfq_package_contents(rid):
 
 @bp.route("/api/quote-set-counter/<int:num>", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_quote_set_counter(num):
     """Manually set the quote counter. Next quote will be R26Q(num+1).
     Writes ALL counter keys used by quote_generator._load_counter() to prevent drift."""
@@ -8445,6 +8563,7 @@ def api_quote_set_counter(num):
 
 @bp.route("/api/pricecheck/<pcid>/rescrape-unpriced", methods=["POST"])
 @auth_required
+@safe_route
 def api_rescrape_unpriced(pcid):
     """Re-scrape items that have a URL but no price."""
     pcs = _load_price_checks()
@@ -8533,6 +8652,7 @@ def api_rescrape_unpriced(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls", methods=["POST"])
 @auth_required
+@safe_route
 def api_bulk_scrape_urls(pcid):
     """Bulk paste URLs → scrape each → apply cost + supplier to items by index."""
     pcs = _load_price_checks()
@@ -8738,6 +8858,7 @@ def _build_pc_quote_email_body(pc, pcid, buyer_email):
 
 @bp.route("/api/pricecheck/<pcid>/send-quote", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_send_quote(pcid):
     """Send the generated PC quote PDF via email."""
     pcs = _load_price_checks()
@@ -8877,6 +8998,7 @@ def api_pc_send_quote(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/email-preview", methods=["GET"])
 @auth_required
+@safe_route
 def api_pc_email_preview(pcid):
     """Return pre-built email body for the send-quote dialog."""
     try:
@@ -8894,6 +9016,7 @@ def api_pc_email_preview(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/duplicate", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_duplicate(pcid):
     """Duplicate a PC with all items and pricing. New PC number."""
     import uuid, copy
@@ -8919,6 +9042,7 @@ def api_pc_duplicate(pcid):
 
 @bp.route("/api/pricecheck/<pcid>/update-status", methods=["POST"])
 @auth_required
+@safe_route
 def api_pc_update_status(pcid):
     """Update PC status (won, lost, sent, etc.)."""
     pcs = _load_price_checks()

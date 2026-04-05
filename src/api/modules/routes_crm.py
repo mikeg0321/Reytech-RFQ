@@ -60,6 +60,7 @@ def _save_customers(customers):
 
 @bp.route("/api/customers")
 @auth_required
+@safe_route
 def api_customers():
     """Search customers. ?q=term&agency=CDCR&parent=true (parent-only)"""
     customers = _load_customers()
@@ -85,6 +86,7 @@ def api_customers():
 
 @bp.route("/api/customers", methods=["POST"])
 @auth_required
+@safe_route
 def api_customers_add():
     """Add a new customer. User confirms before saving."""
     data = request.get_json(force=True, silent=True) or {}
@@ -120,6 +122,7 @@ def api_customers_add():
 
 @bp.route("/api/customers/hierarchy")
 @auth_required
+@safe_route
 def api_customers_hierarchy():
     """Return parent/child agency tree."""
     customers = _load_customers()
@@ -143,6 +146,7 @@ def api_customers_hierarchy():
 
 @bp.route("/api/customers/match")
 @auth_required
+@safe_route
 def api_customers_match():
     """Match an institution name to CRM. Returns best match + new flag."""
     q = request.args.get("q", "").strip()
@@ -263,6 +267,7 @@ def _guess_agency(institution_name):
 
 @bp.route("/api/quotes/counter")
 @auth_required
+@safe_route
 def api_quote_counter():
     """Get current quote counter state."""
     if not QUOTE_GEN_AVAILABLE:
@@ -272,6 +277,7 @@ def api_quote_counter():
 
 @bp.route("/api/search")
 @auth_required
+@safe_route
 def api_universal_search():
     """Universal search across ALL data: quotes, CRM contacts, intel buyers,
     orders, RFQs, growth prospects. Returns results with clickable links.
@@ -494,6 +500,7 @@ def api_universal_search():
 
 @bp.route("/api/quotes/set-counter", methods=["POST"])
 @auth_required
+@safe_route
 def api_set_quote_counter():
     """Manually set quote counter to sync with QuoteWerks.
     POST JSON: {"seq": 16, "year": 2026}  ← next quote will be R26Q17
@@ -514,6 +521,7 @@ def api_set_quote_counter():
 
 @bp.route("/api/quotes/history")
 @auth_required
+@safe_route
 def api_quote_history():
     """Get quote history for an institution. Returns linked entities for UI."""
     institution = request.args.get("institution", "").strip()
@@ -570,6 +578,7 @@ def api_quote_history():
 
 @bp.route("/api/research/test")
 @auth_required
+@safe_route
 def api_research_test():
     """Test Amazon search — ?q=nitrile+gloves"""
     if not PRODUCT_RESEARCH_AVAILABLE:
@@ -580,6 +589,7 @@ def api_research_test():
 
 @bp.route("/api/research/lookup")
 @auth_required
+@safe_route
 def api_research_lookup():
     """Quick product lookup — ?q=stryker+restraint+package"""
     if not PRODUCT_RESEARCH_AVAILABLE:
@@ -592,6 +602,7 @@ def api_research_lookup():
 
 @bp.route("/api/research/rfq/<rid>")
 @auth_required
+@safe_route
 def api_research_rfq(rid):
     """Research all line items in an RFQ. Runs in background thread."""
     if not PRODUCT_RESEARCH_AVAILABLE:
@@ -618,6 +629,7 @@ def api_research_rfq(rid):
 
 @bp.route("/api/research/status")
 @auth_required
+@safe_route
 def api_research_status():
     """Check progress of RFQ product research."""
     if not PRODUCT_RESEARCH_AVAILABLE:
@@ -627,6 +639,7 @@ def api_research_status():
 
 @bp.route("/api/research/cache-stats")
 @auth_required
+@safe_route
 def api_research_cache_stats():
     """Get product research cache statistics."""
     if not PRODUCT_RESEARCH_AVAILABLE:
@@ -636,6 +649,7 @@ def api_research_cache_stats():
 
 @bp.route("/api/debug/env-check")
 @auth_required
+@safe_route
 def api_debug_env_check():
     """Check if SERPAPI_KEY is visible to the app."""
     import os
@@ -652,6 +666,7 @@ def api_debug_env_check():
 
 @bp.route("/api/config/set-serpapi-key", methods=["POST"])
 @auth_required
+@safe_route
 def api_set_serpapi_key():
     """Store SerpApi key on persistent volume (POST only — credentials must not appear in URLs/logs)."""
     data = request.get_json(force=True, silent=True) or {}
@@ -666,6 +681,7 @@ def api_set_serpapi_key():
 
 @bp.route("/api/config/check-serpapi-key")
 @auth_required
+@safe_route
 def api_check_serpapi_key():
     """Check if SerpApi key is stored on volume."""
     key_file = os.path.join(DATA_DIR, ".serpapi_key")
@@ -682,6 +698,7 @@ def api_check_serpapi_key():
 
 @bp.route("/api/pricecheck/parse", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_parse():
     """Parse an uploaded AMS 704 PDF. Upload as multipart file."""
     if not PRICE_CHECK_AVAILABLE:
@@ -706,6 +723,7 @@ def api_pricecheck_parse():
 
 @bp.route("/api/pricecheck/process", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricecheck_process():
     """Full pipeline: parse → lookup → price → fill PDF."""
     if not PRICE_CHECK_AVAILABLE:
@@ -752,6 +770,7 @@ def api_pricecheck_process():
 
 @bp.route("/api/pricecheck/download/<filename>")
 @auth_required
+@safe_route
 def api_pricecheck_download(filename):
     """Download or preview a completed Price Check PDF.
     Add ?inline=1 to display in browser instead of downloading.
@@ -791,6 +810,7 @@ def api_pricecheck_download(filename):
 
 @bp.route("/api/pricecheck/view-pdf/<path:filename>")
 @auth_required
+@safe_route
 def api_pricecheck_view_pdf(filename):
     """Serve a PDF inline for the browser PDF viewer (iframes, tabs)."""
     safe = os.path.basename(filename)
@@ -850,6 +870,7 @@ def api_pricecheck_view_pdf(filename):
 
 @bp.route("/api/pricecheck/test-parse")
 @auth_required
+@safe_route
 def api_pricecheck_test_parse():
     """Test parse the most recently uploaded PC PDF."""
     if not PRICE_CHECK_AVAILABLE:
@@ -868,6 +889,7 @@ def api_pricecheck_test_parse():
 
 @bp.route("/api/tax-rate")
 @auth_required
+@safe_route
 def api_tax_rate():
     """Get CA sales tax rate. Uses ship-to zip if provided, else default CA rate."""
     zip_code = request.args.get("zip", "")
@@ -896,6 +918,7 @@ def api_tax_rate():
 
 @bp.route("/api/health")
 @auth_required
+@safe_route
 def api_health():
     """Comprehensive system health check with path validation."""
     health = {"status": "ok", "build": "v20260220-1005-pdf-v4", "checks": {}}
@@ -904,6 +927,7 @@ def api_health():
 
 @bp.route("/api/build")
 @auth_required
+@safe_route
 def api_build_version():
     """Build version check to verify deploys."""
     try:
@@ -928,6 +952,7 @@ def api_build_version():
 
 @bp.route("/api/admin/set-counter", methods=["POST"])
 @auth_required
+@safe_route
 def api_set_counter():
     """Set the quote counter to a specific value.
     POST {"seq": 16} → next quote will be R26Q17
@@ -949,6 +974,7 @@ def api_set_counter():
 
 @bp.route("/api/admin/reclassify-to-pc", methods=["POST"])
 @auth_required
+@safe_route
 def api_reclassify_to_pc():
     """Move stuck #unknown RFQs to the Price Check queue.
     POST {"rfq_ids": ["id1", "id2"]} or {"rfq_ids": "all_unknown"}
@@ -1026,6 +1052,7 @@ def api_reclassify_to_pc():
 
 @bp.route("/api/metrics")
 @auth_required
+@safe_route
 def api_metrics():
     """Real-time performance & system metrics — cache efficiency, data sizes, thread state."""
     import gc
@@ -1120,6 +1147,7 @@ def api_metrics():
 
 @bp.route("/api/db")
 @auth_required
+@safe_route
 def api_db_status():
     """Database status — row counts, file size, persistence info."""
     try:
@@ -1149,6 +1177,7 @@ def api_db_status():
 
 @bp.route("/api/prices/history")
 @auth_required
+@safe_route
 def api_price_history():
     """Search price history database.
     GET ?q=<description>&pn=<part_number>&source=<amazon|scprs|quote>&limit=50
@@ -1181,6 +1210,7 @@ def api_price_history():
 
 @bp.route("/api/prices/best")
 @auth_required
+@safe_route
 def api_price_best():
     """Get the best (lowest) recorded price for an item description.
     GET ?q=<description>  or  ?pn=<part_number>
@@ -1219,6 +1249,7 @@ def api_price_best():
 
 @bp.route("/api/cache/clear", methods=["POST"])
 @auth_required
+@safe_route
 def api_cache_clear():
     """Clear the JSON read cache (useful after manual data edits)."""
     with _json_cache_lock:
@@ -1237,6 +1268,7 @@ def api_audit_stats():
 
 @bp.route("/api/auto-process/pc", methods=["POST"])
 @auth_required
+@safe_route
 def api_auto_process_pc():
     """Full autonomous pipeline for a Price Check PDF."""
     if not AUTO_PROCESSOR_AVAILABLE:
@@ -1255,6 +1287,7 @@ def api_auto_process_pc():
 
 @bp.route("/api/detect-type", methods=["POST"])
 @auth_required
+@safe_route
 def api_detect_type():
     """Detect if a PDF is an RFQ or Price Check."""
     if not AUTO_PROCESSOR_AVAILABLE:
@@ -1272,6 +1305,7 @@ def api_detect_type():
 
 @bp.route("/pricecheck/<pcid>/auto-process")
 @auth_required
+@safe_page
 def pricecheck_auto_process(pcid):
     """Run full auto-process pipeline on an existing Price Check."""
     if not AUTO_PROCESSOR_AVAILABLE:
@@ -1320,6 +1354,7 @@ def pricecheck_auto_process(pcid):
 
 @bp.route("/api/email/health")
 @auth_required
+@safe_route
 def api_email_health():
     """Email system diagnostics — shows why polling might not be working."""
     try:
@@ -1408,6 +1443,7 @@ def api_email_health():
 
 @bp.route("/api/email/poll-now", methods=["POST"])
 @auth_required
+@safe_route
 def api_email_poll_now():
     """Force an immediate email poll cycle. Returns results."""
     try:
@@ -1472,6 +1508,7 @@ def start_polling(app=None):
 
 @bp.route("/settings/upload-logo", methods=["POST"])
 @auth_required
+@safe_page
 def upload_logo():
     """Upload Reytech logo for quote PDFs."""
     if "logo" not in request.files:
@@ -1496,6 +1533,7 @@ def upload_logo():
 
 @bp.route("/api/logo")
 @auth_required
+@safe_route
 def serve_logo():
     """Serve the uploaded Reytech logo."""
     for ext in ("png", "jpg", "jpeg", "gif"):
@@ -1507,6 +1545,7 @@ def serve_logo():
 
 @bp.route("/quotes/<quote_number>/status", methods=["POST"])
 @auth_required
+@safe_page
 def quote_update_status(quote_number):
     """Mark a quote as won, lost, or pending. Triggers won workflow if applicable."""
     if not QUOTE_GEN_AVAILABLE:
@@ -1657,6 +1696,7 @@ def quote_update_status(quote_number):
 
 @bp.route("/api/quote/from-price-check", methods=["POST"])
 @auth_required
+@safe_route
 def api_quote_from_price_check():
     """PRD Feature 3.2.1 — 1-click Price Check → Reytech Quote with full logging.
 
@@ -1821,6 +1861,7 @@ def api_quote_from_price_check():
 # ════════════════════════════════════════════════════════════════════════════════
 @bp.route("/api/crm/bulk-outreach", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_bulk_outreach():
     """Send a templated email to multiple CRM contacts.
 
@@ -1944,6 +1985,7 @@ def api_crm_bulk_outreach():
 
 @bp.route("/api/notifications/persistent")
 @auth_required
+@safe_route
 def api_notifications_persistent():
     """Get persistent notifications from SQLite (survives deploys)."""
     unread_only = request.args.get("unread_only") == "true"
@@ -1963,6 +2005,7 @@ _bell_cache = {"data": None, "ts": 0}
 
 @bp.route("/api/notifications/bell-count")
 @auth_required
+@safe_route
 def api_bell_count():
     """Fast unread count for nav bell badge — polled every 5min."""
     import time as _t
@@ -1989,6 +2032,7 @@ def api_bell_count():
 
 @bp.route("/api/notifications/mark-read", methods=["POST"])
 @auth_required
+@safe_route
 def api_notifications_mark_read_v2():
     """Mark notifications as read."""
     data = request.get_json(silent=True) or {}
@@ -2006,6 +2050,7 @@ def api_notifications_mark_read_v2():
 
 @bp.route("/api/notify/test", methods=["POST"])
 @auth_required
+@safe_route
 def api_notify_test():
     """Test notification channels (SMS + email + bell). POST {} to fire test."""
     try:
@@ -2026,6 +2071,7 @@ def api_notify_test():
 
 @bp.route("/api/notify/status")
 @auth_required
+@safe_route
 def api_notify_status():
     """Notification agent configuration status."""
     try:
@@ -2037,6 +2083,7 @@ def api_notify_status():
 
 @bp.route("/api/email-log")
 @auth_required
+@safe_route
 def api_email_log():
     """Get email communication log for CS dispute resolution.
     ?contact=email&quote=R26Q4&po=12345&limit=50
@@ -2059,6 +2106,7 @@ def api_email_log():
 
 @bp.route("/api/email-log/log", methods=["POST"])
 @auth_required
+@safe_route
 def api_email_log_entry():
     """Manually log an email event (sent or received).
     POST {direction, sender, recipient, subject, body, quote_number, po_number, intent, status}
@@ -2088,6 +2136,7 @@ def api_email_log_entry():
 
 @bp.route("/outbox")
 @auth_required  
+@safe_page
 def page_outbox():
     """Email outbox — review and approve all pending drafts (sales + CS)."""
     try:
@@ -2154,6 +2203,7 @@ def page_outbox():
 
 @bp.route("/api/email/approve-cs", methods=["POST"])
 @auth_required
+@safe_route
 def api_approve_cs_draft():
     """Approve and send a CS reply draft."""
     data = request.get_json(silent=True) or {}
@@ -2207,6 +2257,7 @@ def api_approve_cs_draft():
 
 @bp.route("/api/email/delete-cs", methods=["POST"])
 @auth_required
+@safe_route
 def api_delete_cs_draft():
     """Delete a CS draft."""
     data = request.get_json(silent=True) or {}
@@ -2229,6 +2280,7 @@ def api_delete_cs_draft():
 
 @bp.route("/catalog-legacy")
 @auth_required
+@safe_page
 def page_catalog_legacy():
     """Legacy product catalog (pre-QB import) — use /catalog for new version."""
     import json as _json
@@ -2288,6 +2340,7 @@ def page_catalog_legacy():
 
 @bp.route("/api/catalog/search")
 @auth_required
+@safe_route
 def api_catalog_search():
     """Search product catalog. ?q=nitrile&limit=10"""
     q = request.args.get("q","").strip()
@@ -2308,6 +2361,7 @@ def api_catalog_search():
 
 @bp.route("/api/catalog/stats")
 @auth_required
+@safe_route
 def api_catalog_stats():
     try:
         from src.core.catalog import init_catalog, get_catalog_stats, get_categories
@@ -2319,6 +2373,7 @@ def api_catalog_stats():
 
 @bp.route("/api/catalog/items", methods=["GET"])
 @auth_required
+@safe_route
 def api_catalog_items():
     """List all catalog items. ?category=Medical"""
     cat = request.args.get("category")
@@ -2337,6 +2392,7 @@ def api_catalog_items():
 
 @bp.route("/api/catalog/add", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_add():
     """Manually add an item to the catalog."""
     data = request.get_json() or {}
@@ -2364,6 +2420,7 @@ def api_catalog_add():
 
 @bp.route("/api/intel/draft-outreach", methods=["POST"])
 @auth_required
+@safe_route
 def api_draft_outreach():
     """
     Generate a targeted outreach email draft for a buyer from market intelligence.
@@ -2509,6 +2566,7 @@ sales@reytechinc.com"""
 
 @bp.route("/api/cchcs/facilities")
 @auth_required
+@safe_route
 def api_cchcs_facilities():
     """List all CCHCS/CalVet/DSH facilities with activity status."""
     import json as _json
@@ -2997,12 +3055,14 @@ def _build_expansion_intel_v4():
 
 @bp.route("/cchcs/expansion")
 @auth_required
+@safe_page
 def page_cchcs_expansion():
     """Redirected to Competitor Intelligence page."""
     return redirect("/intel/competitors")
 
 @bp.route("/api/expansion/facility/<fac_id>")
 @auth_required
+@safe_route
 def api_expansion_facility(fac_id):
     """Full detail for one facility."""
     intel = _build_expansion_intel_v4()
@@ -3014,6 +3074,7 @@ def api_expansion_facility(fac_id):
 
 @bp.route("/api/expansion/outreach", methods=["POST"])
 @auth_required
+@safe_route
 def api_expansion_outreach():
     """Create targeted outreach — smart PC + email to the REAL buyer."""
     import json as _json
@@ -3114,6 +3175,7 @@ def api_expansion_outreach():
 
 @bp.route("/api/expansion/scprs-pull", methods=["POST"])
 @auth_required
+@safe_route
 def api_expansion_scprs_pull():
     """Trigger SCPRS pull for an agency (background thread)."""
     data = request.get_json() or {}
@@ -3154,6 +3216,7 @@ def _get_vendor_reg():
 
 @bp.route("/api/vendor/registration", methods=["GET"])
 @auth_required
+@safe_route
 def api_vendor_registration_get():
     reg = _get_vendor_reg()
     enriched = []
@@ -3167,6 +3230,7 @@ def api_vendor_registration_get():
 
 @bp.route("/api/vendor/registration", methods=["POST"])
 @auth_required
+@safe_route
 def api_vendor_registration_update():
     import json as _json
     data = request.get_json() or {}
@@ -3200,6 +3264,7 @@ def api_vendor_registration_update():
 
 @bp.route("/api/intel/scprs/test")
 @auth_required
+@safe_route
 def api_intel_scprs_test_v2():
     """F31-07: Test SCPRS connectivity + credential status."""
     import os as _os
@@ -3234,6 +3299,7 @@ def api_intel_scprs_test_v2():
 
 @bp.route("/api/intel/scprs/pull-now", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_scprs_pull_now():
     """F31-07: Trigger an immediate SCPRS pull (bypasses schedule)."""
     import os as _os
@@ -3268,6 +3334,7 @@ def api_intel_scprs_pull_now():
 
 @bp.route("/intel/market")
 @auth_required
+@safe_page
 def page_market_intel():
     """Land & Expand — competitive gap analysis, buyer intelligence, revenue model."""
     import json as _json
@@ -3396,6 +3463,7 @@ def page_market_intel():
 
 @bp.route("/api/intel/market")
 @auth_required
+@safe_route
 def api_intel_market():
     """Raw market intelligence JSON."""
     import json as _json
@@ -3414,6 +3482,7 @@ def api_intel_market():
 
 @bp.route("/api/scprs/public/search")
 @auth_required
+@safe_route
 def api_scprs_public_search():
     """Search public SCPRS for what CCHCS/CDCR is buying. No credentials needed."""
     keyword = request.args.get("keyword", "").strip()
@@ -3429,6 +3498,7 @@ def api_scprs_public_search():
 
 @bp.route("/api/scprs/public/sweep")
 @auth_required
+@safe_route
 def api_scprs_public_sweep():
     """Sweep all Reytech keywords against CCHCS. Background job on Railway."""
     def _run():
@@ -3447,6 +3517,7 @@ def api_scprs_public_sweep():
 
 @bp.route("/api/scprs/public/ingest", methods=["POST"])
 @auth_required
+@safe_route
 def api_scprs_public_ingest():
     """Ingest CSV downloaded from caleprocure.ca.gov SCPRS search. Finds gaps instantly."""
     data = request.get_json(force=True) or {}
@@ -3515,6 +3586,7 @@ def api_scprs_public_ingest():
 
 @bp.route("/scprs/gap-analysis")
 @auth_required
+@safe_page
 def page_scprs_gap_analysis():
     """SCPRS Gap Analysis page — paste CSV from caleprocure, get instant intel."""
     import os
@@ -3618,6 +3690,7 @@ def page_scprs_gap_analysis():
 
 @bp.route("/api/qa/intelligence")
 @auth_required
+@safe_route
 def api_qa_intelligence():
     """QA intelligence summary: trends, regressions, persistent issues."""
     try:
@@ -3629,6 +3702,7 @@ def api_qa_intelligence():
 
 @bp.route("/api/qa/regressions")
 @auth_required
+@safe_route
 def api_qa_regressions():
     """List unacknowledged score regressions."""
     try:
@@ -3644,6 +3718,7 @@ def api_qa_regressions():
 
 @bp.route("/api/qa/regressions/<int:rid>/ack", methods=["POST"])
 @auth_required
+@safe_route
 def api_qa_regression_ack(rid):
     """Acknowledge a regression so it stops alerting."""
     try:
@@ -3658,6 +3733,7 @@ def api_qa_regression_ack(rid):
 
 @bp.route("/api/qa/issues")
 @auth_required
+@safe_route
 def api_qa_issues():
     """List persistent open issues sorted by frequency (most recurring = most critical)."""
     try:
@@ -3675,6 +3751,7 @@ def api_qa_issues():
 
 @bp.route("/api/qa/history")
 @auth_required
+@safe_route
 def api_qa_history_v2():
     """QA run history with scores over time for trend chart."""
     try:
@@ -3696,6 +3773,7 @@ def api_qa_history_v2():
 
 @bp.route("/qa/intelligence")
 @auth_required
+@safe_page
 def page_qa_intelligence():
     """QA Intelligence dashboard — trend charts, regressions, persistent issues."""
     try:
@@ -3770,6 +3848,7 @@ def page_qa_intelligence():
 
 @bp.route("/api/follow-ups/scan", methods=["POST"])
 @auth_required
+@safe_route
 def api_follow_up_scan():
     """Manually trigger a follow-up scan."""
     try:
@@ -3782,6 +3861,7 @@ def api_follow_up_scan():
 
 @bp.route("/api/follow-ups/summary")
 @auth_required
+@safe_route
 def api_follow_up_summary():
     """Get follow-up summary for daily brief."""
     try:
@@ -3793,6 +3873,7 @@ def api_follow_up_summary():
 
 @bp.route("/api/follow-ups/status")
 @auth_required
+@safe_route
 def api_follow_up_status():
     """Get follow-up engine status."""
     import json as _json
@@ -3896,6 +3977,7 @@ def _send_sms(to_number, message):
 
 @bp.route("/brief")
 @auth_required
+@safe_page
 def daily_brief_page():
     """Daily Briefing page."""
     header = ""  # Rendered via base.html template
@@ -4036,6 +4118,7 @@ function sendBriefSMS() {{
 
 @bp.route("/api/brief/text")
 @auth_required
+@safe_route
 def api_brief_text():
     """Get text version of daily brief."""
     return jsonify({"ok": True, "text": _build_text_brief()})
@@ -4043,6 +4126,7 @@ def api_brief_text():
 
 @bp.route("/api/brief/send-sms", methods=["POST"])
 @auth_required
+@safe_route
 def api_brief_send_sms():
     """Send daily brief via SMS."""
     if not NOTIFY_TO:
@@ -4059,6 +4143,7 @@ def api_brief_send_sms():
 
 @bp.route("/api/data/quality")
 @auth_required
+@safe_route
 def api_data_quality():
     """Run data quality check and return report."""
     import json as _j
@@ -4133,6 +4218,7 @@ def api_data_quality():
 # From routes_features.py — Contact Search
 @bp.route("/api/crm/search")
 @auth_required
+@safe_route
 def api_crm_contact_search():
     """Search contacts by name, email, or institution. ?q=keyword
     Unions contacts table + scprs_buyers table for full autocomplete coverage.
@@ -4167,6 +4253,7 @@ def api_crm_contact_search():
 # From routes_features3.py — Vendor Performance
 @bp.route("/api/vendor/performance")
 @auth_required
+@safe_route
 def api_vendor_performance():
     """Score vendors by response time, pricing accuracy, fill rate."""
     cat_path = os.path.join(DATA_DIR, "product_catalog.json")

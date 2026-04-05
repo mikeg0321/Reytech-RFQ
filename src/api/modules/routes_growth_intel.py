@@ -258,6 +258,7 @@ def _catalog_learn_item(desc, part_number, sell_price, cost, supplier,
 
 @bp.route("/api/catalog/rebuild-from-history", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_rebuild():
     """Rebuild catalog from all historical quotes, PCs, orders, RFQs."""
     result = _catalog_rebuild_from_history()
@@ -410,6 +411,7 @@ def _get_price_alerts(threshold_pct=10.0, limit=20):
 
 @bp.route("/api/price-alerts")
 @auth_required
+@safe_route
 def api_price_alerts():
     """Get price trend alerts for dashboard."""
     try:
@@ -463,6 +465,7 @@ def _save_win_loss_log(records):
 
 @bp.route("/api/rfq/<rid>/outcome", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_outcome(rid):
     """Record win/loss outcome for an RFQ/quote with reason."""
     data = request.get_json(force=True)
@@ -560,6 +563,7 @@ def api_rfq_outcome(rid):
 
 @bp.route("/api/win-loss-analytics")
 @auth_required
+@safe_route
 def api_win_loss_analytics():
     """Win/loss analysis dashboard data."""
     wl_log = _load_win_loss_log()
@@ -633,6 +637,7 @@ def api_win_loss_analytics():
 
 @bp.route("/api/win-loss-reasons")
 @auth_required
+@safe_route
 def api_win_loss_reasons():
     """Get valid reasons for each outcome type."""
     return jsonify({"ok": True, "reasons": _WIN_LOSS_REASONS})
@@ -826,6 +831,7 @@ def _build_outreach_targets():
 
 @bp.route("/api/outreach/targets")
 @auth_required
+@safe_route
 def api_outreach_targets():
     """Get prioritized list of outreach targets."""
     targets = _build_outreach_targets()
@@ -834,6 +840,7 @@ def api_outreach_targets():
 
 @bp.route("/api/outreach/draft", methods=["POST"])
 @auth_required
+@safe_route
 def api_outreach_draft():
     """Draft an outreach email for a target contact."""
     data = request.get_json(force=True)
@@ -902,6 +909,7 @@ def api_outreach_draft():
 
 @bp.route("/api/outreach/send", methods=["POST"])
 @auth_required
+@safe_route
 def api_outreach_send():
     """Send an outreach email and log it."""
     data = request.get_json(force=True)
@@ -971,6 +979,7 @@ def api_outreach_send():
 
 @bp.route("/api/outreach/queue")
 @auth_required
+@safe_route
 def api_outreach_queue():
     """Get outreach queue with status."""
     queue = _load_outreach_queue()
@@ -985,6 +994,7 @@ def api_outreach_queue():
 
 @bp.route("/api/outreach/update/<oid>", methods=["POST"])
 @auth_required
+@safe_route
 def api_outreach_update(oid):
     """Update outreach record (mark replied, add notes, etc)."""
     data = request.get_json(force=True)
@@ -1006,6 +1016,7 @@ def api_outreach_update(oid):
 
 @bp.route("/growth-intel")
 @auth_required
+@safe_page
 def growth_intel_page():
     """Growth Intelligence dashboard combining all 4 features."""
 

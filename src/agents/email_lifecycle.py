@@ -300,15 +300,17 @@ def get_outbox_summary() -> dict:
 
 def _retry_loop():
     """Daemon loop for periodic retry checks — shutdown-aware."""
-    from src.core.scheduler import _shutdown_event
+    from src.core.scheduler import _shutdown_event, heartbeat
     _shutdown_event.wait(120)  # initial delay for app boot
     while not _shutdown_event.is_set():
         try:
             result = retry_failed_emails()
             if result.get("retried", 0) > 0:
                 log.info("Retry check: re-queued %d emails", result["retried"])
+            heartbeat("email-retry", success=True)
         except Exception as e:
             log.error("Retry scheduler: %s", e, exc_info=True)
+            heartbeat("email-retry", success=False, error=str(e)[:200])
         _shutdown_event.wait(RETRY_CHECK_INTERVAL)
     log.info("Email retry scheduler shutting down")
 

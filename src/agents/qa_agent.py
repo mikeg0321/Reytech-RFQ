@@ -1682,7 +1682,13 @@ class QAMonitor:
                         log.error("CRITICAL: Mass dedup skip detected — stale cache? Run /api/qa/trace-diagnostic")
             except Exception:
                 pass
-            
+
+            try:
+                from src.core.scheduler import heartbeat
+                heartbeat("qa-monitor", success=True)
+            except Exception:
+                pass
+
             time.sleep(self.interval)
 
 

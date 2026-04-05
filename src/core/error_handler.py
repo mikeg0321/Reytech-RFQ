@@ -62,6 +62,36 @@ def safe_route(f):
     return wrapper
 
 
+def safe_page(f):
+    """
+    Decorator for Flask routes that return HTML pages.
+    On unhandled exception, renders an error page instead of crashing.
+
+    Usage:
+        @bp.route("/some-page")
+        @auth_required
+        @safe_page
+        def my_page():
+            ...
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except Exception as e:
+            log.error("Page %s failed: %s", f.__name__, str(e)[:300],
+                      exc_info=True)
+            from flask import render_template_string
+            return render_template_string("""
+                <div style="padding:24px;font-family:system-ui">
+                    <h2 style="color:#c00">Something went wrong</h2>
+                    <p>{{ error_type }}: {{ error_msg }}</p>
+                    <a href="/" style="color:#0066cc">&larr; Back to Home</a>
+                </div>
+            """, error_type=type(e).__name__, error_msg=str(e)[:200]), 500
+    return wrapper
+
+
 def safe_background(fn):
     """
     Decorator for background thread functions that logs exceptions

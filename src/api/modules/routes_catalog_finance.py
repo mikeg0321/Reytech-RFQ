@@ -40,6 +40,7 @@ except ImportError:
 
 @bp.route("/catalog")
 @auth_required
+@safe_page
 def catalog_page():
     """Product catalog with search, pricing intelligence, margin analysis."""
     if not CATALOG_AVAILABLE:
@@ -383,6 +384,7 @@ def catalog_page():
 
 @bp.route("/catalog/<int:pid>")
 @auth_required
+@safe_page
 def catalog_product_detail(pid):
     """Product detail with pricing intelligence."""
     if not CATALOG_AVAILABLE:
@@ -660,6 +662,7 @@ def catalog_product_detail(pid):
 
 @bp.route("/api/catalog/import", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_import():
     """Import QB products CSV."""
     if not CATALOG_AVAILABLE:
@@ -676,6 +679,7 @@ def api_catalog_import():
 
 @bp.route("/api/catalog/reimport", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_reimport():
     """Re-import QB CSV with improved name/manufacturer extraction."""
     if not CATALOG_AVAILABLE:
@@ -709,6 +713,7 @@ def api_catalog_reimport():
 
 @bp.route("/api/catalog/dedup", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_dedup():
     """Find and merge duplicate products."""
     if not CATALOG_AVAILABLE:
@@ -724,6 +729,7 @@ def api_catalog_dedup():
 
 @bp.route("/api/catalog/import-quotewerks", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_import_quotewerks():
     """Import QuoteWerks exported CSV/TSV into the product catalog.
 
@@ -783,6 +789,7 @@ def api_catalog_import_quotewerks():
 
 @bp.route("/api/catalog/run-fixes", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_run_fixes():
     """Run Sprint 1 foundation fixes: names, manufacturers, pricing, dedup."""
     if not CATALOG_AVAILABLE:
@@ -802,6 +809,7 @@ def api_catalog_run_fixes():
 
 @bp.route("/api/catalog/freshness-report", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_freshness_report():
     """Get freshness indicators for PC items."""
     if not CATALOG_AVAILABLE:
@@ -817,6 +825,7 @@ def api_catalog_freshness_report():
 
 @bp.route("/api/catalog/lookup")
 @auth_required
+@safe_route
 def api_catalog_lookup():
     """Predictive typeahead search."""
     if not CATALOG_AVAILABLE:
@@ -830,6 +839,7 @@ def api_catalog_lookup():
 
 @bp.route("/api/products/search")
 @auth_required
+@safe_route
 def api_products_search():
     """Full search with filters."""
     if not CATALOG_AVAILABLE:
@@ -847,6 +857,7 @@ def api_products_search():
 
 @bp.route("/api/catalog/<int:pid>/pricing")
 @auth_required
+@safe_route
 def api_catalog_pricing(pid):
     """Calculate recommended pricing for a product."""
     if not CATALOG_AVAILABLE:
@@ -858,6 +869,7 @@ def api_catalog_pricing(pid):
 
 @bp.route("/api/catalog/<int:pid>/update", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_update(pid):
     """Update product pricing/metadata."""
     if not CATALOG_AVAILABLE:
@@ -869,6 +881,7 @@ def api_catalog_update(pid):
 
 @bp.route("/api/catalog/opportunities")
 @auth_required
+@safe_route
 def api_catalog_opportunities():
     """Bulk margin analysis — find pricing opportunities."""
     if not CATALOG_AVAILABLE:
@@ -879,6 +892,7 @@ def api_catalog_opportunities():
 
 @bp.route("/api/catalog/match", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_match():
     """
     POST {description: "...", part_number: "..."}
@@ -917,6 +931,7 @@ def api_catalog_match():
 
 @bp.route("/api/catalog/match-batch", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_match_batch():
     """
     POST {items: [{idx, description, part_number}, ...]}
@@ -941,6 +956,7 @@ def api_catalog_match_batch():
 
 @bp.route("/api/catalog/<int:pid>/suppliers")
 @auth_required
+@safe_route
 def api_catalog_product_suppliers(pid):
     """GET all suppliers and prices for a product."""
     if not CATALOG_AVAILABLE:
@@ -951,6 +967,7 @@ def api_catalog_product_suppliers(pid):
 
 @bp.route("/api/catalog/<int:pid>/add-supplier", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_add_supplier(pid):
     """POST {supplier_name, price, url, sku, shipping, in_stock}"""
     if not CATALOG_AVAILABLE:
@@ -971,6 +988,7 @@ def api_catalog_add_supplier(pid):
 
 @bp.route("/api/catalog/check-price", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_check_price():
     """Scrape a supplier URL for current pricing, update catalog, return delta."""
     if not CATALOG_AVAILABLE:
@@ -1037,6 +1055,7 @@ _BULK_CHECK_STATUS = {"running": False, "checked": 0, "total": 0, "price_changes
 
 @bp.route("/api/catalog/bulk-check-prices", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_bulk_check_prices():
     """Check all supplier URLs for current pricing. Runs in background thread."""
     if not CATALOG_AVAILABLE:
@@ -1098,6 +1117,7 @@ def api_catalog_bulk_check_prices():
 
 @bp.route("/api/catalog/bulk-check-status")
 @auth_required
+@safe_route
 def api_catalog_bulk_check_status():
     """Poll bulk price check progress."""
     return jsonify({"ok": True, **_BULK_CHECK_STATUS})
@@ -1105,6 +1125,7 @@ def api_catalog_bulk_check_status():
 
 @bp.route("/api/catalog/rebuild-tokens", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_rebuild_tokens():
     """Rebuild search tokens for all products (migration utility)."""
     if not CATALOG_AVAILABLE:
@@ -1117,6 +1138,7 @@ def api_catalog_rebuild_tokens():
 
 @bp.route("/api/catalog/audit", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_catalog_audit():
     """Run DB-wide catalog match quality audit.
     GET: dry run (report only). GET ?fix=true or POST {fix: true} to auto-clear bad matches."""
@@ -1136,6 +1158,7 @@ def api_catalog_audit():
 
 @bp.route("/api/catalog/audit/db")
 @auth_required
+@safe_route
 def api_catalog_audit_db():
     """Audit the product catalog table itself for quality issues."""
     if not CATALOG_AVAILABLE:
@@ -1150,6 +1173,7 @@ def api_catalog_audit_db():
 
 @bp.route("/api/catalog/ai-find", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_ai_find():
     """Use Claude API to identify & source a single product.
     POST {description: "...", quantity: 1, agency: "CDCR"}"""
@@ -1170,6 +1194,7 @@ def api_catalog_ai_find():
 
 @bp.route("/api/catalog/ai-find-batch", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_ai_find_batch():
     """Use Claude API to identify & source multiple unmatched products.
     POST {items: [{idx, description, quantity}], agency: "CDCR"}"""
@@ -1235,6 +1260,7 @@ except Exception as _e:
 
 @bp.route("/shipping")
 @auth_required
+@safe_page
 def shipping_dashboard():
     """Shipping dashboard — all tracking numbers, carrier links, delivery status."""
     orders = _load_orders()
@@ -1391,6 +1417,7 @@ def record_email_fingerprint(subject: str, sender: str, date_str: str = "",
 
 @bp.route("/api/orders/recurring")
 @auth_required
+@safe_route
 def api_recurring_orders():
     """Detect repeat buyers — same institution + similar items across multiple orders."""
     orders = _load_orders()
@@ -1432,6 +1459,7 @@ def api_recurring_orders():
 
 @bp.route("/api/orders/margins")
 @auth_required
+@safe_route
 def api_order_margins():
     """Calculate margins across all orders — cost (supplier) vs sell (quote) per item."""
     orders = _load_orders()
@@ -1489,6 +1517,7 @@ def api_order_margins():
 
 @bp.route("/api/order/<oid>/payment", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_payment(oid):
     """Record payment received. POST: {amount, date, method, reference}"""
     orders = _load_orders()
@@ -1524,6 +1553,7 @@ def api_order_payment(oid):
 
 @bp.route("/api/orders/aging")
 @auth_required
+@safe_route
 def api_orders_aging():
     """Invoice aging report — how long since invoice, payment status."""
     orders = _load_orders()
@@ -1622,6 +1652,7 @@ def _log_audit(action: str, details: str = "", metadata: dict = None):
 
 @bp.route("/api/audit")
 @auth_required
+@safe_route
 def api_audit_trail():
     """View audit trail — last 100 actions."""
     try:
@@ -1652,6 +1683,7 @@ def api_audit_trail():
 
 @bp.route("/api/pricing/intel")
 @auth_required
+@safe_route
 def api_pricing_intel():
     """Get pricing intelligence summary."""
     try:
@@ -1663,6 +1695,7 @@ def api_pricing_intel():
 
 @bp.route("/api/pricing/recommend-price")
 @auth_required
+@safe_route
 def api_pricing_recommend_price():
     """Get price recommendation for an item.
     Query params: description, part_number, agency, institution"""
@@ -1684,6 +1717,7 @@ def api_pricing_recommend_price():
 
 @bp.route("/api/pricing/trends")
 @auth_required
+@safe_route
 def api_pricing_trends():
     """Get price trends for a specific item.
     Query params: part_number, description, limit"""
@@ -1704,6 +1738,7 @@ def api_pricing_trends():
 
 @bp.route("/pricing")
 @auth_required
+@safe_page
 def pricing_intel_page():
     """Pricing Intelligence dashboard — historical win data + recommendations."""
     try:
@@ -1723,6 +1758,7 @@ def pricing_intel_page():
 
 @bp.route("/recurring")
 @auth_required
+@safe_page
 def recurring_orders_page():
     """Recurring orders page — detect repeat buyers for template reuse."""
     orders = _load_orders()
@@ -1773,6 +1809,7 @@ def recurring_orders_page():
 
 @bp.route("/margins")
 @auth_required
+@safe_page
 def margins_page():
     """Margin calculator dashboard — cost vs sell per item per order."""
     orders = _load_orders()
@@ -1824,6 +1861,7 @@ def margins_page():
 
 @bp.route("/payments")
 @auth_required
+@safe_page
 def payments_page():
     """Payment tracking dashboard — invoice aging, payment recording."""
     orders = _load_orders()
@@ -1896,6 +1934,7 @@ def payments_page():
 
 @bp.route("/audit")
 @auth_required
+@safe_page
 def audit_trail_page():
     """Audit trail dashboard — every admin action logged."""
     entries = []
@@ -1936,6 +1975,7 @@ def audit_trail_page():
 
 @bp.route("/api/qb/sync-customers", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_sync_customers():
     """Import QB customers into CRM contacts."""
     try:
@@ -1990,6 +2030,7 @@ def api_qb_sync_customers():
 
 @bp.route("/api/qb/collection-alerts")
 @auth_required
+@safe_route
 def api_qb_collection_alerts():
     """Show overdue invoices with aging brackets and collection priority."""
     try:
@@ -2032,6 +2073,7 @@ def api_qb_collection_alerts():
 
 @bp.route("/api/qb/cash-flow")
 @auth_required
+@safe_route
 def api_qb_cash_flow():
     """30-day cash flow projection from open invoices + pipeline."""
     try:
@@ -2085,6 +2127,7 @@ def api_qb_cash_flow():
 
 @bp.route("/api/qb/vendor-spend")
 @auth_required
+@safe_route
 def api_qb_vendor_spend():
     """Top vendors by spending."""
     try:
@@ -2111,6 +2154,7 @@ def api_qb_vendor_spend():
 
 @bp.route("/api/qb/invoice-from-quote", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_invoice_from_quote():
     """Create QB invoice from a won quote."""
     try:
@@ -2164,6 +2208,7 @@ def api_qb_invoice_from_quote():
 
 @bp.route("/api/qb/revenue-by-month")
 @auth_required
+@safe_route
 def api_qb_revenue_by_month():
     """Monthly revenue breakdown from QB payments."""
     try:
@@ -2189,6 +2234,7 @@ def api_qb_revenue_by_month():
 
 @bp.route("/api/qb/draft-reminders", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_draft_reminders():
     """Draft payment reminder emails for overdue invoices."""
     try:
@@ -2233,6 +2279,7 @@ def api_qb_draft_reminders():
 
 @bp.route("/api/qb/profit-margins")
 @auth_required
+@safe_route
 def api_qb_profit_margins():
     """Calculate profit margins from QB invoice and purchase data."""
     try:
@@ -2267,6 +2314,7 @@ def api_qb_profit_margins():
 
 @bp.route("/api/qb/expense-summary")
 @auth_required
+@safe_route
 def api_qb_expense_summary():
     """Expense breakdown from QB purchase orders and bills."""
     try:
@@ -2305,6 +2353,7 @@ def api_qb_expense_summary():
 
 @bp.route("/api/qb/test-connection")
 @auth_required
+@safe_route
 def api_qb_test_connection():
     """Quick QB connection test — tries to fetch company info."""
     try:
@@ -2347,6 +2396,7 @@ def api_qb_test_connection():
 
 @bp.route("/api/qb/force-refresh", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_force_refresh():
     """Force-refresh the QB access token."""
     try:
@@ -2364,6 +2414,7 @@ def api_qb_force_refresh():
 
 @bp.route("/api/qb/summary-card")
 @auth_required
+@safe_route
 def api_qb_summary_card():
     """Pre-formatted QB financial summary for dashboard cards."""
     try:
@@ -2389,6 +2440,7 @@ def api_qb_summary_card():
 
 @bp.route("/api/catalog/margin-analysis")
 @auth_required
+@safe_route
 def api_catalog_margin_analysis():
     """Analyze catalog products by margin tier."""
     db_path = os.path.join(DATA_DIR, "catalog.db")
@@ -2429,6 +2481,7 @@ def api_catalog_margin_analysis():
 
 @bp.route("/api/catalog/top-quoted")
 @auth_required
+@safe_route
 def api_catalog_top_quoted():
     """Top 20 most-quoted catalog items."""
     db_path = os.path.join(DATA_DIR, "catalog.db")
@@ -2453,6 +2506,7 @@ def api_catalog_top_quoted():
 
 @bp.route("/api/catalog/quick-quote")
 @auth_required
+@safe_route
 def api_catalog_quick_quote():
     """Search catalog for quick quote pricing."""
     if not CATALOG_AVAILABLE:
@@ -2479,6 +2533,7 @@ def api_catalog_quick_quote():
 
 @bp.route("/api/catalog/price-history")
 @auth_required
+@safe_route
 def api_catalog_price_history():
     """Get price history for a catalog item. ?pid=product_id or ?q=keyword"""
     if not CATALOG_AVAILABLE:
@@ -2539,6 +2594,7 @@ def api_catalog_price_history():
 
 @bp.route("/api/qb/customer-health")
 @auth_required
+@safe_route
 def api_qb_customer_health():
     """Score customers by payment reliability, order frequency, and value."""
     try:
@@ -2622,6 +2678,7 @@ def api_qb_customer_health():
 
 @bp.route("/api/qb/customer-lifetime-value")
 @auth_required
+@safe_route
 def api_qb_customer_ltv():
     """Calculate customer lifetime value from invoice history."""
     try:
@@ -2679,6 +2736,7 @@ def api_qb_customer_ltv():
 
 @bp.route("/api/qb/payment-aging-trend")
 @auth_required
+@safe_route
 def api_qb_payment_aging_trend():
     """Track how quickly customers pay invoices over time."""
     try:
@@ -2723,6 +2781,7 @@ def api_qb_payment_aging_trend():
 
 @bp.route("/api/qb/top-products-report")
 @auth_required
+@safe_route
 def api_qb_top_products_report():
     """Most quoted, highest margin, and most won products."""
     try:
@@ -2769,6 +2828,7 @@ def api_qb_top_products_report():
 
 @bp.route("/api/qb/price-comparison")
 @auth_required
+@safe_route
 def api_qb_price_comparison():
     """Compare our catalog prices vs supplier costs and market rates."""
     try:
@@ -2819,6 +2879,7 @@ def api_qb_price_comparison():
 
 @bp.route("/api/qb/reorder-alerts")
 @auth_required
+@safe_route
 def api_qb_reorder_alerts():
     """Items frequently ordered that may need restocking or re-quoting."""
     try:
@@ -2863,6 +2924,7 @@ def api_qb_reorder_alerts():
 
 @bp.route("/api/qb/quick-dashboard")
 @auth_required
+@safe_route
 def api_qb_quick_dashboard():
     """Combined QB dashboard — invoices, payments, overdue, customers in one call."""
     try:
@@ -2921,6 +2983,7 @@ def api_qb_quick_dashboard():
 
 @bp.route("/api/catalog/pricing-suggestion")
 @auth_required
+@safe_route
 def api_pricing_suggestion():
     """Get AI pricing suggestions for catalog items."""
     product_name = request.args.get("product", "").strip()
@@ -2976,6 +3039,7 @@ def api_pricing_suggestion():
 
 @bp.route("/catalog/price-alerts")
 @auth_required
+@safe_page
 def catalog_price_alerts():
     """Dashboard showing products where web price differs from catalog price."""
     if not CATALOG_AVAILABLE:
@@ -3107,6 +3171,7 @@ def catalog_price_alerts():
 
 @bp.route("/api/catalog/<int:pid>/enrich-from-url", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_enrich_from_url(pid):
     """Scrape supplier URL and fill missing catalog fields (title, description, MFG#, manufacturer)."""
     if not CATALOG_AVAILABLE:
@@ -3291,6 +3356,7 @@ def _price_check_scheduler():
 
 @bp.route("/api/catalog/schedule-price-check", methods=["POST"])
 @auth_required
+@safe_route
 def api_catalog_schedule_price_check():
     """Manually trigger a scheduled price check, or update the schedule interval."""
     data = request.get_json(force=True, silent=True) or {}

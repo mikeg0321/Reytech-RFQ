@@ -54,6 +54,7 @@ def _emit_progress(task_id, step, detail="", done=False):
 
 @bp.route("/api/progress/<task_id>")
 @auth_required
+@safe_route
 def poll_progress(task_id):
     """JSON polling endpoint — returns progress steps since last_idx."""
     try:
@@ -80,6 +81,7 @@ def poll_progress(task_id):
 
 @bp.route("/api/rfq/<rid>/auto-lookup", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_auto_lookup(rid):
     """Run SCPRS + Amazon + Catalog lookup with real-time progress via SSE."""
     import uuid
@@ -263,6 +265,7 @@ def _compute_recommended_price(item):
 
 @bp.route("/api/rfq/<rid>/apply-recommendations", methods=["POST"])
 @auth_required
+@safe_route
 def apply_recommendations(rid):
     """Apply all recommended prices to RFQ line items."""
     rfqs = load_rfqs()
@@ -291,6 +294,7 @@ def apply_recommendations(rid):
 
 @bp.route("/buyer/<path:buyer_key>")
 @auth_required
+@safe_page
 def buyer_profile(buyer_key):
     """Buyer profile page — aggregates all RFQs, PCs, win/loss, spend."""
     buyer_key_lower = buyer_key.lower().strip()
@@ -388,6 +392,7 @@ def buyer_profile(buyer_key):
 
 @bp.route("/analytics")
 @auth_required
+@safe_page
 def analytics_dashboard():
     """Pipeline analytics — conversion funnel, revenue trends, win rates."""
     rfqs = load_rfqs()
@@ -477,6 +482,7 @@ def analytics_dashboard():
 
 @bp.route("/api/analytics/data")
 @auth_required
+@safe_route
 def analytics_data():
     """JSON API for analytics charts."""
     rfqs = load_rfqs()
@@ -504,6 +510,7 @@ def analytics_data():
 
 @bp.route("/api/rfq/<rid>/send-quote", methods=["POST"])
 @auth_required
+@safe_route
 def send_quote_email(rid):
     """Send the generated quote PDF via email directly from the detail page."""
     rfqs = load_rfqs()
@@ -686,6 +693,7 @@ def _default_quote_email_body(r):
 
 @bp.route("/api/bulk/action", methods=["POST"])
 @auth_required
+@safe_route
 def bulk_action():
     """Apply bulk action to multiple RFQs/PCs."""
     data = request.get_json(silent=True) or {}
@@ -752,6 +760,7 @@ def bulk_action():
 
 @bp.route("/api/rfq/<rid>/check-duplicate")
 @auth_required
+@safe_route
 def check_duplicate(rid):
     """Check if this RFQ is a duplicate or amendment of an existing one."""
     rfqs = load_rfqs()
@@ -879,6 +888,7 @@ def _save_setting(key, value):
 
 @bp.route("/settings")
 @auth_required
+@safe_page
 def settings_page():
     """Configuration management UI."""
     settings = _load_settings()
@@ -892,6 +902,7 @@ def settings_page():
 
 @bp.route("/api/settings", methods=["POST"])
 @auth_required
+@safe_route
 def save_settings():
     """Save settings from the configuration page."""
     data = request.get_json(silent=True) or request.form.to_dict()
@@ -906,6 +917,7 @@ def save_settings():
 
 @bp.route("/api/settings/data")
 @auth_required
+@safe_route
 def get_settings_data():
     """Return all settings as JSON."""
     return jsonify({"ok": True, "settings": _load_settings()})
@@ -913,6 +925,7 @@ def get_settings_data():
 
 @bp.route("/api/settings/get")
 @auth_required
+@safe_route
 def get_single_setting():
     """Return a single setting value by key."""
     key = request.args.get("key", "")
@@ -925,6 +938,7 @@ def get_single_setting():
 
 @bp.route("/api/settings/markup-config")
 @auth_required
+@safe_route
 def get_markup_config():
     """Return markup button configuration for RFQ/PC pages."""
     settings = _load_settings()
@@ -962,6 +976,7 @@ def get_markup_config():
 
 @bp.route("/api/quick-price/<entity_type>/<eid>")
 @auth_required
+@safe_route
 def quick_price_data(entity_type, eid):
     """Return items for inline quick-price panel on home queue."""
     if entity_type == "pc":
@@ -1024,6 +1039,7 @@ def quick_price_data(entity_type, eid):
 
 @bp.route("/api/quick-price/<entity_type>/<eid>/save", methods=["POST"])
 @auth_required
+@safe_route
 def quick_price_save(entity_type, eid):
     """Save prices from the quick-price panel without navigating to detail."""
     data = request.get_json(silent=True) or {}
@@ -1119,6 +1135,7 @@ def _find_won_history(description, item_number=""):
 
 @bp.route("/api/won-history/search")
 @auth_required
+@safe_route
 def won_history_search():
     """Search won history for a description or part number."""
     q = request.args.get("q", "").strip()
@@ -1136,6 +1153,7 @@ _stale_cache = {"data": None, "ts": 0}
 
 @bp.route("/api/stale-quotes")
 @auth_required
+@safe_route
 def stale_quotes():
     """Find quotes sent but with no response after configurable days."""
     import time as _time
@@ -1233,6 +1251,7 @@ def stale_quotes():
 
 @bp.route("/api/stale-quotes/<entity_type>/<eid>/follow-up", methods=["POST"])
 @auth_required
+@safe_route
 def send_follow_up(entity_type, eid):
     """Send a follow-up email for a stale quote."""
     data = request.get_json(silent=True) or {}
@@ -1322,6 +1341,7 @@ Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
 
 @bp.route("/api/stale-quotes/bulk-follow-up", methods=["POST"])
 @auth_required
+@safe_route
 def bulk_follow_up():
     """Send follow-up emails to all stale quotes that have email addresses."""
     data = request.get_json(silent=True) or {}
@@ -1455,6 +1475,7 @@ def _get_stale_list(days):
 
 @bp.route("/api/pc/<pcid>/link-rfq", methods=["POST"])
 @auth_required
+@safe_route
 def link_pc_to_rfq(pcid):
     """Link a Price Check to an RFQ (PC became formal solicitation)."""
     data = request.get_json(silent=True) or {}
@@ -1512,6 +1533,7 @@ def link_pc_to_rfq(pcid):
 
 @bp.route("/api/pc/<pcid>/convert-to-rfq", methods=["POST"])
 @auth_required
+@safe_route
 def convert_pc_to_rfq(pcid):
     """Convert a Price Check into a new RFQ.
 
@@ -1649,6 +1671,7 @@ def convert_pc_to_rfq(pcid):
 
 @bp.route("/follow-ups")
 @auth_required
+@safe_page
 def follow_ups_page():
     """Dashboard showing all stale quotes needing follow-up."""
     return render_page("follow_ups.html", active_page="Pipeline")
@@ -1660,6 +1683,7 @@ def follow_ups_page():
 
 @bp.route("/analytics/win-loss")
 @auth_required
+@safe_page
 def win_loss_page():
     """Win/loss analysis page with charts and trends."""
     return render_page("win_loss.html", active_page="Analytics")
@@ -1667,6 +1691,7 @@ def win_loss_page():
 
 @bp.route("/loss-intelligence")
 @auth_required
+@safe_page
 def loss_intelligence_page():
     """Loss intelligence dashboard — why we lose, margin analysis, competitor deep dive."""
     return render_page("loss_intelligence.html", active_page="Analytics")
@@ -1674,6 +1699,7 @@ def loss_intelligence_page():
 
 @bp.route("/loss-detail/<quote_number>")
 @auth_required
+@safe_page
 def loss_detail_page(quote_number):
     """Detailed loss analysis for a specific quote."""
     import json as _json
@@ -1730,6 +1756,7 @@ def loss_detail_page(quote_number):
 
 @bp.route("/api/analytics/win-loss")
 @auth_required
+@safe_route
 def api_win_loss_analysis():
     """Comprehensive win/loss data for charts and tables."""
     from collections import defaultdict
@@ -1869,6 +1896,7 @@ def api_win_loss_analysis():
 
 @bp.route("/suppliers/performance")
 @auth_required
+@safe_page
 def supplier_performance_page():
     """Supplier performance rankings and analytics."""
     return render_page("supplier_performance.html", active_page="Vendors")
@@ -1876,6 +1904,7 @@ def supplier_performance_page():
 
 @bp.route("/api/suppliers/performance")
 @auth_required
+@safe_route
 def api_supplier_performance():
     """Aggregate supplier performance data from orders, catalog, and vendor records."""
     from collections import defaultdict
@@ -2027,6 +2056,7 @@ def api_supplier_performance():
 
 @bp.route("/api/webhooks/config")
 @auth_required
+@safe_route
 def api_webhooks_config():
     """Get webhook configuration."""
     try:
@@ -2038,6 +2068,7 @@ def api_webhooks_config():
 
 @bp.route("/api/webhooks/save", methods=["POST"])
 @auth_required
+@safe_route
 def api_webhooks_save():
     """Save or update a webhook endpoint."""
     try:
@@ -2057,6 +2088,7 @@ def api_webhooks_save():
 
 @bp.route("/api/webhooks/delete", methods=["POST"])
 @auth_required
+@safe_route
 def api_webhooks_delete():
     """Delete a webhook endpoint."""
     try:
@@ -2072,6 +2104,7 @@ def api_webhooks_delete():
 
 @bp.route("/api/webhooks/test", methods=["POST"])
 @auth_required
+@safe_route
 def api_webhooks_test():
     """Send a test webhook to verify connectivity."""
     try:
@@ -2090,6 +2123,7 @@ def api_webhooks_test():
 
 @bp.route("/api/rfq/<rid>/retry-auto-price", methods=["POST"])
 @auth_required
+@safe_route
 def rfq_retry_auto_price(rid):
     """Inline auto-price for an RFQ — runs synchronously, returns results."""
     rfqs = load_rfqs()
@@ -2157,6 +2191,7 @@ def rfq_retry_auto_price(rid):
 
 @bp.route("/api/rfq/<rid>/relink-pc", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def rfq_relink_pc(rid):
     """Re-run PC linkage for an existing RFQ. 
     Clears stale link + zero prices first, then re-matches and ports."""
@@ -2328,6 +2363,7 @@ def rfq_relink_pc(rid):
 
 @bp.route("/api/rfqs/relink-all", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def rfqs_relink_all():
     """Re-run PC linkage for ALL unlinked RFQs. Fixes historical gaps."""
     rfqs = load_rfqs()
@@ -2375,6 +2411,7 @@ def rfqs_relink_all():
 
 @bp.route("/api/rfq/<rid>/debug-link")
 @auth_required
+@safe_route
 def rfq_debug_link(rid):
     """Show EXACTLY what PC data exists and why porting fails."""
     rfqs = load_rfqs()
@@ -2478,6 +2515,7 @@ def rfq_debug_link(rid):
 
 @bp.route("/api/pcs/list")
 @auth_required
+@safe_route
 def api_pcs_list():
     """List PCs for import picker. Pass ?rfq_id=<rid> for smart ranking."""
     from src.api.dashboard import _load_price_checks, _save_price_checks, _save_single_pc, _save_single_rfq
@@ -2559,6 +2597,7 @@ def api_pcs_list():
 
 @bp.route("/api/rfq/<rid>/import-from-pc", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_import_from_pc(rid):
     """Import items + prices from a PC directly into an RFQ. No matching logic.
     Just copies PC items as RFQ line_items with all pricing fields."""
@@ -2678,6 +2717,7 @@ def api_rfq_import_from_pc(rid):
 
 @bp.route("/api/rfq/<rid>/import-from-catalog", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_import_from_catalog(rid):
     """Match RFQ line items against the product catalog and auto-fill pricing.
     For each item: search by description + part number → fill cost, bid, supplier, link.
@@ -2774,6 +2814,7 @@ def api_rfq_import_from_catalog(rid):
 
 @bp.route("/api/rfq/<rid>/upload-pc", methods=["POST"])
 @auth_required
+@safe_route
 def api_rfq_upload_pc(rid):
     """Upload a filled PC PDF → parse → verify/save to catalog → populate RFQ.
     
@@ -2898,6 +2939,7 @@ def api_rfq_upload_pc(rid):
 
 @bp.route("/api/quote-audit")
 @auth_required
+@safe_route
 def api_quote_audit():
     """Show all quote numbers, counter state, and gaps."""
     from src.core.db import get_db
@@ -2953,6 +2995,7 @@ def api_quote_audit():
 
 @bp.route("/api/rfq/<rid>/package-diag")
 @auth_required
+@safe_route
 def api_rfq_package_diag(rid):
     """Diagnose RFQ package: what templates, what agency, what forms."""
     import os
@@ -3239,6 +3282,7 @@ def _match_agency(rfq_data):
 
 @bp.route("/settings/packages")
 @auth_required
+@safe_page
 def agency_package_settings():
     """Agency RFQ Package Settings page."""
     configs = _load_agency_configs()
@@ -3248,6 +3292,7 @@ def agency_package_settings():
 
 @bp.route("/api/agency-configs")
 @auth_required
+@safe_route
 def api_agency_configs():
     """Get all agency package configs."""
     return jsonify({"ok": True, "configs": _load_agency_configs(), "available_forms": AVAILABLE_FORMS})
@@ -3255,6 +3300,7 @@ def api_agency_configs():
 
 @bp.route("/api/agency-config/<key>", methods=["POST"])
 @auth_required
+@safe_route
 def api_save_agency_config(key):
     """Save or create an agency package config."""
     data = request.get_json(silent=True) or {}
@@ -3294,6 +3340,7 @@ def api_save_agency_config(key):
 
 @bp.route("/api/agency-config/<key>", methods=["DELETE"])
 @auth_required
+@safe_route
 def api_delete_agency_config(key):
     """Delete an agency config."""
     if key in ("cchcs", "other"):
@@ -3309,6 +3356,7 @@ def api_delete_agency_config(key):
 
 @bp.route("/api/agency-config-reset", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_agency_config_reset():
     """Force-wipe and re-seed all agency configs from DEFAULT_AGENCY_CONFIGS.
     Use this after a DB rebuild to ensure configs match current defaults."""
@@ -3344,6 +3392,7 @@ def api_agency_config_reset():
 
 @bp.route("/api/system/dashboard")
 @auth_required
+@safe_route
 def api_system_dashboard():
     """System health: disk, memory, uptime, data stats."""
     try:
@@ -3394,6 +3443,7 @@ def api_system_dashboard():
 
 @bp.route("/api/system/error-log")
 @auth_required
+@safe_route
 def api_system_error_log():
     """Recent application errors from logs."""
     errors = []
@@ -3431,6 +3481,7 @@ def api_system_error_log():
 
 @bp.route("/api/system/route-map")
 @auth_required
+@safe_route
 def api_system_route_map():
     """List all registered API routes."""
     from flask import current_app
@@ -3452,6 +3503,7 @@ def api_system_route_map():
 
 @bp.route("/api/system/data-sizes")
 @auth_required
+@safe_route
 def api_system_data_sizes():
     """Show sizes of all data files."""
     files = []
@@ -3471,6 +3523,7 @@ def api_system_data_sizes():
 
 @bp.route("/api/system/batch-health", methods=["POST"])
 @auth_required
+@safe_route
 def api_system_batch_health():
     """Test all critical endpoints at once."""
     from flask import current_app
@@ -3502,6 +3555,7 @@ def api_system_batch_health():
 
 @bp.route("/api/system/env-check")
 @auth_required
+@safe_route
 def api_system_env_check():
     """Check which environment variables are configured."""
     checks = {
@@ -3527,6 +3581,7 @@ def api_system_env_check():
 
 @bp.route("/api/system/metrics")
 @auth_required
+@safe_route
 def api_system_metrics():
     """System performance metrics."""
     metrics = {
@@ -3560,6 +3615,7 @@ def api_system_metrics():
 
 @bp.route("/api/system/recent-errors")
 @auth_required
+@safe_route
 def api_system_recent_errors_trace():
     """Recent application errors with context."""
     errors = []
@@ -3594,6 +3650,7 @@ def api_system_recent_errors_trace():
 
 @bp.route("/api/system/diagnostic-sweep")
 @auth_required
+@safe_route
 def api_diagnostic_sweep():
     """Comprehensive diagnostic sweep of all systems."""
     results = {"ok": True, "timestamp": datetime.now().isoformat(), "checks": {}}
@@ -3660,6 +3717,7 @@ def api_diagnostic_sweep():
 
 @bp.route("/api/dashboard/kpis")
 @auth_required
+@safe_route
 def api_dashboard_kpis():
     """Key performance indicators -- single-call business health."""
     try:
@@ -3698,6 +3756,7 @@ def api_dashboard_kpis():
 
 @bp.route("/business-intel")
 @auth_required
+@safe_page
 def business_intel_page():
     """Business Intelligence dashboard — visual metrics page."""
     from datetime import datetime as _dt
@@ -3931,6 +3990,7 @@ def _build_bi_data(conn):
 
 @bp.route("/api/analytics/business-intel")
 @auth_required
+@safe_route
 def api_business_intel():
     """Comprehensive business intelligence metrics API."""
     try:
@@ -3947,6 +4007,7 @@ def api_business_intel():
 
 @bp.route("/api/workflow/history")
 @auth_required
+@safe_route
 def api_workflow_history():
     """Recent workflow execution history."""
     history = []
@@ -3964,6 +4025,7 @@ def api_workflow_history():
 
 @bp.route("/api/export/json", methods=["POST"])
 @auth_required
+@safe_route
 def api_export_json():
     """Save JSON data to downloadable file."""
     data = request.get_json(silent=True) or {}
@@ -3981,6 +4043,7 @@ def api_export_json():
 
 @bp.route("/api/data-quality/duplicates")
 @auth_required
+@safe_route
 def api_data_quality_duplicates():
     """Find duplicate contacts/vendors in CRM."""
     crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
@@ -4020,6 +4083,7 @@ def api_data_quality_duplicates():
 
 @bp.route("/api/data-quality/missing-data")
 @auth_required
+@safe_route
 def api_data_quality_missing_data():
     """Find records with incomplete data."""
     issues = []
@@ -4057,6 +4121,7 @@ def api_data_quality_missing_data():
 
 @bp.route("/api/data-quality/orphaned-quotes")
 @auth_required
+@safe_route
 def api_data_quality_orphaned_quotes():
     """Find quotes not linked to any CRM contact."""
     crm_path = os.path.join(DATA_DIR, "crm_contacts.json")
@@ -4096,6 +4161,7 @@ def api_data_quality_orphaned_quotes():
 
 @bp.route("/api/system/heartbeat")
 @auth_required
+@safe_route
 def api_system_heartbeat():
     """Quick health check of all major subsystems in one call."""
     results = {"ok": True, "timestamp": datetime.now().isoformat(), "systems": {}}
@@ -4155,6 +4221,7 @@ def api_system_heartbeat():
 
 @bp.route("/api/dashboard/morning-brief")
 @auth_required
+@safe_route
 def api_dashboard_morning_brief():
     """One-call consolidated morning briefing: key metrics, alerts, and actions."""
     brief = {"ok": True, "generated": datetime.now().isoformat(), "sections": {}}
@@ -4238,6 +4305,7 @@ def api_dashboard_morning_brief():
 
 @bp.route("/api/daily-wins")
 @auth_required
+@safe_route
 def api_daily_wins():
     """Today's wins: new quotes, orders, payments, won bids."""
     today = datetime.now().strftime("%Y-%m-%d")
@@ -4307,6 +4375,7 @@ def _get_health_recommendations(factors):
 
 @bp.route("/api/business/health-score")
 @auth_required
+@safe_route
 def api_business_health_score():
     """Calculate overall business health score (0-100)."""
     score = 0
@@ -4406,6 +4475,7 @@ def api_business_health_score():
 
 @bp.route("/api/notifications/smart")
 @auth_required
+@safe_route
 def api_smart_notifications():
     """AI-generated notifications based on current state."""
     notifs = []
@@ -4483,6 +4553,7 @@ def api_smart_notifications():
 
 @bp.route("/api/export/csv", methods=["POST"])
 @auth_required
+@safe_route
 def api_export_csv():
     """Export JSON data as downloadable CSV."""
     data = request.get_json(force=True, silent=True) or {}
@@ -4516,6 +4587,7 @@ def api_export_csv():
 
 @bp.route("/api/settings/api-keys")
 @auth_required
+@safe_route
 def api_list_keys():
     """List all API keys (admin only)."""
     from src.core.db import list_api_keys
@@ -4524,6 +4596,7 @@ def api_list_keys():
 
 @bp.route("/api/settings/api-keys", methods=["POST"])
 @auth_required
+@safe_route
 def api_create_key():
     """Generate a new API key. Returns the raw key (shown once)."""
     data = request.get_json(silent=True) or {}
@@ -4539,6 +4612,7 @@ def api_create_key():
 
 @bp.route("/api/settings/api-keys/<int:key_id>/revoke", methods=["POST"])
 @auth_required
+@safe_route
 def api_revoke_key(key_id):
     """Revoke an API key."""
     from src.core.db import revoke_api_key
@@ -4649,6 +4723,7 @@ def _webhook_mark_shipped(payload, actor):
 
 @bp.route("/api/settings/integrations")
 @auth_required
+@safe_route
 def api_get_integrations():
     """Get integration settings (webhook URLs, SMS config)."""
     import os
@@ -4663,6 +4738,7 @@ def api_get_integrations():
 
 @bp.route("/api/settings/integrations", methods=["POST"])
 @auth_required
+@safe_route
 def api_save_integrations():
     """Save integration settings."""
     import os
@@ -4683,6 +4759,7 @@ def api_save_integrations():
 
 @bp.route("/pricing-intelligence")
 @auth_required
+@safe_page
 def pricing_intelligence_page():
     """Pricing Intelligence Dashboard — 4-tab analytics."""
     from src.api.render import render_page
@@ -4691,6 +4768,7 @@ def pricing_intelligence_page():
 
 @bp.route("/api/pricing-intelligence/data")
 @auth_required
+@safe_route
 def api_pricing_intelligence():
     """Combined data for all 4 tabs of the pricing intelligence dashboard."""
     from src.core.db import get_db

@@ -16,18 +16,21 @@ from datetime import datetime as _dt, timezone as _tz
 
 @bp.route("/api/quote-lifecycle/status")
 @auth_required
+@safe_route
 def api_quote_lifecycle_status():
     from src.agents.quote_lifecycle import get_agent_status
     return jsonify(get_agent_status())
 
 @bp.route("/api/quote-lifecycle/pipeline")
 @auth_required
+@safe_route
 def api_quote_pipeline():
     from src.agents.quote_lifecycle import get_pipeline_summary
     return jsonify(get_pipeline_summary())
 
 @bp.route("/api/quote-lifecycle/expiring")
 @auth_required
+@safe_route
 def api_quote_expiring():
     days = request.args.get("days", 7, type=int)
     from src.agents.quote_lifecycle import get_expiring_soon
@@ -35,12 +38,14 @@ def api_quote_expiring():
 
 @bp.route("/api/quote-lifecycle/check-expirations", methods=["POST"])
 @auth_required
+@safe_route
 def api_check_expirations():
     from src.agents.quote_lifecycle import check_expirations
     return jsonify(check_expirations())
 
 @bp.route("/api/quote-lifecycle/process-reply", methods=["POST"])
 @auth_required
+@safe_route
 def api_process_reply_signal():
     data = request.get_json(force=True, silent=True) or {}
     from src.agents.quote_lifecycle import process_reply_signal
@@ -54,12 +59,14 @@ def api_process_reply_signal():
 
 @bp.route("/api/quote-lifecycle/revisions/<qn>")
 @auth_required
+@safe_route
 def api_quote_revisions(qn):
     from src.agents.quote_lifecycle import get_revisions
     return jsonify({"ok": True, "revisions": get_revisions(qn)})
 
 @bp.route("/api/quote-lifecycle/save-revision", methods=["POST"])
 @auth_required
+@safe_route
 def api_save_revision():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -70,6 +77,7 @@ def api_save_revision():
 
 @bp.route("/api/quote-lifecycle/close-competitor", methods=["POST"])
 @auth_required
+@safe_route
 def api_close_competitor():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -90,6 +98,7 @@ def api_close_competitor():
 
 @bp.route("/api/outbox/bulk-approve", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_bulk_approve():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -100,6 +109,7 @@ def api_outbox_bulk_approve():
 
 @bp.route("/api/outbox/bulk-delete", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_bulk_delete():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -110,6 +120,7 @@ def api_outbox_bulk_delete():
 
 @bp.route("/api/outbox/retry-failed", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_retry_failed():
     try:
         from src.agents.email_lifecycle import retry_failed_emails
@@ -119,6 +130,7 @@ def api_outbox_retry_failed():
 
 @bp.route("/api/outbox/pending-count")
 @auth_required
+@safe_route
 def api_outbox_pending_count():
     """Return count of draft emails in outbox for notification bell."""
     try:
@@ -132,12 +144,14 @@ def api_outbox_pending_count():
 
 @bp.route("/api/outbox/engagement-stats")
 @auth_required
+@safe_route
 def api_outbox_engagement():
     from src.agents.email_lifecycle import get_engagement_stats
     return jsonify(get_engagement_stats())
 
 @bp.route("/api/outbox/summary")
 @auth_required
+@safe_route
 def api_outbox_summary():
     from src.agents.email_lifecycle import get_outbox_summary
     return jsonify(get_outbox_summary())
@@ -184,6 +198,7 @@ def api_email_track_click(tracking_id):
 
 @bp.route("/api/leads/nurture/start", methods=["POST"])
 @auth_required
+@safe_route
 def api_start_nurture():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -194,6 +209,7 @@ def api_start_nurture():
 
 @bp.route("/api/leads/nurture/pause", methods=["POST"])
 @auth_required
+@safe_route
 def api_pause_nurture():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -204,6 +220,7 @@ def api_pause_nurture():
 
 @bp.route("/api/leads/nurture/process", methods=["POST"])
 @auth_required
+@safe_route
 def api_process_nurture():
     try:
         from src.agents.lead_nurture_agent import process_nurture_queue
@@ -213,6 +230,7 @@ def api_process_nurture():
 
 @bp.route("/api/leads/nurture/auto-start", methods=["POST"])
 @auth_required
+@safe_route
 def api_auto_start_nurture():
     try:
         from src.agents.lead_nurture_agent import auto_start_nurture_new_leads
@@ -222,6 +240,7 @@ def api_auto_start_nurture():
 
 @bp.route("/api/leads/rescore", methods=["POST"])
 @auth_required
+@safe_route
 def api_rescore_leads():
     try:
         from src.agents.lead_nurture_agent import rescore_all_leads
@@ -231,6 +250,7 @@ def api_rescore_leads():
 
 @bp.route("/api/leads/convert", methods=["POST"])
 @auth_required
+@safe_route
 def api_convert_lead():
     try:
         data = request.get_json(force=True, silent=True) or {}
@@ -241,12 +261,14 @@ def api_convert_lead():
 
 @bp.route("/api/leads/pipeline")
 @auth_required
+@safe_route
 def api_leads_pipeline():
     from src.agents.lead_nurture_agent import get_unified_pipeline
     return jsonify(get_unified_pipeline())
 
 @bp.route("/api/leads/nurture/status")
 @auth_required
+@safe_route
 def api_nurture_status():
     from src.agents.lead_nurture_agent import get_agent_status
     return jsonify(get_agent_status())
@@ -258,24 +280,28 @@ def api_nurture_status():
 
 @bp.route("/revenue")
 @auth_required
+@safe_page
 def revenue_page():
     from src.api.render import render_page
     return render_page("revenue.html", active_page="Revenue")
 
 @bp.route("/api/revenue/dashboard")
 @auth_required
+@safe_route
 def api_revenue_dashboard():
     from src.agents.revenue_engine import get_revenue_dashboard
     return jsonify(get_revenue_dashboard())
 
 @bp.route("/api/revenue/goal")
 @auth_required
+@safe_route
 def api_revenue_goal():
     from src.agents.revenue_engine import get_goal_progress
     return jsonify(get_goal_progress())
 
 @bp.route("/api/revenue/monthly")
 @auth_required
+@safe_route
 def api_revenue_monthly():
     months = request.args.get("months", 12, type=int)
     from src.agents.revenue_engine import get_monthly_revenue
@@ -283,24 +309,28 @@ def api_revenue_monthly():
 
 @bp.route("/api/revenue/pipeline-forecast")
 @auth_required
+@safe_route
 def api_revenue_pipeline():
     from src.agents.revenue_engine import forecast_pipeline
     return jsonify(forecast_pipeline())
 
 @bp.route("/api/revenue/margins")
 @auth_required
+@safe_route
 def api_revenue_margins():
     from src.agents.revenue_engine import get_margin_analysis
     return jsonify(get_margin_analysis())
 
 @bp.route("/api/revenue/top-customers")
 @auth_required
+@safe_route
 def api_revenue_top_customers():
     from src.agents.revenue_engine import get_top_customers
     return jsonify({"ok": True, "customers": get_top_customers(10)})
 
 @bp.route("/api/revenue/reconcile", methods=["POST"])
 @auth_required
+@safe_route
 def api_revenue_reconcile():
     try:
         from src.agents.revenue_engine import reconcile_revenue
@@ -315,24 +345,28 @@ def api_revenue_reconcile():
 
 @bp.route("/api/vendor/intelligence")
 @auth_required
+@safe_route
 def api_vendor_intelligence():
     from src.agents.vendor_intelligence import get_agent_status
     return jsonify(get_agent_status())
 
 @bp.route("/api/vendor/score-all", methods=["POST"])
 @auth_required
+@safe_route
 def api_vendor_score_all():
     from src.agents.vendor_intelligence import score_all_vendors
     return jsonify(score_all_vendors())
 
 @bp.route("/api/vendor/preferred")
 @auth_required
+@safe_route
 def api_vendor_preferred():
     from src.agents.vendor_intelligence import get_preferred_vendors
     return jsonify(get_preferred_vendors())
 
 @bp.route("/api/vendor/compare-product")
 @auth_required
+@safe_route
 def api_vendor_compare_product():
     desc = request.args.get("description", "")
     if not desc:
@@ -342,6 +376,7 @@ def api_vendor_compare_product():
 
 @bp.route("/api/vendor/enrichment")
 @auth_required
+@safe_route
 def api_vendor_enrichment():
     from src.agents.vendor_intelligence import get_enrichment_status
     return jsonify(get_enrichment_status())
@@ -353,6 +388,7 @@ def api_vendor_enrichment():
 
 @bp.route("/api/dashboard/actions")
 @auth_required
+@safe_route
 def api_dashboard_actions():
     """Build the action-oriented dashboard data."""
     urgent = []
@@ -672,6 +708,7 @@ _dash_init_cache = {"data": None, "ts": 0}
 
 @bp.route("/api/dashboard/init")
 @auth_required
+@safe_route
 def api_dashboard_init():
     """Combined endpoint — returns ALL home page widget data in one call.
     Replaces 6 separate fetch() calls that each loaded the same JSON files."""
@@ -979,6 +1016,7 @@ def api_dashboard_init():
 # ── Activity Feed: unified recent events across the system ──────────
 @bp.route("/api/activity-feed")
 @auth_required
+@safe_route
 def api_activity_feed():
     """Aggregated activity stream: CRM logs, quote/PC changes, orders, outreach."""
     import time as _time

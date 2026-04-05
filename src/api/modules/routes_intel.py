@@ -54,6 +54,7 @@ except ImportError:
 
 @bp.route("/api/intel/scprs/pull-all", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_pull_all():
     """Trigger full SCPRS pull for ALL agencies in background."""
     try:
@@ -67,6 +68,7 @@ def api_intel_pull_all():
 
 @bp.route("/api/intel/scprs/engine-status")
 @auth_required
+@safe_route
 def api_intel_engine_status():
     """Full SCPRS engine status — pull progress, record counts, schedule."""
     try:
@@ -86,6 +88,7 @@ def api_intel_engine_status():
 
 @bp.route("/api/intel/scprs/test-connection")
 @auth_required
+@safe_route
 def api_scprs_test_connection():
     """Test if SCPRS/FI$Cal session can be established. Returns session status."""
     try:
@@ -110,6 +113,7 @@ def api_scprs_test_connection():
 
 @bp.route("/api/intel/scprs/po-monitor", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_po_monitor():
     """Run PO award monitor — check open quotes against SCPRS, auto close-lost."""
     try:
@@ -126,6 +130,7 @@ def api_intel_po_monitor():
 
 @bp.route("/api/intel/award-tracker/history")
 @auth_required
+@safe_route
 def api_award_tracker_history():
     """Get full award check history and loss reports."""
     try:
@@ -156,6 +161,7 @@ def api_award_tracker_history():
 
 @bp.route("/api/intel/scprs-health")
 @auth_required
+@safe_route
 def api_scprs_health():
     """Validate SCPRS data is being pulled and flowing into CRM/catalog/growth.
     Returns health status with specific issues and recommended actions."""
@@ -323,6 +329,7 @@ def api_scprs_health():
 
 @bp.route("/api/intel/scprs/backfill", methods=["POST"])
 @auth_required
+@safe_route
 def api_scprs_backfill():
     """Backfill historical SCPRS data for a full year.
     POST {year: 2025, force: true} — runs in background."""
@@ -345,6 +352,7 @@ def api_scprs_backfill():
 
 @bp.route("/api/intel/scprs/test-pull", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_scprs_test_pull():
     """Diagnostic SCPRS pull — shows raw results, filtering, and storage.
     GET or POST {agency: "CCHCS", term: "glove", days: 365}"""
@@ -435,6 +443,7 @@ def api_scprs_test_pull():
 
 @bp.route("/api/intel/competitors")
 @auth_required
+@safe_route
 def api_intel_competitors():
     """Competitor intelligence: who sells what, to whom, for how much,
     what contract vehicles they use, and where Reytech can displace."""
@@ -452,6 +461,7 @@ def api_intel_competitors():
 
 @bp.route("/api/intel/scprs-search")
 @auth_required
+@safe_route
 def api_scprs_search():
     """Search SCPRS data — suppliers, items, buyers, institutions, POs.
     GET ?q=gloves&type=item&agency=CCHCS"""
@@ -475,6 +485,7 @@ def api_scprs_search():
 
 @bp.route("/api/intel/discover-agencies")
 @auth_required
+@safe_route
 def api_discover_agencies():
     """Discover new agencies buying products Reytech sells but not buying from Reytech."""
     try:
@@ -490,6 +501,7 @@ def api_discover_agencies():
 
 @bp.route("/api/intel/loss-intelligence")
 @auth_required
+@safe_route
 def api_loss_intelligence():
     """Why we lose: price gaps, competitor patterns, actionable fixes."""
     try:
@@ -501,6 +513,7 @@ def api_loss_intelligence():
 
 @bp.route("/api/intel/dvbe-calculator")
 @auth_required
+@safe_route
 def api_dvbe_calculator():
     """Calculate DVBE 3% mandate opportunity per agency."""
     try:
@@ -512,6 +525,7 @@ def api_dvbe_calculator():
 
 @bp.route("/api/intel/dbe-opportunities")
 @auth_required
+@safe_route
 def api_dbe_opportunities():
     """DBE/DOT opportunities Reytech isn't leveraging."""
     try:
@@ -523,6 +537,7 @@ def api_dbe_opportunities():
 
 @bp.route("/api/intel/contract-vehicles")
 @auth_required
+@safe_route
 def api_contract_vehicles():
     """Contract vehicle advisory — which to pursue, how, when."""
     try:
@@ -534,6 +549,7 @@ def api_contract_vehicles():
 
 @bp.route("/intel/growth-discovery")
 @auth_required
+@safe_page
 def page_growth_discovery():
     """Growth Discovery Dashboard — new agencies, DVBE math, DBE, contract vehicles."""
     return render_page("growth_discovery.html", active_page="Intelligence")
@@ -541,6 +557,7 @@ def page_growth_discovery():
 
 @bp.route("/api/intel/growth")
 @auth_required
+@safe_route
 def api_intel_growth():
     """Full growth intelligence JSON — gaps, win-back, competitors, recs."""
     try:
@@ -556,6 +573,7 @@ def api_intel_growth():
 
 @bp.route("/buyers")
 @auth_required
+@safe_page
 def page_buyers():
     """SCPRS Buyers — every buyer who purchases items we can supply."""
     return render_page("buyers.html", active_page="Buyers")
@@ -563,6 +581,7 @@ def page_buyers():
 
 @bp.route("/api/buyers")
 @auth_required
+@safe_route
 def api_buyers():
     """Get all SCPRS buyers with spend, items, and catalog overlap."""
     try:
@@ -656,6 +675,7 @@ def api_buyers():
 
 @bp.route("/api/buyers/save-draft", methods=["POST"])
 @auth_required
+@safe_route
 def api_buyers_save_draft():
     """Save an outreach email draft to the outbox."""
     try:
@@ -693,6 +713,7 @@ def api_buyers_save_draft():
 
 @bp.route("/api/buyers/start-nurture", methods=["POST"])
 @auth_required
+@safe_route
 def api_buyers_start_nurture():
     """Convert SCPRS buyers into leads and start nurture sequences."""
     try:
@@ -759,6 +780,7 @@ def api_buyers_start_nurture():
 # ═══════════════════════════════════════════════════════════════════════════════
 @bp.route("/intel/competitors")
 @auth_required
+@safe_page
 def page_intel_competitors():
     """Competitor Intelligence Dashboard — who sells what, contract vehicles, DVBE opportunities."""
     return render_page("competitor_intel.html", active_page="Intelligence")
@@ -771,6 +793,7 @@ def page_intel_competitors():
 
 @bp.route("/api/intel/scprs/pull", methods=["POST"])
 @auth_required
+@safe_route
 def api_scprs_universal_pull():
     """Trigger full SCPRS pull for all agencies."""
     try:
@@ -785,6 +808,7 @@ def api_scprs_universal_pull():
 
 @bp.route("/api/intel/scprs/status")
 @auth_required
+@safe_route
 def api_scprs_universal_status():
     try:
         from src.agents.scprs_universal_pull import get_pull_status
@@ -795,6 +819,7 @@ def api_scprs_universal_status():
 
 @bp.route("/api/intel/scprs/intelligence")
 @auth_required
+@safe_route
 def api_scprs_intelligence():
     try:
         from src.agents.scprs_universal_pull import get_universal_intelligence
@@ -806,6 +831,7 @@ def api_scprs_intelligence():
 
 @bp.route("/api/intel/scprs/close-lost", methods=["POST"])
 @auth_required
+@safe_route
 def api_scprs_check_close_lost():
     """Run quote auto-close check against SCPRS now."""
     try:
@@ -820,6 +846,7 @@ def api_scprs_check_close_lost():
 
 @bp.route("/api/manager/recommendations")
 @auth_required
+@safe_route
 def api_manager_recommendations():
     """Intelligent action recommendations from manager agent."""
     try:
@@ -831,6 +858,7 @@ def api_manager_recommendations():
 
 @bp.route("/intel/scprs")
 @auth_required
+@safe_page
 def page_intel_scprs():
     """Universal SCPRS Intelligence Dashboard — all agencies, all products."""
     try:
@@ -883,6 +911,7 @@ def page_intel_scprs():
 
 @bp.route("/api/cchcs/intel/pull", methods=["POST"])
 @auth_required
+@safe_route
 def api_cchcs_intel_pull():
     """Trigger CCHCS SCPRS purchasing data pull in background."""
     try:
@@ -897,6 +926,7 @@ def api_cchcs_intel_pull():
 
 @bp.route("/api/cchcs/intel/status")
 @auth_required
+@safe_route
 def api_cchcs_intel_status():
     """Check CCHCS intel pull status and DB record counts."""
     try:
@@ -911,6 +941,7 @@ def api_cchcs_intel_status():
 
 @bp.route("/api/cchcs/intel/data")
 @auth_required
+@safe_route
 def api_cchcs_intel_data():
     """Full CCHCS purchasing intelligence: gaps, win-backs, suppliers, facilities."""
     try:
@@ -928,6 +959,7 @@ def api_cchcs_intel_data():
 
 @bp.route("/vendors")
 @auth_required
+@safe_page
 def page_vendors():
     """Vendor management — API status, enriched list, ordering capabilities."""
     from src.agents.vendor_ordering_agent import get_enriched_vendor_list, get_agent_status as _voas, get_vendor_orders
@@ -1006,6 +1038,7 @@ def page_vendors():
 
 @bp.route("/api/vendor/status")
 @auth_required
+@safe_route
 def api_vendor_status():
     """Vendor ordering agent status + setup guide."""
     from src.agents.vendor_ordering_agent import get_agent_status as _voas
@@ -1014,6 +1047,7 @@ def api_vendor_status():
 
 @bp.route("/api/vendor/search")
 @auth_required
+@safe_route
 def api_vendor_search():
     """Search a vendor catalog.
     ?vendor=grainger&q=nitrile+gloves
@@ -1043,6 +1077,7 @@ def api_vendor_search():
 
 @bp.route("/api/vendor/compare")
 @auth_required
+@safe_route
 def api_vendor_compare():
     """Compare prices across all vendors for a product.
     ?q=nitrile+gloves+medium&qty=10
@@ -1063,6 +1098,7 @@ def api_vendor_compare():
 
 @bp.route("/api/vendor/order", methods=["POST"])
 @auth_required
+@safe_route
 def api_vendor_order():
     """Place a vendor order or email PO.
     POST {vendor_key, items: [{description, quantity, unit_price}], po_number, quote_number}
@@ -1100,6 +1136,7 @@ def api_vendor_order():
 
 @bp.route("/api/vendor/orders")
 @auth_required
+@safe_route
 def api_vendor_orders():
     """Get vendor order history."""
     status_filter = request.args.get("status")
@@ -1117,6 +1154,7 @@ def api_vendor_orders():
 
 @bp.route("/api/vendor/enrich", methods=["POST"])
 @auth_required
+@safe_route
 def api_vendor_enrich():
     """Get enriched vendor list with API metadata."""
     try:
@@ -1131,6 +1169,7 @@ def api_vendor_enrich():
 
 @bp.route("/api/cs/classify", methods=["POST"])
 @auth_required
+@safe_route
 def api_cs_classify():
     """Classify an email as an update request and get its intent.
     POST {subject, body, sender}
@@ -1150,6 +1189,7 @@ def api_cs_classify():
 
 @bp.route("/api/cs/draft", methods=["POST"])
 @auth_required
+@safe_route
 def api_cs_draft():
     """Build a CS response draft for an inbound email.
     POST {subject, body, sender}
@@ -1170,6 +1210,7 @@ def api_cs_draft():
 
 @bp.route("/api/cs/drafts", methods=["GET"])
 @auth_required
+@safe_route
 def api_cs_drafts():
     """Get all pending CS drafts from the outbox."""
     try:
@@ -1182,6 +1223,7 @@ def api_cs_drafts():
 
 @bp.route("/api/cs/call", methods=["POST"])
 @auth_required
+@safe_route
 def api_cs_call():
     """Place a CS follow-up call via Vapi.
     POST {phone_number, context: {intent, po_number, quote_number, institution, buyer_name}}
@@ -1200,6 +1242,7 @@ def api_cs_call():
 
 @bp.route("/api/cs/status", methods=["GET"])
 @auth_required
+@safe_route
 def api_cs_status():
     """Get CS agent status."""
     try:
@@ -1210,6 +1253,7 @@ def api_cs_status():
 
 @bp.route("/debug")
 @auth_required
+@safe_page
 def debug_agent():
     """Live debug + monitoring agent — system health, data flow, automation status."""
     return render_page("debug.html", active_page="Intel", title="Debug Agent")
@@ -1217,6 +1261,7 @@ def debug_agent():
 
 @bp.route("/api/debug/run")
 @auth_required
+@safe_route
 def api_debug_run():
     """Run all debug checks and return JSON results. Used by /debug page."""
     results = {}
@@ -1341,6 +1386,7 @@ def api_debug_run():
 
 @bp.route("/api/debug/fix/<fix_name>", methods=["POST"])
 @auth_required
+@safe_route
 def api_debug_fix(fix_name):
     """Run an automated fix. fix_name: seed_demo | sync_crm | clear_cache | reset_counter"""
     if fix_name == "seed_demo":
@@ -1376,6 +1422,7 @@ def api_debug_fix(fix_name):
 
 @bp.route("/search-intel")  # Moved to /search-intel — primary /search is in routes_search.py
 @auth_required
+@safe_page
 def universal_search_page_intel():
     """Universal search page (legacy intel version) — primary /search is in routes_search.py."""
     q = (_sanitize_input(request.args.get("q", "")) or "").strip()
@@ -1635,6 +1682,7 @@ def universal_search_page_intel():
 
 @bp.route("/quotes")
 @auth_required
+@safe_page
 def quotes_list():
     """Browse / search all generated Reytech quotes with win/loss tracking."""
     if not QUOTE_GEN_AVAILABLE:
@@ -1828,6 +1876,7 @@ def _get_package_files(qt, source_link):
 
 @bp.route("/quote/<qn>")
 @auth_required
+@safe_page
 def quote_detail(qn):
     """Dedicated quote detail page."""
     if not QUOTE_GEN_AVAILABLE:
@@ -2031,6 +2080,7 @@ def quote_detail(qn):
 
 @bp.route("/api/quote/<qn>/update-email", methods=["POST"])
 @auth_required
+@safe_route
 def api_quote_update_email(qn):
     """Update contact email on a quote (for quotes missing buyer email)."""
     try:
@@ -2060,6 +2110,7 @@ def api_quote_update_email(qn):
 
 @bp.route("/api/quote/<qn>/convert-to-order", methods=["POST"])
 @auth_required
+@safe_route
 def api_quote_convert_to_order(qn):
     """One-click conversion of a quote to an order. Pre-fills from quote data."""
     if not QUOTE_GEN_AVAILABLE:
@@ -2106,6 +2157,7 @@ def api_quote_convert_to_order(qn):
 
 @bp.route("/pipeline")
 @auth_required
+@safe_page
 def pipeline_page():
     """Autonomous pipeline dashboard — full funnel visibility."""
     quotes = [q for q in get_all_quotes() if not q.get("is_test")]
@@ -2240,6 +2292,7 @@ def pipeline_page():
 
 @bp.route("/api/pipeline/stats")
 @auth_required
+@safe_route
 def api_pipeline_stats():
     """Full pipeline statistics as JSON."""
     quotes = [q for q in get_all_quotes() if not q.get("is_test")]
@@ -2275,6 +2328,7 @@ def api_pipeline_stats():
 
 @bp.route("/api/pipeline/analyze-reply", methods=["POST"])
 @auth_required
+@safe_route
 def api_analyze_reply():
     """Analyze an email reply for win/loss/question signals.
     POST: {subject, body, sender}"""
@@ -2313,6 +2367,7 @@ def api_analyze_reply():
 
 @bp.route("/api/predict/win")
 @auth_required
+@safe_route
 def api_predict_win():
     """Predict win probability for an institution/agency.
     GET ?institution=CSP-Sacramento&agency=CDCR&value=5000"""
@@ -2330,6 +2385,7 @@ def api_predict_win():
 
 @bp.route("/api/predict/batch", methods=["POST"])
 @auth_required
+@safe_route
 def api_predict_batch():
     """Batch predict for multiple opportunities. POST JSON: [{institution, agency, value}, ...]"""
     if not PREDICT_AVAILABLE:
@@ -2349,6 +2405,7 @@ def api_predict_batch():
 
 @bp.route("/api/intel/competitors/predict")
 @auth_required
+@safe_route
 def api_competitor_insights():
     """Competitor intelligence from prediction module (supplementary).
     GET ?institution=...&agency=...&limit=20"""
@@ -2366,6 +2423,7 @@ def api_competitor_insights():
 
 @bp.route("/api/shipping/scan-email", methods=["POST"])
 @auth_required
+@safe_route
 def api_shipping_scan():
     """Scan an email for shipping/tracking info. POST: {subject, body, sender}"""
     if not PREDICT_AVAILABLE:
@@ -2424,6 +2482,7 @@ TEST_PC_FIXTURE = {
 
 @bp.route("/api/test/create-pc")
 @auth_required
+@safe_route
 def api_test_create_pc():
     """Create a test Price Check with fixture data. Flagged as is_test=True."""
     from copy import deepcopy
@@ -2463,6 +2522,7 @@ def api_test_create_pc():
 
 @bp.route("/api/test/cleanup")
 @auth_required
+@safe_route
 def api_test_cleanup():
     """Remove all test records and optionally reset quote counter."""
     reset_counter = request.args.get("reset_counter", "false").lower() == "true"
@@ -2527,6 +2587,7 @@ def api_test_cleanup():
 
 @bp.route("/api/test/status")
 @auth_required
+@safe_route
 def api_test_status():
     """Show current test data in the system."""
     pcs = _load_price_checks()
@@ -2715,6 +2776,7 @@ except Exception:
 
 @bp.route("/api/identify", methods=["POST"])
 @auth_required
+@safe_route
 def api_identify_item():
     """Identify a single item. POST JSON: {"description": "...", "qty": 22, "uom": "EA"}"""
     if not ITEM_ID_AVAILABLE:
@@ -2729,6 +2791,7 @@ def api_identify_item():
 
 @bp.route("/api/identify/pc/<pcid>")
 @auth_required
+@safe_route
 def api_identify_pc(pcid):
     """Run item identification on all items in a Price Check."""
     if not ITEM_ID_AVAILABLE:
@@ -2765,6 +2828,7 @@ def api_identify_pc(pcid):
 
 @bp.route("/api/agents/status")
 @auth_required
+@safe_route
 def api_agents_status():
     """Status of all agents."""
     agents = {
@@ -2821,6 +2885,7 @@ def api_agents_status():
 
 @bp.route("/api/qa/workflow", methods=["GET","POST"])
 @auth_required
+@safe_route
 def api_qa_workflow_run():
     if not _WF_AVAILABLE:
         return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
@@ -2833,6 +2898,7 @@ def api_qa_workflow_run():
 
 @bp.route("/api/qa/workflow/latest")
 @auth_required
+@safe_route
 def api_qa_workflow_latest():
     if not _WF_AVAILABLE:
         return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
@@ -2841,6 +2907,7 @@ def api_qa_workflow_latest():
 
 @bp.route("/api/qa/workflow/history")
 @auth_required
+@safe_route
 def api_qa_workflow_history():
     if not _WF_AVAILABLE:
         return jsonify({"ok": False, "error": "workflow_tester not available"}), 503
@@ -2853,6 +2920,7 @@ def api_qa_workflow_history():
 
 @bp.route("/qa/workflow")
 @auth_required
+@safe_page
 def qa_workflow_page():
     return """<!DOCTYPE html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2934,6 +3002,7 @@ loadLatest();loadHistory();
 
 @bp.route("/api/qa/scan")
 @auth_required
+@safe_route
 def api_qa_scan():
     """Run full QA scan across all pages and source files."""
     if not QA_AVAILABLE:
@@ -2948,6 +3017,7 @@ def api_qa_scan():
 
 @bp.route("/api/qa/health")
 @auth_required
+@safe_route
 def api_qa_health():
     """Run health check — routes, data, agents, env, code metrics.
     ?checks=routes,data,agents"""
@@ -2968,6 +3038,7 @@ def api_qa_health():
 
 @bp.route("/api/qa/trend")
 @auth_required
+@safe_route
 def api_qa_trend():
     """Health score trend over time."""
     if not QA_AVAILABLE:
@@ -2979,6 +3050,7 @@ def api_qa_trend():
 
 @bp.route("/api/manager/brief/debug")
 @auth_required
+@safe_route
 def api_manager_brief_debug():
     """Debug endpoint — shows exactly what throws in generate_brief() on this environment."""
     import traceback
@@ -3015,6 +3087,7 @@ _BRIEF_TTL = 120  # seconds (was 30 — too short for 6.5s avg generation)
 
 @bp.route("/api/manager/brief")
 @auth_required
+@safe_route
 def api_manager_brief():
     """Manager brief — everything you need to know right now.  Server-side 30s TTL cache."""
     import time as _time
@@ -3117,6 +3190,7 @@ def api_manager_brief():
 
 @bp.route("/api/manager/metrics")
 @auth_required
+@safe_route
 def api_manager_metrics():
     """Power BI-style metrics for dashboard KPIs."""
     if not MANAGER_AVAILABLE:
@@ -3288,6 +3362,7 @@ def api_manager_metrics():
 
 @bp.route("/api/workflow/run", methods=["POST"])
 @auth_required
+@safe_route
 def api_workflow_run():
     """Execute a named workflow pipeline."""
     if not ORCHESTRATOR_AVAILABLE:
@@ -3303,6 +3378,7 @@ def api_workflow_run():
 
 @bp.route("/api/workflow/status")
 @auth_required
+@safe_route
 def api_workflow_status():
     """Orchestrator status and run history."""
     if not ORCHESTRATOR_AVAILABLE:
@@ -3312,6 +3388,7 @@ def api_workflow_status():
 
 @bp.route("/api/workflow/graph/<name>")
 @auth_required
+@safe_route
 def api_workflow_graph(n):
     """Get workflow graph structure for visualization."""
     if not ORCHESTRATOR_AVAILABLE:
@@ -3323,6 +3400,7 @@ def api_workflow_graph(n):
 
 @bp.route("/api/scanner/start", methods=["POST"])
 @auth_required
+@safe_route
 def api_scanner_start():
     """Start the SCPRS opportunity scanner."""
     if not SCANNER_AVAILABLE:
@@ -3335,6 +3413,7 @@ def api_scanner_start():
 
 @bp.route("/api/scanner/stop", methods=["POST"])
 @auth_required
+@safe_route
 def api_scanner_stop():
     """Stop the SCPRS opportunity scanner."""
     if not SCANNER_AVAILABLE:
@@ -3345,6 +3424,7 @@ def api_scanner_stop():
 
 @bp.route("/api/scanner/scan", methods=["POST"])
 @auth_required
+@safe_route
 def api_scanner_manual():
     """Run a single scan manually."""
     if not SCANNER_AVAILABLE:
@@ -3355,6 +3435,7 @@ def api_scanner_manual():
 
 @bp.route("/api/scanner/status")
 @auth_required
+@safe_route
 def api_scanner_status():
     """Get scanner status."""
     if not SCANNER_AVAILABLE:
@@ -3366,6 +3447,7 @@ def api_scanner_status():
 
 @bp.route("/api/qb/connect")
 @auth_required
+@safe_route
 def api_qb_connect():
     """Start QuickBooks OAuth2 flow — redirects to Intuit login."""
     if not QB_AVAILABLE:
@@ -3433,6 +3515,7 @@ def api_qb_callback():
 
 @bp.route("/api/qb/status")
 @auth_required
+@safe_route
 def api_qb_status():
     """QuickBooks connection status."""
     if not QB_AVAILABLE:
@@ -3442,6 +3525,7 @@ def api_qb_status():
 
 @bp.route("/api/qb/vendors")
 @auth_required
+@safe_route
 def api_qb_vendors():
     """List QuickBooks vendors."""
     if not QB_AVAILABLE:
@@ -3455,6 +3539,7 @@ def api_qb_vendors():
 
 @bp.route("/api/qb/vendors/find")
 @auth_required
+@safe_route
 def api_qb_vendor_find():
     """Find a vendor by name. ?name=Amazon"""
     if not QB_AVAILABLE or not qb_configured():
@@ -3470,6 +3555,7 @@ def api_qb_vendor_find():
 
 @bp.route("/api/qb/vendors/create", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_vendor_create():
     """Create a new vendor in QuickBooks. POST {name, email, phone}"""
     if not QB_AVAILABLE or not qb_configured():
@@ -3504,6 +3590,7 @@ def api_qb_vendor_create():
 
 @bp.route("/api/qb/po/create", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_create_po():
     """Create a Purchase Order in QuickBooks."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3523,6 +3610,7 @@ def api_qb_create_po():
 
 @bp.route("/api/qb/pos")
 @auth_required
+@safe_route
 def api_qb_recent_pos():
     """Get recent Purchase Orders from QuickBooks."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3537,6 +3625,7 @@ def api_qb_recent_pos():
 
 @bp.route("/api/qb/invoices")
 @auth_required
+@safe_route
 def api_qb_invoices():
     """Get invoices from QuickBooks. ?status=open|overdue|paid|all"""
     if not QB_AVAILABLE or not qb_configured():
@@ -3549,6 +3638,7 @@ def api_qb_invoices():
 
 @bp.route("/api/qb/invoices/summary")
 @auth_required
+@safe_route
 def api_qb_invoice_summary():
     """Get invoice metrics: open, overdue, paid counts and totals."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3558,6 +3648,7 @@ def api_qb_invoice_summary():
 
 @bp.route("/api/qb/invoices/create", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_create_invoice():
     """Create an invoice in QuickBooks.
     POST: {customer_id, items: [{description, qty, unit_price}], po_number, memo}"""
@@ -3576,6 +3667,7 @@ def api_qb_create_invoice():
 
 @bp.route("/api/qb/customers")
 @auth_required
+@safe_route
 def api_qb_customers():
     """List QuickBooks customers with balances."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3587,6 +3679,7 @@ def api_qb_customers():
 
 @bp.route("/api/qb/customers/create", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_customer_create():
     """Create a new customer in QuickBooks. POST {name, email, bill_address}"""
     if not QB_AVAILABLE or not qb_configured():
@@ -3611,6 +3704,7 @@ def api_qb_customer_create():
 
 @bp.route("/api/qb/customers/balances")
 @auth_required
+@safe_route
 def api_qb_customer_balances():
     """Customer balance summary: total AR, top balances."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3620,6 +3714,7 @@ def api_qb_customer_balances():
 
 @bp.route("/api/qb/financial-context")
 @auth_required
+@safe_route
 def api_qb_financial_context():
     """Comprehensive financial snapshot for all agents.
     Pulls invoices, customers, vendors — cached 1 hour."""
@@ -3632,6 +3727,7 @@ def api_qb_financial_context():
 
 @bp.route("/api/qb/company")
 @auth_required
+@safe_route
 def api_qb_company_info():
     """Get QuickBooks company information."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3644,6 +3740,7 @@ def api_qb_company_info():
 
 @bp.route("/api/qb/pnl")
 @auth_required
+@safe_route
 def api_qb_profit_loss():
     """Get Profit & Loss report. ?start=2026-01-01&end=2026-12-31"""
     if not QB_AVAILABLE or not qb_configured():
@@ -3658,6 +3755,7 @@ def api_qb_profit_loss():
 
 @bp.route("/api/qb/aging")
 @auth_required
+@safe_route
 def api_qb_ar_aging():
     """Get AR Aging Summary report."""
     if not QB_AVAILABLE or not qb_configured():
@@ -3670,6 +3768,7 @@ def api_qb_ar_aging():
 
 @bp.route("/api/qb/payments")
 @auth_required
+@safe_route
 def api_qb_recent_payments():
     """Get recent payments received. ?days=30"""
     if not QB_AVAILABLE or not qb_configured():
@@ -3681,6 +3780,7 @@ def api_qb_recent_payments():
 
 @bp.route("/api/qb/diagnose")
 @auth_required
+@safe_route
 def api_qb_diagnose():
     """Full diagnostic of QB connection — token status, API reachability."""
     if not QB_AVAILABLE:
@@ -3691,6 +3791,7 @@ def api_qb_diagnose():
 
 @bp.route("/api/qb/sync-vendors", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_sync_vendors():
     """Pull QB vendors and merge into product catalog as suppliers."""
     if not QB_AVAILABLE:
@@ -3717,6 +3818,7 @@ def api_qb_sync_vendors():
 
 @bp.route("/api/qb/auto-invoice", methods=["POST"])
 @auth_required
+@safe_route
 def api_qb_auto_invoice():
     """Create QB invoice from a won PC/quote."""
     if not QB_AVAILABLE:
@@ -3767,6 +3869,7 @@ def api_qb_auto_invoice():
 
 @bp.route("/quickbooks")
 @auth_required
+@safe_page
 def quickbooks_dashboard():
     """QuickBooks integration dashboard."""
     from src.api.render import render_page
@@ -3777,6 +3880,7 @@ def quickbooks_dashboard():
 
 @bp.route("/api/crm/activity")
 @auth_required
+@safe_route
 def api_crm_activity():
     """Get CRM activity feed. ?ref_id=R26Q1&type=quote_won&institution=CSP&limit=50"""
     ref_id = request.args.get("ref_id")
@@ -3790,6 +3894,7 @@ def api_crm_activity():
 
 @bp.route("/api/crm/activity", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_log_activity():
     """Manually log a CRM activity. POST JSON {ref_id, event_type, description}"""
     data = request.get_json(silent=True) or {}
@@ -3805,6 +3910,7 @@ def api_crm_log_activity():
 
 @bp.route("/api/crm/agency/<agency_name>")
 @auth_required
+@safe_route
 def api_crm_agency_summary(agency_name):
     """Agency CRM summary — quotes, win rate, recent activity, last contact."""
     if not QUOTE_GEN_AVAILABLE:
@@ -3916,6 +4022,7 @@ def _get_or_create_crm_contact(prospect_id: str, prospect: dict = None) -> dict:
 
 @bp.route("/api/crm/contact/<contact_id>/log", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_contact_log(contact_id):
     """Log an activity (email, call, chat, note) for a contact.
     POST JSON: {event_type, detail, actor, subject?, direction?, outcome?, channel?, duration?}
@@ -3999,6 +4106,7 @@ def api_crm_contact_log(contact_id):
 
 @bp.route("/api/crm/contact/<contact_id>")
 @auth_required
+@safe_route
 def api_crm_contact_get(contact_id):
     """Get full CRM contact record including all logged activity."""
     contacts = _load_crm_contacts()
@@ -4022,6 +4130,7 @@ def api_crm_contact_get(contact_id):
 
 @bp.route("/api/crm/contact/<contact_id>", methods=["PATCH"])
 @auth_required
+@safe_route
 def api_crm_contact_update(contact_id):
     """Update manual contact fields: name, phone, title, linkedin, notes, tags."""
     data = request.get_json(silent=True) or {}
@@ -4059,6 +4168,7 @@ def api_crm_contact_update(contact_id):
 
 @bp.route("/api/crm/contact/<contact_id>/delete", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_contact_delete(contact_id):
     """Delete or hide a CRM contact. POST JSON: {mode: 'hide'|'delete'}"""
     data = request.get_json(silent=True) or {}
@@ -4092,6 +4202,7 @@ def api_crm_contact_delete(contact_id):
 
 @bp.route("/api/crm/contact/<contact_id>/tags", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_contact_tags(contact_id):
     """Add or remove tags. POST JSON: {action:'add'|'remove', tag:'Buyer'}"""
     data = request.get_json(silent=True) or {}
@@ -4145,6 +4256,7 @@ def is_ignored_email(email: str) -> bool:
 
 @bp.route("/api/crm/ignore-list")
 @auth_required
+@safe_route
 def api_crm_ignore_list():
     """Get the email ignore list."""
     return jsonify({"ok": True, "entries": _load_ignore_list()})
@@ -4152,6 +4264,7 @@ def api_crm_ignore_list():
 
 @bp.route("/api/crm/ignore-list", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_ignore_list_add():
     """Add/remove from ignore list. POST JSON: {email, action:'add'|'remove', reason?}"""
     data = request.get_json(silent=True) or {}
@@ -4171,6 +4284,7 @@ def api_crm_ignore_list_add():
 
 @bp.route("/api/crm/contacts")
 @auth_required
+@safe_route
 def api_crm_contacts_list():
     """List all CRM contacts with activity counts and last interaction."""
     contacts = _load_crm_contacts()
@@ -4202,6 +4316,7 @@ def api_crm_contacts_list():
 
 @bp.route("/api/crm/sync-intel", methods=["POST"])
 @auth_required
+@safe_route
 def api_crm_sync_intel():
     """Sync all intel buyers into CRM contacts store.
     Preserves manual fields (phone, title, linkedin, notes, activity).
@@ -4218,6 +4333,7 @@ def api_crm_sync_intel():
 
 @bp.route("/api/shipping/detected")
 @auth_required
+@safe_route
 def api_shipping_detected():
     """Get recently detected shipping emails."""
     ship_file = os.path.join(DATA_DIR, "detected_shipments.json")
@@ -4252,6 +4368,7 @@ def _get_weighted_pipeline_cached() -> float:
 
 @bp.route("/api/funnel/stats")
 @auth_required
+@safe_route
 def api_funnel_stats():
     """Pipeline funnel stats — full business pipeline including Price Checks.
     
@@ -4459,6 +4576,7 @@ def api_funnel_stats():
 
 @bp.route("/api/leads")
 @auth_required
+@safe_route
 def api_leads_list():
     """Get leads, optionally filtered. ?status=new&min_score=0.6&limit=20"""
     if not LEADGEN_AVAILABLE:
@@ -4472,6 +4590,7 @@ def api_leads_list():
 
 @bp.route("/api/leads/evaluate", methods=["POST"])
 @auth_required
+@safe_route
 def api_leads_evaluate():
     """Evaluate a PO as a potential lead. POST JSON with PO data."""
     if not LEADGEN_AVAILABLE:
@@ -4495,6 +4614,7 @@ def api_leads_evaluate():
 
 @bp.route("/api/leads/<lead_id>/status", methods=["POST"])
 @auth_required
+@safe_route
 def api_leads_update_status(lead_id):
     """Update lead status. POST JSON: {"status": "contacted", "notes": "..."}"""
     if not LEADGEN_AVAILABLE:
@@ -4506,6 +4626,7 @@ def api_leads_update_status(lead_id):
 
 @bp.route("/api/leads/<lead_id>/draft")
 @auth_required
+@safe_route
 def api_leads_draft(lead_id):
     """Get outreach email draft for a lead."""
     if not LEADGEN_AVAILABLE:
@@ -4520,6 +4641,7 @@ def api_leads_draft(lead_id):
 
 @bp.route("/api/leads/analytics")
 @auth_required
+@safe_route
 def api_leads_analytics():
     """Lead conversion analytics."""
     if not LEADGEN_AVAILABLE:
@@ -4531,6 +4653,7 @@ def api_leads_analytics():
 
 @bp.route("/api/outbox")
 @auth_required
+@safe_route
 def api_outbox_list():
     """Get email outbox. ?status=draft"""
     if not OUTREACH_AVAILABLE:
@@ -4542,6 +4665,7 @@ def api_outbox_list():
 
 @bp.route("/api/outbox/draft/pc/<pcid>", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_draft_pc(pcid):
     """Draft a buyer email for a completed PC."""
     if not OUTREACH_AVAILABLE:
@@ -4559,6 +4683,7 @@ def api_outbox_draft_pc(pcid):
 
 @bp.route("/api/outbox/draft/lead/<lead_id>", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_draft_lead(lead_id):
     """Draft outreach email for a lead."""
     if not OUTREACH_AVAILABLE or not LEADGEN_AVAILABLE:
@@ -4573,6 +4698,7 @@ def api_outbox_draft_lead(lead_id):
 
 @bp.route("/api/outbox/<email_id>/approve", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_approve(email_id):
     """Approve a draft email for sending."""
     if not OUTREACH_AVAILABLE:
@@ -4582,6 +4708,7 @@ def api_outbox_approve(email_id):
 
 @bp.route("/api/outbox/<email_id>/edit", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_edit(email_id):
     """Edit a draft. POST JSON: {"to": "...", "subject": "...", "body": "..."}"""
     if not OUTREACH_AVAILABLE:
@@ -4592,6 +4719,7 @@ def api_outbox_edit(email_id):
 
 @bp.route("/api/outbox/<email_id>/send", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_send(email_id):
     """Send a specific email."""
     if not OUTREACH_AVAILABLE:
@@ -4601,6 +4729,7 @@ def api_outbox_send(email_id):
 
 @bp.route("/api/outbox/send-approved", methods=["POST"])
 @auth_required
+@safe_route
 def api_outbox_send_all():
     """Send all approved emails."""
     if not OUTREACH_AVAILABLE:
@@ -4610,6 +4739,7 @@ def api_outbox_send_all():
 
 @bp.route("/api/outbox/<email_id>", methods=["DELETE"])
 @auth_required
+@safe_route
 def api_outbox_delete(email_id):
     """Delete an email from outbox."""
     if not OUTREACH_AVAILABLE:
@@ -4619,6 +4749,7 @@ def api_outbox_delete(email_id):
 
 @bp.route("/api/outbox/sent")
 @auth_required
+@safe_route
 def api_outbox_sent_log():
     """Get sent email log."""
     if not OUTREACH_AVAILABLE:
@@ -4636,6 +4767,7 @@ def api_outbox_sent_log():
 # ── Notifications API ─────────────────────────────────────────────────────────
 @bp.route("/api/notifications")
 @auth_required
+@safe_route
 def api_notifications():
     """Get dashboard notifications (auto-draft alerts, etc.)."""
     unread = [n for n in _notifications if not n.get("read")]
@@ -4918,6 +5050,7 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
 
 @bp.route("/api/intel/pull/schedule", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_intel_pull_schedule():
     """Configure SCPRS auto-pull schedule.
 
@@ -4978,6 +5111,7 @@ def api_intel_pull_schedule():
 
 @bp.route("/api/quotes/win-probability")
 @auth_required
+@safe_route
 def api_win_probability():
     """Score all open quotes with win probability (0-100).
 
@@ -4996,6 +5130,7 @@ def api_win_probability():
 
 @bp.route("/api/quotes/<qn>/win-probability")
 @auth_required
+@safe_route
 def api_quote_win_probability(qn):
     """Score a single quote."""
     try:
@@ -5015,6 +5150,7 @@ def api_quote_win_probability(qn):
 
 @bp.route("/api/agent/context")
 @auth_required
+@safe_route
 def api_agent_context():
     """Return full DB context snapshot for any agent to consume.
     Implements Anthropic Skills Guide Pattern 5: Domain-Specific Intelligence.
@@ -5054,6 +5190,7 @@ def api_agent_context():
 
 @bp.route("/api/intel/status")
 @auth_required
+@safe_route
 def api_intel_status():
     """Full intelligence status — buyers, agencies, revenue tracker."""
     if not INTEL_AVAILABLE:
@@ -5076,6 +5213,7 @@ def api_intel_status():
 
 @bp.route("/api/intel/scprs-test")
 @auth_required
+@safe_route
 def api_intel_scprs_test():
     """Test SCPRS connectivity from Railway and return detailed result."""
     try:
@@ -5100,6 +5238,7 @@ def api_intel_scprs_test():
 
 @bp.route("/api/intel/deep-pull")
 @auth_required
+@safe_route
 def api_intel_deep_pull():
     """Deep pull ALL buyers from SCPRS across all product categories. Long-running."""
     if not INTEL_AVAILABLE:
@@ -5135,6 +5274,7 @@ def api_intel_deep_pull():
 
 @bp.route("/api/intel/pull-status")
 @auth_required
+@safe_route
 def api_intel_pull_status():
     """Check deep pull progress."""
     if not INTEL_AVAILABLE:
@@ -5144,6 +5284,7 @@ def api_intel_pull_status():
 
 @bp.route("/api/intel/priority-queue")
 @auth_required
+@safe_route
 def api_intel_priority_queue():
     """Get prioritized outreach queue — highest opportunity buyers first."""
     if not INTEL_AVAILABLE:
@@ -5164,6 +5305,7 @@ def api_intel_priority_queue():
 
 @bp.route("/api/intel/push-prospects")
 @auth_required
+@safe_route
 def api_intel_push_prospects():
     """Push top priority buyers into Growth Agent prospect pipeline."""
     if not INTEL_AVAILABLE:
@@ -5174,6 +5316,7 @@ def api_intel_push_prospects():
 
 @bp.route("/api/intel/revenue")
 @auth_required
+@safe_route
 def api_intel_revenue():
     """Revenue tracker — YTD vs $2M goal."""
     if not INTEL_AVAILABLE:
@@ -5183,6 +5326,7 @@ def api_intel_revenue():
 
 @bp.route("/api/intel/revenue", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_add_revenue():
     """Add manual revenue entry. POST JSON: {amount, description, date}"""
     if not INTEL_AVAILABLE:
@@ -5197,6 +5341,7 @@ def api_intel_add_revenue():
 
 @bp.route("/api/intel/sb-admin/<agency>")
 @auth_required
+@safe_route
 def api_intel_sb_admin(agency):
     """Find the SB admin/liaison for an agency."""
     if not INTEL_AVAILABLE:
@@ -5206,6 +5351,7 @@ def api_intel_sb_admin(agency):
 
 @bp.route("/api/intel/sb-admin-match")
 @auth_required
+@safe_route
 def api_intel_sb_admin_match():
     """Match SB admin contacts to all agencies in the database."""
     if not INTEL_AVAILABLE:
@@ -5215,6 +5361,7 @@ def api_intel_sb_admin_match():
 
 @bp.route("/api/intel/buyers/add", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_buyer_add():
     """Manually add a buyer. POST JSON: {agency, email, name, phone, categories[], annual_spend, notes}"""
     if not INTEL_AVAILABLE:
@@ -5233,6 +5380,7 @@ def api_intel_buyer_add():
 
 @bp.route("/api/intel/buyers/import-csv", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_buyers_import_csv():
     """Import buyers from CSV. POST raw CSV text as body, or JSON {csv: '...'}.
     Columns: agency, email, name, phone, categories, annual_spend, notes
@@ -5251,6 +5399,7 @@ def api_intel_buyers_import_csv():
 
 @bp.route("/api/intel/seed-demo", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_seed_demo():
     """Seed the intel DB with realistic CA agency demo data (for testing/demo when SCPRS is unreachable)."""
     if not INTEL_AVAILABLE:
@@ -5260,6 +5409,7 @@ def api_intel_seed_demo():
 
 @bp.route("/api/intel/buyers/delete", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_buyer_delete():
     """Delete a buyer by id or email. POST JSON: {buyer_id} or {email}"""
     if not INTEL_AVAILABLE:
@@ -5273,6 +5423,7 @@ def api_intel_buyer_delete():
 
 @bp.route("/api/intel/buyers/clear", methods=["POST"])
 @auth_required
+@safe_route
 def api_intel_buyers_clear():
     """Clear all buyer data (start fresh). Requires confirm=true in body."""
     if not INTEL_AVAILABLE:
@@ -5292,6 +5443,7 @@ def api_intel_buyers_clear():
 
 @bp.route("/api/test/cleanup-duplicates")
 @auth_required
+@safe_route
 def api_cleanup_duplicates():
     """ONE-TIME: Deduplicate quotes_log.json and reset counter.
 
@@ -5395,6 +5547,7 @@ def api_cleanup_duplicates():
 
 @bp.route("/api/data/sync-clean")
 @auth_required
+@safe_route
 def api_data_sync_clean():
     """Deep clean production data — remove test/orphaned records, keep all real data.
     
@@ -5552,6 +5705,7 @@ def api_data_sync_clean():
 
 @bp.route("/api/test/renumber-quote")
 @auth_required
+@safe_route
 def api_renumber_quote():
     """Renumber a quote. Usage: ?old=R26Q1&new=R26Q16
     
@@ -5619,6 +5773,7 @@ def api_renumber_quote():
 
 @bp.route("/api/test/delete-quotes")
 @auth_required
+@safe_route
 def api_delete_quotes():
     """Delete specific quotes by number. Usage: ?numbers=R26Q2,R26Q3,R26Q4
 
@@ -5691,6 +5846,7 @@ def api_delete_quotes():
 
 @bp.route("/api/competitor/price-intel")
 @auth_required
+@safe_route
 def api_competitor_price_intel():
     """Analyze competitor pricing from won/lost data."""
     wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
@@ -5737,6 +5893,7 @@ def api_competitor_price_intel():
 
 @bp.route("/api/agency/leaderboard")
 @auth_required
+@safe_route
 def api_agency_leaderboard():
     """Rank agencies by revenue, order count, and growth."""
     rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
@@ -5772,6 +5929,7 @@ def api_agency_leaderboard():
 
 @bp.route("/api/product/search")
 @auth_required
+@safe_route
 def api_product_search():
     """Quick product search in catalog."""
     q = (request.args.get("q") or "").strip().lower()
@@ -5812,6 +5970,7 @@ def api_product_search():
 
 @bp.route("/api/intel/agency-penetration")
 @auth_required
+@safe_route
 def api_intel_agency_penetration():
     """How deep we've penetrated each agency — facilities, contacts, quotes."""
     try:
@@ -5868,6 +6027,7 @@ def api_intel_agency_penetration():
 
 @bp.route("/api/intel/competitive-pricing")
 @auth_required
+@safe_route
 def api_intel_competitive_pricing():
     """Suggest prices based on win/loss history and catalog data."""
     try:
@@ -5921,6 +6081,7 @@ def api_intel_competitive_pricing():
 
 @bp.route("/api/intel/revenue-by-agency")
 @auth_required
+@safe_route
 def api_intel_revenue_by_agency():
     """Revenue breakdown by agency from quotes and QB data."""
     try:
@@ -5979,6 +6140,7 @@ def api_intel_revenue_by_agency():
 
 @bp.route("/api/intel/loss-analysis")
 @auth_required
+@safe_route
 def api_loss_analysis():
     """Full loss analysis dashboard data — recent losses, patterns, margin insights."""
     try:
@@ -6048,6 +6210,7 @@ def api_loss_analysis():
 
 @bp.route("/api/intel/loss-patterns")
 @auth_required
+@safe_route
 def api_loss_patterns():
     """Detected competitive patterns and recommendations."""
     try:
@@ -6070,6 +6233,7 @@ def api_loss_patterns():
 
 @bp.route("/api/intel/loss-patterns/acknowledge", methods=["POST"])
 @auth_required
+@safe_route
 def api_acknowledge_pattern():
     """Mark a loss pattern as reviewed."""
     try:
@@ -6086,6 +6250,7 @@ def api_acknowledge_pattern():
 
 @bp.route("/api/intel/pricing-recommendation", methods=["POST"])
 @auth_required
+@safe_route
 def api_pricing_recommendation():
     """Get pricing recommendation for items about to be quoted."""
     try:
@@ -6108,6 +6273,7 @@ def api_pricing_recommendation():
 
 @bp.route("/api/intel/margin-analysis")
 @auth_required
+@safe_route
 def api_margin_analysis():
     """Margin trends — where are we too high, where too thin."""
     try:
@@ -6132,6 +6298,7 @@ def api_margin_analysis():
 
 @bp.route("/api/intel/competitor/<name>")
 @auth_required
+@safe_route
 def api_competitor_detail(name):
     """Deep dive on a specific competitor's pricing patterns."""
     try:
@@ -6166,6 +6333,7 @@ def api_competitor_detail(name):
 
 @bp.route("/api/intel/award-tracker/status")
 @auth_required
+@safe_route
 def api_award_tracker_status():
     """Award tracker status with schedule information."""
     try:
@@ -6198,6 +6366,7 @@ def api_award_tracker_status():
 
 @bp.route("/api/intel/award-tracker/run", methods=["POST"])
 @auth_required
+@safe_route
 def api_award_tracker_run():
     """Manually trigger an award check cycle."""
     try:
@@ -6212,6 +6381,7 @@ def api_award_tracker_run():
 
 @bp.route("/api/intel/win-rate-trends")
 @auth_required
+@safe_route
 def api_win_rate_trends():
     """Win rate trends over time — by period, agency, competitor."""
     try:
@@ -6230,6 +6400,7 @@ def api_win_rate_trends():
 
 @bp.route("/api/intel/supplier-auth/status")
 @auth_required
+@safe_route
 def api_supplier_auth_status():
     """Get authentication status for all login-required suppliers."""
     try:
@@ -6242,6 +6413,7 @@ def api_supplier_auth_status():
 
 @bp.route("/api/intel/supplier-auth/test", methods=["POST"])
 @auth_required
+@safe_route
 def api_supplier_auth_test():
     """Test login for a specific supplier."""
     try:
@@ -6260,6 +6432,7 @@ def api_supplier_auth_test():
 
 @bp.route("/award-monitor")
 @auth_required
+@safe_page
 def award_monitor_page():
     """Live SCPRS award monitoring dashboard."""
     return render_page("award_monitor.html", active_page="Awards")
@@ -6267,6 +6440,7 @@ def award_monitor_page():
 
 @bp.route("/api/intel/award-tracker/queue")
 @auth_required
+@safe_route
 def api_award_tracker_queue():
     """Get monitoring queue for all sent quotes."""
     try:
@@ -6281,6 +6455,7 @@ def api_award_tracker_queue():
 
 @bp.route("/api/intel/action-items")
 @auth_required
+@safe_route
 def api_action_items():
     """Get pending action items from loss analysis."""
     try:
@@ -6300,6 +6475,7 @@ def api_action_items():
 
 @bp.route("/api/intel/action-items/<int:item_id>/complete", methods=["POST"])
 @auth_required
+@safe_route
 def api_action_item_complete(item_id):
     """Mark an action item as completed."""
     try:
@@ -6313,6 +6489,7 @@ def api_action_item_complete(item_id):
 
 @bp.route("/api/intel/action-items/<int:item_id>/dismiss", methods=["POST"])
 @auth_required
+@safe_route
 def api_action_item_dismiss(item_id):
     """Dismiss an action item."""
     try:

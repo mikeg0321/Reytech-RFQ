@@ -186,6 +186,7 @@ def orders_page():
 
 @bp.route("/order/<oid>")
 @auth_required
+@safe_page
 def order_detail(oid):
     """Order detail page — line item sourcing, tracking, invoicing."""
     orders = _load_orders()
@@ -427,6 +428,7 @@ def _render_order_detail(order, oid):
 
 @bp.route("/po-upload")
 @auth_required
+@safe_page
 def po_upload_page():
     """Manual PO upload page — parse PDF, preview items, create order."""
     return render_page("po_upload.html", active_page="Orders")
@@ -434,6 +436,7 @@ def po_upload_page():
 
 @bp.route("/api/po/upload-parse", methods=["POST"])
 @auth_required
+@safe_route
 def api_po_upload_parse():
     """Upload a PO PDF, parse it, return extracted data for preview."""
     import tempfile, os as _os, re as _re
@@ -1028,6 +1031,7 @@ def api_order_lookup_suppliers(oid):
 
 @bp.route("/api/supplier/search")
 @auth_required
+@safe_route
 def api_supplier_search():
     """Quick supplier URL lookup for a part number or description. GET: ?q=B0xxx or ?q=nitrile+gloves"""
     query = request.args.get("q", "").strip()
@@ -1061,6 +1065,7 @@ def api_supplier_search():
 
 @bp.route("/api/order/<oid>/link-quote", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_link_quote(oid):
     """Link an order to a quote. Auto-populates line items with quote prices/suppliers.
     POST: {quote_number} or {} to auto-detect from PO number.
@@ -1227,6 +1232,7 @@ def api_order_delete(oid):
 
 @bp.route("/api/order/<oid>/reply-all")
 @auth_required
+@safe_route
 def api_order_reply_all(oid):
     """Draft PO confirmation reply-all email → saved to outbox for review + send."""
     orders = _load_orders()
@@ -1719,6 +1725,7 @@ def build_supplier_purchase_urls(order: dict) -> dict:
 
 @bp.route("/api/qb/health")
 @auth_required
+@safe_route
 def api_qb_health():
     """Check QuickBooks API connectivity and auth status."""
     try:
@@ -1747,6 +1754,7 @@ def api_qb_health():
 
 @bp.route("/api/drive/health")
 @auth_required
+@safe_route
 def api_drive_health():
     """Check Google Drive integration status and backup health."""
     try:
@@ -1761,6 +1769,7 @@ def api_drive_health():
 
 @bp.route("/api/drive/backup-now", methods=["POST", "GET"])
 @auth_required
+@safe_route
 def api_drive_backup_now():
     """Trigger an immediate backup to Google Drive."""
     try:
@@ -1775,6 +1784,7 @@ def api_drive_backup_now():
 
 @bp.route("/api/drive/restore", methods=["POST"])
 @auth_required
+@safe_route
 def api_drive_restore():
     """Manually trigger disaster recovery from Drive backup."""
     try:
@@ -1787,6 +1797,7 @@ def api_drive_restore():
 
 @bp.route("/api/drive/search")
 @auth_required
+@safe_route
 def api_drive_search():
     """Search the local Drive file index."""
     q = request.args.get("q", "")
@@ -1802,6 +1813,7 @@ def api_drive_search():
 
 @bp.route("/api/orders/health")
 @auth_required
+@safe_route
 def api_orders_health():
     """Return full order health report for dashboard."""
     try:
@@ -1813,6 +1825,7 @@ def api_orders_health():
 
 @bp.route("/api/orders/digest", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_orders_digest():
     """Trigger daily digest manually (always sends, bypasses daily limit)."""
     try:
@@ -1827,6 +1840,7 @@ def api_orders_digest():
 
 @bp.route("/api/orders/context/<po_number>")
 @auth_required
+@safe_route
 def api_order_context(po_number):
     """Get rich order context (used by CS agent and order status pages)."""
     try:
@@ -1838,6 +1852,7 @@ def api_order_context(po_number):
 
 @bp.route("/api/orders/test-sms")
 @auth_required
+@safe_route
 def api_test_sms():
     """Test SMS delivery directly — no async, returns full error."""
     try:
@@ -1862,6 +1877,7 @@ def api_test_sms():
 
 @bp.route("/api/orders/diagnostic")
 @auth_required
+@safe_route
 def api_orders_diagnostic():
     """Full diagnostic of all order data sources.
     Shows: SQLite orders, DB orders via DAL, what shows as urgent, and why.
@@ -1942,6 +1958,7 @@ def api_orders_diagnostic():
 
 @bp.route("/api/order/<oid>/items")
 @auth_required
+@safe_route
 def api_order_items(oid):
     """Return order line items for PO Builder."""
     orders = _load_orders()
@@ -1954,6 +1971,7 @@ def api_order_items(oid):
 
 @bp.route("/api/order/<oid>/create-qb-po", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_create_qb_po(oid):
     """Create QB Purchase Orders from order items grouped by vendor."""
     try:
@@ -2007,6 +2025,7 @@ def api_order_create_qb_po(oid):
 
 @bp.route("/api/order/<oid>/create-qb-invoice", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_create_qb_invoice(oid):
     """Create QB invoice and have QB email it to sales@reytechinc.com.
     
@@ -2134,6 +2153,7 @@ def api_order_create_qb_invoice(oid):
 
 @bp.route("/api/order/<oid>/send-invoice", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_send_invoice(oid):
     """Send the enhanced invoice (with UOM + PO#) to the customer.
     Called after the invoice PDF has been received and enhanced."""
@@ -2191,6 +2211,7 @@ def api_order_send_invoice(oid):
 
 @bp.route("/api/invoices/poll-now", methods=["POST"])
 @auth_required
+@safe_route
 def api_invoices_poll_now():
     """Manually trigger QB invoice email poll."""
     try:
@@ -2203,6 +2224,7 @@ def api_invoices_poll_now():
 
 @bp.route("/api/order/<oid>/download-invoice")
 @auth_required
+@safe_route
 def api_order_download_invoice(oid):
     """Download the enhanced invoice PDF."""
     orders = _load_orders()
@@ -2230,6 +2252,7 @@ from collections import defaultdict
 
 @bp.route("/api/pipeline/quote-to-cash", methods=["GET"])
 @auth_required
+@safe_route
 def api_quote_to_cash():
     """Quote-to-cash pipeline: track RFQs from quote through order to payment."""
     try:
@@ -2296,6 +2319,7 @@ def api_quote_to_cash():
 
 @bp.route("/api/quotes/stale", methods=["GET"])
 @auth_required
+@safe_route
 def api_stale_quotes():
     """Identify quotes that have gone stale (no activity in 14+ days)."""
     try:
@@ -2343,6 +2367,7 @@ def api_stale_quotes():
 
 @bp.route("/api/pipeline/follow-up-queue", methods=["GET"])
 @auth_required
+@safe_route
 def api_follow_up_queue():
     """Return prioritised follow-up queue from follow_up_state.json."""
     try:
@@ -2390,6 +2415,7 @@ def api_follow_up_queue():
 
 @bp.route("/api/pipeline/revenue-goal", methods=["GET"])
 @auth_required
+@safe_route
 def api_pipeline_revenue_goal():
     """Track progress toward monthly / quarterly revenue goals."""
     try:
@@ -2437,6 +2463,7 @@ def api_pipeline_revenue_goal():
 
 @bp.route("/api/pipeline/conversion-funnel", methods=["GET"])
 @auth_required
+@safe_route
 def api_conversion_funnel():
     """Show conversion rates at each pipeline stage."""
     try:
@@ -2487,6 +2514,7 @@ def api_conversion_funnel():
 
 @bp.route("/api/pipeline/avg-deal-size", methods=["GET"])
 @auth_required
+@safe_route
 def api_avg_deal_size():
     """Calculate average deal size from won quotes and orders."""
     try:
@@ -2531,6 +2559,7 @@ def api_avg_deal_size():
 
 @bp.route("/api/pipeline/daily-summary", methods=["GET"])
 @auth_required
+@safe_route
 def api_pipeline_daily_summary():
     """Daily pipeline summary: new RFQs, quotes sent, orders received today."""
     try:
@@ -2567,6 +2596,7 @@ def api_pipeline_daily_summary():
 
 @bp.route("/api/pipeline/sales-velocity", methods=["GET"])
 @auth_required
+@safe_route
 def api_sales_velocity():
     """Measure sales velocity: deals * avg_value * win_rate / cycle_time."""
     try:
@@ -2627,6 +2657,7 @@ def api_sales_velocity():
 
 @bp.route("/api/pipeline/weekly-summary", methods=["GET"])
 @auth_required
+@safe_route
 def api_pipeline_weekly_summary():
     """Weekly pipeline summary: activity over the past 7 days."""
     try:
@@ -2667,6 +2698,7 @@ def api_pipeline_weekly_summary():
 
 @bp.route("/api/pipeline/po-match", methods=["GET"])
 @auth_required
+@safe_route
 def api_po_match():
     """Match POs to quotes — find orders that reference known RFQ IDs."""
     try:
@@ -2717,6 +2749,7 @@ def api_po_match():
 
 @bp.route("/api/pipeline/auto-follow-up", methods=["POST"])
 @auth_required
+@safe_route
 def api_auto_follow_up():
     """Generate follow-up entries for stale quotes automatically."""
     try:
@@ -2776,6 +2809,7 @@ def api_auto_follow_up():
 
 @bp.route("/api/quotes/expiring", methods=["GET"])
 @auth_required
+@safe_route
 def api_expiring_quotes():
     """Find quotes expiring within N days (default 7)."""
     try:
@@ -2827,6 +2861,7 @@ def api_expiring_quotes():
 
 @bp.route("/api/pipeline/draft-follow-up", methods=["POST"])
 @auth_required
+@safe_route
 def api_draft_follow_up():
     """Draft a follow-up email for a specific RFQ."""
     try:
@@ -2878,6 +2913,7 @@ def api_draft_follow_up():
 
 @bp.route("/api/pipeline/velocity")
 @auth_required
+@safe_route
 def api_pipeline_velocity():
     """Measure how quickly quotes move from inbox to sent to won."""
     rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
@@ -2919,6 +2955,7 @@ def api_pipeline_velocity():
 
 @bp.route("/api/quote/lookup")
 @auth_required
+@safe_route
 def api_quote_lookup():
     """Lookup a quote by number, solicitation, or keyword."""
     q = (request.args.get("q") or "").strip()
@@ -2959,6 +2996,7 @@ def api_quote_lookup():
 
 @bp.route("/api/order/<oid>/check-amazon-urls", methods=["POST"])
 @auth_required
+@safe_route
 def api_check_amazon_urls(oid):
     """Check Amazon URLs for all items with amazon.com supplier links."""
     orders = _load_orders()

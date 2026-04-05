@@ -45,6 +45,7 @@ except ImportError:
 
 @bp.route("/growth/prospect/<prospect_id>")
 @auth_required
+@safe_page
 def growth_prospect_detail(prospect_id):
     """Full CRM contact detail — timeline, contact info, SCPRS data, activity log."""
     if not GROWTH_AVAILABLE:
@@ -255,6 +256,7 @@ def growth_prospect_detail(prospect_id):
         win_data=win_data, wf_state=wf_state, prospect_cal=prospect_cal)
 @bp.route("/api/growth/status")
 @auth_required
+@safe_route
 def api_growth_status():
     """Full growth agent status — history, categories, prospects, outreach."""
     if not GROWTH_AVAILABLE:
@@ -264,6 +266,7 @@ def api_growth_status():
 
 @bp.route("/api/growth/pull-history")
 @auth_required
+@safe_route
 def api_growth_pull_history():
     """Step 1: Pull ALL Reytech POs from SCPRS (2022-present).
     Long-running — check /api/growth/pull-status for progress."""
@@ -283,6 +286,7 @@ def api_growth_pull_history():
 
 @bp.route("/api/growth/pull-status")
 @auth_required
+@safe_route
 def api_growth_pull_status():
     """Check progress of Reytech history pull."""
     if not GROWTH_AVAILABLE:
@@ -292,6 +296,7 @@ def api_growth_pull_status():
 
 @bp.route("/api/growth/find-buyers")
 @auth_required
+@safe_route
 def api_growth_find_buyers():
     """Step 2: Search SCPRS for all buyers of Reytech's item categories.
     Requires Step 1 first. Long-running."""
@@ -313,6 +318,7 @@ def api_growth_find_buyers():
 
 @bp.route("/api/growth/intel-scrape", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_intel_scrape():
     """3-Phase buyer intelligence scrape.
     POST params: year_from, year_to, max_per_phase"""
@@ -343,6 +349,7 @@ def api_growth_intel_scrape():
 
 @bp.route("/api/growth/intel-status")
 @auth_required
+@safe_route
 def api_growth_intel_status():
     """Check progress of buyer intelligence scrape."""
     if not GROWTH_AVAILABLE:
@@ -353,6 +360,7 @@ def api_growth_intel_status():
 
 @bp.route("/api/growth/intel-results")
 @auth_required
+@safe_route
 def api_growth_intel_results():
     """Get full intelligence results."""
     if not GROWTH_AVAILABLE:
@@ -363,6 +371,7 @@ def api_growth_intel_results():
 
 @bp.route("/api/growth/buyer-status")
 @auth_required
+@safe_route
 def api_growth_buyer_status():
     """Check progress of buyer search."""
     if not GROWTH_AVAILABLE:
@@ -372,6 +381,7 @@ def api_growth_buyer_status():
 
 @bp.route("/api/growth/outreach")
 @auth_required
+@safe_route
 def api_growth_outreach():
     """Step 3: Launch email outreach to prospects.
     ?dry_run=true (default) previews without sending.
@@ -388,6 +398,7 @@ def api_growth_outreach():
 
 @bp.route("/api/growth/follow-ups")
 @auth_required
+@safe_route
 def api_growth_follow_ups():
     """Check which prospects need voice follow-up (3-5 days no response)."""
     if not GROWTH_AVAILABLE:
@@ -398,6 +409,7 @@ def api_growth_follow_ups():
 # ── PRD Feature 4.3 + Growth Campaign: Distro List Email Campaign ────────────
 @bp.route("/api/growth/distro-campaign", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_growth_distro_campaign():
     """Phase 1 Growth Campaign — email CA state buyers to get on RFQ distro lists.
 
@@ -437,6 +449,7 @@ def api_growth_distro_campaign():
 
 @bp.route("/api/growth/campaign-status")
 @auth_required
+@safe_route
 def api_growth_campaign_status():
     """Get status of all growth campaigns including distro list campaign."""
     if not GROWTH_AVAILABLE:
@@ -470,6 +483,7 @@ def api_growth_campaign_status():
 
 @bp.route("/api/growth/voice-follow-up")
 @auth_required
+@safe_route
 def api_growth_voice_follow_up():
     """Step 4: Auto-dial non-responders."""
     if not GROWTH_AVAILABLE:
@@ -484,6 +498,7 @@ def api_growth_voice_follow_up():
 # Legacy growth routes (redirect to new status)
 @bp.route("/api/growth/report")
 @auth_required
+@safe_route
 def api_growth_report():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
@@ -492,6 +507,7 @@ def api_growth_report():
 
 @bp.route("/api/growth/recommendations")
 @auth_required
+@safe_route
 def api_growth_recommendations():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
@@ -502,6 +518,7 @@ def api_growth_recommendations():
 
 @bp.route("/api/growth/prospect/<prospect_id>")
 @auth_required
+@safe_route
 def api_growth_prospect(prospect_id):
     """Get prospect detail with full timeline."""
     if not GROWTH_AVAILABLE:
@@ -511,6 +528,7 @@ def api_growth_prospect(prospect_id):
 
 @bp.route("/api/growth/prospect/<prospect_id>", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_prospect_update(prospect_id):
     """Update prospect. POST JSON: {buyer_name, buyer_phone, outreach_status, notes, title, linkedin}"""
     if not GROWTH_AVAILABLE:
@@ -542,6 +560,7 @@ def api_growth_prospect_update(prospect_id):
 
 @bp.route("/api/growth/prospect/<prospect_id>/note", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_prospect_note(prospect_id):
     """Add note to prospect. POST JSON: {note: "..."}"""
     if not GROWTH_AVAILABLE:
@@ -552,6 +571,7 @@ def api_growth_prospect_note(prospect_id):
 
 @bp.route("/api/growth/prospect/<prospect_id>/responded", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_prospect_responded(prospect_id):
     """Mark prospect as responded. POST JSON: {response_type, detail}"""
     if not GROWTH_AVAILABLE:
@@ -562,6 +582,7 @@ def api_growth_prospect_responded(prospect_id):
 
 @bp.route("/api/growth/bounceback", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_bounceback():
     """Process a bounceback. POST JSON: {email, reason}"""
     if not GROWTH_AVAILABLE:
@@ -575,6 +596,7 @@ def api_growth_bounceback():
 
 @bp.route("/api/growth/scan-bounces")
 @auth_required
+@safe_route
 def api_growth_scan_bounces():
     """Scan inbox for bounceback emails and auto-process them."""
     if not GROWTH_AVAILABLE:
@@ -584,6 +606,7 @@ def api_growth_scan_bounces():
 
 @bp.route("/api/growth/campaigns")
 @auth_required
+@safe_route
 def api_growth_campaigns():
     """Campaign dashboard with metrics breakdown."""
     if not GROWTH_AVAILABLE:
@@ -593,6 +616,7 @@ def api_growth_campaigns():
 
 @bp.route("/api/growth/create-campaign", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_create_campaign():
     """Create Campaign — full pipeline: pull history → find buyers → push to growth → preview emails.
     
@@ -684,6 +708,7 @@ def api_growth_create_campaign():
 
 @bp.route("/api/growth/kpis")
 @auth_required
+@safe_route
 def api_growth_kpis():
     """Real-time KPI metrics for growth dashboard."""
     if not GROWTH_AVAILABLE:
@@ -694,6 +719,7 @@ def api_growth_kpis():
 
 @bp.route("/api/growth/competitor-intel")
 @auth_required
+@safe_route
 def api_growth_competitor_intel():
     """Competitor analysis from SCPRS + lost quotes."""
     if not GROWTH_AVAILABLE:
@@ -704,6 +730,7 @@ def api_growth_competitor_intel():
 
 @bp.route("/api/growth/lost-analysis")
 @auth_required
+@safe_route
 def api_growth_lost_analysis():
     """Deep analysis of lost purchase orders."""
     if not GROWTH_AVAILABLE:
@@ -714,6 +741,7 @@ def api_growth_lost_analysis():
 
 @bp.route("/api/growth/win-probability/<prospect_id>")
 @auth_required
+@safe_route
 def api_growth_win_probability(prospect_id):
     """Get win probability for a specific prospect."""
     if not GROWTH_AVAILABLE:
@@ -728,6 +756,7 @@ def api_growth_win_probability(prospect_id):
 
 @bp.route("/api/growth/export")
 @auth_required
+@safe_route
 def api_growth_export():
     """Export growth data in various formats."""
     if not GROWTH_AVAILABLE:
@@ -747,6 +776,7 @@ def api_growth_export():
 
 @bp.route("/api/growth/audit-log")
 @auth_required
+@safe_route
 def api_growth_audit_log():
     """Retrieve growth action audit log."""
     if not GROWTH_AVAILABLE:
@@ -762,6 +792,7 @@ def api_growth_audit_log():
 
 @bp.route("/api/growth/ab-stats")
 @auth_required
+@safe_route
 def api_growth_ab_stats():
     """Get A/B template test results."""
     if not GROWTH_AVAILABLE:
@@ -772,6 +803,7 @@ def api_growth_ab_stats():
 
 @bp.route("/api/growth/enrich/<prospect_id>")
 @auth_required
+@safe_route
 def api_growth_enrich(prospect_id):
     """Enrich a prospect with SCPRS data."""
     if not GROWTH_AVAILABLE:
@@ -785,6 +817,7 @@ def api_growth_enrich(prospect_id):
 
 @bp.route("/api/growth/personalize/<prospect_id>")
 @auth_required
+@safe_route
 def api_growth_personalize(prospect_id):
     """Generate personalized content for a prospect."""
     if not GROWTH_AVAILABLE:
@@ -802,6 +835,7 @@ def api_growth_personalize(prospect_id):
 
 @bp.route("/api/growth/workflows")
 @auth_required
+@safe_route
 def api_growth_workflows():
     """Get available workflow definitions."""
     if not GROWTH_AVAILABLE:
@@ -812,6 +846,7 @@ def api_growth_workflows():
 
 @bp.route("/api/growth/workflow/assign", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_workflow_assign():
     """Assign a workflow to a prospect."""
     if not GROWTH_AVAILABLE:
@@ -825,6 +860,7 @@ def api_growth_workflow_assign():
 
 @bp.route("/api/growth/workflow/advance", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_workflow_advance():
     """Advance a prospect's workflow to next step."""
     if not GROWTH_AVAILABLE:
@@ -838,6 +874,7 @@ def api_growth_workflow_advance():
 
 @bp.route("/api/growth/sms", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_sms():
     """Send SMS outreach via Twilio."""
     if not GROWTH_AVAILABLE:
@@ -855,6 +892,7 @@ def api_growth_sms():
 
 @bp.route("/api/growth/notifications")
 @auth_required
+@safe_route
 def api_growth_notifications():
     """Get notifications for notification center."""
     if not GROWTH_AVAILABLE:
@@ -866,6 +904,7 @@ def api_growth_notifications():
 
 @bp.route("/api/growth/notifications/read", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_notifications_read():
     """Mark notification(s) as read."""
     if not GROWTH_AVAILABLE:
@@ -881,6 +920,7 @@ def api_growth_notifications_read():
 
 @bp.route("/api/growth/webhook-test", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_webhook_test():
     """Test webhook integration."""
     if not GROWTH_AVAILABLE:
@@ -895,6 +935,7 @@ def api_growth_webhook_test():
 
 @bp.route("/api/growth/roles")
 @auth_required
+@safe_route
 def api_growth_roles():
     """List roles and permissions."""
     if not GROWTH_AVAILABLE:
@@ -905,6 +946,7 @@ def api_growth_roles():
 
 @bp.route("/api/growth/roles/set", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_roles_set():
     """Set a user's role."""
     if not GROWTH_AVAILABLE:
@@ -916,6 +958,7 @@ def api_growth_roles_set():
 
 @bp.route("/api/growth/roles/check")
 @auth_required
+@safe_route
 def api_growth_roles_check():
     """Check if user has a permission."""
     if not GROWTH_AVAILABLE:
@@ -937,6 +980,7 @@ def api_growth_roles_check():
 
 @bp.route("/api/growth/export/pdf")
 @auth_required
+@safe_route
 def api_growth_export_pdf():
     """Export growth report as PDF."""
     if not GROWTH_AVAILABLE:
@@ -951,6 +995,7 @@ def api_growth_export_pdf():
 
 @bp.route("/api/growth/export/excel")
 @auth_required
+@safe_route
 def api_growth_export_excel():
     """Export growth data as Excel workbook."""
     if not GROWTH_AVAILABLE:
@@ -969,6 +1014,7 @@ def api_growth_export_excel():
 
 @bp.route("/api/growth/calendar")
 @auth_required
+@safe_route
 def api_growth_calendar():
     """Get scheduled follow-up events."""
     if not GROWTH_AVAILABLE:
@@ -982,6 +1028,7 @@ def api_growth_calendar():
 
 @bp.route("/api/growth/calendar/schedule", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_calendar_schedule():
     """Schedule a follow-up on the calendar."""
     if not GROWTH_AVAILABLE:
@@ -999,6 +1046,7 @@ def api_growth_calendar_schedule():
 
 @bp.route("/api/growth/calendar/complete", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_calendar_complete():
     """Mark a calendar event as completed."""
     if not GROWTH_AVAILABLE:
@@ -1014,6 +1062,7 @@ def api_growth_calendar_complete():
 
 @bp.route("/api/growth/scprs-search")
 @auth_required
+@safe_route
 def api_growth_scprs_search():
     """SCPRS search proxy with caching."""
     if not GROWTH_AVAILABLE:
@@ -1028,6 +1077,7 @@ def api_growth_scprs_search():
 
 @bp.route("/api/growth/loss-reason", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_loss_reason():
     """Record reason for a lost PO/quote."""
     if not GROWTH_AVAILABLE:
@@ -1045,6 +1095,7 @@ def api_growth_loss_reason():
 
 @bp.route("/api/growth/startup-check")
 @auth_required
+@safe_route
 def api_growth_startup_check():
     """Run growth module startup validation."""
     if not GROWTH_AVAILABLE:
@@ -1059,6 +1110,7 @@ def api_growth_startup_check():
 
 @bp.route("/api/growth/kanban")
 @auth_required
+@safe_route
 def api_growth_kanban():
     """Kanban board view of prospect pipeline."""
     if not GROWTH_AVAILABLE:
@@ -1069,6 +1121,7 @@ def api_growth_kanban():
 
 @bp.route("/api/growth/funnel")
 @auth_required
+@safe_route
 def api_growth_funnel():
     """Outreach conversion funnel analytics."""
     if not GROWTH_AVAILABLE:
@@ -1079,6 +1132,7 @@ def api_growth_funnel():
 
 @bp.route("/api/growth/agency-intel")
 @auth_required
+@safe_route
 def api_growth_agency_intel():
     """Agency intelligence ranking."""
     if not GROWTH_AVAILABLE:
@@ -1089,6 +1143,7 @@ def api_growth_agency_intel():
 
 @bp.route("/api/growth/batch-workflow", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_batch_workflow():
     """Assign workflow to multiple prospects."""
     if not GROWTH_AVAILABLE:
@@ -1100,6 +1155,7 @@ def api_growth_batch_workflow():
 
 @bp.route("/api/growth/prospect/<prospect_id>/timeline")
 @auth_required
+@safe_route
 def api_growth_prospect_timeline(prospect_id):
     """Unified activity timeline for a prospect."""
     if not GROWTH_AVAILABLE:
@@ -1110,6 +1166,7 @@ def api_growth_prospect_timeline(prospect_id):
 
 @bp.route("/api/growth/quick-wins")
 @auth_required
+@safe_route
 def api_growth_quick_wins():
     """Surface highest probability quick wins."""
     if not GROWTH_AVAILABLE:
@@ -1124,6 +1181,7 @@ def api_growth_quick_wins():
 
 @bp.route("/api/growth/campaign-performance")
 @auth_required
+@safe_route
 def api_growth_campaign_perf():
     """Per-campaign performance stats."""
     if not GROWTH_AVAILABLE:
@@ -1134,6 +1192,7 @@ def api_growth_campaign_perf():
 
 @bp.route("/api/growth/daily-brief")
 @auth_required
+@safe_route
 def api_growth_daily_brief():
     """Auto-generated daily growth brief."""
     if not GROWTH_AVAILABLE:
@@ -1144,6 +1203,7 @@ def api_growth_daily_brief():
 
 @bp.route("/api/growth/bulk-import", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_bulk_import():
     """Import prospects from CSV."""
     if not GROWTH_AVAILABLE:
@@ -1164,6 +1224,7 @@ def api_growth_bulk_import():
 
 @bp.route("/api/growth/auto-tag", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_auto_tag():
     """Auto-tag all prospects."""
     if not GROWTH_AVAILABLE:
@@ -1174,6 +1235,7 @@ def api_growth_auto_tag():
 
 @bp.route("/api/growth/price-compare")
 @auth_required
+@safe_route
 def api_growth_price_compare():
     """Compare pricing vs SCPRS market data."""
     if not GROWTH_AVAILABLE:
@@ -1187,6 +1249,7 @@ def api_growth_price_compare():
 
 @bp.route("/api/growth/duplicates")
 @auth_required
+@safe_route
 def api_growth_duplicates():
     """Find duplicate prospects."""
     if not GROWTH_AVAILABLE:
@@ -1197,6 +1260,7 @@ def api_growth_duplicates():
 
 @bp.route("/api/growth/merge", methods=["POST"])
 @auth_required
+@safe_route
 def api_growth_merge():
     """Merge duplicate prospects."""
     if not GROWTH_AVAILABLE:

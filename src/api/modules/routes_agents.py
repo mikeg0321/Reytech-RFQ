@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 @bp.route("/agents")
 @auth_required
+@safe_page
 def agents_page():
     """Agent Control Panel — click buttons instead of writing API calls."""
     from src.api.render import render_page
@@ -228,6 +229,7 @@ def _personalize_template(template: dict, contact: dict = None, quote: dict = No
 
 @bp.route("/templates")
 @auth_required
+@safe_page
 def email_templates_page():
     """Email Template Library — PRD Feature 4.3 (P0)."""
     data = _load_email_templates()
@@ -395,6 +397,7 @@ def email_templates_page():
 
 @bp.route("/api/email/templates")
 @auth_required
+@safe_route
 def api_email_templates():
     """Return all email templates."""
     data = _load_email_templates()
@@ -404,6 +407,7 @@ def api_email_templates():
 
 @bp.route("/api/email/templates/<tid>", methods=["GET"])
 @auth_required
+@safe_route
 def api_email_template_get(tid):
     """Get single template."""
     data = _load_email_templates()
@@ -415,6 +419,7 @@ def api_email_template_get(tid):
 
 @bp.route("/api/email/templates/<tid>", methods=["POST", "PUT"])
 @auth_required
+@safe_route
 def api_email_template_save(tid):
     """Create or update a template."""
     try:
@@ -439,6 +444,7 @@ def api_email_template_save(tid):
 
 @bp.route("/api/email/draft", methods=["POST"])
 @auth_required
+@safe_route
 def api_email_draft():
     """Return a personalized draft from a template + optional contact.
 
@@ -494,6 +500,7 @@ def api_email_draft():
 
 @bp.route("/api/email/send", methods=["POST"])
 @auth_required
+@safe_route
 def api_email_send():
     """Send an email. Requires GMAIL_ADDRESS + GMAIL_PASSWORD in Railway env."""
     body = request.get_json(silent=True) or {}
@@ -538,6 +545,7 @@ _favorites = []
 
 @bp.route("/api/agents/health-sweep")
 @auth_required
+@safe_route
 def api_agents_health_sweep():
     """Quick health sweep of all agent subsystems."""
     from src.core.db import get_db as _ctx_db
@@ -574,6 +582,7 @@ def api_agents_health_sweep():
 
 @bp.route("/api/agents/log-action", methods=["POST"])
 @auth_required
+@safe_route
 def api_log_action():
     """Log a button action for audit trail."""
     data = request.get_json(silent=True) or {}
@@ -591,6 +600,7 @@ def api_log_action():
 
 @bp.route("/api/agents/action-log")
 @auth_required
+@safe_route
 def api_action_log():
     """Get recent action log."""
     return jsonify({"ok": True, "actions": _action_log[-50:], "count": len(_action_log)})
@@ -598,6 +608,7 @@ def api_action_log():
 
 @bp.route("/api/agents/favorites", methods=["GET", "POST"])
 @auth_required
+@safe_route
 def api_agent_favorites():
     """Get or set favorite agent buttons."""
     global _favorites
@@ -625,6 +636,7 @@ def api_agent_favorites():
 
 @bp.route("/api/agents/batch-test")
 @auth_required
+@safe_route
 def api_agents_batch_test():
     """Test all critical endpoints and return their status."""
     import requests as _req

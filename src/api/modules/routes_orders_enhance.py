@@ -114,6 +114,7 @@ def _save_orders(orders):
 
 @bp.route("/api/order/<oid>/delivery-update", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_delivery_update(oid):
     """Send delivery status update email for selected line items.
     Reply-all to the original PO sender group."""
@@ -227,6 +228,7 @@ mike@reytechinc.com
 
 @bp.route("/supplier/<name>")
 @auth_required
+@safe_page
 def supplier_record_page(n):
     """Supplier record page — shows all orders, items, and activity for a supplier."""
     import urllib.parse
@@ -322,6 +324,7 @@ def log_order_event(order_id: str, action: str, field: str = "",
 
 @bp.route("/api/order/<oid>/log")
 @auth_required
+@safe_route
 def api_order_log(oid):
     """Get full audit log for an order."""
     try:
@@ -343,6 +346,7 @@ def api_order_log(oid):
 
 @bp.route("/api/order/<oid>/timeline")
 @auth_required
+@safe_route
 def api_order_timeline(oid):
     """Build merged timeline: audit log + status history + emails."""
     events = []
@@ -423,6 +427,7 @@ def api_order_timeline(oid):
 
 @bp.route("/api/order/<oid>/margins")
 @auth_required
+@safe_route
 def api_order_line_margins(oid):
     """Calculate margins for all line items in an order."""
     orders = _load_orders()
@@ -481,6 +486,7 @@ def api_order_line_margins(oid):
 
 @bp.route("/api/order/<oid>/line/<lid>/cost", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_line_cost(oid, lid):
     """Update cost for a single line item."""
     orders = _load_orders()
@@ -568,6 +574,7 @@ def calc_order_aging(order: dict) -> dict:
 
 @bp.route("/api/order/<oid>/emails")
 @auth_required
+@safe_route
 def api_order_emails(oid):
     """Get all emails related to this order (by PO#, quote#, or institution)."""
     orders = _load_orders()
@@ -617,6 +624,7 @@ def api_order_emails(oid):
 
 @bp.route("/api/order/<oid>/clone", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_clone(oid):
     """Clone an existing order with new PO number and fresh dates."""
     orders = _load_orders()
@@ -686,6 +694,7 @@ def api_order_clone(oid):
 
 @bp.route("/api/order/<oid>/upload-proof", methods=["POST"])
 @auth_required
+@safe_route
 def api_order_upload_proof(oid):
     """Upload delivery proof (photo, BOL PDF) for an order or line item."""
     orders = _load_orders()
@@ -731,6 +740,7 @@ def api_order_upload_proof(oid):
 
 @bp.route("/api/order/<oid>/attachments")
 @auth_required
+@safe_route
 def api_order_attachments(oid):
     """List all attachments for an order."""
     try:
@@ -752,6 +762,7 @@ def api_order_attachments(oid):
 
 @bp.route("/api/orders/kpi")
 @auth_required
+@safe_route
 def api_orders_kpi():
     """Order KPI metrics: monthly trends, avg fulfillment, top agencies, margins."""
     orders = _load_orders()

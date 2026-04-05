@@ -33,6 +33,7 @@ TYPE_COLORS = {
 
 @bp.route("/search")
 @auth_required
+@safe_page
 def search_page():
     q = (request.args.get("q", "") or "").strip()
     type_filter = (request.args.get("type", "") or "").strip().lower()
@@ -136,6 +137,7 @@ def search_page():
 
 @bp.route("/api/v1/search")
 @auth_required
+@safe_route
 def api_v1_search():
     q = (request.args.get("q", "") or "").strip()
     status = (request.args.get("status", "") or "").strip()
