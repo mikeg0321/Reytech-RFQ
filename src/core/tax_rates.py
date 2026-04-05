@@ -32,54 +32,62 @@ try:
 except ImportError:
     DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "..", "..", "data"))
 
-# ── Hardcoded fallback rates by zip (updated Feb 2026) ────────────────────────
-# Source: https://cdtfa.ca.gov/taxes-and-fees/sales-use-tax-rates.htm
+# ── Hardcoded fallback rates by zip (updated 2026-04-05) ─────────────────────
+# Source: https://maps.cdtfa.ca.gov/ — queried with actual facility addresses
 # These are used when CDTFA API is unreachable
 FALLBACK_RATES = {
     # CalVet facilities
-    "96002": 0.0825,   # Redding (Shasta County)
-    "94599": 0.0800,   # Yountville (Napa County)
-    "92311": 0.0775,   # Barstow (San Bernardino County)
+    "96002": 0.0725,   # Redding (Shasta County)
+    "94599": 0.0775,   # Yountville (Napa County)
+    "92311": 0.0875,   # Barstow (San Bernardino County)
     "91911": 0.0875,   # Chula Vista (San Diego County)
-    "93706": 0.0863,   # Fresno
-    "90049": 0.1025,   # West Los Angeles (LA County)
-    "95380": 0.0788,   # Moosehaven (Stanislaus County)
-    "93004": 0.0725,   # Ventura
+    "93706": 0.0835,   # Fresno
+    "90049": 0.0975,   # West Los Angeles (LA County, unincorporated)
+    "95380": 0.0862,   # Turlock (Stanislaus County)
+    "93004": 0.0775,   # Ventura
 
     # CDCR/CCHCS common facilities
     "95814": 0.0875,   # Sacramento (HQ)
     "95818": 0.0875,   # Sacramento (CDCR billing)
-    "91710": 0.1000,   # Chino (CIM)
-    "92880": 0.0875,   # Corona (CIW)
-    "93212": 0.0775,   # Corcoran
-    "93536": 0.1025,   # Lancaster
-    "95696": 0.0813,   # Vacaville (CSP-SOL)
-    "95202": 0.0925,   # Stockton (CHCF)
-    "93210": 0.0725,   # Coalinga
-    "93215": 0.0775,   # Delano
-    "95640": 0.0775,   # Ione (MCSP)
-    "93280": 0.0775,   # Wasco
-    "93610": 0.0863,   # Chowchilla (CCWF/VSPW)
-    "93960": 0.0925,   # Soledad (CTF)
-    "95531": 0.0850,   # Crescent City (PBSP)
-    "92860": 0.0875,   # Norco (CRC)
-    "93561": 0.0775,   # Tehachapi (CCI)
-    "93204": 0.0725,   # Avenal (ASP)
-    "96130": 0.0725,   # Susanville (HDSP)
-    "92226": 0.0775,   # Blythe (ISP)
-    "95671": 0.0863,   # Represa (FSP)
-    "94964": 0.0925,   # San Quentin
-    "92233": 0.0775,   # Calipatria
-    "92243": 0.0775,   # Imperial (CEN)
-    "95327": 0.0775,   # Jamestown (SCC)
-    "93409": 0.0775,   # San Luis Obispo (CMC)
+    "91710": 0.0875,   # Chino (CIM, San Bernardino County)
+    "92880": 0.0875,   # Corona/Chino (CIW, San Bernardino County)
+    "93212": 0.0825,   # Corcoran (Kings County)
+    "93536": 0.1125,   # Lancaster (LA County)
+    "95687": 0.0813,   # Vacaville (CSP-SOL, Solano County)
+    "95215": 0.0900,   # Stockton (CHCF, San Joaquin County)
+    "95202": 0.0900,   # Stockton (alternate zip)
+    "93210": 0.0897,   # Coalinga (PVSP, Fresno County)
+    "93215": 0.0825,   # Delano (KVSP/NKSP, Kern County)
+    "95640": 0.0775,   # Ione (MCSP, Amador County)
+    "93280": 0.0825,   # Wasco (WSP, Kern County)
+    "93610": 0.0875,   # Chowchilla (CCWF/VSP, Madera County)
+    "93960": 0.0925,   # Soledad (CTF/SVSP, Monterey County)
+    "95531": 0.0825,   # Crescent City (PBSP, Del Norte County)
+    "92860": 0.0875,   # Norco (CRC, Riverside County)
+    "93561": 0.0825,   # Tehachapi (CCI, Kern County)
+    "93204": 0.0825,   # Avenal (ASP, Kings County)
+    "96127": 0.0725,   # Susanville (HDSP, Lassen County)
+    "92225": 0.0775,   # Blythe (ISP, Riverside County)
+    "95671": 0.0775,   # Represa/Folsom (FSP/CSP-SAC, Sacramento County)
+    "94964": 0.0825,   # San Quentin (Marin County)
+    "92233": 0.0775,   # Calipatria (Imperial County)
+    "92251": 0.0775,   # Imperial (CEN, Imperial County)
+    "95327": 0.0725,   # Jamestown (SCC, Tuolumne County)
+    "93409": 0.0875,   # San Luis Obispo (CMC)
+    "92179": 0.0775,   # San Diego (RJD, San Diego County)
 
     # DGS / DSH
-    "94203": 0.0875,   # Sacramento (DGS)
-    "93560": 0.0775,   # Ridgecrest
+    "94203": 0.0925,   # West Sacramento (DGS, Yolo County)
+    "93560": 0.0775,   # Ridgecrest (Inyo County)
 
     # Reytech (origin, used when ship-to unknown)
-    "92679": 0.0775,   # Trabuco Canyon (Orange County base rate)
+    "92679": 0.0775,   # Trabuco Canyon (Orange County)
+
+    # Legacy zips (kept for cache compatibility — some PCs reference these)
+    "95696": 0.0813,   # Vacaville (alternate zip, same as 95687)
+    "92226": 0.0775,   # Blythe (alternate zip, same as 92225)
+    "92243": 0.0775,   # Imperial (alternate zip, same as 92251)
+    "96130": 0.0725,   # Susanville (alternate zip, same as 96127)
 }
 
 # CA statewide minimum
@@ -199,8 +207,11 @@ def _call_cdtfa_api(address: str, city: str, zip_code: str) -> dict:
     import urllib.error
 
     params = {}
+    # CDTFA API requires an address param — use placeholder if only city/zip given
     if address:
         params["address"] = address
+    else:
+        params["address"] = "1 Main"
     if city:
         params["city"] = city
     if zip_code:

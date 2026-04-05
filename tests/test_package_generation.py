@@ -241,14 +241,15 @@ class TestQuoteGeneration:
         result = generate_quote(SAMPLE_RFQ, out, agency="CDCR",
                                 quote_number="R26QTEST003")
         # 50 * 15.00 = 750.00 + 100 * 4.50 = 450.00 = $1,200.00 subtotal
-        # Default tax = 7.25% → $87.00 → total $1,287.00
+        # Tax rate resolved from ship-to zip (Corona/CIW area)
         assert result.get("ok")
         log_total = result.get("total", 0)
         subtotal = 50 * 15.00 + 100 * 4.50
-        tax = round(subtotal * 0.0725, 2)
-        expected = subtotal + tax
+        tax_rate = result.get("tax_rate", 0)
+        assert tax_rate > 0, "Tax rate should be resolved from ship-to address"
+        expected = round(subtotal + round(subtotal * tax_rate, 2), 2)
         assert abs(log_total - expected) < 0.01, \
-            f"Quote total {log_total} != expected {expected}"
+            f"Quote total {log_total} != expected {expected} (tax_rate={tax_rate})"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

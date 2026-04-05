@@ -888,7 +888,29 @@ def generate_quote(
     quote_date  = today.strftime("%b %d, %Y")
     expiry_date = (today + timedelta(days=expiry_days)).strftime("%b %d, %Y")
 
-    rate      = tax_rate if tax_rate is not None else cfg["default_tax"]
+    # Resolve tax rate from ship-to zip if not explicitly provided
+    if tax_rate is not None:
+        rate = tax_rate
+    else:
+        rate = cfg["default_tax"]
+        try:
+            from src.core.tax_rates import lookup_tax_rate, get_rate_for_facility
+            _ship_raw = quote_data.get("delivery_location",
+                        quote_data.get("ship_to", ""))
+            _facility = _lookup_facility(_ship_raw) if _ship_raw else None
+            if _facility:
+                _tax_info = get_rate_for_facility(_facility)
+            elif _ship_raw:
+                _tax_info = lookup_tax_rate(address=_ship_raw)
+            else:
+                _tax_info = None
+            if _tax_info and _tax_info.get("rate"):
+                rate = _tax_info["rate"]
+                log.info("Tax rate for quote %s: %.4f (%s, source=%s)",
+                         quote_number, rate, _tax_info.get("jurisdiction", "?"),
+                         _tax_info.get("source", "?"))
+        except Exception as _te:
+            log.debug("Tax rate lookup failed, using agency default: %s", _te)
     pay_terms = terms or cfg["default_terms"]
 
     to_name   = quote_data.get("institution", "")
