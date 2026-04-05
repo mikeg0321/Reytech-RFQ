@@ -28,22 +28,9 @@ log = logging.getLogger("scprs_schedule")
 # ── Pacific timezone offset (simplified — handles PST/PDT) ──────────────────
 
 def _pacific_now() -> datetime:
-    """Current time in US/Pacific. Handles PST (-8) / PDT (-7) approximately."""
-    utc_now = datetime.now(timezone.utc)
-    # Approximate PDT: Mar second Sun → Nov first Sun
-    year = utc_now.year
-    # March: second Sunday
-    mar1 = datetime(year, 3, 1, tzinfo=timezone.utc)
-    mar_second_sun = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7)
-    # November: first Sunday
-    nov1 = datetime(year, 11, 1, tzinfo=timezone.utc)
-    nov_first_sun = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
-
-    if mar_second_sun.replace(hour=10) <= utc_now < nov_first_sun.replace(hour=9):
-        offset = timezone(timedelta(hours=-7))  # PDT
-    else:
-        offset = timezone(timedelta(hours=-8))  # PST
-    return utc_now.astimezone(offset).replace(tzinfo=None)
+    """Current time in US/Pacific (PST/PDT aware via zoneinfo)."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).replace(tzinfo=None)
 
 
 # ── Configuration ────────────────────────────────────────────────────────────

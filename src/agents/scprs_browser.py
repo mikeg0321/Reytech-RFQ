@@ -612,10 +612,11 @@ def _store_results(batch, seen_pos):
 # ── Exhaustive Scrape ───────────────────────────────────────────
 
 def schedule_full_fiscal_scrape(target_hour_pst=2):
-    """Schedule exhaustive FI$Cal scrape at target hour PST."""
+    """Schedule exhaustive FI$Cal scrape at target hour Pacific time."""
     import threading
-    from datetime import datetime, timezone, timedelta
-    PST = timezone(timedelta(hours=-8))
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    PST = ZoneInfo("America/Los_Angeles")
 
     def _wait_and_run():
         import time as _time

@@ -368,9 +368,9 @@ def home():
     _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
-    # PST "today" for California-based due date comparisons
-    _pst = timezone(timedelta(hours=-8))
-    _today = datetime.now(_pst).replace(tzinfo=None)
+    # Pacific "today" for California-based due date comparisons (PST/PDT aware)
+    from zoneinfo import ZoneInfo as _ZI
+    _today = datetime.now(_ZI("America/Los_Angeles")).replace(tzinfo=None)
     # Sort by URGENCY: overdue first, then soonest due date, then newest
     def _pc_sort_key(item):
         pc = item[1]

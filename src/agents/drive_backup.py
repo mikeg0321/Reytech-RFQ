@@ -281,8 +281,9 @@ def start_backup_scheduler():
 
         while not _shutdown_event.is_set():
             try:
-                # PST = UTC-8
-                now_pst = datetime.now(timezone(timedelta(hours=-8)))
+                # Pacific time (PST/PDT aware)
+                from zoneinfo import ZoneInfo
+                now_pst = datetime.now(ZoneInfo("America/Los_Angeles"))
                 if now_pst.hour == 23 and now_pst.minute < 15:
                     result = run_nightly_backup()
                     if not result.get("ok") and not result.get("skipped"):

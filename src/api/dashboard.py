@@ -5931,8 +5931,8 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
             _fut.sleep(300)
             while True:
                 try:
-                    _pst = timezone(timedelta(hours=-8))
-                    _now = datetime.now(_pst)
+                    from zoneinfo import ZoneInfo as _ZI
+                    _now = datetime.now(_ZI("America/Los_Angeles"))
                     if _now.day in (1, 15) and 2 <= _now.hour <= 4:
                         _skip = False
                         try:
