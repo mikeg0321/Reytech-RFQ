@@ -84,7 +84,7 @@ def test_route_module_has_explicit_data_dir_import(rel_path):
     if not os.path.exists(full_path):
         pytest.skip(f"Module not found: {rel_path}")
 
-    with open(full_path) as f:
+    with open(full_path, encoding='utf-8') as f:
         source = f.read()
 
     # Must import DATA_DIR from src.core.paths (not rely on injected global)
@@ -109,7 +109,7 @@ def test_route_module_compiles(rel_path):
 def test_safe_poll_check_wrapper_exists():
     """routes_pricecheck must define _safe_do_poll_check to handle namespace gaps."""
     path = os.path.join(ROOT, "src/api/modules/routes_pricecheck.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         source = f.read()
     assert "_safe_do_poll_check" in source, (
         "_safe_do_poll_check wrapper missing from routes_pricecheck. "
@@ -121,7 +121,7 @@ def test_safe_poll_check_wrapper_exists():
 def test_safe_poll_check_falls_back_to_dashboard():
     """_safe_do_poll_check must attempt sys.modules lookup as fallback."""
     path = os.path.join(ROOT, "src/api/modules/routes_pricecheck.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         source = f.read()
     assert "sys.modules" in source or "src.api.dashboard" in source, (
         "_safe_do_poll_check does not have a sys.modules fallback. "
@@ -132,7 +132,7 @@ def test_safe_poll_check_falls_back_to_dashboard():
 def test_nuke_and_poll_uses_safe_wrapper():
     """api_nuke_and_poll must use _safe_do_poll_check, not bare do_poll_check."""
     path = os.path.join(ROOT, "src/api/modules/routes_pricecheck.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         lines = f.readlines()
 
     in_nuke = False
@@ -152,7 +152,7 @@ def test_nuke_and_poll_uses_safe_wrapper():
 def test_poll_now_uses_safe_wrapper():
     """api_poll_now must use _safe_do_poll_check."""
     path = os.path.join(ROOT, "src/api/modules/routes_pricecheck.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         lines = f.readlines()
 
     in_fn = False
@@ -172,7 +172,7 @@ def test_poll_now_uses_safe_wrapper():
 def test_do_poll_check_has_data_dir_guard():
     """do_poll_check must have a try/except NameError guard for DATA_DIR/UPLOAD_DIR."""
     path = os.path.join(ROOT, "src/api/dashboard.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         source = f.read()
 
     # Find the function body
@@ -193,7 +193,7 @@ def test_do_poll_check_has_data_dir_guard():
 def test_do_poll_check_sets_last_check_on_connect_attempt():
     """last_check must be set even when IMAP connect fails, so null = truly never ran."""
     path = os.path.join(ROOT, "src/api/dashboard.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         source = f.read()
 
     start = source.index("def do_poll_check():")
@@ -216,7 +216,7 @@ def test_do_poll_check_sets_last_check_on_connect_attempt():
 def test_self_forward_bypasses_reply_filter():
     """Confirmed self-forwards must set _is_self_forward=True to skip is_reply_followup."""
     path = os.path.join(ROOT, "src/agents/email_poller.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         source = f.read()
 
     assert "_is_self_forward = True" in source, (
@@ -265,7 +265,7 @@ def test_reply_followup_not_called_on_known_rfq_subjects():
 def test_poll_loop_logs_crashes():
     """email_poll_loop must catch and log exceptions so crashes aren't silent."""
     path = os.path.join(ROOT, "src/api/dashboard.py")
-    with open(path) as f:
+    with open(path, encoding='utf-8') as f:
         source = f.read()
 
     start = source.index("def email_poll_loop():")

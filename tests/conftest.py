@@ -76,6 +76,56 @@ def temp_data_dir(tmp_path, monkeypatch):
         if hasattr(mod, "QUOTES_LOG_FILE"):
             monkeypatch.setattr(mod, "QUOTES_LOG_FILE",
                                 os.path.join(data, "quotes_log.json"))
+
+    # Patch DB_PATH so get_all_quotes() reads from an isolated test DB
+    # (the app fixture also does this, but tests that don't use app need it too)
+    try:
+        import sqlite3
+        import src.core.db as _db_mod
+        # Use reytech.db (not reytech_test.db) so _next_quote_number() and
+        # _load_counter() both read from the same file
+        _db_path = os.path.join(data, "reytech.db")
+        monkeypatch.setattr(_db_mod, "DB_PATH", _db_path)
+        _db_mod.close_thread_db()  # Force new connection with patched path
+        # Also patch src.core.paths.DATA_DIR so _next_quote_number() uses test DB
+        try:
+            import src.core.paths as _paths_mod
+            monkeypatch.setattr(_paths_mod, "DATA_DIR", data)
+        except ImportError:
+            pass
+        # Create minimal schema in both test DBs so counter and settings work
+        _MINIMAL_TABLES = [
+            """CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system')""",
+            """CREATE TABLE IF NOT EXISTS quotes (
+                quote_number TEXT PRIMARY KEY, status TEXT, total REAL, agency TEXT,
+                institution TEXT, po_number TEXT, contact_name TEXT, contact_email TEXT,
+                subtotal REAL, tax REAL, created_at TEXT, updated_at TEXT, is_test INTEGER DEFAULT 0,
+                source TEXT, sent_at TEXT, line_items TEXT, ship_to_name TEXT, ship_to_address TEXT,
+                pdf_path TEXT, source_pc_id TEXT, source_rfq_id TEXT, status_notes TEXT,
+                requestor TEXT, notes TEXT, status_history TEXT, expires_at TEXT,
+                closed_by_agent TEXT, close_reason TEXT, revision_count INTEGER DEFAULT 0,
+                win_probability REAL, last_follow_up TEXT, follow_up_count INTEGER DEFAULT 0,
+                received_at TEXT, first_opened_at TEXT, priced_at TEXT, generated_at TEXT,
+                time_to_price_mins REAL, time_to_send_mins REAL)""",
+        ]
+        _conn = sqlite3.connect(_db_path)
+        for _sql in _MINIMAL_TABLES:
+            _conn.execute(_sql)
+        # Seed counter so _load_counter() and _next_quote_number() agree on initial value
+        import datetime as _dt
+        _now = _dt.datetime.now().isoformat()
+        _year = _dt.datetime.now().year
+        for _key, _val in [("quote_counter_seq", "0"), ("quote_counter", "0"),
+                           ("quote_counter_year", str(_year)), ("quote_counter_last_good", "0")]:
+            _conn.execute(
+                "INSERT OR REPLACE INTO app_settings (key, value, updated_at) VALUES (?,?,?)",
+                (_key, _val, _now))
+        _conn.commit()
+        _conn.close()
+    except Exception:
+        pass
+
     return data
 
 
@@ -150,9 +200,10 @@ def app(temp_data_dir, monkeypatch):
     monkeypatch.setenv("ENABLE_BACKGROUND_AGENTS", "false")
 
     # Patch DB_PATH so get_db() uses an isolated test database
+    # Use reytech.db (same as temp_data_dir fixture) so all code paths share one DB
     try:
         import src.core.db as _db_mod
-        _db_path = os.path.join(temp_data_dir, "reytech_test.db")
+        _db_path = os.path.join(temp_data_dir, "reytech.db")
         monkeypatch.setattr(_db_mod, "DB_PATH", _db_path)
         _db_mod.close_thread_db()  # Force new connection with patched path
     except Exception:
@@ -228,6 +279,8 @@ def sample_pc_items():
             "uom": "EA",
             "description": "Engraved two line name tag, black/white",
             "no_bid": False,
+            "supplier_cost": 12.58,
+            "unit_price": 15.72,
             "pricing": {
                 "amazon_price": 12.58,
                 "amazon_title": "Custom Engraved Name Tag",
@@ -243,6 +296,8 @@ def sample_pc_items():
             "uom": "BOX",
             "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
             "no_bid": False,
+            "supplier_cost": 42.99,
+            "unit_price": 53.74,
             "pricing": {
                 "amazon_price": 42.99,
                 "amazon_title": "Amazon Basics Copy Paper",

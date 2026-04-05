@@ -33,39 +33,12 @@ DIGEST_STATE_FILE = os.path.join(DATA_DIR, "order_digest_state.json")
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _load_orders() -> dict:
-    """Load orders from SQLite (single source of truth)."""
+    """Load orders — delegates to order_dal (V2)."""
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
-            ).fetchall()
-            result = {}
-            for row in rows:
-                d = dict(row)
-                oid = d.get("id", "")
-                if not oid:
-                    continue
-                blob = d.pop("data_json", None)
-                if blob:
-                    try:
-                        full = json.loads(blob)
-                        full["order_id"] = full.get("order_id", oid)
-                        result[oid] = full
-                        continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                items_raw = d.get("items", "[]")
-                if isinstance(items_raw, str):
-                    try:
-                        d["items"] = json.loads(items_raw)
-                    except Exception:
-                        d["items"] = []
-                d["order_id"] = oid
-                result[oid] = d
-            return result
+        from src.core.order_dal import load_orders_dict
+        return load_orders_dict()
     except Exception as e:
-        log.warning("_load_orders SQLite failed: %s", e)
+        log.warning("_load_orders via order_dal failed: %s", e)
         return {}
 
 
@@ -435,9 +408,13 @@ def apply_tracking_to_order(oid: str, tracking_number: str, carrier: str = ""):
 
         order["updated_at"] = datetime.now().isoformat()
         orders[oid] = order
-        os.makedirs(os.path.dirname(ORDERS_FILE), exist_ok=True)
-        with open(ORDERS_FILE, "w") as f:
-            json.dump(orders, f, indent=2, default=str)
+        # Save via order_dal (V2) — no longer writes to JSON file
+        try:
+            from src.core.order_dal import save_order, save_line_items_batch
+            save_order(oid, order, actor="tracking_auto")
+            save_line_items_batch(oid, order.get("line_items", []))
+        except Exception as _save_err:
+            log.error("apply_tracking save failed: %s", _save_err)
 
         log.info("Applied tracking %s (%s) to order %s: %d items",
                  tracking_number, carrier, oid, len(applied_to))

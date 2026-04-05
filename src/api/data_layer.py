@@ -195,13 +195,35 @@ def _get_pc_items(pc):
     return _get_dashboard_fn("_get_pc_items")(pc)
 
 def _load_orders():
-    return _get_dashboard_fn("_load_orders")()
+    """Load orders — delegates to order_dal (V2)."""
+    try:
+        from src.core.order_dal import load_orders_dict
+        return load_orders_dict()
+    except Exception:
+        return _get_dashboard_fn("_load_orders")()
 
 def _save_orders(orders):
-    return _get_dashboard_fn("_save_orders")(orders)
+    """Save orders — delegates to order_dal (V2)."""
+    try:
+        from src.core.order_dal import save_order, save_line_items_batch
+        for oid, o in orders.items():
+            save_order(oid, o, actor="system")
+            items = o.get("line_items", o.get("items", []))
+            if items and isinstance(items, list):
+                save_line_items_batch(oid, items)
+    except Exception:
+        _get_dashboard_fn("_save_orders")(orders)
 
 def _save_single_order(order_id, order):
-    return _get_dashboard_fn("_save_single_order")(order_id, order)
+    """Save single order — delegates to order_dal (V2)."""
+    try:
+        from src.core.order_dal import save_order, save_line_items_batch
+        save_order(order_id, order, actor="system")
+        items = order.get("line_items", order.get("items", []))
+        if items and isinstance(items, list):
+            save_line_items_batch(order_id, items)
+    except Exception:
+        _get_dashboard_fn("_save_single_order")(order_id, order)
 
 def _load_crm_activity():
     return _get_dashboard_fn("_load_crm_activity")()
