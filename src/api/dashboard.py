@@ -205,9 +205,9 @@ def _invalidate_cache(path: str):
         _json_cache.pop(path, None)
 
 def _pst_now_iso():
-    """Return current PST datetime as ISO string (JS-parseable with time)."""
-    pst = timezone(timedelta(hours=-8))
-    return datetime.now(pst).isoformat()
+    """Return current Pacific datetime as ISO string (PST/PDT aware, JS-parseable)."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
 
 # ═══════════════════════════════════════════════════════════════════════
 # Password Protection

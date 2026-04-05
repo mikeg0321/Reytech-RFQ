@@ -197,10 +197,15 @@ def load_config():
         return json.load(f)
 
 
+def pst_now() -> datetime:
+    """Current time in US/Pacific (handles PST/PDT automatically)."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles"))
+
+
 def get_pst_date():
-    """Get current date in PST."""
-    pst = timezone(timedelta(hours=-8))
-    return datetime.now(pst).strftime("%m/%d/%Y")
+    """Get current date in Pacific time (PST/PDT aware)."""
+    return pst_now().strftime("%m/%d/%Y")
 
 
 def set_field_fonts(writer, field_values, default_size=11, tight_size=9):

@@ -78,19 +78,9 @@ from datetime import datetime, timedelta, timezone
 
 
 def _pst_now() -> datetime:
-    """Current time in US/Pacific (handles PST/PDT)."""
-    utc = datetime.now(timezone.utc)
-    year = utc.year
-    # March second Sunday 2am → November first Sunday 2am = PDT
-    mar1 = datetime(year, 3, 1, tzinfo=timezone.utc)
-    mar_sun2 = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7)
-    nov1 = datetime(year, 11, 1, tzinfo=timezone.utc)
-    nov_sun1 = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)
-    if mar_sun2.replace(hour=10) <= utc < nov_sun1.replace(hour=9):
-        offset = timezone(timedelta(hours=-7))  # PDT
-    else:
-        offset = timezone(timedelta(hours=-8))  # PST
-    return utc.astimezone(offset).replace(tzinfo=None)
+    """Current time in US/Pacific (handles PST/PDT automatically)."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("America/Los_Angeles")).replace(tzinfo=None)
 from typing import Optional
 from copy import deepcopy
 

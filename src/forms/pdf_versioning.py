@@ -110,11 +110,11 @@ def get_generation_history(document_id: str = None, template_type: str = None,
             where = " WHERE " + " AND ".join(conditions) if conditions else ""
             params.append(limit)
             
-            rows = conn.execute("""
-                SELECT * FROM pdf_generation_log
-                " + where + "
-                ORDER BY generated_at DESC LIMIT ?
-            """, params).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM pdf_generation_log"
+                + where +
+                " ORDER BY generated_at DESC LIMIT ?",
+                params).fetchall()
             return [dict(r) for r in rows]
     except Exception:
         return []

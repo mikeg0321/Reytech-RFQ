@@ -22,10 +22,24 @@ log = logging.getLogger("reytech.enrichment")
 
 # ─── Module-level status dict for live polling ────────────────────────────────
 # Keyed by pc_id. Polled by /api/pricecheck/<pcid>/enrichment-status.
+# Protected by _LOCK for all mutations. TTL-evicted to prevent memory leaks.
 ENRICHMENT_STATUS = {}
 
-# Max concurrent enrichments
 _LOCK = threading.Lock()
+_MAX_STATUS_AGE_SECS = 3600  # evict completed entries after 1 hour
+
+
+def _evict_stale_entries():
+    """Remove completed/failed entries older than _MAX_STATUS_AGE_SECS. Call inside _LOCK."""
+    now = time.time()
+    stale = [
+        k for k, v in ENRICHMENT_STATUS.items()
+        if not v.get("running") and now - v.get("_ts", 0) > _MAX_STATUS_AGE_SECS
+    ]
+    for k in stale:
+        del ENRICHMENT_STATUS[k]
+    if stale:
+        log.debug("Evicted %d stale enrichment status entries", len(stale))
 
 
 def enrich_pc(pc_id: str, force: bool = False):
@@ -51,6 +65,7 @@ def enrich_pc(pc_id: str, force: bool = False):
 
     # Guard against double-runs
     with _LOCK:
+        _evict_stale_entries()
         if ENRICHMENT_STATUS.get(pc_id, {}).get("running"):
             log.info("ENRICH %s: already running, skipping", pc_id)
             return
@@ -61,14 +76,17 @@ def enrich_pc(pc_id: str, force: bool = False):
             "progress": "",
             "steps_done": [],
             "error": None,
+            "_ts": time.time(),
         }
 
     try:
         _run_pipeline(pc_id, force)
     except Exception as e:
         log.error("ENRICH %s FAILED: %s", pc_id, e, exc_info=True)
-        ENRICHMENT_STATUS[pc_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
-        ENRICHMENT_STATUS[pc_id]["phase"] = "failed"
+        with _LOCK:
+            if pc_id in ENRICHMENT_STATUS:
+                ENRICHMENT_STATUS[pc_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
+                ENRICHMENT_STATUS[pc_id]["phase"] = "failed"
         # Persist failure on PC
         try:
             from src.api.dashboard import _load_price_checks, _save_single_pc
@@ -81,7 +99,10 @@ def enrich_pc(pc_id: str, force: bool = False):
         except Exception:
             pass
     finally:
-        ENRICHMENT_STATUS[pc_id]["running"] = False
+        with _LOCK:
+            if pc_id in ENRICHMENT_STATUS:
+                ENRICHMENT_STATUS[pc_id]["running"] = False
+                ENRICHMENT_STATUS[pc_id]["_ts"] = time.time()
 
 
 def _run_pipeline(pc_id: str, force: bool):
@@ -159,7 +180,7 @@ def _run_pipeline(pc_id: str, force: bool):
             _update_status(pc_id, "identifiers", f"{i+1}/{total} items")
     except Exception as e:
         log.warning("ENRICH %s: identifier extraction error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("identifiers")
+    _mark_step_done(pc_id,"identifiers")
 
     # ── Step 2: Extract URLs from descriptions ───────────────────────────
     _update_status(pc_id, "url_extraction", "scanning descriptions")
@@ -167,7 +188,7 @@ def _run_pipeline(pc_id: str, force: bool):
         counters["urls_extracted"] = _extract_urls_from_items(items)
     except Exception as e:
         log.debug("ENRICH %s: URL extraction error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("url_extraction")
+    _mark_step_done(pc_id,"url_extraction")
 
     # ── Step 3: Catalog batch match ──────────────────────────────────────
     _update_status(pc_id, "catalog_match", f"matching {total} items")
@@ -207,7 +228,7 @@ def _run_pipeline(pc_id: str, force: bool):
             counters["catalog_matched"] += 1
     except Exception as e:
         log.warning("ENRICH %s: catalog match error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("catalog_match")
+    _mark_step_done(pc_id,"catalog_match")
 
     # ── Step 3b: Ensure won_quotes KB is populated from SCPRS harvest ──
     try:
@@ -257,7 +278,7 @@ def _run_pipeline(pc_id: str, force: bool):
             _update_status(pc_id, "scprs_lookup", f"{i+1}/{total} items")
     except Exception as e:
         log.warning("ENRICH %s: SCPRS lookup error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("scprs_lookup")
+    _mark_step_done(pc_id,"scprs_lookup")
 
     # ── Step 5: Web price lookup for items with URLs (max 3) ─────────────
     _update_status(pc_id, "web_lookup", "checking supplier URLs")
@@ -294,7 +315,7 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("item_link_lookup not available")
     except Exception as e:
         log.warning("ENRICH %s: web lookup error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("web_lookup")
+    _mark_step_done(pc_id,"web_lookup")
 
     # ── Step 5b: Claude web search for unpriced items (max 5) ────────────
     _update_status(pc_id, "web_search", "searching web for unpriced items")
@@ -348,7 +369,7 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("web_price_research not available")
     except Exception as e:
         log.debug("ENRICH %s: web search error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("web_search")
+    _mark_step_done(pc_id,"web_search")
 
     # ── Step 6: Pricing oracle recommendations (with per-item timeout) ───
     _update_status(pc_id, "pricing_oracle", f"0/{total} items")
@@ -405,7 +426,7 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("pricing_oracle not available")
     except Exception as e:
         log.warning("ENRICH %s: pricing oracle error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("pricing_oracle")
+    _mark_step_done(pc_id,"pricing_oracle")
 
     # ── Step 7: Pricing Oracle V2 (FI$Cal intelligence) ──────────────────
     _update_status(pc_id, "oracle_v2", "checking FI$Cal intelligence")
@@ -448,7 +469,7 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("pricing_oracle_v2 not available")
     except Exception as e:
         log.debug("ENRICH %s: oracle v2 error: %s", pc_id, e)
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("oracle_v2")
+    _mark_step_done(pc_id,"oracle_v2")
 
     # ── Record oracle recommendations for accuracy tracking ──
     try:
@@ -506,7 +527,7 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("ENRICH %s: trend detection error: %s", pc_id, e)
     if trend_alerts:
         log.info("ENRICH %s: %d price trend alerts", pc_id, len(trend_alerts))
-    ENRICHMENT_STATUS[pc_id]["steps_done"].append("trends")
+    _mark_step_done(pc_id,"trends")
 
     # ── Save enriched PC ─────────────────────────────────────────────────
     _update_status(pc_id, "saving", "persisting results")
@@ -527,12 +548,14 @@ def _run_pipeline(pc_id: str, force: bool):
     _save_single_pc(pc_id, pc)
 
     # Update live status
-    ENRICHMENT_STATUS[pc_id] = {
-        "running": False,
-        "completed": datetime.now().isoformat(),
-        "summary": counters,
-        "error": None,
-    }
+    with _LOCK:
+        ENRICHMENT_STATUS[pc_id] = {
+            "running": False,
+            "completed": datetime.now().isoformat(),
+            "summary": counters,
+            "error": None,
+            "_ts": time.time(),
+        }
 
     total_found = counters["catalog_matched"] + counters["scprs_matched"] + counters["web_prices_found"]
     log.info("ENRICH %s COMPLETE: %d ids, %d catalog, %d SCPRS, %d URLs, %d web, %d oracle — %d/%d items enriched",
@@ -557,10 +580,19 @@ def enrich_pc_background(pc_id: str, force: bool = False):
 
 
 def _update_status(pc_id: str, phase: str, progress: str):
-    """Update the live polling status dict."""
-    if pc_id in ENRICHMENT_STATUS:
-        ENRICHMENT_STATUS[pc_id]["phase"] = phase
-        ENRICHMENT_STATUS[pc_id]["progress"] = progress
+    """Update the live polling status dict (lock-protected)."""
+    with _LOCK:
+        if pc_id in ENRICHMENT_STATUS:
+            ENRICHMENT_STATUS[pc_id]["phase"] = phase
+            ENRICHMENT_STATUS[pc_id]["progress"] = progress
+
+
+def _mark_step_done(pc_id: str, step: str):
+    """Record a completed pipeline step (lock-protected)."""
+    with _LOCK:
+        entry = ENRICHMENT_STATUS.get(pc_id)
+        if entry and "steps_done" in entry:
+            entry["steps_done"].append(step)
 
 
 def _extract_urls_from_items(items: list) -> int:

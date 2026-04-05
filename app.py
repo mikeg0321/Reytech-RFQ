@@ -23,9 +23,10 @@ if _src_dir.exists():
             pass
 
 import os
+import gzip as _gzip
 import logging
 import time
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 print(f"[BOOT] app.py loading at {time.time():.0f}", flush=True)
 
@@ -47,6 +48,16 @@ def create_app():
             "Set it in Railway: Settings → Variables → SECRET_KEY = <random 32+ char string>"
         )
     app.secret_key = _secret
+
+    # ── Structured logging — MUST be first, before any other init ─────────
+    try:
+        from src.core.structured_log import setup_structured_logging
+        setup_structured_logging()
+        print("[BOOT] Structured logging active", flush=True)
+    except Exception as e:
+        # Logging setup failure is serious — print to stderr so it's visible
+        import sys as _sys
+        print(f"[BOOT] WARNING: structured logging setup failed: {e}", file=_sys.stderr, flush=True)
 
     # ── FORCE_CLEAN_BOOT: nuke corrupted volume data ──────────────────────
     if os.environ.get("FORCE_CLEAN_BOOT"):
@@ -81,34 +92,31 @@ def create_app():
                 conn.executescript(SCHEMA)
         else:
             import signal
-            def _timeout_handler(signum, frame):
-                raise TimeoutError("DB init >30s")
-            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(30)
+            _has_alarm = hasattr(signal, 'SIGALRM')
+            if _has_alarm:
+                def _timeout_handler(signum, frame):
+                    raise TimeoutError("DB init >30s")
+                old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+                signal.alarm(30)
             try:
                 from src.core.db import (get_db, SCHEMA, DB_PATH, init_db, _is_railway_volume,
-                                         _reconcile_quotes_json, _boot_sync_quotes, _boot_sync_pcs,
                                          _fix_data_on_boot, get_db_stats, migrate_json_to_db,
                                          init_db_deferred)
                 init_db()
-                # Data sync — must complete before serving requests
                 init_db_deferred()  # DAL migration
-                _reconcile_quotes_json()
                 _fix_data_on_boot()
                 stats = get_db_stats()
                 if stats.get("quotes", 0) == 0 and stats.get("contacts", 0) == 0:
                     migrate_json_to_db()
-                else:
-                    _boot_sync_quotes()
-                    _boot_sync_pcs()
             except TimeoutError:
                 print("[BOOT] DB TIMEOUT — minimal schema", flush=True)
                 from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
                 with get_db() as conn:
                     conn.executescript(SCHEMA)
             finally:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
+                if _has_alarm:
+                    signal.alarm(0)
+                    signal.signal(signal.SIGALRM, old_handler)
     except Exception as e:
         logging.getLogger("reytech").warning("DB init: %s", e)
     print(f"[BOOT] DB ready ({time.time()-t0:.1f}s)", flush=True)
@@ -187,10 +195,7 @@ def create_app():
     def _ping():
         return "pong", 200, {"Content-Type": "text/plain"}
 
-    @app.route("/health")
-    def _health():
-        """Lightweight health check for Railway — no auth, no DB, instant."""
-        return jsonify({"status": "ok"}), 200
+    # /health is defined in routes_rfq.py with real DB + disk checks
 
     @app.errorhandler(404)
     def _not_found(e):
@@ -223,20 +228,19 @@ def create_app():
         if request.path.startswith("/static/"):
             response.cache_control.max_age = 3600
             response.cache_control.public = True
-        # Gzip HTML/JSON responses
-        if (response.content_type and 
-            any(ct in response.content_type for ct in ("text/html", "application/json")) and
-            response.content_length and response.content_length > 500):
+        # Gzip HTML/JSON responses (skip if upstream proxy already compressed)
+        if (response.content_type and response.status_code == 200
+            and not response.headers.get("Content-Encoding")
+            and any(ct in response.content_type for ct in ("text/html", "application/json"))
+            and response.content_length and response.content_length > 500
+            and "gzip" in request.headers.get("Accept-Encoding", "")):
             try:
-                import gzip as _gz
-                accept = request.headers.get("Accept-Encoding", "")
-                if "gzip" in accept and response.status_code == 200:
-                    data = response.get_data()
-                    compressed = _gz.compress(data, compresslevel=4)
-                    if len(compressed) < len(data):
-                        response.set_data(compressed)
-                        response.headers["Content-Encoding"] = "gzip"
-                        response.headers["Content-Length"] = len(compressed)
+                data = response.get_data()
+                compressed = _gzip.compress(data, compresslevel=4)
+                if len(compressed) < len(data):
+                    response.set_data(compressed)
+                    response.headers["Content-Encoding"] = "gzip"
+                    response.headers["Content-Length"] = len(compressed)
             except Exception:
                 pass
         return response
@@ -255,16 +259,15 @@ def create_app():
             _dedup_price_checks_on_boot()
         except Exception:
             pass
+        # Reconciliation tasks — moved off critical startup path (not needed for first request)
         try:
-            from src.core.migrations import run_migrations
-            run_migrations()
+            from src.core.db import _reconcile_quotes_json, _boot_sync_quotes, _boot_sync_pcs
+            _reconcile_quotes_json()
+            _boot_sync_quotes()
+            _boot_sync_pcs()
         except Exception:
             pass
-        try:
-            from src.core.structured_log import setup_structured_logging
-            setup_structured_logging()
-        except Exception:
-            pass
+        # Structured logging already initialized in create_app()
         try:
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
             start_backup_scheduler(interval_hours=24)
@@ -345,12 +348,16 @@ def create_app():
 
         # Pre-warm expensive caches so first user request is fast
         try:
+            import base64 as _b64
+            _dash_user = os.environ.get("DASH_USER", "reytech")
+            _dash_pass = os.environ.get("DASH_PASS", "")
+            _auth_header = {"Authorization": "Basic " + _b64.b64encode(
+                f"{_dash_user}:{_dash_pass}".encode()).decode()} if _dash_pass else {}
             with app.app_context():
-                from flask import testing
                 client = app.test_client()
                 for endpoint in ["/api/dashboard/init", "/api/manager/brief"]:
                     try:
-                        client.get(endpoint)
+                        client.get(endpoint, headers=_auth_header)
                     except Exception:
                         pass
                 logging.getLogger("reytech").info("Cache pre-warmed: dashboard/init + manager/brief")
