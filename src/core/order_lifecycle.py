@@ -19,6 +19,10 @@ ORDER_STATUSES = [
     "shipped", "delivered", "invoiced", "paid",
 ]
 
+# V2 compat: ORDER_FLOW alias (imported by dashboard.py)
+ORDER_FLOW = {s: s for s in ORDER_STATUSES}
+ORDER_FLOW["cancelled"] = "cancelled"
+
 STATUS_LABELS = {
     "received": "📥 PO Received",
     "processing": "⚙️ Processing",

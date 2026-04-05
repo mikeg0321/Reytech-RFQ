@@ -56,6 +56,34 @@ def _save_orders(orders):
         log.error("_save_orders via order_dal failed: %s", e)
 
 
+@bp.route("/api/order/<oid>/line/<lid>/confirm-delivery", methods=["POST"])
+@auth_required
+@safe_route
+def api_order_confirm_delivery(oid, lid):
+    """V2: Confirm delivery of a line item (dropship model).
+    POST JSON: {delivery_date?, tracking_number?, carrier?, notes?}
+    Creates delivery_log entry and transitions line status to 'delivered'.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        from src.core.order_dal import confirm_delivery
+        ok = confirm_delivery(
+            order_id=oid,
+            line_id=lid,
+            delivery_date=data.get("delivery_date", ""),
+            tracking_number=data.get("tracking_number", ""),
+            carrier=data.get("carrier", ""),
+            notes=data.get("notes", ""),
+            actor="user",
+        )
+        if ok:
+            return jsonify({"ok": True, "message": f"Delivery confirmed for line {lid}"})
+        return jsonify({"ok": False, "error": "Line item not found or update failed"})
+    except Exception as e:
+        log.error("confirm_delivery(%s, %s): %s", oid, lid, e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/order/<oid>/delivery-update", methods=["POST"])
 @auth_required
 @safe_route

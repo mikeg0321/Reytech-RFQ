@@ -123,6 +123,13 @@ def temp_data_dir(tmp_path, monkeypatch):
                 (_key, _val, _now))
         _conn.commit()
         _conn.close()
+        # Run full init_db() to create all tables (email_outbox, price_checks, etc.)
+        # Tests like test_manager_agent need these tables to exist.
+        try:
+            _db_mod.init_db()
+        except Exception:
+            pass
+        _db_mod.close_thread_db()  # Reset connection after init
     except Exception:
         pass
 

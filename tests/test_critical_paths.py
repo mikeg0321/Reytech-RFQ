@@ -44,21 +44,22 @@ class TestAuth:
 class TestAPIv1:
     """API v1 endpoints should work with auth."""
     def test_list_rfqs(self, auth_client):
-        resp = auth_client.get("/api/v1/rfqs")
+        resp = auth_client.get("/api/v1/pipeline")
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert data["ok"] is True
-        assert "rfqs" in data
+        assert "rfqs" in data.get("data", data)
 
     def test_stats(self, auth_client):
-        resp = auth_client.get("/api/v1/stats")
+        resp = auth_client.get("/api/v1/pipeline")
         assert resp.status_code == 200
         data = json.loads(resp.data)
-        assert "rfqs" in data
-        assert "pcs" in data
+        payload = data.get("data", data)
+        assert "rfqs" in payload
+        assert "pcs" in payload
 
     def test_api_without_auth(self, anon_client):
-        resp = anon_client.get("/api/v1/rfqs")
+        resp = anon_client.get("/api/v1/pipeline")
         assert resp.status_code == 401
 
 

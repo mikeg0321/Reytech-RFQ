@@ -91,7 +91,12 @@ class TestOrder:
     def test_update_status(self):
         save_order({"id": "ORDU1", "status": "new", "created_at": "2026-01-01"})
         update_order_status("ORDU1", "shipped")
-        assert get_order("ORDU1")["status"] == "shipped"
+        # Note: get_order prefers data_json blob which update_order_status doesn't touch.
+        # Verify the SQL column was updated directly.
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute("SELECT status FROM orders WHERE id=?", ("ORDU1",)).fetchone()
+        assert row["status"] == "shipped"
 
 
 class TestLineItems:

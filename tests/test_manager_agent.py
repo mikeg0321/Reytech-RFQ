@@ -241,23 +241,23 @@ class TestHomePageRendering:
         """The brief section div must exist in home page HTML."""
         import os
         os.environ.setdefault('APP_SECRET', 'test')
-        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html"), encoding="utf-8").read()
         assert 'brief' in PAGE_HOME.lower()
 
     def test_home_has_kpi_section(self):
         """The KPI dashboard section must exist in home page HTML."""
-        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html"), encoding="utf-8").read()
         assert 'kpi' in PAGE_HOME.lower()
 
     def test_home_fetches_brief_and_metrics(self):
         """JS must fetch both API endpoints (brief is in dashboard BRIEF_HTML)."""
-        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html"), encoding="utf-8").read()
         assert "/api/manager/metrics" in PAGE_HOME
         # Brief fetch is injected via dashboard.py BRIEF_HTML, not in PAGE_HOME directly
 
     def test_home_has_error_handling(self):
         """JS must log errors, not swallow them."""
-        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html")).read()
+        import os; PAGE_HOME = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "templates", "home.html"), encoding="utf-8").read()
         assert "console.error" in PAGE_HOME
         # Error handling present in JS
 

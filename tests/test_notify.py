@@ -10,11 +10,11 @@ def test_sms_called_with_correct_fields():
     with patch.dict(os.environ, {
         "TWILIO_ACCOUNT_SID": "fake_sid",
         "TWILIO_AUTH_TOKEN": "fake_token",
-        "TWILIO_PHONE_NUMBER": "+10000000000",
+        "TWILIO_FROM_NUMBER": "+10000000000",
         "NOTIFY_PHONE": "+11111111111",
         "NOTIFY_SMS": "true",
     }):
-        # Reload to pick up env vars
+        # Reload to pick up env vars (module-level constants)
         import importlib
         import src.agents.notify_agent as na
         importlib.reload(na)
@@ -41,7 +41,7 @@ def test_sms_does_not_raise_when_unconfigured():
     with patch.dict(os.environ, {
         "TWILIO_ACCOUNT_SID": "",
         "TWILIO_AUTH_TOKEN": "",
-        "TWILIO_PHONE_NUMBER": "",
+        "TWILIO_FROM_NUMBER": "",
         "NOTIFY_PHONE": "",
     }, clear=False):
         import importlib

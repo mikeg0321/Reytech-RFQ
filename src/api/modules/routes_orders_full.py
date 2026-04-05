@@ -22,7 +22,7 @@ def orders_page():
     """Orders dashboard — track sourcing, shipping, delivery, invoicing."""
     orders = _load_orders()
 
-    # ── F3: Filtering ──
+    # ── Filtering ──
     filter_status = request.args.get("status", "")
     filter_agency = request.args.get("agency", "")
     search_q = request.args.get("q", "").lower()
@@ -51,135 +51,47 @@ def orders_page():
         "closed":           ("🏁 Closed",           "#8b949e", "rgba(139,148,160,.1)"),
     }
 
-    # Stats — aggregate across all orders
-    total_orders = len(order_list)
-    active = sum(1 for o in order_list if o.get("status") not in ("closed",))
-    total_value = sum(o.get("total", 0) for o in order_list)
-    invoiced_value = sum(o.get("invoice_total", 0) for o in order_list)
-
-    # Line item level metrics
+    # ── Aggregate stats for template ──
     all_items = []
     for o in order_list:
         for it in o.get("line_items", []):
-            it["_order_id"] = o.get("order_id", "")
-            it["_order_status"] = o.get("status", "")
             all_items.append(it)
 
     total_line_items = len(all_items)
-    pending_items = sum(1 for it in all_items if it.get("sourcing_status") == "pending")
-    ordered_items = sum(1 for it in all_items if it.get("sourcing_status") == "ordered")
-    shipped_items = sum(1 for it in all_items if it.get("sourcing_status") == "shipped")
     delivered_items = sum(1 for it in all_items if it.get("sourcing_status") == "delivered")
-    
-    orders_needing_action = sum(1 for o in order_list 
-                                 if o.get("status") == "new" and o.get("line_items"))
-    orders_ready_invoice = sum(1 for o in order_list if o.get("status") == "delivered")
-    orders_with_drafts = sum(1 for o in order_list if o.get("draft_invoice"))
 
-    # Pipeline progress
-    pct_complete = round(delivered_items / total_line_items * 100) if total_line_items else 0
-    pct_shipped = round((shipped_items + delivered_items) / total_line_items * 100) if total_line_items else 0
-    pct_ordered = round((ordered_items + shipped_items + delivered_items) / total_line_items * 100) if total_line_items else 0
+    stats = {
+        "total_orders": len(order_list),
+        "active": sum(1 for o in order_list if o.get("status") not in ("closed",)),
+        "total_value": sum(o.get("total", 0) for o in order_list),
+        "invoiced_value": sum(o.get("invoice_total", 0) for o in order_list),
+        "total_line_items": total_line_items,
+        "pending_items": sum(1 for it in all_items if it.get("sourcing_status") == "pending"),
+        "ordered_items": sum(1 for it in all_items if it.get("sourcing_status") == "ordered"),
+        "shipped_items": sum(1 for it in all_items if it.get("sourcing_status") == "shipped"),
+        "delivered_items": delivered_items,
+        "pct_complete": round(delivered_items / total_line_items * 100) if total_line_items else 0,
+        "orders_needing_action": sum(1 for o in order_list if o.get("status") == "new" and o.get("line_items")),
+        "orders_ready_invoice": sum(1 for o in order_list if o.get("status") == "delivered"),
+    }
 
-    macro_html = f"""
-    <div class="bento bento-4" style="margin-bottom:16px">
-     <div class="card" style="text-align:center;padding:18px">
-      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{total_orders}</div>
-      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Orders</div>
-      <div style="font-size:13px;color:var(--tx2);margin-top:4px">{active} active</div>
-     </div>
-     <div class="card" style="text-align:center;padding:18px">
-      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${total_value:,.0f}</div>
-      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Value</div>
-      <div style="font-size:13px;color:var(--tx2);margin-top:4px">${invoiced_value:,.0f} invoiced</div>
-     </div>
-     <div class="card" style="text-align:center;padding:18px">
-      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{total_line_items}</div>
-      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Line Items</div>
-      <div style="font-size:13px;color:var(--tx2);margin-top:4px">{pct_complete}% delivered</div>
-     </div>
-     <div class="card" style="text-align:center;padding:18px">
-      <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{'#f85149' if orders_needing_action else '#3fb950'}">{orders_needing_action}</div>
-      <div style="font-size:14px;color:var(--tx2);margin-top:4px">Need Action</div>
-      <div style="font-size:13px;color:var(--tx2);margin-top:4px">{orders_ready_invoice} ready to invoice</div>
-     </div>
-    </div>
-
-    <div class="card" style="margin-bottom:16px;padding:14px 18px">
-     <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:15px">
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#d29922;display:inline-block"></span> <b>{pending_items}</b> pending</div>
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <b>{ordered_items}</b> ordered</div>
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <b>{shipped_items}</b> shipped</div>
-      <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#3fb950;display:inline-block"></span> <b>{delivered_items}</b> delivered</div>
-      <div style="flex:1;min-width:200px">
-       <div style="background:var(--sf);border-radius:8px;height:16px;overflow:hidden;display:flex">
-        <div style="width:{pct_complete}%;background:#3fb950;transition:width 0.3s" title="{delivered_items} delivered"></div>
-        <div style="width:{round(shipped_items/total_line_items*100) if total_line_items else 0}%;background:#bc8cff" title="{shipped_items} shipped"></div>
-        <div style="width:{round(ordered_items/total_line_items*100) if total_line_items else 0}%;background:#58a6ff" title="{ordered_items} ordered"></div>
-       </div>
-      </div>
-     </div>
-    </div>
-    """
-
-    # Collect agencies for filter dropdown
-    all_agencies = sorted(set(o.get("agency", "") for o in orders.values() if o.get("agency")))
-
-    rows = ""
+    # ── Enrich each order with aging badge + computed counts for template ──
     for o in order_list:
-        oid = o.get("order_id", "")
-        st = o.get("status", "new")
-        lbl, clr, bg = status_cfg.get(st, status_cfg["new"])
         items = o.get("line_items", [])
-        sourced = sum(1 for it in items if it.get("sourcing_status") in ("ordered", "shipped", "delivered"))
-        shipped = sum(1 for it in items if it.get("sourcing_status") in ("shipped", "delivered"))
-        delivered = sum(1 for it in items if it.get("sourcing_status") == "delivered")
-        has_tracking = sum(1 for it in items if it.get("tracking_number"))
-        has_suppliers = sum(1 for it in items if it.get("supplier_url"))
-        n = len(items)
-        pct = round(delivered / n * 100) if n else 0
-
-        # F5: Aging badge
+        o["delivered_count"] = sum(1 for it in items if it.get("sourcing_status") == "delivered")
         try:
             from src.api.modules.routes_orders_enhance import calc_order_aging
             aging = calc_order_aging(o)
-            age_badge = aging["badge"]
-            age_title = f"{aging['age_days']}d old, {aging['stale_days']}d since update"
+            o["age_badge"] = aging["badge"]
+            o["age_title"] = f"{aging['age_days']}d old, {aging['stale_days']}d since update"
         except Exception:
-            age_badge = ""
-            age_title = ""
+            o["age_badge"] = ""
+            o["age_title"] = ""
 
-        # Progress bar for this order
-        progress_bar = f"""<div style="display:flex;align-items:center;gap:4px;min-width:80px">
-         <div style="flex:1;background:var(--sf);border-radius:4px;height:8px;overflow:hidden">
-          <div style="width:{pct}%;background:#3fb950;height:100%"></div>
-         </div>
-         <span style="font-size:13px;color:var(--tx2);white-space:nowrap">{delivered}/{n}</span>
-        </div>"""
-
-        # Indicators
-        indicators = ""
-        if has_suppliers:
-            indicators += f'<span title="{has_suppliers}/{n} items linked to suppliers" style="font-size:13px;margin-left:3px">🔗{has_suppliers}</span>'
-        if has_tracking:
-            indicators += f'<span title="{has_tracking} tracking numbers" style="font-size:13px;margin-left:3px">📦{has_tracking}</span>'
-        if o.get("draft_invoice"):
-            indicators += '<span title="Draft invoice ready" style="font-size:13px;margin-left:3px">📄</span>'
-
-        rows += f"""<tr style="{'opacity:0.5' if st == 'closed' else ''}">
-         <td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px">{oid}</a></td>
-         <td class="mono" style="white-space:nowrap;font-size:14px">{o.get('created_at','')[:10]}</td>
-         <td style="font-size:14px">{o.get('agency','')}</td>
-         <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500;font-size:15px">{o.get('institution','')}</td>
-         <td class="mono" style="font-size:14px">{o.get('po_number','') or o.get('quote_number','')}</td>
-         <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:16px">${o.get('total',0):,.2f}</td>
-         <td>{progress_bar}</td>
-         <td style="text-align:center"><span title="{age_title}" style="margin-right:2px">{age_badge}</span><span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:13px;font-weight:600;color:{clr};background:{bg}">{lbl}</span>{indicators}</td>
-         <td style="text-align:center"><button onclick="deleteOrder('{oid}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)" title="Delete order">🗑️</button></td>
-        </tr>"""
+    all_agencies = sorted(set(o.get("agency", "") for o in orders.values() if o.get("agency")))
 
     return render_page("orders.html", active_page="Orders",
-        rows=rows, macro_html=macro_html,
+        order_list=order_list, stats=stats, status_cfg=status_cfg,
         all_agencies=all_agencies, filter_status=filter_status,
         filter_agency=filter_agency, search_q=request.args.get("q", ""))
 
@@ -688,15 +600,24 @@ def api_order_update_line(oid, lid):
     if not order:
         return jsonify({"ok": False, "error": "Order not found"})
     data = request.get_json(force=True, silent=True) or {}
+    # Support V2 field/value pattern (from margins editor)
+    if "field" in data and "value" in data:
+        data[data["field"]] = data["value"]
     updated = False
     for it in order.get("line_items", []):
         if it.get("line_id") == lid:
             for field in ("sourcing_status", "tracking_number", "carrier",
                           "ship_date", "delivery_date", "invoice_status",
-                          "invoice_number", "supplier", "supplier_url", "notes"):
+                          "invoice_number", "supplier", "supplier_url", "notes",
+                          "unit_cost", "cost", "asin", "part_number"):
                 if field in data:
                     old_val = it.get(field, "")
                     it[field] = data[field]
+                    # V2: sync unit_cost ↔ cost (legacy name)
+                    if field == "unit_cost":
+                        it["cost"] = data[field]
+                    elif field == "cost":
+                        it["unit_cost"] = data[field]
                     if field == "sourcing_status" and old_val != data[field]:
                         _log_crm_activity(order.get("quote_number",""), f"line_{data[field]}",
                                           f"Order {oid} line {lid}: {old_val} → {data[field]} — {it.get('description','')[:60]}",

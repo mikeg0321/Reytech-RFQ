@@ -139,22 +139,93 @@
      <button onclick="createQBInvoiceSelected()" class="btn btn-s" style="font-size:16px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25)" aria-label="QB Invoice Selected Items">📄 QB Invoice Selected</button>
     </div>
 
-    <!-- F1: Timeline -->
-    <div class="card" style="margin-top:14px">
-     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('timeline-body').style.display=document.getElementById('timeline-body').style.display==='none'?'block':'none'">
-      <div class="card-t" style="margin:0">📋 Activity Timeline</div>
-      <span style="font-size:16px;color:var(--tx2)" id="timeline-count">loading...</span>
+    {# ── V2: Tabbed Sections (Margins / Shipping / Timeline / Emails) ── #}
+    <div class="card" style="margin-top:14px;padding:0">
+     <div style="display:flex;border-bottom:1px solid var(--bd);overflow-x:auto">
+      <button class="tab-btn active" onclick="switchTab(this,'tab-margins')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid var(--ac);color:var(--ac);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📊 Margins</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-shipping')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">🚚 Shipping</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-timeline')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📋 Timeline</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-emails')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">📧 Emails</button>
+      <button class="tab-btn" onclick="switchTab(this,'tab-payments')" style="flex:1;padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--tx2);font-size:15px;font-weight:600;cursor:pointer;white-space:nowrap">💳 Payments</button>
      </div>
-     <div id="timeline-body" style="display:none;margin-top:12px;max-height:400px;overflow-y:auto"></div>
-    </div>
 
-    <!-- F6: Email Thread -->
-    <div class="card" style="margin-top:14px">
-     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="document.getElementById('emails-body').style.display=document.getElementById('emails-body').style.display==='none'?'block':'none'">
-      <div class="card-t" style="margin:0">📧 Related Emails</div>
-      <span style="font-size:16px;color:var(--tx2)" id="emails-count">loading...</span>
+     {# ── Margins Tab ── #}
+     <div id="tab-margins" class="tab-content" style="padding:16px">
+      <div id="margins-summary" style="margin-bottom:14px">
+       <div class="bento bento-4" style="margin-bottom:0">
+        <div class="card" style="text-align:center;margin:0;padding:14px" id="margin-revenue">
+         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Revenue</div>
+         <div style="font-size:24px;font-weight:700;margin-top:4px;color:#3fb950" id="mg-revenue">—</div>
+        </div>
+        <div class="card" style="text-align:center;margin:0;padding:14px">
+         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Cost</div>
+         <div style="font-size:24px;font-weight:700;margin-top:4px;color:#f85149" id="mg-cost">—</div>
+        </div>
+        <div class="card" style="text-align:center;margin:0;padding:14px">
+         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Profit</div>
+         <div style="font-size:24px;font-weight:700;margin-top:4px" id="mg-profit">—</div>
+        </div>
+        <div class="card" style="text-align:center;margin:0;padding:14px">
+         <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">Margin %</div>
+         <div style="font-size:24px;font-weight:700;margin-top:4px" id="mg-pct">—</div>
+        </div>
+       </div>
+      </div>
+      <div id="margins-table" style="overflow-x:auto">
+       <table class="home-tbl" style="font-size:15px;min-width:700px">
+        <thead><tr>
+         <th>Item</th><th style="width:50px;text-align:center">Qty</th>
+         <th style="width:100px;text-align:right">Sell Price</th>
+         <th style="width:100px;text-align:right">Unit Cost</th>
+         <th style="width:100px;text-align:right">Margin</th>
+         <th style="width:80px;text-align:center">%</th>
+         <th style="width:120px">Supplier</th>
+         <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="margins-body"></tbody>
+       </table>
+      </div>
+      <div style="margin-top:10px;font-size:14px;color:var(--tx2)" id="margins-note">Loading margin data...</div>
      </div>
-     <div id="emails-body" style="display:none;margin-top:12px;max-height:300px;overflow-y:auto"></div>
+
+     {# ── Shipping Tab ── #}
+     <div id="tab-shipping" class="tab-content" style="padding:16px;display:none">
+      <div id="shipping-body">
+       <div style="font-size:15px;color:var(--tx2)">Loading shipping details...</div>
+      </div>
+     </div>
+
+     {# ── Timeline Tab ── #}
+     <div id="tab-timeline" class="tab-content" style="padding:16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+       <span style="font-size:16px;color:var(--tx2)" id="timeline-count">loading...</span>
+      </div>
+      <div id="timeline-body" style="max-height:400px;overflow-y:auto"></div>
+     </div>
+
+     {# ── Emails Tab ── #}
+     <div id="tab-emails" class="tab-content" style="padding:16px;display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+       <span style="font-size:16px;color:var(--tx2)" id="emails-count">loading...</span>
+      </div>
+      <div id="emails-body" style="max-height:300px;overflow-y:auto"></div>
+     </div>
+
+     {# ── Payments Tab ── #}
+     <div id="tab-payments" class="tab-content" style="padding:16px;display:none">
+      <div style="font-size:15px;color:var(--tx2)" id="payments-body">
+       {% if order.get('qb_invoice_id') %}
+       <div class="meta-g">
+        <div class="meta-i"><div class="meta-l">QB Invoice</div><div class="meta-v">#{{ order.get('qb_invoice_number','') }}</div></div>
+        <div class="meta-i"><div class="meta-l">Amount</div><div class="meta-v">${{ "%.2f"|format(order.get('qb_invoice_total',0)) }}</div></div>
+        <div class="meta-i"><div class="meta-l">Status</div><div class="meta-v">{{ order.get('invoice_status','pending') }}</div></div>
+        {% if order.get('qb_invoice_due') %}<div class="meta-i"><div class="meta-l">Due</div><div class="meta-v">{{ order.get('qb_invoice_due','') }}</div></div>{% endif %}
+       </div>
+       {% else %}
+       <div style="text-align:center;padding:24px;color:var(--tx2)">No invoice created yet. Create one from Quick Actions above.</div>
+       {% endif %}
+      </div>
+     </div>
     </div>
 
     <!-- F9: Delivery Proof -->
@@ -225,12 +296,121 @@
     {% endif %}
 
     <script>
+    // ── V2: Tab switching ──
+    function switchTab(btn, tabId) {
+      document.querySelectorAll('.tab-btn').forEach(function(b) {
+        b.style.borderBottomColor = 'transparent';
+        b.style.color = 'var(--tx2)';
+        b.classList.remove('active');
+      });
+      document.querySelectorAll('.tab-content').forEach(function(t) {
+        t.style.display = 'none';
+      });
+      btn.style.borderBottomColor = 'var(--ac)';
+      btn.style.color = 'var(--ac)';
+      btn.classList.add('active');
+      var el = document.getElementById(tabId);
+      if (el) el.style.display = 'block';
+    }
+
+    // ── V2: Load margins data ──
+    function loadMargins() {
+      fetch('/api/order/{{ oid }}/margins').then(function(r){return r.json()}).then(function(d) {
+        if (!d.ok) { document.getElementById('margins-note').textContent = 'Error: ' + (d.error||'unknown'); return; }
+        var el;
+        el = document.getElementById('mg-revenue'); if(el) el.textContent = '$' + (d.total_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+        el = document.getElementById('mg-cost'); if(el) el.textContent = '$' + (d.total_cost||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+        var profit = d.total_margin || 0;
+        el = document.getElementById('mg-profit'); if(el) { el.textContent = '$' + Math.abs(profit).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); el.style.color = profit >= 0 ? '#3fb950' : '#f85149'; }
+        var pct = d.margin_pct || 0;
+        el = document.getElementById('mg-pct'); if(el) { el.textContent = pct.toFixed(1) + '%'; el.style.color = pct >= 20 ? '#3fb950' : pct >= 10 ? '#d29922' : '#f85149'; }
+        var body = document.getElementById('margins-body');
+        if (body && d.lines) {
+          var html = '';
+          d.lines.forEach(function(l) {
+            var mc = l.margin_pct >= 20 ? '#3fb950' : l.margin_pct >= 10 ? '#d29922' : '#f85149';
+            html += '<tr>';
+            html += '<td style="max-width:250px;word-wrap:break-word;white-space:normal">' + (l.description||'').substring(0,60) + '</td>';
+            html += '<td style="text-align:center" class="mono">' + (l.qty||0) + '</td>';
+            html += '<td style="text-align:right" class="mono">$' + (l.sell_price||l.unit_price||0).toFixed(2) + '</td>';
+            html += '<td style="text-align:right" class="mono">' + (l.has_cost ? '$' + (l.cost_price||l.unit_cost||0).toFixed(2) : '<span style="color:var(--tx2)">—</span>') + '</td>';
+            html += '<td style="text-align:right;font-weight:600" class="mono">$' + (l.margin||0).toFixed(2) + '</td>';
+            html += '<td style="text-align:center;font-weight:600;color:' + mc + '">' + (l.has_cost ? l.margin_pct.toFixed(1) + '%' : '—') + '</td>';
+            html += '<td style="font-size:14px;color:var(--tx2)">' + (l.supplier||'—') + '</td>';
+            html += '<td><button onclick="editCost(\'' + (l.description||'').substring(0,30).replace(/'/g,'') + '\')" class="btn btn-s" style="font-size:13px;padding:2px 8px">✏️</button></td>';
+            html += '</tr>';
+          });
+          body.innerHTML = html;
+        }
+        var note = document.getElementById('margins-note');
+        if (note) note.textContent = d.items_with_cost + '/' + d.items_total + ' items have cost data. Click ✏️ to add costs.';
+      }).catch(function(e) {
+        var note = document.getElementById('margins-note');
+        if (note) note.textContent = 'Failed to load margins: ' + e;
+      });
+    }
+
+    function editCost(itemDesc) {
+      var cost = prompt('Enter unit cost for "' + itemDesc + '":');
+      if (cost === null) return;
+      cost = parseFloat(cost);
+      if (isNaN(cost) || cost < 0) { alert('Invalid cost'); return; }
+      // Find the line item by description match
+      var items = ORDER_ITEMS;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].desc && items[i].desc.substring(0,30).replace(/'/g,'') === itemDesc) {
+          fetch('/api/order/{{ oid }}/line/' + items[i].lid, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({field: 'unit_cost', value: cost})
+          }).then(function(r){return r.json()}).then(function(d) {
+            if (d.ok) loadMargins();
+            else alert('Error: ' + (d.error||'unknown'));
+          });
+          return;
+        }
+      }
+      alert('Item not found');
+    }
+
+    // ── V2: Load shipping details ──
+    function loadShipping() {
+      var html = '<table class="home-tbl" style="font-size:15px;min-width:600px"><thead><tr>';
+      html += '<th>Item</th><th style="width:120px">Carrier</th><th style="width:180px">Tracking</th>';
+      html += '<th style="width:100px;text-align:center">Ship Date</th><th style="width:100px;text-align:center">ETA / Delivered</th>';
+      html += '</tr></thead><tbody>';
+      var hasRows = false;
+      ORDER_ITEMS.forEach(function(it) {
+        // Find matching row in items_rows data
+        var row = document.querySelector('tr[data-lid="' + it.lid + '"]');
+        if (!row) return;
+        var tracking = row.querySelector('td:nth-child(9)');
+        var status = row.querySelector('td:nth-child(8) select');
+        var statusVal = status ? status.value : 'pending';
+        hasRows = true;
+        html += '<tr>';
+        html += '<td style="max-width:200px;word-wrap:break-word;white-space:normal">' + (it.desc||'').substring(0,50) + '</td>';
+        html += '<td style="font-size:14px">' + (tracking ? tracking.querySelector('span')?.textContent || '—' : '—') + '</td>';
+        html += '<td style="font-size:14px">' + (tracking ? tracking.innerHTML : '—') + '</td>';
+        html += '<td style="text-align:center;font-size:14px">—</td>';
+        html += '<td style="text-align:center;font-size:14px">' + (statusVal === 'delivered' ? '<span style="color:#3fb950;font-weight:600">✅ Delivered</span>' : statusVal === 'shipped' ? '<span style="color:#bc8cff">In Transit</span>' : '<span style="color:var(--tx2)">—</span>') + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      var el = document.getElementById('shipping-body');
+      if (el) el.innerHTML = hasRows ? html : '<div style="text-align:center;padding:24px;color:var(--tx2)">No shipping data yet. Add tracking numbers from the line items table above.</div>';
+    }
+
     // Order items data for JS functions
     var ORDER_ITEMS = [
       {% for it in items %}
       {lid: {{ it.get('line_id','')|tojson }}, pn: {{ it.get('part_number','')|tojson }}, asin: {{ it.get('asin','')|tojson }}, qty: {{ it.get('qty',0)|tojson }}, desc: {{ it.get('description','')[:60]|tojson }}, supplier_url: {{ it.get('supplier_url','')|tojson }}, supplier: {{ it.get('supplier','')|tojson }}},
       {% endfor %}
     ];
+
+    // Load margins + shipping on page load
+    loadMargins();
+    loadShipping();
 
     function openAmazonCart(oid) {
       // Build Amazon add-to-cart URL for all items with ASINs

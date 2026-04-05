@@ -55,7 +55,10 @@ def _fill_and_inspect(item_count, label):
             output_pdf=output,
             price_tier="recommended",
         )
-        fv_path = os.path.join(os.path.dirname(__file__), "..", "data", "pc_field_values.json")
+        # Read field values from the same DATA_DIR that fill_ams704 writes to
+        # (conftest patches DATA_DIR to a temp dir, so we must import it)
+        import src.forms.price_check as _pc
+        fv_path = os.path.join(_pc.DATA_DIR, "pc_field_values.json")
         with open(fv_path) as f:
             field_values = json.load(f)
         from pypdf import PdfReader
