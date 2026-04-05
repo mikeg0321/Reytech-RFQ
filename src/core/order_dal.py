@@ -503,18 +503,24 @@ def update_line_status(order_id: str, line_id: str, field: str, value,
             item_db_id = row["id"]
             old_value = row.get(field, "")
 
-            # Whitelist of updatable fields
-            allowed = {"sourcing_status", "tracking_number", "carrier", "ship_date",
-                        "delivery_date", "expected_delivery", "supplier_name", "supplier_url",
-                        "invoice_status", "invoice_number", "unit_cost", "notes",
-                        "vendor_order_id", "vendor_order_ref", "asin", "part_number",
-                        "qty_ordered", "unit_price", "fulfillment_type", "qty_backordered"}
-            if field not in allowed:
+            # Whitelist of updatable fields — ONLY these exact column names are allowed.
+            # This is the SQL injection guard: field must be an exact match in this set.
+            _ALLOWED_LINE_FIELDS = {
+                "sourcing_status", "tracking_number", "carrier", "ship_date",
+                "delivery_date", "expected_delivery", "supplier_name", "supplier_url",
+                "invoice_status", "invoice_number", "unit_cost", "notes",
+                "vendor_order_id", "vendor_order_ref", "asin", "part_number",
+                "qty_ordered", "unit_price", "fulfillment_type", "qty_backordered",
+            }
+            if field not in _ALLOWED_LINE_FIELDS:
                 log.warning("update_line_status: field '%s' not in allowed set", field)
                 return False
 
+            # Safe: field is guaranteed to be one of the exact strings in the whitelist above.
+            # We cannot use parameterized column names in SQL, so whitelist is the standard approach.
+            safe_field = field  # already validated against _ALLOWED_LINE_FIELDS
             conn.execute(
-                f"UPDATE order_line_items SET {field}=?, updated_at=? WHERE id=?",
+                "UPDATE order_line_items SET " + safe_field + "=?, updated_at=? WHERE id=?",
                 (value, _now_iso(), item_db_id)
             )
 
@@ -667,8 +673,13 @@ def confirm_delivery(order_id: str, line_id: str, delivery_date: str = "",
             _sync_blob(conn, order_id)
             log.info("order_dal.confirm_delivery(%s, %s) on %s", order_id, line_id, d_date)
 
-        # Recompute order status after confirming delivery
-        compute_order_status(order_id, actor=actor)
+        # Recompute order status after confirming delivery.
+        # This runs outside the delivery transaction but failure is non-fatal:
+        # worst case the line shows "delivered" but order status recomputes on next access.
+        try:
+            compute_order_status(order_id, actor=actor)
+        except Exception as _cse:
+            log.warning("confirm_delivery: status recompute failed (non-fatal): %s", _cse)
         return True
     except Exception as e:
         log.error("confirm_delivery(%s, %s) failed: %s", order_id, line_id, e, exc_info=True)
@@ -801,8 +812,14 @@ def transition_order(order_id: str, new_status: str, actor: str = "system",
                           "payment_date", "payment_amount", "vendor_name"):
                     updates[k] = v
 
-            set_clause = ", ".join(f"{k}=?" for k in updates)
-            values = list(updates.values()) + [order_id]
+            # Safe column names — all keys in updates come from hardcoded strings above
+            _SAFE_ORDER_COLS = {"status", "updated_at", "status_history", "tracking_number",
+                                 "invoice_number", "buyer_name", "buyer_email", "notes",
+                                 "ship_date", "delivery_date", "invoice_date",
+                                 "payment_date", "payment_amount", "vendor_name"}
+            safe_updates = {k: v for k, v in updates.items() if k in _SAFE_ORDER_COLS}
+            set_clause = ", ".join(k + "=?" for k in safe_updates)
+            values = list(safe_updates.values()) + [order_id]
             conn.execute("UPDATE orders SET " + set_clause + " WHERE id=?", values)
 
             conn.execute("""
@@ -878,12 +895,8 @@ def _find_line_item(conn, order_id: str, line_id) -> dict | None:
         except (ValueError, TypeError):
             pass
 
-    # Last resort: try as string match on line_number
-    row = conn.execute(
-        "SELECT * FROM order_line_items WHERE order_id=? ORDER BY line_number LIMIT 1",
-        (order_id,)
-    ).fetchone()
-    return dict(row) if row else None
+    # No match found — return None (do NOT fall back to first row)
+    return None
 
 
 def _sync_blob(conn, order_id: str):

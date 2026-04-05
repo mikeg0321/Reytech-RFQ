@@ -1229,8 +1229,8 @@ CREATE TABLE IF NOT EXISTS delivery_log (
     carrier         TEXT DEFAULT '',
     notes           TEXT DEFAULT '',
     confirmed_by    TEXT DEFAULT 'user',
-    FOREIGN KEY (order_id) REFERENCES orders(id),
-    FOREIGN KEY (line_item_id) REFERENCES order_line_items(id)
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (line_item_id) REFERENCES order_line_items(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_dl_order ON delivery_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_dl_line ON delivery_log(line_item_id);
