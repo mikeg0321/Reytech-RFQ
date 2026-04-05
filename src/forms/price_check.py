@@ -162,18 +162,43 @@ def clean_description(raw: str) -> str:
     return text.strip() if text.strip() else raw.strip()
 
 # ─── Reytech Company Info (fills supplier section) ──────────────────────────
+# Loaded from reytech_config.json — single source of truth for company data.
 
-REYTECH_INFO = {
-    "company_name": "Reytech Inc.",
-    "representative": "Michael Guadan",
-    "address": "30 Carnoustie Way, Trabuco Canyon, CA 92679",
-    "phone": "949-229-1575",
-    "email": "sales@reytechinc.com",
-    "sb_mb": "2002605",
-    "dvbe": "2002605",
-    "discount": "Included",
-    "delivery": "5-7 business days",  # Default; dashboard offers dropdown
-}
+def _build_reytech_info():
+    try:
+        from src.forms.reytech_filler_v4 import load_config
+        co = load_config().get("company", {})
+        addr = co.get("address", "30 Carnoustie Way Trabuco Canyon CA 92679")
+        # Add commas for form display: "Street, City, ST ZIP"
+        if addr and ", " not in addr:
+            m = re.match(r'^(.+?)\s+([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$', addr)
+            if m:
+                addr = f"{m.group(1)}, {m.group(2)} {m.group(3)}"
+        return {
+            "company_name": co.get("name", "Reytech Inc."),
+            "representative": co.get("owner", "Michael Guadan"),
+            "address": addr,
+            "phone": co.get("phone", "949-229-1575"),
+            "email": co.get("email", "sales@reytechinc.com"),
+            "sb_mb": co.get("cert_number", "2002605"),
+            "dvbe": co.get("cert_number", "2002605"),
+            "discount": "Included",
+            "delivery": "5-7 business days",
+        }
+    except Exception:
+        return {
+            "company_name": "Reytech Inc.",
+            "representative": "Michael Guadan",
+            "address": "30 Carnoustie Way, Trabuco Canyon, CA 92679",
+            "phone": "949-229-1575",
+            "email": "sales@reytechinc.com",
+            "sb_mb": "2002605",
+            "dvbe": "2002605",
+            "discount": "Included",
+            "delivery": "5-7 business days",
+        }
+
+REYTECH_INFO = _build_reytech_info()
 
 
 # ─── AMS 704 Field Name Patterns ────────────────────────────────────────────
@@ -3684,6 +3709,19 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
 
     with open(output_pdf, "wb") as f:
         writer.write(f)
+
+    # Post-fill verification: read back and log unmatched fields
+    try:
+        from pypdf import PdfReader as _VR
+        _vfields = _VR(output_pdf).get_fields() or {}
+        _actual_keys = set(_vfields.keys())
+        _intended_keys = set(text_values.keys())
+        _unmatched = _intended_keys - _actual_keys
+        if _unmatched:
+            log.warning("_fill_pdf_fields: %d/%d intended fields not found in output: %s",
+                        len(_unmatched), len(_intended_keys), sorted(_unmatched)[:10])
+    except Exception:
+        pass  # verification is best-effort
 
     log.info(f"Filled AMS 704 saved to {output_pdf}")
 

@@ -107,9 +107,14 @@ def run_nightly_backup(force: bool = False) -> dict:
             if not os.path.exists(dbpath):
                 continue
             try:
-                # Copy to temp file to avoid locking issues
+                # Use sqlite3.backup() for a consistent snapshot (safe during writes)
+                import sqlite3
                 tmp = dbpath + ".backup"
-                shutil.copy2(dbpath, tmp)
+                src_conn = sqlite3.connect(dbpath, timeout=30)
+                dst_conn = sqlite3.connect(tmp)
+                src_conn.backup(dst_conn)
+                dst_conn.close()
+                src_conn.close()
                 upload_file(tmp, day_folder, dbname)
                 os.remove(tmp)
                 result["files_uploaded"] += 1

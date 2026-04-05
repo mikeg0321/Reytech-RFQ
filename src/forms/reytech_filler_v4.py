@@ -476,6 +476,21 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     with open(output_path, "wb") as f:
         writer.write(f)
 
+    # Post-fill verification: read back and log unmatched fields
+    try:
+        verify_reader = PdfReader(output_path)
+        actual_fields = verify_reader.get_fields() or {}
+        intended_keys = set(clean_values.keys())
+        actual_keys = set(actual_fields.keys())
+        unmatched = intended_keys - actual_keys
+        if unmatched:
+            import logging as _vlog
+            _vlog.getLogger("reytech.forms").warning(
+                "fill_and_sign_pdf: %d/%d intended fields not found in output: %s",
+                len(unmatched), len(intended_keys), sorted(unmatched)[:10])
+    except Exception:
+        pass  # verification is best-effort, never block output
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Form Fillers
