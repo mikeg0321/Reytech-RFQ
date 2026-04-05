@@ -6,12 +6,20 @@ import pytest
 
 
 @pytest.fixture
-def app():
+def app(monkeypatch):
     """Create test Flask app."""
-    os.environ["SECRET_KEY"] = "test-secret"
-    os.environ["API_KEY"] = "test-api-key-123"
-    os.environ["DASH_USER"] = "testuser"
-    os.environ["DASH_PASS"] = "testpass"
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("API_KEY", "test-api-key-123")
+    monkeypatch.setenv("DASH_USER", "testuser")
+    monkeypatch.setenv("DASH_PASS", "testpass")
+    # Patch module-level constants that were cached at import time
+    from src.api import shared
+    monkeypatch.setattr(shared, "API_KEY", "test-api-key-123")
+    monkeypatch.setattr(shared, "DASH_USER", "testuser")
+    monkeypatch.setattr(shared, "DASH_PASS", "testpass")
+    monkeypatch.setattr(shared, "check_auth",
+                        lambda u, p: u == "testuser" and p == "testpass")
+    monkeypatch.setattr(shared, "_check_rate_limit", lambda *a, **kw: True)
     from app import create_app
     app = create_app()
     app.config["TESTING"] = True

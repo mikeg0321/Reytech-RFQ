@@ -17,8 +17,47 @@
   <button onclick="createOrder()" class="btn btn-s" style="font-size:16px;white-space:nowrap;padding:8px 18px" aria-label="Manual Order">+ Manual Order</button>
  </div>
 </div>
-{# SECURITY: backend must sanitize before passing #}
-{{ macro_html|safe }}
+
+{# ── Macro Stats (V2: rendered in Jinja2 instead of Python f-string) ── #}
+<div class="bento bento-4" style="margin-bottom:16px">
+ <div class="card" style="text-align:center;padding:18px">
+  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{{ stats.total_orders }}</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Orders</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">{{ stats.active }} active</div>
+ </div>
+ <div class="card" style="text-align:center;padding:18px">
+  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">${{ "{:,.0f}".format(stats.total_value) }}</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Total Value</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">${{ "{:,.0f}".format(stats.invoiced_value) }} invoiced</div>
+ </div>
+ <div class="card" style="text-align:center;padding:18px">
+  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#d29922">{{ stats.total_line_items }}</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Line Items</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">{{ stats.pct_complete }}% delivered</div>
+ </div>
+ <div class="card" style="text-align:center;padding:18px">
+  <div style="font-size:34px;font-weight:800;font-family:'JetBrains Mono',monospace;color:{{ '#f85149' if stats.orders_needing_action else '#3fb950' }}">{{ stats.orders_needing_action }}</div>
+  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Need Action</div>
+  <div style="font-size:13px;color:var(--tx2);margin-top:4px">{{ stats.orders_ready_invoice }} ready to invoice</div>
+ </div>
+</div>
+
+{# ── Pipeline Progress Bar ── #}
+<div class="card" style="margin-bottom:16px;padding:14px 18px">
+ <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;font-size:15px">
+  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#d29922;display:inline-block"></span> <b>{{ stats.pending_items }}</b> pending</div>
+  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#58a6ff;display:inline-block"></span> <b>{{ stats.ordered_items }}</b> ordered</div>
+  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#bc8cff;display:inline-block"></span> <b>{{ stats.shipped_items }}</b> shipped</div>
+  <div style="display:flex;align-items:center;gap:6px"><span style="width:12px;height:12px;border-radius:50%;background:#3fb950;display:inline-block"></span> <b>{{ stats.delivered_items }}</b> delivered</div>
+  <div style="flex:1;min-width:200px">
+   <div style="background:var(--sf);border-radius:8px;height:16px;overflow:hidden;display:flex">
+    <div style="width:{{ stats.pct_complete }}%;background:#3fb950;transition:width 0.3s" title="{{ stats.delivered_items }} delivered"></div>
+    {% if stats.total_line_items %}<div style="width:{{ (stats.shipped_items * 100 / stats.total_line_items)|round|int }}%;background:#bc8cff" title="{{ stats.shipped_items }} shipped"></div>{% endif %}
+    {% if stats.total_line_items %}<div style="width:{{ (stats.ordered_items * 100 / stats.total_line_items)|round|int }}%;background:#58a6ff" title="{{ stats.ordered_items }} ordered"></div>{% endif %}
+   </div>
+  </div>
+ </div>
+</div>
 
 <!-- F3: Filters + Search -->
 <div class="card" style="margin-bottom:12px;padding:14px 18px">
@@ -51,6 +90,8 @@
   <div class="card" style="text-align:center;margin:0;padding:18px" id="kpi-monthly"></div>
  </div>
 </div>
+
+{# ── Orders Table (V2: rendered in Jinja2 instead of Python f-string) ── #}
 <div class="card" style="padding:0;overflow-x:auto">
  <table class="home-tbl" style="min-width:800px;font-size:15px">
   <thead><tr>
@@ -60,8 +101,47 @@
    <th style="width:100px;text-align:center">Status</th>
    <th style="width:40px"></th>
   </tr></thead>
-  {# SECURITY: backend must sanitize before passing #}
-  <tbody>{{ rows|safe if rows else '<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2);font-size:15px">No orders yet — mark a quote as Won or import a PO PDF</td></tr>' }}</tbody>
+  <tbody>
+  {% if order_list %}
+   {% for o in order_list %}
+   {% set oid = o.order_id|default(o.id|default('')) %}
+   {% set st = o.status|default('new') %}
+   {% set s_cfg = status_cfg.get(st, status_cfg.get('new', ('🆕 New','#58a6ff','rgba(88,166,255,.1)'))) %}
+   {% set items = o.line_items|default([]) %}
+   {% set n = items|length %}
+   {% set delivered = o.delivered_count|default(0) %}
+   {% set pct = (delivered * 100 / n)|round|int if n else 0 %}
+   {% set has_tracking = items|selectattr('tracking_number')|list|length %}
+   {% set has_suppliers = items|selectattr('supplier_url')|list|length %}
+   <tr style="{{ 'opacity:0.5' if st == 'closed' else '' }}">
+    <td><a href="/order/{{ oid }}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px">{{ oid }}</a></td>
+    <td class="mono" style="white-space:nowrap;font-size:14px">{{ (o.created_at|default(''))[:10] }}</td>
+    <td style="font-size:14px">{{ o.agency|default('') }}</td>
+    <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500;font-size:15px">{{ o.institution|default('') }}</td>
+    <td class="mono" style="font-size:14px">{{ o.po_number|default('') or o.quote_number|default('') }}</td>
+    <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:16px">${{ "{:,.2f}".format(o.total|default(0)) }}</td>
+    <td>
+     <div style="display:flex;align-items:center;gap:4px;min-width:80px">
+      <div style="flex:1;background:var(--sf);border-radius:4px;height:8px;overflow:hidden">
+       <div style="width:{{ pct }}%;background:#3fb950;height:100%"></div>
+      </div>
+      <span style="font-size:13px;color:var(--tx2);white-space:nowrap">{{ delivered }}/{{ n }}</span>
+     </div>
+    </td>
+    <td style="text-align:center">
+     {% if o.age_badge|default('') %}<span title="{{ o.age_title|default('') }}" style="margin-right:2px">{{ o.age_badge }}</span>{% endif %}
+     <span style="display:inline-block;padding:3px 10px;border-radius:12px;font-size:13px;font-weight:600;color:{{ s_cfg[1] }};background:{{ s_cfg[2] }}">{{ s_cfg[0] }}</span>
+     {% if has_suppliers %}<span title="{{ has_suppliers }}/{{ n }} items linked" style="font-size:13px;margin-left:3px">🔗{{ has_suppliers }}</span>{% endif %}
+     {% if has_tracking %}<span title="{{ has_tracking }} tracking numbers" style="font-size:13px;margin-left:3px">📦{{ has_tracking }}</span>{% endif %}
+     {% if o.draft_invoice %}<span title="Draft invoice ready" style="font-size:13px;margin-left:3px">📄</span>{% endif %}
+    </td>
+    <td style="text-align:center"><button onclick="deleteOrder('{{ oid }}')" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--tx2)" title="Delete order">🗑️</button></td>
+   </tr>
+   {% endfor %}
+  {% else %}
+   <tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2);font-size:15px">No orders yet — mark a quote as Won or import a PO PDF</td></tr>
+  {% endif %}
+  </tbody>
  </table>
 </div>
 
@@ -76,15 +156,15 @@
 {% block scripts %}
 <script>
 function createOrder() {
-  const po = prompt('PO Number (from state purchase order):');
+  var po = prompt('PO Number (from state purchase order):');
   if (!po) return;
-  const agency = prompt('Agency (CDCR, CCHCS, CalVet, DSH, etc):', '');
-  const inst = prompt('Institution / Ship-To name:', '');
+  var agency = prompt('Agency (CDCR, CCHCS, CalVet, DSH, etc):', '');
+  var inst = prompt('Institution / Ship-To name:', '');
   fetch('/api/order/create', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({po_number: po, agency: agency || '', institution: inst || '', items: [], total: 0})
-  }).then(r => r.json()).then(d => {
+  }).then(function(r){return r.json()}).then(function(d) {
     if (d.ok) {
       location.href = '/order/' + d.order_id;
     } else alert('Error: ' + (d.error || 'unknown'));
@@ -94,33 +174,43 @@ function createFromPO() {
   document.getElementById('po-upload-input').click();
 }
 function handlePOUpload(input) {
-  const file = input.files[0];
+  var file = input.files[0];
   if (!file) return;
   fetch('/api/order/create', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({po_number: 'PENDING', agency: '', institution: '', items: [], total: 0})
-  }).then(r => r.json()).then(d => {
+  }).then(function(r){return r.json()}).then(function(d) {
     if (!d.ok) { alert('Error: ' + d.error); return; }
-    const oid = d.order_id;
-    const formData = new FormData();
+    var oid = d.order_id;
+    var formData = new FormData();
     formData.append('file', file);
-    return fetch('/api/order/' + oid + '/import-po', {method: 'POST', body: formData}).then(r => r.json()).then(r => {
+    return fetch('/api/order/' + oid + '/import-po', {method: 'POST', body: formData}).then(function(r){return r.json()}).then(function(r) {
       if (r.ok) {
         location.href = '/order/' + oid;
       } else {
-        alert('Order created but PDF parse issue: ' + (r.error || 'unknown') + '\nRedirecting to order — upload PO again from detail page.');
-        if (r.raw_text) console.log('PO raw text:', r.raw_text);
+        alert('Order created but PDF parse issue: ' + (r.error || 'unknown') + '\nRedirecting to order.');
         location.href = '/order/' + oid;
       }
     });
   });
 }
+function deleteOrder(oid) {
+  if (!confirm('Delete order ' + oid + '?')) return;
+  fetch('/api/order/' + oid + '/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({reason: 'manual delete'})
+  }).then(function(r){return r.json()}).then(function(d) {
+    if (d.ok) location.reload();
+    else alert('Error: ' + (d.error || 'unknown'));
+  });
+}
 // F10: KPI Dashboard
-fetch('/api/orders/kpi').then(r=>r.json()).then(d=>{
+fetch('/api/orders/kpi').then(function(r){return r.json()}).then(function(d){
  if(!d.ok) return;
  document.getElementById('order-kpi').style.display='block';
- var mk=function(id,val,lbl,sub,c){document.getElementById(id).innerHTML=
+ var mk=function(id,val,lbl,sub,c){var el=document.getElementById(id);if(el)el.innerHTML=
   '<div style="font-size:30px;font-weight:800;font-family:JetBrains Mono,monospace;color:'+(c||'var(--ac)')+'">'+val+'</div>'
   +'<div style="font-size:14px;color:var(--tx2);margin-top:4px">'+lbl+'</div>'
   +(sub?'<div style="font-size:13px;color:var(--tx2);margin-top:4px">'+sub+'</div>':'');};
@@ -132,28 +222,29 @@ fetch('/api/orders/kpi').then(r=>r.json()).then(d=>{
 }).catch(function(){});
 
 // QuickBooks invoices
-fetch('/api/qb/financial-context').then(r=>r.json()).then(d=>{
+fetch('/api/qb/financial-context').then(function(r){return r.json()}).then(function(d){
  if(!d.ok) return;
  document.getElementById('qb-invoices').style.display='block';
- const s=document.getElementById('inv-stats');
- const mkStat=(label,val,color)=>'<div style="background:var(--sf2);padding:14px;border-radius:8px;text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">'+label+'</div><div style="font-size:24px;font-weight:700;margin-top:4px;color:'+(color||'var(--tx)')+'">' +val+'</div></div>';
- s.innerHTML=mkStat('Open','$'+(d.total_receivable||0).toLocaleString(),'var(--yl)')
+ var s=document.getElementById('inv-stats');
+ var mkStat=function(label,val,color){return '<div style="background:var(--sf2);padding:14px;border-radius:8px;text-align:center"><div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">'+label+'</div><div style="font-size:24px;font-weight:700;margin-top:4px;color:'+(color||'var(--tx)')+'">' +val+'</div></div>';};
+ if(s)s.innerHTML=mkStat('Open','$'+(d.total_receivable||0).toLocaleString(),'var(--yl)')
   +mkStat('Overdue','$'+(d.overdue_amount||0).toLocaleString(),'var(--rd)')
   +mkStat('Collected','$'+(d.total_collected||0).toLocaleString(),'var(--gn)')
   +mkStat('Invoices',d.invoice_count||0);
- const inv=d.pending_invoices||[];
+ var inv=d.pending_invoices||[];
  var _esc=function(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;};
- if(inv.length){
-  let t='<table class="tbl" style="width:100%;font-size:14px"><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Due</th><th>Days Out</th><th>Status</th></tr></thead><tbody>';
-  inv.forEach(i=>{
-   const st=i.status==='overdue'?'<span style="color:var(--rd);font-weight:600">⚠️ OVERDUE</span>':'<span style="color:var(--yl)">Open</span>';
+ var tgt=document.getElementById('inv-table');
+ if(inv.length&&tgt){
+  var t='<table class="tbl" style="width:100%;font-size:14px"><thead><tr><th>Invoice</th><th>Customer</th><th style="text-align:right">Total</th><th style="text-align:right">Balance</th><th>Due</th><th>Days Out</th><th>Status</th></tr></thead><tbody>';
+  inv.forEach(function(i){
+   var st=i.status==='overdue'?'<span style="color:var(--rd);font-weight:600">⚠️ OVERDUE</span>':'<span style="color:var(--yl)">Open</span>';
    t+='<tr><td class="mono">'+_esc(i.doc_number)+'</td><td>'+_esc(i.customer)+'</td><td style="text-align:right;font-weight:600" class="mono">$'+i.total.toLocaleString()+'</td><td style="text-align:right;color:var(--yl)" class="mono">$'+i.balance.toLocaleString()+'</td><td class="mono">'+_esc(i.due_date)+'</td><td style="text-align:center">'+i.days_outstanding+'</td><td>'+st+'</td></tr>';
   });
   t+='</tbody></table>';
-  document.getElementById('inv-table').innerHTML=t;
- } else {
-  document.getElementById('inv-table').innerHTML='<div style="color:var(--tx2);text-align:center;padding:12px">No pending invoices</div>';
+  tgt.innerHTML=t;
+ } else if(tgt) {
+  tgt.innerHTML='<div style="color:var(--tx2);text-align:center;padding:12px">No pending invoices</div>';
  }
-}).catch(()=>{});
+}).catch(function(){});
 </script>
 {% endblock %}

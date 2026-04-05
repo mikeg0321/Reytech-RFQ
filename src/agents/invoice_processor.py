@@ -124,66 +124,25 @@ def poll_for_qb_invoices():
 
 
 def _load_orders_sqlite() -> dict:
-    """Load orders from SQLite (single source of truth)."""
+    """Load orders — delegates to order_dal (V2)."""
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
-            ).fetchall()
-            result = {}
-            for row in rows:
-                d = dict(row)
-                oid = d.get("id", "")
-                if not oid:
-                    continue
-                blob = d.pop("data_json", None)
-                if blob:
-                    try:
-                        full = json.loads(blob)
-                        full["order_id"] = full.get("order_id", oid)
-                        result[oid] = full
-                        continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                items_raw = d.get("items", "[]")
-                if isinstance(items_raw, str):
-                    try:
-                        d["items"] = json.loads(items_raw)
-                    except Exception:
-                        d["items"] = []
-                d["order_id"] = oid
-                result[oid] = d
-            return result
+        from src.core.order_dal import load_orders_dict
+        return load_orders_dict()
     except Exception as e:
-        log.warning("_load_orders_sqlite failed: %s", e)
+        log.warning("_load_orders_sqlite via order_dal failed: %s", e)
         return {}
 
 
 def _save_single_order_sqlite(order_id, order):
-    """Save a single order to SQLite."""
+    """Save a single order — delegates to order_dal (V2)."""
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO orders
-                (id, quote_number, po_number, agency, institution,
-                 total, status, items, created_at, updated_at, data_json)
-                VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),?)
-            """, (
-                order_id,
-                order.get("quote_number", ""),
-                order.get("po_number", ""),
-                order.get("agency", ""),
-                order.get("institution", ""),
-                order.get("total", 0),
-                order.get("status", "new"),
-                json.dumps(order.get("line_items", order.get("items", [])), default=str),
-                order.get("created_at", ""),
-                json.dumps(order, default=str),
-            ))
+        from src.core.order_dal import save_order, save_line_items_batch
+        save_order(order_id, order, actor="invoice_processor")
+        items = order.get("line_items", order.get("items", []))
+        if items and isinstance(items, list):
+            save_line_items_batch(order_id, items)
     except Exception as e:
-        log.error("_save_single_order_sqlite failed for %s: %s", order_id, e)
+        log.error("_save_single_order_sqlite via order_dal failed for %s: %s", order_id, e)
 
 
 def _find_order_by_invoice(inv_number: str) -> Optional[str]:

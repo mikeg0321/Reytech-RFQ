@@ -34,82 +34,26 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 
 
 def _load_orders():
-    """Load orders from SQLite (single source of truth).
-    Uses the dashboard _load_orders via exec() namespace if available,
-    otherwise falls back to direct SQLite read."""
-    # Try the shared _load_orders from dashboard.py (injected via exec())
-    import sys
-    _dash = sys.modules.get("src.api.dashboard")
-    if _dash and hasattr(_dash, "_load_orders"):
-        return _dash._load_orders()
-    # Direct SQLite fallback
+    """Load orders — delegates to order_dal (V2)."""
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
-            ).fetchall()
-            result = {}
-            for row in rows:
-                d = dict(row)
-                oid = d.get("id", "")
-                if not oid:
-                    continue
-                blob = d.pop("data_json", None)
-                if blob:
-                    try:
-                        full = json.loads(blob)
-                        full["order_id"] = full.get("order_id", oid)
-                        result[oid] = full
-                        continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                items_raw = d.get("items", "[]")
-                if isinstance(items_raw, str):
-                    try:
-                        d["items"] = json.loads(items_raw)
-                    except Exception:
-                        d["items"] = []
-                d["order_id"] = oid
-                result[oid] = d
-            return result
+        from src.core.order_dal import load_orders_dict
+        return load_orders_dict()
     except Exception as e:
-        log.warning("_load_orders SQLite failed: %s", e)
+        log.warning("_load_orders via order_dal failed: %s", e)
         return {}
 
 
 def _save_orders(orders):
-    """Save orders to SQLite (single source of truth). No JSON write."""
-    import sys
-    _dash = sys.modules.get("src.api.dashboard")
-    if _dash and hasattr(_dash, "_save_single_order"):
-        for oid, o in orders.items():
-            _dash._save_single_order(oid, o)
-        return
-    # Direct SQLite fallback
+    """Save orders — delegates to order_dal (V2)."""
     try:
-        from src.core.db import get_db
+        from src.core.order_dal import save_order, save_line_items_batch
         for oid, o in orders.items():
-            with get_db() as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO orders
-                    (id, quote_number, po_number, agency, institution,
-                     total, status, items, created_at, updated_at, data_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),?)
-                """, (
-                    oid,
-                    o.get("quote_number", ""),
-                    o.get("po_number", ""),
-                    o.get("agency", ""),
-                    o.get("institution", ""),
-                    o.get("total", 0),
-                    o.get("status", "new"),
-                    json.dumps(o.get("line_items", o.get("items", [])), default=str),
-                    o.get("created_at", ""),
-                    json.dumps(o, default=str),
-                ))
+            save_order(oid, o, actor="system")
+            items = o.get("line_items", o.get("items", []))
+            if items and isinstance(items, list):
+                save_line_items_batch(oid, items)
     except Exception as e:
-        log.error("_save_orders SQLite failed: %s", e)
+        log.error("_save_orders via order_dal failed: %s", e)
 
 
 @bp.route("/api/order/<oid>/delivery-update", methods=["POST"])

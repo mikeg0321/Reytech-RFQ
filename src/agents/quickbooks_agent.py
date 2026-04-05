@@ -526,6 +526,7 @@ def get_vendor_pricing(description: str) -> list:
 # ─── Invoice Operations ────────────────────────────────────────────────────
 
 INVOICE_CACHE_FILE = os.path.join(DATA_DIR, "qb_invoices_cache.json")
+CUSTOMER_CACHE_FILE = os.path.join(DATA_DIR, "qb_customers_cache.json")
 
 def fetch_invoices(status: str = "all", days_back: int = 90,
                     force_refresh: bool = False) -> list:

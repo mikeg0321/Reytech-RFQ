@@ -22,8 +22,8 @@ class TestPCToQuotePipeline:
                         content_type="application/json")
         assert r.get_json()["ok"]
 
-        # Step 3: Generate Reytech quote
-        r = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        # Step 3: Generate Reytech quote (POST required)
+        r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         d = r.get_json()
         assert d["ok"]
         qn = d["quote_number"]
@@ -58,23 +58,23 @@ class TestQuoteNumberSequence:
 
     def test_same_pc_reuses_number(self, client, seed_pc, temp_data_dir):
         """Lock-in: regenerating same PC reuses the assigned quote number."""
-        r1 = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r1 = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         d1 = r1.get_json()
         q1 = d1["quote_number"]
 
         # Second generation on same PC — should get SAME number
-        r2 = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r2 = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         d2 = r2.get_json()
         q2 = d2["quote_number"]
         assert q1 == q2  # locked in
 
-    def test_different_pcs_increment(self, client, seed_pc, temp_data_dir):
+    def test_different_pcs_increment(self, app, client, seed_pc, temp_data_dir):
         """Different PCs get sequential quote numbers."""
-        import json, os
-        r1 = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r1 = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         q1 = r1.get_json()["quote_number"]
 
-        # Create a second PC
+        # Create a second PC via app's internal save (JSON migration renames files,
+        # so direct JSON writes won't be picked up by SQLite-primary _load_price_checks)
         pc2 = {
             "id": "test-pc-002", "pc_number": "Second-PC",
             "institution": "CIM", "ship_to": "CIM, Chino, CA",
@@ -84,14 +84,17 @@ class TestQuoteNumberSequence:
             "parsed": {"header": {"institution": "CIM"}, "line_items": []},
             "items": [{"item_number": "1", "qty": 1, "uom": "EA",
                        "description": "Test item", "no_bid": False,
+                       "supplier_cost": 8.00, "unit_price": 10.00,
                        "pricing": {"recommended_price": 10.00}}],
         }
-        pc_path = os.path.join(temp_data_dir, "price_checks.json")
-        with open(pc_path) as f: pcs = json.load(f)
-        pcs["test-pc-002"] = pc2
-        with open(pc_path, "w") as f: json.dump(pcs, f)
+        with app.app_context():
+            from src.api.dashboard import _save_single_pc, _pc_cache
+            import src.api.dashboard as _dash
+            _dash._pc_cache = None  # clear cache
+            _dash._pc_cache_time = 0
+            _save_single_pc("test-pc-002", pc2)
 
-        r2 = client.get("/pricecheck/test-pc-002/generate-quote")
+        r2 = client.post("/pricecheck/test-pc-002/generate-quote")
         q2 = r2.get_json()["quote_number"]
 
         seq1 = int(q1.split("Q")[1])

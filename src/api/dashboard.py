@@ -3721,90 +3721,31 @@ def _find_quote(quote_number: str) -> dict:
 ORDERS_FILE = os.path.join(DATA_DIR, "orders.json")
 
 def _save_single_order(order_id, order):
-    """Save a single order to SQLite (single source of truth)."""
+    """Save a single order — delegates to order_dal.save_order (V2)."""
     try:
-        from src.core.db import get_db, db_retry
-        def _do():
-            with get_db() as conn:
-                conn.execute("""
-                    INSERT OR REPLACE INTO orders
-                    (id, quote_number, po_number, agency, institution,
-                     total, status, items, created_at, updated_at, data_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),?)
-                """, (
-                    order_id,
-                    order.get("quote_number", ""),
-                    order.get("po_number", ""),
-                    order.get("agency", ""),
-                    order.get("institution", order.get("customer", "")),
-                    order.get("total", 0),
-                    order.get("status", "new"),
-                    json.dumps(order.get("line_items", order.get("items", [])), default=str),
-                    order.get("created_at", ""),
-                    json.dumps(order, default=str),
-                ))
-        db_retry(_do, max_retries=3, delay=1.0)
+        from src.core.order_dal import save_order
+        save_order(order_id, order, actor="system")
+        # Also sync line items if present in the dict
+        items = order.get("line_items", order.get("items", []))
+        if items and isinstance(items, list) and len(items) > 0:
+            from src.core.order_dal import save_line_items_batch
+            save_line_items_batch(order_id, items)
     except Exception as e:
         log.error("_save_single_order failed for %s: %s", order_id, e)
 
 def _load_orders() -> dict:
-    """Load orders — SQLite only (single source of truth)."""
+    """Load orders — delegates to order_dal.load_orders_dict (V2)."""
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM orders ORDER BY created_at DESC LIMIT 5000"
-            ).fetchall()
-            result = {}
-            for row in rows:
-                d = dict(row)
-                oid = d.get("id", "")
-                if not oid:
-                    continue
-                blob = d.pop("data_json", None)
-                if blob:
-                    try:
-                        full = json.loads(blob)
-                        full["order_id"] = full.get("order_id", oid)
-                        result[oid] = full
-                        continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                # Structured columns fallback
-                items_raw = d.get("items", "[]")
-                if isinstance(items_raw, str):
-                    try:
-                        d["items"] = json.loads(items_raw)
-                    except Exception:
-                        d["items"] = []
-                d["order_id"] = oid
-                result[oid] = d
-            if result:
-                return result
+        from src.core.order_dal import load_orders_dict
+        result = load_orders_dict()
+        if result:
+            return result
     except Exception as e:
-        log.warning("load_orders SQLite failed: %s", e)
-
-    # One-time migration from JSON
-    json_path = os.path.join(DATA_DIR, "orders.json")
-    if os.path.exists(json_path):
-        try:
-            with open(json_path) as f:
-                data = json.load(f)
-            if data:
-                log.info("MIGRATION: Importing %d orders from JSON to SQLite", len(data))
-                for oid, order in data.items():
-                    try:
-                        _save_single_order(oid, order)
-                    except Exception:
-                        pass
-                os.rename(json_path, json_path + ".migrated")
-                return data
-        except Exception as e:
-            log.warning("Orders JSON migration failed: %s", e)
+        log.warning("load_orders via order_dal failed: %s", e)
     return {}
 
 def _save_orders(orders: dict):
-    """Save all orders to SQLite (single source of truth). No JSON write."""
+    """Save all orders — delegates to order_dal (V2)."""
     for oid, o in orders.items():
         _save_single_order(oid, o)
 
@@ -4122,48 +4063,29 @@ def _create_order_from_po_email(po_data: dict) -> dict:
     return order
 
 def _update_order_status(oid: str):
-    """Auto-calculate order status from line item statuses.
+    """Auto-calculate order status from line item statuses — delegates to order_dal (V2).
     When ALL items delivered → notify Mike to send invoice."""
-    orders = _load_orders()
-    order = orders.get(oid)
-    if not order:
-        return
-    items = order.get("line_items", [])
-    if not items:
-        return
-    old_status = order.get("status", "new")
-    statuses = [it.get("sourcing_status", "pending") for it in items]
-    inv_statuses = [it.get("invoice_status", "pending") for it in items]
-
-    if all(s == "delivered" for s in statuses):
-        if all(s == "invoiced" for s in inv_statuses):
-            order["status"] = "closed"
-        elif any(s == "invoiced" for s in inv_statuses):
-            order["status"] = "invoiced"
-        else:
-            order["status"] = "delivered"
-    elif any(s == "delivered" for s in statuses):
-        order["status"] = "partial_delivery"
-    elif any(s == "shipped" for s in statuses):
-        order["status"] = "shipped"
-    elif any(s == "ordered" for s in statuses):
-        order["status"] = "sourcing"
-    else:
-        order["status"] = "new"
-
-    order["updated_at"] = datetime.now().isoformat()
-    orders[oid] = order
-    _save_orders(orders)
-
-    # ── DAL sync (Layer 3) ──
     try:
-        from src.core.dal import update_order_status as _dal_uo
-        _dal_uo(oid, order["status"])
+        from src.core.order_dal import compute_order_status, get_order
+        old_order = get_order(oid)
+        old_status = old_order.get("status", "new") if old_order else "new"
+        new_status = compute_order_status(oid, actor="system")
+    except Exception as e:
+        log.error("_update_order_status(%s) failed: %s", oid, e)
+        return
+
+    # Reload order with updated status for trigger logic below
+    try:
+        from src.core.order_dal import get_order as _get_order_v2
+        order = _get_order_v2(oid)
+        if not order:
+            return
+        items = order.get("line_items", [])
     except Exception:
-        pass
+        return
 
     # ── ALL DELIVERED TRIGGER — auto-draft invoice + notify Mike ──
-    if order["status"] == "delivered" and old_status != "delivered":
+    if new_status == "delivered" and old_status != "delivered":
         order["delivered_at"] = datetime.now().isoformat()
         
         # Auto-create draft invoice (structured for QuickBooks API push)

@@ -97,7 +97,7 @@ class TestPriceCheckRoutes:
         assert r.get_json()["ok"] is True
 
     def test_generate_quote(self, client, seed_pc):
-        r = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         assert r.status_code == 200
         d = r.get_json()
         assert d["ok"] is True
@@ -135,10 +135,9 @@ class TestRFQRoutes:
     def test_delete(self, client, seed_rfq, temp_data_dir):
         r = client.post(f"/rfq/{seed_rfq}/delete", follow_redirects=True)
         assert r.status_code == 200
-        # RFQ should be gone
-        with open(os.path.join(temp_data_dir, "rfqs.json")) as f:
-            rfqs = json.load(f)
-        assert seed_rfq not in rfqs
+        # RFQ should be gone — verify via route (data is in SQLite, not rfqs.json)
+        r2 = client.get(f"/rfq/{seed_rfq}")
+        assert r2.status_code in (302, 404) or b"not found" in r2.data.lower()
 
     def test_generate_reytech_quote(self, client, seed_rfq):
         r = client.get(f"/rfq/{seed_rfq}/generate-quote", follow_redirects=True)
@@ -185,11 +184,11 @@ class TestQuotesPage:
     def test_has_win_rate_stats(self, client):
         r = client.get("/quotes")
         html = r.data.decode()
-        assert "WR:" in html
+        assert "Win Rate" in html
 
     def test_has_mark_buttons(self, client, seed_pc):
         # Generate a quote first so there's a row
-        client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        client.post(f"/pricecheck/{seed_pc}/generate-quote")
         r = client.get("/quotes")
         html = r.data.decode()
         assert "markQuote" in html
@@ -202,7 +201,7 @@ class TestQuotesPage:
 class TestQuoteStatusAPI:
 
     def test_mark_won(self, client, seed_pc):
-        r = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         qn = r.get_json()["quote_number"]
         r2 = client.post(f"/quotes/{qn}/status",
                          json={"status": "won", "po_number": "PO-TEST-001"},
@@ -211,7 +210,7 @@ class TestQuoteStatusAPI:
         assert r2.get_json()["ok"] is True
 
     def test_mark_lost(self, client, seed_pc):
-        r = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         qn = r.get_json()["quote_number"]
         r2 = client.post(f"/quotes/{qn}/status",
                          json={"status": "lost"},
@@ -219,7 +218,7 @@ class TestQuoteStatusAPI:
         assert r2.get_json()["ok"] is True
 
     def test_invalid_status_rejected(self, client, seed_pc):
-        r = client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         qn = r.get_json()["quote_number"]
         r2 = client.post(f"/quotes/{qn}/status",
                          json={"status": "bogus"},
@@ -394,7 +393,7 @@ class TestQuoteHistoryAPI:
 
     def test_with_generated_quote(self, client, seed_pc):
         """After generating a quote, history should find it."""
-        client.get(f"/pricecheck/{seed_pc}/generate-quote")
+        client.post(f"/pricecheck/{seed_pc}/generate-quote")
         r = client.get("/api/quotes/history?institution=CSP-Sacramento")
         d = r.get_json()
         assert len(d) >= 1

@@ -1175,6 +1175,71 @@ CREATE TABLE IF NOT EXISTS lifecycle_events (
 CREATE INDEX IF NOT EXISTS idx_le_entity ON lifecycle_events(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_le_type ON lifecycle_events(event_type);
 CREATE INDEX IF NOT EXISTS idx_le_time ON lifecycle_events(occurred_at);
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Orders V2: Normalized line items (exploded from orders.data_json blob)
+-- ═══════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS order_line_items (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id        TEXT NOT NULL,
+    line_number     INTEGER NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    part_number     TEXT DEFAULT '',
+    mfg_number      TEXT DEFAULT '',
+    asin            TEXT DEFAULT '',
+    uom             TEXT DEFAULT 'EA',
+    qty_ordered     INTEGER DEFAULT 0,
+    qty_backordered INTEGER DEFAULT 0,
+    unit_price      REAL DEFAULT 0,
+    unit_cost       REAL DEFAULT 0,
+    extended_price  REAL DEFAULT 0,
+    extended_cost   REAL DEFAULT 0,
+    sourcing_status TEXT DEFAULT 'pending',
+    supplier_name   TEXT DEFAULT '',
+    supplier_url    TEXT DEFAULT '',
+    vendor_order_id INTEGER,
+    vendor_order_ref TEXT DEFAULT '',
+    tracking_number TEXT DEFAULT '',
+    carrier         TEXT DEFAULT '',
+    ship_date       TEXT DEFAULT '',
+    expected_delivery TEXT DEFAULT '',
+    delivery_date   TEXT DEFAULT '',
+    fulfillment_type TEXT DEFAULT 'dropship',
+    invoice_status  TEXT DEFAULT 'pending',
+    invoice_number  TEXT DEFAULT '',
+    notes           TEXT DEFAULT '',
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT,
+    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+    FOREIGN KEY (vendor_order_id) REFERENCES vendor_orders(id)
+);
+CREATE INDEX IF NOT EXISTS idx_oli_order ON order_line_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_oli_vendor ON order_line_items(vendor_order_id);
+CREATE INDEX IF NOT EXISTS idx_oli_status ON order_line_items(sourcing_status);
+
+-- Orders V2: Delivery confirmation log (dropship model — no warehouse)
+CREATE TABLE IF NOT EXISTS delivery_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    order_id        TEXT NOT NULL,
+    line_item_id    INTEGER NOT NULL,
+    confirmed_at    TEXT NOT NULL,
+    delivery_date   TEXT NOT NULL,
+    confirmation_source TEXT DEFAULT 'manual',
+    tracking_number TEXT DEFAULT '',
+    carrier         TEXT DEFAULT '',
+    notes           TEXT DEFAULT '',
+    confirmed_by    TEXT DEFAULT 'user',
+    FOREIGN KEY (order_id) REFERENCES orders(id),
+    FOREIGN KEY (line_item_id) REFERENCES order_line_items(id)
+);
+CREATE INDEX IF NOT EXISTS idx_dl_order ON delivery_log(order_id);
+CREATE INDEX IF NOT EXISTS idx_dl_line ON delivery_log(line_item_id);
+
+-- Orders V2: Migration tracking
+CREATE TABLE IF NOT EXISTS migrations_applied (
+    name            TEXT PRIMARY KEY,
+    applied_at      TEXT NOT NULL
+);
 """
 
 def init_db():
@@ -1355,6 +1420,17 @@ def _migrate_columns():
         ("price_checks", "original_sender", "TEXT DEFAULT ''"),
         ("rfqs", "email_message_id", "TEXT DEFAULT ''"),
         ("rfqs", "original_sender", "TEXT DEFAULT ''"),
+        # ── Orders V2: structured columns on orders (currently only in data_json blob) ──
+        ("orders", "buyer_name", "TEXT DEFAULT ''"),
+        ("orders", "buyer_email", "TEXT DEFAULT ''"),
+        ("orders", "ship_to", "TEXT DEFAULT ''"),
+        ("orders", "ship_to_address", "TEXT DEFAULT ''"),
+        ("orders", "total_cost", "REAL DEFAULT 0"),
+        ("orders", "margin_pct", "REAL DEFAULT 0"),
+        ("orders", "po_pdf_path", "TEXT DEFAULT ''"),
+        ("orders", "fulfillment_type", "TEXT DEFAULT 'dropship'"),
+        # ── Orders V2: link vendor_orders to orders ──
+        ("vendor_orders", "order_id", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -2289,6 +2365,107 @@ def _fix_data_on_boot():
                     WHERE quote_number = ? AND status = 'pending'
                 """, (pwo["po_number"], pwo["quote_number"]))
                 fixes.append(f"marked {pwo['quote_number']} as won")
+
+            # Fix 5: Orders V2 — explode data_json line items into order_line_items
+            already_migrated = conn.execute(
+                "SELECT name FROM migrations_applied WHERE name='orders_v2_line_items'"
+            ).fetchone()
+            if not already_migrated:
+                try:
+                    rows = conn.execute(
+                        "SELECT id, data_json, created_at FROM orders WHERE data_json IS NOT NULL AND data_json != ''"
+                    ).fetchall()
+                    v2_migrated = 0
+                    for row in rows:
+                        oid = row["id"]
+                        blob = row["data_json"]
+                        if not blob:
+                            continue
+                        # Skip if already has line items in new table
+                        existing = conn.execute(
+                            "SELECT COUNT(*) as c FROM order_line_items WHERE order_id=?", (oid,)
+                        ).fetchone()
+                        if existing and existing["c"] > 0:
+                            continue
+                        try:
+                            order = json.loads(blob)
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        items = order.get("line_items", order.get("items", []))
+                        if not items or not isinstance(items, list):
+                            continue
+                        for i, it in enumerate(items):
+                            if not isinstance(it, dict):
+                                continue
+                            qty = it.get("qty", 0) or 0
+                            price = it.get("unit_price", 0) or 0
+                            cost = it.get("cost", 0) or 0
+                            conn.execute("""
+                                INSERT INTO order_line_items
+                                (order_id, line_number, description, part_number,
+                                 mfg_number, asin, uom, qty_ordered,
+                                 unit_price, unit_cost, extended_price, extended_cost,
+                                 sourcing_status, supplier_name, supplier_url,
+                                 tracking_number, carrier, ship_date, delivery_date,
+                                 invoice_status, invoice_number, notes,
+                                 created_at, updated_at)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                            """, (
+                                oid, i + 1,
+                                it.get("description", ""),
+                                it.get("part_number", ""),
+                                it.get("mfg_number", ""),
+                                it.get("asin", ""),
+                                it.get("uom", "EA"),
+                                qty,
+                                price,
+                                cost,
+                                round(qty * price, 2),
+                                round(qty * cost, 2),
+                                it.get("sourcing_status", "pending"),
+                                it.get("supplier", ""),
+                                it.get("supplier_url", ""),
+                                it.get("tracking_number", ""),
+                                it.get("carrier", ""),
+                                it.get("ship_date", ""),
+                                it.get("delivery_date", ""),
+                                it.get("invoice_status", "pending"),
+                                it.get("invoice_number", ""),
+                                it.get("notes", ""),
+                                order.get("created_at", row["created_at"] or datetime.now().isoformat()),
+                                datetime.now().isoformat(),
+                            ))
+                        # Update structured columns on orders table
+                        total_cost = sum(
+                            (it.get("cost", 0) or 0) * (it.get("qty", 0) or 0)
+                            for it in items if isinstance(it, dict)
+                        )
+                        conn.execute("""
+                            UPDATE orders SET
+                                buyer_name = COALESCE(buyer_name, ?),
+                                buyer_email = COALESCE(buyer_email, ?),
+                                ship_to = COALESCE(ship_to, ?),
+                                total_cost = ?,
+                                po_pdf_path = COALESCE(po_pdf_path, ?)
+                            WHERE id = ?
+                        """, (
+                            order.get("buyer_name", ""),
+                            order.get("buyer_email", ""),
+                            order.get("ship_to_name", order.get("ship_to", "")),
+                            round(total_cost, 2),
+                            order.get("po_pdf_path", ""),
+                            oid,
+                        ))
+                        v2_migrated += 1
+                    conn.execute(
+                        "INSERT OR IGNORE INTO migrations_applied (name, applied_at) VALUES (?, ?)",
+                        ("orders_v2_line_items", datetime.now().isoformat())
+                    )
+                    if v2_migrated:
+                        fixes.append(f"V2 migration: exploded {v2_migrated} orders into order_line_items")
+                    log.info("Orders V2 migration complete: %d orders exploded", v2_migrated)
+                except Exception as v2e:
+                    log.error("Orders V2 migration failed: %s", v2e, exc_info=True)
 
             if fixes:
                 log.info("Boot data fixes: %s", "; ".join(fixes))

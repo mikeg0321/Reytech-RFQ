@@ -8,11 +8,19 @@ from src.core.dal import save_rfq, save_pc, save_order
 
 
 @pytest.fixture
-def app():
-    os.environ["SECRET_KEY"] = "test-secret"
-    os.environ["API_KEY"] = "test-key"
-    os.environ["DASH_USER"] = "testuser"
-    os.environ["DASH_PASS"] = "testpass"
+def app(monkeypatch):
+    monkeypatch.setenv("SECRET_KEY", "test-secret")
+    monkeypatch.setenv("API_KEY", "test-key")
+    monkeypatch.setenv("DASH_USER", "testuser")
+    monkeypatch.setenv("DASH_PASS", "testpass")
+    # Patch module-level constants that were cached at import time
+    from src.api import shared
+    monkeypatch.setattr(shared, "API_KEY", "test-key")
+    monkeypatch.setattr(shared, "DASH_USER", "testuser")
+    monkeypatch.setattr(shared, "DASH_PASS", "testpass")
+    monkeypatch.setattr(shared, "check_auth",
+                        lambda u, p: u == "testuser" and p == "testpass")
+    monkeypatch.setattr(shared, "_check_rate_limit", lambda *a, **kw: True)
     from app import create_app
     app = create_app()
     app.config["TESTING"] = True
@@ -22,7 +30,8 @@ def app():
 
 @pytest.fixture
 def client(app):
-    return app.test_client()
+    with app.test_client() as c:
+        yield c
 
 
 @pytest.fixture
