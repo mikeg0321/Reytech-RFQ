@@ -376,9 +376,9 @@
         <hr style="border-color:#30363d;margin:6px 0">
         <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Admin</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="runReparse(this);this.closest('details').open=false">Re-parse from PDF</button>
-        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click();this.closest('details').open=false">Upload PDF & Parse</button>
+        <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#58a6ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="document.getElementById('pc-pdf-upload').click();this.closest('details').open=false">Upload File & Parse</button>
         <form id="pc-upload-form" action="/pricecheck/{{pcid}}/upload-pdf" method="POST" enctype="multipart/form-data" style="display:none">
-         <input type="file" id="pc-pdf-upload" name="file" accept=".pdf" onchange="this.form.submit()">
+         <input type="file" id="pc-pdf-upload" name="file" accept=".pdf,.xls,.xlsx,.doc,.docx" onchange="this.form.submit()">
         </form>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('no_response');this.closest('details').open=false">No Response</button>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#8b949e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="adminAction('duplicate');this.closest('details').open=false">Mark Duplicate</button>

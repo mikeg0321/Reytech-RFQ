@@ -2047,6 +2047,7 @@ def pricecheck_reparse(pcid):
             return jsonify({"ok": False, "error": "Source PDF not found on disk or in DB. Upload the PDF manually."})
 
     from src.forms.price_check import parse_ams704
+    from src.forms.doc_converter import is_office_doc as _is_office
 
     # Save user-edited pricing data keyed by row_index
     old_items = pc.get("items", [])
@@ -2066,8 +2067,19 @@ def pricecheck_reparse(pcid):
                 # Explicitly do NOT carry over is_substitute or mfg_number
             }
 
-    # Re-parse from source PDF
-    fresh = parse_ams704(source_pdf)
+    # Re-parse from source file (PDF or office doc)
+    if _is_office(source_pdf):
+        try:
+            from src.forms.doc_converter import extract_text as _extr_text
+            from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
+            if not _vis_avail():
+                return jsonify({"ok": False, "error": "AI parsing unavailable for office docs"})
+            doc_text = _extr_text(source_pdf)
+            fresh = parse_from_text(doc_text, source_path=source_pdf) or {}
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Office doc re-parse failed: {e}"})
+    else:
+        fresh = parse_ams704(source_pdf)
     if not fresh.get("line_items"):
         return jsonify({"ok": False, "error": "Re-parse found no line items"})
 
@@ -2158,13 +2170,18 @@ def pricecheck_upload_pdf(pcid):
     f = request.files.get("file")
     if not f:
         return jsonify({"ok": False, "error": "No file"}), 400
-    if not f.filename.lower().endswith('.pdf'):
-        return jsonify({"ok": False, "error": "Only PDF files allowed"}), 400
-    # Read and check size + magic bytes
+    from src.forms.doc_converter import is_office_doc
+    fname_lower = (f.filename or "").lower()
+    is_pdf = fname_lower.endswith('.pdf')
+    is_office = is_office_doc(fname_lower)
+    if not is_pdf and not is_office:
+        return jsonify({"ok": False, "error": "Upload a PDF or office document (XLS, XLSX, DOC, DOCX)"}), 400
+
+    # Read and check size
     content = f.read()
     if len(content) > 10 * 1024 * 1024:
         return jsonify({"ok": False, "error": "File too large (10MB max)"}), 413
-    if not content[:5].startswith(b'%PDF'):
+    if is_pdf and not content[:5].startswith(b'%PDF'):
         return jsonify({"ok": False, "error": "Invalid PDF file"}), 400
     # Reset stream for downstream use
     from io import BytesIO
@@ -2175,24 +2192,40 @@ def pricecheck_upload_pdf(pcid):
     upload_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
     os.makedirs(upload_dir, exist_ok=True)
     safe_name = re.sub(r'[^a-zA-Z0-9_.\-]', '_', f.filename)
-    pdf_path = os.path.join(upload_dir, f"{pcid}_{safe_name}")
-    f.save(pdf_path)
-    pc["source_pdf"] = pdf_path
+    save_path = os.path.join(upload_dir, f"{pcid}_{safe_name}")
+    f.save(save_path)
+    pc["source_pdf"] = save_path
 
     # Also save to DB for persistence across deploys
     try:
         from src.api.dashboard import save_rfq_file
-        with open(pdf_path, "rb") as _pf:
-            pdf_data = _pf.read()
-        save_rfq_file(pcid, safe_name, "application/pdf", pdf_data,
+        with open(save_path, "rb") as _pf:
+            file_data = _pf.read()
+        _mime = "application/pdf" if is_pdf else "application/octet-stream"
+        save_rfq_file(pcid, safe_name, _mime, file_data,
                       category="source", uploaded_by="user")
-        log.info("PC %s: saved uploaded PDF to DB (%d bytes)", pcid, len(pdf_data))
+        log.info("PC %s: saved uploaded file to DB (%d bytes)", pcid, len(file_data))
     except Exception as _e:
         log.warning("PC %s: DB save failed: %s", pcid, _e)
 
-    # Parse
-    from src.forms.price_check import parse_ams704
-    result = parse_ams704(pdf_path)
+    # Parse — PDF uses AMS 704 parser, office docs use AI text extraction
+    if is_pdf:
+        from src.forms.price_check import parse_ams704
+        result = parse_ams704(save_path)
+    else:
+        try:
+            from src.forms.doc_converter import extract_text as _extr_text
+            from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
+            if not _vis_avail():
+                return jsonify({"ok": False, "error": "AI parsing unavailable — upload a PDF instead"}), 400
+            doc_text = _extr_text(save_path)
+            result = parse_from_text(doc_text, source_path=save_path) or {"line_items": [], "header": {}}
+        except ValueError as ve:
+            return jsonify({"ok": False, "error": str(ve)}), 400
+        except Exception as e:
+            log.error("PC %s: office doc parse failed: %s", pcid, e, exc_info=True)
+            return jsonify({"ok": False, "error": f"Office doc parse error: {e}"}), 500
+    pdf_path = save_path  # keep variable for downstream
     items = result.get("line_items", [])
     header = result.get("header", {})
 
@@ -2230,12 +2263,12 @@ def pricecheck_upload_pdf(pcid):
         except Exception as _ae:
             log.warning("PC %s: auto-enrich failed to start: %s", pcid, _ae)
         from flask import flash
-        flash(f"Parsed {len(items)} items from uploaded PDF", "success")
+        flash(f"Parsed {len(items)} items from uploaded file", "success")
     else:
         _save_single_pc(pcid, pc)
-        log.warning("PC %s: uploaded PDF parsed 0 items", pcid)
+        log.warning("PC %s: uploaded file parsed 0 items", pcid)
         from flask import flash
-        flash("PDF uploaded but no items found — try vision parse", "error")
+        flash("File uploaded but no items found — try vision parse", "error")
 
     return redirect(f"/pricecheck/{pcid}")
 

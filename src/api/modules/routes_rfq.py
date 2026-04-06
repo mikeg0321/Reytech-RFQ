@@ -887,9 +887,11 @@ def api_rfq_upload_parse_doc(rid):
     filename_lower = safe_filename.lower()
     is_pdf = filename_lower.endswith(".pdf")
     is_image = any(filename_lower.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff"])
+    from src.forms.doc_converter import is_office_doc, OFFICE_EXTS
+    is_office = is_office_doc(filename_lower)
 
-    if not is_pdf and not is_image:
-        return jsonify({"ok": False, "error": "Upload a PDF or image file"})
+    if not is_pdf and not is_image and not is_office:
+        return jsonify({"ok": False, "error": "Upload a PDF, image, or office document (XLS, XLSX, DOC, DOCX)"})
 
     upload_dir = os.path.join(DATA_DIR, "uploads")
     os.makedirs(upload_dir, exist_ok=True)
@@ -981,10 +983,35 @@ def api_rfq_upload_parse_doc(rid):
                 except Exception as e:
                     log.debug("OCR parse failed: %s", e)
 
+        elif is_office:
+            # Office documents (XLS, XLSX, DOC, DOCX) — extract text, send to Claude API
+            try:
+                from src.forms.doc_converter import extract_text as _extract_office_text
+                from src.forms.vision_parser import parse_from_text, is_available
+                doc_text = _extract_office_text(save_path)
+                if not is_available():
+                    vision_error = "Vision AI unavailable (API key not set)"
+                else:
+                    parsed = parse_from_text(doc_text, source_path=save_path)
+                    _oitems = (parsed.get("line_items") or parsed.get("items")) if parsed else None
+                    if _oitems:
+                        items = _oitems
+                        header = parsed.get("header", {})
+                        parser_used = "Office Doc AI"
+                    else:
+                        vision_error = "AI returned no items from office document"
+            except ValueError as ve:
+                vision_error = str(ve)
+            except Exception as e:
+                vision_error = f"Office doc parse error: {e}"
+
         if not items:
             err_detail = vision_error or "No items could be extracted"
+            _tried = (["AMS 704", "Generic RFQ", "Vision AI"] if is_pdf
+                      else ["Office Doc AI"] if is_office
+                      else ["Vision AI", "OCR"])
             return jsonify({"ok": False, "error": f"Could not extract items. {err_detail}",
-                            "parser_tried": ["AMS 704", "Generic RFQ", "Vision AI"] if is_pdf else ["Vision AI", "OCR"]})
+                            "parser_tried": _tried})
 
         # Merge header into RFQ — use ship_to (not ship_to_address)
         if header:
@@ -1080,17 +1107,89 @@ def upload():
     os.makedirs(rfq_dir, exist_ok=True)
     
     saved = []
+    office_files = []
+    from src.forms.doc_converter import is_office_doc, ALL_UPLOAD_EXTS
     for f in files:
         safe_fn = _safe_filename(f.filename)
-        if safe_fn and safe_fn.lower().endswith(".pdf"):
+        if not safe_fn:
+            continue
+        ext = os.path.splitext(safe_fn)[1].lower()
+        if ext == ".pdf":
             p = os.path.join(rfq_dir, safe_fn)
             f.save(p); saved.append(p)
-    
-    if not saved:
-        flash("No PDFs found", "error"); return redirect("/")
-    
+        elif is_office_doc(safe_fn):
+            p = os.path.join(rfq_dir, safe_fn)
+            f.save(p); office_files.append(p)
+
+    if not saved and not office_files:
+        flash("No supported files found (PDF, XLS, XLSX, DOC, DOCX)", "error"); return redirect("/")
+
+    # Office docs: extract text → Claude AI → create RFQ directly
+    if office_files and not saved:
+        try:
+            from src.forms.doc_converter import extract_text as _extract_office_text
+            from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
+            if not _vis_avail():
+                flash("AI parsing unavailable — upload a PDF instead", "error"); return redirect("/")
+            combined_text = ""
+            for of in office_files:
+                combined_text += _extract_office_text(of) + "\n\n"
+            parsed = parse_from_text(combined_text, source_path=office_files[0])
+            if not parsed or not parsed.get("line_items"):
+                flash("Could not extract items from office document", "error"); return redirect("/")
+            # Check if it looks like a Price Check
+            header = parsed.get("header", {})
+            pc_num = header.get("price_check_number", "")
+            if PRICE_CHECK_AVAILABLE and pc_num:
+                # Treat as a Price Check
+                return _handle_office_pc_upload(parsed, office_files[0], rfq_id)
+            # Build RFQ from parsed data
+            from src.forms.price_check import _filter_junk_items
+            parsed["line_items"] = _filter_junk_items(parsed.get("line_items", []))
+            rfq = {
+                "id": rfq_id,
+                "source": "upload",
+                "solicitation_number": header.get("price_check_number", ""),
+                "agency": header.get("institution", ""),
+                "due_date": header.get("due_date", ""),
+                "line_items": parsed["line_items"],
+                "delivery_location": header.get("delivery_zip", ""),
+            }
+            rfq["line_items"] = bulk_lookup(rfq.get("line_items", []))
+            for _item in rfq.get("line_items", []):
+                _sp = _item.get("scprs_last_price") or 0
+                _ap = _item.get("amazon_price") or 0
+                _best_cost = _sp or _ap
+                if _best_cost and not _item.get("supplier_cost"):
+                    try:
+                        _item["supplier_cost"] = float(_best_cost)
+                        _item["cost_source"] = "SCPRS" if _sp else "Amazon"
+                    except (ValueError, TypeError):
+                        pass
+            items = rfq.get("line_items", [])
+            priced_count = sum(1 for i in items if i.get("price_per_unit") or i.get("scprs_last_price"))
+            rfq["auto_lookup_results"] = {
+                "scprs_found": sum(1 for i in items if i.get("scprs_last_price")),
+                "amazon_found": sum(1 for i in items if i.get("amazon_price")),
+                "catalog_found": 0, "priced": priced_count, "total": len(items),
+                "ran_at": datetime.now().isoformat(),
+            }
+            if priced_count > 0:
+                _transition_status(rfq, "priced", actor="system", notes=f"Parsed office doc + {priced_count}/{len(items)} priced")
+            else:
+                _transition_status(rfq, "draft", actor="system", notes="Parsed from office doc upload")
+            from src.api.dashboard import _save_single_rfq
+            _save_single_rfq(rfq_id, rfq)
+            flash(f"Parsed {len(items)} items from office document", "success")
+            return redirect(f"/rfq/{rfq_id}")
+        except ValueError as ve:
+            flash(str(ve), "error"); return redirect("/")
+        except Exception as e:
+            log.error("Office doc upload failed: %s", e, exc_info=True)
+            flash(f"Office doc parse failed: {e}", "error"); return redirect("/")
+
     log.info("Upload: %d PDFs saved to %s", len(saved), rfq_id)
-    
+
     # Check if this is a Price Check (AMS 704) instead of an RFQ
     if PRICE_CHECK_AVAILABLE and len(saved) == 1:
         if _is_price_check(saved[0]):
@@ -1318,6 +1417,55 @@ def _transition_status(record, new_status, actor="system", notes=""):
             log.warning("Post-send pipeline: %s", _e)
 
     return record
+
+
+def _handle_office_pc_upload(parsed, source_path, pc_id):
+    """Create a Price Check from office-doc-parsed data (same flow as PDF upload)."""
+    items = parsed.get("line_items", [])
+    header = parsed.get("header", {})
+    pc_num = header.get("price_check_number", "unknown")
+    institution = header.get("institution", "")
+    due_date = header.get("due_date", "")
+    now = datetime.now().isoformat()
+
+    # Dedup check
+    pcs = _load_price_checks()
+    for existing_id, existing_pc in pcs.items():
+        if (existing_pc.get("pc_number", "").strip() == pc_num.strip()
+                and existing_pc.get("institution", "").strip().lower() == institution.strip().lower()
+                and existing_pc.get("due_date", "").strip() == due_date.strip()
+                and pc_num != "unknown"):
+            return redirect(f"/pricecheck/{existing_id}")
+
+    # Save PC record
+    pcs[pc_id] = {
+        "id": pc_id,
+        "pc_number": pc_num,
+        "institution": institution,
+        "due_date": due_date,
+        "requestor": header.get("requestor", ""),
+        "ship_to": parsed.get("ship_to", ""),
+        "phone": header.get("phone", ""),
+        "agency": institution,
+        "items": items,
+        "source_pdf": source_path,
+        "status": "new",
+        "status_history": [
+            {"from": "", "to": "parsed", "timestamp": now, "actor": "system",
+             "notes": f"Parsed {len(items)} items from office doc"},
+            {"from": "parsed", "to": "new", "timestamp": now, "actor": "system",
+             "notes": "Source: office_doc_upload"},
+        ],
+        "created_at": now,
+        "source": "manual_upload",
+        "parsed": parsed,
+        "reytech_quote_number": "",
+        "linked_quote_number": "",
+    }
+    _save_price_checks(pcs)
+    log.info("PC #%s created from office doc — %d items from %s", pc_num, len(items), institution)
+    flash(f"Price Check #{pc_num} — {len(items)} items from {institution}. Due {due_date}", "success")
+    return redirect(f"/pricecheck/{pc_id}")
 
 
 def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
@@ -3276,30 +3424,72 @@ def rfq_upload_supplier_quote(rid):
         return jsonify({"ok": False, "error": "RFQ not found"})
 
     f = request.files.get("file")
-    if not f or not f.filename.lower().endswith(".pdf"):
-        return jsonify({"ok": False, "error": "Upload a PDF file"})
+    if not f:
+        return jsonify({"ok": False, "error": "No file uploaded"})
+    from src.forms.doc_converter import is_office_doc, ALL_UPLOAD_EXTS
+    fname_lower = (f.filename or "").lower()
+    is_pdf = fname_lower.endswith(".pdf")
+    is_office = is_office_doc(fname_lower)
+    if not is_pdf and not is_office:
+        return jsonify({"ok": False, "error": "Upload a PDF or office document (XLS, XLSX, DOC, DOCX)"})
 
     # Save uploaded file
     upload_dir = os.path.join(DATA_DIR, "uploads", "supplier_quotes")
     os.makedirs(upload_dir, exist_ok=True)
     _safe_fn = _re_mod.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(f.filename or 'upload.pdf'))
-    pdf_path = os.path.join(upload_dir, f"sq_{rid}_{_safe_fn}")
-    f.save(pdf_path)
+    save_path = os.path.join(upload_dir, f"sq_{rid}_{_safe_fn}")
+    f.save(save_path)
 
-    # Parse the quote
+    # Parse the quote — PDF uses supplier_quote_parser, office docs use AI text extraction
     try:
         from src.forms.supplier_quote_parser import parse_supplier_quote, match_quote_to_rfq
     except ImportError as e:
         return jsonify({"ok": False, "error": f"Parser not available: {e}"})
 
-    parsed = parse_supplier_quote(pdf_path)
+    if is_pdf:
+        parsed = parse_supplier_quote(save_path)
+    else:
+        # Office doc: extract text → Claude AI extraction → convert to supplier quote format
+        try:
+            from src.forms.doc_converter import extract_text as _extr_text
+            from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
+            if not _vis_avail():
+                return jsonify({"ok": False, "error": "AI parsing unavailable — upload a PDF instead"})
+            doc_text = _extr_text(save_path)
+            ai_parsed = parse_from_text(doc_text, source_path=save_path)
+            if ai_parsed and ai_parsed.get("line_items"):
+                # Convert vision-style output to supplier quote format
+                sq_items = []
+                for it in ai_parsed["line_items"]:
+                    sq_items.append({
+                        "item_number": it.get("part_number") or it.get("item_number", ""),
+                        "description": it.get("description", ""),
+                        "qty": it.get("qty", 1),
+                        "uom": it.get("uom", "EA"),
+                        "unit_price": float(it.get("price") or it.get("unit_price") or it.get("cost") or 0),
+                        "line_number": int(it.get("item_number", 0)) if str(it.get("item_number", "")).isdigit() else 0,
+                    })
+                parsed = {
+                    "ok": True, "supplier": "Unknown", "quote_number": "",
+                    "quote_date": "", "items": sq_items, "raw_text": doc_text[:2000],
+                    "total_pages": 1,
+                }
+            else:
+                parsed = {"ok": False, "error": "AI could not extract items from office document"}
+        except ValueError as ve:
+            parsed = {"ok": False, "error": str(ve)}
+        except Exception as e:
+            parsed = {"ok": False, "error": f"Office doc parse error: {e}"}
+
+    pdf_path = save_path  # keep variable name for downstream code
+
     if not parsed.get("ok"):
         return jsonify({"ok": False, "error": parsed.get("error", "Parse failed"),
                         "raw_text": parsed.get("raw_text", "")[:500]})
 
     quote_items = parsed.get("items", [])
     if not quote_items:
-        return jsonify({"ok": False, "error": "No priced items found in PDF",
+        return jsonify({"ok": False, "error": "No priced items found in document",
                         "raw_text": parsed.get("raw_text", "")[:500]})
 
     supplier = parsed.get("supplier", "Unknown")

@@ -150,10 +150,10 @@
   <button class="rfq-action-btn ab-catalog" onclick="importFromCatalog(this)" aria-label="Catalog Match"><span class="ab-icon">📦</span><span class="ab-label">Catalog Match</span><span class="ab-sub">Our products</span></button>
   <button class="rfq-action-btn ab-autoall" onclick="applyRecommendations()" aria-label="Auto-Price All"><span class="ab-icon">⚡</span><span class="ab-label">Auto-Price All</span><span class="ab-sub">Smart fill</span></button>
   <button class="rfq-action-btn ab-import" onclick="importFromPC(this)" aria-label="Import from PC"><span class="ab-icon">📥</span><span class="ab-label">Import from PC</span><span class="ab-sub">Price check data</span></button>
-  <button class="rfq-action-btn ab-supplier" onclick="uploadSupplierQuote()" aria-label="Supplier Quote"><span class="ab-icon">🏷️</span><span class="ab-label">Supplier Quote</span><span class="ab-sub">Upload PDF</span></button>
-  <input type="file" id="sq-upload-input" accept=".pdf" style="display:none" onchange="handleSQUpload(this)">
-  <button class="rfq-action-btn ab-upload" onclick="uploadDoc()" aria-label="Upload & Parse"><span class="ab-icon">📄</span><span class="ab-label">Upload & Parse</span><span class="ab-sub">PDF / image</span></button>
-  <input type="file" id="doc-upload-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff" onchange="handleDocUpload(this)">
+  <button class="rfq-action-btn ab-supplier" onclick="uploadSupplierQuote()" aria-label="Supplier Quote"><span class="ab-icon">🏷️</span><span class="ab-label">Supplier Quote</span><span class="ab-sub">Upload file</span></button>
+  <input type="file" id="sq-upload-input" accept=".pdf,.xls,.xlsx,.doc,.docx" style="display:none" onchange="handleSQUpload(this)">
+  <button class="rfq-action-btn ab-upload" onclick="uploadDoc()" aria-label="Upload & Parse"><span class="ab-icon">📄</span><span class="ab-label">Upload & Parse</span><span class="ab-sub">Any format</span></button>
+  <input type="file" id="doc-upload-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff,.xls,.xlsx,.doc,.docx" onchange="handleDocUpload(this)">
   <button class="rfq-action-btn ab-bulk" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk Paste URLs"><span class="ab-icon">📋</span><span class="ab-label">Bulk Paste URLs</span><span class="ab-sub">Multi-item</span></button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
@@ -2075,7 +2075,7 @@ function doImportPC(pcId){
 }
 function pcUploadFallback(){
  var modal=document.getElementById('pc-import-modal');if(modal)modal.remove();
- var inp=document.createElement('input');inp.type='file';inp.accept='.pdf,.png,.jpg,.jpeg';
+ var inp=document.createElement('input');inp.type='file';inp.accept='.pdf,.png,.jpg,.jpeg,.xls,.xlsx,.doc,.docx';
  inp.onchange=function(){
   if(!inp.files[0])return;
   var fd=new FormData();fd.append('file',inp.files[0]);

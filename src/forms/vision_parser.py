@@ -347,6 +347,113 @@ def parse_with_vision(file_path: str, mode: str = "standard") -> Optional[dict]:
     return result
 
 
+def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
+    """Parse structured procurement data from plain text (extracted from office docs).
+
+    Uses the same Claude API and system prompt as vision parsing, but sends
+    text content instead of images. Returns the same structured format.
+
+    Args:
+        text: Plain text extracted from an office document (XLS, XLSX, DOCX).
+        source_path: Original file path (for metadata).
+
+    Returns same dict format as parse_with_vision(), or None on failure.
+    """
+    api_key = _get_api_key()
+    if not api_key or not HAS_REQUESTS:
+        log.warning("Text parser unavailable — no API key or requests module")
+        return None
+
+    if not text or len(text.strip()) < 10:
+        log.warning("Text parser: input text too short (%d chars)", len(text or ""))
+        return None
+
+    # Truncate very long text to avoid token limits (keep first 30k chars)
+    if len(text) > 30000:
+        text = text[:30000] + "\n\n[... truncated — document too large ...]"
+
+    try:
+        resp = _requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 4096,
+                "system": _VISION_SYSTEM,
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": (
+                        "Extract ALL header fields and ALL line items from this document. "
+                        "Count items first, then extract that exact count. Return ONLY JSON, "
+                        "no markdown fences.\n\n"
+                        "--- DOCUMENT CONTENT ---\n" + text
+                    )}
+                ]}],
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        raw = data["content"][0]["text"].strip()
+
+        # Clean up JSON response
+        if raw.startswith("```"):
+            raw = re.sub(r'^```\w*\n?', '', raw)
+            raw = re.sub(r'\n?```$', '', raw)
+
+        result = json.loads(raw)
+        log.info("Text API extracted: %d items", len(result.get("items", [])))
+
+    except json.JSONDecodeError as e:
+        log.error("Text API returned non-JSON: %s — raw: %s", e, raw[:200] if raw else "empty")
+        return None
+    except Exception as e:
+        log.error("Text API call failed: %s", e)
+        return None
+
+    # Convert to standard format (same as parse_with_vision)
+    header = result.get("header", {})
+    raw_items = result.get("items", [])
+
+    line_items = []
+    for i, item in enumerate(raw_items):
+        line_items.append({
+            "item_number": str(item.get("item_number", i + 1)),
+            "qty": int(item.get("qty", 1)),
+            "uom": str(item.get("uom", "each")).lower(),
+            "qty_per_uom": int(item.get("qty_per_uom", 1)),
+            "description": str(item.get("description", "")),
+            "part_number": str(item.get("part_number", "")),
+            "item_link": str(item.get("item_link", "")),
+            "row_index": i,
+        })
+
+    parsed = {
+        "header": {
+            "price_check_number": header.get("price_check_number", ""),
+            "requestor": header.get("requestor", ""),
+            "institution": header.get("institution", ""),
+            "delivery_zip": header.get("delivery_zip", ""),
+            "phone": header.get("phone", ""),
+            "date_of_request": header.get("date_of_request", ""),
+            "due_date": header.get("due_date", ""),
+        },
+        "line_items": line_items,
+        "existing_prices": {},
+        "ship_to": header.get("delivery_zip", ""),
+        "source_pdf": source_path,
+        "field_count": 0,
+        "parse_method": "office_doc",
+    }
+
+    log.info("Text parser complete: %d items from %s",
+             len(line_items), os.path.basename(source_path))
+    return parsed
+
+
 def is_available() -> bool:
     """Check if vision parsing is available (API key + dependencies)."""
     return bool(_get_api_key()) and HAS_REQUESTS
