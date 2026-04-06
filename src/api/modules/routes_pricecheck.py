@@ -2209,17 +2209,37 @@ def pricecheck_upload_pdf(pcid):
         log.warning("PC %s: DB save failed: %s", pcid, _e)
 
     # Parse — PDF uses AMS 704 parser, office docs use AI text extraction
+    _parse_error = None
     if is_pdf:
         from src.forms.price_check import parse_ams704
         result = parse_ams704(save_path)
     else:
         try:
             from src.forms.doc_converter import extract_text as _extr_text
-            from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
-            if not _vis_avail():
-                return jsonify({"ok": False, "error": "AI parsing unavailable — upload a PDF instead"}), 400
             doc_text = _extr_text(save_path)
-            result = parse_from_text(doc_text, source_path=save_path) or {"line_items": [], "header": {}}
+            log.info("PC %s: extracted %d chars from office doc", pcid, len(doc_text))
+            # Try AI extraction first
+            from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
+            result = None
+            if _vis_avail():
+                result = parse_from_text(doc_text, source_path=save_path)
+                if not result or not result.get("line_items"):
+                    log.warning("PC %s: AI extraction returned no items, trying regex fallback", pcid)
+                    _parse_error = "AI extraction returned no items"
+                    result = None
+            else:
+                log.warning("PC %s: AI unavailable, trying regex fallback", pcid)
+                _parse_error = "AI unavailable"
+            # Regex fallback: parse simple item lists (description + qty lines)
+            if not result:
+                from src.forms.doc_converter import parse_items_from_text
+                fallback_items = parse_items_from_text(doc_text)
+                if fallback_items:
+                    result = {"line_items": fallback_items, "header": {},
+                              "parse_method": "regex_fallback", "source_pdf": save_path}
+                    _parse_error = None
+                else:
+                    result = {"line_items": [], "header": {}}
         except ValueError as ve:
             return jsonify({"ok": False, "error": str(ve)}), 400
         except Exception as e:
@@ -2232,21 +2252,17 @@ def pricecheck_upload_pdf(pcid):
     if items:
         pc["items"] = items
         pc["parsed"] = result
-        # Fill header fields ONLY if user hasn't already entered data.
-        # Protect user-entered fields (ship_to, delivery_location, institution, requestor)
-        # from being overwritten by parsed PDF values.
-        _protected_fields = {"ship_to", "delivery_location", "delivery_zip"}
+        # Overwrite ALL header fields from the uploaded doc — user is explicitly
+        # re-uploading to replace what's there
         for hk, hv in header.items():
-            if hv and not pc.get(hk) and hk not in _protected_fields:
+            if hv:
                 pc[hk] = hv
-        # Only fill protected fields if they're truly empty (not user-entered)
-        for _pf in _protected_fields:
-            if header.get(_pf) and not pc.get(_pf):
-                pc[_pf] = header[_pf]
-        if not pc.get("requestor") and header.get("requestor"):
+        if header.get("requestor"):
             pc["requestor"] = header["requestor"]
-        if not pc.get("institution") and header.get("institution"):
+        if header.get("institution"):
             pc["institution"] = header["institution"]
+        if header.get("ship_to") or header.get("delivery_zip"):
+            pc["ship_to"] = header.get("ship_to") or header.get("delivery_zip", "")
         pc["status"] = "parsed"
         _sync_pc_items(pc, items)
         _save_single_pc(pcid, pc)
@@ -2255,7 +2271,7 @@ def pricecheck_upload_pdf(pcid):
             _dal_save_pc(pc)
         except Exception as _e:
             log.debug("DAL save_pc: %s", _e)
-        log.info("PC %s: uploaded PDF parsed → %d items", pcid, len(items))
+        log.info("PC %s: uploaded file parsed → %d items", pcid, len(items))
         # Auto-enrich in background thread
         try:
             from src.agents.pc_enrichment_pipeline import enrich_pc_background
@@ -2266,9 +2282,12 @@ def pricecheck_upload_pdf(pcid):
         flash(f"Parsed {len(items)} items from uploaded file", "success")
     else:
         _save_single_pc(pcid, pc)
-        log.warning("PC %s: uploaded file parsed 0 items", pcid)
+        log.warning("PC %s: uploaded file parsed 0 items (error: %s)", pcid, _parse_error)
         from flask import flash
-        flash("File uploaded but no items found — try vision parse", "error")
+        _err_msg = f"File uploaded but no items found"
+        if _parse_error:
+            _err_msg += f" ({_parse_error})"
+        flash(_err_msg, "error")
 
     return redirect(f"/pricecheck/{pcid}")
 

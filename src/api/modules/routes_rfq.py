@@ -989,17 +989,26 @@ def api_rfq_upload_parse_doc(rid):
                 from src.forms.doc_converter import extract_text as _extract_office_text
                 from src.forms.vision_parser import parse_from_text, is_available
                 doc_text = _extract_office_text(save_path)
-                if not is_available():
-                    vision_error = "Vision AI unavailable (API key not set)"
-                else:
+                log.info("Office doc extracted %d chars from %s", len(doc_text), safe_filename)
+                # Try AI extraction first
+                if is_available():
                     parsed = parse_from_text(doc_text, source_path=save_path)
                     _oitems = (parsed.get("line_items") or parsed.get("items")) if parsed else None
                     if _oitems:
                         items = _oitems
                         header = parsed.get("header", {})
                         parser_used = "Office Doc AI"
+                if not items:
+                    # Regex fallback for simple item lists
+                    from src.forms.doc_converter import parse_items_from_text
+                    fallback = parse_items_from_text(doc_text)
+                    if fallback:
+                        items = fallback
+                        parser_used = "Office Doc Regex"
+                    elif not is_available():
+                        vision_error = "AI unavailable and regex found no items"
                     else:
-                        vision_error = "AI returned no items from office document"
+                        vision_error = "Could not extract items from office document"
             except ValueError as ve:
                 vision_error = str(ve)
             except Exception as e:
@@ -1033,8 +1042,8 @@ def api_rfq_upload_parse_doc(rid):
                 except Exception:
                     pass
 
-        # Build new items into a COPY — don't mutate existing list until save succeeds
-        existing_items = list(r.get("line_items") or r.get("items") or [])
+        # Overwrite: uploaded doc replaces existing items (user intent = replace)
+        existing_items = []
         added = 0
 
         for it in items:
@@ -1134,9 +1143,18 @@ def upload():
             combined_text = ""
             for of in office_files:
                 combined_text += _extract_office_text(of) + "\n\n"
-            parsed = parse_from_text(combined_text, source_path=office_files[0])
+            parsed = None
+            if _vis_avail():
+                parsed = parse_from_text(combined_text, source_path=office_files[0])
             if not parsed or not parsed.get("line_items"):
-                flash("Could not extract items from office document", "error"); return redirect("/")
+                # Regex fallback
+                from src.forms.doc_converter import parse_items_from_text
+                fallback = parse_items_from_text(combined_text)
+                if fallback:
+                    parsed = {"line_items": fallback, "header": {},
+                              "parse_method": "regex_fallback", "source_pdf": office_files[0]}
+                else:
+                    flash("Could not extract items from office document", "error"); return redirect("/")
             # Check if it looks like a Price Check
             header = parsed.get("header", {})
             pc_num = header.get("price_check_number", "")
@@ -3453,14 +3471,20 @@ def rfq_upload_supplier_quote(rid):
         try:
             from src.forms.doc_converter import extract_text as _extr_text
             from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
-            if not _vis_avail():
-                return jsonify({"ok": False, "error": "AI parsing unavailable — upload a PDF instead"})
             doc_text = _extr_text(save_path)
-            ai_parsed = parse_from_text(doc_text, source_path=save_path)
-            if ai_parsed and ai_parsed.get("line_items"):
-                # Convert vision-style output to supplier quote format
+            ai_items = None
+            if _vis_avail():
+                ai_parsed = parse_from_text(doc_text, source_path=save_path)
+                if ai_parsed and ai_parsed.get("line_items"):
+                    ai_items = ai_parsed["line_items"]
+            # Regex fallback
+            if not ai_items:
+                from src.forms.doc_converter import parse_items_from_text
+                ai_items = parse_items_from_text(doc_text)
+            if ai_items:
+                # Convert to supplier quote format
                 sq_items = []
-                for it in ai_parsed["line_items"]:
+                for it in ai_items:
                     sq_items.append({
                         "item_number": it.get("part_number") or it.get("item_number", ""),
                         "description": it.get("description", ""),
@@ -3475,7 +3499,7 @@ def rfq_upload_supplier_quote(rid):
                     "total_pages": 1,
                 }
             else:
-                parsed = {"ok": False, "error": "AI could not extract items from office document"}
+                parsed = {"ok": False, "error": "Could not extract items from office document"}
         except ValueError as ve:
             parsed = {"ok": False, "error": str(ve)}
         except Exception as e:

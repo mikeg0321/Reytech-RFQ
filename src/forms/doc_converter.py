@@ -164,3 +164,112 @@ def _extract_docx(file_path: str) -> str:
     log.info("Extracted %d chars from DOCX (%d paragraphs, %d tables)",
              len(text), len(doc.paragraphs), len(doc.tables))
     return text
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Regex fallback: parse simple item lists from extracted text
+# ═══════════════════════════════════════════════════════════════════════
+
+import re
+
+def parse_items_from_text(text: str) -> list:
+    """Parse item descriptions + quantities from plain text (regex fallback).
+
+    Handles common patterns like:
+        Product description here
+        Qty: 7
+        ASIN = B0CZRF2DZR
+
+        Another product description
+        Qty = 4 Each
+
+    Returns list of dicts in the standard line_items format.
+    """
+    if not text or len(text.strip()) < 10:
+        return []
+
+    lines = [l.strip() for l in text.split("\n")]
+    items = []
+    current_desc = ""
+    current_qty = 1
+    current_uom = "each"
+    current_part = ""
+    current_asin = ""
+
+    # Patterns
+    qty_pat = re.compile(r'^(?:qty|quantity)\s*[:=]\s*(\d+)\s*(.*)', re.IGNORECASE)
+    asin_pat = re.compile(r'^ASIN\s*[:=]\s*(\S+)', re.IGNORECASE)
+    upc_pat = re.compile(r'^UPC\s*[:=]\s*(\S+)', re.IGNORECASE)
+    model_pat = re.compile(r'^(?:Model\s*(?:Number|#|No\.?)?|MFG\s*#?|Part\s*(?:Number|#|No\.?))\s*[:=]\s*(\S+)', re.IGNORECASE)
+    unit_count_pat = re.compile(r'^Unit\s*Count\s*[:=]', re.IGNORECASE)
+    # Skip lines that are metadata (product dimensions, color, style, etc.)
+    meta_pat = re.compile(r'^(?:Product Dimensions|Color|Style|Base Material|Top Material|'
+                          r'Finish Type|Special Feature|Brand|Item Weight|Manufacturer)\b', re.IGNORECASE)
+
+    def _flush():
+        nonlocal current_desc, current_qty, current_uom, current_part, current_asin
+        if current_desc and len(current_desc) >= 5:
+            items.append({
+                "item_number": str(len(items) + 1),
+                "qty": current_qty,
+                "uom": current_uom,
+                "qty_per_uom": 1,
+                "description": current_desc,
+                "part_number": current_part or current_asin,
+                "item_link": "",
+                "row_index": len(items),
+            })
+        current_desc = ""
+        current_qty = 1
+        current_uom = "each"
+        current_part = ""
+        current_asin = ""
+
+    for line in lines:
+        if not line:
+            continue
+
+        # Skip table metadata lines
+        if meta_pat.match(line):
+            continue
+        if unit_count_pat.match(line):
+            continue
+
+        # Check for qty line
+        m = qty_pat.match(line)
+        if m:
+            current_qty = int(m.group(1))
+            uom_text = m.group(2).strip().lower()
+            if uom_text and uom_text in ("each", "ea", "pack", "set", "box", "case", "pair"):
+                current_uom = uom_text
+            continue
+
+        # Check for ASIN
+        m = asin_pat.match(line)
+        if m:
+            current_asin = m.group(1)
+            continue
+
+        # Check for UPC / Model / Part number
+        m = upc_pat.match(line) or model_pat.match(line)
+        if m:
+            current_part = m.group(1)
+            continue
+
+        # If line is long enough to be a description (>20 chars) and we already
+        # have a description buffered, flush the previous item first
+        if len(line) > 20 and current_desc:
+            _flush()
+
+        # Buffer as description (or append to short existing desc)
+        if not current_desc:
+            current_desc = line
+        elif len(current_desc) < 20:
+            current_desc += " " + line
+
+    # Flush last item
+    _flush()
+
+    if items:
+        log.info("Regex fallback parsed %d items from text", len(items))
+    return items
