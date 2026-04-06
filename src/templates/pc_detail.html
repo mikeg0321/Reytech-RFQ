@@ -22,9 +22,21 @@
      #itemsTable tr[data-row]{scroll-margin-top:70px}
      /* Prevent browser auto-scroll bounce on focus within table */
      #itemsTable input,#itemsTable textarea,#itemsTable select{scroll-margin-top:70px}
-     .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px}
+     .pc-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;padding:0 4px;max-height:75vh;scrollbar-width:auto;scrollbar-color:#484f58 #161b22}
+     .pc-table-wrap::-webkit-scrollbar{width:10px;height:10px}
+     .pc-table-wrap::-webkit-scrollbar-track{background:#161b22;border-radius:4px}
+     .pc-table-wrap::-webkit-scrollbar-thumb{background:#484f58;border-radius:4px;border:2px solid #161b22}
+     .pc-table-wrap::-webkit-scrollbar-thumb:hover{background:#6e7681}
+     .pc-table-wrap::-webkit-scrollbar-corner{background:#161b22}
      .notes-row td{border-top:none!important;padding-top:0!important}
-     #itemsTable{table-layout:auto;width:100%}
+     #itemsTable{table-layout:auto;width:100%;border-collapse:separate;border-spacing:0}
+     #itemsTable thead th{position:sticky;top:0;background:#21262d;z-index:3;border-bottom:2px solid #30363d}
+     #itemsTable th:nth-child(1),#itemsTable td:nth-child(1){position:sticky;left:0;z-index:2;background:inherit}
+     #itemsTable th:nth-child(2),#itemsTable td:nth-child(2){position:sticky;left:52px;z-index:2;background:inherit;box-shadow:2px 0 4px rgba(0,0,0,.3)}
+     #itemsTable thead th:nth-child(1),#itemsTable thead th:nth-child(2){z-index:4;background:#21262d}
+     #itemsTable tr[data-row] td:nth-child(1),#itemsTable tr[data-row] td:nth-child(2){background:#161b22}
+     #itemsTable tr[data-row]:hover td:nth-child(1),#itemsTable tr[data-row]:hover td:nth-child(2){background:#1a2332}
+     #itemsTable tr[data-row]:focus-within td:nth-child(1),#itemsTable tr[data-row]:focus-within td:nth-child(2){background:var(--row-hl,#1a2332)}
      .num-in.sm{width:52px;font-size:14px;padding:6px 6px}
      /* Active row highlight — hover + focus-within */
      #itemsTable tr[data-row]:hover{background:#1a233280}
@@ -498,11 +510,12 @@
       <span style="border-left:1px solid #484f58;height:20px"></span>
       <span style="color:#8b949e;font-size:14px">Profit</span> <span id="pc-ms-profit" style="font-weight:700;font-family:'JetBrains Mono',monospace">$0</span>
       <span id="pc-ms-pct" style="font-weight:700;padding:3px 10px;border-radius:12px;font-size:14px">0%</span>
+      <span id="pc-ms-landed" style="display:none;font-size:12px;color:#d29922;margin-left:4px" title="True margin after shipping + tax on non-exempt suppliers"></span>
      </div>
      <div class="pc-table-wrap">
      <table id="itemsTable">
-      <tr><th style="width:28px">Bid</th><th style="width:36px">Line#</th><th>MFG#</th><th>Qty</th><th style="width:40px">UOM</th><th style="min-width:180px">Description</th><th style="width:30px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:130px">Item Link</th><th style="min-width:130px">Sources</th><th>Unit Cost</th><th style="width:50px">Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr>
-      {{ items_html | default('') | safe }}
+      <thead><tr><th style="width:28px">Bid</th><th style="width:36px">Line#</th><th>MFG#</th><th>Qty</th><th style="width:40px">UOM</th><th style="min-width:180px">Description</th><th style="width:30px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:130px">Item Link</th><th style="min-width:130px">Sources</th><th>Unit Cost</th><th style="width:50px">Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr></thead>
+      <tbody>{{ items_html | default('') | safe }}</tbody>
      </table>
      </div>
      <div style="margin-top:8px">
@@ -1306,14 +1319,15 @@
       +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
-     table.appendChild(tr);
+     var tbody=table.querySelector('tbody')||table;
+     tbody.appendChild(tr);
      // Add notes row (hidden by default)
      const ntr=document.createElement('tr');
      ntr.className='notes-row';
      ntr.setAttribute('data-row',idx);
      ntr.style.display='none';
      ntr.innerHTML='<td colspan="14" style="padding:0 8px 6px 120px;border-top:none"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;color:#8b949e">\uD83D\uDCDD</span><input type="text" name="notes_'+idx+'" value="" placeholder="Add note (prints on quote)\u2026" class="text-in" style="flex:1;font-size:14px;padding:3px 8px;color:#d2a8ff"></div></td>';
-     table.appendChild(ntr);
+     tbody.appendChild(ntr);
      recalcPC();
     }
 
@@ -2905,8 +2919,20 @@
        '<div style="font-size:15px;margin-top:4px"><span style="color:#8b949e">Gross Profit:</span> ' +
        '<b style="color:' + profitColor + '">$' + ps.gross_profit.toFixed(2) + '</b>' +
        ' <span style="color:' + marginColor + ';font-size:13px">(' + ps.margin_pct.toFixed(1) + '% margin)</span></div>' +
+       (ps.true_margin_pct !== undefined && ps.true_margin_pct !== ps.margin_pct
+         ? '<div style="font-size:13px;margin-top:2px;color:#d29922">True Margin (after ship+tax): <b>' + ps.true_margin_pct.toFixed(1) + '%</b> · Landed Cost: $' + (ps.total_landed_cost||0).toFixed(2) + ' · True Profit: $' + (ps.true_profit||0).toFixed(2) + '</div>'
+         : '') +
        warn;
       panel.style.display = 'block';
+     }
+     // Update sticky bar landed cost indicator
+     var landedEl = document.getElementById('pc-ms-landed');
+     if (landedEl && ps.true_margin_pct !== undefined && Math.abs(ps.true_margin_pct - ps.margin_pct) > 0.1) {
+      landedEl.style.display = 'inline';
+      landedEl.textContent = 'True: ' + ps.true_margin_pct.toFixed(1) + '%';
+      landedEl.style.color = ps.true_margin_pct < 5 ? '#f85149' : '#d29922';
+     } else if (landedEl) {
+      landedEl.style.display = 'none';
      }
     }
 
