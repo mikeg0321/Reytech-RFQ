@@ -33,27 +33,8 @@ except ImportError:
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 
 
-def _load_orders():
-    """Load orders — delegates to order_dal (V2)."""
-    try:
-        from src.core.order_dal import load_orders_dict
-        return load_orders_dict()
-    except Exception as e:
-        log.warning("_load_orders via order_dal failed: %s", e)
-        return {}
-
-
-def _save_orders(orders):
-    """Save orders — delegates to order_dal (V2)."""
-    try:
-        from src.core.order_dal import save_order, save_line_items_batch
-        for oid, o in orders.items():
-            save_order(oid, o, actor="system")
-            items = o.get("line_items", o.get("items", []))
-            if items and isinstance(items, list):
-                save_line_items_batch(oid, items)
-    except Exception as e:
-        log.error("_save_orders via order_dal failed: %s", e)
+# _load_orders and _save_orders are inherited from dashboard.py globals
+# via exec() module loading. Do NOT redefine them here — it overwrites the originals.
 
 
 @bp.route("/api/order/<oid>/line/<lid>/confirm-delivery", methods=["POST"])
