@@ -1389,7 +1389,7 @@ def _is_user_facing_pc(pc: dict) -> bool:
     # Hide terminal statuses
     status = pc.get("status", "new")
     if status in ("dismissed", "archived", "deleted", "duplicate",
-                  "no_response", "not_responding", "expired"):
+                  "no_response", "not_responding", "expired", "reclassified"):
         return False
 
     # Count items — handle both list and JSON string
@@ -2956,9 +2956,11 @@ def process_rfq_email(rfq_email):
     _email_body = rfq_email.get("body_text", rfq_email.get("body", rfq_email.get("body_preview", "")))
     _combined_text = f"{_email_subject} {_email_body}"
     if not rfq_data.get("delivery_location") or not rfq_data.get("institution"):
-        # Common pattern: "following location:\n\nCA State Prison Sacramento: 100 Prison Road..."
+        # Pattern 1: "following location: CA State Prison Sacramento..."
         _loc_match = re.search(
-            r'(?:following\s+location|deliver\s+to|ship\s+to)\s*:?\s*\n*\s*([A-Z][A-Za-z\s]+(?:Prison|Institution|Facility|Center|Hospital|Home)[A-Za-z\s,]*?)(?:\s*:\s*|\s*\n)',
+            r'(?:following\s+location|deliver\s+to|ship\s+to)\s*:?\s*\n*\s*'
+            r'([A-Z][A-Za-z\s]+(?:Prison|Institution|Facility|Center|Hospital|Home|Veterans?\s+Home)[A-Za-z\s,]*?)'
+            r'(?:\s*:\s*|\s*\n)',
             _email_body or "", re.IGNORECASE
         )
         if _loc_match:
@@ -2969,7 +2971,7 @@ def process_rfq_email(rfq_email):
                 rfq_data["institution"] = _inst
                 _trace.append(f"INSTITUTION FROM BODY: {_inst}")
                 log.info("Extracted institution from email body: %s", _inst)
-        # Also try: "Location Name: Address"
+        # Pattern 2: "Location Name: Address"
         if not rfq_data.get("institution"):
             _loc2 = re.search(
                 r'((?:CA\s+)?(?:State\s+)?(?:Prison|Institution|Facility)\s+[\w\s]+?)(?:\s*:\s*\d)',
@@ -2982,6 +2984,30 @@ def process_rfq_email(rfq_email):
                     if not rfq_data.get("delivery_location"):
                         rfq_data["delivery_location"] = _inst2
                     _trace.append(f"INSTITUTION FROM BODY (pattern2): {_inst2}")
+        # Pattern 3: CalVet / Veterans Home — "Cal Vet - West L.A.", "CalVet Yountville"
+        if not rfq_data.get("institution"):
+            _calvet_m = re.search(
+                r'(?:Veterans?\s+Home\s+of\s+California|Cal\s*Vet|CALVET)'
+                r'[\s,\-\u2013\u2014:]+([A-Za-z][\w\s.]+?)(?:\n|$|;|\s{2,})',
+                _combined_text or "", re.IGNORECASE
+            )
+            if _calvet_m:
+                _cv_loc = _calvet_m.group(1).strip().rstrip(",.- ")
+                if _cv_loc and len(_cv_loc) >= 2:
+                    try:
+                        from src.core.institution_resolver import resolve as _resolve_inst
+                        _resolved = _resolve_inst(_cv_loc)
+                        if _resolved and _resolved.get("canonical"):
+                            rfq_data["institution"] = _resolved["canonical"]
+                            rfq_data["agency_key"] = _resolved.get("agency", "calvet")
+                        else:
+                            rfq_data["institution"] = f"Veterans Home of California, {_cv_loc}"
+                    except Exception:
+                        rfq_data["institution"] = f"Veterans Home of California, {_cv_loc}"
+                    if not rfq_data.get("delivery_location"):
+                        rfq_data["delivery_location"] = rfq_data["institution"]
+                    _trace.append(f"INSTITUTION FROM BODY (calvet): {rfq_data['institution']}")
+                    log.info("Extracted CalVet institution: %s", rfq_data["institution"])
 
     # ── Fallback: extract solicitation + due date from email text ──────────
     if not rfq_data.get("solicitation_number") or rfq_data.get("solicitation_number") == "unknown":

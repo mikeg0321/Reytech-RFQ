@@ -1073,7 +1073,14 @@ def is_price_check_email(subject, body, sender, pdf_names):
     
     signals = []
     score = 0
-    
+
+    # ── Guard: A PC MUST have at least one PDF attachment ──
+    # Without a 704 form PDF, there's nothing to parse as a Price Check.
+    # Emails with only DOCX/XLS should route to RFQ instead.
+    if not pdf_names:
+        log.debug("PC check: no PDF attachments — cannot be a PC")
+        return None
+
     # ── Signal 1: Known PC sender (check FIRST, before negatives) ──
     sender_email = _extract_email_addr(sender).lower()
     is_known_pc_sender = False
@@ -2396,6 +2403,16 @@ class EmailPoller:
                         f.write(payload)
                     form_type = self._identify_form(safe_name)
                     saved.append({"path": filepath, "filename": safe_name, "type": form_type})
+
+            elif fname_lower.endswith((".docx", ".doc", ".xlsx", ".xls", ".csv")):
+                safe_name = re.sub(r'[^\w\-_. ()]+', '_', filename)
+                filepath = os.path.join(save_dir, safe_name)
+                payload = part.get_payload(decode=True)
+                if payload:
+                    with open(filepath, "wb") as f:
+                        f.write(payload)
+                    saved.append({"path": filepath, "filename": safe_name, "type": "office_doc"})
+                    log.info("Saved office attachment: %s", safe_name)
 
             elif fname_lower.endswith(".zip"):
                 # Extract PDFs from ZIP attachments

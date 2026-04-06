@@ -1718,6 +1718,126 @@ def convert_pc_to_rfq(pcid):
     })
 
 
+@bp.route("/api/pc/<pcid>/reclassify-as-rfq", methods=["POST"])
+@auth_required
+@safe_route
+def reclassify_pc_as_rfq(pcid):
+    """Reclassify a misclassified PC as an RFQ.
+
+    Unlike convert_pc_to_rfq (which means "PC is done, now make an RFQ"),
+    reclassify means "this was never a PC — route it to the RFQ queue."
+    Archives the PC and creates a proper RFQ with email context.
+    """
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+    if pc.get("status") == "reclassified":
+        return jsonify({"ok": False, "error": "Already reclassified"}), 400
+
+    # Reuse existing conversion logic for the heavy lifting
+    rfq_id, rfq_data, files_copied, agency_info = _convert_single_pc_to_rfq(pcid, pc)
+    _agency_key = agency_info["agency_key"]
+    _agency_cfg = agency_info["agency_cfg"]
+    _conversion_warnings = agency_info["warnings"]
+
+    # Mark as reclassification, not conversion
+    rfq_data["source"] = "pc_reclassification"
+
+    # ── Extract ship-to / institution from email body ──
+    _body = (pc.get("body_text") or pc.get("email_body") or
+             pc.get("body_preview") or pc.get("body") or "")
+    _subj = pc.get("email_subject", "")
+    _combined = f"{_subj} {_body}"
+    if _combined.strip():
+        import re as _re_rcl
+        # CalVet / Veterans Home pattern
+        _calvet_m = _re_rcl.search(
+            r'(?:Veterans?\s+Home\s+of\s+California|Cal\s*Vet|CALVET)'
+            r'[\s,\-\u2013\u2014:]+([A-Za-z][\w\s.]+?)(?:\n|$|;|\s{2,})',
+            _combined, _re_rcl.IGNORECASE
+        )
+        if _calvet_m:
+            _cv_loc = _calvet_m.group(1).strip().rstrip(",.- ")
+            if _cv_loc and len(_cv_loc) >= 2:
+                try:
+                    from src.core.institution_resolver import resolve as _resolve_inst
+                    _resolved = _resolve_inst(_cv_loc)
+                    if _resolved and _resolved.get("canonical"):
+                        rfq_data["institution"] = _resolved["canonical"]
+                        rfq_data["agency"] = _resolved["canonical"]
+                        rfq_data["agency_key"] = _resolved.get("agency", "calvet")
+                        _agency_key = rfq_data["agency_key"]
+                    else:
+                        rfq_data["institution"] = f"Veterans Home of California, {_cv_loc}"
+                        rfq_data["agency"] = rfq_data["institution"]
+                except Exception:
+                    rfq_data["institution"] = f"Veterans Home of California, {_cv_loc}"
+                    rfq_data["agency"] = rfq_data["institution"]
+                rfq_data["delivery_location"] = rfq_data["institution"]
+
+        # Generic ship-to / deliver-to patterns
+        if not rfq_data.get("delivery_location"):
+            _ship_m = _re_rcl.search(
+                r'(?:ship\s+to|deliver\s+to|following\s+location)\s*:?\s*\n*\s*'
+                r'([A-Z][A-Za-z\s,.\-]+?)(?:\n|$|;|\s{3,})',
+                _body, _re_rcl.IGNORECASE
+            )
+            if _ship_m:
+                _ship = _ship_m.group(1).strip().rstrip(",.- ")
+                if _ship and len(_ship) >= 5:
+                    rfq_data["delivery_location"] = _ship
+                    if not rfq_data.get("institution"):
+                        rfq_data["institution"] = _ship
+
+    # Carry email context to RFQ
+    if _body:
+        rfq_data["body_text"] = _body
+    if _subj:
+        rfq_data["email_subject"] = _subj
+
+    # ── Save RFQ ──
+    rfqs = load_rfqs()
+    rfqs[rfq_id] = rfq_data
+    _save_single_rfq(rfq_id, rfq_data)
+
+    # ── Archive PC as reclassified ──
+    now = datetime.now().isoformat()
+    pc["status"] = "reclassified"
+    pc["reclassified_to_rfq"] = rfq_id
+    pc["reclassified_at"] = now
+    pc["converted_to_rfq"] = True
+    pc["linked_rfq_id"] = rfq_id
+    _save_single_pc(pcid, pc)
+
+    # ── Audit log ──
+    item_count = len(rfq_data.get("line_items", rfq_data.get("items", [])))
+    log.info("PC RECLASSIFIED: %s → RFQ %s (%d items, agency=%s, ship_to=%s)",
+             pcid, rfq_id, item_count, _agency_key,
+             rfq_data.get("delivery_location", "unknown"))
+
+    try:
+        from src.api.dashboard import _log_crm_activity
+        _log_crm_activity(
+            rfq_data.get("reytech_quote_number") or rfq_id,
+            "pc_reclassified_to_rfq",
+            f"PC {pc.get('pc_number', pcid)} reclassified as RFQ {rfq_id}. "
+            f"{item_count} items. Was never a PC — misclassified by email pipeline.",
+            actor="user",
+            metadata={"pc_id": pcid, "rfq_id": rfq_id, "pc_number": pc.get("pc_number", "")},
+        )
+    except Exception:
+        pass
+
+    return jsonify({
+        "ok": True, "rfq_id": rfq_id, "items": item_count,
+        "files_copied": files_copied,
+        "agency_key": _agency_key,
+        "agency_name": _agency_cfg.get("name", _agency_key),
+        "warnings": _conversion_warnings,
+    })
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Enhancement 5b: Follow-Up Dashboard Page
 # ═══════════════════════════════════════════════════════════════════════════════

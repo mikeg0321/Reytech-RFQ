@@ -247,8 +247,10 @@
      <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
       <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)" 
         onclick="linkToRFQ()" aria-label="Link to Existing RFQ">🔗 Link to Existing RFQ</button>
-      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)" 
+      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)"
         onclick="convertPCToRFQ()" aria-label="Convert to New RFQ">🔄 Convert to New RFQ</button>
+      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(251,191,36,.08);color:#f59e0b;border:1px solid rgba(251,191,36,.25)"
+        onclick="reclassifyAsRFQ()" aria-label="Reclassify as RFQ">⚠️ Reclassify as RFQ</button>
      </div>
      {% endif %}
 
@@ -2852,6 +2854,20 @@
        setTimeout(()=>location.href='/rfq/'+d.rfq_id,d.warnings&&d.warnings.length?500:1200);
       }
       else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
+     });
+    }
+    function reclassifyAsRFQ(){
+     if(!confirm('Reclassify this as an RFQ?\n\nThis was never a Price Check — it will be archived from the PC queue and a new RFQ created with the email context.'))return;
+     fetch('/api/pc/'+_pcid+'/reclassify-as-rfq',{method:'POST'})
+     .then(r=>r.json()).then(d=>{
+      if(d.ok){
+       var msg='Reclassified! RFQ created with '+d.items+' items.';
+       if(d.agency_key&&d.agency_key!=='other')msg+='\nAgency: '+d.agency_name;
+       if(d.warnings&&d.warnings.length>0)msg+='\n\nBefore generating package:\n• '+d.warnings.join('\n• ');
+       if(d.warnings&&d.warnings.length>0){alert(msg);} else{showMsg(msg,'ok');}
+       setTimeout(function(){location.href='/rfq/'+d.rfq_id;},d.warnings&&d.warnings.length?500:1200);
+      }
+      else{showMsg('❌ '+(d.error||'Reclassification failed'),'err');}
      });
     }
 
