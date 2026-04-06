@@ -114,6 +114,7 @@
   <div class="margin-kpi"><span class="kpi-label">Bid</span><span class="kpi-val" id="ms-total-bid">—</span></div>
   <div class="margin-kpi"><span class="kpi-label">Profit</span><span class="kpi-val" id="ms-margin-dollars">—</span></div>
   <div class="margin-kpi"><span class="kpi-label">Margin</span><span class="kpi-val" id="ms-margin-pct">—</span></div>
+  <div class="margin-kpi" id="ms-landed-kpi" style="display:none;border-left:1px solid rgba(210,153,34,.3)"><span class="kpi-label" style="color:#d29922">True Margin</span><span class="kpi-val" id="ms-true-margin" style="color:#d29922">—</span></div>
   <div class="margin-kpi" style="flex:0 0 auto;min-width:200px"><span class="kpi-label">Tax</span><span class="kpi-val" style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="number" id="tax-rate" value="{{r.get('tax_rate',0)}}" min="0" max="15" step="0.25" style="width:44px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:13px;text-align:center" onchange="recalc();triggerAutosave()">%<button onclick="lookupTaxRate(event)" class="markup-pct-btn" style="padding:3px 8px;font-size:12px" title="Auto-lookup from CDTFA" aria-label="Verify tax rate">🔍</button><span id="tax-validation" style="font-size:10px">{% if r.get('tax_validated') %}{% if r.get('tax_source') in ('default','fallback_table','fallback') %}<span style="color:#d29922" title="{{r.get('tax_source','')}}·{{r.get('tax_jurisdiction','')}}">⚠️ {{r.get('tax_jurisdiction','')}}</span>{% else %}<span style="color:#3fb950" title="{{r.get('tax_source','CDTFA')}}·{{r.get('tax_jurisdiction','')}}">✅ {{r.get('tax_jurisdiction','')}}</span>{% endif %}{% elif r.get('tax_rate') and r.get('tax_rate')>0 %}<span style="color:#d29922">⚠️</span>{% else %}<span style="color:#f85149">❌</span>{% endif %}</span></span></div>
   <div class="margin-kpi" style="flex:0 0 auto;min-width:130px"><span class="kpi-label">Ship</span><span class="kpi-val" style="display:flex;align-items:center;gap:4px;font-size:13px"><select id="shipping-option" onchange="recalc();triggerAutosave()" style="background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px"><option value="included"{% if r.get('shipping_option')=='included' %} selected{% endif %}>Included</option><option value="fob_dest"{% if r.get('shipping_option')=='fob_dest' %} selected{% endif %}>FOB Dest</option><option value="custom"{% if r.get('shipping_option')=='custom' %} selected{% endif %}>Custom</option></select><input type="number" id="shipping-amount" value="{{r.get('shipping_amount',0)}}" min="0" step="0.01" style="width:52px;background:transparent;border:1px solid var(--bd);border-radius:4px;color:inherit;padding:1px 4px;font-size:12px;text-align:center;display:{% if r.get('shipping_option')=='custom' %}inline{% else %}none{% endif %}" onchange="recalc();triggerAutosave()"></span></div>
   <div class="margin-kpi" style="flex:0 0 auto;padding:8px 20px;background:rgba(79,140,255,.06);border-left:1px solid rgba(79,140,255,.2)"><span class="kpi-label">Total</span><span class="kpi-val" id="ms-grand-total" style="color:var(--ac);font-size:17px">—</span></div>
@@ -834,6 +835,7 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 <script src="/static/shared_item_utils.js"></script>
 <script>
 const RID = {{rid|tojson}};
+var _landedSummary = {{landed_summary|default({})|tojson}};
 
 window.onerror=function(msg,src,line){
  var el=document.getElementById('globalError');
@@ -1618,6 +1620,16 @@ function recalc(){
   mpe.textContent=marginP.toFixed(1)+'% margin';
   mpe.style.color=marginP>=20?'#3fb950':marginP>=10?'#d29922':'#f85149';
   document.getElementById('ms-items-priced').textContent=itemsPriced+'/'+itemsTotal+' priced';
+  // True margin (landed cost from server)
+  var _ls=typeof _landedSummary!=='undefined'?_landedSummary:null;
+  var landedKpi=document.getElementById('ms-landed-kpi');
+  if(landedKpi&&_ls&&_ls.landed_cost>0&&_ls.landed_cost!==_ls.raw_cost&&tb>0){
+   var trueProfit=tb-_ls.landed_cost;
+   var trueMargin=(trueProfit/tb*100);
+   document.getElementById('ms-true-margin').textContent=trueMargin.toFixed(1)+'%';
+   document.getElementById('ms-true-margin').style.color=trueMargin>=20?'#3fb950':trueMargin>=10?'#d29922':'#f85149';
+   landedKpi.style.display='';
+  } else if(landedKpi){landedKpi.style.display='none';}
   // Tax + Shipping calculation
   var taxRateEl=document.getElementById('tax-rate');
   var taxRate=taxRateEl?parseFloat(taxRateEl.value)||0:0;

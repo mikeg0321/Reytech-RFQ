@@ -1240,6 +1240,22 @@ CREATE TABLE IF NOT EXISTS migrations_applied (
     name            TEXT PRIMARY KEY,
     applied_at      TEXT NOT NULL
 );
+
+-- ═══════════════════════════════════════════════════════════════════
+-- SUPPLIER PROFILES (landed cost: tax exemption + shipping estimates)
+-- ═══════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS supplier_profiles (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    supplier_name           TEXT NOT NULL UNIQUE,
+    tax_exempt_status       TEXT NOT NULL DEFAULT 'unknown',
+    free_shipping_threshold REAL DEFAULT 0,
+    default_shipping_pct    REAL DEFAULT 0,
+    drop_ship               INTEGER DEFAULT 0,
+    notes                   TEXT DEFAULT '',
+    created_at              TEXT DEFAULT (datetime('now')),
+    updated_at              TEXT DEFAULT (datetime('now'))
+);
 """
 
 def init_db():
@@ -1251,6 +1267,7 @@ def init_db():
         conn.executescript(SCHEMA)
     print("[BOOT:DB] init_db: migrating columns...", flush=True)
     _migrate_columns()
+    _seed_supplier_profiles()
     # Usage tracking
     try:
         from src.core.usage_tracker import init_usage_tracking
@@ -1478,6 +1495,136 @@ def _migrate_columns():
         log.debug("Test data cleanup: %s", e)
 
     # (orders.json cleanup removed — SQLite is single source of truth)
+
+
+# ── Supplier Profiles: seed + lookup ─────────────────────────────────────────
+
+_SEED_SUPPLIERS = [
+    # (name, tax_exempt_status, free_shipping_threshold, default_shipping_pct, notes)
+    ("Amazon",              "exempt_on_file", 35,   0,  "ATEP resale cert on file. Prime free shipping."),
+    ("Grainger",            "exempt_on_file", 50,   0,  "Resale cert on file. Free ship >$50."),
+    ("Uline",              "exempt_on_file", 250,  5,  "Resale cert on file. Free ship >$250."),
+    ("Staples",            "exempt_on_file", 50,   0,  "Business account. Free ship >$50."),
+    ("Office Depot",       "exempt_on_file", 50,   0,  "Business account. Free ship >$50."),
+    ("S&S Worldwide",      "exempt_on_file", 75,   0,  "Resale cert on file. Free ship >$75."),
+    ("McMaster-Carr",      "not_accepted",   0,    8,  "Does NOT honor resale certs. Always charges tax. Shipping varies."),
+    ("Dollar Tree",        "not_accepted",   0,    0,  "Retail only. Tax charged. Case-only online orders."),
+    ("Target",             "not_accepted",   35,   5,  "Retail. No resale cert online. Free ship >$35."),
+    ("Home Depot",         "exempt_on_file", 0,    0,  "Pro account. Free delivery on most orders."),
+    ("Medline",            "exempt_on_file", 0,    0,  "Direct account. Shipping negotiated."),
+    ("Bound Tree Medical", "exempt_on_file", 0,    0,  "Medical supplier. Shipping negotiated."),
+    ("Henry Schein",       "exempt_on_file", 0,    0,  "Medical/dental supplier. Shipping negotiated."),
+    ("Fisher Scientific",  "exempt_on_file", 0,    5,  "Lab supplier. Resale cert on file."),
+    ("Zoro",               "exempt_on_file", 50,   0,  "Grainger subsidiary. Free ship >$50."),
+    ("Global Industrial",  "exempt_on_file", 0,    0,  "Free shipping on most items."),
+    ("Fastenal",           "exempt_on_file", 0,    0,  "Branch pickup or delivery. Resale cert on file."),
+    ("Moore Medical",      "exempt_on_file", 0,    5,  "Medical supplier. Resale cert on file."),
+]
+
+
+def _seed_supplier_profiles():
+    """Pre-seed supplier profiles on first run. Skips existing rows."""
+    try:
+        with get_db() as conn:
+            for name, tax, threshold, ship_pct, notes in _SEED_SUPPLIERS:
+                conn.execute("""
+                    INSERT OR IGNORE INTO supplier_profiles
+                    (supplier_name, tax_exempt_status, free_shipping_threshold,
+                     default_shipping_pct, notes)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (name, tax, threshold, ship_pct, notes))
+    except Exception as e:
+        log.debug("Supplier profile seed: %s", e)
+
+
+def get_supplier_profile(supplier_name):
+    """Look up a supplier's tax/shipping profile. Returns dict or None."""
+    if not supplier_name:
+        return None
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM supplier_profiles WHERE supplier_name = ?",
+                (supplier_name,)
+            ).fetchone()
+            if row:
+                return dict(row)
+            # Fuzzy match: try case-insensitive contains
+            row = conn.execute(
+                "SELECT * FROM supplier_profiles WHERE LOWER(supplier_name) = LOWER(?)",
+                (supplier_name,)
+            ).fetchone()
+            return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def get_all_supplier_profiles():
+    """Return all supplier profiles as list of dicts."""
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM supplier_profiles ORDER BY supplier_name"
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def calc_landed_cost(unit_cost, qty=1, supplier_name="", order_total=None):
+    """Calculate landed cost per unit factoring in shipping + tax.
+
+    Returns: {
+        landed_cost: float,      # per-unit all-in cost
+        shipping_per_unit: float,
+        tax_per_unit: float,
+        raw_cost: float,         # original supplier unit cost
+        supplier_profile: dict|None,
+        breakdown: str,          # human-readable explanation
+    }
+    """
+    if not unit_cost or unit_cost <= 0:
+        return {"landed_cost": 0, "shipping_per_unit": 0, "tax_per_unit": 0,
+                "raw_cost": 0, "supplier_profile": None, "breakdown": ""}
+
+    profile = get_supplier_profile(supplier_name)
+    shipping_per_unit = 0.0
+    tax_per_unit = 0.0
+    parts = []
+
+    if profile:
+        # Shipping estimate
+        threshold = profile.get("free_shipping_threshold") or 0
+        ship_pct = profile.get("default_shipping_pct") or 0
+        est_order = order_total or (unit_cost * qty)
+        if threshold > 0 and est_order < threshold and ship_pct > 0:
+            shipping_per_unit = round(unit_cost * ship_pct / 100, 4)
+            parts.append(f"+{ship_pct}% ship (order <${threshold:.0f})")
+        elif ship_pct > 0 and threshold == 0:
+            shipping_per_unit = round(unit_cost * ship_pct / 100, 4)
+            parts.append(f"+{ship_pct}% ship")
+
+        # Tax on purchase (if supplier doesn't honor exemption)
+        tax_status = profile.get("tax_exempt_status", "unknown")
+        if tax_status == "not_accepted":
+            # Use CA base rate as estimate for tax paid on purchase
+            ca_rate = 0.0875  # ~8.75% avg CA rate
+            tax_per_unit = round(unit_cost * ca_rate, 4)
+            parts.append(f"+{ca_rate*100:.1f}% tax (no exemption)")
+
+    landed = round(unit_cost + shipping_per_unit + tax_per_unit, 4)
+    breakdown = f"${unit_cost:.2f}"
+    if parts:
+        breakdown += " " + " ".join(parts) + f" = ${landed:.2f}"
+
+    return {
+        "landed_cost": landed,
+        "shipping_per_unit": shipping_per_unit,
+        "tax_per_unit": tax_per_unit,
+        "raw_cost": unit_cost,
+        "supplier_profile": profile,
+        "breakdown": breakdown,
+    }
 
 
 def _reconcile_quotes_json():

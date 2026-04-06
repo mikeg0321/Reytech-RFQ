@@ -58,6 +58,64 @@ def _save_customers(customers):
     with open(path, "w") as f:
         json.dump(customers, f, indent=2)
 
+@bp.route("/api/supplier-profiles")
+@auth_required
+@safe_route
+def api_supplier_profiles():
+    """List all supplier profiles (tax/shipping settings)."""
+    from src.core.db import get_all_supplier_profiles
+    return jsonify({"ok": True, "profiles": get_all_supplier_profiles()})
+
+
+@bp.route("/api/supplier-profiles", methods=["POST"])
+@auth_required
+@safe_route
+def api_supplier_profile_save():
+    """Create or update a supplier profile."""
+    data = request.get_json(force=True, silent=True) or {}
+    name = (data.get("supplier_name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "supplier_name required"})
+    tax = data.get("tax_exempt_status", "unknown")
+    if tax not in ("exempt_on_file", "pending", "not_accepted", "unknown"):
+        tax = "unknown"
+    threshold = float(data.get("free_shipping_threshold", 0) or 0)
+    ship_pct = float(data.get("default_shipping_pct", 0) or 0)
+    drop_ship = 1 if data.get("drop_ship") else 0
+    notes = data.get("notes", "")
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO supplier_profiles
+                (supplier_name, tax_exempt_status, free_shipping_threshold,
+                 default_shipping_pct, drop_ship, notes, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(supplier_name) DO UPDATE SET
+                    tax_exempt_status=excluded.tax_exempt_status,
+                    free_shipping_threshold=excluded.free_shipping_threshold,
+                    default_shipping_pct=excluded.default_shipping_pct,
+                    drop_ship=excluded.drop_ship,
+                    notes=excluded.notes,
+                    updated_at=datetime('now')
+            """, (name, tax, threshold, ship_pct, drop_ship, notes))
+        return jsonify({"ok": True})
+    except Exception as e:
+        log.error("Supplier profile save: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/supplier-profiles/<name>/landed-cost")
+@auth_required
+@safe_route
+def api_landed_cost_preview(name):
+    """Preview landed cost calculation for a supplier. ?cost=50&qty=10"""
+    from src.core.db import calc_landed_cost
+    cost = float(request.args.get("cost", 0) or 0)
+    qty = int(request.args.get("qty", 1) or 1)
+    result = calc_landed_cost(cost, qty, name)
+    return jsonify({"ok": True, **result})
+
+
 @bp.route("/api/crm/buyer-lookup")
 @auth_required
 @safe_route

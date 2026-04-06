@@ -52,18 +52,28 @@ def _check_guardrails(items):
         if not bid or bid <= 0:
             continue
 
-        # Margin check
-        if cost > 0:
-            margin = (bid - cost) / bid * 100
+        # Margin check — use LANDED cost (includes shipping + tax) if available
+        _eff_cost = cost
+        _supplier = item.get("item_supplier", "")
+        if cost > 0 and _supplier:
+            try:
+                from src.core.db import calc_landed_cost
+                _lc = calc_landed_cost(cost, item.get("qty", 1) or 1, _supplier)
+                _eff_cost = _lc["landed_cost"]
+            except Exception:
+                pass
+        if _eff_cost > 0:
+            margin = (bid - _eff_cost) / bid * 100
+            _margin_note = "" if _eff_cost == cost else f" (landed: ${_eff_cost:.2f})"
             if margin < MARGIN_RULES["critical_margin_pct"]:
                 warnings.append({
                     "idx": i, "desc": desc, "level": "critical",
-                    "msg": f"Margin {margin:.1f}% is below {MARGIN_RULES['critical_margin_pct']}% minimum"
+                    "msg": f"Margin {margin:.1f}% is below {MARGIN_RULES['critical_margin_pct']}% minimum{_margin_note}"
                 })
             elif margin < MARGIN_RULES["min_margin_pct"]:
                 warnings.append({
                     "idx": i, "desc": desc, "level": "warn",
-                    "msg": f"Margin {margin:.1f}% is below {MARGIN_RULES['min_margin_pct']}% target"
+                    "msg": f"Margin {margin:.1f}% is below {MARGIN_RULES['min_margin_pct']}% target{_margin_note}"
                 })
 
         # SCPRS comparison
@@ -1877,6 +1887,27 @@ def detail(rid):
             except (ValueError, TypeError):
                 continue
 
+    # ── Compute landed cost summary for margin truth ──
+    _landed_summary = {"raw_cost": 0, "landed_cost": 0, "items": 0}
+    try:
+        from src.core.db import calc_landed_cost
+        _li = r.get("line_items", [])
+        for _it in _li:
+            _sc = _it.get("supplier_cost") or 0
+            _sup = _it.get("item_supplier") or ""
+            _q = _it.get("qty", 1) or 1
+            if _sc and _sc > 0:
+                try:
+                    _sc = float(_sc)
+                except (ValueError, TypeError):
+                    continue
+                _lc = calc_landed_cost(_sc, _q, _sup)
+                _landed_summary["raw_cost"] += _sc * _q
+                _landed_summary["landed_cost"] += _lc["landed_cost"] * _q
+                _landed_summary["items"] += 1
+    except Exception:
+        pass
+
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid,
                        agency_required_forms=_agency_req,
                        agency_key=_agency_key,
@@ -1884,7 +1915,8 @@ def detail(rid):
                        agency_matched_by=_agency_matched_by,
                        sibling_rfqs=_sibling_rfqs,
                        sibling_pcs_unconverted=_sibling_pcs_unconverted,
-                       due_date_iso=_due_date_iso)
+                       due_date_iso=_due_date_iso,
+                       landed_summary=_landed_summary)
 
 
 @bp.route("/rfq/<rid>/review-package")

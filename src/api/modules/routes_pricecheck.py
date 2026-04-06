@@ -441,10 +441,38 @@ def _pricecheck_detail_inner(pcid):
             )
             unit_cost = _ref_price
 
+        # ── LANDED COST: factor in shipping + tax based on supplier profile ──
+        _supplier_name = item.get("item_supplier") or p.get("source") or ""
+        _landed_cost = unit_cost
+        _landed_ship = 0.0
+        _landed_tax = 0.0
+        _landed_note = ""
+        if unit_cost > 0 and _supplier_name:
+            try:
+                _raw_qty_lc = item.get("qty", 1)
+                try:
+                    _qty_lc = int(float(_raw_qty_lc)) if _raw_qty_lc else 1
+                except (ValueError, TypeError):
+                    _qty_lc = 1
+                from src.core.db import calc_landed_cost
+                _lc = calc_landed_cost(unit_cost, _qty_lc, _supplier_name)
+                _landed_cost = _lc["landed_cost"]
+                _landed_ship = _lc["shipping_per_unit"]
+                _landed_tax = _lc["tax_per_unit"]
+                _landed_note = _lc["breakdown"]
+            except Exception:
+                pass
+        item["_landed_cost"] = _landed_cost
+        item["_landed_ship"] = _landed_ship
+        item["_landed_tax"] = _landed_tax
+        item["_landed_note"] = _landed_note
+
         # Markup and final price — user markup ALWAYS wins over Oracle recommendation
+        # Apply markup to LANDED cost (includes shipping + tax if applicable)
         markup_pct = _safe_float(p.get("markup_pct"), 25)
-        if unit_cost > 0 and markup_pct > 0:
-            # Calculate from cost + markup (user's pricing intent)
+        if _landed_cost > 0 and markup_pct > 0:
+            final_price = round(_landed_cost * (1 + markup_pct/100), 2)
+        elif unit_cost > 0 and markup_pct > 0:
             final_price = round(unit_cost * (1 + markup_pct/100), 2)
         else:
             # No cost or markup — fall back to Oracle recommendation
@@ -1711,6 +1739,7 @@ def _do_save_prices(pcid):
     total_revenue = 0
     total_cost = 0
     total_profit = 0
+    total_landed_cost = 0
     costed_items = 0
     for it in items:
         if it.get("no_bid"):
@@ -1723,11 +1752,26 @@ def _do_save_prices(pcid):
             total_cost += vc * qty
             total_profit += (up - vc) * qty
             costed_items += 1
+            # Landed cost for true margin
+            _sup = it.get("item_supplier", "")
+            if _sup:
+                try:
+                    from src.core.db import calc_landed_cost
+                    _lc = calc_landed_cost(vc, qty, _sup)
+                    total_landed_cost += _lc["landed_cost"] * qty
+                except Exception:
+                    total_landed_cost += vc * qty
+            else:
+                total_landed_cost += vc * qty
+    true_profit = total_revenue - total_landed_cost
     pc["profit_summary"] = {
         "total_revenue":    round(total_revenue, 2),
         "total_cost":       round(total_cost, 2),
         "gross_profit":     round(total_profit, 2),
         "margin_pct":       round(total_profit / total_revenue * 100, 1) if total_revenue else 0,
+        "total_landed_cost": round(total_landed_cost, 2),
+        "true_profit":      round(true_profit, 2),
+        "true_margin_pct":  round(true_profit / total_revenue * 100, 1) if total_revenue else 0,
         "costed_items":     costed_items,
         "total_items":      len([i for i in items if not i.get("no_bid")]),
         "fully_costed":     costed_items == len([i for i in items if not i.get("no_bid")]),
