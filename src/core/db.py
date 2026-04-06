@@ -1431,6 +1431,8 @@ def _migrate_columns():
         ("orders", "fulfillment_type", "TEXT DEFAULT 'dropship'"),
         # ── Orders V2: link vendor_orders to orders ──
         ("vendor_orders", "order_id", "TEXT DEFAULT ''"),
+        # ── Multi-PC Bundle support ──
+        ("price_checks", "bundle_id", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

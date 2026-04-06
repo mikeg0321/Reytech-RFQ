@@ -1,0 +1,319 @@
+{% extends "base.html" %}
+{% block title %}Bundle {{ bundle_id }} — Reytech{% endblock %}
+
+{% block content %}
+<style>
+ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg,#0d1117);color:var(--tx,#c9d1d9);margin:0;padding:20px;font-size:15px;line-height:1.5}
+ .card{background:#161b22;border:1px solid #30363d;border-radius:8px;padding:20px;margin:12px 0}
+ table{width:100%;border-collapse:collapse}
+ th,td{padding:8px 10px;border:1px solid #30363d;text-align:left;font-size:14px}
+ th{background:#21262d;font-size:13px;text-transform:uppercase;color:#8b949e;white-space:nowrap;letter-spacing:0.3px}
+ .btn{padding:9px 18px;border-radius:6px;border:none;cursor:pointer;font-weight:600;text-decoration:none;display:inline-block;margin:4px;font-size:14px}
+ .btn-p{background:#1f6feb;color:#fff} .btn-g{background:#238636;color:#fff} .btn-v{background:#8957e5;color:#fff} .btn-sm{padding:6px 14px;font-size:13px}
+ a{color:#58a6ff} h1{margin:0;font-size:24px} .meta{color:#8b949e;font-size:15px}
+ .status{padding:3px 8px;border-radius:4px;font-size:13px;font-weight:600;vertical-align:middle}
+ .progress-bar{background:#21262d;border-radius:6px;height:10px;overflow:hidden;flex:1}
+ .progress-fill{background:linear-gradient(90deg,#238636,#3fb950);height:100%;border-radius:6px;transition:width .3s}
+ .bundle-header{background:linear-gradient(135deg,#1a1a3e,#0d1117);border:1px solid rgba(137,87,229,.3);border-radius:12px;padding:20px 24px;margin-bottom:16px}
+ .kpi{text-align:center;padding:12px 0}
+ .kpi-val{font-size:28px;font-weight:800;color:#e6edf3}
+ .kpi-label{font-size:12px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-top:2px}
+</style>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+ <a href="/" style="color:#8b949e;font-size:13px;text-decoration:none">&larr; Dashboard</a>
+ <span style="color:#30363d">/</span>
+ <span style="color:#bc8cff;font-size:14px;font-weight:600">Bundle {{ bundle_id }}</span>
+</div>
+
+<!-- Header -->
+<div class="bundle-header">
+ <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px">
+  <div>
+   <h1 style="color:#bc8cff;display:flex;align-items:center;gap:10px">
+    <span style="font-size:28px">&#x1F4E6;</span> Multi-PC Bundle
+   </h1>
+   <div class="meta" style="margin-top:6px">
+    {% if source_file %}<b>Source:</b> {{ source_file }}{% endif %}
+    {% if institution %} &middot; <b>{{ institution }}</b>{% endif %}
+    {% if requestor %} &middot; {{ requestor }}{% endif %}
+   </div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+   <button class="btn btn-v" id="genBundleBtn" onclick="generateBundle(this)">
+    &#x1F4CB; Generate Combined PDF
+   </button>
+   <button class="btn btn-g" id="sendBundleBtn" onclick="sendBundle()" {% if not bundle_pdf_exists %}disabled style="opacity:.5"{% endif %}>
+    &#x1F4E7; Send Combined Quote
+   </button>
+   {% if bundle_pdf_exists %}
+   <a href="/api/pricecheck/download/{{ bundle_pdf_name }}" class="btn btn-sm" style="background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3)">
+    &#x2B07; Download Bundle PDF
+   </a>
+   {% endif %}
+   <span style="width:1px;height:24px;background:#30363d;margin:0 4px"></span>
+   <button class="btn btn-p" id="convertEachBtn" onclick="convertEachToRFQ(this)">
+    &#x1F4E4; Convert Each &rarr; Separate RFQs
+   </button>
+   <button class="btn btn-sm" onclick="convertBundleToRFQ(this)" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2)">
+    &#x1F4E4; Convert All &rarr; Single RFQ
+   </button>
+  </div>
+ </div>
+</div>
+
+<!-- KPIs -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
+ <div class="card" style="margin:0"><div class="kpi">
+  <div class="kpi-val">{{ bundle_pcs|length }}</div>
+  <div class="kpi-label">Price Checks</div>
+ </div></div>
+ <div class="card" style="margin:0"><div class="kpi">
+  <div class="kpi-val">{{ total_items }}</div>
+  <div class="kpi-label">Total Items</div>
+ </div></div>
+ <div class="card" style="margin:0"><div class="kpi">
+  <div class="kpi-val" style="color:{% if total_priced == total_items and total_items > 0 %}#3fb950{% elif total_priced > 0 %}#d29922{% else %}#f85149{% endif %}">{{ total_priced }}/{{ total_items }}</div>
+  <div class="kpi-label">Items Priced</div>
+ </div></div>
+ <div class="card" style="margin:0"><div class="kpi">
+  <div class="kpi-val">${{ "%.2f"|format(grand_total) }}</div>
+  <div class="kpi-label">Grand Total</div>
+ </div></div>
+</div>
+
+<!-- Progress bar -->
+<div class="card" style="margin:0 0 16px 0;padding:14px 20px">
+ <div style="display:flex;align-items:center;gap:12px">
+  <span style="font-size:13px;color:#8b949e;white-space:nowrap">Pricing Progress</span>
+  <div class="progress-bar">
+   <div class="progress-fill" style="width:{% if total_items > 0 %}{{ (total_priced / total_items * 100)|round|int }}{% else %}0{% endif %}%"></div>
+  </div>
+  <span style="font-size:13px;font-weight:700;color:#e6edf3;white-space:nowrap">
+   {% if total_items > 0 %}{{ (total_priced / total_items * 100)|round|int }}%{% else %}0%{% endif %}
+  </span>
+ </div>
+</div>
+
+<!-- Status message -->
+<div id="bundle-msg" style="display:none;padding:12px 18px;border-radius:8px;margin-bottom:12px;font-size:14px"></div>
+
+<!-- PC Table -->
+<div class="card">
+ <div style="font-size:16px;font-weight:700;color:#e6edf3;margin-bottom:12px">Price Checks in Bundle</div>
+ <table>
+  <thead>
+   <tr>
+    <th style="width:36px">#</th>
+    <th>PC Number</th>
+    <th>Institution</th>
+    <th style="text-align:center">Items</th>
+    <th style="text-align:center">Priced</th>
+    <th style="text-align:right">Subtotal</th>
+    <th style="text-align:center;width:80px">Status</th>
+    <th style="text-align:center">Pages</th>
+    <th style="width:60px"></th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for pc in bundle_pcs %}
+   {% set items = pc.get('items', []) %}
+   {% set priced = [] %}
+   {% for it in items %}{% if it.get('unit_price') or it.get('no_bid') %}{% if priced.append(1) %}{% endif %}{% endif %}{% endfor %}
+   {% set sub = namespace(val=0) %}
+   {% for it in items %}{% if it.get('unit_price') %}{% set sub.val = sub.val + (it.unit_price|float * (it.qty|default(1)|int)) %}{% endif %}{% endfor %}
+   <tr style="cursor:pointer" onclick="location.href='/pricecheck/{{ pc.id }}'">
+    <td style="text-align:center;color:#8b949e">{{ loop.index }}</td>
+    <td><a href="/pricecheck/{{ pc.id }}" style="font-weight:600">{{ pc.pc_number|default('(blank)') }}</a></td>
+    <td>{{ pc.institution|default('--') }}</td>
+    <td style="text-align:center">{{ items|length }}</td>
+    <td style="text-align:center;color:{% if priced|length == items|length and items|length > 0 %}#3fb950{% elif priced|length > 0 %}#d29922{% else %}#f85149{% endif %}">
+     {{ priced|length }}/{{ items|length }}
+    </td>
+    <td style="text-align:right;font-family:monospace">${{ "%.2f"|format(sub.val) }}</td>
+    <td style="text-align:center">
+     {% set st = pc.status|default('new') %}
+     <span class="status" style="background:{% if st == 'sent' %}rgba(52,211,153,.15);color:#3fb950{% elif st == 'draft' %}rgba(79,140,255,.15);color:#58a6ff{% elif st == 'parsed' %}rgba(210,153,34,.15);color:#d29922{% else %}rgba(139,148,158,.1);color:#8b949e{% endif %}">{{ st|upper }}</span>
+    </td>
+    <td style="text-align:center;color:#8b949e;font-size:13px">{{ pc.page_start|default(0)|int + 1 }}-{{ pc.page_end|default(0)|int + 1 }}</td>
+    <td style="text-align:center">
+     <a href="/pricecheck/{{ pc.id }}" class="btn btn-sm" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.2);padding:4px 10px;font-size:12px">Open</a>
+    </td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+</div>
+
+{% if bundle_pdf_exists %}
+<div class="card">
+ <div style="font-size:16px;font-weight:700;color:#e6edf3;margin-bottom:12px">Generated Bundle PDF</div>
+ <iframe src="/api/pricecheck/download/{{ bundle_pdf_name }}" style="width:100%;height:600px;border:1px solid #30363d;border-radius:8px"></iframe>
+</div>
+{% endif %}
+
+<script>
+var _bundleId = {{ bundle_id|tojson }};
+var _requestorEmail = {{ requestor_email|tojson }};
+
+function showMsg(text, type) {
+ var el = document.getElementById('bundle-msg');
+ el.style.display = 'block';
+ el.style.background = type === 'ok' ? 'rgba(52,211,153,.1)' : type === 'warn' ? 'rgba(210,153,34,.1)' : 'rgba(248,81,73,.1)';
+ el.style.borderLeft = '4px solid ' + (type === 'ok' ? '#3fb950' : type === 'warn' ? '#d29922' : '#f85149');
+ el.style.color = type === 'ok' ? '#3fb950' : type === 'warn' ? '#d29922' : '#f85149';
+ el.innerHTML = text;
+}
+
+function generateBundle(btn) {
+ btn.disabled = true;
+ btn.innerHTML = '&#x23F3; Generating...';
+ showMsg('Generating individual PCs and merging into combined PDF...', 'warn');
+
+ fetch('/api/pricecheck/bundle/' + _bundleId + '/generate', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({}),
+  credentials: 'same-origin'
+ })
+ .then(function(r) { return r.json(); })
+ .then(function(d) {
+  if (d.partial) {
+   var msg = d.not_ready.map(function(nr) {
+    return nr.pc_number + ' (' + nr.priced + '/' + nr.total + ' priced)';
+   }).join(', ');
+   if (confirm('Not all PCs are fully priced:\n' + msg + '\n\nGenerate anyway with partial pricing?')) {
+    btn.innerHTML = '&#x23F3; Generating (force)...';
+    fetch('/api/pricecheck/bundle/' + _bundleId + '/generate?force=1', {
+     method: 'POST', headers: {'Content-Type': 'application/json'},
+     body: JSON.stringify({force: true}), credentials: 'same-origin'
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d2) { handleGenResult(d2, btn); })
+    .catch(function(e) { showMsg('Error: ' + e.message, 'err'); btn.disabled = false; btn.innerHTML = '&#x1F4CB; Generate Combined PDF'; });
+   } else {
+    btn.disabled = false;
+    btn.innerHTML = '&#x1F4CB; Generate Combined PDF';
+    showMsg('Generation cancelled — finish pricing all PCs first.', 'warn');
+   }
+   return;
+  }
+  handleGenResult(d, btn);
+ })
+ .catch(function(e) { showMsg('Error: ' + e.message, 'err'); btn.disabled = false; btn.innerHTML = '&#x1F4CB; Generate Combined PDF'; });
+}
+
+function handleGenResult(d, btn) {
+ if (d.ok) {
+  var s = d.summary || {};
+  showMsg(
+   '&#x2705; Bundle PDF generated — ' + d.pcs_generated + ' PCs, ' +
+   (s.items_priced || 0) + '/' + (s.items_total || 0) + ' items priced, ' +
+   d.page_count + ' pages' +
+   (d.pcs_failed ? ' (' + d.pcs_failed + ' failed)' : '') +
+   ' &nbsp; <a href="' + d.download + '" style="color:#58a6ff;font-weight:700">Download &darr;</a>',
+   'ok'
+  );
+  document.getElementById('sendBundleBtn').disabled = false;
+  document.getElementById('sendBundleBtn').style.opacity = '1';
+  btn.innerHTML = '&#x1F504; Regenerate';
+  btn.disabled = false;
+  setTimeout(function() { location.reload(); }, 2000);
+ } else {
+  showMsg('&#x274C; ' + (d.error || 'Generation failed'), 'err');
+  btn.disabled = false;
+  btn.innerHTML = '&#x1F4CB; Generate Combined PDF';
+ }
+}
+
+function sendBundle() {
+ var to = prompt('Send combined quote to:', _requestorEmail);
+ if (!to) return;
+ var subject = prompt('Subject:', 'Price Quotes — Bundle ' + _bundleId);
+ if (subject === null) return;
+
+ var btn = document.getElementById('sendBundleBtn');
+ btn.disabled = true;
+ btn.innerHTML = '&#x23F3; Sending...';
+
+ fetch('/api/pricecheck/bundle/' + _bundleId + '/send', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({to: to, subject: subject}),
+  credentials: 'same-origin'
+ })
+ .then(function(r) { return r.json(); })
+ .then(function(d) {
+  if (d.ok) {
+   showMsg('&#x2705; Bundle sent to ' + d.sent_to + ' (' + d.pcs_sent + ' PCs marked sent)', 'ok');
+   btn.innerHTML = '&#x1F4E7; Resend';
+   btn.disabled = false;
+   setTimeout(function() { location.reload(); }, 1500);
+  } else {
+   showMsg('&#x274C; ' + (d.error || 'Send failed'), 'err');
+   btn.disabled = false;
+   btn.innerHTML = '&#x1F4E7; Send Combined Quote';
+  }
+ })
+ .catch(function(e) {
+  showMsg('Error: ' + e.message, 'err');
+  btn.disabled = false;
+  btn.innerHTML = '&#x1F4E7; Send Combined Quote';
+ });
+}
+
+function convertEachToRFQ(btn) {
+ if (!confirm('Convert each PC in this bundle into a separate RFQ?\n\nThis creates ' + {{ bundle_pcs|length }} + ' individual RFQs, all linked to this bundle.')) return;
+ btn.disabled = true;
+ btn.innerHTML = '&#x23F3; Converting...';
+ showMsg('Creating separate RFQs for each PC...', 'warn');
+
+ fetch('/api/pricecheck/bundle/' + _bundleId + '/convert-each-to-rfq', {
+  method: 'POST', headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({}), credentials: 'same-origin'
+ })
+ .then(function(r) { return r.json(); })
+ .then(function(d) {
+  if (d.ok) {
+   var links = d.created.map(function(c) {
+    if (c.skipped) return '<span style="color:#8b949e">' + c.pc_id.substring(0,8) + ' (already converted)</span>';
+    return '<a href="' + c.url + '" style="color:#58a6ff">' + c.rfq_id + ' (' + c.items + ' items)</a>';
+   }).join(' &middot; ');
+   showMsg('&#x2705; Created ' + d.total + ' RFQs: ' + links, 'ok');
+   btn.innerHTML = '&#x2705; Converted';
+   setTimeout(function() { location.reload(); }, 2000);
+  } else {
+   showMsg('&#x274C; ' + (d.error || 'Conversion failed'), 'err');
+   btn.disabled = false;
+   btn.innerHTML = '&#x1F4E4; Convert Each &rarr; Separate RFQs';
+  }
+ })
+ .catch(function(e) { showMsg('Error: ' + e.message, 'err'); btn.disabled = false; btn.innerHTML = '&#x1F4E4; Convert Each &rarr; Separate RFQs'; });
+}
+
+function convertBundleToRFQ(btn) {
+ if (!confirm('Convert ALL PCs in this bundle into ONE combined RFQ?\n\nAll items from all PCs will be in a single RFQ.')) return;
+ btn.disabled = true;
+ btn.innerHTML = '&#x23F3; Converting...';
+ showMsg('Creating combined RFQ from all bundle PCs...', 'warn');
+
+ fetch('/api/pricecheck/bundle/' + _bundleId + '/convert-to-rfq', {
+  method: 'POST', headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({}), credentials: 'same-origin'
+ })
+ .then(function(r) { return r.json(); })
+ .then(function(d) {
+  if (d.ok) {
+   showMsg('&#x2705; Created RFQ <a href="' + d.url + '" style="color:#58a6ff">' + d.rfq_id + '</a> with ' + d.items + ' items from ' + d.pcs + ' PCs', 'ok');
+   btn.innerHTML = '&#x2705; Converted';
+   setTimeout(function() { location.reload(); }, 2000);
+  } else {
+   showMsg('&#x274C; ' + (d.error || 'Conversion failed'), 'err');
+   btn.disabled = false;
+   btn.innerHTML = '&#x1F4E4; Convert All &rarr; Single RFQ';
+  }
+ })
+ .catch(function(e) { showMsg('Error: ' + e.message, 'err'); btn.disabled = false; btn.innerHTML = '&#x1F4E4; Convert All &rarr; Single RFQ'; });
+}
+</script>
+{% endblock %}

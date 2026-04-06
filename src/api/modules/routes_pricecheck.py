@@ -1050,6 +1050,14 @@ def _pricecheck_detail_inner(pcid):
     except Exception:
         pass
 
+    # ── Bundle siblings for banner ──
+    _bundle_siblings = []
+    if pc.get("bundle_id"):
+        _all_pcs = _load_price_checks()
+        for _sid, _spc in _all_pcs.items():
+            if _spc.get("bundle_id") == pc["bundle_id"] and _sid != pcid:
+                _bundle_siblings.append({"id": _sid, "pc_number": _spc.get("pc_number", "")})
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
@@ -1063,6 +1071,7 @@ def _pricecheck_detail_inner(pcid):
         existing_704_url=_existing_704_url,
         existing_quote_url=_existing_quote_url,
         scprs_staleness=_scprs_staleness,
+        bundle_siblings=_bundle_siblings,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")
@@ -2244,13 +2253,17 @@ def pricecheck_generate(pcid):
         return jsonify({"ok": False, "error": f"Server error: {e}"})
 
 
-def _do_generate(pcid):
+def _generate_pc_pdf(pcid):
+    """Core PC PDF generation logic. Returns dict (not Flask response).
+    Used by both the HTTP route wrapper and the bundle generate route.
+    Returns: {"ok": True, "output_path": "...", "summary": {...}} or {"ok": False, "error": "..."}
+    """
     if not PRICE_CHECK_AVAILABLE:
-        return jsonify({"ok": False, "error": "price_check.py not available"})
+        return {"ok": False, "error": "price_check.py not available"}
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
-        return jsonify({"ok": False, "error": "PC not found"})
+        return {"ok": False, "error": "PC not found"}
 
     from src.forms.price_check import fill_ams704
 
@@ -2266,7 +2279,6 @@ def _do_generate(pcid):
              pcid, len(pc.get("items", [])))
 
     # Auto-compute missing prices before PDF generation.
-    # Track whether we actually changed anything so we only save when needed.
     _auto_priced = 0
     for it in pc.get("items", []):
         cost = it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0
@@ -2316,14 +2328,14 @@ def _do_generate(pcid):
             log.warning("GENERATE %s: DB recovery failed: %s", pcid, _dbe)
 
         if not recovered:
-            return jsonify({"ok": False, "error": "Source PDF not found. Upload the 704 PDF (More → Upload PDF & Parse), then try again."})
+            return {"ok": False, "error": "Source PDF not found. Upload the 704 PDF (More \u2192 Upload PDF & Parse), then try again."}
 
     # Detailed logging: what exactly will fill_ams704 receive?
     _fill_items = parsed.get("line_items", [])
     log.info("GENERATE %s: %d items going to fill_ams704 (source: %s)",
              pcid, len(_fill_items), os.path.basename(source_pdf))
     for i, it in enumerate(_fill_items):
-        log.info("  → item[%d]: row_idx=%s desc='%s' qty=%s uom=%s price=%s cost=%s mfg='%s'",
+        log.info("  \u2192 item[%d]: row_idx=%s desc='%s' qty=%s uom=%s price=%s cost=%s mfg='%s'",
                  i, it.get("row_index"), (it.get("description") or "")[:50],
                  it.get("qty"), it.get("uom"),
                  it.get("unit_price") or it.get("pricing", {}).get("recommended_price"),
@@ -2425,13 +2437,24 @@ def _do_generate(pcid):
         # Catalog all line items for future matching
         _enrich_catalog_from_pc(pc)
 
-        resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
+        gen_result = {"ok": True, "output_path": output_path, "summary": result.get("summary", {})}
         if _qa_warnings:
-            resp["qa_warnings"] = _qa_warnings
+            gen_result["qa_warnings"] = _qa_warnings
+        return gen_result
+    return {"ok": False, "error": result.get("error", "Unknown error")}
+
+
+def _do_generate(pcid):
+    """HTTP wrapper for _generate_pc_pdf — returns Flask jsonify response."""
+    result = _generate_pc_pdf(pcid)
+    if result.get("ok"):
+        resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(result['output_path'])}"}
+        if result.get("qa_warnings"):
+            resp["qa_warnings"] = result["qa_warnings"]
         try:
-            if not _qa.get("passed", True):
+            if not result.get("passed", True):
                 resp["qa_failed"] = True
-                resp["qa_issues"] = _qa.get("issues", [])
+                resp["qa_issues"] = result.get("issues", [])
         except NameError:
             pass  # _qa not defined if QA was skipped
         return jsonify(resp)
@@ -2871,6 +2894,10 @@ def api_pc_split_pdf():
     if not sections:
         return jsonify({"ok": False, "error": "No PC sections found in PDF"})
 
+    # ── Bundle identity: link all PCs from this combined PDF ──
+    bundle_id = "bnd_" + _uuid.uuid4().hex[:8] if len(sections) > 1 else ""
+    non_pc_pages = sections[0].get("non_pc_pages", []) if sections else []
+
     created = []
     for section in sections:
         pc_id = "pc_" + _uuid.uuid4().hex[:8]
@@ -2909,6 +2936,9 @@ def api_pc_split_pdf():
             "parsed": {"header": header, "line_items": items},
             "page_start": section.get("page_start", 0), "page_end": section.get("page_end", 0),
             "multi_pc_source": safe_name,
+            "bundle_id": bundle_id,
+            "bundle_non_pc_pages": non_pc_pages,
+            "bundle_total_pcs": len(sections) if bundle_id else 0,
         }
         from src.api.dashboard import _save_single_pc
         _save_single_pc(pc_id, pc)
@@ -2931,8 +2961,369 @@ def api_pc_split_pdf():
     by_institution = {}
     for pc in created:
         by_institution.setdefault(pc["institution"], []).append(pc)
-    return jsonify({"ok": True, "total": len(created), "pcs": created,
-                    "by_institution": by_institution, "source_file": safe_name})
+    resp = {"ok": True, "total": len(created), "pcs": created,
+            "by_institution": by_institution, "source_file": safe_name}
+    if bundle_id:
+        resp["bundle_id"] = bundle_id
+        resp["bundle_url"] = f"/pricecheck/bundle/{bundle_id}"
+        log.info("SPLIT-PDF: created bundle %s with %d PCs, %d non-PC pages",
+                 bundle_id, len(created), len(non_pc_pages))
+    return jsonify(resp)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Multi-PC Bundle: Generate, Send, View ─────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _load_bundle_pcs(bundle_id):
+    """Load all PCs belonging to a bundle, sorted by page_start."""
+    pcs = _load_price_checks()
+    bundle_pcs = []
+    for pcid, pc in pcs.items():
+        if pc.get("bundle_id") == bundle_id:
+            pc["id"] = pcid
+            bundle_pcs.append(pc)
+    bundle_pcs.sort(key=lambda p: int(p.get("page_start", 0)))
+    return bundle_pcs
+
+
+@bp.route("/api/pricecheck/bundle/<bundle_id>/generate", methods=["POST"])
+@auth_required
+def api_bundle_generate(bundle_id):
+    """Generate combined PDF for a multi-PC bundle. All PCs filled, merged into one response."""
+    try:
+        bundle_pcs = _load_bundle_pcs(bundle_id)
+        if not bundle_pcs:
+            return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
+
+        force = request.args.get("force") == "1" or (request.get_json(force=True, silent=True) or {}).get("force")
+
+        # Check pricing completeness
+        ready = []
+        not_ready = []
+        for pc in bundle_pcs:
+            items = pc.get("items", [])
+            priced = sum(1 for it in items if it.get("unit_price") or it.get("no_bid"))
+            if priced >= len(items) and len(items) > 0:
+                ready.append(pc["id"])
+            else:
+                not_ready.append({"pc_id": pc["id"], "pc_number": pc.get("pc_number", ""),
+                                  "priced": priced, "total": len(items)})
+
+        if not_ready and not force:
+            return jsonify({
+                "ok": False, "partial": True,
+                "ready": ready, "not_ready": not_ready,
+                "message": f"{len(ready)} of {len(bundle_pcs)} PCs fully priced. Send force=true to generate anyway.",
+            })
+
+        # Generate each PC's individual PDF
+        pc_outputs = []
+        errors = []
+        for pc in bundle_pcs:
+            pcid = pc["id"]
+            result = _generate_pc_pdf(pcid)
+            if result.get("ok"):
+                pc_outputs.append({
+                    "pc_id": pcid,
+                    "page_start": int(pc.get("page_start", 0)),
+                    "page_end": int(pc.get("page_end", 0)),
+                    "output_pdf": result["output_path"],
+                    "summary": result.get("summary", {}),
+                })
+            else:
+                errors.append({"pc_id": pcid, "error": result.get("error", "Unknown")})
+                log.error("BUNDLE %s: PC %s generate failed: %s", bundle_id, pcid, result.get("error"))
+
+        if not pc_outputs:
+            return jsonify({"ok": False, "error": "All PC generations failed", "errors": errors})
+
+        # Merge into combined PDF
+        source_pdf = bundle_pcs[0].get("source_pdf", "")
+        non_pc_pages = bundle_pcs[0].get("bundle_non_pc_pages", [])
+
+        # Build safe output filename
+        _inst = bundle_pcs[0].get("institution", "").replace(" ", "_")[:20]
+        _date = datetime.now().strftime("%Y%m%d")
+        bundle_output = os.path.join(DATA_DIR, f"Bundle_{_inst}_{_date}_{bundle_id}_Reytech.pdf")
+
+        from src.forms.price_check import merge_bundle_pdfs
+        merge_result = merge_bundle_pdfs(source_pdf, pc_outputs, non_pc_pages, bundle_output)
+
+        if not merge_result.get("ok"):
+            return jsonify({"ok": False, "error": merge_result.get("error", "Merge failed")})
+
+        # Store bundle output path on each PC
+        for pc in bundle_pcs:
+            pc["bundle_output_pdf"] = bundle_output
+            _save_single_pc(pc["id"], pc)
+
+        # Aggregate summary
+        total_items = sum(s.get("summary", {}).get("items_total", 0) for s in pc_outputs)
+        total_priced = sum(s.get("summary", {}).get("items_priced", 0) for s in pc_outputs)
+        grand_total = sum(s.get("summary", {}).get("total", 0) for s in pc_outputs)
+
+        log.info("BUNDLE %s: generated combined PDF — %d PCs, %d/%d items priced, total=$%.2f, pages=%d",
+                 bundle_id, len(pc_outputs), total_priced, total_items, grand_total,
+                 merge_result.get("page_count", 0))
+
+        resp = {
+            "ok": True,
+            "download": f"/api/pricecheck/download/{os.path.basename(bundle_output)}",
+            "bundle_id": bundle_id,
+            "pcs_generated": len(pc_outputs),
+            "pcs_failed": len(errors),
+            "page_count": merge_result.get("page_count", 0),
+            "summary": {
+                "items_total": total_items,
+                "items_priced": total_priced,
+                "grand_total": grand_total,
+            },
+        }
+        if errors:
+            resp["errors"] = errors
+        return jsonify(resp)
+
+    except Exception as e:
+        log.error("BUNDLE GENERATE %s CRASHED: %s", bundle_id, e, exc_info=True)
+        return jsonify({"ok": False, "error": f"Server error: {e}"})
+
+
+@bp.route("/api/pricecheck/bundle/<bundle_id>/send", methods=["POST"])
+@auth_required
+def api_bundle_send(bundle_id):
+    """Send the combined bundle PDF via email. Marks all PCs as sent."""
+    try:
+        bundle_pcs = _load_bundle_pcs(bundle_id)
+        if not bundle_pcs:
+            return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
+
+        data = request.get_json(force=True, silent=True) or {}
+        to_email = data.get("to") or bundle_pcs[0].get("requestor_email", "")
+        if not to_email or "@" not in to_email:
+            return jsonify({"ok": False, "error": "No valid recipient email"})
+
+        # Find bundle PDF
+        bundle_pdf = bundle_pcs[0].get("bundle_output_pdf", "")
+        if not bundle_pdf or not os.path.exists(bundle_pdf):
+            return jsonify({"ok": False, "error": "Bundle PDF not found — generate first"})
+
+        # Build email
+        source_name = bundle_pcs[0].get("multi_pc_source", "Quote")
+        # Strip .pdf extension and add _Reytech
+        attach_name = re.sub(r'\.pdf$', '', source_name, flags=re.IGNORECASE) + "_Reytech.pdf"
+        pc_numbers = [pc.get("pc_number", "") for pc in bundle_pcs if pc.get("pc_number")]
+        subject = data.get("subject") or f"Price Quotes — {', '.join(pc_numbers) if pc_numbers else bundle_id}"
+        body_text = data.get("body") or (
+            f"Please find attached our price quotes for the following Price Checks:\n"
+            + "\n".join(f"  - {pc.get('pc_number', pc['id'])}" for pc in bundle_pcs)
+            + "\n\nThank you,\nReytech Inc."
+        )
+
+        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
+        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
+        if not gmail_user or not gmail_pass:
+            return jsonify({"ok": False, "error": "Gmail not configured"})
+
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.base import MIMEBase
+        from email import encoders
+
+        msg = MIMEMultipart()
+        msg["From"] = f"Reytech Inc. <{gmail_user}>"
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body_text, "plain"))
+
+        with open(bundle_pdf, "rb") as f:
+            part = MIMEBase("application", "pdf")
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{attach_name}"')
+            msg.attach(part)
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(gmail_user, gmail_pass)
+            server.sendmail(gmail_user, [to_email], msg.as_string())
+
+        # Mark all PCs as sent
+        now_iso = datetime.now().isoformat()
+        for pc in bundle_pcs:
+            pc["status"] = "sent"
+            pc["sent_at"] = now_iso
+            pc["sent_to"] = to_email
+            _save_single_pc(pc["id"], pc)
+            try:
+                _log_crm_activity(pc["id"], "bundle_quote_sent",
+                    f"Bundle quote sent to {to_email} (bundle {bundle_id})",
+                    actor="user")
+            except Exception:
+                pass
+
+        log.info("BUNDLE SEND %s: sent to %s (%d PCs)", bundle_id, to_email, len(bundle_pcs))
+        return jsonify({"ok": True, "sent_to": to_email, "pcs_sent": len(bundle_pcs)})
+
+    except Exception as e:
+        log.error("BUNDLE SEND %s: %s", bundle_id, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)[:200]})
+
+
+@bp.route("/api/pricecheck/bundle/<bundle_id>/convert-each-to-rfq", methods=["POST"])
+@auth_required
+def api_bundle_convert_each(bundle_id):
+    """Convert each PC in a bundle into its own RFQ. All RFQs get bundle_id for sibling awareness."""
+    try:
+        bundle_pcs = _load_bundle_pcs(bundle_id)
+        if not bundle_pcs:
+            return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
+
+        from src.api.modules.routes_analytics import _convert_single_pc_to_rfq
+        from src.api.dashboard import _save_single_rfq
+
+        created = []
+        now = datetime.now().isoformat()
+
+        for pc in bundle_pcs:
+            pcid = pc["id"]
+            if pc.get("converted_to_rfq"):
+                created.append({"pc_id": pcid, "rfq_id": pc.get("linked_rfq_id", ""),
+                                "skipped": True, "reason": "already converted"})
+                continue
+
+            rfq_id, rfq_data, files_copied = _convert_single_pc_to_rfq(pcid, pc)
+            _save_single_rfq(rfq_id, rfq_data)
+
+            # Update PC with link
+            pc["linked_rfq_id"] = rfq_id
+            pc["linked_rfq_at"] = now
+            pc["converted_to_rfq"] = True
+            _save_single_pc(pc["id"], pc)
+
+            created.append({"pc_id": pcid, "rfq_id": rfq_id,
+                            "items": len(rfq_data.get("line_items", [])),
+                            "url": f"/rfq/{rfq_id}"})
+
+        # Cross-reference sibling RFQ IDs on each created RFQ
+        rfq_ids = [c["rfq_id"] for c in created if not c.get("skipped") and c.get("rfq_id")]
+        if len(rfq_ids) > 1:
+            from src.api.dashboard import load_rfqs
+            rfqs = load_rfqs()
+            for rid in rfq_ids:
+                rfq = rfqs.get(rid)
+                if rfq:
+                    rfq["sibling_rfq_ids"] = [r for r in rfq_ids if r != rid]
+                    _save_single_rfq(rid, rfq)
+
+        log.info("BUNDLE %s: converted %d PCs to separate RFQs", bundle_id, len(created))
+        return jsonify({"ok": True, "created": created, "total": len(created)})
+
+    except Exception as e:
+        log.error("BUNDLE CONVERT-EACH %s: %s", bundle_id, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)[:200]})
+
+
+@bp.route("/api/pricecheck/bundle/<bundle_id>/convert-to-rfq", methods=["POST"])
+@auth_required
+def api_bundle_convert_single(bundle_id):
+    """Convert all PCs in a bundle into ONE combined RFQ with all items."""
+    try:
+        bundle_pcs = _load_bundle_pcs(bundle_id)
+        if not bundle_pcs:
+            return jsonify({"ok": False, "error": f"No PCs found for bundle {bundle_id}"})
+
+        from src.core.pc_rfq_linker import auto_link_rfq_to_bundle
+        from src.api.dashboard import _save_single_rfq
+        import uuid as _uuid
+
+        rfq_id = str(_uuid.uuid4())[:8]
+        now = datetime.now().isoformat()
+
+        # Build RFQ from first PC's metadata
+        first_pc = bundle_pcs[0]
+        rfq_data = {
+            "id": rfq_id,
+            "solicitation_number": first_pc.get("pc_number", ""),
+            "status": "new",
+            "source": "bundle_conversion",
+            "requestor_name": first_pc.get("requestor", ""),
+            "requestor_email": first_pc.get("requestor_email", ""),
+            "department": first_pc.get("institution", ""),
+            "delivery_location": first_pc.get("ship_to", ""),
+            "due_date": first_pc.get("due_date", ""),
+            "line_items": [],  # will be populated by auto_link_rfq_to_bundle
+            "created_at": now,
+            "bundle_id": bundle_id,
+        }
+
+        # Import items from ALL bundle PCs
+        pc_tuples = [(pc["id"], pc) for pc in bundle_pcs]
+        imported = auto_link_rfq_to_bundle(rfq_data, pc_tuples)
+
+        # Check if any items got priced
+        if any(li.get("price_per_unit") for li in rfq_data.get("line_items", [])):
+            rfq_data["status"] = "priced"
+
+        _save_single_rfq(rfq_id, rfq_data)
+
+        # Mark all PCs as converted
+        for pc in bundle_pcs:
+            pc["linked_rfq_id"] = rfq_id
+            pc["linked_rfq_at"] = now
+            pc["converted_to_rfq"] = True
+            _save_single_pc(pc["id"], pc)
+
+        log.info("BUNDLE %s: converted to single RFQ %s with %d items from %d PCs",
+                 bundle_id, rfq_id, len(rfq_data.get("line_items", [])), len(bundle_pcs))
+        return jsonify({"ok": True, "rfq_id": rfq_id,
+                        "items": len(rfq_data.get("line_items", [])),
+                        "pcs": len(bundle_pcs), "url": f"/rfq/{rfq_id}"})
+
+    except Exception as e:
+        log.error("BUNDLE CONVERT-SINGLE %s: %s", bundle_id, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)[:200]})
+
+
+@bp.route("/pricecheck/bundle/<bundle_id>")
+@auth_required
+def pricecheck_bundle_view(bundle_id):
+    """Bundle detail page — shows all PCs, progress, generate/send buttons."""
+    bundle_pcs = _load_bundle_pcs(bundle_id)
+    if not bundle_pcs:
+        return "Bundle not found", 404
+
+    # Aggregate stats
+    total_items = 0
+    total_priced = 0
+    grand_total = 0.0
+    for pc in bundle_pcs:
+        items = pc.get("items", [])
+        total_items += len(items)
+        total_priced += sum(1 for it in items if it.get("unit_price") or it.get("no_bid"))
+        grand_total += sum(float(it.get("unit_price", 0) or 0) * int(it.get("qty", 1) or 1)
+                          for it in items if it.get("unit_price"))
+
+    source_file = bundle_pcs[0].get("multi_pc_source", "")
+    bundle_pdf = bundle_pcs[0].get("bundle_output_pdf", "")
+    bundle_pdf_exists = bool(bundle_pdf and os.path.exists(bundle_pdf))
+    requestor = bundle_pcs[0].get("requestor", "")
+    requestor_email = bundle_pcs[0].get("requestor_email", "")
+    institution = bundle_pcs[0].get("institution", "")
+
+    return render_page("pc_bundle.html",
+        bundle_id=bundle_id,
+        bundle_pcs=bundle_pcs,
+        source_file=source_file,
+        institution=institution,
+        requestor=requestor,
+        requestor_email=requestor_email,
+        total_items=total_items,
+        total_priced=total_priced,
+        grand_total=grand_total,
+        bundle_pdf_exists=bundle_pdf_exists,
+        bundle_pdf_name=os.path.basename(bundle_pdf) if bundle_pdf else "",
+    )
 
 
 @bp.route("/api/pricecheck/create-manual", methods=["POST"])

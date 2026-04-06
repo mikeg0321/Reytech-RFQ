@@ -207,6 +207,26 @@
      </div>
      {% endif %}
 
+     {% if pc.get('bundle_id') %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(137,87,229,.08);border:1px solid rgba(137,87,229,.25);color:#bc8cff;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:10px">
+       <span style="font-size:18px">&#x1F4E6;</span>
+       <div>
+        <b>Bundle</b> — This PC is part of a {{ pc.get('bundle_total_pcs', '?') }}-PC bundle
+        {% if pc.get('multi_pc_source') %}from <b>{{ pc.multi_pc_source }}</b>{% endif %}
+        {% if bundle_siblings|default([]) %}
+        <br><small style="color:#8b949e">Siblings:
+         {% for sib in bundle_siblings %}
+          <a href="/pricecheck/{{ sib.id }}" style="color:#bc8cff">{{ sib.pc_number|default(sib.id) }}</a>{{ ', ' if not loop.last }}
+         {% endfor %}
+        </small>
+        {% endif %}
+       </div>
+      </div>
+      <a href="/pricecheck/bundle/{{ pc.bundle_id }}" class="btn btn-sm" style="background:rgba(137,87,229,.15);color:#bc8cff;border:1px solid rgba(137,87,229,.3);padding:6px 14px;font-size:13px;text-decoration:none;white-space:nowrap">View Bundle</a>
+     </div>
+     {% endif %}
+
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
       <b>Requestor:</b> {{ header.get('requestor',pc.get('requestor','')) }} &nbsp;|&nbsp;

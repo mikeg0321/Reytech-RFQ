@@ -1407,8 +1407,23 @@ def parse_multi_pc(pdf_path: str) -> list:
             log.info("parse_multi_pc: found %d PC boundaries at pages %s",
                      len(boundary_pages), boundary_pages)
 
+            # ── Trim purchase justification pages from section ends ──
+            # If the page immediately before a boundary is a "PURCHASE JUSTIFICATION"
+            # page (not an AMS 704 page), shrink the previous section's range.
+            _PURCHASE_JUST = _re.compile(r'PURCHASE\s+JUSTIFICATION', _re.IGNORECASE)
+            _trimmed_pages = set()
+            for bi in range(1, len(boundary_pages)):
+                prev_page = boundary_pages[bi] - 1
+                if prev_page > boundary_pages[bi - 1] and _PURCHASE_JUST.search(page_texts[prev_page]):
+                    _trimmed_pages.add(prev_page)
+                    log.info("parse_multi_pc: page %d is purchase justification — trimmed from section %d",
+                             prev_page, bi - 1)
+
             for section_idx, start_page in enumerate(boundary_pages):
                 end_page = boundary_pages[section_idx + 1] - 1 if section_idx + 1 < len(boundary_pages) else total_pages - 1
+                # Shrink end if the last page(s) are purchase justifications for the next section
+                while end_page in _trimmed_pages and end_page > start_page:
+                    end_page -= 1
                 section_text = "\n".join(page_texts[start_page:end_page + 1])
 
                 header = {}
@@ -1481,7 +1496,7 @@ def parse_multi_pc(pdf_path: str) -> list:
                 }
 
                 ITEM_ROW = _re.compile(
-                    r'^\s*(\d{1,2})\s+(\d+)\s+(EA|BX|CS|PK|PKG|PCK|BAG|SET|DZ|PR|GL|LB|OZ|CASE|EACH|CTN|RL|BT|TB|JR|CT|CA)\s+'
+                    r'^\s*(\d{1,2})\s+(\d+)\s+(EA|BX|CS|PK|PKG|PCK|PACK|BAG|SET|DZ|PR|GL|LB|OZ|CASE|EACH|CTN|RL|BT|TB|JR|CT|CA)\s+'
                     r'(?:(\d+)\s+)?(.+?)(?:\s+\$[\d,]+\.\d{2}\s+\$[\d,]+\.\d{2})?\s*$',
                     _re.IGNORECASE | _re.MULTILINE)
 
@@ -1501,6 +1516,16 @@ def parse_multi_pc(pdf_path: str) -> list:
                 log.info("parse_multi_pc: section %d (%s, pages %d-%d): %d items",
                          section_idx, header.get("institution", "?"), start_page, end_page, len(items))
                 results.append(section_result)
+
+            # ── Compute non-PC pages (purchase justifications, blank overflow, etc.) ──
+            all_pc_pages = set()
+            for s in results:
+                all_pc_pages.update(range(s["page_start"], s["page_end"] + 1))
+            non_pc_pages = sorted(set(range(total_pages)) - all_pc_pages)
+            for s in results:
+                s["non_pc_pages"] = non_pc_pages
+            if non_pc_pages:
+                log.info("parse_multi_pc: non-PC pages (purchase justifications etc.): %s", non_pc_pages)
 
     except Exception as e:
         log.error("parse_multi_pc %s: %s", os.path.basename(pdf_path), e, exc_info=True)
@@ -3142,6 +3167,99 @@ def _append_overflow_pages(
 
     log.info("_append_overflow_pages: appended %d overflow page(s) for %d items beyond form capacity",
              page_num - 3, len(overflow_items))
+
+
+def merge_bundle_pdfs(
+    source_pdf: str,
+    pc_outputs: list,
+    non_pc_pages: list,
+    output_pdf: str,
+) -> dict:
+    """Merge individually-generated PC PDFs back into one combined response PDF,
+    preserving original page ordering and including non-PC pages (purchase justifications).
+
+    Args:
+        source_pdf: Path to original combined source PDF
+        pc_outputs: List of {"page_start": int, "page_end": int, "output_pdf": str}
+                    sorted by page_start. Each output_pdf contains only that PC's pages.
+        non_pc_pages: List of int page indices for non-PC pages (0-indexed)
+        output_pdf: Output path for merged bundle PDF
+    Returns:
+        {"ok": bool, "output": str, "page_count": int} or {"ok": False, "error": "..."}
+    """
+    if not HAS_PYPDF:
+        return {"ok": False, "error": "pypdf not available"}
+
+    if not os.path.exists(source_pdf):
+        return {"ok": False, "error": f"Source PDF not found: {source_pdf}"}
+
+    try:
+        from pypdf import PdfReader, PdfWriter
+
+        source_reader = PdfReader(source_pdf)
+        total_pages = len(source_reader.pages)
+        non_pc_set = set(non_pc_pages or [])
+
+        # Build a map: page_index → which PC output covers it
+        page_to_pc = {}
+        for pc_out in pc_outputs:
+            ps = int(pc_out["page_start"])
+            pe = int(pc_out["page_end"])
+            out_path = pc_out["output_pdf"]
+            if not os.path.exists(out_path):
+                log.warning("merge_bundle_pdfs: PC output missing: %s", out_path)
+                continue
+            for pi in range(ps, pe + 1):
+                page_to_pc[pi] = {
+                    "output_pdf": out_path,
+                    "offset": pi - ps,  # page index within the generated PDF
+                }
+
+        # Pre-load all generated PC PDF readers
+        _readers = {}
+        for pc_out in pc_outputs:
+            out_path = pc_out["output_pdf"]
+            if out_path not in _readers and os.path.exists(out_path):
+                _readers[out_path] = PdfReader(out_path)
+
+        writer = PdfWriter()
+        pages_written = 0
+
+        for page_idx in range(total_pages):
+            if page_idx in non_pc_set:
+                # Non-PC page (purchase justification) — copy from original source
+                writer.add_page(source_reader.pages[page_idx])
+                pages_written += 1
+            elif page_idx in page_to_pc:
+                # PC page — use the generated/filled version
+                pc_info = page_to_pc[page_idx]
+                reader = _readers.get(pc_info["output_pdf"])
+                if reader and pc_info["offset"] < len(reader.pages):
+                    writer.add_page(reader.pages[pc_info["offset"]])
+                    pages_written += 1
+                else:
+                    # Fallback: use original page if generated page missing
+                    log.warning("merge_bundle_pdfs: page %d — generated page missing, using original", page_idx)
+                    writer.add_page(source_reader.pages[page_idx])
+                    pages_written += 1
+            else:
+                # Page not claimed by any PC and not in non_pc_pages
+                # (e.g., blank overflow pages between PCs) — include from original
+                writer.add_page(source_reader.pages[page_idx])
+                pages_written += 1
+
+        os.makedirs(os.path.dirname(output_pdf) or ".", exist_ok=True)
+        with open(output_pdf, "wb") as f:
+            writer.write(f)
+
+        log.info("merge_bundle_pdfs: merged %d pages → %s (%d PC sections, %d non-PC pages)",
+                 pages_written, os.path.basename(output_pdf), len(pc_outputs), len(non_pc_set))
+
+        return {"ok": True, "output": output_pdf, "page_count": pages_written}
+
+    except Exception as e:
+        log.error("merge_bundle_pdfs failed: %s", e, exc_info=True)
+        return {"ok": False, "error": f"PDF merge error: {e}"}
 
 
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):

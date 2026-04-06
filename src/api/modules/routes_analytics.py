@@ -1531,22 +1531,13 @@ def link_pc_to_rfq(pcid):
     return jsonify({"ok": True, "matched": True, "rfq_id": pc.get("linked_rfq_id")})
 
 
-@bp.route("/api/pc/<pcid>/convert-to-rfq", methods=["POST"])
-@auth_required
-@safe_route
-def convert_pc_to_rfq(pcid):
-    """Convert a Price Check into a new RFQ.
-
-    This is a status + DB change — the PC record IS the RFQ data.
-    No field remapping. Same items, same prices, same everything.
+def _convert_single_pc_to_rfq(pcid, pc, extra_fields=None):
+    """Core logic: convert a single PC into an RFQ dict. Returns (rfq_id, rfq_data, files_copied, agency_info).
+    Does NOT save to DB — caller handles persistence.
+    extra_fields: optional dict of additional fields to merge into rfq_data (e.g., bundle_id).
     """
     import uuid as _uuid
     import copy as _copy
-    pcs = _load_price_checks()
-    pc = pcs.get(pcid)
-    if not pc:
-        return jsonify({"ok": False, "error": "PC not found"}), 404
-
     rfq_id = str(_uuid.uuid4())[:8]
     now = datetime.now().isoformat()
 
@@ -1566,6 +1557,7 @@ def convert_pc_to_rfq(pcid):
     rfq_data["source_pc"] = pcid
     rfq_data["source_pc_number"] = pc.get("pc_number", "")
     rfq_data["source_pc_status"] = pc.get("status", "")
+    rfq_data["source_pc_requestor"] = pc.get("requestor", "")
 
     # Ensure key RFQ fields exist (use PC values, no translation)
     rfq_data.setdefault("solicitation_number", pc.get("pc_number", ""))
@@ -1602,18 +1594,19 @@ def convert_pc_to_rfq(pcid):
                 f"(must come from the buyer's RFQ email)."
             )
 
-    # Copy source PDF if it exists
+    # Propagate bundle_id from PC
+    if pc.get("bundle_id"):
+        rfq_data["bundle_id"] = pc["bundle_id"]
+
+    if extra_fields:
+        rfq_data.update(extra_fields)
+
     source_file = pc.get("source_file", "")
     if source_file and os.path.exists(source_file):
         rfq_data["source_file"] = source_file
         rfq_data["pc_pdf_path"] = source_file
 
-    # ── Save to RFQ store ────────────────────────────────────────────────
-    rfqs = load_rfqs()
-    rfqs[rfq_id] = rfq_data
-    _save_single_rfq(rfq_id, rfq_data)
-
-    # ── Copy attachments/files from PC to RFQ ────────────────────────────
+    # Copy attachments/files from PC to RFQ
     files_copied = 0
     try:
         from src.api.dashboard import list_rfq_files, get_rfq_file, save_rfq_file
@@ -1622,8 +1615,7 @@ def convert_pc_to_rfq(pcid):
             full = get_rfq_file(pf["id"])
             if full and full.get("data"):
                 save_rfq_file(
-                    rfq_id=rfq_id,
-                    filename=pf["filename"],
+                    rfq_id=rfq_id, filename=pf["filename"],
                     file_type=pf.get("file_type", ""),
                     data=full["data"],
                     category=pf.get("category", "attachment"),
@@ -1633,7 +1625,36 @@ def convert_pc_to_rfq(pcid):
     except Exception as _e:
         log.warning("File copy from PC %s to RFQ %s: %s", pcid, rfq_id, _e)
 
+    return rfq_id, rfq_data, files_copied, {"agency_key": _agency_key, "agency_cfg": _agency_cfg, "req_forms": _req_forms, "warnings": _conversion_warnings}
+
+
+@bp.route("/api/pc/<pcid>/convert-to-rfq", methods=["POST"])
+@auth_required
+@safe_route
+def convert_pc_to_rfq(pcid):
+    """Convert a Price Check into a new RFQ.
+
+    This is a status + DB change — the PC record IS the RFQ data.
+    No field remapping. Same items, same prices, same everything.
+    """
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+
+    rfq_id, rfq_data, files_copied, agency_info = _convert_single_pc_to_rfq(pcid, pc)
+    _agency_key = agency_info["agency_key"]
+    _agency_cfg = agency_info["agency_cfg"]
+    _req_forms = agency_info["req_forms"]
+    _conversion_warnings = agency_info["warnings"]
+
+    # ── Save to RFQ store ────────────────────────────────────────────────
+    rfqs = load_rfqs()
+    rfqs[rfq_id] = rfq_data
+    _save_single_rfq(rfq_id, rfq_data)
+
     # ── Update PC with link ──────────────────────────────────────────────
+    now = datetime.now().isoformat()
     pc["linked_rfq_id"] = rfq_id
     pc["linked_rfq_at"] = now
     pc["converted_to_rfq"] = True

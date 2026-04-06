@@ -1610,7 +1610,7 @@ def detail(rid):
     # Show link suggestion if unlinked (read-only — no save_rfqs here)
     if not r.get("linked_pc_id"):
         try:
-            from src.core.pc_rfq_linker import find_matching_pc
+            from src.core.pc_rfq_linker import find_matching_pc, expand_to_bundle
             from src.api.dashboard import _load_price_checks as _dash_load_pcs
             pcs = _dash_load_pcs()
             pc_id, pc_data, reason = find_matching_pc(r, pcs)
@@ -1626,6 +1626,36 @@ def detail(rid):
                         pc_inner = {}
                 r["_suggested_pc_number"] = pc_inner.get("pc_number", pc_data.get("pc_number", ""))
                 r["_suggested_pc_items"] = len(pc_inner.get("items", pc_data.get("items", [])))
+                # Bundle context: if suggested PC is bundled, show bundle info
+                bid = pc_inner.get("bundle_id") or pc_data.get("bundle_id", "")
+                if bid:
+                    siblings = expand_to_bundle(pc_id, pcs)
+                    r["_suggested_bundle_id"] = bid
+                    r["_suggested_bundle_pcs"] = len(siblings)
+        except Exception:
+            pass
+
+    # ── Sibling RFQ/PC discovery for bundle-linked RFQs ──
+    _sibling_rfqs = []
+    _sibling_pcs_unconverted = []
+    if r.get("bundle_id"):
+        try:
+            _all_rfqs = load_rfqs()
+            for _sid, _sr in _all_rfqs.items():
+                if _sr.get("bundle_id") == r["bundle_id"] and _sid != rid:
+                    _sibling_rfqs.append({
+                        "id": _sid,
+                        "sol": _sr.get("solicitation_number", ""),
+                        "institution": _sr.get("institution", _sr.get("department", "")),
+                        "status": _sr.get("status", ""),
+                    })
+            from src.api.dashboard import _load_price_checks as _dash_load_pcs2
+            _bpcs = _dash_load_pcs2()
+            for _pcid, _bpc in _bpcs.items():
+                if _bpc.get("bundle_id") == r["bundle_id"] and not _bpc.get("converted_to_rfq"):
+                    _sibling_pcs_unconverted.append({
+                        "id": _pcid, "pc_number": _bpc.get("pc_number", ""),
+                    })
         except Exception:
             pass
 
@@ -1679,7 +1709,9 @@ def detail(rid):
                        agency_required_forms=_agency_req,
                        agency_key=_agency_key,
                        agency_name=_agency_name,
-                       agency_matched_by=_agency_matched_by)
+                       agency_matched_by=_agency_matched_by,
+                       sibling_rfqs=_sibling_rfqs,
+                       sibling_pcs_unconverted=_sibling_pcs_unconverted)
 
 
 @bp.route("/rfq/<rid>/review-package")
