@@ -2400,7 +2400,10 @@
           ts: Date.now(), pcid: _pcid, data: payload
         }));
       } catch(e) {}
-      if (snapshot === _pcLastSaved) return;
+      if (snapshot === _pcLastSaved) {
+        _showPcSaveStatus('saved');
+        return;
+      }
       _pcSaveInFlight = true;
       _showPcSaveStatus('saving');
       _fetchWithRetry('/pricecheck/' + _pcid + '/save-prices', {
