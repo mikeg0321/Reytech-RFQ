@@ -497,7 +497,7 @@
       <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
      </div>
      <!-- ═══ STICKY MARGIN STRIP ═══ -->
-     <div id="pc-margin-summary" style="display:flex;padding:12px 18px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:15px;gap:20px;flex-wrap:nowrap;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:15;min-height:44px;overflow:hidden">
+     <div id="pc-margin-summary" style="display:flex;padding:10px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:15;min-height:40px">
       <div id="pc-ms-coverage" style="display:flex;align-items:center;gap:8px;min-width:120px">
        <div style="flex:1;height:8px;background:#30363d;border-radius:4px;min-width:60px;overflow:hidden">
         <div id="pc-ms-bar" style="height:100%;background:#3fb950;border-radius:4px;width:0%;transition:width .3s"></div>
@@ -513,9 +513,9 @@
       <span id="pc-ms-pct" style="font-weight:700;padding:3px 10px;border-radius:12px;font-size:14px">0%</span>
       <span id="pc-ms-landed" style="display:none;font-size:12px;color:#d29922;margin-left:4px" title="True margin after shipping + tax on non-exempt suppliers"></span>
      </div>
-     <div class="pc-table-wrap">
-     <table id="itemsTable">
-      <thead><tr><th style="width:28px">Bid</th><th style="width:36px">Line#</th><th>MFG#</th><th>Qty</th><th style="width:40px">UOM</th><th style="min-width:180px">Description</th><th style="width:30px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:130px">Item Link</th><th style="min-width:130px">Sources</th><th>Unit Cost</th><th style="width:50px">Markup</th><th>Our Price</th><th>Extension</th><th>Profit</th></tr></thead>
+     <div class="pc-table-wrap" style="overflow-x:auto">
+     <table id="itemsTable" style="min-width:1200px">
+      <thead><tr><th style="width:32px">Bid</th><th style="width:40px">Line#</th><th style="min-width:70px">MFG#</th><th style="width:50px">Qty</th><th style="width:44px">UOM</th><th style="min-width:180px">Description</th><th style="width:32px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:140px">Item Link</th><th style="min-width:130px">Sources</th><th style="min-width:90px">Unit Cost</th><th style="width:55px">Markup</th><th style="min-width:80px">Our Price</th><th style="min-width:80px">Extension</th><th style="min-width:70px">Profit</th></tr></thead>
       <tbody>{{ items_html | default('') | safe }}</tbody>
      </table>
      </div>
