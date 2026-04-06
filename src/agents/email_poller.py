@@ -1267,8 +1267,8 @@ def extract_solicitation_number(subject, body, attachments=None):
     match = re.search(r'(\d{7,8})', combined)
     if match:
         return match.group(1)
-    
-    return "unknown"
+
+    return "RFQ"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1898,7 +1898,7 @@ class EmailPoller:
                                 body_msg += f" · Quote {matched_quote} auto-marked WON"
                                 body_msg += " · Vendor ordering triggered"
                             else:
-                                body_msg += f" · Sol: {sol_number or 'unknown'}"
+                                body_msg += f" · Sol: {sol_number or 'RFQ'}"
                                 body_msg += " · ⚠️ Could not match to existing quote — review manually"
                             body_msg += f"\nFrom: {po_detect.get('sender_email','')}"
                             body_msg += f"\nSubject: {subject[:80]}"

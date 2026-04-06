@@ -117,7 +117,7 @@
     <div class="card">
      <h1 style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span>Price Check #</span>
-      <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{{ pc.get('pc_number','unknown') }}</span>
+      <span id="pcNumDisplay" style="cursor:pointer" title="Click to rename" onclick="document.getElementById('pcNumEdit').style.display='inline-flex';this.style.display='none'">{{ pc.get('pc_number','PC') }}</span>
       <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
        <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
        <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:14px;cursor:pointer" aria-label="Save">Save</button>

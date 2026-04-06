@@ -363,7 +363,7 @@ def home():
     user_pcs = {k: v for k, v in user_pcs.items()
                 if len(v.get("items", [])) > 0
                 or v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced")
-                or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown")}
+                or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown", "RFQ")}
     # Split: active queue vs sent/completed
     _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
@@ -427,7 +427,7 @@ def home():
     # Filter ghost RFQs: 0 items + no real solicitation
     active_rfqs = {k: v for k, v in active_rfqs.items()
                    if len(v.get("line_items", v.get("items", []))) > 0
-                   or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown")}
+                   or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown", "RFQ")}
     sent_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in ("sent", "won", "lost")}
     for rid, r in active_rfqs.items():
         due = r.get("due_date", "") or ""
@@ -1442,7 +1442,7 @@ def _handle_office_pc_upload(parsed, source_path, pc_id):
     """Create a Price Check from office-doc-parsed data (same flow as PDF upload)."""
     items = parsed.get("line_items", [])
     header = parsed.get("header", {})
-    pc_num = header.get("price_check_number", "unknown")
+    pc_num = header.get("price_check_number", "PC")
     institution = header.get("institution", "")
     due_date = header.get("due_date", "")
     now = datetime.now().isoformat()
@@ -1541,7 +1541,7 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
 
     items = parsed.get("line_items", [])
     header = parsed.get("header", {})
-    pc_num = header.get("price_check_number", "unknown")
+    pc_num = header.get("price_check_number", "PC")
     institution = header.get("institution", "")
     due_date = header.get("due_date", "")
 
@@ -1954,7 +1954,7 @@ def review_package(rid):
     buyer_email = r.get("requestor_email", "")
     buyer_prefs = get_buyer_preferences(buyer_email) if buyer_email else []
     timeline = get_lifecycle_events("rfq", rid, limit=20)
-    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "RFQ"
 
     # Get previous manifest for version diff
     prev_manifest = None
@@ -2035,7 +2035,7 @@ def rfq_support_view(rid):
     except Exception:
         pass
 
-    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "RFQ"
     return render_page("rfq_support.html", r=r, rid=rid, sol=sol,
         timeline=timeline, manifest=manifest, all_manifests=all_manifests,
         deliveries=deliveries, emails=emails, buyer_prefs=buyer_prefs, active_page="Home")
@@ -2151,7 +2151,7 @@ def api_resend_package(rid):
     body_text = data.get("body", "")
     if not to_email:
         return jsonify({"ok": False, "error": "Recipient email required"})
-    sol = r.get("solicitation_number", "") or "unknown"
+    sol = r.get("solicitation_number", "") or "RFQ"
 
     from src.core.dal import get_latest_manifest, log_lifecycle_event, record_package_delivery
     manifest = get_latest_manifest(rid)
@@ -4026,7 +4026,7 @@ def generate_rfq_package(rid):
         flash("RFQ not found", "error")
         return redirect("/")
     
-    sol = r.get("solicitation_number", "unknown")
+    sol = r.get("solicitation_number", "") or "RFQ"
     t.step("Starting", sol=sol, items=len(r.get("line_items", [])))
     
     # ── Step 1: Save ALL fields from form (not just pricing) ──
@@ -5202,7 +5202,7 @@ def rfq_generate_quote(rid):
         flash(f"Cannot generate: {'; '.join(validation['errors'])}", "error")
         return redirect(f"/rfq/{rid}")
 
-    sol = r.get("solicitation_number", "unknown")
+    sol = r.get("solicitation_number", "") or "RFQ"
     t.step("Starting", sol=sol, items=len(r.get("line_items",[])))
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
@@ -6335,7 +6335,7 @@ def api_generate_obs1600(rid):
             return jsonify({"ok": False, "error": "RFQ not found"}), 404
         
         config = load_config()
-        sol = r.get("solicitation_number", "unknown")
+        sol = r.get("solicitation_number", "") or "RFQ"
         
         # Get items — try line_items first, then items_detail from quote
         items = r.get("line_items", [])
@@ -6632,7 +6632,7 @@ def api_fill_bid_package(rid):
             return jsonify({"ok": False, "error": "RFQ not found"}), 404
         
         config = load_config()
-        sol = r.get("solicitation_number", "unknown")
+        sol = r.get("solicitation_number", "") or "RFQ"
         
         # Get items
         items = r.get("line_items", [])
@@ -7302,7 +7302,7 @@ def api_rfq_revise_quote(rid):
     data = request.get_json(force=True, silent=True) or {}
     reason = str(data.get("reason", "Pricing updated")).strip()[:200] or "Pricing updated"
 
-    sol = r.get("solicitation_number", "unknown")
+    sol = r.get("solicitation_number", "") or "RFQ"
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
     os.makedirs(out_dir, exist_ok=True)
@@ -8204,7 +8204,7 @@ def api_rfq_remove_form(rid, manifest_id):
             if filename:
                 rfqs = load_rfqs()
                 r = rfqs.get(rid, {})
-                sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+                sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "RFQ"
                 filepath = os.path.join(OUTPUT_DIR, sol, filename)
                 if os.path.exists(filepath):
                     os.remove(filepath)
@@ -8282,7 +8282,7 @@ def api_rfq_refill_form(rid, form_id):
     _save_single_rfq(rid, r)
 
     # ── Find output path and template for this form ──
-    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "RFQ"
     out_dir = os.path.join(OUTPUT_DIR, sol)
     os.makedirs(out_dir, exist_ok=True)
     tmpl = r.get("templates", {})
@@ -8416,7 +8416,7 @@ def api_download_complete_package(rid):
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"})
 
-    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "unknown"
+    sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "RFQ"
     out_dir = os.path.join(OUTPUT_DIR, sol)
     output_files = r.get("output_files", [])
 

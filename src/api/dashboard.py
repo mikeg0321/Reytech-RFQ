@@ -447,7 +447,7 @@ def backfill_rfq_metadata(dry_run=False):
     details = []
     for rid, r in rfqs.items():
         changed = False
-        _needs_sol = not r.get("solicitation_number") or r.get("solicitation_number") == "unknown"
+        _needs_sol = not r.get("solicitation_number") or r.get("solicitation_number") in ("unknown", "RFQ")
         _needs_due = not r.get("due_date") or r.get("due_date") in ("", "TBD")
 
         if not _needs_sol and not _needs_due:
@@ -677,7 +677,7 @@ def imap_backfill_rfq_metadata(dry_run=False):
 
     updated = 0
     for rid, r in rfqs.items():
-        _needs_sol = not r.get("solicitation_number") or r.get("solicitation_number") == "unknown"
+        _needs_sol = not r.get("solicitation_number") or r.get("solicitation_number") in ("unknown", "RFQ")
         _needs_due = not r.get("due_date") or r.get("due_date") in ("", "TBD")
         _needs_subject = not r.get("email_subject")
         _needs_body = not r.get("body_text")
@@ -2501,7 +2501,7 @@ def process_rfq_email(rfq_email):
                                 if (epc.get("pc_number","").strip() == pc_num.strip()
                                         and epc.get("institution","").strip().lower() == institution.strip().lower()
                                         and epc.get("due_date","").strip() == due_date.strip()
-                                        and pc_num not in ("unknown", "")):
+                                        and pc_num not in ("unknown", "RFQ", "")):
                                     dup_id = eid
                                     break
                             
@@ -2736,7 +2736,7 @@ def process_rfq_email(rfq_email):
                 t.ok("Skipped: email already processed as PC", pc_id=_xq_pid)
                 return None
             # Match by solicitation/PC number
-            if _sol_hint_xq and _sol_hint_xq not in ("", "unknown"):
+            if _sol_hint_xq and _sol_hint_xq not in ("", "unknown", "RFQ"):
                 _xq_pcnum = (_xq_pc.get("pc_number") or "").strip()
                 if _xq_pcnum and _xq_pcnum == _sol_hint_xq:
                     _trace.append(f"SKIP RFQ: sol_hint '{_sol_hint_xq}' matches PC {_xq_pid} pc_number")
@@ -2866,7 +2866,7 @@ def process_rfq_email(rfq_email):
 
         _gen_items = _generic_result.get("line_items", [])
         _gen_sol = (_generic_result.get("solicitation_number")
-                    or rfq_email.get("solicitation_hint", "unknown"))
+                    or rfq_email.get("solicitation_hint", "RFQ"))
         _gen_agency = _generic_result.get("agency", "unknown")
         _gen_agency_name = _generic_result.get("agency_name", "Unknown")
 
@@ -3010,7 +3010,7 @@ def process_rfq_email(rfq_email):
                     log.info("Extracted CalVet institution: %s", rfq_data["institution"])
 
     # ── Fallback: extract solicitation + due date from email text ──────────
-    if not rfq_data.get("solicitation_number") or rfq_data.get("solicitation_number") == "unknown":
+    if not rfq_data.get("solicitation_number") or rfq_data.get("solicitation_number") in ("unknown", "RFQ"):
         _sol = _extract_solicitation(_combined_text)
         if _sol:
             rfq_data["solicitation_number"] = _sol
@@ -4905,7 +4905,7 @@ def api_hard_cleanup():
     _sol_best = {}
     for rid in list(rfq_keep.keys()):
         sol = rfq_keep[rid]["sol"]
-        if not sol or sol == "unknown":
+        if not sol or sol in ("unknown", "RFQ"):
             continue
         rank = _status_rank.get(rfq_keep[rid]["status"], 0)
         items = rfq_keep[rid]["items"]
@@ -4954,7 +4954,7 @@ def api_hard_cleanup():
     _pc_sol_best = {}
     for pid in list(pc_keep.keys()):
         sol = pc_keep[pid]["sol"]
-        if not sol or sol == "unknown":
+        if not sol or sol in ("unknown", "RFQ"):
             continue
         rank = _status_rank.get(pc_keep[pid]["status"], 0)
         items = pc_keep[pid]["items"]

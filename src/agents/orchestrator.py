@@ -239,7 +239,7 @@ def _pc_generate_node(state: PCPipelineState) -> PCPipelineState:
             state["error"] = "Source PDF not found"
             return _step(state, "generate:failed")
 
-        pc_num = state.get("pc_number", "unknown")
+        pc_num = state.get("pc_number", "RFQ")
         safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
         output_path = os.path.join(DATA_DIR, f"PC_{safe_name}_Reytech_.pdf")
 

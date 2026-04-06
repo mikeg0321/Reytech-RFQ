@@ -1059,7 +1059,7 @@ def api_reclassify_to_pc():
         # "all_unknown" = move all #unknown solicitation RFQs with 0 items
         if rfq_ids == "all_unknown":
             rfq_ids = [rid for rid, r in rfqs.items()
-                       if r.get("solicitation_number") in ("unknown", "#unknown", "")
+                       if r.get("solicitation_number") in ("unknown", "RFQ", "#unknown", "")
                        and len(r.get("line_items", [])) == 0]
     
         for rid in rfq_ids:
@@ -1086,7 +1086,7 @@ def api_reclassify_to_pc():
         
             pcs[pc_id] = {
                 "id": pc_id,
-                "pc_number": r.get("solicitation_number", "unknown"),
+                "pc_number": r.get("solicitation_number", "") or "RFQ",
                 "institution": r.get("institution", ""),
                 "due_date": r.get("due_date", ""),
                 "requestor": r.get("requestor_email", r.get("requestor_name", "")),
@@ -1801,7 +1801,7 @@ def api_quote_from_price_check():
                         "error": "No priced items — enter unit prices first"})
 
     # ── Generate PDF ──────────────────────────────────────────────────────
-    pc_num = pc.get("pc_number", "unknown")
+    pc_num = pc.get("pc_number", "") or "PC"
     safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", pc_num.strip())
     output_path = os.path.join(DATA_DIR, f"Quote_{safe_name}_Reytech.pdf")
 

@@ -650,7 +650,7 @@ def research_rfq_items(rfq_data: dict) -> dict:
     })
 
     return {
-        "rfq_id": rfq_data.get("solicitation_number", "unknown"),
+        "rfq_id": rfq_data.get("solicitation_number", "") or "RFQ",
         "items": results,
         "summary": {
             "total": len(line_items),

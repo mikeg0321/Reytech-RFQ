@@ -2904,7 +2904,7 @@ def pricecheck_convert_to_quote(pcid):
 
     rfq = {
         "id": rfq_id,
-        "solicitation_number": f"PC-{pc.get('pc_number', 'unknown')}",
+        "solicitation_number": f"PC-{pc.get('pc_number', 'RFQ')}",
         "requestor_name": header.get("requestor", pc.get("requestor", "")),
         "requestor_email": pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", "")),
         "email_message_id": pc.get("email_message_id", ""),

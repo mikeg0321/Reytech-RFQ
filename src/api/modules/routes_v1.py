@@ -3931,7 +3931,7 @@ def api_v1_rfq_backfill_all_fields():
                         changed = True
 
             # Source 4: Email text for solicitation
-            if not r.get("solicitation_number") or r.get("solicitation_number") == "unknown":
+            if not r.get("solicitation_number") or r.get("solicitation_number") in ("unknown", "RFQ"):
                 combined = f"{r.get('email_subject', '')} {r.get('body_text', '')}"
                 if combined.strip():
                     from src.api.dashboard import _extract_solicitation

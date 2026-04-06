@@ -5,8 +5,8 @@
 .rv-wrap{max-width:1600px;margin:0 auto;padding:0 12px}
 .rv-header{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--bd);margin-bottom:16px}
 .rv-header h2{margin:0;font-size:18px;color:var(--tx)}
-.rv-3col{display:grid;grid-template-columns:280px 1fr 420px;gap:16px;min-height:calc(100vh - 180px)}
-.rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
+.rv-3col{display:grid;grid-template-columns:220px 1fr 360px;gap:12px;min-height:calc(100vh - 180px)}
+.rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;overflow-y:auto;max-height:calc(100vh - 200px)}
 .rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
 .rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
 .rv-form-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;margin-bottom:5px;border:1px solid transparent;font-size:15px}
@@ -28,11 +28,11 @@
 .rv-warn{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#d29922;margin-bottom:8px}
 .rv-error{background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#f85149;margin-bottom:8px}
 .rv-audit-item{font-size:15px;padding:7px 0;color:var(--tx2);display:flex;gap:8px;line-height:1.5}
-@media(max-width:1100px){.rv-3col{grid-template-columns:280px 1fr;}.rv-audit{display:none}}
+@media(max-width:1100px){.rv-3col{grid-template-columns:220px 1fr;}.rv-audit{display:none}}
 @media(max-width:768px){.rv-3col{grid-template-columns:1fr;}.rv-checklist{max-height:200px}}
 .rv-3col.expand-preview{grid-template-columns:0px 1fr 0px}
 .rv-3col.expand-preview .rv-checklist,.rv-3col.expand-preview .rv-audit{display:none}
-.rv-3col.hide-right{grid-template-columns:280px 1fr 0px}
+.rv-3col.hide-right{grid-template-columns:220px 1fr 0px}
 .rv-3col.hide-right .rv-audit{display:none}
 .rv-expand-btn{background:rgba(139,148,158,.1);border:1px solid var(--bd);color:var(--tx2);border-radius:4px;padding:4px 10px;font-size:12px;cursor:pointer;white-space:nowrap}
 .rv-expand-btn:hover{background:rgba(79,140,255,.1);color:var(--ac)}
@@ -212,58 +212,94 @@
       </div>
     </div>
 
-    <!-- RIGHT: Audit Panel -->
+    <!-- RIGHT: Audit + Inline Edit Panel -->
     <div class="rv-audit">
-      <div class="rv-section">
-        <div class="rv-section-title">Quote Summary</div>
-        <div class="rv-audit-item"><span>💰</span> Quote #: <b>{{ manifest.quote_number or '—' }}</b></div>
-        <div class="rv-audit-item"><span>📦</span> Items: <b>{{ manifest.item_count or 0 }}</b></div>
-        <div class="rv-audit-item"><span>💲</span> Total: <b>${{ "%.2f"|format(manifest.quote_total or 0) }}</b></div>
-        <div class="rv-audit-item"><span>🏢</span> Agency: <b>{{ manifest.agency_name or '?' }}</b></div>
-        <div class="rv-audit-item"><span>💲</span> Tax: {% if r.get('tax_validated') %}<span style="color:#3fb950">✅ {{ r.get('tax_rate',0) }}% ({{ r.get('tax_jurisdiction','verified') }})</span>{% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ {{ r.get('tax_rate',0) }}% (unverified)</span>{% else %}<span style="color:#f85149">❌ No tax rate</span>{% endif %}</div>
-      </div>
+      <!-- AUDIT VIEW (default) -->
+      <div id="rv-audit-view">
+        <div class="rv-section">
+          <div class="rv-section-title">Quote Summary</div>
+          <div class="rv-audit-item"><span>💰</span> Quote #: <b>{{ manifest.quote_number or '—' }}</b></div>
+          <div class="rv-audit-item"><span>📦</span> Items: <b>{{ manifest.item_count or 0 }}</b></div>
+          <div class="rv-audit-item"><span>💲</span> Total: <b>${{ "%.2f"|format(manifest.quote_total or 0) }}</b></div>
+          <div class="rv-audit-item"><span>🏢</span> Agency: <b>{{ manifest.agency_name or '?' }}</b></div>
+          <div class="rv-audit-item"><span>💲</span> Tax: {% if r.get('tax_validated') %}<span style="color:#3fb950">✅ {{ r.get('tax_rate',0) }}% ({{ r.get('tax_jurisdiction','verified') }})</span>{% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ {{ r.get('tax_rate',0) }}% (unverified)</span>{% else %}<span style="color:#f85149">❌ No tax rate</span>{% endif %}</div>
+        </div>
 
-      <div class="rv-section">
-        <div class="rv-section-title">Package Info</div>
-        <div class="rv-audit-item"><span>📋</span> Version: {{ manifest.version }}</div>
-        <div class="rv-audit-item"><span>⏰</span> Generated: {{ manifest.created_at[:16] if manifest.created_at else '?' }}</div>
-        {% if prev_manifest is defined and prev_manifest %}
-        <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
-          <div class="rv-section-title">Changes from v{{ prev_manifest.version }}</div>
-          {% if manifest.quote_total != prev_manifest.quote_total %}
-          <div class="rv-audit-item" style="color:{% if manifest.quote_total > prev_manifest.quote_total %}#3fb950{% else %}#f85149{% endif %}">
-            <span>💲</span> Total: ${{ "%.2f"|format(prev_manifest.quote_total or 0) }} → ${{ "%.2f"|format(manifest.quote_total or 0) }}
+        <div class="rv-section">
+          <div class="rv-section-title">Package Info</div>
+          <div class="rv-audit-item"><span>📋</span> Version: {{ manifest.version }}</div>
+          <div class="rv-audit-item"><span>⏰</span> Generated: {{ manifest.created_at[:16] if manifest.created_at else '?' }}</div>
+          {% if prev_manifest is defined and prev_manifest %}
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd)">
+            <div class="rv-section-title">Changes from v{{ prev_manifest.version }}</div>
+            {% if manifest.quote_total != prev_manifest.quote_total %}
+            <div class="rv-audit-item" style="color:{% if manifest.quote_total > prev_manifest.quote_total %}#3fb950{% else %}#f85149{% endif %}">
+              <span>💲</span> Total: ${{ "%.2f"|format(prev_manifest.quote_total or 0) }} → ${{ "%.2f"|format(manifest.quote_total or 0) }}
+            </div>
+            {% endif %}
+            {% if manifest.item_count != prev_manifest.item_count %}
+            <div class="rv-audit-item" style="color:#d29922"><span>📦</span> Items: {{ prev_manifest.item_count }} → {{ manifest.item_count }}</div>
+            {% endif %}
+            {% if manifest.total_forms != prev_manifest.total_forms %}
+            <div class="rv-audit-item" style="color:#d29922"><span>📋</span> Forms: {{ prev_manifest.total_forms }} → {{ manifest.total_forms }}</div>
+            {% endif %}
+            {% if manifest.quote_total == prev_manifest.quote_total and manifest.item_count == prev_manifest.item_count and manifest.total_forms == prev_manifest.total_forms %}
+            <div class="rv-audit-item"><span>✅</span> No major changes</div>
+            {% endif %}
           </div>
-          {% endif %}
-          {% if manifest.item_count != prev_manifest.item_count %}
-          <div class="rv-audit-item" style="color:#d29922"><span>📦</span> Items: {{ prev_manifest.item_count }} → {{ manifest.item_count }}</div>
-          {% endif %}
-          {% if manifest.total_forms != prev_manifest.total_forms %}
-          <div class="rv-audit-item" style="color:#d29922"><span>📋</span> Forms: {{ prev_manifest.total_forms }} → {{ manifest.total_forms }}</div>
-          {% endif %}
-          {% if manifest.quote_total == prev_manifest.quote_total and manifest.item_count == prev_manifest.item_count and manifest.total_forms == prev_manifest.total_forms %}
-          <div class="rv-audit-item"><span>✅</span> No major changes</div>
+          {% elif manifest.version == 1 %}
+          <div style="margin-top:8px;font-size:12px;color:var(--tx2)">First generation</div>
           {% endif %}
         </div>
-        {% elif manifest.version == 1 %}
-        <div style="margin-top:8px;font-size:12px;color:var(--tx2)">First generation</div>
-        {% endif %}
-      </div>
 
-      <div class="rv-section" id="rv-form-audit">
-        <div class="rv-section-title">Form Audit</div>
-        <div style="color:var(--tx2);font-size:13px">Select a form to see details</div>
-      </div>
-
-      <div class="rv-section">
-        <div class="rv-section-title">Review Actions</div>
-        <div style="display:flex;gap:6px">
-          <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('approved')">✅ Approve</button>
-          <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('rejected')">❌ Reject</button>
+        <div class="rv-section" id="rv-form-audit">
+          <div class="rv-section-title">Form Audit</div>
+          <div style="color:var(--tx2);font-size:13px">Select a form to see details</div>
         </div>
+
+        <div class="rv-section">
+          <div class="rv-section-title">Review Actions</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('approved')">✅ Approve</button>
+            <button class="btn btn-sm" style="background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);flex:1;font-size:14px;padding:8px" onclick="reviewCurrent('rejected')">❌ Reject</button>
+          </div>
           <button class="btn btn-sm" style="background:rgba(139,148,158,.1);color:#8b949e;border:1px solid rgba(139,148,158,.2);font-size:12px;padding:6px;width:100%;margin-top:4px" onclick="removeCurrentForm()">🗑️ Remove from Package</button>
-        <textarea id="rv-review-notes" placeholder="Notes (why rejected, or approval override reason)..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
-        <div style="font-size:11px;color:var(--tx2);margin-top:4px">You can re-review any form by clicking it and choosing a new verdict.</div>
+          <textarea id="rv-review-notes" placeholder="Notes (why rejected, or approval override reason)..." style="width:100%;margin-top:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:4px;padding:6px;font-size:12px;resize:vertical;min-height:40px;box-sizing:border-box"></textarea>
+          <div style="font-size:11px;color:var(--tx2);margin-top:4px">You can re-review any form by clicking it and choosing a new verdict.</div>
+        </div>
+      </div>
+
+      <!-- INLINE EDIT VIEW (shown when editing, replaces audit) -->
+      <div id="rv-edit-view" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--bd)">
+          <div style="font-size:14px;font-weight:600;color:var(--tx)" id="rv-edit-title">Edit Form</div>
+          <button onclick="closeEditPanel()" style="background:none;border:none;font-size:16px;cursor:pointer;color:var(--tx2)" title="Back to audit">&larr; Back</button>
+        </div>
+
+        <!-- RFQ Header Fields (always shown when editing) -->
+        <div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--bd)">
+          <div style="font-size:11px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px;font-weight:700">RFQ Header</div>
+          <div class="rv-inline-field">
+            <label>Solicitation #</label>
+            <input type="text" id="rv-edit-sol" value="{{ (r.solicitation_number|default(r.rfq_number|default('')))|e }}">
+          </div>
+          <div class="rv-inline-field">
+            <label>Buyer Name</label>
+            <input type="text" id="rv-edit-buyer" value="{{ r.get('requestor_name','')|e }}">
+          </div>
+          <div class="rv-inline-field">
+            <label>Notes</label>
+            <textarea id="rv-edit-notes">{{ r.get('custom_notes','')|e }}</textarea>
+          </div>
+        </div>
+
+        <!-- Line Item Fields (dynamic, filled by openEditPanel) -->
+        <div id="rv-edit-body" style="max-height:calc(100vh - 520px);overflow-y:auto"></div>
+
+        <div style="display:flex;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">
+          <button onclick="closeEditPanel()" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);flex:1">Cancel</button>
+          <button id="rv-edit-save" onclick="submitRefill()" class="btn btn-sm" style="background:var(--ac);color:#fff;font-weight:600;flex:1">Save & Refill</button>
+        </div>
       </div>
     </div>
   </div>
@@ -541,15 +577,14 @@ function downloadAllForms() {
 var _editFormId = '';
 var _lineItems = {{ (r.line_items|default(r.items|default([])))|tojson }};
 
-function openEditModal(formId) {
+function openEditPanel(formId) {
  _editFormId = formId;
- var modal = document.getElementById('rv-edit-modal');
- var body = document.getElementById('rv-edit-body');
  document.getElementById('rv-edit-title').textContent = 'Edit: ' + formId.replace(/_/g,' ').replace(/\b\w/g,function(l){return l.toUpperCase()});
 
- // Build editable fields based on form type
+ var body = document.getElementById('rv-edit-body');
  var html = '';
  if (['quote','703b','703c','704b'].indexOf(formId) >= 0) {
+   html += '<div style="font-size:11px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px;font-weight:700">Line Items</div>';
    html += '<table class="rv-edit-table"><thead><tr><th>#</th><th>Description</th><th>Qty</th><th>Price</th><th>Cost</th></tr></thead><tbody>';
    for (var i = 0; i < _lineItems.length; i++) {
      var it = _lineItems[i];
@@ -559,27 +594,38 @@ function openEditModal(formId) {
      var cost = it.supplier_cost || it.vendor_cost || '';
      var descDisabled = formId === '704b' ? 'disabled' : '';
      var qtyDisabled = formId === '704b' ? 'disabled' : '';
-     html += '<tr><td>'+(i+1)+'</td>';
+     html += '<tr><td style="font-size:11px;color:var(--tx2)">'+(i+1)+'</td>';
      html += '<td><input type="text" data-idx="'+i+'" data-field="description" value="'+desc.replace(/"/g,'&quot;')+'" '+descDisabled+' style="width:100%"></td>';
-     html += '<td><input type="number" data-idx="'+i+'" data-field="qty" value="'+qty+'" '+qtyDisabled+' style="width:60px"></td>';
-     html += '<td><input type="number" step="0.01" data-idx="'+i+'" data-field="price_per_unit" value="'+price+'" style="width:90px"></td>';
-     html += '<td><input type="number" step="0.01" data-idx="'+i+'" data-field="supplier_cost" value="'+cost+'" style="width:90px"></td>';
+     html += '<td><input type="number" data-idx="'+i+'" data-field="qty" value="'+qty+'" '+qtyDisabled+' style="width:50px"></td>';
+     html += '<td><input type="number" step="0.01" data-idx="'+i+'" data-field="price_per_unit" value="'+price+'" style="width:70px"></td>';
+     html += '<td><input type="number" step="0.01" data-idx="'+i+'" data-field="supplier_cost" value="'+cost+'" style="width:70px"></td>';
      html += '</tr>';
    }
    html += '</tbody></table>';
  } else {
-   // Compliance forms — solicitation number only
-   var sol = {{ (r.solicitation_number|default(r.rfq_number|default('')))|tojson }};
-   html += '<label style="display:block;margin-bottom:8px">Solicitation #<br><input type="text" id="rv-edit-sol" value="'+sol.replace(/"/g,'&quot;')+'" style="width:100%;padding:6px;margin-top:4px"></label>';
-   html += '<p style="color:var(--tx2);font-size:12px">Company fields are auto-filled from config. Edit line items on the quote or 703B form instead.</p>';
+   html += '<p style="color:var(--tx2);font-size:12px;margin:0">Company fields are auto-filled from config. Edit header fields above, or edit line items on the Quote form.</p>';
  }
  body.innerHTML = html;
- modal.style.display = 'flex';
+
+ // Switch to edit view
+ document.getElementById('rv-audit-view').style.display = 'none';
+ document.getElementById('rv-edit-view').style.display = 'block';
+ // Ensure right panel is visible
+ var grid = document.querySelector('.rv-3col');
+ if (grid.classList.contains('hide-right') || grid.classList.contains('expand-preview')) {
+   grid.classList.remove('hide-right', 'expand-preview');
+   document.getElementById('rv-floating-bar').style.display = 'none';
+ }
 }
 
-function closeEditModal() {
- document.getElementById('rv-edit-modal').style.display = 'none';
+// Legacy compat — old onclick handlers call openEditModal
+function openEditModal(formId) { openEditPanel(formId); }
+
+function closeEditPanel() {
+ document.getElementById('rv-edit-view').style.display = 'none';
+ document.getElementById('rv-audit-view').style.display = 'block';
 }
+function closeEditModal() { closeEditPanel(); }
 
 function submitRefill() {
  var overrides = {line_items: []};
@@ -595,9 +641,13 @@ function submitRefill() {
    seen[idx][field] = val;
  });
 
- // Solicitation override for compliance forms
+ // Always include header field overrides from the inline panel
  var solInput = document.getElementById('rv-edit-sol');
  if (solInput) overrides.solicitation_number = solInput.value;
+ var buyerInput = document.getElementById('rv-edit-buyer');
+ if (buyerInput) overrides.requestor_name = buyerInput.value;
+ var notesInput = document.getElementById('rv-edit-notes');
+ if (notesInput) overrides.custom_notes = notesInput.value;
 
  var btn = document.getElementById('rv-edit-save');
  btn.disabled = true; btn.textContent = 'Saving...';
@@ -609,15 +659,20 @@ function submitRefill() {
  }).then(function(r){return r.json()}).then(function(d) {
    btn.disabled = false; btn.textContent = 'Save & Refill';
    if (!d.ok) { alert('Refill failed: '+(d.error||'unknown')); return; }
-   closeEditModal();
-   // Refresh the PDF preview
+   closeEditPanel();
+   // Refresh the PDF preview — force cache-bust
    var item = document.querySelector('.rv-form-item[data-form-id="'+_editFormId+'"]');
    if (item) {
-     // Reset verdict badge to pending
      var badge = item.querySelector('.rv-badge');
      if (badge) { badge.textContent = 'PENDING'; badge.className = 'rv-badge rv-badge-pending'; }
      item.setAttribute('data-verdict', 'pending');
-     item.click(); // Refresh preview
+     // Force iframe reload with cache-bust
+     var frame = document.getElementById('rv-preview-frame');
+     if (frame && frame.src && frame.src !== 'about:blank') {
+       var url = frame.src.split('?')[0] + '?t=' + Date.now();
+       frame.src = '';
+       setTimeout(function(){ frame.src = url; }, 100);
+     }
    }
    // Sync floating bar badge to pending
    var floatItem = document.querySelector('.rv-float-form[data-form-id="'+_editFormId+'"]');
@@ -647,29 +702,18 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 </script>
 
-<!-- Edit Modal -->
-<div id="rv-edit-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center">
- <div style="background:var(--bg);border:1px solid var(--bd);border-radius:12px;width:min(90vw,700px);max-height:85vh;overflow-y:auto;padding:20px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-   <h3 id="rv-edit-title" style="margin:0;font-size:16px">Edit Form</h3>
-   <button onclick="closeEditModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--tx2)">&times;</button>
-  </div>
-  <div id="rv-edit-body"></div>
-  <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-   <button onclick="closeEditModal()" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd)">Cancel</button>
-   <button id="rv-edit-save" onclick="submitRefill()" class="btn btn-sm" style="background:var(--ac);color:#fff;font-weight:600">Save & Refill</button>
-  </div>
- </div>
-</div>
-
 <style>
 .rv-edit-btn{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px;margin-left:auto;opacity:.5;color:var(--tx2)}
 .rv-edit-btn:hover{opacity:1;color:var(--ac)}
 .rv-form-item{display:flex;align-items:center;gap:6px}
-.rv-edit-table{width:100%;border-collapse:collapse;font-size:13px}
-.rv-edit-table th{text-align:left;padding:4px 6px;border-bottom:2px solid var(--bd);font-size:11px;text-transform:uppercase;color:var(--tx2)}
-.rv-edit-table td{padding:4px 6px;border-bottom:1px solid var(--bd)}
-.rv-edit-table input{padding:4px 6px;border:1px solid var(--bd);border-radius:4px;background:var(--sf);color:var(--tx);font-size:13px}
+.rv-edit-table{width:100%;border-collapse:collapse;font-size:12px}
+.rv-edit-table th{text-align:left;padding:3px 4px;border-bottom:2px solid var(--bd);font-size:10px;text-transform:uppercase;color:var(--tx2)}
+.rv-edit-table td{padding:3px 4px;border-bottom:1px solid var(--bd)}
+.rv-edit-table input{padding:3px 4px;border:1px solid var(--bd);border-radius:4px;background:var(--sf);color:var(--tx);font-size:12px;box-sizing:border-box}
 .rv-edit-table input:disabled{opacity:.5;cursor:not-allowed}
+.rv-inline-field{display:block;margin-bottom:8px}
+.rv-inline-field label{display:block;font-size:11px;text-transform:uppercase;color:var(--tx2);margin-bottom:3px;letter-spacing:.3px}
+.rv-inline-field input,.rv-inline-field textarea{width:100%;padding:5px 8px;border:1px solid var(--bd);border-radius:4px;background:var(--sf);color:var(--tx);font-size:13px;box-sizing:border-box}
+.rv-inline-field textarea{resize:vertical;min-height:50px;font-family:inherit}
 </style>
 {% endblock %}

@@ -166,7 +166,7 @@
  <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);border-radius:8px;padding:10px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:14px">
   <span style="font-size:18px">🔗</span>
   <div>
-    <span style="color:#3fb950;font-weight:600">Linked to PC #{{ r.get('linked_pc_number') or r.get('linked_pc_id', '')[:12] or 'unknown' }}</span>
+    <span style="color:#3fb950;font-weight:600">Linked to PC #{{ r.get('linked_pc_number') or r.get('linked_pc_id', '')[:12] or 'PC' }}</span>
     {% if r.get('linked_pc_match_reason') %} <span style="color:#8b949e;font-size:12px">· {{ r.linked_pc_match_reason }}</span>{% endif %}
     {% if r.get('pc_diff') %}
      <span style="color:#8b949e;margin-left:8px">·</span>
@@ -601,8 +601,8 @@
   <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px">
    <span style="font-size:16px">{% if 'Quote' in f %}💰{% elif 'Package' in f %}📦{% elif '703B' in f %}📝{% elif '704B' in f %}📊{% elif 'BidPackage' in f %}📋{% else %}📄{% endif %}</span>
    <span style="flex:1;font-size:13px;color:var(--tx)">{{f}}</span>
-   <a href="#" onclick="previewPdf('/api/download/{{r.get('solicitation_number','unknown').replace('/','_')}}/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">👁️ View</a>
-   <a href="/api/download/{{r.get('solicitation_number','unknown').replace('/','_')}}/{{f}}" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">⬇️ Download</a>
+   <a href="#" onclick="previewPdf('/api/download/{{r.get('solicitation_number','RFQ').replace('/','_')}}/{{f}}','{{f}}');return false" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">👁️ View</a>
+   <a href="/api/download/{{r.get('solicitation_number','RFQ').replace('/','_')}}/{{f}}" class="btn btn-sm btn-s" style="font-size:14px;padding:4px 8px">⬇️ Download</a>
   </div>
   {% endfor %}
  </div>

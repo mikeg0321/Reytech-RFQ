@@ -448,7 +448,7 @@ def recommend_prices_for_rfq(rfq_data: dict, config_overrides: Optional[dict] = 
     avg_wp = sum(win_probs) / len(win_probs) if win_probs else 0
 
     return {
-        "rfq_id": rfq_data.get("solicitation_number", "unknown"),
+        "rfq_id": rfq_data.get("solicitation_number", "") or "RFQ",
         "agency": agency,
         "items": results,
         "summary": {

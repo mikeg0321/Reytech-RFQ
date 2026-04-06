@@ -690,7 +690,7 @@ def notify_new_rfq_sms(rfq_data: dict) -> None:
 
 def notify_package_ready(rfq, result=None):
     """Internal notification when RFP package is generated and ready to send."""
-    sol = rfq.get("solicitation_number", "unknown")
+    sol = rfq.get("solicitation_number", "") or "RFQ"
     qn = rfq.get("reytech_quote_number", "")
     agency = rfq.get("agency_name", "") or rfq.get("institution", "")
     total = result.get("total", 0) if result else 0

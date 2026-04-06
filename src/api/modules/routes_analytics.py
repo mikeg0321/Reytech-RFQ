@@ -3224,7 +3224,7 @@ def api_rfq_package_diag(rid):
     ] if attachments else "none"
     
     # Check output directory
-    sol = r.get("solicitation_number", "unknown")
+    sol = r.get("solicitation_number", "") or "RFQ"
     out_dir = os.path.join(DATA_DIR, "output", sol)
     if os.path.exists(out_dir):
         result["output_dir_files"] = os.listdir(out_dir)
