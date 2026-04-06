@@ -229,8 +229,8 @@
 
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
-      <b>Requestor:</b> {{ header.get('requestor',pc.get('requestor','')) }} &nbsp;|&nbsp;
-      <b>Due:</b> {{ pc.get('due_date','') }} <span id="dueUrgency"></span> &nbsp;|&nbsp;
+      <b>Requestor:</b> <input type="text" id="requestorField" value="{{ header.get('requestor',pc.get('requestor','')).replace('"','&quot;') }}" class="text-in" style="width:160px;padding:2px 6px;font-size:14px" onblur="savePcField('requestor',this.value)" oninput="debounceBuyerLookup(this.value)"> &nbsp;|&nbsp;
+      <b>Due:</b> <input type="date" id="dueDateField" value="{{ due_date_iso }}" class="text-in" style="width:140px;padding:2px 6px;font-size:14px" onchange="savePcField('due_date',this.value);calcUrgencyFromInput(this.value)"> <span id="dueUrgency"></span> &nbsp;|&nbsp;
       <b>Ship to:</b> <input type="text" id="shipToField" value="{{ pc.get('ship_to','').replace('"','&quot;') }}" class="text-in" style="width:220px;padding:2px 6px;font-size:14px" onblur="saveShipTo(this.value)"> &nbsp;|&nbsp;
       <b>Today:</b> {{ today_date }}
      </div>
@@ -708,7 +708,79 @@
         method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({ship_to: val, items: []}),
         credentials:'same-origin'
+      }).then(function(){
+        // Trigger live CDTFA tax lookup when ship-to changes
+        fetch('/api/pricecheck/'+_pcid+'/lookup-tax-rate', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({address: val, force_live: true}),
+          credentials:'same-origin'
+        }).then(function(r){return r.json()}).then(function(d){
+          if(d.ok && d.rate){
+            var el=document.getElementById('taxRateDisplay');
+            if(el) el.textContent=d.rate+'% ('+( d.jurisdiction||'CDTFA')+')';
+            var inp=document.getElementById('taxRate');
+            if(inp){inp.value=d.rate; if(typeof recalcPC==='function') recalcPC();}
+          }
+        }).catch(function(){});
       }).catch(function(){});
+    }
+
+    // Save a single PC header field (due_date, requestor, etc.)
+    function savePcField(field, val) {
+      var data = {items: []};
+      data[field] = val;
+      fetch('/pricecheck/'+_pcid+'/save-prices', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(data), credentials:'same-origin'
+      }).catch(function(){});
+    }
+
+    // Recalculate urgency badge from date input value
+    function calcUrgencyFromInput(val) {
+      var el=document.getElementById('dueUrgency');
+      if(!el) return;
+      if(!val){el.innerHTML='';return;}
+      var due=new Date(val+'T00:00:00');
+      var now=new Date();
+      var diffDays=Math.ceil((due-now)/(1000*60*60*24));
+      if(diffDays<0){
+        el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">OVERDUE ('+Math.abs(diffDays)+'d ago)</span>';
+      } else if(diffDays<=2){
+        el.innerHTML='<span style="background:#da363344;color:#f85149;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">\uD83D\uDD25 '+diffDays+'d left</span>';
+      } else if(diffDays<=5){
+        el.innerHTML='<span style="background:#9e6a0333;color:#d29922;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">'+diffDays+'d left</span>';
+      } else {
+        el.innerHTML='<span style="background:#23863633;color:#3fb950;padding:2px 8px;border-radius:4px;font-size:14px">'+diffDays+'d left</span>';
+      }
+    }
+
+    // Buyer lookup: debounced search by requestor name → suggest ship-to
+    var _buyerTimer=null;
+    function debounceBuyerLookup(val) {
+      clearTimeout(_buyerTimer);
+      if(!val || val.length<3) return;
+      _buyerTimer=setTimeout(function(){
+        fetch('/api/crm/buyer-lookup?name='+encodeURIComponent(val),{credentials:'same-origin'})
+        .then(function(r){return r.json()}).then(function(d){
+          if(!d.ok || !d.ship_to) return;
+          var shipEl=document.getElementById('shipToField');
+          if(!shipEl || (shipEl.value && shipEl.value.trim())) return; // don't overwrite existing
+          // Show suggestion badge
+          var existing=document.getElementById('buyer-suggest');
+          if(existing) existing.remove();
+          var badge=document.createElement('span');
+          badge.id='buyer-suggest';
+          badge.style.cssText='background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.3);border-radius:4px;padding:2px 8px;font-size:12px;color:#58a6ff;margin-left:6px;cursor:pointer';
+          badge.innerHTML='Suggested: '+d.ship_to.substring(0,40)+(d.ship_to.length>40?'...':'')+' <span style="margin-left:4px;opacity:.6" title="Dismiss">\u2715</span>';
+          badge.onclick=function(){
+            shipEl.value=d.ship_to;
+            saveShipTo(d.ship_to);
+            badge.remove();
+          };
+          badge.querySelector('span').onclick=function(e){e.stopPropagation();badge.remove();};
+          shipEl.parentNode.insertBefore(badge, shipEl.nextSibling);
+        }).catch(function(){});
+      },500);
     }
 
     function loadItemPriceHistory(idx, el) {

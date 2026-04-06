@@ -58,6 +58,73 @@ def _save_customers(customers):
     with open(path, "w") as f:
         json.dump(customers, f, indent=2)
 
+@bp.route("/api/crm/buyer-lookup")
+@auth_required
+@safe_route
+def api_buyer_lookup():
+    """Look up ship-to address from buyer name or email via CRM + PO history."""
+    name = request.args.get("name", "").strip()
+    email = request.args.get("email", "").strip()
+    if not name and not email:
+        return jsonify({"ok": False, "error": "Provide name or email"})
+    ship_to = ""
+    institution = ""
+    agency = ""
+    # 1. Check PO history for this buyer's most common ship-to
+    try:
+        with get_db() as conn:
+            if email:
+                row = conn.execute("""
+                    SELECT ship_to_address, dept_name, COUNT(*) as cnt
+                    FROM scprs_po_master WHERE buyer_email = ? AND ship_to_address != ''
+                    GROUP BY ship_to_address ORDER BY cnt DESC LIMIT 1
+                """, (email,)).fetchone()
+            elif name:
+                row = conn.execute("""
+                    SELECT ship_to_address, dept_name, COUNT(*) as cnt
+                    FROM scprs_po_master WHERE buyer_name LIKE ? AND ship_to_address != ''
+                    GROUP BY ship_to_address ORDER BY cnt DESC LIMIT 1
+                """, (f"%{name}%",)).fetchone()
+            else:
+                row = None
+            if row and row[0]:
+                ship_to = row[0]
+                institution = row[1] or ""
+    except Exception as _e:
+        log.debug("buyer-lookup PO search: %s", _e)
+    # 2. If no PO history, check customer records
+    if not ship_to:
+        customers = _load_customers()
+        q = (name or email).lower()
+        for c in customers:
+            searchable = " ".join([
+                c.get("display_name") or "", c.get("company") or "",
+                c.get("qb_name") or "", c.get("email") or "",
+            ]).lower()
+            if q in searchable:
+                addr_parts = [c.get("display_name") or c.get("company") or ""]
+                if c.get("address"): addr_parts.append(c["address"])
+                if c.get("city"): addr_parts.append(c["city"])
+                if c.get("state"): addr_parts.append(c["state"])
+                if c.get("zip"): addr_parts.append(c["zip"])
+                ship_to = ", ".join(p for p in addr_parts if p)
+                institution = c.get("display_name") or c.get("company") or ""
+                agency = c.get("agency") or ""
+                break
+    # 3. If still nothing, try institution resolver
+    if not ship_to and name:
+        try:
+            from src.core.institution_resolver import get_ship_to_address
+            _auto = get_ship_to_address(name)
+            if _auto:
+                ship_to = _auto
+        except Exception:
+            pass
+    if not ship_to:
+        return jsonify({"ok": False})
+    return jsonify({"ok": True, "ship_to": ship_to, "institution": institution, "agency": agency})
+
+
 @bp.route("/api/customers")
 @auth_required
 @safe_route

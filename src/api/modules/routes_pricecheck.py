@@ -1058,6 +1058,18 @@ def _pricecheck_detail_inner(pcid):
             if _spc.get("bundle_id") == pc["bundle_id"] and _sid != pcid:
                 _bundle_siblings.append({"id": _sid, "pc_number": _spc.get("pc_number", "")})
 
+    # ── Normalize due_date to ISO for <input type="date"> ──
+    _due_date_iso = ""
+    _raw_due = pc.get("due_date", "")
+    if _raw_due:
+        from datetime import datetime as _ddt
+        for _dfmt in ("%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%Y-%m-%d", "%m/%d/%y"):
+            try:
+                _due_date_iso = _ddt.strptime(str(_raw_due).strip(), _dfmt).strftime("%Y-%m-%d")
+                break
+            except (ValueError, TypeError):
+                continue
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         download_html=download_html, expiry_date=expiry_date,
@@ -1072,6 +1084,7 @@ def _pricecheck_detail_inner(pcid):
         existing_quote_url=_existing_quote_url,
         scprs_staleness=_scprs_staleness,
         bundle_siblings=_bundle_siblings,
+        due_date_iso=_due_date_iso,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")
@@ -1532,6 +1545,13 @@ def _do_save_prices(pcid):
     pc["default_markup"] = data.get("default_markup", 25)
     if data.get("ship_to") is not None:
         pc["ship_to"] = data.get("ship_to", "")
+    if data.get("due_date") is not None:
+        pc["due_date"] = data.get("due_date", "")
+    if data.get("requestor") is not None:
+        pc["requestor"] = data.get("requestor", "")
+        if "parsed" in pc and isinstance(pc["parsed"], dict):
+            hdr = pc["parsed"].setdefault("header", {})
+            hdr["requestor"] = data["requestor"]
 
     for key, val in data.items():
         try:
@@ -2142,7 +2162,8 @@ def api_pc_lookup_tax_rate(pcid):
             _cfz = _re_tax.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,?\s*[Cc][Aa]\.?\s*' + _d_zip, address)
             if _cfz: _d_city = _cfz.group(1).strip()
         from src.agents.tax_agent import get_tax_rate
-        result = get_tax_rate(city=_d_city, zip_code=_d_zip)
+        _force = bool(data.get("force_live"))
+        result = get_tax_rate(city=_d_city, zip_code=_d_zip, force_live=_force)
         if result and result.get("rate"):
             rate_pct = round(result["rate"] * 100, 3)
             pc["tax_rate"] = rate_pct

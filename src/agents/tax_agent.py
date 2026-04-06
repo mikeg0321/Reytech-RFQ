@@ -257,7 +257,7 @@ def _call_api_by_address(street, city, zip_code):
 # Main Tax Rate Agent
 # ═══════════════════════════════════════════════════════════════
 
-def get_tax_rate(ship_to_name="", ship_to_address=None, street=None, city=None, zip_code=None):
+def get_tax_rate(ship_to_name="", ship_to_address=None, street=None, city=None, zip_code=None, force_live=False):
     """
     Automated tax rate agent. Resolves CA sales tax by ship-to location.
 
@@ -294,12 +294,13 @@ def get_tax_rate(ship_to_name="", ship_to_address=None, street=None, city=None, 
         log.warning(f"No zip code found in: {parsed}")
         return _default_result("No zip code in ship-to address")
 
-    # Step 2: Check local cache first (fast path)
-    cached = get_cached_rate(cache_key)
-    if cached:
-        cached["source"] = "cache"
-        log.info(f"Cache hit for {cache_key}: {cached['rate']}")
-        return cached
+    # Step 2: Check local cache first (fast path) — skip if force_live
+    if not force_live:
+        cached = get_cached_rate(cache_key)
+        if cached:
+            cached["source"] = "cache"
+            log.info(f"Cache hit for {cache_key}: {cached['rate']}")
+            return cached
 
     # Step 3: Try CDTFA API with parsed street
     result = None

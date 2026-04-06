@@ -36,10 +36,10 @@
   <a href="/rfq/{{ r.id }}/support" class="btn btn-sm" style="font-size:12px;background:rgba(139,148,158,.1);color:var(--tx2);border:1px solid var(--bd);margin-left:4px" title="Support Timeline">🎧 Support</a>
  </div>
  <div class="meta-g">
-  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" value="{{r.get('requestor_name','')}}" class="editable-field" aria-label="Buyer Name" onblur="saveField(this,'requestor_name')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
-  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" value="{{r.get('requestor_email','')}}" class="editable-field" aria-label="Buyer Email" onblur="saveField(this,'requestor_email')" onfocus="this.style.borderColor='#58a6ff'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:220px"></div></div>
-  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v"><input type="text" value="{{r.get('due_date','')}}" class="editable-field" aria-label="Due Date" onblur="saveField(this,'due_date')" onfocus="this.style.borderColor='#58a6ff'" placeholder="MM/DD/YYYY" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:110px"></div></div>
-  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" aria-label="Delivery Location" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location')" onfocus="this.style.borderColor='#58a6ff';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
+  <div class="meta-i"><div class="meta-l">Buyer</div><div class="meta-v"><input type="text" id="buyer-name-input" value="{{r.get('requestor_name','')}}" class="editable-field" aria-label="Buyer Name" onblur="saveField(this,'requestor_name')" oninput="debounceBuyerLookup(this.value,'')" onfocus="this.style.borderColor='#58a6ff'" placeholder="Name" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:180px"></div></div>
+  <div class="meta-i"><div class="meta-l">Email</div><div class="meta-v"><input type="email" id="buyer-email-input" value="{{r.get('requestor_email','')}}" class="editable-field" aria-label="Buyer Email" onblur="saveField(this,'requestor_email')" oninput="debounceBuyerLookup('',this.value)" onfocus="this.style.borderColor='#58a6ff'" placeholder="email@example.com" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:#58a6ff;font-size:inherit;width:220px"></div></div>
+  <div class="meta-i"><div class="meta-l">Due Date</div><div class="meta-v"><input type="date" value="{{due_date_iso|default('')}}" class="editable-field" aria-label="Due Date" onchange="saveField(this,'due_date')" onfocus="this.style.borderColor='#58a6ff'" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:inherit;width:140px"></div></div>
+  <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" aria-label="Delivery Location" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location');rfqTaxLookup(document.getElementById('delivery-input').value)" onfocus="this.style.borderColor='#58a6ff';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
  </div>
  {% set lookup = r.get('auto_lookup_results', {}) %}
  {% set items = r.get('line_items', []) %}
@@ -953,6 +953,8 @@ function selectLocation(name,address,agency){
   var data={institution:name,agency_name:agency};
   fetch('/api/rfq/'+RID+'/update-field',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data),credentials:'same-origin'});
  }
+ // Trigger live CDTFA tax lookup on location selection
+ rfqTaxLookup(name+(address?' - '+address:''));
 }
 
 // ── Header field inline edit ──
@@ -979,6 +981,51 @@ function saveField(el,field){
   }
   else{el.style.borderColor='#f85149'}
  }).catch(function(){el.style.borderColor='#f85149'});
+}
+
+// ── RFQ tax lookup on delivery location change ──
+function rfqTaxLookup(address){
+ if(!address) return;
+ fetch('/api/rfq/'+RID+'/lookup-tax-rate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:address,force_live:true}),credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(!d.ok||!d.rate) return;
+  var el=document.getElementById('tax-rate-display');
+  if(el) el.textContent=d.rate+'% ('+( d.jurisdiction||'CDTFA')+')';
+  var inp=document.getElementById('tax-rate-input');
+  if(inp) inp.value=d.rate;
+ }).catch(function(){});
+}
+
+// ── Buyer lookup: suggest ship-to from CRM when buyer name/email entered ──
+var _buyerTimer=null;
+function debounceBuyerLookup(name,email){
+ clearTimeout(_buyerTimer);
+ if((!name||name.length<3)&&(!email||email.length<5)) return;
+ _buyerTimer=setTimeout(function(){
+  var params=[];
+  if(name) params.push('name='+encodeURIComponent(name));
+  if(email) params.push('email='+encodeURIComponent(email));
+  fetch('/api/crm/buyer-lookup?'+params.join('&'),{credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){
+   if(!d.ok||!d.ship_to) return;
+   var delEl=document.getElementById('delivery-input');
+   if(!delEl||(delEl.value&&delEl.value.trim())) return;
+   var existing=document.getElementById('buyer-suggest');
+   if(existing) existing.remove();
+   var badge=document.createElement('span');
+   badge.id='buyer-suggest';
+   badge.style.cssText='background:rgba(88,166,255,.1);border:1px solid rgba(88,166,255,.3);border-radius:4px;padding:2px 8px;font-size:12px;color:#58a6ff;margin-left:6px;cursor:pointer;display:inline-block;margin-top:4px';
+   badge.innerHTML='Suggested: '+d.ship_to.substring(0,40)+(d.ship_to.length>40?'...':'')+' <span style="margin-left:4px;opacity:.6" title="Dismiss">\u2715</span>';
+   badge.onclick=function(){
+    delEl.value=d.ship_to;
+    saveField(delEl,'delivery_location');
+    rfqTaxLookup(d.ship_to);
+    badge.remove();
+   };
+   badge.querySelector('span').onclick=function(e){e.stopPropagation();badge.remove();};
+   delEl.parentNode.appendChild(badge);
+  }).catch(function(){});
+ },500);
 }
 
 // ── Description textarea expand/collapse ──
