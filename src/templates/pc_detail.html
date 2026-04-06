@@ -242,10 +242,14 @@
       <span>🔗</span>
       <span>Linked to <a href="/rfq/{{pc.linked_rfq_id}}" style="color:#a78bfa;font-weight:700">RFQ {{pc.linked_rfq_id}}</a>
       {% if pc.get('converted_to_rfq') %} (converted){% endif %}</span>
+      {% if not pc.get('converted_to_rfq') and pc.get('status') != 'reclassified' %}
+      <button class="btn btn-sm" style="font-size:13px;padding:3px 8px;background:rgba(251,191,36,.08);color:#f59e0b;border:1px solid rgba(251,191,36,.25);margin-left:auto"
+        onclick="reclassifyAsRFQ()" aria-label="Reclassify as RFQ">⚠️ Reclassify as RFQ</button>
+      {% endif %}
      </div>
      {% else %}
      <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
-      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)" 
+      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)"
         onclick="linkToRFQ()" aria-label="Link to Existing RFQ">🔗 Link to Existing RFQ</button>
       <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)"
         onclick="convertPCToRFQ()" aria-label="Convert to New RFQ">🔄 Convert to New RFQ</button>
