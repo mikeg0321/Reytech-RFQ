@@ -756,7 +756,7 @@ def _pricecheck_detail_inner(pcid):
          </td>
          <td style="min-width:130px;max-width:190px;vertical-align:top;padding:6px 4px">{source_html}</td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow({idx},true)" onblur="fmtCurrency(this)"></div></td>
-         <td><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow({idx},true)"><span style="color:#8b949e;font-size:13px">%</span></td>
+         <td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow({idx},true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
          <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
          <td class="profit" style="font-size:14px">{profit_str}</td>

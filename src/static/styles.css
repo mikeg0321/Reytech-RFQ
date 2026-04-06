@@ -132,6 +132,7 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
 table.it{width:100%;border-collapse:collapse;font-size:15px}
 table.it th{text-align:left;padding:10px 8px;font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--bd)}
 table.it td{padding:12px 8px;border-bottom:1px solid var(--bd);vertical-align:middle;font-size:15px}
+table.it .currency-wrap{white-space:nowrap;display:inline-flex;align-items:center}
 table.it input[type=number]{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:8px 10px;border-radius:6px;width:90px;font-family:'JetBrains Mono',monospace;font-size:16px;font-weight:700}
 table.it input:focus{outline:none;border-color:var(--ac)}
 table.it .text-in{background:var(--sf2);border:1px solid var(--bd);color:var(--tx);padding:6px 8px;border-radius:6px;font-size:14px;font-family:'Segoe UI',system-ui,sans-serif}

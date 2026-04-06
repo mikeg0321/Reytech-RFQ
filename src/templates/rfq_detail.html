@@ -237,11 +237,11 @@
 
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
- <table class="it" style="min-width:1400px">
+ <table class="it" style="min-width:1500px">
   <thead><tr>
    <th scope="col">#</th><th scope="col" style="width:55px">Qty</th><th scope="col" style="width:55px">UOM</th><th scope="col">Description</th><th scope="col">Part #</th>
    <th scope="col" style="min-width:220px">Item Link</th>
-   <th scope="col">Your Cost</th><th scope="col" style="width:30px" title="Price Intelligence">📊</th><th scope="col" style="width:70px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
+   <th scope="col">Your Cost</th><th scope="col" style="width:30px" title="Price Intelligence">📊</th><th scope="col" style="width:80px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% if not (r.get("line_items") or r.get("items")) %}

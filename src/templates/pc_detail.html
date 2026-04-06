@@ -30,6 +30,9 @@
      .pc-table-wrap::-webkit-scrollbar-corner{background:#161b22}
      .notes-row td{border-top:none!important;padding-top:0!important}
      #itemsTable{table-layout:auto;width:100%;border-collapse:separate;border-spacing:0}
+     #itemsTable td{white-space:nowrap}
+     #itemsTable td:nth-child(6),#itemsTable td:nth-child(8),#itemsTable td:nth-child(9),#itemsTable td:nth-child(10){white-space:normal}
+     #itemsTable td textarea{white-space:normal}
      #itemsTable thead th{position:sticky;top:0;background:#21262d;z-index:3;border-bottom:2px solid #30363d}
      #itemsTable th:nth-child(1),#itemsTable td:nth-child(1){position:sticky;left:0;z-index:2;background:inherit}
      #itemsTable th:nth-child(2),#itemsTable td:nth-child(2){position:sticky;left:52px;z-index:2;background:inherit;box-shadow:2px 0 4px rgba(0,0,0,.3)}
@@ -514,8 +517,8 @@
       <span id="pc-ms-landed" style="display:none;font-size:12px;color:#d29922;margin-left:4px" title="True margin after shipping + tax on non-exempt suppliers"></span>
      </div>
      <div class="pc-table-wrap" style="overflow-x:auto">
-     <table id="itemsTable" style="min-width:1200px">
-      <thead><tr><th style="width:32px">Bid</th><th style="width:40px">Line#</th><th style="min-width:70px">MFG#</th><th style="width:50px">Qty</th><th style="width:44px">UOM</th><th style="min-width:180px">Description</th><th style="width:32px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:140px">Item Link</th><th style="min-width:130px">Sources</th><th style="min-width:90px">Unit Cost</th><th style="width:55px">Markup</th><th style="min-width:80px">Our Price</th><th style="min-width:80px">Extension</th><th style="min-width:70px">Profit</th></tr></thead>
+     <table id="itemsTable" style="min-width:1500px">
+      <thead><tr><th style="width:32px">Bid</th><th style="width:40px">Line#</th><th style="min-width:70px">MFG#</th><th style="width:50px">Qty</th><th style="width:44px">UOM</th><th style="min-width:180px">Description</th><th style="width:32px" title="Substitute item? Check if quoting a replacement">Sub?</th><th style="min-width:140px">Item Link</th><th style="min-width:130px">Sources</th><th style="min-width:90px">Unit Cost</th><th style="width:80px">Markup</th><th style="min-width:80px">Our Price</th><th style="min-width:80px">Extension</th><th style="min-width:70px">Profit</th></tr></thead>
       <tbody>{{ items_html | default('') | safe }}</tbody>
      </table>
      </div>
@@ -1317,7 +1320,7 @@
       +'<td style="min-width:160px"><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td style="min-width:160px"><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
-      +'<td><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:48px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></td>'
+      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      var tbody=table.querySelector('tbody')||table;
