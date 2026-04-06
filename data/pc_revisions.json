@@ -1,8 +1,8 @@
 {
   "test-pc-001": [
     {
-      "revision": 1,
-      "saved_at": "2026-03-13T22:30:16.469629",
+      "revision": 21,
+      "saved_at": "2026-04-05T13:43:34.050496",
       "reason": "edit",
       "items": [
         {
@@ -11,6 +11,8 @@
           "uom": "EA",
           "description": "Engraved two line name tag, black/white",
           "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
           "pricing": {
             "amazon_price": 12.58,
             "amazon_title": "Custom Engraved Name Tag",
@@ -26,6 +28,8 @@
           "uom": "BOX",
           "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
           "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
           "pricing": {
             "amazon_price": 42.99,
             "amazon_title": "Amazon Basics Copy Paper",
@@ -40,8 +44,8 @@
       "pc_number": "OS - Den - Feb"
     },
     {
-      "revision": 2,
-      "saved_at": "2026-03-13T22:34:44.248525",
+      "revision": 21,
+      "saved_at": "2026-04-05T13:43:35.553896",
       "reason": "edit",
       "items": [
         {
@@ -50,6 +54,8 @@
           "uom": "EA",
           "description": "Engraved two line name tag, black/white",
           "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
           "pricing": {
             "amazon_price": 12.58,
             "amazon_title": "Custom Engraved Name Tag",
@@ -65,6 +71,8 @@
           "uom": "BOX",
           "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
           "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
           "pricing": {
             "amazon_price": 42.99,
             "amazon_title": "Amazon Basics Copy Paper",
@@ -79,8 +87,8 @@
       "pc_number": "OS - Den - Feb"
     },
     {
-      "revision": 3,
-      "saved_at": "2026-03-13T22:36:58.913086",
+      "revision": 21,
+      "saved_at": "2026-04-05T13:44:16.132822",
       "reason": "edit",
       "items": [
         {
@@ -89,6 +97,8 @@
           "uom": "EA",
           "description": "Engraved two line name tag, black/white",
           "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
           "pricing": {
             "amazon_price": 12.58,
             "amazon_title": "Custom Engraved Name Tag",
@@ -104,6 +114,8 @@
           "uom": "BOX",
           "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
           "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
           "pricing": {
             "amazon_price": 42.99,
             "amazon_title": "Amazon Basics Copy Paper",
@@ -118,8 +130,8 @@
       "pc_number": "OS - Den - Feb"
     },
     {
-      "revision": 4,
-      "saved_at": "2026-03-13T22:38:42.356999",
+      "revision": 21,
+      "saved_at": "2026-04-05T13:44:50.203415",
       "reason": "edit",
       "items": [
         {
@@ -128,47 +140,8 @@
           "uom": "EA",
           "description": "Engraved two line name tag, black/white",
           "no_bid": false,
-          "pricing": {
-            "amazon_price": 12.58,
-            "amazon_title": "Custom Engraved Name Tag",
-            "amazon_url": "https://amazon.com/dp/B07TEST123",
-            "amazon_asin": "B07TEST123",
-            "recommended_price": 15.72,
-            "price_source": "amazon"
-          },
-          "item_link": "https://amazon.com/dp/B07TEST123"
-        },
-        {
-          "item_number": "2",
-          "qty": 5,
-          "uom": "BOX",
-          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
-          "no_bid": false,
-          "pricing": {
-            "amazon_price": 42.99,
-            "amazon_title": "Amazon Basics Copy Paper",
-            "amazon_url": "https://amazon.com/dp/B00TEST456",
-            "amazon_asin": "B00TEST456",
-            "recommended_price": 53.74,
-            "price_source": "amazon"
-          },
-          "item_link": "https://amazon.com/dp/B00TEST456"
-        }
-      ],
-      "status": "priced",
-      "pc_number": "OS - Den - Feb"
-    },
-    {
-      "revision": 5,
-      "saved_at": "2026-03-13T22:55:34.489089",
-      "reason": "edit",
-      "items": [
-        {
-          "item_number": "1",
-          "qty": 22,
-          "uom": "EA",
-          "description": "Engraved two line name tag, black/white",
-          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
           "pricing": {
             "amazon_price": 12.58,
             "amazon_title": "Custom Engraved Name Tag",
@@ -184,6 +157,8 @@
           "uom": "BOX",
           "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
           "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
           "pricing": {
             "amazon_price": 42.99,
             "amazon_title": "Amazon Basics Copy Paper",
@@ -198,8 +173,8 @@
       "pc_number": "OS - Den - Feb"
     },
     {
-      "revision": 6,
-      "saved_at": "2026-03-13T22:58:18.295491",
+      "revision": 21,
+      "saved_at": "2026-04-05T13:46:38.179866",
       "reason": "edit",
       "items": [
         {
@@ -208,6 +183,8 @@
           "uom": "EA",
           "description": "Engraved two line name tag, black/white",
           "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
           "pricing": {
             "amazon_price": 12.58,
             "amazon_title": "Custom Engraved Name Tag",
@@ -223,6 +200,653 @@
           "uom": "BOX",
           "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
           "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:47:15.039833",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:47:48.042881",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:48:53.904912",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:50:10.426527",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:51:26.626799",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:52:48.198367",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T13:59:17.079412",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T14:00:29.367581",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T14:01:48.827078",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T14:46:53.811912",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T14:48:09.085587",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T14:49:30.193226",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T14:59:48.129887",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T15:01:00.036176",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
+          "pricing": {
+            "amazon_price": 42.99,
+            "amazon_title": "Amazon Basics Copy Paper",
+            "amazon_url": "https://amazon.com/dp/B00TEST456",
+            "amazon_asin": "B00TEST456",
+            "recommended_price": 53.74,
+            "price_source": "amazon"
+          }
+        }
+      ],
+      "status": "priced",
+      "pc_number": "OS - Den - Feb"
+    },
+    {
+      "revision": 21,
+      "saved_at": "2026-04-05T15:02:19.776193",
+      "reason": "edit",
+      "items": [
+        {
+          "item_number": "1",
+          "qty": 22,
+          "uom": "EA",
+          "description": "Engraved two line name tag, black/white",
+          "no_bid": false,
+          "supplier_cost": 12.58,
+          "unit_price": 15.72,
+          "pricing": {
+            "amazon_price": 12.58,
+            "amazon_title": "Custom Engraved Name Tag",
+            "amazon_url": "https://amazon.com/dp/B07TEST123",
+            "amazon_asin": "B07TEST123",
+            "recommended_price": 15.72,
+            "price_source": "amazon"
+          }
+        },
+        {
+          "item_number": "2",
+          "qty": 5,
+          "uom": "BOX",
+          "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+          "no_bid": false,
+          "supplier_cost": 42.99,
+          "unit_price": 53.74,
           "pricing": {
             "amazon_price": 42.99,
             "amazon_title": "Amazon Basics Copy Paper",

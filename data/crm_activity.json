@@ -18976,5 +18976,2711 @@
       "institution": "CSP-Sacramento",
       "agency": "CDCR"
     }
+  },
+  {
+    "id": "crm-20260405014446-1622",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:44:46.761774",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405014447-1623",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:44:47.272890",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405015838-1624",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:58:38.966670",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405015839-1625",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:58:39.981448",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405015841-1626",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:58:41.845617",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405015935-1627",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:59:35.666844",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405015936-1628",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:59:36.708203",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405015940-1629",
+    "ref_id": "R26Q102",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q102 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T01:59:40.572811",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405020045-1630",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:00:45.824363",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020046-1631",
+    "ref_id": "R26Q103",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q103 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:00:46.143236",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405020143-1632",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:01:43.728398",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020144-1633",
+    "ref_id": "R26Q111",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q111 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:01:44.009878",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405020321-1634",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:03:21.357483",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020322-1635",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:03:22.163162",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020323-1636",
+    "ref_id": "R26Q112",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q112 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:03:23.975950",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405020420-1637",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:04:20.111432",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020420-1638",
+    "ref_id": "R26Q113",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q113 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:04:20.380452",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405020438-1639",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:04:38.902832",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020439-1640",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:04:39.912152",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020441-1641",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:04:41.856158",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405020830-1642",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:08:30.038548",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405020830-1643",
+    "ref_id": "R26Q102",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q102 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:08:30.958607",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405021037-1644",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:10:37.973191",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405021040-1645",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:10:40.521582",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405021043-1646",
+    "ref_id": "R26Q110",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q110 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T02:10:43.699798",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405103534-1647",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:35:34.172264",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405103534-1648",
+    "ref_id": "R26Q111",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q111 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:35:34.475990",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405103751-1649",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:37:51.281605",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405103752-1650",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:37:52.082255",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405103753-1651",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:37:53.655632",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405103854-1652",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:38:54.497083",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405103854-1653",
+    "ref_id": "R26Q102",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q102 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:38:54.807870",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104222-1654",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:22.346819",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104223-1655",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:23.251843",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104223-1656",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:23.752396",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104224-1657",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:24.062079",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104224-1658",
+    "ref_id": "R26Q102",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q102 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:24.736091",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104238-1659",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:38.141206",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104238-1660",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:42:38.456083",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104318-1661",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:43:18.006874",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104318-1662",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:43:18.952585",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104320-1663",
+    "ref_id": "R26Q102",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q102 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:43:20.549619",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104357-1664",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:43:57.746988",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104411-1665",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:44:11.416654",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104425-1666",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:44:25.843763",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104503-1667",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:03.789642",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104504-1668",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:04.117801",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104524-1669",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:24.492210",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104524-1670",
+    "ref_id": "R26Q101",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q101 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:24.784597",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104555-1671",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:55.491250",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104556-1672",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:56.254648",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104557-1673",
+    "ref_id": "R26Q102",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q102 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:45:57.713413",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104605-1674",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:46:05.196317",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104605-1675",
+    "ref_id": "R26Q110",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q110 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:46:05.490044",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104728-1676",
+    "ref_id": "R26Q111",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q111 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:28.052493",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104731-1677",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:31.727261",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104732-1678",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:32.633109",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104734-1679",
+    "ref_id": "R26Q112",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q112 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:34.138556",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104743-1680",
+    "ref_id": "R26Q113",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q113 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:43.407803",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104744-1681",
+    "ref_id": "R26Q114",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q114 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:44.584997",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104747-1682",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:47.571490",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104748-1683",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:48.395044",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104749-1684",
+    "ref_id": "R26Q115",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q115 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:49.789574",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104755-1685",
+    "ref_id": "R26Q116",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q116 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:55.397544",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104756-1686",
+    "ref_id": "R26Q117",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q117 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:56.209412",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104757-1687",
+    "ref_id": "R26Q118",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q118 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:57.098476",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104757-1688",
+    "ref_id": "R26Q118",
+    "event_type": "quote_won",
+    "description": "Quote R26Q118 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:57.166333",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104757-1689",
+    "ref_id": "R26Q118",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q118 created from quote R26Q118 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T10:47:57.232194",
+    "metadata": {
+      "order_id": "ORD-R26Q118",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405104758-1690",
+    "ref_id": "R26Q119",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q119 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:58.183332",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104758-1691",
+    "ref_id": "R26Q119",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q119 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:58.248973",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104759-1692",
+    "ref_id": "R26Q120",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q120 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:47:59.102748",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104805-1693",
+    "ref_id": "R26Q121",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q121 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:05.303313",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104813-1694",
+    "ref_id": "R26Q122",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q122 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:13.703689",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104819-1695",
+    "ref_id": "R26Q130",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q130 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:19.885195",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104820-1696",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:20.634983",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104820-1697",
+    "ref_id": "R26Q131",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q131 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:20.947327",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104821-1698",
+    "ref_id": "R26Q132",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q132 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:21.841686",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104822-1699",
+    "ref_id": "R26Q132",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q132 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:22.052459",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104822-1700",
+    "ref_id": "R26Q133",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q133 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:22.888635",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405104832-1701",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:32.489633",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405104832-1702",
+    "ref_id": "R26Q134",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q134 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T10:48:32.777944",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133300-1703",
+    "ref_id": "R26Q150",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q150 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:33:00.290951",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133300-1704",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:33:00.969653",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133301-1705",
+    "ref_id": "R26Q151",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q151 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:33:01.245025",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133302-1706",
+    "ref_id": "R26Q152",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q152 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:33:02.026645",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133302-1707",
+    "ref_id": "R26Q152",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q152 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:33:02.243224",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133303-1708",
+    "ref_id": "R26Q153",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q153 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:33:03.043795",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133425-1709",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:34:25.529635",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133426-1710",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:34:26.250852",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133426-1711",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:34:26.558991",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133427-1712",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:34:27.330816",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133427-1713",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:34:27.582887",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133428-1714",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:34:28.359668",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133543-1715",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:35:43.200216",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133543-1716",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:35:43.919252",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133544-1717",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:35:44.223320",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133545-1718",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:35:45.008510",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133545-1719",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:35:45.259071",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133546-1720",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:35:46.040217",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133644-1721",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:44.017827",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133644-1722",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:44.748772",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133645-1723",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:45.067337",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133645-1724",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:45.822616",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133646-1725",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:46.054665",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133646-1726",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:46.844757",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133647-1727",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:36:47.063712",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133700-1728",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:00.744203",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133701-1729",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:01.447967",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133701-1730",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:01.740327",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133702-1731",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:02.500133",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133702-1732",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:02.726967",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133703-1733",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:03.490525",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133703-1734",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:37:03.707497",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133856-1735",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:38:56.440757",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133859-1736",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:38:59.006868",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133859-1737",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:38:59.770244",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133901-1738",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:01.111663",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133906-1739",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:06.835314",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133907-1740",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:07.640161",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133907-1741",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:07.737540",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133907-1742",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T13:39:07.818032",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405133908-1743",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:08.722159",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133908-1744",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:08.816850",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133909-1745",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:09.596024",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133922-1746",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:22.175467",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133955-1747",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:55.935092",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133956-1748",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:56.644547",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405133956-1749",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:56.961512",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133957-1750",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:57.753805",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133958-1751",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:57.992700",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133958-1752",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:58.806098",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405133959-1753",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:39:59.043022",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134338-1754",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:38.301863",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134341-1755",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:41.412784",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134342-1756",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:42.338197",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134343-1757",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:43.965238",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134350-1758",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:50.827447",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134351-1759",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:51.954203",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134352-1760",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:52.071629",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134352-1761",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T13:43:52.146875",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405134353-1762",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:53.409695",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134353-1763",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:53.506180",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134354-1764",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:43:54.443702",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134410-1765",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:10.072547",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134450-1766",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:50.503552",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134451-1767",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:51.261603",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134451-1768",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:51.629706",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134452-1769",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:52.518797",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134452-1770",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:52.740288",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134453-1771",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:53.621419",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134453-1772",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:44:53.838987",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134639-1773",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:39.902267",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134642-1774",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:42.728477",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134643-1775",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:43.602420",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134645-1776",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:45.415988",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134651-1777",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:51.865783",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134652-1778",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:52.792224",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134652-1779",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:52.891797",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134652-1780",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T13:46:52.966422",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405134654-1781",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:54.016622",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134654-1782",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:54.111465",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134655-1783",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:46:54.998089",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134709-1784",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:09.314229",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134748-1785",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:48.345545",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134749-1786",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:49.107719",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405134749-1787",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:49.428445",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134750-1788",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:50.285495",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134750-1789",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:50.497628",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134751-1790",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:51.411164",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405134751-1791",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:47:51.613898",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135014-1792",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:14.386570",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135019-1793",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:19.555458",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135020-1794",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:20.885202",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135022-1795",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:22.951725",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135034-1796",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:34.234008",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135035-1797",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:35.630922",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135035-1798",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:35.722089",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135035-1799",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T13:50:35.812531",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405135037-1800",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:37.286140",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135037-1801",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:37.388497",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135038-1802",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:50:38.833588",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135103-1803",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:51:03.190818",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135248-1804",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:48.491907",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135249-1805",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:49.764088",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135250-1806",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:50.083603",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135251-1807",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:51.423207",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135251-1808",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:51.651112",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135252-1809",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:52.973447",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135253-1810",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:52:53.171866",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135919-1811",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:19.103902",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135924-1812",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:24.063732",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135925-1813",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:25.440077",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135927-1814",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:27.541989",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135938-1815",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:38.408847",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135939-1816",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:39.793373",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135939-1817",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:39.882555",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135939-1818",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T13:59:39.956020",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405135941-1819",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:41.377230",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405135941-1820",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:41.459393",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405135942-1821",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T13:59:42.748537",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140006-1822",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:00:06.358643",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140149-1823",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:49.116293",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140150-1824",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:50.411703",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405140150-1825",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:50.726991",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140152-1826",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:52.037431",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140152-1827",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:52.271975",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140153-1828",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:53.512897",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405140153-1829",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:01:53.724118",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144656-1830",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:46:56.135392",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144701-1831",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:01.557856",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405144702-1832",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:02.977372",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405144705-1833",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:05.224208",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144716-1834",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:16.725343",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144718-1835",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:18.241262",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144718-1836",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:18.326811",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405144718-1837",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T14:47:18.403479",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405144720-1838",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:19.998417",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144720-1839",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:20.091739",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405144721-1840",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:21.518769",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144746-1841",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:47:46.693712",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144930-1842",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:30.479411",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144931-1843",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:31.702079",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405144932-1844",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:32.017704",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144933-1845",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:33.413846",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144933-1846",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:33.647525",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144935-1847",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:34.990694",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405144935-1848",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:49:35.212179",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405145950-1849",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:59:50.656077",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405145955-1850",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:59:55.377310",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405145956-1851",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_deleted",
+    "description": "RFQ #RFQ-2026-TEST deleted",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:59:56.662614",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405145958-1852",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T14:59:58.839600",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150009-1853",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:09.372633",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150010-1854",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:10.786975",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150010-1855",
+    "ref_id": "R26Q1",
+    "event_type": "quote_won",
+    "description": "Quote R26Q1 marked WON \u2014 PO: PO-TEST-001",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:10.875593",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405150010-1856",
+    "ref_id": "R26Q1",
+    "event_type": "order_created",
+    "description": "Order ORD-R26Q1 created from quote R26Q1 \u2014 $662.17",
+    "actor": "system",
+    "timestamp": "2026-04-05T15:00:10.962234",
+    "metadata": {
+      "order_id": "ORD-R26Q1",
+      "institution": "CSP-Sacramento"
+    }
+  },
+  {
+    "id": "crm-20260405150012-1857",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:12.342951",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150012-1858",
+    "ref_id": "R26Q1",
+    "event_type": "quote_lost",
+    "description": "Quote R26Q1 marked LOST",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:12.424181",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405150013-1859",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:13.747229",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150037-1860",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:00:37.429483",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150220-1861",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:20.062747",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150221-1862",
+    "ref_id": "test-rfq-001",
+    "event_type": "rfq_pricing_finalized",
+    "description": "Pricing finalized for #RFQ-2026-TEST (1 items, catalog +0/~1)",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:21.349961",
+    "metadata": {}
+  },
+  {
+    "id": "crm-20260405150221-1863",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated from RFQ RFQ-2026-TEST \u2014 $988.32",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:21.660730",
+    "metadata": {
+      "rfq_id": "test-rfq-001",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150223-1864",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:22.994748",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150223-1865",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:23.232586",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150224-1866",
+    "ref_id": "R26Q1",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q1 generated \u2014 $662.17 for CSP-Sacramento",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:24.583459",
+    "metadata": {
+      "institution": "CSP-Sacramento",
+      "agency": "CDCR"
+    }
+  },
+  {
+    "id": "crm-20260405150224-1867",
+    "ref_id": "R26Q2",
+    "event_type": "quote_generated",
+    "description": "Quote R26Q2 generated \u2014 $10.88 for CIM",
+    "actor": "user",
+    "timestamp": "2026-04-05T15:02:24.801037",
+    "metadata": {
+      "institution": "CIM",
+      "agency": "CDCR"
+    }
   }
 ]

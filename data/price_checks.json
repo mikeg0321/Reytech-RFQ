@@ -1,17 +1,135 @@
 {
-  "test_migration_001": {
-    "id": "test_migration_001",
-    "pc_number": "TEST-001",
-    "institution": "Test Hospital",
-    "requestor": "Jane Doe",
+  "PC001": {
+    "id": "PC001",
+    "pc_number": "PC001",
+    "institution": "",
+    "requestor": "Buyer",
     "items": [
       {
-        "description": "Test Gloves",
-        "qty": 100,
-        "uom": "BX"
+        "description": "Paper"
       }
     ],
-    "status": "draft",
-    "created_at": "2026-03-06T12:00:00"
+    "source_pdf": "",
+    "status": "parsed",
+    "created_at": "2026-01-01",
+    "reytech_quote_number": "",
+    "email_uid": "",
+    "email_subject": "",
+    "due_date": "",
+    "source": "email_auto"
+  },
+  "PCL1": {
+    "id": "PCL1",
+    "pc_number": "PCL1",
+    "institution": "",
+    "requestor": "",
+    "items": [],
+    "source_pdf": "",
+    "status": "parsed",
+    "created_at": "2026-01-01",
+    "reytech_quote_number": "",
+    "email_uid": "",
+    "email_subject": "",
+    "due_date": "",
+    "source": "email_auto"
+  },
+  "PCL2": {
+    "id": "PCL2",
+    "pc_number": "PCL2",
+    "institution": "",
+    "requestor": "",
+    "items": [],
+    "source_pdf": "",
+    "status": "sent",
+    "created_at": "2026-01-02",
+    "reytech_quote_number": "",
+    "email_uid": "",
+    "email_subject": "",
+    "due_date": "",
+    "source": "email_auto"
+  },
+  "PCU1": {
+    "id": "PCU1",
+    "pc_number": "PCU1",
+    "institution": "",
+    "requestor": "",
+    "items": [],
+    "source_pdf": "",
+    "status": "sent",
+    "created_at": "2026-01-01",
+    "reytech_quote_number": "",
+    "email_uid": "",
+    "email_subject": "",
+    "due_date": "",
+    "source": "email_auto"
+  },
+  "PIPC1": {
+    "id": "PIPC1",
+    "pc_number": "PIPC1",
+    "institution": "",
+    "requestor": "",
+    "items": [],
+    "source_pdf": "",
+    "status": "parsed",
+    "created_at": "2026-01-01",
+    "reytech_quote_number": "",
+    "email_uid": "",
+    "email_subject": "",
+    "due_date": "",
+    "source": "email_auto"
+  },
+  "test-pc-001": {
+    "id": "test-pc-001",
+    "pc_number": "OS - Den - Feb",
+    "institution": "CSP-Sacramento",
+    "requestor": "",
+    "items": [
+      {
+        "item_number": "1",
+        "qty": 22,
+        "uom": "EA",
+        "description": "Engraved two line name tag, black/white",
+        "no_bid": false,
+        "pricing": {
+          "amazon_price": 12.58,
+          "amazon_title": "Custom Engraved Name Tag",
+          "amazon_url": "https://amazon.com/dp/B07TEST123",
+          "amazon_asin": "B07TEST123",
+          "recommended_price": 15.72,
+          "price_source": "amazon",
+          "unit_cost": 12.58,
+          "markup_pct": 25.0
+        },
+        "vendor_cost": 12.58,
+        "profit_unit": 3.14,
+        "profit_total": 69.08,
+        "margin_pct": 20.0,
+        "markup_pct": 25.0,
+        "unit_price": 15.72
+      },
+      {
+        "item_number": "2",
+        "qty": 5,
+        "uom": "BOX",
+        "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+        "no_bid": false,
+        "pricing": {
+          "amazon_price": 42.99,
+          "amazon_title": "Amazon Basics Copy Paper",
+          "amazon_url": "https://amazon.com/dp/B00TEST456",
+          "amazon_asin": "B00TEST456",
+          "recommended_price": 53.74,
+          "price_source": "amazon"
+        }
+      }
+    ],
+    "source_pdf": "/tmp/test.pdf",
+    "status": "priced",
+    "created_at": "",
+    "reytech_quote_number": "",
+    "email_uid": "",
+    "email_subject": "",
+    "due_date": "",
+    "source": "email_auto"
   }
 }

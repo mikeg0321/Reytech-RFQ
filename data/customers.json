@@ -1120,5 +1120,37 @@
     "open_balance": 0.0,
     "source": "dsh.ca.gov",
     "is_parent_org": false
+  },
+  {
+    "qb_name": "Test Customer QA",
+    "display_name": "Test Customer QA",
+    "company": "Test Customer QA",
+    "parent": "",
+    "agency": "CDCR",
+    "abbreviation": "",
+    "address": "",
+    "city": "Test City",
+    "state": "CA",
+    "zip": "",
+    "phone": "",
+    "email": "",
+    "open_balance": 0,
+    "source": "manual"
+  },
+  {
+    "qb_name": "Duplicate Test",
+    "display_name": "Duplicate Test",
+    "company": "Duplicate Test",
+    "parent": "",
+    "agency": "DEFAULT",
+    "abbreviation": "",
+    "address": "",
+    "city": "",
+    "state": "CA",
+    "zip": "",
+    "phone": "",
+    "email": "",
+    "open_balance": 0,
+    "source": "manual"
   }
 ]

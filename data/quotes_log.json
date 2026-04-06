@@ -1,7 +1,7 @@
 [
   {
     "quote_number": "R26Q2",
-    "status": "pending",
+    "status": "expired",
     "total": 10.0,
     "subtotal": 10.0,
     "tax": 0,
@@ -27,7 +27,7 @@
   },
   {
     "quote_number": "R26Q16",
-    "status": "sent",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -53,7 +53,7 @@
   },
   {
     "quote_number": "R26Q99",
-    "status": "pending",
+    "status": "expired",
     "total": 1271.21,
     "subtotal": 1185.28,
     "tax": 85.93,
@@ -91,7 +91,7 @@
   },
   {
     "quote_number": "R26Q22",
-    "status": "pending",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -117,7 +117,7 @@
   },
   {
     "quote_number": "R26Q21",
-    "status": "pending",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -143,7 +143,7 @@
   },
   {
     "quote_number": "R26Q20",
-    "status": "pending",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -169,7 +169,7 @@
   },
   {
     "quote_number": "R26Q19",
-    "status": "pending",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -195,7 +195,7 @@
   },
   {
     "quote_number": "R26Q18",
-    "status": "pending",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
@@ -221,7 +221,7 @@
   },
   {
     "quote_number": "R26Q17",
-    "status": "sent",
+    "status": "expired",
     "total": 562.68,
     "subtotal": 524.64,
     "tax": 38.04,
