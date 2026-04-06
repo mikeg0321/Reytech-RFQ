@@ -408,6 +408,13 @@ def _pricecheck_detail_inner(pcid):
             if cleaned != original:
                 item["description_raw"] = original
                 item["description"] = cleaned
+        # Strip URLs that got pasted into descriptions (from LLM bulk paste)
+        import re as _re_desc
+        _desc_val = item.get("description", "")
+        if _desc_val and _re_desc.search(r'https?://', _desc_val):
+            _cleaned_desc = _re_desc.sub(r'\s*https?://\S+', '', _desc_val).strip()
+            if _cleaned_desc and len(_cleaned_desc) >= 5:
+                item["description"] = _cleaned_desc
         display_desc = item.get("description") or raw_desc or ""
         # Cost sources (ensure numeric types — JSON data can have strings)
         def _safe_float(v, default=0):
@@ -9385,6 +9392,9 @@ def api_bulk_scrape_urls(pcid):
                 item["item_number"] = _pn
                 item["mfg_number"] = _pn
             _title = r.get("title") or r.get("description") or _parsed_desc or ""
+            # Strip any URLs from title/desc before saving to description
+            if _title:
+                _title = _re_bulk.sub(r'\s*https?://\S+', '', _title).strip()
             if _title and (not item.get("description") or len(item.get("description", "")) < 10):
                 item["description"] = _title
             # Apply parsed qty if we got one and item has no qty

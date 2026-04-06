@@ -2836,6 +2836,8 @@ def api_rfq_bulk_scrape_urls(rid):
             if _pn:
                 item["item_number"] = _pn
             _desc = res.get("title") or res.get("description") or _parsed_desc or ""
+            if _desc:
+                _desc = _re_mod.sub(r'\s*https?://\S+', '', _desc).strip()
             if _desc and (not item.get("description") or len(item.get("description", "")) < 10):
                 item["description"] = _desc
             if _parsed_qty > 0 and (not item.get("qty") or item.get("qty") == 1):
