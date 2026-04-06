@@ -1632,16 +1632,9 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
     return redirect(f"/pricecheck/{pc_id}")
 
 
-def _load_price_checks():
-    """Delegate to dashboard's DB-primary implementation."""
-    from src.api.dashboard import _load_price_checks as _db_load
-    return _db_load()
-
-
-def _save_price_checks(pcs):
-    """Delegate to dashboard's DB-primary implementation."""
-    from src.api.dashboard import _save_price_checks as _db_save
-    _db_save(pcs)
+# _load_price_checks and _save_price_checks are inherited from dashboard.py globals
+# via exec() module loading. Do NOT redefine them here — it overwrites the originals
+# and creates circular imports (routes_rfq wrapper → dashboard import → gets wrapper back).
 
 
 @bp.route("/rfq/<rid>")
