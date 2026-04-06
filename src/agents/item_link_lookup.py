@@ -77,6 +77,7 @@ SUPPLIER_MAP = {
     "myotcstore.com":        "MyOTCStore",
     "allegromedical.com":    "Allegro Medical",
     "target.com":            "Target",
+    "dollartree.com":        "Dollar Tree",
 }
 
 def detect_supplier(url: str) -> str:
@@ -942,6 +943,84 @@ def _try_authenticated_lookup(url: str) -> dict | None:
         return None
 
 
+def _lookup_dollartree(url: str) -> dict:
+    """Dollar Tree: extract product data. Uses JSON-LD + meta tags.
+    URL slug contains product name; item number from path or page."""
+    import json as _json
+    if not HAS_REQUESTS:
+        return {"error": "requests not available", "supplier": "Dollar Tree"}
+
+    result = {"supplier": "Dollar Tree", "url": url}
+
+    # Extract item number from URL path — e.g., /product-name/12345
+    path = urlparse(url).path.rstrip("/")
+    # Dollar Tree URLs can end with item number: /product-name/12345
+    _num_match = re.search(r'/(\d{4,8})$', path)
+    if _num_match:
+        result["part_number"] = _num_match.group(1)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                      "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        html = resp.text
+    except Exception as e:
+        return {**result, "error": str(e)}
+
+    # JSON-LD Product data
+    for ld_match in re.finditer(r'<script[^>]*type\s*=\s*"application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
+        try:
+            ld = _json.loads(ld_match.group(1))
+            if isinstance(ld, list):
+                ld = next((x for x in ld if x.get("@type") == "Product"), ld[0] if ld else {})
+            if ld.get("@type") == "Product":
+                result["title"] = ld.get("name", "")
+                result["description"] = ld.get("description", "")
+                result["manufacturer"] = ld.get("brand", {}).get("name", "") if isinstance(ld.get("brand"), dict) else str(ld.get("brand", ""))
+                if ld.get("sku"):
+                    result["part_number"] = str(ld["sku"])
+                if ld.get("mpn"):
+                    result["mfg_number"] = str(ld["mpn"])
+                offers = ld.get("offers", {})
+                if isinstance(offers, list):
+                    offers = offers[0] if offers else {}
+                if offers.get("price"):
+                    try:
+                        result["price"] = float(offers["price"])
+                    except (ValueError, TypeError):
+                        pass
+                break
+        except (_json.JSONDecodeError, TypeError):
+            pass
+
+    # Fallback: title from <title> tag
+    if not result.get("title"):
+        m = re.search(r'<title[^>]*>([^<]{5,200})</title>', html, re.IGNORECASE)
+        if m:
+            title = m.group(1).strip()
+            title = re.split(r'\s*[|\-–]\s*Dollar\s*Tree', title, flags=re.IGNORECASE)[0].strip()
+            result["title"] = title
+
+    # Fallback: price from meta or data attributes
+    if not result.get("price"):
+        for pat in [r'itemprop\s*=\s*"price"[^>]*content\s*=\s*"(\d+\.?\d*)"',
+                    r'"price"\s*:\s*"?(\d+\.\d{2})"?',
+                    r'data-price\s*=\s*"(\d+\.\d{2})"']:
+            m = re.search(pat, html, re.IGNORECASE)
+            if m:
+                try:
+                    result["price"] = float(m.group(1))
+                    break
+                except (ValueError, TypeError):
+                    pass
+
+    return result
+
+
 def lookup_from_url(url: str) -> dict:
     """
     Given any supplier product URL, return structured product data.
@@ -1008,6 +1087,8 @@ def lookup_from_url(url: str) -> dict:
             result = _lookup_ssww(url)
         elif "target.com" in host:
             result = _lookup_target(url)
+        elif "dollartree.com" in host:
+            result = _lookup_dollartree(url)
         else:
             # Generic HTML scrape for all other suppliers
             result = _scrape_generic(url)
