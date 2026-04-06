@@ -421,7 +421,7 @@ def home():
             pass
 
     # Same for RFQs — split active from sent/completed
-    _actionable_rfq = {"new", "draft", "ready", "generated", "parsed"}
+    _actionable_rfq = {"new", "draft", "ready", "generated", "parsed", "priced"}
     all_rfqs = load_rfqs()
     active_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in _actionable_rfq}
     # Filter ghost RFQs: 0 items + no real solicitation
