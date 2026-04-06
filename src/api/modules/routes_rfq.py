@@ -1066,6 +1066,7 @@ def api_rfq_upload_parse_doc(rid):
                 cost = 0.0
 
             new_item = {"description": desc, "qty": qty, "uom": uom,
+                        "line_number": added + 1,
                         "part_number": part, "item_number": part,
                         "supplier_cost": cost if cost > 0 else 0,
                         "price_per_unit": 0, "markup_pct": 0}

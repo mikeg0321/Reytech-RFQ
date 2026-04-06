@@ -314,6 +314,7 @@ def parse_with_vision(file_path: str, mode: str = "standard") -> Optional[dict]:
     line_items = []
     for i, item in enumerate(raw_items):
         line_items.append({
+            "line_number": i + 1,
             "item_number": str(item.get("item_number", i + 1)),
             "qty": int(item.get("qty", 1)),
             "uom": str(item.get("uom", "each")).lower(),
@@ -421,6 +422,7 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
     line_items = []
     for i, item in enumerate(raw_items):
         line_items.append({
+            "line_number": i + 1,
             "item_number": str(item.get("item_number", i + 1)),
             "qty": int(item.get("qty", 1)),
             "uom": str(item.get("uom", "each")).lower(),

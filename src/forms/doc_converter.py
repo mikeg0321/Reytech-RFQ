@@ -210,7 +210,8 @@ def parse_items_from_text(text: str) -> list:
         nonlocal current_desc, current_qty, current_uom, current_part, current_asin
         if current_desc and len(current_desc) >= 5:
             items.append({
-                "item_number": str(len(items) + 1),
+                "line_number": len(items) + 1,
+                "item_number": current_part or current_asin or str(len(items) + 1),
                 "qty": current_qty,
                 "uom": current_uom,
                 "qty_per_uom": 1,
