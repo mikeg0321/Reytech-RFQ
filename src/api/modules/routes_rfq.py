@@ -2784,29 +2784,62 @@ def api_rfq_bulk_scrape_urls(rid):
     items = r.get("line_items", [])
     results = []
     applied = 0
-    for i, url in enumerate(urls):
-        url = (url or "").strip()
+    for i, raw_line in enumerate(urls):
+        raw_line = (raw_line or "").strip()
         # Strip numbered prefixes like "1. " or "19. "
-        url = _re_mod.sub(r'^\d+\.\s*', '', url)
-        if not url:
+        raw_line = _re_mod.sub(r'^\d+[\.\)]\s*', '', raw_line)
+        if not raw_line:
             results.append({"line": i + 1, "url": "", "status": "skipped"})
             continue
         if i >= len(items):
-            results.append({"line": i + 1, "url": url[:60], "status": "skipped"})
+            results.append({"line": i + 1, "url": raw_line[:60], "status": "skipped"})
             continue
+
+        # ── Smart extraction: pull URL from mixed-content lines ──
+        # Handles LLM output like: "1,24,SKU 343586,Each,Description,https://..."
+        _url_match = _re_mod.search(r'(https?://\S+)', raw_line)
+        if _url_match:
+            url = _url_match.group(1).rstrip('.,;)')
+            _pre = raw_line[:_url_match.start()].strip().rstrip(',')
+        else:
+            url = raw_line
+            _pre = ""
+
+        # Parse CSV fields from prefix if present
+        _parsed_desc = ""
+        _parsed_mfg = ""
+        _parsed_qty = 0
+        if _pre and ',' in _pre:
+            _parts = [p.strip() for p in _pre.split(',')]
+            for _part in _parts:
+                if not _part:
+                    continue
+                if _re_mod.match(r'^(SKU|MFG|PN|Item)\s*#?\s*\d', _part, _re_mod.IGNORECASE):
+                    _parsed_mfg = _re_mod.sub(r'^(SKU|MFG|PN|Item)\s*#?\s*', '', _part, flags=_re_mod.IGNORECASE).strip()
+                elif _re_mod.match(r'^\d{1,4}$', _part) and not _parsed_qty:
+                    _v = int(_part)
+                    if 0 < _v < 10000:
+                        _parsed_qty = _v
+                elif len(_part) > 10 and not _re_mod.match(r'^(Each|EA|CS|BX|PK|Case|Box|Pack|DZ|CT)$', _part, _re_mod.IGNORECASE):
+                    _parsed_desc = _part
+        elif _pre and len(_pre) > 5:
+            _parsed_desc = _pre
+
         try:
             from src.agents.item_link_lookup import lookup_from_url, detect_supplier
             res = lookup_from_url(url)
             item = items[i]
             # Always apply URL, supplier, MFG#, description — even without price
-            item["item_link"] = url
+            item["item_link"] = res.get("url", url)
             item["item_supplier"] = detect_supplier(url)
-            _pn = res.get("mfg_number") or res.get("part_number") or ""
+            _pn = res.get("mfg_number") or res.get("part_number") or _parsed_mfg or ""
             if _pn:
                 item["item_number"] = _pn
-            _desc = res.get("title") or res.get("description") or ""
+            _desc = res.get("title") or res.get("description") or _parsed_desc or ""
             if _desc and (not item.get("description") or len(item.get("description", "")) < 10):
                 item["description"] = _desc
+            if _parsed_qty > 0 and (not item.get("qty") or item.get("qty") == 1):
+                item["qty"] = _parsed_qty
             # Apply pricing if found
             price = res.get("price") or res.get("list_price") or res.get("cost")
             if price:
