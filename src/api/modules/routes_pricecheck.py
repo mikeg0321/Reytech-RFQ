@@ -9114,6 +9114,164 @@ def api_rescrape_unpriced(pcid):
                     "total_items": len(items)})
 
 
+@bp.route("/api/pricecheck/<pcid>/auto-price", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_auto_price(pcid):
+    """Auto-price all items: catalog match → scrape catalog URLs → Amazon fallback."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items", [])
+    if not items:
+        return jsonify({"ok": False, "error": "No items"})
+
+    results = []
+    priced = 0
+    default_markup = pc.get("default_markup") or 25
+
+    # Step 1: Catalog batch match
+    catalog_urls = {}
+    try:
+        from src.agents.product_catalog import match_items_batch, init_catalog_db
+        init_catalog_db()
+        batch_input = [
+            {"idx": i, "description": it.get("description", ""),
+             "part_number": it.get("mfg_number", "") or it.get("item_number", "") or it.get("part_number", "")}
+            for i, it in enumerate(items)
+        ]
+        batch_results = match_items_batch(batch_input)
+        for m in batch_results:
+            idx = m.get("idx")
+            if idx is not None and m.get("matched"):
+                catalog_urls[idx] = {
+                    "url": m.get("supplier_url") or m.get("best_supplier_url") or "",
+                    "cost": m.get("best_cost") or m.get("cost") or 0,
+                    "supplier": m.get("best_supplier") or m.get("best_supplier_name") or "",
+                    "mfg": m.get("mfg_number") or m.get("sku") or "",
+                    "name": m.get("canonical_name") or "",
+                    "confidence": m.get("confidence") or 0,
+                }
+    except Exception as e:
+        log.warning("Auto-price PC catalog match: %s", e)
+
+    # Step 2: For each item — catalog URL scrape → catalog cost → Amazon
+    for i, item in enumerate(items):
+        desc = item.get("description", "")
+        if not desc or len(desc) < 5:
+            results.append({"line": i + 1, "status": "skipped", "note": "No description"})
+            continue
+
+        p = item.get("pricing") or {}
+        cat = catalog_urls.get(i)
+        price = 0
+        source = ""
+        supplier = ""
+        mfg = ""
+        url = ""
+
+        # 2a: Catalog URL → fresh scrape
+        if cat and cat.get("url"):
+            try:
+                from src.agents.item_link_lookup import lookup_from_url, detect_supplier
+                res = lookup_from_url(cat["url"])
+                _p = res.get("price") or res.get("list_price") or res.get("cost")
+                if _p:
+                    try:
+                        price = float(_p)
+                    except (ValueError, TypeError):
+                        price = 0
+                if price > 0:
+                    source = "catalog_url"
+                    supplier = detect_supplier(cat["url"])
+                    url = cat["url"]
+                    mfg = res.get("mfg_number") or res.get("part_number") or cat.get("mfg", "")
+            except Exception as e:
+                log.debug("Auto-price PC catalog URL line %d: %s", i + 1, e)
+
+        # 2b: Catalog cost fallback
+        if price <= 0 and cat and float(cat.get("cost", 0)) > 0:
+            price = float(cat["cost"])
+            source = "catalog"
+            supplier = cat.get("supplier", "")
+            mfg = cat.get("mfg", "")
+            url = cat.get("url", "")
+
+        # 2c: Amazon search
+        if price <= 0:
+            try:
+                from src.agents.product_research import search_amazon
+                amz = search_amazon(desc[:120], max_results=1)
+                if amz and amz[0].get("price", 0) > 0:
+                    price = float(amz[0]["price"])
+                    source = "amazon"
+                    supplier = "Amazon"
+                    url = amz[0].get("url", "")
+                    mfg = amz[0].get("mfg_number", "") or amz[0].get("item_number", "")
+            except Exception as e:
+                log.debug("Auto-price PC Amazon line %d: %s", i + 1, e)
+
+        # 2d: Apply
+        if price > 0:
+            if not p:
+                p = {}
+                item["pricing"] = p
+            p["unit_cost"] = price
+            p["source"] = source
+            if url:
+                p["source_url"] = url
+                item["item_link"] = url
+            if supplier:
+                item["item_supplier"] = supplier
+            if mfg:
+                item["mfg_number"] = mfg
+                item["item_number"] = mfg
+            markup = p.get("markup_pct") or default_markup
+            try:
+                markup = float(markup)
+            except (ValueError, TypeError):
+                markup = 25
+            p["markup_pct"] = markup
+            p["recommended_price"] = round(price * (1 + markup / 100), 2)
+            item["vendor_cost"] = price
+            item["unit_price"] = p["recommended_price"]
+            priced += 1
+            results.append({
+                "line": i + 1, "status": "ok", "source": source,
+                "price": price, "supplier": supplier, "mfg": mfg,
+                "url": url[:60] if url else "",
+                "catalog_confidence": cat.get("confidence", 0) if cat else 0,
+            })
+        elif cat:
+            if cat.get("url") and not item.get("item_link"):
+                item["item_link"] = cat["url"]
+            if cat.get("mfg") and not item.get("mfg_number"):
+                item["mfg_number"] = cat["mfg"]
+            results.append({
+                "line": i + 1, "status": "linked", "source": "catalog",
+                "note": "Catalog matched, no live price",
+                "catalog_confidence": cat.get("confidence", 0),
+            })
+        else:
+            results.append({"line": i + 1, "status": "no_match"})
+
+        if source in ("catalog_url", "amazon"):
+            import time
+            time.sleep(0.5)
+
+    if priced > 0:
+        _save_single_pc(pcid, pc)
+        try:
+            from src.agents.product_catalog import save_pc_items_to_catalog
+            save_pc_items_to_catalog(pc)
+        except Exception:
+            pass
+
+    return jsonify({"ok": True, "results": results, "priced": priced, "total": len(items),
+                    "catalog_matched": len(catalog_urls)})
+
+
 @bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls", methods=["POST"])
 @auth_required
 @safe_route

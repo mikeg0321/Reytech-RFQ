@@ -408,6 +408,8 @@
       <div id="pricingToolsMenu" style="display:none;position:absolute;top:40px;left:0;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px 0;min-width:220px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4)">
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runScprs(this)" style="display:block;padding:8px 16px;font-size:13px;color:#58a6ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">SCPRS Lookup — State contracts</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runCatalogMatch(this)" style="display:block;padding:8px 16px;font-size:13px;color:#3fb950;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Catalog Match — Our products</a>
+       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';runAutoPrice()" style="display:block;padding:8px 16px;font-size:13px;color:#f0883e;text-decoration:none;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">🔍 Auto-Price All — Catalog + Amazon</a>
+       <div style="border-top:1px solid #30363d;margin:4px 0"></div>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';openBulkPaste()" style="display:block;padding:8px 16px;font-size:13px;color:#d2a8ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Bulk Paste URLs</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';rescrapeUnpriced(this)" style="display:block;padding:8px 16px;font-size:13px;color:#d29922;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Re-scrape Missing Prices</a>
       </div>
@@ -3351,6 +3353,42 @@
      var menu=document.getElementById('pricingToolsMenu');
      if(wrap&&menu&&!wrap.contains(e.target))menu.style.display='none';
     });
+
+    // ── AUTO-PRICE ALL (Catalog + Amazon) ──
+    function runAutoPrice(){
+     var menu=document.getElementById('pricingToolsMenu');
+     if(menu) menu.style.display='none';
+     if(!confirm('Auto-Price will match all items against the product catalog and Amazon.\n\nItems with existing catalog URLs get fresh pricing scraped.\nUnmatched items get Amazon search.\n\nThis may take 30-60 seconds. Continue?')) return;
+     var prog=document.createElement('div');
+     prog.id='autoPrice-progress';
+     prog.style.cssText='margin:10px 0;padding:12px 16px;border-radius:8px;background:rgba(240,136,62,.08);border:1px solid rgba(240,136,62,.3);font-size:14px;color:#f0883e';
+     prog.innerHTML='🔍 <b>Auto-Pricing...</b> Matching catalog → Scraping URLs → Amazon search. Please wait...';
+     var target=document.querySelector('.meta')||document.querySelector('.items-wrap');
+     if(target&&target.parentNode) target.parentNode.insertBefore(prog,target.nextSibling);
+
+     fetch('/api/pricecheck/'+_pcid+'/auto-price',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'})
+     .then(function(r){return r.json()}).then(function(d){
+      var el=document.getElementById('autoPrice-progress');
+      if(el) el.remove();
+      if(!d.ok){alert('Auto-price failed: '+(d.error||'unknown'));return;}
+      var msg='Auto-Price Results:\n\n';
+      msg+='Catalog matched: '+d.catalog_matched+'/'+d.total+'\n';
+      msg+='Priced: '+d.priced+'/'+d.total+'\n\n';
+      var sources={catalog_url:0,catalog:0,amazon:0};
+      (d.results||[]).forEach(function(r){if(r.source&&sources[r.source]!==undefined)sources[r.source]++;});
+      if(sources.catalog_url)msg+='From catalog URLs: '+sources.catalog_url+'\n';
+      if(sources.catalog)msg+='From catalog cost: '+sources.catalog+'\n';
+      if(sources.amazon)msg+='From Amazon: '+sources.amazon+'\n';
+      var unpriced=d.total-d.priced;
+      if(unpriced>0)msg+='\n'+unpriced+' items still need manual pricing or URL paste.';
+      alert(msg);
+      if(d.priced>0)setTimeout(function(){location.reload()},500);
+     }).catch(function(e){
+      var el=document.getElementById('autoPrice-progress');
+      if(el) el.remove();
+      alert('Auto-price error: '+e);
+     });
+    }
 
     // ── BULK PASTE URLs ──
     function openBulkPaste(){var m=document.getElementById('bulkPasteModal');if(m)m.style.display='flex';}

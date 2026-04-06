@@ -155,6 +155,7 @@
   <button class="rfq-action-btn ab-upload" onclick="uploadDoc()" aria-label="Upload & Parse"><span class="ab-icon">📄</span><span class="ab-label">Upload & Parse</span><span class="ab-sub">Any format</span></button>
   <input type="file" id="doc-upload-input" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tiff,.xls,.xlsx,.doc,.docx" onchange="handleDocUpload(this)">
   <button class="rfq-action-btn ab-bulk" onclick="document.getElementById('bulkPasteModal').style.display='flex'" aria-label="Bulk Paste URLs"><span class="ab-icon">📋</span><span class="ab-label">Bulk Paste URLs</span><span class="ab-sub">Multi-item</span></button>
+  <button class="rfq-action-btn" id="autoPrice-btn" onclick="runAutoPrice()" aria-label="Auto-Price" style="background:rgba(63,185,80,.08);border-color:rgba(63,185,80,.3)"><span class="ab-icon">🔍</span><span class="ab-label">Auto-Price</span><span class="ab-sub">Catalog + Amazon</span></button>
  </div>
  <!-- E3: Auto-lookup progress bar -->
  <div id="lookup-progress" style="display:none;margin:10px 0;padding:10px 14px;border-radius:8px;background:var(--sf2);border:1px solid var(--bd)">
@@ -1082,6 +1083,45 @@ function handleRfqLinkInput(idx, inp){
  _linkDebounce['rfq_'+idx]=setTimeout(function(){
   _fireLinkLookup(idx,url,'rfq');
  }, url.indexOf('amazon.com')>=0?400:800); // Amazon faster — ASIN extract is instant
+}
+
+// ── Auto-Price (Catalog + Amazon) ──
+function runAutoPrice(){
+ var btn=document.getElementById('autoPrice-btn');
+ if(!btn) return;
+ var origHTML=btn.innerHTML;
+ btn.disabled=true;
+ btn.innerHTML='<span class="ab-icon">⏳</span><span class="ab-label">Pricing...</span><span class="ab-sub">Please wait</span>';
+
+ var prog=document.getElementById('lookup-progress');
+ if(prog){prog.style.display='block';
+  var steps=document.getElementById('lookup-steps');
+  if(steps) steps.innerHTML='Step 1: Matching items to catalog...<br>Step 2: Scraping catalog URLs for fresh pricing...<br>Step 3: Amazon search for unmatched items...';
+ }
+
+ fetch('/api/rfq/'+RID+'/auto-price',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'})
+ .then(function(r){return r.json()}).then(function(d){
+  btn.disabled=false;btn.innerHTML=origHTML;
+  if(prog) prog.style.display='none';
+  if(!d.ok){alert('Auto-price failed: '+(d.error||'unknown'));return;}
+  // Show results summary
+  var msg='Auto-Price Results:\n\n';
+  msg+='Catalog matched: '+d.catalog_matched+'/'+d.total+'\n';
+  msg+='Priced: '+d.priced+'/'+d.total+'\n\n';
+  var sources={catalog_url:0,catalog:0,amazon:0};
+  (d.results||[]).forEach(function(r){if(r.source&&sources[r.source]!==undefined)sources[r.source]++;});
+  if(sources.catalog_url)msg+='From catalog URLs: '+sources.catalog_url+'\n';
+  if(sources.catalog)msg+='From catalog cost: '+sources.catalog+'\n';
+  if(sources.amazon)msg+='From Amazon: '+sources.amazon+'\n';
+  var unpriced=d.total-d.priced;
+  if(unpriced>0)msg+='\n'+unpriced+' items still need manual pricing or URL paste.';
+  alert(msg);
+  if(d.priced>0)setTimeout(function(){location.reload()},500);
+ }).catch(function(e){
+  btn.disabled=false;btn.innerHTML=origHTML;
+  if(prog) prog.style.display='none';
+  alert('Auto-price error: '+e);
+ });
 }
 
 // ── Bulk Paste ──
