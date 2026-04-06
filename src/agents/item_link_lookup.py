@@ -944,79 +944,102 @@ def _try_authenticated_lookup(url: str) -> dict | None:
 
 
 def _lookup_dollartree(url: str) -> dict:
-    """Dollar Tree: extract product data. Uses JSON-LD + meta tags.
-    URL slug contains product name; item number from path or page."""
+    """Dollar Tree: SPA site (Oracle Commerce Cloud) — HTML has no product data.
+    Strategy: extract product ID from URL path, or extract search terms from slug,
+    then hit their public search API for structured product data."""
     import json as _json
     if not HAS_REQUESTS:
         return {"error": "requests not available", "supplier": "Dollar Tree"}
 
     result = {"supplier": "Dollar Tree", "url": url}
-
-    # Extract item number from URL path — e.g., /product-name/12345
     path = urlparse(url).path.rstrip("/")
-    # Dollar Tree URLs can end with item number: /product-name/12345
-    _num_match = re.search(r'/(\d{4,8})$', path)
-    if _num_match:
-        result["part_number"] = _num_match.group(1)
 
-    headers = {
+    # Extract product ID from URL — e.g., /product-name/343586
+    product_id = ""
+    _id_match = re.search(r'/(\d{4,8})$', path)
+    if _id_match:
+        product_id = _id_match.group(1)
+        result["part_number"] = product_id
+
+    # Extract search terms from URL slug for API query
+    slug = path.split("/")[-1] if "/" in path else path
+    # Remove trailing product ID if present
+    slug = re.sub(r'/?\d{4,8}$', '', slug)
+    # Convert slug to search query: "colgater-sensitive-" → "colgater sensitive"
+    search_q = re.sub(r'[-_]+', ' ', slug).strip()
+    if not search_q and not product_id:
+        return {**result, "error": "Could not extract product info from URL"}
+
+    # Hit Dollar Tree's public search API (Oracle Commerce Cloud)
+    api_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept": "application/json",
     }
-
     try:
-        resp = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
-        html = resp.text
-    except Exception as e:
-        return {**result, "error": str(e)}
+        api_url = f"https://www.dollartree.com/ccstoreui/v1/search?Ntt={requests.utils.quote(search_q)}&No=0&Nrpp=5"
+        resp = requests.get(api_url, headers=api_headers, timeout=15)
+        if resp.status_code != 200:
+            return {**result, "error": f"API returned {resp.status_code}"}
+        data = resp.json()
+        records = data.get("resultsList", {}).get("records", [])
+        if not records:
+            return {**result, "error": "No products found"}
 
-    # JSON-LD Product data
-    for ld_match in re.finditer(r'<script[^>]*type\s*=\s*"application/ld\+json"[^>]*>(.*?)</script>', html, re.DOTALL | re.IGNORECASE):
-        try:
-            ld = _json.loads(ld_match.group(1))
-            if isinstance(ld, list):
-                ld = next((x for x in ld if x.get("@type") == "Product"), ld[0] if ld else {})
-            if ld.get("@type") == "Product":
-                result["title"] = ld.get("name", "")
-                result["description"] = ld.get("description", "")
-                result["manufacturer"] = ld.get("brand", {}).get("name", "") if isinstance(ld.get("brand"), dict) else str(ld.get("brand", ""))
-                if ld.get("sku"):
-                    result["part_number"] = str(ld["sku"])
-                if ld.get("mpn"):
-                    result["mfg_number"] = str(ld["mpn"])
-                offers = ld.get("offers", {})
-                if isinstance(offers, list):
-                    offers = offers[0] if offers else {}
-                if offers.get("price"):
-                    try:
-                        result["price"] = float(offers["price"])
-                    except (ValueError, TypeError):
-                        pass
+        # Find best match — prefer exact product ID match
+        best = None
+        for rec in records:
+            inner = rec.get("records", [{}])
+            attrs = (inner[0] if inner else rec).get("attributes", {})
+            pid = (attrs.get("product.id") or [""])[0]
+            if product_id and pid == product_id:
+                best = attrs
                 break
-        except (_json.JSONDecodeError, TypeError):
-            pass
+        if not best:
+            # Use first result
+            inner = records[0].get("records", [{}])
+            best = (inner[0] if inner else records[0]).get("attributes", {})
 
-    # Fallback: title from <title> tag
-    if not result.get("title"):
-        m = re.search(r'<title[^>]*>([^<]{5,200})</title>', html, re.IGNORECASE)
-        if m:
-            title = m.group(1).strip()
-            title = re.split(r'\s*[|\-–]\s*Dollar\s*Tree', title, flags=re.IGNORECASE)[0].strip()
-            result["title"] = title
+        # Extract fields
+        result["title"] = (best.get("product.displayName") or [""])[0]
+        result["description"] = (best.get("product.longDescription") or [result.get("title", "")])[0]
+        result["manufacturer"] = (best.get("product.brand") or [""])[0]
+        result["part_number"] = (best.get("product.id") or [product_id])[0]
 
-    # Fallback: price from meta or data attributes
-    if not result.get("price"):
-        for pat in [r'itemprop\s*=\s*"price"[^>]*content\s*=\s*"(\d+\.?\d*)"',
-                    r'"price"\s*:\s*"?(\d+\.\d{2})"?',
-                    r'data-price\s*=\s*"(\d+\.\d{2})"']:
-            m = re.search(pat, html, re.IGNORECASE)
-            if m:
-                try:
-                    result["price"] = float(m.group(1))
-                    break
-                except (ValueError, TypeError):
-                    pass
+        # Price: unit price (per item)
+        unit_price = (best.get("product.x_unitprice") or best.get("sku.activePrice") or [""])[0]
+        if unit_price:
+            try:
+                result["price"] = float(unit_price)
+            except (ValueError, TypeError):
+                pass
+
+        # Also capture case pricing for reference
+        case_price = (best.get("product.casePrice") or [""])[0]
+        case_pack = (best.get("DollarProductType.casePackSize") or [""])[0]
+        if case_price and case_pack:
+            try:
+                cp = float(case_price)
+                cpk = int(case_pack)
+                if cp > 0 and cpk > 0:
+                    result["shipping_note"] = f"Case of {cpk}: ${cp:.2f} (${cp/cpk:.2f}/ea)"
+            except (ValueError, TypeError):
+                pass
+
+        # UPC as mfg_number fallback
+        upcs = (best.get("DollarProductType.UPCs") or [""])[0]
+        if upcs and not result.get("mfg_number"):
+            # Take first UPC (may be comma-separated)
+            result["mfg_number"] = upcs.split(",")[0].strip()
+
+        # Canonical URL
+        route = (best.get("product.route") or [""])[0]
+        if route:
+            result["url"] = f"https://www.dollartree.com{route}"
+
+    except Exception as e:
+        log.debug("Dollar Tree API error: %s", e)
+        return {**result, "error": str(e)}
 
     return result
 
