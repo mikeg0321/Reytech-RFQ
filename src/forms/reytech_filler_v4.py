@@ -40,6 +40,15 @@ def _sanitize_for_pdf(text: str) -> str:
     text = text.encode("ascii", errors="replace").decode("ascii")
     return text
 
+
+def _sol_display(val: str) -> str:
+    """Normalize solicitation number for form fields.
+    If missing or 'unknown', display 'RFQ' instead."""
+    if not val or val.strip().lower() == "unknown":
+        return "RFQ"
+    return val
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # FORM FIELD OWNERSHIP RULES (hard rules — never violate)
 # Per buyer feedback: Grace Pfost, CCHCS AMS PS, 2026-03-17
@@ -535,7 +544,7 @@ def fill_703c(input_path, rfq_data, config, output_path):
         f"{p}BidExpirationDate": bid_exp,
         f"{p}Date": sign_date,
         # Solicitation
-        f"{p}Solicitation Number": rfq_data.get("solicitation_number", ""),
+        f"{p}Solicitation Number": _sol_display(rfq_data.get("solicitation_number", "")),
         f"{p}Release Date": rfq_data.get("release_date", ""),
         f"{p}Due Date": rfq_data.get("due_date", ""),
         f"{p}Deliveries must be completed within": rfq_data.get("delivery_days", "30"),
@@ -602,7 +611,7 @@ def fill_703b(input_path, rfq_data, config, output_path):
         "703B_Certification Expiration Date": company["cert_expiration"],
         "703B_Payment discount offered on invoices to be paid within": "N/A",
         "703B_days of receipt": "0",
-        "703B_Solicitation Number": rfq_data.get("solicitation_number", ""),
+        "703B_Solicitation Number": _sol_display(rfq_data.get("solicitation_number", "")),
         "703B_Release Date": rfq_data.get("release_date", ""),
         "703B_Due Date": rfq_data.get("due_date", ""),
         "703B_BidExpirationDate": bid_exp,
@@ -885,7 +894,7 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"PERSON PROVIDING QUOTE{sfx}"] = company["owner"]
         values[f"Person Providing Quote{sfx}"] = company["owner"]
         # Contract reference (vendor's contract number)
-        values[f"Contract_Number{sfx}"] = rfq_data.get("solicitation_number", "N/A")
+        values[f"Contract_Number{sfx}"] = _sol_display(rfq_data.get("solicitation_number", ""))
         # Vendor signature date (NOT the buyer's DATE field)
         values[f"SIGNATURE DATE{sfx}"] = sign_date
         values[f"Signature Date{sfx}"] = sign_date
@@ -1124,7 +1133,7 @@ def fill_obs1600(input_path, rfq_data, config, output_path, food_items=None):
     Uses fillable fields if present, otherwise overlays text.
     """
     sign_date = rfq_data.get("sign_date", get_pst_date())
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
     values = fill_obs1600_fields(rfq_data, config, food_items)
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
     
@@ -1151,7 +1160,7 @@ def fill_std1000(input_path, rfq_data, config, output_path):
     """Fill STD 1000 GenAI Reporting form with company info + line items.
     Line items are overlaid via ReportLab because pypdf multiline rendering is unreliable."""
     company = config["company"]
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
     values = {
@@ -1397,7 +1406,7 @@ def fill_cv012_cuf(input_path, rfq_data, config, output_path):
     """Fill CV 012 CUF Certification Form (both pages) with Reytech info + signature.
     Checkboxes and written statement are overlaid via ReportLab (XFA radios only allow one)."""
     company = config["company"]
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
     values = {
@@ -1869,7 +1878,7 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
     """
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
-    sol = rfq_data.get("solicitation_number", "") or rfq_data.get("rfq_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", "") or rfq_data.get("rfq_number", ""))
 
     values = {
         "Solicitaion #": sol,
@@ -2111,7 +2120,7 @@ def generate_dvbe_843(rfq_data, config, output_path):
     """Fill official DVBE 843 template (DGS PD 843 Rev. 9/2019)."""
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
 
     _data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
     template_path = os.path.join(_data_dir, "templates", "dvbe_843_blank.pdf")
@@ -2694,7 +2703,7 @@ def _calrecycle_fix_date(pdf_path, sign_date):
 def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
     """Fill CalRecycle 74 form with line items. Adds overflow pages for >6 items."""
     company = config["company"]
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
     sign_date = rfq_data.get("sign_date", get_pst_date())
     items = rfq_data.get("line_items", [])
 
@@ -2843,7 +2852,7 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
 
 def fill_bid_package(input_path, rfq_data, config, output_path):
     company = config["company"]
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
     sign_date = rfq_data.get("sign_date", get_pst_date())
 
     values = {
@@ -3070,7 +3079,7 @@ def generate_bid_package(rfq_data, templates, output_dir, config=None):
     if config is None:
         config = load_config()
     os.makedirs(output_dir, exist_ok=True)
-    sol = rfq_data["solicitation_number"]
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
     rfq_data = apply_pricing_to_rfq(rfq_data, config)
     print_pricing_summary(rfq_data)
     print(f"\nGenerating bid package for #{sol}...")
@@ -3238,7 +3247,7 @@ def fill_genai_708(input_path, rfq_data, config, output_path):
     """Fill AMS 708 GenAI Disclosure. Always: No GenAI used."""
     company = config["company"]
     sign_date = rfq_data.get("sign_date", get_pst_date())
-    sol = rfq_data.get("solicitation_number", "")
+    sol = _sol_display(rfq_data.get("solicitation_number", ""))
 
     values = {
         "Solicitation Number": sol, "Solicitation": sol, "Solicitation #": sol,

@@ -9018,7 +9018,7 @@ def api_rfq_package_contents(rid):
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"})
     
-    sol = r.get("solicitation_number", "unknown")
+    sol = r.get("solicitation_number", "RFQ") or "RFQ"
     out_dir = os.path.join(_DD, "output", sol)
     
     result = {"rfq_id": rid, "sol": sol, "agency": r.get("agency", ""), "files_in_dir": [], "package_pages": []}

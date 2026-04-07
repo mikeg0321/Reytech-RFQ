@@ -172,6 +172,7 @@
           🔒 Finalize Package
         </button>
         <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--tx2);margin-top:4px">Review all forms to enable</div>
+        <button class="btn btn-sm" style="width:100%;background:rgba(210,153,34,.15);color:#d29922;font-size:12px;padding:8px;border-radius:6px;margin-top:6px" onclick="forceApprove()">⚡ Force Approve (skip reviews)</button>
       </div>
       <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
         <a href="/api/rfq/{{ rid }}/download-complete-package" class="btn btn-sm" style="font-size:13px;width:100%;text-align:center;background:var(--ac);color:#fff;padding:8px;font-weight:600;margin-bottom:4px">⬇ Download Complete RFQ (All Forms)</a>
@@ -548,6 +549,25 @@ function finalizePackage(){
   _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
   document.getElementById('rv-finalize-hint').innerHTML = _dl;
  }).catch(function(e){alert('Finalize error: '+e.message);});
+}
+
+function forceApprove(){
+ if(!confirm('Force approve this package? This skips all form review checks.'))return;
+ fetch('/api/rfq/'+RID+'/manifest/'+MANIFEST_ID+'/approve?force=1',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'}})
+ .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){
+  if(!d.ok){alert('Force approve failed: '+(d.error||'unknown'));return;}
+  document.getElementById('rv-status-badge').textContent='APPROVED';
+  document.getElementById('rv-status-badge').style.background='rgba(63,185,80,.15)';
+  document.getElementById('rv-status-badge').style.color='#3fb950';
+  var btn=document.getElementById('rv-finalize-btn');
+  btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
+  var _pkgFn = {{ (manifest.package_filename or '')|tojson }} || 'RFQ_Package_'+SOL+'_ReytechInc.pdf';
+  var _dl = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
+  _dl += '<a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
+  _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
+  _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
+  document.getElementById('rv-finalize-hint').innerHTML = _dl;
+ }).catch(function(e){alert('Force approve error: '+e.message);});
 }
 
 function downloadAllForms() {

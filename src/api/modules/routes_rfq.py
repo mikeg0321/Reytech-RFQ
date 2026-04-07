@@ -8335,31 +8335,34 @@ def api_rfq_review_form(rid, manifest_id):
 @auth_required
 @safe_route
 def api_rfq_approve_package(rid, manifest_id):
-    """Approve the entire package (all forms must be reviewed first)."""
+    """Approve the entire package (all forms must be reviewed first).
+    Pass ?force=1 to skip pending/rejected/QA checks."""
     from src.core.dal import get_package_manifest, update_manifest_status, log_lifecycle_event
     manifest = get_package_manifest(manifest_id)
     if not manifest:
         return jsonify({"ok": False, "error": "Manifest not found"})
-    pending = [r for r in manifest.get("reviews", []) if r.get("verdict") == "pending"]
-    if pending:
-        return jsonify({"ok": False, "error": f"{len(pending)} forms still pending review",
-                        "pending": [r["form_id"] for r in pending]})
-    rejected = [r for r in manifest.get("reviews", []) if r.get("verdict") == "rejected"]
-    if rejected:
-        return jsonify({"ok": False, "error": f"{len(rejected)} forms rejected",
-                        "rejected": [r["form_id"] for r in rejected]})
-    # Block if Form QA failed
-    field_audit = manifest.get("field_audit") or {}
-    if isinstance(field_audit, str):
-        try:
-            field_audit = json.loads(field_audit)
-        except Exception:
-            field_audit = {}
-    if field_audit.get("_qa_passed") is False:
-        qa_issues = field_audit.get("_qa_summary", {}).get("critical_issues", [])
-        return jsonify({"ok": False,
-                        "error": f"Form QA failed with {len(qa_issues)} critical issue(s). Regenerate the package to fix.",
-                        "qa_issues": qa_issues[:5]})
+    force = request.args.get("force") == "1"
+    if not force:
+        pending = [r for r in manifest.get("reviews", []) if r.get("verdict") == "pending"]
+        if pending:
+            return jsonify({"ok": False, "error": f"{len(pending)} forms still pending review",
+                            "pending": [r["form_id"] for r in pending]})
+        rejected = [r for r in manifest.get("reviews", []) if r.get("verdict") == "rejected"]
+        if rejected:
+            return jsonify({"ok": False, "error": f"{len(rejected)} forms rejected",
+                            "rejected": [r["form_id"] for r in rejected]})
+        # Block if Form QA failed
+        field_audit = manifest.get("field_audit") or {}
+        if isinstance(field_audit, str):
+            try:
+                field_audit = json.loads(field_audit)
+            except Exception:
+                field_audit = {}
+        if field_audit.get("_qa_passed") is False:
+            qa_issues = field_audit.get("_qa_summary", {}).get("critical_issues", [])
+            return jsonify({"ok": False,
+                            "error": f"Form QA failed with {len(qa_issues)} critical issue(s). Regenerate the package to fix.",
+                            "qa_issues": qa_issues[:5]})
     ok = update_manifest_status(manifest_id, "approved")
     if ok:
         log_lifecycle_event("rfq", rid, "package_approved",
