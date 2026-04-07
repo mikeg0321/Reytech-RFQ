@@ -947,6 +947,8 @@ def generate_quote(
     if not bill_name: show_bill = False
 
     rfq_num = quote_data.get("rfq_number", quote_data.get("solicitation_number", ""))
+    if not rfq_num or str(rfq_num).strip().lower() == "unknown":
+        rfq_num = "RFQ"
     items   = quote_data.get("line_items", [])
 
     # ── Page constants ─────────────────────────────────────────────────────────
@@ -1711,7 +1713,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "to_address": to_addr,
         "ship_to_name": ship_name,
         "ship_to_address": ship_addr,
-        "rfq_number": rfq.get("solicitation_number", ""),
+        "rfq_number": rfq.get("solicitation_number", "") or "RFQ",
         "source_rfq_id": rfq.get("id", ""),
         "requestor_email": rfq.get("requestor_email", ""),
         "line_items": [],
