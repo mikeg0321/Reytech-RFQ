@@ -3321,11 +3321,12 @@ def fill_std205(input_path, rfq_data, config, output_path):
         "CITY1": city,
         "STATE1": state,
         "ZIPCODE1": zipcode,
-        # Do NOT fill contactName, TELEPHONE, EMAIL, or addresses 2-5
+        # Do NOT fill contactName, TELEPHONE, or addresses 2-5
         # Those are "additional contact information" — leave blank
         # Certification section
         "certName": f"{company.get('owner', '')}, {company.get('title', 'Owner')}",
         "certTelephone": company.get("phone", ""),
+        "EMAIL": company.get("email", ""),
         "TITLE": company.get("title", "Owner"),
         "DATE": sign_date,
     }
