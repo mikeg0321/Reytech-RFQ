@@ -155,9 +155,12 @@ def _run_pipeline(pc_id: str, force: bool):
         from src.agents.item_enricher import parse_identifiers
         for i, it in enumerate(items):
             desc = it.get("description", "")
-            if not desc:
+            # Also include substituted item column (has UPCs/MFG#s on 704 forms)
+            _sub = it.get("substituted", "")
+            _parse_text = (desc + " " + _sub).strip() if _sub else desc
+            if not _parse_text:
                 continue
-            ids = parse_identifiers(desc)
+            ids = parse_identifiers(_parse_text)
             if not ids:
                 continue
             # Populate MFG# if not already set
@@ -175,6 +178,12 @@ def _run_pipeline(pc_id: str, force: bool):
             if _mfg and _mfg.isdigit() and len(_mfg) in (12, 13) and not it.get("upc"):
                 it["upc"] = _mfg
                 it["pricing"]["upc"] = _mfg
+            # Store supplier-specific SKUs (S&S, Uline, Grainger, etc.)
+            _sup_skus = ids.get("supplier_skus", {})
+            if _sup_skus:
+                existing = it.get("supplier_skus") or {}
+                existing.update(_sup_skus)
+                it["supplier_skus"] = existing
             # Populate ASIN/Amazon URL
             asin = ids.get("primary_asin", "")
             if asin and not it["pricing"].get("asin"):
@@ -244,6 +253,88 @@ def _run_pipeline(pc_id: str, force: bool):
     except Exception as e:
         log.debug("ENRICH %s: UPC resolution error: %s", pc_id, e)
     _mark_step_done(pc_id, "upc_resolution")
+
+    # ── Step 1.5b: S&S / supplier items → find on Amazon ────────────────
+    # S&S Worldwide is Cloudflare-blocked — can't scrape prices.
+    # Use the description to find the same product on Amazon instead.
+    _update_status(pc_id, "ssww_resolution", "resolving S&S items via Amazon")
+    _ssww_lookups = 0
+    _SSWW_LIMIT = 5
+    try:
+        from src.agents.product_research import search_amazon, lookup_amazon_product
+        from src.agents.product_catalog import find_by_supplier_sku
+        import re as _re_ssww
+        for i, it in enumerate(items):
+            if _ssww_lookups >= _SSWW_LIMIT:
+                break
+            _sup_skus = it.get("supplier_skus") or {}
+            _is_ssww = _sup_skus.get("ssww") or _sup_skus.get("ssww_item")
+            # Also detect S&S from item_link or description
+            _link = it.get("item_link", "")
+            _desc = it.get("description", "")
+            if not _is_ssww and "ssww.com" in _link:
+                _is_ssww = True
+            if not _is_ssww and ("S&S" in _desc or "S & S" in _desc):
+                _is_ssww = True
+            if not _is_ssww:
+                continue
+            # Skip if already has Amazon data
+            if it["pricing"].get("amazon_asin") and it["pricing"].get("amazon_price"):
+                continue
+            # Step A: Check catalog for existing S&S cross-ref
+            _ssww_sku = _sup_skus.get("ssww", "")
+            if _ssww_sku:
+                existing = find_by_supplier_sku(_ssww_sku, "S&S")
+                if existing:
+                    cat = existing[0]
+                    it["pricing"]["catalog_match"] = cat.get("name", "")
+                    it["pricing"]["catalog_cost"] = cat.get("cost") or cat.get("best_cost", 0)
+                    it["pricing"]["catalog_confidence"] = 0.95
+                    it["pricing"]["catalog_product_id"] = cat.get("id")
+                    counters.setdefault("ssww_catalog_hit", 0)
+                    counters["ssww_catalog_hit"] += 1
+                    continue
+            # Step B: Search Amazon by description
+            if _desc and len(_desc) >= 8:
+                try:
+                    results = search_amazon(_desc[:100], max_results=1)
+                    if results and results[0].get("price", 0) > 0:
+                        r = results[0]
+                        _amz_asin = r.get("asin", "")
+                        it["pricing"]["amazon_price"] = r["price"]
+                        it["pricing"]["amazon_asin"] = _amz_asin
+                        it["pricing"]["amazon_url"] = r.get("url", "")
+                        it["pricing"]["amazon_title"] = r.get("title", "")[:200]
+                        it["item_link"] = r.get("url", "")
+                        it["item_supplier"] = "Amazon"
+                        if _ssww_sku:
+                            it["pricing"]["ssww_sku"] = _ssww_sku
+                            it["pricing"]["source_note"] = f"S&S #{_ssww_sku} → Amazon"
+                        # ASIN lookup for list/sale split
+                        if _amz_asin:
+                            try:
+                                _prod = lookup_amazon_product(_amz_asin)
+                                if _prod and _prod.get("list_price"):
+                                    it["pricing"]["list_price"] = _prod["list_price"]
+                                    it["list_price"] = _prod["list_price"]
+                                if _prod and _prod.get("sale_price"):
+                                    it["pricing"]["sale_price"] = _prod["sale_price"]
+                                    it["sale_price"] = _prod["sale_price"]
+                            except Exception:
+                                pass
+                        counters.setdefault("ssww_amazon_resolved", 0)
+                        counters["ssww_amazon_resolved"] += 1
+                        log.info("ENRICH %s: S&S item %d → Amazon %s $%.2f",
+                                 pc_id, i+1, _amz_asin, r["price"])
+                        _ssww_lookups += 1
+                        time.sleep(0.5)
+                except Exception as e:
+                    log.debug("ENRICH %s: S&S→Amazon error item %d: %s", pc_id, i+1, e)
+    except ImportError:
+        pass
+    except Exception as e:
+        log.debug("ENRICH %s: S&S resolution error: %s", pc_id, e)
+    _mark_step_done(pc_id, "ssww_resolution")
 
     # ── Step 2: Extract URLs from descriptions ───────────────────────────
     _update_status(pc_id, "url_extraction", "scanning descriptions")

@@ -1495,6 +1495,7 @@ def _migrate_columns():
         for _idx_sql in [
             "CREATE INDEX IF NOT EXISTS idx_wq_upc ON won_quotes(upc)",
             "CREATE INDEX IF NOT EXISTS idx_pc_upc ON product_catalog(upc)",
+            "CREATE INDEX IF NOT EXISTS idx_ps_sku ON product_suppliers(sku)",
         ]:
             try:
                 conn.execute(_idx_sql)

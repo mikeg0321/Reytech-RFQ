@@ -1620,6 +1620,17 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
     except Exception:
         pass
 
+    # Strategy -1: Supplier SKU reverse lookup (if part_number matches a known supplier SKU)
+    if part_number and part_number.strip() and not part_number.strip().isdigit():
+        _sku_matches = find_by_supplier_sku(part_number.strip())
+        for r in _sku_matches:
+            if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
+                m = dict(r)
+                m["match_confidence"] = 0.98
+                m["match_reason"] = f"Supplier SKU match: {part_number.strip()}"
+                matches.append(m)
+                seen_ids.add(r["id"])
+
     # Strategy 0: UPC barcode exact match (highest priority)
     _upc = upc
     if not _upc and part_number and part_number.strip().isdigit() and len(part_number.strip()) in (12, 13):
@@ -2202,6 +2213,38 @@ def add_supplier_price(product_id: int, supplier_name: str, price: float,
     finally:
         conn.close()
     return True
+
+
+def find_by_supplier_sku(sku: str, supplier_name: str = "") -> list:
+    """Reverse lookup: supplier SKU → product(s) in catalog.
+
+    Returns list of product_catalog dicts matching the SKU.
+    If supplier_name is given, filters to that supplier only.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    try:
+        if supplier_name:
+            rows = conn.execute(
+                "SELECT pc.* FROM product_catalog pc "
+                "JOIN product_suppliers ps ON ps.product_id = pc.id "
+                "WHERE ps.sku = ? AND ps.supplier_name LIKE ? LIMIT 5",
+                (sku, f"%{supplier_name}%")
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT pc.* FROM product_catalog pc "
+                "JOIN product_suppliers ps ON ps.product_id = pc.id "
+                "WHERE ps.sku = ? LIMIT 5",
+                (sku,)
+            ).fetchall()
+        results = [dict(r) for r in rows]
+        if results:
+            log.info("Supplier SKU reverse match: %s → %d products", sku, len(results))
+        return results
+    except Exception as e:
+        log.debug("find_by_supplier_sku error: %s", e)
+        return []
 
 
 def record_catalog_quote(product_id: int, price_type: str, price: float,

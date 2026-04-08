@@ -26,11 +26,17 @@ def parse_identifiers(description):
         if m.group(1) not in result["asins"]:
             result["asins"].append(m.group(1))
 
-    # UPC: 12-13 digits after #
+    # UPC: 12-13 digits — multiple patterns
     for m in re.finditer(r'#\s*(\d{12,13})\b', desc):
-        result["upc_codes"].append(m.group(1))
+        if m.group(1) not in result["upc_codes"]:
+            result["upc_codes"].append(m.group(1))
+    # Trailing UPC after " - " (common 704 format: "Monopoly Game - 195166217604")
+    for m in re.finditer(r'\s-\s+(\d{12,13})\s*$', desc.strip()):
+        if m.group(1) not in result["upc_codes"]:
+            result["upc_codes"].append(m.group(1))
+    # Any standalone 12-13 digit number (likely a UPC/EAN barcode)
     for m in re.finditer(r'\b(\d{12,13})\b', desc):
-        if m.group(1).startswith("0") and m.group(1) not in result["upc_codes"]:
+        if m.group(1) not in result["upc_codes"]:
             result["upc_codes"].append(m.group(1))
 
     # NSN: XXXX-XX-XXX-XXXX
@@ -71,10 +77,39 @@ def parse_identifiers(description):
         if val not in result["raw_identifiers"]:
             result["raw_identifiers"].append(val)
 
+    # ── Supplier-specific SKU patterns ──
+    supplier_skus = {}  # {"uline": "S-12345", "ssww": "60002", ...}
+
     # Uline S-XXXXX
     for m in re.finditer(r'\b(S-\d{4,6})\b', desc_upper):
         if m.group(1) not in result["skus"]:
             result["skus"].append(m.group(1))
+            supplier_skus["uline"] = m.group(1)
+
+    # S&S Worldwide — "Item Model #: NNNNN" or ssww.com/NNNNN or "S&S #NNNNN"
+    for m in re.finditer(r'(?:ITEM\s+)?MODEL\s*#?\s*:?\s*(\d{4,8})', desc_upper):
+        supplier_skus.setdefault("ssww", m.group(1))
+        if m.group(1) not in result["skus"]:
+            result["skus"].append(m.group(1))
+    for m in re.finditer(r'S\s*&\s*S\s*(?:WORLDWIDE)?\s*#?\s*(\d{4,8})', desc_upper):
+        supplier_skus.setdefault("ssww", m.group(1))
+    for m in re.finditer(r'ssww\.com\S*/(\d{4,8})', desc, re.IGNORECASE):
+        supplier_skus.setdefault("ssww", m.group(1))
+    # S&S in description context (e.g., "S&S Worldwide Mini Velvet Art Posters II")
+    if "S&S" in desc_upper or "S & S" in desc_upper or "SSWW" in desc_upper:
+        supplier_skus.setdefault("ssww_item", "true")  # flag for Amazon resolution
+
+    # Grainger — typically 5-10 digit codes
+    for m in re.finditer(r'GRAINGER\s*#?\s*:?\s*(\w{5,12})', desc_upper):
+        supplier_skus.setdefault("grainger", m.group(1))
+
+    # McKesson — MCK prefix or catalog#
+    for m in re.finditer(r'\b(MCK[\-\s]?\d{4,8})\b', desc_upper):
+        supplier_skus.setdefault("mckesson", m.group(1).replace(" ", "").replace("-", ""))
+
+    # Office Depot — OD prefix
+    for m in re.finditer(r'\b(OD[\-]?\d{6,9})\b', desc_upper):
+        supplier_skus.setdefault("officedepot", m.group(1))
 
     # Primary MFG number
     primary_mfg = ""
@@ -103,6 +138,7 @@ def parse_identifiers(description):
         "primary_upc": result["upc_codes"][0] if result["upc_codes"] else "",
         "primary_asin": result["asins"][0] if result["asins"] else "",
         "primary_nsn": result["nsns"][0] if result["nsns"] else "",
+        "supplier_skus": supplier_skus,
         "mfg_name": mfg_name,
         "enriched_description": enriched,
         "search_url": search_url,
