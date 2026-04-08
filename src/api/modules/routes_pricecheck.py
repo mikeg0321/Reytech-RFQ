@@ -677,6 +677,9 @@ def _pricecheck_detail_inner(pcid):
         _oracle_price = _safe_float(item.get("oracle_price"), 0)
         _oracle_conf = item.get("oracle_confidence", "")
         _oracle_rationale = item.get("oracle_rationale", "")
+        # Suppress stale Oracle prices that are wildly wrong (>20x cost = pre-QPU-fix artifact)
+        if _oracle_price > 0 and unit_cost > 0 and _oracle_price > unit_cost * 20:
+            _oracle_price = 0  # Stale — will recalculate on next Oracle Auto-Price
         if _oracle_price > 0:
             _oc_color = "#3fb950" if _oracle_conf == "high" else ("#d29922" if _oracle_conf == "medium" else "#8b949e")
             _oc_dot = "●" if _oracle_conf in ("high", "medium") else "○"
@@ -8375,6 +8378,24 @@ def api_pc_oracle_auto_price(pcid):
         win_prob = max(0, min(95, int((competitive / total * 85) + 10))) if total > 0 else 0
         if no_data > total * 0.5:
             win_prob = min(win_prob, 40)
+
+        # Persist corrected oracle_price on items (clears stale pre-QPU values)
+        try:
+            real_pcs = _load_price_checks()
+            real_pc = real_pcs.get(pcid)
+            if real_pc:
+                real_items = real_pc.get("items") or []
+                for r in item_recs:
+                    if r.get("skip") or not r.get("recommended_price"):
+                        continue
+                    ridx = r["idx"]
+                    if ridx < len(real_items):
+                        real_items[ridx]["oracle_price"] = r["recommended_price"]
+                        real_items[ridx]["oracle_confidence"] = r.get("confidence", "")
+                        real_items[ridx]["oracle_rationale"] = r.get("rationale", "")
+                _save_price_checks(real_pcs)
+        except Exception as e:
+            log.debug("Oracle auto-price persist: %s", e)
 
         return jsonify({
             "ok": True,
