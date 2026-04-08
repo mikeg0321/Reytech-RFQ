@@ -912,6 +912,27 @@ def generate_action_items(analysis, quote_number="", agency="", institution=""):
         except Exception as e:
             log.debug("Action items save: %s", e)
 
+    # V4: Fire cost reduction research for cost_too_high items (async)
+    cost_items = [c for c in line_comp if c.get("our_cost", 0) > c.get("winner_unit_price", 0) and c.get("our_cost", 0) > 0]
+    if cost_items:
+        import threading
+        def _v4_research():
+            try:
+                from src.agents.cost_reduction_agent import research_and_create_action_items
+                research_items = [{
+                    "description": c.get("our_description", c.get("description", "")),
+                    "cost": c.get("our_cost", 0),
+                    "competitor_price": c.get("winner_unit_price", 0),
+                    "mfg_number": c.get("part_number", ""),
+                    "category": "",
+                    "quantity": c.get("quantity", 1),
+                    "uom": c.get("uom", "EA"),
+                } for c in cost_items[:5]]  # Max 5 items per loss
+                research_and_create_action_items(research_items, agency=agency, source_quote=quote_number)
+            except Exception as e:
+                log.warning("V4 cost reduction research failed: %s", e)
+        threading.Thread(target=_v4_research, daemon=True, name="v4-cost-research").start()
+
     return actions
 
 

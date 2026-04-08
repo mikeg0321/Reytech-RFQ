@@ -740,7 +740,7 @@ def _pricecheck_detail_inner(pcid):
 
         _disc_attr = f' data-discount-cost="{discount_cost:.2f}"' if discount_cost > 0 else ''
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}"{_disc_attr}>
-         <td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_{idx}" {bid_checked} style="display:none"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="display:none"><span style="font-weight:700;font-size:15px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</span><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn{' skip-active' if no_bid else ''}" onclick="toggleSkip({idx});this.closest('details').open=false">{'&#10003; Skipped' if no_bid else '&#10060; Skip Item'}</button><button type="button" class="sub-toggle-btn{' active-item' if sub_checked else ''}" onclick="toggleSubstitute({idx});this.closest('details').open=false">{'&#10003; Substitute' if sub_checked else '&#8644; Substitute'}</button><button type="button" onclick="toggleRowNotes({idx});this.closest('details').open=false">&#128221; Notes</button>{'<button type=&quot;button&quot; onclick=&quot;mergeUp('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#11014; Merge Up</button>' if idx > 0 else ''}</div></details>{'<div class=&quot;row-badge row-badge-skip&quot;>Skip</div>' if no_bid else ''}{'<div class=&quot;row-badge row-badge-sub&quot;>Sub</div>' if sub_checked else ''}</td>
+         <td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_{idx}" {bid_checked} style="display:none"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="display:none"><span style="font-weight:700;font-size:15px;color:#8b949e;font-family:'JetBrains Mono',monospace">{line_num}</span><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn{' skip-active' if no_bid else ''}" onclick="toggleSkip({idx});this.closest('details').open=false">{'&#10003; Skipped' if no_bid else '&#10060; Skip Item'}</button><button type="button" class="sub-toggle-btn{' active-item' if sub_checked else ''}" onclick="toggleSubstitute({idx});this.closest('details').open=false">{'&#10003; Substitute' if sub_checked else '&#8644; Substitute'}</button><button type="button" onclick="toggleRowNotes({idx});this.closest('details').open=false">&#128221; Notes</button>{'<button type=&quot;button&quot; onclick=&quot;mergeUp('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#11014; Merge Up</button>' if idx > 0 else ''}<button type=&quot;button&quot; onclick=&quot;findBetterPricing('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#128269; Find Better Pricing</button></div></details>{'<div class=&quot;row-badge row-badge-skip&quot;>Skip</div>' if no_bid else ''}{'<div class=&quot;row-badge row-badge-sub&quot;>Sub</div>' if sub_checked else ''}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
@@ -8043,6 +8043,40 @@ def api_oracle_weekly_report():
     """Manually trigger Oracle V3 weekly report."""
     from src.agents.oracle_weekly_report import run_weekly_report
     result = run_weekly_report()
+    return jsonify(result)
+
+
+@bp.route("/api/pricecheck/<pcid>/find-better-pricing/<int:idx>", methods=["POST"])
+@auth_required
+@safe_route
+def api_find_better_pricing(pcid, idx):
+    """V4: Research cheaper sourcing for a specific item."""
+    import copy as _copy
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items") or []
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Item not found"})
+    item = items[idx]
+    p = item.get("pricing") or {}
+    desc = (item.get("description") or "").strip()
+    cost = float(item.get("vendor_cost") or p.get("unit_cost") or 0)
+    mfg = item.get("mfg_number") or p.get("mfg_number") or ""
+    qty = item.get("qty", 1) or 1
+    uom = (item.get("uom") or "EA").upper()
+
+    if not desc:
+        return jsonify({"ok": False, "error": "No description"})
+    if cost <= 0:
+        return jsonify({"ok": False, "error": "No cost data — set a cost first"})
+
+    from src.agents.cost_reduction_agent import research_cost_reduction
+    result = research_cost_reduction(
+        description=desc, current_cost=cost, mfg_number=mfg,
+        quantity=qty, uom=uom,
+    )
     return jsonify(result)
 
 

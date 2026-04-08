@@ -1465,6 +1465,42 @@
      });
     }
 
+    function findBetterPricing(idx) {
+     showMsg('🔍 Researching cheaper sourcing for item '+(idx+1)+'...','ok');
+     fetch('/api/pricecheck/'+_pcid+'/find-better-pricing/'+idx,{method:'POST',credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      if(!d.ok){showMsg('❌ '+(d.error||'Research failed'),'err');return;}
+      var strats=d.strategies||[];
+      if(!strats.length){showMsg('No alternative suppliers found for this item','warn');return;}
+      // Show results in a panel below the row
+      var row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
+      if(!row)return;
+      var existing=document.getElementById('v4-panel-'+idx);
+      if(existing)existing.remove();
+      var panel=document.createElement('tr');
+      panel.id='v4-panel-'+idx;
+      var html='<td colspan="12" style="padding:12px 20px;background:#161b22;border:1px solid #30363d">';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b style="color:#d29922;font-size:14px">🔍 Supplier Research Results</b><button onclick="this.closest(\'tr\').remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button></div>';
+      if(d.summary)html+='<div style="color:#8b949e;font-size:13px;margin-bottom:10px">'+d.summary+'</div>';
+      if(d.manufacturer&&d.manufacturer.name)html+='<div style="font-size:12px;color:#58a6ff;margin-bottom:8px">Manufacturer: <b>'+d.manufacturer.name+'</b>'+(d.manufacturer.sells_direct?' (sells direct)':'')+' '+(d.manufacturer.contact||'')+'</div>';
+      strats.forEach(function(s){
+        var color=s.priority==='high'?'#3fb950':s.priority==='medium'?'#d29922':'#8b949e';
+        html+='<div style="padding:6px 10px;margin-bottom:4px;background:#21262d;border-radius:6px;border-left:3px solid '+color+'">';
+        html+='<div style="display:flex;justify-content:space-between;align-items:center">';
+        html+='<div><b style="color:#e6edf3">'+s.supplier+'</b> <span style="color:#8b949e;font-size:12px">('+s.type.replace(/_/g,' ')+')</span></div>';
+        if(s.estimated_price)html+='<span style="color:#3fb950;font-weight:600;font-family:JetBrains Mono,monospace">$'+s.estimated_price.toFixed(2)+(s.savings_pct?' ('+s.savings_pct+'% savings)':'')+'</span>';
+        html+='</div>';
+        html+='<div style="color:#c9d1d9;font-size:12px;margin-top:2px">'+s.description+'</div>';
+        if(s.contact)html+='<div style="color:#58a6ff;font-size:12px;margin-top:2px">Contact: '+s.contact+'</div>';
+        html+='</div>';
+      });
+      html+='</td>';
+      panel.innerHTML=html;
+      row.insertAdjacentElement('afterend',panel);
+      showMsg('✅ Found '+strats.length+' sourcing strategies','ok');
+     }).catch(function(e){showMsg('❌ Error: '+e.message,'err')});
+    }
+
     function oracleAutoPrice() {
      var btn=document.getElementById('oracleAutoPriceBtn');
      btn.disabled=true;btn.textContent='⏳ Pricing...';
