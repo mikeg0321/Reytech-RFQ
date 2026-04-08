@@ -1172,8 +1172,12 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
                   round(cal["recommended_max_markup"], 2), cal["competitor_floor"], now))
 
         db.commit()
-        db.close()
         log.info("Oracle V3 calibration updated: %s outcome=%s agency=%s categories=%s",
                  len(items), outcome, agency, list(category_items.keys()))
     except Exception as e:
         log.error("Oracle V3 calibration error: %s", e, exc_info=True)
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
