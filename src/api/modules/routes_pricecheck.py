@@ -7928,7 +7928,10 @@ def api_admin_backfill_wins():
     """Retroactively record winning prices for all won PCs.
     Scans PCs with award_status=won and feeds them into winning_prices + won_quotes."""
     pcs = _load_price_checks()
-    won_pcs = {k: v for k, v in pcs.items() if v.get("award_status") == "won"}
+    won_pcs = {k: v for k, v in pcs.items()
+                if v.get("award_status") == "won"
+                or v.get("outcome") == "won"
+                or v.get("status") == "won"}
 
     wp_total = 0
     wq_total = 0
