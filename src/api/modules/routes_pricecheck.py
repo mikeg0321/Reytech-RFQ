@@ -8574,17 +8574,31 @@ def api_pc_oracle_auto_price(pcid):
             market = oracle.get("market") or {}
             strategies = oracle.get("strategies") or []
 
-            # Pick optimal price: prefer ceiling (Maximize Margin) strategy
+            # Pick optimal price: price to win (undercut competitors)
             rec_price = rec.get("quote_price")
             confidence = rec.get("confidence", "low")
             rationale = rec.get("rationale", "")
 
-            # If we have strategies, use Maximize Margin (index 0)
-            if strategies and strategies[0].get("price"):
-                strat = strategies[0]
-                if strat["price"] > 0 and (not cost or strat["price"] > cost):
-                    rec_price = strat["price"]
-                    rationale = f"{strat['name']}: ${strat['price']:.2f} ({strat.get('markup_pct', 0):.0f}%)"
+            # Strategy priority: "Undercut All" > "Win Price" > "Maximize Margin" > Floor
+            # Goal is to WIN the bid, not maximize margin on a losing quote.
+            _win_strat = None
+            for strat in strategies:
+                sn = strat.get("name", "").lower()
+                if "undercut" in sn or "win" in sn:
+                    _win_strat = strat
+                    break
+            if not _win_strat and strategies:
+                # No explicit win strategy — use first but cap at comp_low if available
+                _win_strat = strategies[0]
+            if _win_strat and _win_strat.get("price", 0) > 0:
+                sp = _win_strat["price"]
+                # Ensure we're above cost (floor = cost + 15%)
+                floor_price = round(cost * 1.15, 2) if cost > 0 else 0
+                if floor_price > 0 and sp < floor_price:
+                    sp = floor_price
+                if not cost or sp > cost:
+                    rec_price = sp
+                    rationale = f"{_win_strat['name']}: ${sp:.2f} ({_win_strat.get('markup_pct', 0):.0f}%)"
 
             # Fallback: cost + 25% if no Oracle data
             if not rec_price and cost > 0:
