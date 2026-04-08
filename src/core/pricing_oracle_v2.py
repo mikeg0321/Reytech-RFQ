@@ -314,7 +314,7 @@ def _search_po_lines(db, description, item_number=""):
                 # SCPRS unit_price is sometimes the line total — normalize
                 per_unit = p / qty if qty > 1 else p
                 prices.append({"price": per_unit, "description": r[0],
-                               "quantity": qty,
+                               "quantity": qty, "uom": r[3] or "",
                                "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "buyer_email": r[7] or "",
                                "source": "scprs_po_lines",
@@ -495,12 +495,12 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
 
     # UOM normalization: market data is per-unit, cost may be per-pack.
     # Scale market prices UP to per-pack level so we compare apples to apples.
+    # Always apply when qpu > 1 — the market data was normalized to per-unit
+    # by _normalize_to_per_unit(), so we must scale back to per-pack for
+    # a fair comparison against our per-pack cost.
     if has_cost and has_market and qpu > 1:
-        wavg = market.get("weighted_avg", 0)
-        if wavg and wavg > 0 and cost / wavg > 10:
-            # Cost is way above market per-unit → likely UOM mismatch
-            comp_avg = comp_avg * qpu if comp_avg else None
-            comp_low = comp_low * qpu if comp_low else None
+        comp_avg = comp_avg * qpu if comp_avg else None
+        comp_low = comp_low * qpu if comp_low else None
 
     # V3: Read calibration data if available
     cal = None

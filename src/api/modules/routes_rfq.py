@@ -3674,6 +3674,7 @@ def rfq_lookup_single_item(rid, idx):
             quantity=item.get("quantity", item.get("qty", 1)),
             cost=item.get("supplier_cost") or item.get("unit_price"),
             item_number=pn,
+            qty_per_uom=item.get("qty_per_uom", 1),
         )
         items[idx]["oracle"] = oracle
         results["oracle"] = {
