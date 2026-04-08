@@ -377,9 +377,18 @@ def _run_pipeline(pc_id: str, force: bool):
                     it["pricing"]["price_source"] = "catalog"
             if not it.get("mfg_number") and r.get("mfg_number"):
                 it["mfg_number"] = r["mfg_number"]
-            if not it.get("item_link") and r.get("supplier_url"):
-                it["item_link"] = r["supplier_url"]
-                it["item_supplier"] = r.get("supplier_name", "")
+            # Populate item_link from catalog supplier URL
+            # For EXACT matches (>=0.95), catalog URL takes priority over Amazon
+            _cat_url = r.get("supplier_url", "")
+            _cat_sup = r.get("supplier_name", "")
+            if _cat_url:
+                _conf = r.get("confidence", 0)
+                if not it.get("item_link") or _conf >= 0.95:
+                    it["item_link"] = _cat_url
+                    it["item_supplier"] = _cat_sup
+                # Always store catalog URL for reference even if item_link is Amazon
+                it["pricing"]["catalog_url"] = _cat_url
+                it["pricing"]["catalog_best_supplier"] = _cat_sup
             counters["catalog_matched"] += 1
     except Exception as e:
         log.warning("ENRICH %s: catalog match error: %s", pc_id, e)
