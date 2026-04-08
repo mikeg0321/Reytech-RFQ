@@ -222,12 +222,26 @@ function _applyLinkData(idx, d, mode) {
     }
   }
 
-  // Cost: always update when new URL pasted — warn if big delta but don't block
+  // Cost: update when URL pasted, but NOT if match confidence is too low
   var costEl = document.querySelector('[name="cost_' + idx + '"]');
+  // Pre-compute match score to gate cost fill
+  var _matchScore = 100;
+  var _lookupT = d.title || d.description || '';
+  var _pcDescE = document.querySelector('[name="desc_' + idx + '"]');
+  var _pcDescV = _pcDescE ? (_pcDescE.value || '').trim() : '';
+  if (_lookupT && _pcDescV && typeof _productMatchScore === 'function') {
+    _matchScore = _productMatchScore(_pcDescV, _lookupT);
+  }
   if (costEl && d.price && d.price > 0) {
     var existingCost = parseFloat(costEl.value) || 0;
-    costEl.value = d.price.toFixed(2);
-    filled.push('cost $' + d.price.toFixed(2));
+    // Block auto-fill if match score < 40% — wrong product, cost is meaningless
+    if (_matchScore < 40 && existingCost > 0) {
+      filled.push('cost BLOCKED — low match ' + _matchScore + '%');
+    } else {
+      var msrp = d.list_price ? parseFloat(d.list_price) : d.price;
+      costEl.value = (msrp || d.price).toFixed(2);
+      filled.push('cost $' + (msrp || d.price).toFixed(2));
+    }
     // Warn (but don't block) if price is very different from catalog
     if (existingCost > 0 && d.price > existingCost * 3) {
       filled.push('was $' + existingCost.toFixed(2) + ' catalog');

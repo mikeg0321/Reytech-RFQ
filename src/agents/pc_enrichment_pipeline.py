@@ -371,7 +371,10 @@ def _run_pipeline(pc_id: str, force: bool):
                 it["pricing"]["recommended_price"] = r["recommended_price"]
                 it["pricing"]["price_source"] = "catalog"
             cat_cost = r.get("best_cost") or r.get("last_cost", 0)
-            if cat_cost > 0 and not it["pricing"].get("unit_cost"):
+            _conf = r.get("confidence", 0)
+            # Only auto-fill unit_cost from catalog if confidence >= 0.60
+            # Low-confidence matches show as reference chips but don't set cost
+            if cat_cost > 0 and not it["pricing"].get("unit_cost") and _conf >= 0.60:
                 it["pricing"]["unit_cost"] = cat_cost
                 if not it["pricing"].get("price_source"):
                     it["pricing"]["price_source"] = "catalog"
