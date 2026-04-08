@@ -8722,8 +8722,9 @@ def api_pc_quote_analysis(pcid):
             item_num = item.get("mfg_number") or p.get("mfg_number") or ""
             qty = item.get("qty", 1) or 1
             qpu = item.get("qty_per_uom", 1) or 1
-            # Get current bid price
-            your_price = p.get("final_price") or p.get("bid_price") or 0
+            # Get current bid price — PC items use "unit_price", RFQ uses "final_price"/"bid_price"
+            your_price = (item.get("unit_price") or p.get("final_price")
+                          or p.get("bid_price") or p.get("unit_price") or 0)
             try:
                 your_price = float(your_price)
             except (ValueError, TypeError):
