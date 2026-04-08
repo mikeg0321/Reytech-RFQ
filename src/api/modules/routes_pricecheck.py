@@ -738,13 +738,12 @@ def _pricecheck_detail_inner(pcid):
 
         _disc_attr = f' data-discount-cost="{discount_cost:.2f}"' if discount_cost > 0 else ''
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}"{_disc_attr}>
-         <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"></td>
+         <td style="text-align:center"><input type="checkbox" name="bid_{idx}" {bid_checked} onchange="toggleBid({idx},this)" style="width:18px;height:18px;cursor:pointer"><br><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:12px;height:12px;cursor:pointer;accent-color:#d29922" title="Substitute item" onchange="toggleSubstitute({idx},this)"></td>
          <td style="text-align:center;position:relative"><input type="number" name="linenum_{idx}" value="{line_num}" class="lockable-field" style="width:36px;text-align:center;font-weight:600;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;padding:2px" onchange="autoSequenceLineNums({idx})" min="1">{'<button onclick=\"mergeUp('+str(idx)+');event.stopPropagation()\" title=\"Merge into item above\" style=\"position:absolute;top:-2px;right:-2px;background:#21262d;border:1px solid #30363d;border-radius:3px;color:#a78bfa;font-size:10px;cursor:pointer;padding:1px 3px;display:none\" class=\"merge-btn\">⬆</button>' if idx > 0 else ''}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td style="position:relative"><textarea name="desc_{idx}" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button></td>
-         <td style="text-align:center"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="width:16px;height:16px;cursor:pointer;accent-color:#d29922" title="Check if quoting a replacement/substitute item — unlocks description editing" onchange="toggleSubstitute({idx},this)"></td>
          <td>
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
@@ -762,7 +761,7 @@ def _pricecheck_detail_inner(pcid):
          <td class="profit" style="font-size:14px">{profit_str}</td>
         </tr>
         <tr class="notes-row" data-row="{idx}" style="display:{'table-row' if item_notes else 'none'}">
-         <td colspan="14" style="padding:0 8px 6px 120px;border-top:none">
+         <td colspan="13" style="padding:0 8px 6px 120px;border-top:none">
           <div style="display:flex;align-items:center;gap:6px">
            <span style="font-size:13px;color:#8b949e">📝</span>
            <input type="text" name="notes_{idx}" value="{notes_escaped}" placeholder="Add note (prints on quote)…" class="text-in" style="flex:1;font-size:14px;padding:3px 8px;color:#d2a8ff">
