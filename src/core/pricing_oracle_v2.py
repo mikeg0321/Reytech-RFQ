@@ -72,8 +72,11 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     # Step 5: Competitors
     result["competitors"] = _get_competitor_breakdown(market_prices)
 
-    # Step 6: Recommendation
-    rec = _calculate_recommendation(cost, result["market"], quantity)
+    # Step 6: Recommendation (V3: with calibration data)
+    category = _classify_item_category(description)
+    result["category"] = category
+    rec = _calculate_recommendation(cost, result["market"], quantity,
+                                     category=category, agency=department, _db=db)
     result["strategies"] = rec.pop("strategies", [])
     result["tiers"] = rec.pop("tiers", [])
     result["recommendation"] = rec
@@ -472,17 +475,37 @@ def _analyze_market_prices(market_prices, request_qty):
     }
 
 
-def _calculate_recommendation(cost, market, quantity):
+def _calculate_recommendation(cost, market, quantity, category=None, agency=None, _db=None):
     result = {"strategies": [], "tiers": [], "rationale": "",
-              "quote_price": None, "markup_pct": None, "confidence": "low"}
+              "quote_price": None, "markup_pct": None, "confidence": "low",
+              "calibration": None}
     qty = float(quantity) if quantity else 1
     comp_avg = market.get("competitor_avg")
     comp_low = market.get("competitor_low") or comp_avg
     has_cost = cost is not None and cost > 0
     has_market = market.get("data_points", 0) > 0 and comp_avg
 
+    # V3: Read calibration data if available
+    cal = None
+    if _db and category:
+        cal = _get_calibration(_db, category, agency or "")
+        if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
+            result["calibration"] = {
+                "win_rate": round(cal["win_rate"] * 100),
+                "sample_size": cal["sample_size"],
+                "recommended_max_markup": round(cal["recommended_max_markup"], 1),
+                "avg_winning_margin": round(cal["avg_winning_margin"], 1),
+                "category": category,
+            }
+
     if has_cost and has_market:
-        ceiling = round(comp_avg * 0.98, 2)
+        # V3: Use calibrated ceiling if available, otherwise fallback to V2
+        if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
+            cal_ceiling = round(cost * (1 + cal["recommended_max_markup"] / 100), 2)
+            market_ceiling = round(comp_avg * 0.98, 2)
+            ceiling = min(cal_ceiling, market_ceiling)  # Take the more competitive price
+        else:
+            ceiling = round(comp_avg * 0.98, 2)
         ceiling_m = ((ceiling - cost) / cost * 100) if cost > 0 else 0
         competitive = round(comp_low * 0.98, 2)
         comp_m = ((competitive - cost) / cost * 100) if cost > 0 else 0
@@ -500,8 +523,11 @@ def _calculate_recommendation(cost, market, quantity):
             result["tiers"].append({"pct": pct, "price": tp, "margin_total": round((tp - cost) * qty, 2),
                                      "beats_avg": tp < comp_avg, "beats_low": tp < comp_low})
         if ceiling > floor:
+            cal_note = ""
+            if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
+                cal_note = f" | Win rate: {cal['win_rate']:.0%} on {cal['sample_size']} quotes"
             result.update({"quote_price": ceiling, "markup_pct": round(ceiling_m, 1), "confidence": "high",
-                           "rationale": f"Cost ${cost:.2f} -> ${ceiling:.2f} ({ceiling_m:.0f}%). Margin ${(ceiling-cost)*qty:,.2f}"})
+                           "rationale": f"Cost ${cost:.2f} -> ${ceiling:.2f} ({ceiling_m:.0f}%). Margin ${(ceiling-cost)*qty:,.2f}{cal_note}"})
         elif competitive > floor:
             result.update({"quote_price": competitive, "markup_pct": round(comp_m, 1), "confidence": "medium",
                            "rationale": f"Tight market. ${competitive:.2f} ({comp_m:.0f}%)"})
@@ -944,3 +970,210 @@ def get_price_history_for_item(description, item_number="", agency="", limit=5):
     # Sort by date descending
     results.sort(key=lambda x: x.get("date", ""), reverse=True)
     return results[:limit]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ORACLE V3 — Self-Calibrating Feedback Loop
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CAL_ALPHA = 0.15  # EMA learning rate — higher = more responsive to recent data
+_CAL_MIN_SAMPLES = 5  # Minimum quotes before calibration kicks in
+_CAL_MARKUP_FLOOR = 15.0
+_CAL_MARKUP_CEIL = 50.0
+
+
+def _init_calibration_table(db):
+    """Create oracle_calibration table if it doesn't exist."""
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS oracle_calibration (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            category TEXT NOT NULL,
+            agency TEXT DEFAULT '',
+            sample_size INTEGER DEFAULT 0,
+            win_count INTEGER DEFAULT 0,
+            loss_on_price INTEGER DEFAULT 0,
+            loss_on_other INTEGER DEFAULT 0,
+            avg_winning_margin REAL DEFAULT 25,
+            avg_losing_delta REAL DEFAULT 0,
+            recommended_max_markup REAL DEFAULT 30,
+            competitor_floor REAL DEFAULT 0,
+            last_updated TEXT,
+            UNIQUE(category, agency)
+        )
+    """)
+    db.commit()
+
+
+def _get_calibration(db, category, agency=""):
+    """Read calibration data for a category/agency combo."""
+    try:
+        _init_calibration_table(db)
+        row = db.execute(
+            "SELECT * FROM oracle_calibration WHERE category=? AND agency=?",
+            (category, agency)
+        ).fetchone()
+        if not row:
+            # Try category-only (any agency)
+            row = db.execute(
+                "SELECT * FROM oracle_calibration WHERE category=? AND agency=''",
+                (category,)
+            ).fetchone()
+        if row:
+            cols = [d[0] for d in db.execute(
+                "SELECT * FROM oracle_calibration LIMIT 0").description]
+            d = dict(zip(cols, row))
+            d["win_rate"] = d["win_count"] / d["sample_size"] if d["sample_size"] > 0 else 0
+            return d
+    except Exception as e:
+        log.debug("Calibration read error: %s", e)
+    return None
+
+
+def _classify_item_category(description):
+    """Lightweight category detection from description text."""
+    desc = (description or "").lower()
+    cats = {
+        "medical": ["glove", "bandage", "gauze", "syringe", "catheter", "wound", "medical",
+                     "nitrile", "exam", "surgical", "sterile", "antiseptic", "thermometer"],
+        "office": ["paper", "pen", "pencil", "folder", "binder", "staple", "tape", "marker",
+                   "highlighter", "clipboard", "envelope", "notebook", "post-it", "toner", "ink"],
+        "janitorial": ["trash", "garbage", "mop", "broom", "cleaner", "wipe", "towel",
+                       "soap", "sanitizer", "disinfectant", "bleach", "deodorizer"],
+        "food": ["food", "snack", "beverage", "coffee", "sugar", "creamer", "cup", "plate",
+                 "napkin", "utensil", "fork", "spoon"],
+        "safety": ["vest", "helmet", "goggles", "earplugs", "safety", "fire", "extinguisher",
+                   "first aid", "ppe", "respirator"],
+        "technology": ["computer", "laptop", "monitor", "keyboard", "mouse", "printer",
+                       "cable", "usb", "hdmi", "battery", "charger", "adapter"],
+        "arts_crafts": ["paint", "brush", "canvas", "crayon", "marker", "coloring",
+                        "poster", "art", "craft", "sticker", "glue", "scissors"],
+    }
+    best_cat = "general"
+    best_score = 0
+    for cat, keywords in cats.items():
+        score = sum(1 for kw in keywords if kw in desc)
+        if score > best_score:
+            best_score = score
+            best_cat = cat
+    return best_cat
+
+
+def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_prices=None):
+    """Update oracle_calibration table from a win/loss outcome.
+
+    Args:
+        items: list of item dicts from the quote (with pricing, cost, etc.)
+        outcome: "won" or "lost"
+        agency: agency code (CCHCS, CDCR, etc.)
+        loss_reason: "price" or "other" (only for losses)
+        winner_prices: dict of {idx: competitor_price} if available
+    """
+    import sqlite3
+    from src.core.db import DB_PATH
+
+    try:
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        _init_calibration_table(db)
+
+        # Group items by category
+        category_items = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            desc = item.get("description", "")
+            cat = _classify_item_category(desc)
+            category_items.setdefault(cat, []).append(item)
+
+        now = datetime.now().isoformat()
+
+        for cat, cat_items in category_items.items():
+            # Get current calibration row (or create)
+            row = db.execute(
+                "SELECT * FROM oracle_calibration WHERE category=? AND agency=?",
+                (cat, agency)
+            ).fetchone()
+
+            if row:
+                cols = [d[0] for d in db.execute(
+                    "SELECT * FROM oracle_calibration LIMIT 0").description]
+                cal = dict(zip(cols, row))
+            else:
+                cal = {"category": cat, "agency": agency, "sample_size": 0,
+                       "win_count": 0, "loss_on_price": 0, "loss_on_other": 0,
+                       "avg_winning_margin": 25.0, "avg_losing_delta": 0.0,
+                       "recommended_max_markup": 30.0, "competitor_floor": 0.0}
+
+            cal["sample_size"] += 1
+
+            if outcome == "won":
+                cal["win_count"] += 1
+                # Calculate average winning margin from these items
+                margins = []
+                for it in cat_items:
+                    p = it.get("pricing") or {}
+                    cost = float(it.get("vendor_cost") or p.get("unit_cost") or 0)
+                    price = float(p.get("final_price") or p.get("bid_price") or 0)
+                    if cost > 0 and price > cost:
+                        margins.append(((price - cost) / cost) * 100)
+                if margins:
+                    avg_m = sum(margins) / len(margins)
+                    cal["avg_winning_margin"] = (
+                        _CAL_ALPHA * avg_m + (1 - _CAL_ALPHA) * cal["avg_winning_margin"]
+                    )
+
+            elif outcome == "lost":
+                if loss_reason == "price":
+                    cal["loss_on_price"] += 1
+                    # If we know competitor prices, calculate how much we were above
+                    if winner_prices:
+                        deltas = []
+                        for it in cat_items:
+                            p = it.get("pricing") or {}
+                            our_price = float(p.get("final_price") or p.get("bid_price") or 0)
+                            idx = items.index(it) if it in items else -1
+                            comp_price = winner_prices.get(idx, 0) if winner_prices else 0
+                            if our_price > 0 and comp_price > 0:
+                                deltas.append(((our_price - comp_price) / comp_price) * 100)
+                        if deltas:
+                            avg_delta = sum(deltas) / len(deltas)
+                            cal["avg_losing_delta"] = (
+                                _CAL_ALPHA * avg_delta + (1 - _CAL_ALPHA) * cal["avg_losing_delta"]
+                            )
+                else:
+                    cal["loss_on_other"] += 1
+
+            # Recalculate recommended max markup
+            win_rate = cal["win_count"] / cal["sample_size"] if cal["sample_size"] > 0 else 0
+            adjustment = (win_rate - 0.5) * 20  # -10% to +10%
+            cal["recommended_max_markup"] = max(
+                _CAL_MARKUP_FLOOR,
+                min(_CAL_MARKUP_CEIL, cal["avg_winning_margin"] + adjustment)
+            )
+            cal["last_updated"] = now
+
+            # Upsert
+            db.execute("""
+                INSERT INTO oracle_calibration
+                    (category, agency, sample_size, win_count, loss_on_price, loss_on_other,
+                     avg_winning_margin, avg_losing_delta, recommended_max_markup, competitor_floor,
+                     last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(category, agency) DO UPDATE SET
+                    sample_size=excluded.sample_size, win_count=excluded.win_count,
+                    loss_on_price=excluded.loss_on_price, loss_on_other=excluded.loss_on_other,
+                    avg_winning_margin=excluded.avg_winning_margin,
+                    avg_losing_delta=excluded.avg_losing_delta,
+                    recommended_max_markup=excluded.recommended_max_markup,
+                    competitor_floor=excluded.competitor_floor,
+                    last_updated=excluded.last_updated
+            """, (cat, agency, cal["sample_size"], cal["win_count"],
+                  cal["loss_on_price"], cal["loss_on_other"],
+                  round(cal["avg_winning_margin"], 2), round(cal["avg_losing_delta"], 2),
+                  round(cal["recommended_max_markup"], 2), cal["competitor_floor"], now))
+
+        db.commit()
+        db.close()
+        log.info("Oracle V3 calibration updated: %s outcome=%s agency=%s categories=%s",
+                 len(items), outcome, agency, list(category_items.keys()))
+    except Exception as e:
+        log.error("Oracle V3 calibration error: %s", e, exc_info=True)

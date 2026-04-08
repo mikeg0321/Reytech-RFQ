@@ -8112,6 +8112,7 @@ def api_pc_oracle_auto_price(pcid):
             comp_avg = market.get("competitor_avg")
             comp_low = market.get("competitor_low")
             data_pts = market.get("data_points", 0)
+            cal_data = rec.get("calibration")
 
             item_recs.append({
                 "idx": idx,
@@ -8122,6 +8123,7 @@ def api_pc_oracle_auto_price(pcid):
                 "rationale": rationale,
                 "comp_avg": comp_avg,
                 "comp_low": comp_low,
+                "calibration": cal_data,
                 "data_points": data_pts,
                 "qty": qty,
             })

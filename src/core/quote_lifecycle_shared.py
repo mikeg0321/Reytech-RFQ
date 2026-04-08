@@ -71,6 +71,16 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
     except Exception as e:
         log.debug("mark_won catalog: %s", e)
 
+    # V3: Calibrate Oracle from win outcome
+    try:
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+        calibrate_from_outcome(
+            items, "won",
+            agency=record.get("institution") or record.get("agency", "")
+        )
+    except Exception as e:
+        log.debug("mark_won V3 calibration: %s", e)
+
     # CRM activity
     try:
         from src.core.db import get_db
@@ -154,6 +164,19 @@ def mark_lost(record, record_type, record_id, competitor="", competitor_price=0,
             result["competitor_logged"] = True
         except Exception as e:
             log.debug("mark_lost competitor: %s", e)
+
+    # V3: Calibrate Oracle from loss outcome
+    try:
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+        items = record.get("items", record.get("line_items", []))
+        loss_type = "price" if (competitor_price and float(competitor_price) > 0) else "other"
+        calibrate_from_outcome(
+            items, "lost",
+            agency=record.get("institution") or record.get("agency", ""),
+            loss_reason=loss_type,
+        )
+    except Exception as e:
+        log.debug("mark_lost V3 calibration: %s", e)
 
     # Update recommendation_audit
     try:
