@@ -1354,31 +1354,75 @@
      row.insertAdjacentElement('afterend', panel);
      fetch('/api/pricecheck/'+_pcid+'/oracle/'+idx,{credentials:'same-origin'})
      .then(function(r){return r.json()}).then(function(d){
-      if (!d.ok) { panel.querySelector('td div').innerHTML='<span style="color:#f85149">'+d.error+'</span>'; return; }
-      var html='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:13px">';
-      // Market data
-      var m=d.market||{};
-      html+='<div><b style="color:#58a6ff">Market Data</b> <span style="color:#8b949e">('+m.data_points+' points)</span>';
-      if(m.median)html+='<div style="margin-top:4px">Median: <b>$'+(m.median||0).toFixed(2)+'</b></div>';
-      if(m.p25)html+='<div>Range: $'+(m.p25||0).toFixed(2)+' – $'+(m.p75||0).toFixed(2)+'</div>';
-      html+='<div>Freshness: '+(m.freshness||'unknown')+'</div></div>';
-      // Recommendation
-      var r=d.recommendation||{};
-      html+='<div><b style="color:#3fb950">Recommendation</b>';
-      if(r.quote_price)html+='<div style="margin-top:4px;font-size:16px;font-weight:700;color:#3fb950">$'+r.quote_price.toFixed(2)+'</div>';
-      if(r.confidence)html+='<div>Confidence: '+r.confidence+'</div>';
-      if(r.rationale)html+='<div style="color:#8b949e;margin-top:2px">'+r.rationale+'</div>';
+      if (!d.ok) { panel.querySelector('td div').innerHTML='<span style="color:#f85149">'+(d.error||'Oracle error')+'</span>'; return; }
+      var m=d.market||{}, rec=d.recommendation||{}, sc=d.source_counts||{}, cost=d.cost||{};
+      var _p=function(v){return v?'$'+v.toFixed(2):'—'};
+      var html='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;font-size:13px">';
+
+      // Column 1: Market Intel
+      html+='<div style="border-right:1px solid #30363d;padding-right:12px">';
+      html+='<div style="font-weight:700;color:#58a6ff;margin-bottom:8px">Market Intel</div>';
+      if(m.weighted_avg)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">SCPRS Weighted Avg</span><b style="color:#e6edf3">'+_p(m.weighted_avg)+'</b></div>';
+      if(m.reytech_avg)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">Our Past Wins</span><b style="color:#a78bfa">'+_p(m.reytech_avg)+'</b></div>';
+      if(m.competitor_avg)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">Competitor Avg</span><b style="color:#f0883e">'+_p(m.competitor_avg)+'</b></div>';
+      if(m.competitor_low)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">Competitor Low</span><span style="color:#f85149">'+_p(m.competitor_low)+'</span></div>';
+      if(m.competitor_high)html+='<div style="display:flex;justify-content:space-between"><span style="color:#8b949e">Competitor High</span><span style="color:#484f58">'+_p(m.competitor_high)+'</span></div>';
+      if(cost.provided_cost)html+='<div style="display:flex;justify-content:space-between;margin-top:4px;padding-top:4px;border-top:1px solid #21262d"><span style="color:#8b949e">Your Cost</span><b style="color:#3fb950">'+_p(cost.provided_cost)+'</b></div>';
+      html+='<div style="margin-top:6px;color:#484f58;font-size:11px">'+m.data_points+' data points · '+(m.freshness||'unknown')+' · '+(m.unique_suppliers||0)+' suppliers</div>';
       html+='</div>';
-      // Sources
-      html+='<div><b style="color:#d29922">Sources Used</b>';
-      (d.sources_used||[]).forEach(function(s){html+='<div style="margin-top:2px">✓ '+s+'</div>'});
+
+      // Column 2: Recommendation + Strategies
+      html+='<div style="border-right:1px solid #30363d;padding-right:12px">';
+      html+='<div style="font-weight:700;color:#3fb950;margin-bottom:8px">Recommendation</div>';
+      if(rec.quote_price){
+        var conf_color=rec.confidence==='high'?'#3fb950':rec.confidence==='medium'?'#d29922':'#f85149';
+        html+='<div style="font-size:20px;font-weight:700;color:#3fb950;font-family:JetBrains Mono,monospace">'+_p(rec.quote_price)+'</div>';
+        html+='<div style="margin-top:2px"><span style="background:'+conf_color+'22;color:'+conf_color+';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;border:1px solid '+conf_color+'44">'+rec.confidence+' confidence</span>';
+        if(rec.markup_pct)html+=' <span style="color:#8b949e;font-size:12px">'+rec.markup_pct+'% markup</span>';
+        html+='</div>';
+        if(rec.rationale)html+='<div style="color:#8b949e;margin-top:6px;font-size:12px;line-height:1.4">'+rec.rationale+'</div>';
+      } else {
+        html+='<div style="color:#484f58">No recommendation — manual research needed</div>';
+      }
+      // Strategies
+      if(d.strategies&&d.strategies.length){
+        html+='<div style="margin-top:10px;padding-top:8px;border-top:1px solid #21262d">';
+        html+='<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Strategies</div>';
+        d.strategies.forEach(function(s){
+          html+='<div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:#c9d1d9">'+s.name+'</span><span style="color:#e6edf3;font-family:JetBrains Mono,monospace">'+_p(s.price)+'</span><span style="color:#8b949e;font-size:11px">'+((s.markup_pct||0).toFixed(0))+'%</span></div>';
+        });
+        html+='</div>';
+      }
+      html+='</div>';
+
+      // Column 3: Sources with counts
+      html+='<div>';
+      html+='<div style="font-weight:700;color:#d29922;margin-bottom:8px">Data Sources</div>';
+      var _labels={"won_quotes":"SCPRS Won Quotes","winning_prices":"Our Won Prices","scprs_catalog":"SCPRS Catalog","scprs_po_lines":"SCPRS PO Lines","product_catalog":"Product Catalog","item_memory":"Item Memory","supplier_costs":"Locked Costs"};
+      (d.sources_used||[]).forEach(function(s){
+        var cnt=sc[s]||'';
+        var label=_labels[s]||s;
+        html+='<div style="display:flex;align-items:center;gap:6px;padding:3px 0"><span style="color:#3fb950">✓</span><span style="color:#c9d1d9">'+label+'</span>'+(cnt?'<span style="color:#8b949e;font-size:11px">('+cnt+')</span>':'')+'</div>';
+      });
+      // Tiers table
+      if(d.tiers&&d.tiers.length&&cost.provided_cost){
+        html+='<div style="margin-top:10px;padding-top:8px;border-top:1px solid #21262d">';
+        html+='<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Markup Tiers</div>';
+        d.tiers.forEach(function(t){
+          var style='padding:1px 0;font-size:12px;display:flex;justify-content:space-between';
+          var color=t.beats_avg?'#3fb950':(t.beats_low?'#d29922':'#f85149');
+          html+='<div style="'+style+'"><span style="color:#8b949e">'+t.pct+'%</span><span style="color:'+color+';font-family:JetBrains Mono,monospace">'+_p(t.price)+'</span><span style="color:#484f58;font-size:11px">'+(t.beats_avg?'< avg':(t.beats_low?'< low':'> all'))+'</span></div>';
+        });
+        html+='</div>';
+      }
       html+='</div></div>';
-      // Competitors
+
+      // Competitors table
       if(d.competitors&&d.competitors.length){
-       html+='<div style="margin-top:10px"><b style="color:#f0883e">Competitors ('+d.competitors.length+')</b>';
-       html+='<table style="width:100%;font-size:12px;margin-top:4px;border-collapse:collapse"><tr style="color:#8b949e"><th style="text-align:left;padding:3px 6px">Supplier</th><th style="text-align:right;padding:3px 6px">Price</th><th style="padding:3px 6px">Agency</th><th style="padding:3px 6px">Date</th></tr>';
+       html+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid #30363d"><div style="font-weight:700;color:#f0883e;margin-bottom:6px">Competitor Prices ('+d.competitors.length+')</div>';
+       html+='<table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="color:#8b949e"><th style="text-align:left;padding:3px 6px">Supplier</th><th style="text-align:right;padding:3px 6px">Price</th><th style="padding:3px 6px">Qty</th><th style="padding:3px 6px">Agency</th><th style="padding:3px 6px">Date</th></tr>';
        d.competitors.slice(0,8).forEach(function(c){
-        html+='<tr style="border-top:1px solid #21262d"><td style="padding:3px 6px;color:#c9d1d9">'+(c.name||c.supplier||'?')+'</td><td style="padding:3px 6px;text-align:right;color:#e6edf3">$'+(c.price||0).toFixed(2)+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.department||'')+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.date||'').substring(0,10)+'</td></tr>';
+        html+='<tr style="border-top:1px solid #21262d"><td style="padding:3px 6px;color:#c9d1d9">'+(c.name||c.supplier||'?')+'</td><td style="padding:3px 6px;text-align:right;color:#e6edf3;font-family:JetBrains Mono,monospace">'+_p(c.price)+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.quantity||'')+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.department||'')+'</td><td style="padding:3px 6px;color:#8b949e">'+(c.date||'').substring(0,10)+'</td></tr>';
        });
        html+='</table></div>';
       }

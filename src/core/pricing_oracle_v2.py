@@ -51,6 +51,7 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
 
     # Step 3: Gather market prices (won_quotes + winning_prices first — richest data)
     market_prices = []
+    source_counts = {}
     for fn, name in [
         (_search_won_quotes, "won_quotes"),
         (_search_winning_prices, "winning_prices"),
@@ -60,8 +61,10 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     ]:
         hits = fn(db, description, item_number)
         if hits:
+            source_counts[name] = len(hits)
             market_prices.extend(hits)
             result["sources_used"].append(name)
+    result["source_counts"] = source_counts
 
     # Step 4: Analyze market
     result["market"] = _analyze_market_prices(market_prices, quantity)
