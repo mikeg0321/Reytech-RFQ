@@ -585,12 +585,12 @@
  <div id="scprs-body" style="margin-top:12px"></div>
 </div>
 
-{% if r.status in ('generated','sent','won','lost') and r.output_files %}
+{% if r.status in ('generated','ready_to_send','sent','won','lost') and r.output_files %}
 <div class="card">
  <div style="display:flex;justify-content:space-between;align-items:center">
   <div class="card-t" style="margin-bottom:0">📦 Generated Package ({{ r.output_files|length }} files)</div>
   <div style="display:flex;gap:6px">
-   {% if r.status in ('sent','generated') %}
+   {% if r.status in ('sent','generated','ready_to_send') %}
    <form method="POST" action="/rfq/{{rid}}/reopen" style="display:inline">
     <button type="submit" class="btn btn-sm" style="background:var(--wn);color:#000;font-size:14px" onclick="return confirm('Reopen this RFQ for editing? You can re-generate the package after making changes.')" aria-label="Reopen for Editing">✏️ Reopen for Editing</button>
    </form>
@@ -609,7 +609,7 @@
   {% endfor %}
  </div>
 </div>
-{% elif r.status in ('generated','sent','won','lost') %}
+{% elif r.status in ('generated','ready_to_send','sent','won','lost') %}
 <!-- No output_files in memory — JS will load from DB via rfq-files-card above -->
 <div class="card">
  <div class="card-t">📦 Generated Package</div>
@@ -653,7 +653,7 @@
 </div>
 
 <!-- Email Composer with Template Selector -->
-{% if r.status in ('generated','sent','won','lost') %}
+{% if r.status in ('generated','ready_to_send','sent','won','lost') %}
 <div class="card">
  <div class="card-t" style="font-size:15px">📧 Email Composer</div>
  
@@ -755,12 +755,13 @@
   {% elif r.status == 'no_bid' %}background:rgba(139,148,158,.08);border:1px solid rgba(139,148,158,.25);color:#8b949e
   {% else %}background:rgba(79,140,255,.05);border:1px solid var(--bd);color:var(--tx){% endif %}">
   <span style="font-size:22px">
-   {% if r.status == 'new' %}📥{% elif r.status == 'ready' %}✅{% elif r.status == 'generated' %}📦{% elif r.status == 'sent' %}📨{% elif r.status == 'won' %}🏆{% elif r.status == 'lost' %}❌{% elif r.status == 'no_bid' %}🚫{% elif r.status == 'cancelled' %}🗑️{% else %}📋{% endif %}
+   {% if r.status == 'new' %}📥{% elif r.status == 'ready' %}✅{% elif r.status == 'generated' %}📦{% elif r.status == 'ready_to_send' %}✅📨{% elif r.status == 'sent' %}📨{% elif r.status == 'won' %}🏆{% elif r.status == 'lost' %}❌{% elif r.status == 'no_bid' %}🚫{% elif r.status == 'cancelled' %}🗑️{% else %}📋{% endif %}
   </span>
   <div>
    <b style="font-size:16px">{{ r.status|upper }}</b>
    {% if r.status == 'sent' and r.get('sent_at') %} · Sent {{ r.sent_at[:10] }}{% endif %}
    {% if r.status == 'generated' %} · Package ready for review{% endif %}
+   {% if r.status == 'ready_to_send' %} · Package approved — ready to send{% endif %}
    {% if r.status == 'won' and r.get('outcome_date') %} · Won {{ r.outcome_date[:10] }}{% endif %}
    {% if r.status == 'lost' and r.get('outcome_reason') %} · {{ r.outcome_reason }}{% endif %}
   </div>
@@ -771,10 +772,10 @@
   {% if r.status in ('new', 'ready') %}
    <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px">📦 Mark Generated</button>
   {% endif %}
-  {% if r.status in ('generated', 'ready') %}
+  {% if r.status in ('generated', 'ready', 'ready_to_send') %}
    <button onclick="updateRfqStatus('sent')" class="btn" style="font-size:15px;padding:10px 22px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)">📨 Mark Sent</button>
   {% endif %}
-  {% if r.status in ('sent', 'generated') %}
+  {% if r.status in ('sent', 'generated', 'ready_to_send') %}
    <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px">🏆 Won</button>
    <button onclick="recordRfqOutcome('lost')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:6px">❌ Lost</button>
    <button onclick="recordRfqOutcome('no_response')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3);border-radius:6px">⏰ No Response</button>
@@ -2523,6 +2524,12 @@ function sendQuoteEmail(){
   // Composer not rendered (wrong status) — fall back to alert
   alert('Email composer is only available after generating the package.\nGenerate the package first, then use the Email Composer below.');
  }
+}
+// Auto-scroll to email composer when arriving from review page via #emailForm
+if(window.location.hash === '#emailForm'){
+ window.addEventListener('DOMContentLoaded', function(){
+  setTimeout(function(){ sendQuoteEmail(); }, 300);
+ });
 }
 
 function generateOBS1600(){

@@ -542,11 +542,12 @@ function finalizePackage(){
   var _quoteFn = '';
   {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}_quoteFn={{ review.form_filename|tojson }};{% endif %}{% endfor %}
   var _pkgFn = {{ (manifest.package_filename or '')|tojson }} || 'RFQ_Package_'+SOL+'_ReytechInc.pdf';
-  var _dl = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
+  var _dl = '<a href="/rfq/'+RID+'#emailForm" class="btn" style="display:block;width:100%;background:#238636;color:#fff;font-size:16px;padding:14px;border-radius:8px;font-weight:700;text-align:center;text-decoration:none;margin-top:12px">✅ Package Approved — Send to Buyer →</a>';
+  _dl += '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">';
   if (_quoteFn) _dl += '<a href="/api/download/'+SOL+'/'+_quoteFn+'" target="_blank" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center">📄 Download Quote</a>';
   _dl += '<a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
   _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
-  _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
+  _dl += '</div>';
   document.getElementById('rv-finalize-hint').innerHTML = _dl;
  }).catch(function(e){alert('Finalize error: '+e.message);});
 }
