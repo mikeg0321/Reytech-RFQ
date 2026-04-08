@@ -8080,6 +8080,63 @@ def api_find_better_pricing(pcid, idx):
     return jsonify(result)
 
 
+@bp.route("/api/oracle/health")
+@auth_required
+@safe_route
+def api_oracle_health():
+    """Oracle forcing function: verify the feedback loop is running."""
+    from src.core.db import get_db
+    result = {"ok": True}
+    try:
+        with get_db() as conn:
+            # Last successful weekly report
+            try:
+                row = conn.execute("""
+                    SELECT sent_at, win_count, loss_count, supplier_leads, calibrations
+                    FROM oracle_report_log WHERE success=1
+                    ORDER BY sent_at DESC LIMIT 1
+                """).fetchone()
+                if row:
+                    result["last_report"] = {
+                        "sent_at": row[0], "wins": row[1], "losses": row[2],
+                        "supplier_leads": row[3], "calibrations": row[4],
+                    }
+                    from datetime import datetime as _dt
+                    try:
+                        days = (_dt.now() - _dt.fromisoformat(row[0])).days
+                    except Exception:
+                        days = 99
+                    result["days_since_report"] = days
+                    result["report_overdue"] = days > 9
+                else:
+                    result["last_report"] = None
+                    result["days_since_report"] = None
+                    result["report_overdue"] = None
+            except Exception:
+                result["last_report"] = None
+
+            # Calibration table health
+            try:
+                cal = conn.execute("SELECT COUNT(*), MAX(last_updated) FROM oracle_calibration").fetchone()
+                result["calibration_rows"] = cal[0] or 0
+                result["calibration_last_updated"] = cal[1]
+            except Exception:
+                result["calibration_rows"] = 0
+
+            # Scheduler heartbeat
+            try:
+                from src.core.scheduler import get_all_jobs
+                jobs = get_all_jobs()
+                oracle_job = next((j for j in jobs if j.get("name") == "oracle-weekly-report"), None)
+                result["scheduler_job"] = oracle_job
+            except Exception:
+                result["scheduler_job"] = None
+
+    except Exception as e:
+        result["error"] = str(e)
+    return jsonify(result)
+
+
 @bp.route("/api/oracle/seed-calibration", methods=["POST"])
 @auth_required
 @safe_route

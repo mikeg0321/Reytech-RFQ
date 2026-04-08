@@ -5516,13 +5516,17 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Award tracker failed to start: %s", _e)
 
-    # ── Start Oracle V3 Weekly Reporter ────────────────────────────────
+    # ── Start Oracle V4 Weekly Reporter (restartable) ────────────────────
     try:
-        from src.agents.oracle_weekly_report import start_weekly_reporter
-        start_weekly_reporter()
-        log.info("Oracle V3 weekly reporter started (Mondays 8am PST, auto-seed on first boot)")
+        import src.agents.oracle_weekly_report as _owr_mod
+        _owr_mod.start_weekly_reporter()
+        from src.core.scheduler import register_restartable
+        register_restartable("oracle-weekly-report", 86400, _owr_mod,
+                             "_scheduler_started", _owr_mod.start_weekly_reporter)
+        log.info("Oracle V4 weekly reporter started (Mondays 8am PST, "
+                 "health check Thursdays, restartable)")
     except Exception as _e:
-        log.warning("Oracle V3 weekly reporter failed to start: %s", _e)
+        log.warning("Oracle V4 weekly reporter failed to start: %s", _e)
 
     # ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
     try:

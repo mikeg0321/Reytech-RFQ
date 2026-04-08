@@ -336,11 +336,11 @@ def run_weekly_report():
         report = generate_weekly_report()
         html_body = format_report_email(report)
 
-        # Plain text summary
         plain = (
-            f"Oracle V3 Weekly: {report['period_start']} to {report['period_end']}\n"
+            f"Oracle V4 Weekly: {report['period_start']} to {report['period_end']}\n"
             f"Wins: {report.get('win_count', 0)} (${report.get('win_revenue', 0):,.2f})\n"
             f"Losses: {report.get('loss_count', 0)}\n"
+            f"Supplier leads: {len(report.get('supplier_leads', []))}\n"
             f"Data points: {report.get('winning_prices_total', 0)}\n"
             f"Calibrations active: {len(report.get('calibrations', []))}"
         )
@@ -348,13 +348,30 @@ def run_weekly_report():
         from src.agents.notify_agent import send_alert
         result = send_alert(
             event_type="oracle_weekly",
-            title=f"Oracle V3 Weekly: {report.get('win_count', 0)}W / {report.get('loss_count', 0)}L",
+            title=f"Oracle Weekly: {report.get('win_count', 0)}W / {report.get('loss_count', 0)}L",
             body=plain,
             urgency="info",
             channels=["email"],
             context={"html_body": html_body},
             run_async=False,
         )
+
+        # Record last successful send for the forcing function
+        _record_send_status(True, report)
+
+        if not result.get("ok"):
+            # Email failed to send — fire backup alert via dashboard bell
+            log.error("Oracle weekly email FAILED: %s", result.get("error", "unknown"))
+            send_alert(
+                event_type="oracle_weekly_failed",
+                title="Oracle weekly email failed to send",
+                body=f"Email send returned: {result}. Check GMAIL_ADDRESS/GMAIL_PASSWORD env vars.",
+                urgency="warning",
+                channels=["bell"],
+                run_async=False,
+            )
+            heartbeat("oracle-weekly-report", success=False, error="Email send failed")
+            return {"ok": False, "error": "Email send failed", "report": report}
 
         heartbeat("oracle-weekly-report", success=True)
         log.info("Oracle weekly report sent: %s wins, %s losses",
@@ -363,8 +380,104 @@ def run_weekly_report():
 
     except Exception as e:
         log.error("Oracle weekly report failed: %s", e, exc_info=True)
+        _record_send_status(False, error=str(e))
         heartbeat("oracle-weekly-report", success=False, error=str(e))
+        # Fire backup alert
+        try:
+            from src.agents.notify_agent import send_alert
+            send_alert(
+                event_type="oracle_weekly_failed",
+                title="ORACLE WEEKLY REPORT CRASHED",
+                body=f"Error: {e}. The Oracle feedback loop is broken. Investigate immediately.",
+                urgency="urgent",
+                channels=["bell"],
+                run_async=False,
+            )
+        except Exception:
+            pass
         return {"ok": False, "error": str(e)}
+
+
+def _record_send_status(success, report=None, error=None):
+    """Record weekly report send status to DB for the forcing function."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS oracle_report_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sent_at TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    win_count INTEGER DEFAULT 0,
+                    loss_count INTEGER DEFAULT 0,
+                    supplier_leads INTEGER DEFAULT 0,
+                    calibrations INTEGER DEFAULT 0,
+                    error TEXT DEFAULT ''
+                )
+            """)
+            conn.execute("""
+                INSERT INTO oracle_report_log (sent_at, success, win_count, loss_count,
+                    supplier_leads, calibrations, error)
+                VALUES (datetime('now'), ?, ?, ?, ?, ?, ?)
+            """, (
+                1 if success else 0,
+                report.get("win_count", 0) if report else 0,
+                report.get("loss_count", 0) if report else 0,
+                len(report.get("supplier_leads", [])) if report else 0,
+                len(report.get("calibrations", [])) if report else 0,
+                error or "",
+            ))
+    except Exception as e:
+        log.debug("Report log error: %s", e)
+
+
+def check_report_health():
+    """Forcing function: verify the weekly report is actually running.
+    Called by the scheduler watchdog. If last successful send was >9 days ago,
+    fires an urgent alert."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            try:
+                row = conn.execute("""
+                    SELECT sent_at, success FROM oracle_report_log
+                    WHERE success=1 ORDER BY sent_at DESC LIMIT 1
+                """).fetchone()
+            except Exception:
+                row = None
+
+            if not row:
+                # No successful send ever — might be first week
+                return
+
+            last_sent = row[0]
+            try:
+                last_dt = datetime.fromisoformat(last_sent)
+                days_since = (datetime.now() - last_dt).days
+            except Exception:
+                days_since = 99
+
+            if days_since > 9:
+                # Missed a weekly send — fire urgent alert
+                log.error("FORCING FUNCTION: Oracle weekly report overdue by %d days!", days_since)
+                from src.agents.notify_agent import send_alert
+                send_alert(
+                    event_type="oracle_weekly_overdue",
+                    title=f"Oracle weekly report OVERDUE ({days_since} days)",
+                    body=(
+                        f"Last successful Oracle weekly report was {days_since} days ago ({last_sent}). "
+                        f"The feedback loop may be broken. Check:\n"
+                        f"1. Is the oracle-weekly-report thread alive?\n"
+                        f"2. Are GMAIL_ADDRESS/GMAIL_PASSWORD env vars set?\n"
+                        f"3. Manual trigger: POST /api/oracle/weekly-report"
+                    ),
+                    urgency="urgent",
+                    channels=["email", "bell"],
+                    cooldown_key="oracle_overdue",
+                    run_async=False,
+                )
+    except Exception as e:
+        log.debug("Report health check error: %s", e)
 
 
 def start_weekly_reporter():
@@ -377,7 +490,8 @@ def start_weekly_reporter():
     import threading
     from src.core.scheduler import register_job
 
-    register_job("oracle-weekly-report", _REPORT_INTERVAL_SEC)
+    # Register with a 1-day heartbeat interval so watchdog detects death within 24h
+    register_job("oracle-weekly-report", 86400)
 
     def _loop():
         import time
@@ -400,19 +514,31 @@ def start_weekly_reporter():
 
         while True:
             try:
-                # Check if it's Monday 8am PST (report day)
-                from datetime import timezone
+                from src.core.scheduler import heartbeat
                 now = datetime.now()
-                # Simple weekly check: run if Monday and hour is 8
-                if now.weekday() == 0 and now.hour == 15:  # 15 UTC = 8am PST
+
+                # Monday 8am PST (15 UTC) — send the weekly report
+                if now.weekday() == 0 and now.hour == 15:
                     run_weekly_report()
                     time.sleep(3600)  # Don't re-trigger for an hour
                 else:
+                    # Heartbeat every cycle so watchdog knows thread is alive
+                    heartbeat("oracle-weekly-report", success=True)
+
+                    # Thursday — mid-week forcing function check
+                    if now.weekday() == 3 and now.hour == 15:
+                        check_report_health()
+
                     time.sleep(1800)  # Check every 30 minutes
             except Exception as e:
                 log.error("Oracle weekly loop error: %s", e)
+                try:
+                    from src.core.scheduler import heartbeat as _hb
+                    _hb("oracle-weekly-report", success=False, error=str(e))
+                except Exception:
+                    pass
                 time.sleep(3600)
 
     t = threading.Thread(target=_loop, daemon=True, name="oracle-weekly-report")
     t.start()
-    log.info("Oracle V3 weekly reporter started (Mondays 8am PST)")
+    log.info("Oracle V4 weekly reporter started (Mondays 8am PST, health check Thursdays)")
