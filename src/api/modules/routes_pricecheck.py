@@ -726,11 +726,13 @@ def _pricecheck_detail_inner(pcid):
         except (ValueError, TypeError):
             _qpu_int = 1
         if _qpu_int > 1:
-            _uom_short = (item.get("uom") or "ea").lower()[:2]
+            _UOM_LABELS = {"PK":"pack","BX":"box","BOX":"box","CS":"case","EA":"each","CT":"carton","DZ":"dozen","RL":"roll","ST":"set","PR":"pair","BG":"bag","BT":"bottle","GL":"gallon","LB":"lb"}
+            _uom_raw = (item.get("uom") or "EA").upper().strip()
+            _uom_short = _UOM_LABELS.get(_uom_raw, _uom_raw.lower())
             _qpu_badge = (
                 f'<div style="font-size:11px;color:#a78bfa;font-weight:600;'
                 f'text-align:center;margin-top:2px" '
-                f'title="Pack size: {_qpu_int} per {(item.get("uom") or "EA").lower()}">'
+                f'title="Pack size: {_qpu_int} per {_uom_short}">'
                 f'({_qpu_int}/{_uom_short})</div>'
             )
         else:

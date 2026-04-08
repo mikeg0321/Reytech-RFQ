@@ -2513,8 +2513,10 @@ def fill_ams704(
             except (ValueError, TypeError):
                 _qpu = 1
             if _qpu > 1:
-                _uom_short = (item.get("uom") or "ea").lower()[:2]
-                desc_final = f"{desc_final}\nPack: {_qpu}/{_uom_short}"
+                _UOM_LABELS = {"PK":"pack","BX":"box","BOX":"box","CS":"case","EA":"each","CT":"carton","DZ":"dozen","RL":"roll","ST":"set","PR":"pair","BG":"bag","BT":"bottle","GL":"gallon","LB":"lb"}
+                _uom_raw = (item.get("uom") or "EA").upper().strip()
+                _uom_label = _UOM_LABELS.get(_uom_raw, _uom_raw.lower())
+                desc_final = f"{desc_final}\nPack: {_qpu}/{_uom_label}"
             item_notes = (item.get("notes") or "").strip()
             if item_notes:
                 desc_final = f"{desc_final}\nNote: {item_notes}"
