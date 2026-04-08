@@ -2259,9 +2259,10 @@ def pricecheck_reparse(pcid):
     pc["parse_quality"] = fresh.get("parse_quality", {})
     _sync_pc_items(pc, fresh["line_items"])
 
-    # Clear stale enrichment status — items changed, old enrichment doesn't apply
+    # Clear stale metadata — items changed, old data doesn't apply
     pc.pop("enrichment_status", None)
     pc.pop("enrichment_summary", None)
+    pc.pop("_split_hint", None)
     pc["status"] = "parsed"  # Reset to parsed so user re-runs pricing
 
     _save_single_pc(pcid, pc)
