@@ -68,6 +68,12 @@ _REGISTRY = {
         "desc": "SerpApi — Amazon product research",
         "agents": ["product_research"],
     },
+    "xai": {
+        "env": "XAI_API_KEY",
+        "required": False,
+        "desc": "xAI Grok — LLM product validation with web search",
+        "agents": ["product_validator"],
+    },
     "gmail_address": {
         "env": "GMAIL_ADDRESS",
         "required": False,

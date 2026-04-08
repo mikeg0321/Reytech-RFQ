@@ -552,6 +552,104 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("ENRICH %s: web search error: %s", pc_id, e)
     _mark_step_done(pc_id,"web_search")
 
+    # ── Step 5c: LLM product validator for low-confidence items ──────────
+    # Uses Grok (xAI) with web search to validate/correct matches.
+    # Only fires for items that are unpriced OR have low-confidence matches.
+    _update_status(pc_id, "llm_validation", "validating products via AI")
+    _LLM_LIMIT = 5  # max Grok calls per PC
+    try:
+        from src.agents.product_validator import validate_product
+        from src.agents.product_research import lookup_amazon_product
+        _llm_calls = 0
+        for i, it in enumerate(items):
+            if _llm_calls >= _LLM_LIMIT:
+                break
+            p = it.get("pricing", {})
+            _has_cost = bool(p.get("unit_cost") and float(p.get("unit_cost", 0)) > 0)
+            _cat_conf = float(p.get("catalog_confidence", 0))
+            _scprs_conf = float(p.get("scprs_confidence", 0))
+            _best_conf = max(_cat_conf, _scprs_conf)
+            # Skip items already well-matched
+            if _has_cost and _best_conf >= 0.75:
+                continue
+            # Skip items with no description
+            desc = it.get("description", "")
+            if not desc or len(desc) < 5:
+                continue
+            # Build best match info for context
+            _bm_title = p.get("catalog_match") or p.get("amazon_title") or ""
+            _bm_price = float(p.get("unit_cost") or p.get("catalog_cost") or p.get("amazon_price") or 0)
+            _bm_source = p.get("price_source") or ("catalog" if _cat_conf else "none")
+            try:
+                result = validate_product(
+                    description=desc,
+                    upc=it.get("upc", ""),
+                    mfg_number=it.get("mfg_number", ""),
+                    qty=it.get("qty", 1),
+                    uom=it.get("uom", "EA"),
+                    qty_per_uom=it.get("qty_per_uom", 1),
+                    best_match_title=_bm_title,
+                    best_match_price=_bm_price,
+                    best_match_confidence=_best_conf,
+                    best_match_source=_bm_source,
+                )
+                if result.get("ok") and result.get("price", 0) > 0:
+                    _conf = result.get("confidence", 0)
+                    # Apply LLM result if confidence is reasonable
+                    if _conf >= 0.70:
+                        _price = result["price"]
+                        _asin = result.get("asin", "")
+                        _url = result.get("url", "")
+                        # Set cost if not already set or LLM is more confident
+                        if not _has_cost or _conf > _best_conf:
+                            p["unit_cost"] = _price
+                            it["vendor_cost"] = _price
+                            p["price_source"] = "llm_grok"
+                        # Set Amazon data if found
+                        if _asin:
+                            p["amazon_asin"] = _asin
+                            p["amazon_price"] = _price
+                            p["amazon_url"] = _url
+                            p["amazon_title"] = result.get("product_name", "")[:200]
+                        # Set item link if empty or LLM found better
+                        if _url and (not it.get("item_link") or _conf > _best_conf):
+                            it["item_link"] = _url
+                            it["item_supplier"] = result.get("supplier", "Amazon")
+                        # ASIN product lookup for list/sale price split
+                        if _asin and not p.get("list_price"):
+                            try:
+                                _prod = lookup_amazon_product(_asin)
+                                if _prod and _prod.get("list_price"):
+                                    p["list_price"] = _prod["list_price"]
+                                    it["list_price"] = _prod["list_price"]
+                                if _prod and _prod.get("sale_price"):
+                                    p["sale_price"] = _prod["sale_price"]
+                                    it["sale_price"] = _prod["sale_price"]
+                            except Exception:
+                                pass
+                        # Store LLM metadata
+                        p["llm_validated"] = True
+                        p["llm_confidence"] = _conf
+                        p["llm_reasoning"] = result.get("reasoning", "")[:200]
+                        p["llm_product_name"] = result.get("product_name", "")[:200]
+                        counters.setdefault("llm_validated", 0)
+                        counters["llm_validated"] += 1
+                    else:
+                        # Low LLM confidence — store as reference only
+                        p["llm_suggestion"] = result.get("product_name", "")[:200]
+                        p["llm_suggestion_price"] = result["price"]
+                        p["llm_suggestion_url"] = result.get("url", "")
+                _llm_calls += 1
+                _update_status(pc_id, "llm_validation", f"{_llm_calls}/{_LLM_LIMIT} validated")
+                time.sleep(0.5)  # rate limit
+            except Exception as e:
+                log.debug("ENRICH %s: LLM validation error item %d: %s", pc_id, i+1, e)
+    except ImportError:
+        log.debug("product_validator not available — skipping LLM step")
+    except Exception as e:
+        log.debug("ENRICH %s: LLM validation error: %s", pc_id, e)
+    _mark_step_done(pc_id, "llm_validation")
+
     # ── Step 6: Pricing oracle recommendations (with per-item timeout) ───
     _update_status(pc_id, "pricing_oracle", f"0/{total} items")
     try:
