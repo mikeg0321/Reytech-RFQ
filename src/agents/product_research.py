@@ -399,11 +399,15 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
                     pass
 
         # Extract typical/list price (MSRP) — use as cost basis instead of sale price
+        # SerpApi uses different field names across API versions:
+        #   typical_price, list_price, before_price (product_results level)
+        #   price_strikethrough (buybox level — the crossed-out "was" price)
+        #   rrp (recommended retail price)
         typical = None
-        for _tp_field in ("typical_price", "list_price", "before_price"):
+        for _tp_field in ("typical_price", "list_price", "before_price", "rrp"):
             _tp = product.get(_tp_field)
             if isinstance(_tp, dict):
-                _tv = _tp.get("value") or _tp.get("raw", "")
+                _tv = _tp.get("value") or _tp.get("raw", "") or _tp.get("extracted_price")
                 if _tv:
                     try:
                         typical = float(str(_tv).replace("$", "").replace(",", ""))
@@ -418,6 +422,41 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
                     pass
             if typical and typical > 0:
                 break
+        # Also check buybox for strikethrough/list price
+        if not typical and buybox and isinstance(buybox, list):
+            for bb in buybox:
+                for _stk_field in ("price_strikethrough", "rrp", "list_price", "was_price"):
+                    _stk = bb.get(_stk_field)
+                    if isinstance(_stk, dict):
+                        _sv = _stk.get("value") or _stk.get("raw", "") or _stk.get("extracted_price")
+                        if _sv:
+                            try:
+                                typical = float(str(_sv).replace("$", "").replace(",", ""))
+                            except (ValueError, TypeError):
+                                pass
+                    elif isinstance(_stk, (int, float)) and _stk > 0:
+                        typical = float(_stk)
+                    elif isinstance(_stk, str) and _stk:
+                        try:
+                            typical = float(_stk.replace("$", "").replace(",", ""))
+                        except (ValueError, TypeError):
+                            pass
+                    if typical and typical > 0:
+                        break
+                if typical and typical > 0:
+                    break
+        # Last resort: check top-level pricing_info or savings
+        if not typical and price:
+            _savings = product.get("savings")
+            if isinstance(_savings, dict):
+                _sv = _savings.get("amount") or _savings.get("value")
+                if _sv:
+                    try:
+                        typical = price + float(str(_sv).replace("$", "").replace(",", ""))
+                    except (ValueError, TypeError):
+                        pass
+        if typical and typical > 0:
+            log.info("SerpApi product %s: list/MSRP $%.2f, sale $%.2f", asin, typical, price or 0)
 
         mfg_info = _extract_mfg_info(title, asin)
         result = {

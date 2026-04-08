@@ -382,8 +382,21 @@ def _lookup_amazon(url: str) -> dict:
                 size = size_match.group(1).strip()
             # Price: always use list/typical price — never sale/coupon price
             _list = r.get("list_price") or r.get("typical_price")
-            _sale = r.get("price")
+            _sale = r.get("sale_price") or r.get("price")
+            # If search_amazon fallback ran (no list_price), do a product lookup for MSRP
+            if not _list and _sale and asin and r.get("source") != "amazon_product":
+                try:
+                    _prod = lookup_amazon_product(asin)
+                    if _prod and _prod.get("list_price"):
+                        _list = _prod["list_price"]
+                        if _prod.get("sale_price"):
+                            _sale = _prod["sale_price"]
+                except Exception:
+                    pass
             _use_price = _list or _sale
+            import logging as _ll
+            _ll.getLogger(__name__).info("Amazon ASIN %s: list=$%s sale=$%s use=$%s",
+                                         asin, _list, _sale, _use_price)
 
             # MFG#: use scraped MFG#, or ISBN for books
             mfg = r.get("mfg_number", "") or r.get("part_number", "") or ""
