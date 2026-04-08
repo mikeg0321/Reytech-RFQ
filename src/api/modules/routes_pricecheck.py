@@ -645,6 +645,11 @@ def _pricecheck_detail_inner(pcid):
                 return (1, price)
             sources.sort(key=_sort_key)
 
+        # Suppress fuzzy sources when an EXACT match exists
+        has_exact = any(s[5] > 0.95 for s in sources)
+        if has_exact:
+            sources = [s for s in sources if s[5] >= 0.75]
+
         # Build source chips HTML with confidence text badges
         source_chips = []
         for i_src, (sprice, slabel, surl, scolor, spref, sconf) in enumerate(sources):
