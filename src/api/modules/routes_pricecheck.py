@@ -9947,6 +9947,22 @@ def api_rescrape_unpriced(pcid):
                                 if not item.get("pricing"):
                                     item["pricing"] = {}
                                 item["pricing"]["amazon_asin"] = _amz_asin
+                                item["pricing"]["amazon_url"] = amz[0].get("url", "")
+                                item["pricing"]["amazon_price"] = price
+                                item["pricing"]["amazon_title"] = amz[0].get("title", "")[:200]
+                                # Follow up with ASIN product lookup for list/sale price split
+                                try:
+                                    from src.agents.product_research import lookup_amazon_product
+                                    _prod = lookup_amazon_product(_amz_asin)
+                                    if _prod:
+                                        if _prod.get("list_price"):
+                                            item["pricing"]["list_price"] = _prod["list_price"]
+                                            item["list_price"] = _prod["list_price"]
+                                        if _prod.get("sale_price"):
+                                            item["pricing"]["sale_price"] = _prod["sale_price"]
+                                            item["sale_price"] = _prod["sale_price"]
+                                except Exception:
+                                    pass
                     except Exception as _e:
                         log.debug("Suppressed: %s", _e)
             # Update MFG#/description from scrape
@@ -10249,10 +10265,25 @@ def api_bulk_scrape_urls(pcid):
                                     item["pricing"] = {}
                                 item["pricing"]["amazon_asin"] = _amz_asin
                                 item["pricing"]["amazon_url"] = amz[0].get("url", "")
+                                item["pricing"]["amazon_price"] = price
+                                item["pricing"]["amazon_title"] = amz[0].get("title", "")[:200]
                                 # Switch entire item to Amazon source for easier ordering
                                 item["item_link"] = amz[0].get("url", "") or f"https://www.amazon.com/dp/{_amz_asin}"
                                 item["item_supplier"] = "Amazon"
                                 url = item["item_link"]  # update url for pricing source_url
+                                # Follow up with ASIN product lookup for list/sale price split
+                                try:
+                                    from src.agents.product_research import lookup_amazon_product
+                                    _prod = lookup_amazon_product(_amz_asin)
+                                    if _prod:
+                                        if _prod.get("list_price"):
+                                            item["pricing"]["list_price"] = _prod["list_price"]
+                                            item["list_price"] = _prod["list_price"]
+                                        if _prod.get("sale_price"):
+                                            item["pricing"]["sale_price"] = _prod["sale_price"]
+                                            item["sale_price"] = _prod["sale_price"]
+                                except Exception:
+                                    pass
                             log.info("Amazon fallback for line %d: %s → $%.2f (ASIN: %s)",
                                      i + 1, _search_q[:40], price, _amz_asin)
                     except Exception as e:

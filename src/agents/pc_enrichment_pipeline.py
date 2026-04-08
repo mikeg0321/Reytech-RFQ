@@ -306,6 +306,19 @@ def _run_pipeline(pc_id: str, force: bool):
                         it["pricing"]["manufacturer"] = result["manufacturer"]
                     if not it["pricing"].get("unit_cost") and result["price"] > 0:
                         it["pricing"]["unit_cost"] = result["price"]
+                    # Store list/sale price for "if discount holds" calculator
+                    if result.get("list_price"):
+                        it["pricing"]["list_price"] = result["list_price"]
+                        it["list_price"] = result["list_price"]
+                    if result.get("sale_price"):
+                        it["pricing"]["sale_price"] = result["sale_price"]
+                        it["sale_price"] = result["sale_price"]
+                    # Store Amazon-specific fields if from Amazon
+                    if result.get("asin"):
+                        it["pricing"]["amazon_asin"] = result["asin"]
+                        it["pricing"]["amazon_price"] = result["price"]
+                        it["pricing"]["amazon_url"] = result.get("url", "")
+                        it["pricing"]["amazon_title"] = result.get("title", "")[:200]
                     counters["web_prices_found"] += 1
                     web_count += 1
                 time.sleep(1.0)  # Rate limit between lookups
