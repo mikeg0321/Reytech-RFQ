@@ -3450,6 +3450,118 @@ def pricecheck_bundle_view(bundle_id):
     )
 
 
+@bp.route("/api/pricecheck/multi-upload", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_multi_upload():
+    """Upload multiple separate AMS 704 PDFs. Creates one PC per file, bundled."""
+    files = request.files.getlist("files")
+    if not files or not any(f.filename for f in files):
+        return jsonify({"ok": False, "error": "No files uploaded"})
+
+    # Shared buyer info from form fields
+    requestor = request.form.get("requestor", "").strip()
+    requestor_email = request.form.get("requestor_email", "").strip()
+    institution = request.form.get("institution", "").strip()
+    due_date = request.form.get("due_date", "").strip()
+
+    import uuid as _uuid
+    import shutil as _shutil
+    from src.forms.price_check import parse_ams704
+    from src.api.dashboard import _save_single_pc, DATA_DIR
+
+    bundle_id = f"bnd_{_uuid.uuid4().hex[:8]}" if len(files) > 1 else ""
+    created_pcs = []
+    by_institution = {}
+
+    for f in files:
+        if not f.filename:
+            continue
+        safe_name = f.filename.replace("..", "").replace("/", "_").replace("\\", "_")
+        pc_id = f"pc_{_uuid.uuid4().hex[:8]}"
+
+        # Save file
+        upload_dir = os.path.join(DATA_DIR, "pc_pdfs")
+        os.makedirs(upload_dir, exist_ok=True)
+        pc_file = os.path.join(upload_dir, f"{pc_id}_{safe_name}")
+        f.save(pc_file)
+
+        # Parse
+        try:
+            parsed = parse_ams704(pc_file)
+        except Exception as e:
+            log.error("multi-upload parse error for %s: %s", safe_name, e)
+            parsed = {"error": str(e), "line_items": [], "header": {}}
+
+        items = parsed.get("line_items", [])
+        header = parsed.get("header", {})
+
+        # Derive PC name from filename
+        import re as _re_fn
+        _name = os.path.splitext(safe_name)[0]
+        _name = _re_fn.sub(r'^AMS\s*704\s*(?:Price\s*Check\s*)?(?:Worksheet)?\s*[-_\s]*', '', _name, flags=_re_fn.IGNORECASE)
+        _name = _re_fn.sub(r'\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\s*$', '', _name)
+        pc_name = _name.strip() or os.path.splitext(safe_name)[0]
+
+        # Use shared buyer info, fallback to PDF header
+        _inst = institution or header.get("institution", "")
+        _due = due_date or header.get("due_date", "")
+        _req = requestor or header.get("requestor", "")
+
+        pc = {
+            "id": pc_id, "pc_number": pc_name,
+            "institution": _inst, "due_date": _due,
+            "requestor": _req,
+            "requestor_email": requestor_email,
+            "requestor_name": _req,
+            "ship_to": header.get("ship_to", ""),
+            "items": items, "source_pdf": pc_file,
+            "status": "parsed" if items else "new",
+            "parsed": parsed,
+            "created_at": datetime.now().isoformat(),
+            "source": "manual_multi_upload",
+            "reytech_quote_number": "", "linked_quote_number": "",
+            "bundle_id": bundle_id,
+            "bundle_total_pcs": len(files) if bundle_id else 0,
+        }
+        _save_single_pc(pc_id, pc)
+
+        # Persist to DB for deploy resilience
+        try:
+            from src.core.dal import save_rfq_file
+            with open(pc_file, "rb") as _pf:
+                save_rfq_file(pc_id, safe_name, "application/pdf", _pf.read(),
+                              category="source", uploaded_by="manual_upload")
+        except Exception:
+            pass
+
+        # Auto-enrich
+        try:
+            from src.agents.pc_enrichment_pipeline import enrich_pc_background
+            enrich_pc_background(pc_id)
+        except Exception as _ee:
+            log.warning("multi-upload enrich %s: %s", pc_id, _ee)
+
+        pc_info = {
+            "pc_id": pc_id, "pc_number": pc_name,
+            "institution": _inst, "requestor": _req,
+            "items": len(items), "url": f"/pricecheck/{pc_id}",
+        }
+        created_pcs.append(pc_info)
+        by_institution.setdefault(_inst or "Unknown", []).append(pc_info)
+
+    bundle_url = f"/pricecheck/bundle/{bundle_id}" if bundle_id else ""
+    return jsonify({
+        "ok": True,
+        "total": len(created_pcs),
+        "bundle_id": bundle_id,
+        "bundle_url": bundle_url,
+        "pcs": created_pcs,
+        "by_institution": by_institution,
+        "source_file": "Multiple files",
+    })
+
+
 @bp.route("/api/pricecheck/create-manual", methods=["POST"])
 @auth_required
 @safe_route

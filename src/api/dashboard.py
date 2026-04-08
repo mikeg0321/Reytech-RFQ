@@ -2323,130 +2323,289 @@ def process_rfq_email(rfq_email):
         t.ok("Secure-message stub created", stub_id=_stub_id)
         return _stub
 
-    # ── ROUTING RULE: 1 PDF = Price Check, multiple PDFs = RFQ ──────────────
-    # Single 704 form → PC (market pricing research)
-    # Multiple PDFs (704B + 703B + bid package) → RFQ (formal bid)
-    is_single_pdf = len(pdf_paths) == 1
-    
-    if (is_single_pdf or is_early_pc) and pdf_paths and PRICE_CHECK_AVAILABLE:
-        try:
-            # Inline PC detection — can't import from routes_rfq (bp not defined at import time)
-            def _is_pc_filename(path):
-                bn = os.path.basename(path).lower()
-                # Exclude 704B / 703B / bid package
-                if any(x in bn for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
-                    return False
-                # Match "AMS 704" pattern in filename (no B suffix)
-                if "704" in bn and "ams" in bn:
-                    return True
-                # Match "704" alone (common for AMS 704 price checks)
-                if "704" in bn and "704b" not in bn:
-                    return True
-                # Fallback: try PDF content
+    # ── ROUTING RULE: All-704 PDFs = Price Check(s), mixed = RFQ ─────────
+    # All attachments are AMS 704 → create one PC per file (bundled if >1)
+    # Mixed attachments (704 + 703B + bid package) → RFQ (formal bid)
+    def _parse_due_date_from_body(body_text):
+        """Extract due date from email body like 'by End of Business Wednesday 4/8/2026'."""
+        import re as _re_dd
+        if not body_text:
+            return ""
+        # Pattern 1: "by [optional EOB/weekday] M/D/YYYY"
+        _m = _re_dd.search(r'by\s+(?:end\s+of\s+business\s+)?(?:\w+day\s+)?(\d{1,2}/\d{1,2}/\d{2,4})', body_text, _re_dd.IGNORECASE)
+        if _m:
+            _raw = _m.group(1)
+            for _fmt in ("%m/%d/%Y", "%m/%d/%y"):
                 try:
-                    from pypdf import PdfReader
-                    reader = PdfReader(path)
-                    text = (reader.pages[0].extract_text() or "").lower()
-                    if any(m in text for m in ["704b", "quote worksheet", "acquisition quote"]):
-                        return False
-                    if "price check" in text and ("ams 704" in text or "worksheet" in text):
-                        return True
-                    # Check for AMS 704 form fields
-                    fields = reader.get_fields()
-                    if fields:
-                        fnames = set(fields.keys())
-                        if len({"COMPANY NAME", "Requestor", "PRICE PER UNITRow1", "EXTENSIONRow1"} & fnames) >= 3:
-                            return True
-                except Exception as _e:
-                    log.debug("Suppressed: %s", _e)
+                    return datetime.strptime(_raw, _fmt).strftime("%Y-%m-%d")
+                except ValueError:
+                    continue
+        # Pattern 2: "by April 8, 2026"
+        _m = _re_dd.search(r'by\s+(?:end\s+of\s+business\s+)?(?:\w+day\s+)?([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})', body_text, _re_dd.IGNORECASE)
+        if _m:
+            _raw = _m.group(1).replace(",", "")
+            try:
+                return datetime.strptime(_raw, "%B %d %Y").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+        # Pattern 3: standalone date after "by" or "due"
+        _m = _re_dd.search(r'(?:by|due|deadline|before)\s+(\d{1,2}/\d{1,2}/\d{2,4})', body_text, _re_dd.IGNORECASE)
+        if _m:
+            _raw = _m.group(1)
+            for _fmt in ("%m/%d/%Y", "%m/%d/%y"):
+                try:
+                    return datetime.strptime(_raw, _fmt).strftime("%Y-%m-%d")
+                except ValueError:
+                    continue
+        return ""
+
+    def _pc_name_from_filename(filename):
+        """Derive clean PC name from 704 PDF filename.
+        'AMS 704 Price Check Worksheet- RT Supplies 4.3.26.pdf' → 'RT Supplies'
+        """
+        import re as _re_fn
+        name = os.path.splitext(os.path.basename(filename))[0]
+        # Strip common prefixes
+        name = _re_fn.sub(r'^AMS\s*704\s*(?:Price\s*Check\s*)?(?:Worksheet)?\s*[-_\s]*', '', name, flags=_re_fn.IGNORECASE)
+        # Strip trailing date patterns: "4.3.26", "04-03-2026", "4/3/26"
+        name = _re_fn.sub(r'\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\s*$', '', name)
+        return name.strip() or os.path.splitext(os.path.basename(filename))[0]
+
+    # Inline PC detection — can't import from routes_rfq (bp not defined at import time)
+    def _is_pc_filename(path):
+        bn = os.path.basename(path).lower()
+        if any(x in bn for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
+            return False
+        if "704" in bn and "ams" in bn:
+            return True
+        if "704" in bn and "704b" not in bn:
+            return True
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(path)
+            text = (reader.pages[0].extract_text() or "").lower()
+            if any(m in text for m in ["704b", "quote worksheet", "acquisition quote"]):
                 return False
-            
-            # If early PC detect, try ALL PDFs as PC candidates (don't require filename match)
-            if is_early_pc:
-                pc_pdf = pdf_paths[0] if pdf_paths else None
-                _trace.append(f"Early PC: using first PDF as PC form: {os.path.basename(pc_pdf) if pc_pdf else 'none'}")
-            else:
-                pc_pdf = next((p for p in pdf_paths if _is_pc_filename(p)), None)
-            
+            if "price check" in text and ("ams 704" in text or "worksheet" in text):
+                return True
+            fields = reader.get_fields()
+            if fields:
+                fnames = set(fields.keys())
+                if len({"COMPANY NAME", "Requestor", "PRICE PER UNITRow1", "EXTENSIONRow1"} & fnames) >= 3:
+                    return True
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
+        return False
+
+    # Identify ALL 704-type PDFs in attachments
+    _pc_pdf_candidates = [p for p in pdf_paths if _is_pc_filename(p)] if pdf_paths else []
+    _has_rfq_forms = any(
+        any(x in os.path.basename(p).lower() for x in ["703b", "bid package", "bid_package"])
+        for p in pdf_paths
+    ) if pdf_paths else False
+    # Route to PC if: (a) early PC detect, or (b) all PDFs are 704s with no RFQ forms
+    if is_early_pc and not _pc_pdf_candidates:
+        _pc_pdf_candidates = list(pdf_paths)  # early detect fallback: try all PDFs
+    _is_pc_email = (is_early_pc or (_pc_pdf_candidates and not _has_rfq_forms))
+
+    if _is_pc_email and _pc_pdf_candidates and PRICE_CHECK_AVAILABLE:
+        try:
             pc_checks = [f"{os.path.basename(p)}={'PC' if _is_pc_filename(p) else 'NO'}" for p in pdf_paths]
-            _trace.append(f"PC checks: {pc_checks}")
-            if pc_pdf:
-                import uuid as _uuid
-                pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
-                _trace.append(f"PC detected: {os.path.basename(pc_pdf)} → {pc_id}")
-                
+            _trace.append(f"PC checks: {pc_checks}, candidates={len(_pc_pdf_candidates)}")
+
+            # ── Shared buyer info from email (applies to all PCs) ──
+            _body_text = rfq_email.get("body_text", "") or rfq_email.get("body_preview", "") or ""
+            _email_due_date = _parse_due_date_from_body(_body_text)
+            _buyer_email = rfq_email.get("sender_email", rfq_email.get("original_sender", ""))
+            _buyer_name = (rfq_email.get("sender", "").split("<")[0].strip()
+                          .replace('"','').strip() or _buyer_email)
+
+            # ── Bundle if multiple 704 PDFs ──
+            import uuid as _uuid
+            _bundle_id = f"bnd_{_uuid.uuid4().hex[:8]}" if len(_pc_pdf_candidates) > 1 else ""
+            if _bundle_id:
+                _trace.append(f"Multi-PC bundle: {_bundle_id} ({len(_pc_pdf_candidates)} PDFs)")
+
+            _created_pc_ids = []
+            for _pc_pdf_idx, pc_pdf in enumerate(_pc_pdf_candidates):
+                pc_id = f"pc_{_uuid.uuid4().hex[:8]}"
+                _pc_basename = os.path.basename(pc_pdf)
+                _trace.append(f"PC [{_pc_pdf_idx+1}/{len(_pc_pdf_candidates)}]: {_pc_basename} → {pc_id}")
+
+                # ── Per-PDF dedup: check email_uid + source filename ──
                 existing_pcs = _load_price_checks()
                 email_uid = rfq_email.get("email_uid")
                 if email_uid:
-                    existing_match = None
-                    existing_match_id = None
+                    _dup_found = False
                     for pid, p in existing_pcs.items():
-                        if p.get("email_uid") == email_uid:
-                            existing_match = p
-                            existing_match_id = pid
+                        if p.get("email_uid") == email_uid and os.path.basename(p.get("source_pdf", "")) == _pc_basename:
+                            if p.get("status") == "parse_error" and not p.get("items"):
+                                log.info("Replacing parse_error PC %s (0 items) with fresh parse", pid)
+                                del existing_pcs[pid]
+                                _save_price_checks(existing_pcs)
+                                _trace.append(f"Replaced stale parse_error PC: {pid}")
+                            else:
+                                _trace.append(f"SKIP PDF {_pc_basename}: duplicate (existing={pid})")
+                                _dup_found = True
                             break
-                    if existing_match:
-                        # Allow re-processing if the existing PC was a failed parse
-                        if existing_match.get("status") == "parse_error" and not existing_match.get("items"):
-                            log.info("Replacing parse_error PC %s (0 items) with fresh parse", existing_match_id)
-                            del existing_pcs[existing_match_id]
-                            _save_price_checks(existing_pcs)
-                            _trace.append(f"Replaced stale parse_error PC: {existing_match_id}")
-                        else:
-                            _trace.append(f"SKIP: duplicate email_uid in PC queue (existing={existing_match_id}, status={existing_match.get('status')}, items={len(existing_match.get('items', []))})")
-                            POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                            t.ok("Skipped: duplicate email_uid in PC queue")
-                            return None
+                    if _dup_found:
+                        continue  # Skip this PDF, process next one
                 
-                # ── Cross-queue dedup: if this email has RFQ templates (703B/704B/BidPkg),
-                # it's an RFQ, not a PC. Don't create a PC entry for it.
-                _has_rfq_forms = any(
-                    any(x in os.path.basename(p).lower() for x in ["703b", "bid package", "bid_package"])
-                    for p in pdf_paths
-                )
-                if _has_rfq_forms:
-                    _trace.append(f"SKIP PC: email has RFQ forms (703B/BidPkg) alongside 704 — routing to RFQ queue instead")
-                    log.info("Skipping PC for %s — email has RFQ forms, will create RFQ instead", _subj)
-                    # Fall through to RFQ creation below
-                else:
-                    # Create the PC inline (can't import from routes_rfq — bp issue)
-                    try:
-                        import shutil as _shutil
-                        pc_file = os.path.join(DATA_DIR, f"pc_upload_{os.path.basename(pc_pdf)}")
-                        _shutil.copy2(pc_pdf, pc_file)
-                        _file_size = os.path.getsize(pc_file)
-                        _trace.append(f"PDF copied: {os.path.basename(pc_file)} ({_file_size} bytes)")
-                        log.info("PC parse: %s (%d bytes)", os.path.basename(pc_file), _file_size)
-                        
-                        parsed = parse_ams704(pc_file)
-                        parse_error = parsed.get("error")
-                        _item_count = len(parsed.get("line_items", []))
-                        _method = parsed.get("parse_method", "?")
-                        _trace.append(f"parse_ams704: method={_method} items={_item_count} error={parse_error}")
-                        log.info("PC parse result: method=%s items=%d error=%s", _method, _item_count, parse_error)
-                        
-                        if parse_error:
-                            # Still create minimal PC so email isn't lost
-                            _trace.append(f"parse_ams704 error: {parse_error} — creating minimal PC")
-                            _pc_status = "new" if is_early_pc else "parse_error"
-                            pcs = _load_price_checks()
+                # Create the PC inline (can't import from routes_rfq — bp issue)
+                try:
+                    import shutil as _shutil
+                    pc_file = os.path.join(DATA_DIR, f"pc_upload_{_pc_basename}")
+                    _shutil.copy2(pc_pdf, pc_file)
+                    _file_size = os.path.getsize(pc_file)
+                    _trace.append(f"PDF copied: {os.path.basename(pc_file)} ({_file_size} bytes)")
+                    log.info("PC parse: %s (%d bytes)", os.path.basename(pc_file), _file_size)
+
+                    parsed = parse_ams704(pc_file)
+                    parse_error = parsed.get("error")
+                    _item_count = len(parsed.get("line_items", []))
+                    _method = parsed.get("parse_method", "?")
+                    _trace.append(f"parse_ams704: method={_method} items={_item_count} error={parse_error}")
+                    log.info("PC parse result: method=%s items=%d error=%s", _method, _item_count, parse_error)
+
+                    # Derive PC name from filename (e.g., "RT Supplies" from "AMS 704...RT Supplies 4.3.26.pdf")
+                    _filename_pc_name = _pc_name_from_filename(pc_pdf)
+
+                    if parse_error:
+                        # Still create minimal PC so email isn't lost
+                        _trace.append(f"parse_ams704 error: {parse_error} — creating minimal PC")
+                        _pc_status = "new" if is_early_pc else "parse_error"
+                        pcs = _load_price_checks()
+                        pcs[pc_id] = {
+                            "id": pc_id,
+                            "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or _pc_basename.replace(".pdf","")[:40],
+                            "institution": "", "due_date": _email_due_date,
+                            "requestor": _buyer_name,
+                            "requestor_email": _buyer_email,
+                            "ship_to": "", "items": [], "source_pdf": pc_file,
+                            "status": _pc_status,
+                            "parse_note": f"Non-704 form — add items manually" if is_early_pc else "",
+                            "parse_error": parse_error,
+                            "email_uid": rfq_email.get("email_uid", ""),
+                            "email_subject": rfq_email.get("subject", ""),
+                            "created_at": datetime.now().isoformat(),
+                            "reytech_quote_number": "", "linked_quote_number": "",
+                            "bundle_id": _bundle_id,
+                            "bundle_total_pcs": len(_pc_pdf_candidates) if _bundle_id else 0,
+                            "source": "email_auto",
+                        }
+                        _save_single_pc(pc_id, pcs[pc_id])
+                        _created_pc_ids.append(pc_id)
+                        # Persist source PDF to DB so it survives redeploys
+                        try:
+                            if pc_file and os.path.exists(pc_file):
+                                with open(pc_file, "rb") as _pdf_f:
+                                    _pdf_bytes = _pdf_f.read()
+                                save_rfq_file(pc_id, os.path.basename(pc_file),
+                                              "application/pdf", _pdf_bytes,
+                                              category="source", uploaded_by="email_poller")
+                        except Exception as _db_e:
+                            log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
+                        result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
+                    else:
+                        items = parsed.get("line_items", [])
+                        header = parsed.get("header", {})
+                        # Fallback: if no items from PDF, try email body
+                        if not items:
+                            try:
+                                from src.forms.price_check import parse_items_from_email_body
+                                _body = rfq_email.get("body", "")
+                                if _body and len(_body) > 100:
+                                    _bp = parse_items_from_email_body(_body)
+                                    if _bp.get("line_items"):
+                                        items = _bp["line_items"]
+                                        parsed["line_items"] = items
+                                        parsed["parse_method"] = "email_body"
+                                        for _k, _v in _bp.get("header", {}).items():
+                                            if _v and not header.get(_k):
+                                                header[_k] = _v
+                                        _trace.append(f"EMAIL BODY: parsed {len(items)} items (no PDF items)")
+                                        log.info("PC %s: parsed %d items from email body", pc_id, len(items))
+                            except Exception as _ebody_e:
+                                _trace.append(f"Email body parse failed: {_ebody_e}")
+                                log.debug("Email body parse: %s", _ebody_e)
+                        pc_num = header.get("price_check_number", "") or ""
+                        institution = header.get("institution", "")
+                        due_date = header.get("due_date", "") or _email_due_date
+                        # PC name: prefer filename-derived name (unique per attachment),
+                        # then PDF header, then email subject
+                        if _filename_pc_name and len(_pc_pdf_candidates) > 1:
+                            pc_num = _filename_pc_name
+                            _trace.append(f"pc_number from filename: '{pc_num}'")
+                        elif not pc_num or pc_num == "unknown":
+                            if _filename_pc_name:
+                                pc_num = _filename_pc_name
+                                _trace.append(f"pc_number from filename: '{pc_num}'")
+                            else:
+                                import re as _pcre2
+                                _subj_raw = rfq_email.get("subject", "")
+                                _stripped = _pcre2.sub(
+                                    r'^(?:price\s+)?quote\s+request\s*[-\u2013]\s*|^ams\s*704\s*[-\u2013]\s*|^price\s+check\s*[-\u2013]\s*',
+                                    '', _subj_raw, flags=_pcre2.IGNORECASE
+                                ).strip()
+                                _stripped = _pcre2.sub(r'\s*[-\u2013]\s*\d{2}\.\d{2}\.\d{2,4}', '', _stripped).strip()
+                                pc_num = _stripped or _pc_basename.replace(".pdf", "")[:40] or "unknown"
+                                _trace.append(f"pc_number fallback from subject: '{pc_num}'")
+
+                        # Dedup: same PC# + institution + due_date
+                        pcs = _load_price_checks()
+                        dup_id = None
+                        for eid, epc in pcs.items():
+                            if (epc.get("pc_number","").strip() == pc_num.strip()
+                                    and epc.get("institution","").strip().lower() == institution.strip().lower()
+                                    and epc.get("due_date","").strip() == due_date.strip()
+                                    and pc_num not in ("unknown", "RFQ", "")):
+                                dup_id = eid
+                                break
+
+                        if dup_id:
+                            _trace.append(f"DEDUP: PC #{pc_num} already exists as {dup_id}")
+                            result = {"dedup": True, "existing_id": dup_id}
+                        else:
+                            # Cross-queue dedup
+                            _rfq_sols = {v.get("solicitation_number") for v in rfqs.values() if v.get("solicitation_number")}
+                            if pc_num in _rfq_sols:
+                                _trace.append(f"SKIP PC: pc_number '{pc_num}' already in RFQ queue")
+                                continue  # Skip this PDF, process next
+
                             pcs[pc_id] = {
-                                "id": pc_id,
-                                "pc_number": rfq_email.get("solicitation_hint", "") or os.path.basename(pc_pdf).replace(".pdf","")[:40],
-                                "institution": "", "due_date": "",
-                                "requestor": rfq_email.get("sender_email", rfq_email.get("sender", "")),
-                                "requestor_email": rfq_email.get("sender_email", ""),
-                                "ship_to": "", "items": [], "source_pdf": pc_file,
-                                "status": _pc_status,
-                                "parse_note": f"Non-704 form — add items manually" if is_early_pc else "",
-                                "parse_error": parse_error,
+                                "id": pc_id, "pc_number": pc_num,
+                                "institution": institution, "due_date": due_date,
+                                "requestor": header.get("requestor", "") or _buyer_name,
+                                "requestor_email": _buyer_email,
+                                "requestor_name": _buyer_name,
+                                "ship_to": header.get("ship_to", ""),
+                                "items": items, "source_pdf": pc_file,
+                                "status": "parsed" if items else "new",
+                                "parsed": parsed,
                                 "email_uid": rfq_email.get("email_uid", ""),
                                 "email_subject": rfq_email.get("subject", ""),
                                 "created_at": datetime.now().isoformat(),
-                                "reytech_quote_number": "", "linked_quote_number": "",
+                                "source": "email_auto",
+                                "reytech_quote_number": "",
+                                "linked_quote_number": "",
+                                "bundle_id": _bundle_id,
+                                "bundle_total_pcs": len(_pc_pdf_candidates) if _bundle_id else 0,
                             }
+                            if len(items) > 8:
+                                pcs[pc_id]["_split_hint"] = {
+                                    "total_items": len(items),
+                                    "source_pages": (len(items) + 7) // 8,
+                                    "suggested_splits": [],
+                                }
+                                for _si, _sitem in enumerate(items):
+                                    _item_num = _sitem.get("item_number", "")
+                                    try:
+                                        if int(_item_num) == 1 and _si > 0:
+                                            pcs[pc_id]["_split_hint"]["suggested_splits"].append(_si)
+                                    except (ValueError, TypeError):
+                                        pass
                             _save_single_pc(pc_id, pcs[pc_id])
-                            # Persist source PDF to DB so it survives redeploys
+                            # Persist source PDF to DB
                             try:
                                 if pc_file and os.path.exists(pc_file):
                                     with open(pc_file, "rb") as _pdf_f:
@@ -2456,214 +2615,88 @@ def process_rfq_email(rfq_email):
                                                   category="source", uploaded_by="email_poller")
                             except Exception as _db_e:
                                 log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
-                            result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
-                        else:
-                            items = parsed.get("line_items", [])
-                            header = parsed.get("header", {})
-                            # Fallback: if no items from PDF, try email body
-                            if not items:
-                                try:
-                                    from src.forms.price_check import parse_items_from_email_body
-                                    _body = rfq_email.get("body", "")
-                                    if _body and len(_body) > 100:
-                                        _bp = parse_items_from_email_body(_body)
-                                        if _bp.get("line_items"):
-                                            items = _bp["line_items"]
-                                            parsed["line_items"] = items
-                                            parsed["parse_method"] = "email_body"
-                                            for _k, _v in _bp.get("header", {}).items():
-                                                if _v and not header.get(_k):
-                                                    header[_k] = _v
-                                            _trace.append(f"EMAIL BODY: parsed {len(items)} items (no PDF items)")
-                                            log.info("PC %s: parsed %d items from email body", pc_id, len(items))
-                                except Exception as _ebody_e:
-                                    _trace.append(f"Email body parse failed: {_ebody_e}")
-                                    log.debug("Email body parse: %s", _ebody_e)
-                            pc_num = header.get("price_check_number", "") or ""
-                            institution = header.get("institution", "")
-                            due_date = header.get("due_date", "")
-                            # Fallback: derive pc_number from email subject if PDF didn't yield one
-                            if not pc_num or pc_num == "unknown":
-                                import re as _pcre2
-                                _subj_raw = rfq_email.get("subject", "")
-                                _stripped = _pcre2.sub(
-                                    r'^(?:price\s+)?quote\s+request\s*[-\u2013]\s*|^ams\s*704\s*[-\u2013]\s*|^price\s+check\s*[-\u2013]\s*',
-                                    '', _subj_raw, flags=_pcre2.IGNORECASE
-                                ).strip()
-                                _stripped = _pcre2.sub(r'\s*[-\u2013]\s*\d{2}\.\d{2}\.\d{2,4}', '', _stripped).strip()
-                                pc_num = _stripped or os.path.basename(pc_pdf).replace(".pdf", "")[:40] or "unknown"
-                                _trace.append(f"pc_number fallback from subject: '{pc_num}'")
-                            
-                            # Dedup: same PC# + institution + due_date
-                            pcs = _load_price_checks()
-                            dup_id = None
-                            for eid, epc in pcs.items():
-                                if (epc.get("pc_number","").strip() == pc_num.strip()
-                                        and epc.get("institution","").strip().lower() == institution.strip().lower()
-                                        and epc.get("due_date","").strip() == due_date.strip()
-                                        and pc_num not in ("unknown", "RFQ", "")):
-                                    dup_id = eid
-                                    break
-                            
-                            if dup_id:
-                                _trace.append(f"DEDUP: PC #{pc_num} already exists as {dup_id}")
-                                result = {"dedup": True, "existing_id": dup_id}
-                            else:
-                                # Cross-queue dedup: check if this PC number exists as an RFQ solicitation
-                                _rfq_sols = {v.get("solicitation_number") for v in rfqs.values() if v.get("solicitation_number")}
-                                if pc_num in _rfq_sols:
-                                    _trace.append(f"SKIP PC: pc_number '{pc_num}' already in RFQ queue as solicitation")
-                                    log.info("Cross-queue dedup: PC %s matches RFQ sol %s — skipping PC", pc_num, pc_num)
-                                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                                    t.ok("Skipped: cross-queue dedup (PC matches existing RFQ sol)")
-                                    return None
-                                
-                                pcs[pc_id] = {
-                                    "id": pc_id, "pc_number": pc_num,
-                                    "institution": institution, "due_date": due_date,
-                                    "requestor": header.get("requestor", ""),
-                                    "requestor_email": rfq_email.get("sender_email", ""),
-                                    "requestor_name": rfq_email.get("sender_name", rfq_email.get("sender_email", "")),
-                                    "ship_to": header.get("ship_to", ""),
-                                    "items": items, "source_pdf": pc_file,
-                                    "status": "parsed" if items else "new",
-                                    "parsed": parsed,
-                                    "email_uid": rfq_email.get("email_uid", ""),
-                                    "email_subject": rfq_email.get("subject", ""),
-                                    "created_at": datetime.now().isoformat(),
-                                    "source": "email_auto",
-                                    "reytech_quote_number": "",
-                                    "linked_quote_number": "",
-                                }
-                                # Detect multi-page PDFs that may need splitting
-                                if len(items) > 8:
-                                    pcs[pc_id]["_split_hint"] = {
-                                        "total_items": len(items),
-                                        "source_pages": (len(items) + 7) // 8,
-                                        "suggested_splits": [],
-                                    }
-                                    for _si, _sitem in enumerate(items):
-                                        _item_num = _sitem.get("item_number", "")
-                                        try:
-                                            if int(_item_num) == 1 and _si > 0:
-                                                pcs[pc_id]["_split_hint"]["suggested_splits"].append(_si)
-                                        except (ValueError, TypeError):
-                                            pass
-                                    log.info("PC %s: split hint — %d items, splits at %s",
-                                             pc_id, len(items), pcs[pc_id]["_split_hint"]["suggested_splits"])
-                                _save_single_pc(pc_id, pcs[pc_id])
-                                # Persist source PDF to DB so it survives redeploys
-                                try:
-                                    if pc_file and os.path.exists(pc_file):
-                                        with open(pc_file, "rb") as _pdf_f:
-                                            _pdf_bytes = _pdf_f.read()
-                                        save_rfq_file(pc_id, os.path.basename(pc_file),
-                                                      "application/pdf", _pdf_bytes,
-                                                      category="source", uploaded_by="email_poller")
-                                except Exception as _db_e:
-                                    log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
-                                result = {"ok": True, "pc_id": pc_id, "items": len(items)}
-                        _trace.append(f"PC result: {result}")
-                    except Exception as he:
-                        _trace.append(f"PC create EXCEPTION: {he}")
-                        result = {"error": str(he)}
-                    
-                    pcs = _load_price_checks()
-                    _trace.append(f"PCs after create: {len(pcs)} ids={list(pcs.keys())[:5]}")
-                    
-                    if pc_id in pcs:
-                        pcs[pc_id]["email_uid"] = email_uid
-                        pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
-                        pcs[pc_id]["email_message_id"] = rfq_email.get("message_id", "")
-                        pcs[pc_id]["original_sender"] = rfq_email.get("original_sender") or rfq_email.get("sender_email", "")
-                        pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or rfq_email.get("sender_name") or rfq_email.get("sender_email", "")
-                        _save_single_pc(pc_id, pcs[pc_id])
+                            result = {"ok": True, "pc_id": pc_id, "items": len(items)}
+                    _trace.append(f"PC result: {result}")
+                except Exception as he:
+                    _trace.append(f"PC create EXCEPTION: {he}")
+                    result = {"error": str(he)}
+
+                pcs = _load_price_checks()
+                if pc_id in pcs:
+                    pcs[pc_id]["email_uid"] = email_uid
+                    pcs[pc_id]["email_subject"] = rfq_email.get("subject", "")
+                    pcs[pc_id]["email_message_id"] = rfq_email.get("message_id", "")
+                    pcs[pc_id]["original_sender"] = rfq_email.get("original_sender") or _buyer_email
+                    pcs[pc_id]["requestor"] = pcs[pc_id].get("requestor") or _buyer_name
+                    _save_single_pc(pc_id, pcs[pc_id])
+                    if _pc_pdf_idx == 0:
                         _ensure_contact_from_email(rfq_email)
-                        # Auto-enrich in background thread (unified pipeline)
-                        try:
-                            from src.agents.pc_enrichment_pipeline import enrich_pc_background
-                            enrich_pc_background(pc_id)
-                        except Exception as _enrich_err:
-                            log.warning("PC %s: enrichment failed to start: %s", pc_id, _enrich_err)
-                        _trace.append(f"PC CREATED: {pc_id} (auto-pricing started)")
-                        log.info("PC %s created successfully from email %s", pc_id, email_uid)
-                        try:
-                            from src.core.dal import log_lifecycle_event as _lle_pc
-                            _lle_pc("pc", pc_id, "email_received",
-                                f"From {rfq_email.get('sender_email', '?')}: {rfq_email.get('subject', '?')[:60]}",
-                                actor="system", detail={"sender": rfq_email.get("sender_email", ""), "subject": rfq_email.get("subject", "")})
-                            _lle_pc("pc", pc_id, "email_parsed",
-                                f"Parsed {len(items)} items",
-                                actor="system", detail={"item_count": len(items)})
-                        except Exception:
-                            pass
-                        POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                        t.ok("PC created", pc_id=pc_id, pc_number=pcs[pc_id].get("pc_number","?"))
-                        return None
-                    else:
-                        # PC wasn't saved — if early detect, force-create a minimal PC
-                        if is_early_pc:
-                            _trace.append("PC NOT in storage but early-detect → force-creating minimal PC")
-                            # Extract metadata from email body
-                            _body = rfq_email.get("body_text", "") or rfq_email.get("body_preview", "")
-                            _sender_name = (rfq_email.get("sender", "").split("<")[0].strip()
-                                           .replace('"','').strip() or
-                                           rfq_email.get("sender_email", ""))
-                            _institution = ""
-                            _due_date = ""
-                            # Try to extract institution from body
-                            import re as _re_pc
-                            for _inst_pat in [
-                                r'(?:california|ca)\s+institution\s+(?:for\s+)?\w+',
-                                r'(?:CSP|CIW|CIM|CTF|SAC|LAC|SQ|CHCF|SATF|PVSP)\b[\w\s\-]*',
-                            ]:
-                                _m = _re_pc.search(_body, _re_pc.IGNORECASE)
-                                if _m:
-                                    _institution = _m.group(0).strip()[:60]
-                                    break
-                            # Extract due date
-                            _due_m = _re_pc.search(r'(?:respond|due|deadline|COB)\s+(?:by\s+)?(\d{1,2}/\d{1,2}/\d{2,4})', _body, _re_pc.IGNORECASE)
-                            if _due_m:
-                                _due_date = _due_m.group(1)
-                            
-                            pcs = _load_price_checks()
-                            pcs[pc_id] = {
-                                "id": pc_id,
-                                "pc_number": rfq_email.get("solicitation_hint", "") or rfq_email.get("subject", "")[:40],
-                                "institution": _institution,
-                                "due_date": _due_date,
-                                "requestor": _sender_name,
-                                "requestor_email": rfq_email.get("sender_email", ""),
-                                "ship_to": "", "items": [],
-                                "source_pdf": pc_pdf if pc_pdf else "",
-                                "status": "new",  # SHOW on dashboard — not parse_error
-                                "parse_note": "Non-704 form — add items manually or upload 704",
-                                "created_at": datetime.now().isoformat(),
-                                "email_uid": email_uid,
-                                "email_subject": rfq_email.get("subject", ""),
-                                "source": "email_auto",
-                                "reytech_quote_number": "", "linked_quote_number": "",
-                            }
-                            _save_single_pc(pc_id, pcs[pc_id])
-                            # Persist source PDF to DB
-                            try:
-                                _pc_pdf_path = pc_pdf if pc_pdf else ""
-                                if _pc_pdf_path and os.path.exists(_pc_pdf_path):
-                                    with open(_pc_pdf_path, "rb") as _pdf_f:
-                                        save_rfq_file(pc_id, os.path.basename(_pc_pdf_path),
-                                                      "application/pdf", _pdf_f.read(),
-                                                      category="source", uploaded_by="email_poller")
-                            except Exception:
-                                pass
-                            _ensure_contact_from_email(rfq_email)
-                            _trace.append(f"FORCE PC CREATED: {pc_id}")
-                            log.info("Force-created PC %s from early-detect email", pc_id)
-                            POLL_STATUS.setdefault("_email_traces", []).append(_trace)
-                            t.ok("PC force-created (early detect)", pc_id=pc_id)
-                            return None
-                        _trace.append(f"PC NOT in storage — falling through to RFQ")
-                        log.warning("PC creation failed for %s (result=%s) — falling through to RFQ queue",
-                                    _subj, result)
+                    try:
+                        from src.agents.pc_enrichment_pipeline import enrich_pc_background
+                        enrich_pc_background(pc_id)
+                    except Exception as _enrich_err:
+                        log.warning("PC %s: enrichment failed to start: %s", pc_id, _enrich_err)
+                    _created_pc_ids.append(pc_id)
+                    _trace.append(f"PC CREATED: {pc_id} (auto-pricing started)")
+                    log.info("PC %s created from email %s (%s)", pc_id, email_uid, _pc_basename)
+                    try:
+                        from src.core.dal import log_lifecycle_event as _lle_pc
+                        _lle_pc("pc", pc_id, "email_received",
+                            f"From {_buyer_email}: {rfq_email.get('subject', '?')[:60]}",
+                            actor="system", detail={"sender": _buyer_email, "subject": rfq_email.get("subject", "")})
+                        _lle_pc("pc", pc_id, "email_parsed",
+                            f"Parsed {len(parsed.get('line_items', []))} items",
+                            actor="system", detail={"item_count": len(parsed.get("line_items", []))})
+                    except Exception:
+                        pass
+                elif is_early_pc:
+                    _trace.append(f"PC NOT in storage — force-creating minimal PC")
+                    pcs = _load_price_checks()
+                    pcs[pc_id] = {
+                        "id": pc_id,
+                        "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or rfq_email.get("subject", "")[:40],
+                        "institution": "", "due_date": _email_due_date,
+                        "requestor": _buyer_name,
+                        "requestor_email": _buyer_email,
+                        "ship_to": "", "items": [],
+                        "source_pdf": pc_pdf or "",
+                        "status": "new",
+                        "parse_note": "Non-704 form — add items manually or upload 704",
+                        "created_at": datetime.now().isoformat(),
+                        "email_uid": email_uid,
+                        "email_subject": rfq_email.get("subject", ""),
+                        "source": "email_auto",
+                        "reytech_quote_number": "", "linked_quote_number": "",
+                        "bundle_id": _bundle_id,
+                        "bundle_total_pcs": len(_pc_pdf_candidates) if _bundle_id else 0,
+                    }
+                    _save_single_pc(pc_id, pcs[pc_id])
+                    try:
+                        if pc_pdf and os.path.exists(pc_pdf):
+                            with open(pc_pdf, "rb") as _pdf_f:
+                                save_rfq_file(pc_id, os.path.basename(pc_pdf),
+                                              "application/pdf", _pdf_f.read(),
+                                              category="source", uploaded_by="email_poller")
+                    except Exception:
+                        pass
+                    _created_pc_ids.append(pc_id)
+                    _trace.append(f"FORCE PC CREATED: {pc_id}")
+                else:
+                    _trace.append(f"PC {pc_id} NOT saved — skipping")
+
+            # ── End of per-PDF loop ──
+            if _created_pc_ids:
+                _ensure_contact_from_email(rfq_email)
+                _trace.append(f"TOTAL PCs created: {len(_created_pc_ids)} ids={_created_pc_ids}")
+                if _bundle_id:
+                    _trace.append(f"Bundle: {_bundle_id}")
+                POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                t.ok(f"{len(_created_pc_ids)} PC(s) created",
+                     pc_ids=_created_pc_ids, bundle_id=_bundle_id or None)
+                return None
+            else:
+                _trace.append("No PCs created from any PDF — falling through to RFQ")
+                log.warning("No PCs created for %s — falling through to RFQ queue", _subj)
         except Exception as _e:
             _trace.append(f"EXCEPTION in PC block: {_e}")
             log.warning("704 detection in email polling: %s", _e)

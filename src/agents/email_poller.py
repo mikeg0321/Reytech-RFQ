@@ -1129,16 +1129,21 @@ def is_price_check_email(subject, body, sender, pdf_names):
     
     # ── Signal 4: PDF filename contains "704" but NOT "704b" ──
     # This is the strongest signal — AMS 704 forms are almost always price checks
+    # Count ALL 704 PDFs (not just first) to support multi-attachment emails
+    _pc_704_count = 0
     for pdf in pdf_names:
         pl = pdf.lower()
         if "704" in pl and "704b" not in pl:
-            if "ams" in pl:
-                signals.append(f"pdf_ams704:{pdf}")
-                score += 5  # Very strong: "AMS 704" in filename
-            else:
-                signals.append(f"pdf_704:{pdf}")
-                score += 3  # Moderate: "704" in filename without "ams"
-            break
+            _pc_704_count += 1
+            if _pc_704_count == 1:  # Score only once (strongest match)
+                if "ams" in pl:
+                    signals.append(f"pdf_ams704:{pdf}")
+                    score += 5  # Very strong: "AMS 704" in filename
+                else:
+                    signals.append(f"pdf_704:{pdf}")
+                    score += 3  # Moderate: "704" in filename without "ams"
+    if _pc_704_count > 1:
+        signals.append(f"multi_704_pdfs:{_pc_704_count}")
     
     # ── Signal 5: Body contains PC-like phrases ──
     pc_phrases = ["please email me a quote", "price your response",
@@ -1151,10 +1156,11 @@ def is_price_check_email(subject, body, sender, pdf_names):
             score += 2
             break
     
-    # ── Signal 6: Single PDF from .gov sender (likely a PC form) ──
+    # ── Signal 6: All PDFs are 704-type from .gov sender ──
     gov_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire"]
-    if len(pdf_names) == 1 and any(d in sender_email for d in gov_domains):
-        signals.append("single_pdf_gov_sender")
+    _non_704_count = len(pdf_names) - _pc_704_count
+    if _pc_704_count >= 1 and _non_704_count == 0 and any(d in sender_email for d in gov_domains):
+        signals.append(f"gov_sender_all_704s:{_pc_704_count}")
         score += 2
     
     # Threshold: need at least 4 points to be confident it's a PC
@@ -1166,6 +1172,7 @@ def is_price_check_email(subject, body, sender, pdf_names):
             "score": score,
             "signals": signals,
             "sender_email": sender_email,
+            "pc_pdf_count": _pc_704_count,
         }
     
     return None

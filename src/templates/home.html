@@ -345,7 +345,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  <div style="display:flex;gap:8px">
   <button onclick="document.getElementById('new-rfq-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:var(--ac);color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer">+ New RFQ</button>
   <button onclick="document.getElementById('new-pc-modal').style.display='flex'" class="btn" style="font-size:14px;padding:8px 18px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);border-radius:8px;font-weight:600;cursor:pointer">+ New PC</button>
-  <button onclick="openMultiPcUpload()" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer">📑 Split Multi-PC</button>
+  <button onclick="openMultiPcUpload()" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:8px 18px;font-size:14px;font-weight:600;cursor:pointer">📑 Multi-PC Upload</button>
  </div>
  <div style="display:flex;gap:8px">
   <button onclick="location.href='/awards'" class="btn" style="font-size:13px;padding:6px 14px;background:rgba(210,153,34,.1);color:#d29922;border:1px solid rgba(210,153,34,.2);border-radius:6px">🏆 Awards</button>
@@ -1532,11 +1532,18 @@ document.addEventListener('DOMContentLoaded', function() {
 <div id="multiPcModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10001;justify-content:center;align-items:center">
  <div style="background:#161b22;border:1px solid #30363d;border-radius:14px;width:680px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6)">
   <div style="padding:18px 22px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center">
-   <div><div style="font-size:17px;font-weight:700;color:#e6edf3">📑 Split Multi-PC PDF</div><div style="font-size:13px;color:#8b949e;margin-top:2px">Upload a combined DocuSign PDF — auto-splits by institution</div></div>
+   <div style="font-size:17px;font-weight:700;color:#e6edf3">📑 Multi-PC Upload</div>
    <button onclick="closeMultiPcUpload()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">✕</button>
   </div>
+  <!-- Tab switcher -->
+  <div style="display:flex;border-bottom:1px solid #30363d">
+   <button id="mpc-tab-combined" onclick="switchMpcTab('combined')" style="flex:1;padding:10px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid #58a6ff;color:#58a6ff;cursor:pointer">Combined PDF</button>
+   <button id="mpc-tab-multi" onclick="switchMpcTab('multi')" style="flex:1;padding:10px;font-size:14px;font-weight:600;background:none;border:none;border-bottom:2px solid transparent;color:#8b949e;cursor:pointer">Multiple Files</button>
+  </div>
   <div style="flex:1;overflow-y:auto;padding:22px">
+   <!-- TAB 1: Combined PDF (existing) -->
    <div id="mpc-step-upload">
+    <div style="font-size:13px;color:#8b949e;margin-bottom:12px">Upload a combined DocuSign PDF — auto-splits by institution</div>
     <div style="border:2px dashed #30363d;border-radius:10px;padding:36px;text-align:center;cursor:pointer" onclick="document.getElementById('mpc-file-input').click()">
      <div style="font-size:36px;margin-bottom:8px">📎</div>
      <div style="font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:4px">Drop PDF here or click to browse</div>
@@ -1544,6 +1551,36 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
     <input type="file" id="mpc-file-input" accept=".pdf" style="display:none" onchange="handleMpcFile(this.files[0])">
     <div id="mpc-upload-status" style="margin-top:12px;font-size:14px;color:#8b949e;text-align:center"></div>
+   </div>
+   <!-- TAB 2: Multiple Files -->
+   <div id="mpc-step-multi" style="display:none">
+    <div style="font-size:13px;color:#8b949e;margin-bottom:12px">Upload 2+ separate AMS 704 PDFs from the same buyer</div>
+    <div style="border:2px dashed #30363d;border-radius:10px;padding:28px;text-align:center;cursor:pointer;margin-bottom:16px" onclick="document.getElementById('mpc-multi-input').click()">
+     <div style="font-size:36px;margin-bottom:8px">📎</div>
+     <div style="font-size:15px;font-weight:600;color:#e6edf3;margin-bottom:4px">Select multiple PDFs</div>
+     <div id="mpc-multi-file-list" style="font-size:13px;color:#8b949e">No files selected</div>
+    </div>
+    <input type="file" id="mpc-multi-input" accept=".pdf" multiple style="display:none" onchange="updateMultiFileList(this.files)">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+     <div>
+      <label style="font-size:12px;color:#8b949e;font-weight:600;display:block;margin-bottom:4px">Buyer Name</label>
+      <input type="text" id="mpc-multi-requestor" placeholder="e.g. Katrina Valencia" style="width:100%;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px 10px;border-radius:6px;font-size:14px;box-sizing:border-box">
+     </div>
+     <div>
+      <label style="font-size:12px;color:#8b949e;font-weight:600;display:block;margin-bottom:4px">Buyer Email</label>
+      <input type="text" id="mpc-multi-email" placeholder="buyer@cdcr.ca.gov" style="width:100%;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px 10px;border-radius:6px;font-size:14px;box-sizing:border-box">
+     </div>
+     <div>
+      <label style="font-size:12px;color:#8b949e;font-weight:600;display:block;margin-bottom:4px">Institution</label>
+      <input type="text" id="mpc-multi-institution" placeholder="e.g. California Institution for Women" style="width:100%;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px 10px;border-radius:6px;font-size:14px;box-sizing:border-box">
+     </div>
+     <div>
+      <label style="font-size:12px;color:#8b949e;font-weight:600;display:block;margin-bottom:4px">Due Date</label>
+      <input type="date" id="mpc-multi-due" style="width:100%;background:#0d1117;border:1px solid #484f58;color:#e6edf3;padding:8px 10px;border-radius:6px;font-size:14px;box-sizing:border-box">
+     </div>
+    </div>
+    <button onclick="submitMultiUpload()" id="mpc-multi-submit" style="width:100%;background:#238636;color:#fff;border:none;border-radius:8px;padding:12px;font-size:15px;font-weight:700;cursor:pointer" disabled>Upload & Create Price Checks</button>
+    <div id="mpc-multi-status" style="margin-top:10px;font-size:14px;color:#8b949e;text-align:center"></div>
    </div>
    <div id="mpc-step-preview" style="display:none">
     <div style="font-size:14px;font-weight:600;color:#e6edf3;margin-bottom:12px" id="mpc-preview-title"></div>
@@ -1558,8 +1595,57 @@ document.addEventListener('DOMContentLoaded', function() {
  </div>
 </div>
 <script>
-function openMultiPcUpload(){document.getElementById('multiPcModal').style.display='flex';document.getElementById('mpc-step-upload').style.display='block';document.getElementById('mpc-step-preview').style.display='none';document.getElementById('mpc-step-results').style.display='none';}
+function openMultiPcUpload(){document.getElementById('multiPcModal').style.display='flex';switchMpcTab('combined');}
 function closeMultiPcUpload(){document.getElementById('multiPcModal').style.display='none';}
+function switchMpcTab(tab){
+ var combined=document.getElementById('mpc-tab-combined'),multi=document.getElementById('mpc-tab-multi');
+ var stepUpload=document.getElementById('mpc-step-upload'),stepMulti=document.getElementById('mpc-step-multi');
+ var stepPreview=document.getElementById('mpc-step-preview'),stepResults=document.getElementById('mpc-step-results');
+ stepPreview.style.display='none';stepResults.style.display='none';
+ if(tab==='multi'){
+  combined.style.borderBottomColor='transparent';combined.style.color='#8b949e';
+  multi.style.borderBottomColor='#58a6ff';multi.style.color='#58a6ff';
+  stepUpload.style.display='none';stepMulti.style.display='block';
+ } else {
+  multi.style.borderBottomColor='transparent';multi.style.color='#8b949e';
+  combined.style.borderBottomColor='#58a6ff';combined.style.color='#58a6ff';
+  stepUpload.style.display='block';stepMulti.style.display='none';
+ }
+}
+var _multiFiles=[];
+function updateMultiFileList(files){
+ _multiFiles=Array.from(files);
+ var el=document.getElementById('mpc-multi-file-list');
+ var btn=document.getElementById('mpc-multi-submit');
+ if(_multiFiles.length===0){el.textContent='No files selected';btn.disabled=true;return;}
+ el.innerHTML=_multiFiles.map(function(f){return '<div style="color:#e6edf3">'+f.name+' <span style="color:#8b949e">('+Math.round(f.size/1024)+'KB)</span></div>';}).join('');
+ btn.disabled=false;
+ btn.textContent='Upload & Create '+_multiFiles.length+' Price Check'+(_multiFiles.length>1?'s':'');
+}
+function submitMultiUpload(){
+ if(!_multiFiles.length){alert('Select PDF files first');return;}
+ var btn=document.getElementById('mpc-multi-submit');
+ var st=document.getElementById('mpc-multi-status');
+ btn.disabled=true;btn.textContent='Uploading...';
+ st.innerHTML='<span style="color:#d29922">Parsing '+_multiFiles.length+' PDFs + running catalog match...</span>';
+ var fd=new FormData();
+ _multiFiles.forEach(function(f){fd.append('files',f);});
+ var req=document.getElementById('mpc-multi-requestor').value;
+ var email=document.getElementById('mpc-multi-email').value;
+ var inst=document.getElementById('mpc-multi-institution').value;
+ var due=document.getElementById('mpc-multi-due').value;
+ if(req)fd.append('requestor',req);
+ if(email)fd.append('requestor_email',email);
+ if(inst)fd.append('institution',inst);
+ if(due)fd.append('due_date',due);
+ fetch('/api/pricecheck/multi-upload',{method:'POST',body:fd,credentials:'same-origin'})
+ .then(function(r){return r.json()}).then(function(d){
+  if(!d.ok){st.innerHTML='<span style="color:#f85149">'+(d.error||'Failed')+'</span>';btn.disabled=false;btn.textContent='Retry';return;}
+  st.innerHTML='';
+  document.getElementById('mpc-step-multi').style.display='none';
+  showMpcPreview(d);
+ }).catch(function(e){st.innerHTML='<span style="color:#f85149">'+e.message+'</span>';btn.disabled=false;btn.textContent='Retry';});
+}
 function handleMpcFile(file){
  if(!file||!file.name.toLowerCase().endsWith('.pdf')){alert('Please upload a PDF');return;}
  var st=document.getElementById('mpc-upload-status');
