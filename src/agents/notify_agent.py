@@ -177,6 +177,8 @@ def _dispatch_alert(event_type, title, body, urgency, context, channels_override
         # Award intelligence events
         "award_loss_detected":       ["sms", "email", "bell"],
         "award_loss_margin_too_high":["sms", "email", "bell"],
+        "server_error":              ["email", "bell"],
+        "email_permanent_failure":   ["email", "bell"],
         "loss_pattern_detected":     ["email", "bell"],
     }
     channels = channels_override or CHANNEL_MAP.get(event_type, ["bell"])

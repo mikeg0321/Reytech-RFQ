@@ -3402,9 +3402,9 @@ def get_all_rfqs(status: str = None) -> list:
 # ── APP SETTINGS (quote counter, etc.) ───────────────────────────────────────
 
 def get_setting(key: str, default=None):
-    conn = _make_connection()
-    row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
-    conn.close()
+    """Read a single app_settings value using the thread-local connection pool."""
+    with get_db() as conn:
+        row = conn.execute("SELECT value FROM app_settings WHERE key=?", (key,)).fetchone()
     if row is None:
         return default
     val = row[0]
@@ -3415,20 +3415,18 @@ def get_setting(key: str, default=None):
 
 
 def set_setting(key: str, value) -> bool:
-    conn = _make_connection()
+    """Write a single app_settings value using the thread-local connection pool."""
     now = datetime.now(timezone.utc).isoformat()
     try:
-        conn.execute("""
-            INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,?)
-            ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
-        """, (key, str(value), now))
-        conn.commit()
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO app_settings (key, value, updated_at) VALUES (?,?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
+            """, (key, str(value), now))
         return True
     except Exception as e:
         log.error("set_setting: %s", e)
         return False
-    finally:
-        conn.close()
 
 
 # ── LEADS ─────────────────────────────────────────────────────────────────────

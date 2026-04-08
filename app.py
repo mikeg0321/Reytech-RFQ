@@ -48,6 +48,10 @@ def create_app():
             "Set it in Railway: Settings → Variables → SECRET_KEY = <random 32+ char string>"
         )
     app.secret_key = _secret
+    app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB upload limit
+    app.config["SESSION_COOKIE_SECURE"] = True
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     # ── Structured logging — MUST be first, before any other init ─────────
     try:
@@ -197,6 +201,12 @@ def create_app():
 
     # /health is defined in routes_rfq.py with real DB + disk checks
 
+    @app.errorhandler(413)
+    def _request_too_large(e):
+        if request.path.startswith("/api/"):
+            return {"ok": False, "error": "File too large (max 20 MB)"}, 413
+        return "<h1>413 — File Too Large</h1><p>Maximum upload size is 20 MB. <a href='/'>Go home</a></p>", 413
+
     @app.errorhandler(404)
     def _not_found(e):
         if request.path.startswith("/api/"):
@@ -205,9 +215,26 @@ def create_app():
             os.path.join(app.static_folder or "", "404.html")
         ) else ("<h1>404 — Page Not Found</h1><p><a href='/'>Go home</a></p>", 404)
 
+    def _send_error_alert(error, route_info):
+        """Fire email alert for server errors via notify_agent (non-blocking)."""
+        try:
+            from src.agents.notify_agent import send_alert
+            send_alert(
+                event_type="server_error",
+                title=f"500 Error: {type(error).__name__}",
+                body=f"{route_info}\n{str(error)[:300]}",
+                urgency="warning",
+                channels=["email", "bell"],
+                cooldown_key=f"500:{route_info}",
+            )
+        except Exception:
+            pass  # Alert infra failure must never block error response
+
     @app.errorhandler(500)
     def _server_error(e):
-        logging.getLogger("reytech").error("500 error: %s | %s %s", e, request.method, request.path)
+        _route = f"{request.method} {request.path}"
+        logging.getLogger("reytech").error("500 error: %s | %s", e, _route)
+        _send_error_alert(e, _route)
         if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
             return {"ok": False, "error": "Internal server error"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
@@ -215,8 +242,10 @@ def create_app():
     @app.errorhandler(Exception)
     def _unhandled_exception(e):
         """Catch-all: any unhandled exception returns JSON for API routes."""
-        logging.getLogger("reytech").error("Unhandled: %s %s → %s: %s",
-            request.method, request.path, type(e).__name__, str(e)[:200])
+        _route = f"{request.method} {request.path}"
+        logging.getLogger("reytech").error("Unhandled: %s → %s: %s",
+            _route, type(e).__name__, str(e)[:200])
+        _send_error_alert(e, _route)
         if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
             return {"ok": False, "error": "Internal server error"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500

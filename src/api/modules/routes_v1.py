@@ -4117,6 +4117,8 @@ def api_v1_system_templates_upload():
         else:
             # Save as single template
             save_as = request.form.get("save_as", "").strip() or filename
+            # Sanitize to prevent path traversal (../, absolute paths)
+            save_as = os.path.basename(save_as.replace('\\', '/'))
             if not save_as.lower().endswith(".pdf"):
                 save_as += ".pdf"
             import shutil

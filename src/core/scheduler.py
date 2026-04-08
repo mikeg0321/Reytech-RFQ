@@ -249,6 +249,14 @@ def run_backup(data_dir: str = None) -> dict:
         # except Exception:
         #     pass
 
+        # WAL checkpoint before backup — keep WAL file size manageable
+        try:
+            wal_conn = sqlite3.connect(db_path, timeout=30)
+            wal_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            wal_conn.close()
+        except Exception as we:
+            log.warning("WAL checkpoint before backup failed: %s", we)
+
         # Use sqlite3 backup API (safe, consistent snapshot)
         src_conn = sqlite3.connect(db_path, timeout=30)
         dst_conn = sqlite3.connect(backup_path, timeout=15)
@@ -378,6 +386,26 @@ def start_backup_scheduler(interval_hours: int = 24):
 
     register_job("db-backup", interval_sec=interval_hours * 3600)
 
+    def _cleanup_old_uploads(data_dir: str = None):
+        """Remove uploaded files older than 30 days to prevent disk bloat."""
+        data_dir = data_dir or _get_data_dir()
+        upload_dir = os.path.join(data_dir, "uploads")
+        if not os.path.isdir(upload_dir):
+            return
+        cutoff = time.time() - (30 * 86400)
+        removed = 0
+        for root, dirs, files in os.walk(upload_dir):
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    if os.path.getmtime(fp) < cutoff:
+                        os.remove(fp)
+                        removed += 1
+                except OSError:
+                    pass
+        if removed:
+            log.info("Cleaned up %d old uploads (>30 days)", removed)
+
     def _backup_loop():
         # Delay first backup — don't compete with boot for CPU/memory
         # 577MB VACUUM + backup was killing Railway on every deploy
@@ -392,6 +420,10 @@ def start_backup_scheduler(interval_hours: int = 24):
             except Exception as e:
                 log.error("Backup scheduler error: %s", e)
                 heartbeat("db-backup", success=False, error=str(e))
+            try:
+                _cleanup_old_uploads()
+            except Exception as e:
+                log.warning("Upload cleanup failed: %s", e)
             time.sleep(interval_hours * 3600)
 
     t = threading.Thread(target=_backup_loop, daemon=True, name="db-backup")

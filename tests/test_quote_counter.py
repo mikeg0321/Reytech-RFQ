@@ -28,10 +28,13 @@ def counter_db(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
 
-    # Also create data dir so _next_quote_number can find it
+    # Patch DATA_DIR everywhere so _next_quote_number (via get_db) uses test DB
     monkeypatch.setattr("src.core.paths.DATA_DIR", str(tmp_path))
+    import src.core.db as db_mod
+    monkeypatch.setattr(db_mod, "DB_PATH", db_path)
+    # Force get_db() to create a fresh connection to the test DB
+    db_mod.close_thread_db()
 
-    # Patch quote_generator's DATA_DIR too
     try:
         import src.forms.quote_generator as qg
         monkeypatch.setattr(qg, "DATA_DIR", str(tmp_path))
