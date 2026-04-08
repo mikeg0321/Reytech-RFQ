@@ -3777,18 +3777,31 @@ def api_force_reprocess():
     Use when a specific email isn't being picked up despite code fixes."""
     proc_file = os.path.join(DATA_DIR, "processed_emails.json")
     old_count = 0
-    
+
     try:
         if os.path.exists(proc_file):
             with open(proc_file) as f:
                 old_data = json.load(f)
                 old_count = len(old_data) if isinstance(old_data, (list, dict)) else 0
             os.remove(proc_file)
-            log.info("Force-reprocess: cleared %d processed UIDs", old_count)
+            log.info("Force-reprocess: cleared %d processed UIDs from JSON", old_count)
     except Exception as e:
         log.error("Force-reprocess clear failed: %s", e)
-    
-    # Reset poller
+
+    # Also clear SQLite processed_emails table (poller loads from both)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM processed_emails")
+            try:
+                conn.execute("DELETE FROM email_fingerprints")
+            except Exception:
+                pass
+        log.info("Force-reprocess: cleared SQLite processed_emails + fingerprints")
+    except Exception as _db_e:
+        log.warning("Force-reprocess: SQLite clear failed: %s", _db_e)
+
+    # Reset poller instance so it rebuilds _processed from (now empty) stores
     global _shared_poller
     _shared_poller = None
     
