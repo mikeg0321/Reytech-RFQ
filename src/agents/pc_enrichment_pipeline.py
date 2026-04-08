@@ -639,25 +639,45 @@ def _run_pipeline(pc_id: str, force: bool):
                     qty=it.get("qty", 1), uom=it.get("uom", "EA"),
                 )
                 if result.get("found") and result.get("price", 0) > 0:
-                    it["pricing"]["web_price"] = result["price"]
-                    it["pricing"]["web_source"] = result.get("source", "")
-                    it["pricing"]["web_url"] = result.get("url", "")
-                    it["pricing"]["unit_cost"] = result["price"]
-                    web_url = result.get("url", "")
-                    if web_url and not it.get("item_link"):
-                        it["item_link"] = web_url
+                    _found_title = result.get("title", "")
+                    _sem_ok = True  # default: trust the result
+
+                    # Semantic validation: is the found product the right one?
+                    if _found_title and desc:
                         try:
-                            from src.agents.item_link_lookup import detect_supplier
-                            it["item_supplier"] = detect_supplier(web_url)
+                            from src.agents.item_link_lookup import claude_semantic_match
+                            _sem = claude_semantic_match(desc, _found_title, result["price"])
+                            if _sem.get("ok") and _sem.get("confidence", 1) < 0.60:
+                                _sem_ok = False
+                                log.info("ENRICH %s: web search '%s' rejected by semantic match (%.0f%%)",
+                                         pc_id, _found_title[:40], _sem.get("confidence", 0) * 100)
+                                it["pricing"]["web_suggestion"] = _found_title[:200]
+                                it["pricing"]["web_suggestion_price"] = result["price"]
+                                it["pricing"]["web_suggestion_url"] = result.get("url", "")
+                                it["pricing"]["web_suggestion_confidence"] = _sem.get("confidence", 0)
                         except Exception:
-                            it["item_supplier"] = result.get("source", "Web")
-                    web_pn = result.get("part_number", "")
-                    if web_pn and not it.get("mfg_number"):
-                        it["mfg_number"] = web_pn
-                    counters["web_prices_found"] += 1
-                    ws_count += 1
-                    log.debug("ENRICH %s: web search found %s → $%.2f via %s",
-                              pc_id, desc[:40], result["price"], result.get("source", ""))
+                            pass  # Claude unavailable — trust the result
+
+                    if _sem_ok:
+                        it["pricing"]["web_price"] = result["price"]
+                        it["pricing"]["web_source"] = result.get("source", "")
+                        it["pricing"]["web_url"] = result.get("url", "")
+                        it["pricing"]["unit_cost"] = result["price"]
+                        web_url = result.get("url", "")
+                        if web_url and not it.get("item_link"):
+                            it["item_link"] = web_url
+                            try:
+                                from src.agents.item_link_lookup import detect_supplier
+                                it["item_supplier"] = detect_supplier(web_url)
+                            except Exception:
+                                it["item_supplier"] = result.get("source", "Web")
+                        web_pn = result.get("part_number", "")
+                        if web_pn and not it.get("mfg_number"):
+                            it["mfg_number"] = web_pn
+                        counters["web_prices_found"] += 1
+                        ws_count += 1
+                        log.debug("ENRICH %s: web search found %s → $%.2f via %s",
+                                  pc_id, desc[:40], result["price"], result.get("source", ""))
                 time.sleep(1.0)  # Rate limit
             except Exception as e:
                 log.debug("ENRICH %s: web search error for '%s': %s", pc_id, desc[:40], e)

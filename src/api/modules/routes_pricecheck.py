@@ -9316,10 +9316,55 @@ def api_item_link_lookup():
             except Exception as cat_err:
                 log.debug("link_lookup catalog write-back: %s", cat_err)
 
+        # ── Claude semantic match: AI product validation ──
+        # When client sends pc_description, compare it to found title.
+        # Only call Claude if token match is uncertain (< 70%) to save API costs.
+        _pc_desc = (data.get("pc_description") or "").strip()
+        if _pc_desc and result.get("ok") and result.get("title"):
+            _found_title = result.get("title", "")
+            _token_score = _quick_token_match(_pc_desc, _found_title)
+            if _token_score < 70:
+                try:
+                    from src.agents.item_link_lookup import claude_semantic_match
+                    _sem = claude_semantic_match(
+                        _pc_desc, _found_title, float(result.get("price") or 0))
+                    if _sem.get("ok"):
+                        result["server_confidence"] = _sem["confidence"]
+                        result["server_match"] = _sem["is_match"]
+                        result["server_reasoning"] = _sem.get("reasoning", "")
+                except Exception as _sem_err:
+                    log.debug("Semantic match error: %s", _sem_err)
+
         return jsonify(result)
     except Exception as e:
         log.error("item_link_lookup API error: %s", e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+def _quick_token_match(desc_a: str, desc_b: str) -> int:
+    """Server-side recall-weighted token match (mirrors JS _productMatchScore).
+    Returns 0-100 score."""
+    import re as _re
+    _stops = {'the','and','for','with','pack','of','per','ea','each','box',
+              'pk','set','in','by','to','is','it','at','on','or','an','as',
+              'from','bulk','assorted','count','ct','qty','quantity','item',
+              'product','new','brand'}
+    def _tok(s):
+        s = s.lower()
+        # Normalize dimensions
+        s = _re.sub(r'(\d+\.?\d*)\s*["\u201D]?\s*[xX\u00D7]\s*(\d+\.?\d*)\s*["\u201D]?', r'\1x\2', s)
+        # Preserve decimals
+        s = _re.sub(r'(\d)\.(\d)', r'\1_D_\2', s)
+        s = _re.sub(r'[^a-z0-9\s_]', ' ', s)
+        s = s.replace('_D_', '.')
+        return {w for w in s.split() if len(w) > 1 and w not in _stops}
+    a, b = _tok(desc_a), _tok(desc_b)
+    if not a or not b:
+        return 0
+    overlap = len(a & b)
+    recall = overlap / len(a)
+    precision = overlap / len(b)
+    return round((2 * recall + precision) / 3 * 100)
 
 
 @bp.route("/api/admin/system-reset", methods=["GET", "POST"])

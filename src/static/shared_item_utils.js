@@ -7,12 +7,26 @@
  * if the page defines the same function name AFTER this script loads.
  */
 
-/** Compare PC description to lookup product title — returns 0-100 match score */
+/** Compare PC description to lookup product title — returns 0-100 match score.
+ *  Uses recall-weighted scoring: how much of the PC description appears in the
+ *  found product title. Extra words in Amazon titles (brand, "Bulk", "Assorted")
+ *  are not penalized heavily. Formula: (2*recall + precision) / 3 * 100.
+ */
 function _productMatchScore(pcDesc, lookupTitle) {
   if (!pcDesc || !lookupTitle) return 0;
+  var _stopwords = ['the','and','for','with','pack','of','per','ea','each','box',
+    'pk','set','in','by','to','is','it','at','on','or','an','as','from','bulk',
+    'assorted','count','ct','qty','quantity','item','product','new','brand'];
   function _tokenize(s) {
-    return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) {
-      return w.length > 1 && ['the','and','for','with','pack','of','per','ea','each','box','pk','set'].indexOf(w) < 0;
+    s = s.toLowerCase();
+    // Normalize dimensions: "8.5" x 11", "8.5 x 11", "8.5x11" all → "8.5x11"
+    s = s.replace(/(\d+\.?\d*)\s*[""\u201D]?\s*[xX\u00D7]\s*(\d+\.?\d*)\s*[""\u201D]?/g, '$1x$2');
+    // Preserve decimals in numbers before stripping punctuation
+    s = s.replace(/(\d)\.(\d)/g, '$1_D_$2');
+    s = s.replace(/[^a-z0-9\s_]/g, ' ');
+    s = s.replace(/_D_/g, '.');
+    return s.split(/\s+/).filter(function(w) {
+      return w.length > 1 && _stopwords.indexOf(w) < 0;
     });
   }
   var a = _tokenize(pcDesc), b = _tokenize(lookupTitle);
@@ -22,7 +36,10 @@ function _productMatchScore(pcDesc, lookupTitle) {
   b.forEach(function(w){ setB[w] = true; });
   var overlap = 0;
   for (var w in setA) { if (setB[w]) overlap++; }
-  return Math.round(overlap / Math.max(Object.keys(setA).length, Object.keys(setB).length) * 100);
+  var sizeA = Object.keys(setA).length, sizeB = Object.keys(setB).length;
+  var recall = overlap / sizeA;       // what % of PC tokens found in lookup
+  var precision = overlap / sizeB;    // what % of lookup tokens match PC
+  return Math.round((2 * recall + precision) / 3 * 100);
 }
 
 /** Check if a string is a URL */
@@ -96,10 +113,15 @@ function _fireLinkLookup(idx, url, mode) {
     _done = true;
     if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">Lookup timed out \u2014 paste cost manually</span>';
   }, 15000);
+  // Send PC description for server-side semantic matching (Claude AI)
+  var _pcDescForLookup = '';
+  var _pcDescInput = document.querySelector('[name="desc_' + idx + '"]');
+  if (_pcDescInput) _pcDescForLookup = (_pcDescInput.value || '').trim();
+
   fetch('/api/item-link/lookup', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({url: url, idx: idx})
+    body: JSON.stringify({url: url, idx: idx, pc_description: _pcDescForLookup})
   })
   .then(function(r) { return r.json(); })
   .then(function(d) {
@@ -232,10 +254,15 @@ function _applyLinkData(idx, d, mode) {
   if (_lookupT && _pcDescV && typeof _productMatchScore === 'function') {
     _matchScore = _productMatchScore(_pcDescV, _lookupT);
   }
+  // Server-side AI confidence (Claude semantic match) can override token score
+  var _serverConf = parseFloat(d.server_confidence) || 0;
+  var _serverMatch = !!d.server_match;
+  var _aiVerified = (_serverMatch && _serverConf >= 0.70);
+
   if (costEl && d.price && d.price > 0) {
     var existingCost = parseFloat(costEl.value) || 0;
-    // Block auto-fill if match score < 40% — wrong product, cost is meaningless
-    if (_matchScore < 40) {
+    // Block auto-fill if match score < 40% AND server AI didn't verify
+    if (_matchScore < 40 && !_aiVerified) {
       filled.push('cost BLOCKED — low match ' + _matchScore + '%, verify product');
     } else {
       var msrp = d.list_price ? parseFloat(d.list_price) : d.price;
@@ -339,17 +366,24 @@ function _applyLinkData(idx, d, mode) {
   var _pcDesc = _pcDescEl ? (_pcDescEl.value || '').trim() : '';
   if (_lookupTitle && _pcDesc) {
     var _ms = _productMatchScore(_pcDesc, _lookupTitle);
-    var _mClr = _ms >= 70 ? '#3fb950' : (_ms >= 40 ? '#d29922' : '#f85149');
-    var _mLabel = _ms >= 70 ? '✓ Match' : (_ms >= 40 ? '~ Partial' : '✗ Wrong product?');
-    statusHtml += ' <span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:3px;background:' + _mClr + '20;color:' + _mClr + ';border:1px solid ' + _mClr + '40;cursor:help" '
-      + 'title="PC: ' + _pcDesc.substring(0,60).replace(/"/g,'&quot;') + '\nFound: ' + _lookupTitle.substring(0,60).replace(/"/g,'&quot;') + '">'
-      + _mLabel + ' ' + _ms + '%</span>';
-    // For low matches, show the found product title so user can verify without hovering
-    if (_ms < 40) {
+    // AI-verified overrides token score badge
+    if (_aiVerified) {
+      statusHtml += ' <span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:3px;background:#3fb95020;color:#3fb950;border:1px solid #3fb95040;cursor:help" '
+        + 'title="Claude AI confirmed match (' + Math.round(_serverConf * 100) + '% confidence)\nPC: ' + _pcDesc.substring(0,60).replace(/"/g,'&quot;') + '\nFound: ' + _lookupTitle.substring(0,60).replace(/"/g,'&quot;') + '">'
+        + 'AI verified &#10003; ' + Math.round(_serverConf * 100) + '%</span>';
+    } else {
+      var _mClr = _ms >= 70 ? '#3fb950' : (_ms >= 40 ? '#d29922' : '#f85149');
+      var _mLabel = _ms >= 70 ? '✓ Match' : (_ms >= 40 ? '~ Partial' : '✗ Wrong product?');
+      statusHtml += ' <span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:3px;background:' + _mClr + '20;color:' + _mClr + ';border:1px solid ' + _mClr + '40;cursor:help" '
+        + 'title="PC: ' + _pcDesc.substring(0,60).replace(/"/g,'&quot;') + '\nFound: ' + _lookupTitle.substring(0,60).replace(/"/g,'&quot;') + '">'
+        + _mLabel + ' ' + _ms + '%</span>';
+    }
+    // For low matches without AI verification, show found title for manual verify
+    if (_ms < 40 && !_aiVerified) {
       statusHtml += '<div style="font-size:11px;color:#f85149;margin-top:3px;line-height:1.3">'
         + '⚠ Found: <b>' + _lookupTitle.substring(0,80).replace(/</g,'&lt;') + '</b>'
         + '<br>Cost NOT auto-filled — verify this is the right product</div>';
-    } else if (_ms < 70) {
+    } else if (_ms < 70 && !_aiVerified) {
       statusHtml += '<div style="font-size:11px;color:#d29922;margin-top:2px">Found: '
         + _lookupTitle.substring(0,80).replace(/</g,'&lt;') + '</div>';
     }

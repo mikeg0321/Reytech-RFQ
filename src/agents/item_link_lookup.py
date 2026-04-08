@@ -1073,6 +1073,128 @@ def _lookup_dollartree(url: str) -> dict:
     return result
 
 
+# ── Claude Semantic Match — AI product comparison ────────────────────────────
+
+def claude_semantic_match(
+    pc_description: str,
+    found_title: str,
+    found_price: float = 0,
+) -> dict:
+    """Compare PC description to found product title using Claude Haiku.
+
+    Pure text comparison — no web search tool. ~$0.0005/call, ~0.5s latency.
+    Returns {"ok": True, "is_match": bool, "confidence": 0-1, "reasoning": str}
+    On any error: {"ok": False, "is_match": False, "confidence": 0, "reasoning": "..."}
+    """
+    if not pc_description or not found_title:
+        return {"ok": False, "is_match": False, "confidence": 0,
+                "reasoning": "Missing description"}
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"ok": False, "is_match": False, "confidence": 0,
+                "reasoning": "ANTHROPIC_API_KEY not set"}
+
+    if not HAS_REQUESTS:
+        return {"ok": False, "is_match": False, "confidence": 0,
+                "reasoning": "requests not available"}
+
+    prompt = (
+        "You are a procurement product matcher. Compare these two product descriptions "
+        "and determine if they refer to the same product (same item, same specs, same quantity).\n\n"
+        f'Buyer requested: "{pc_description}"\n'
+        f'Found product: "{found_title}"\n'
+    )
+    if found_price > 0:
+        prompt += f"Found price: ${found_price:.2f}\n"
+    prompt += (
+        "\nDifferences in brand name alone do NOT make it a mismatch — "
+        "generic vs branded versions of the same item are a match.\n"
+        "Reply ONLY with JSON: "
+        '{"match": true/false, "confidence": 0.0-1.0, "reason": "one sentence"}'
+    )
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 100,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+
+    import json as _json
+    for attempt in range(2):
+        try:
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers, json=body, timeout=5,
+            )
+            if resp.status_code == 429:
+                import time
+                time.sleep(2)
+                continue
+            if resp.status_code != 200:
+                log.debug("Claude semantic match API %d: %s",
+                          resp.status_code, resp.text[:100])
+                return {"ok": False, "is_match": False, "confidence": 0,
+                        "reasoning": f"API {resp.status_code}"}
+
+            data = resp.json()
+            text = ""
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    text += block.get("text", "")
+            if not text:
+                return {"ok": False, "is_match": False, "confidence": 0,
+                        "reasoning": "Empty response"}
+
+            # Parse JSON from response
+            text = text.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[-1]
+                if text.endswith("```"):
+                    text = text[:-3]
+                text = text.strip()
+            jm = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+            if jm:
+                parsed = _json.loads(jm.group())
+            else:
+                parsed = _json.loads(text)
+
+            is_match = bool(parsed.get("match", False))
+            confidence = float(parsed.get("confidence", 0))
+            reasoning = str(parsed.get("reason", ""))[:200]
+
+            log.info("Claude semantic match: '%s' vs '%s' → %s (%.0f%%)",
+                     pc_description[:30], found_title[:30],
+                     "MATCH" if is_match else "NO MATCH", confidence * 100)
+
+            return {
+                "ok": True,
+                "is_match": is_match,
+                "confidence": confidence,
+                "reasoning": reasoning,
+            }
+
+        except requests.exceptions.Timeout:
+            log.debug("Claude semantic match timeout (attempt %d)", attempt + 1)
+            continue
+        except (_json.JSONDecodeError, ValueError, TypeError) as e:
+            log.debug("Claude semantic match parse error: %s", e)
+            return {"ok": False, "is_match": False, "confidence": 0,
+                    "reasoning": f"Parse error: {e}"}
+        except Exception as e:
+            log.debug("Claude semantic match error: %s", e)
+            return {"ok": False, "is_match": False, "confidence": 0,
+                    "reasoning": str(e)[:100]}
+
+    return {"ok": False, "is_match": False, "confidence": 0,
+            "reasoning": "Max retries exceeded"}
+
+
 def lookup_from_url(url: str) -> dict:
     """
     Given any supplier product URL, return structured product data.
