@@ -354,12 +354,6 @@ def _parse_browser_detail(html):
 def scrape_details(supplier_name="reytech", from_date="",
                    max_rows=500):
     """Synchronous wrapper for async browser scraping. Local Playwright mode."""
-    # Try remote scraper service first
-    try:
-        import os
-            return _remote(supplier_name=supplier_name, from_date=from_date, max_rows=max_rows)
-    except Exception:
-        pass
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -375,12 +369,6 @@ def scrape_details(supplier_name="reytech", from_date="",
 
 def scrape_po_detail(po_number):
     """Scrape detail for a single PO number. Local Playwright mode."""
-    # Try remote scraper service first
-    try:
-        import os
-            return _remote(po_number)
-    except Exception:
-        pass
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
