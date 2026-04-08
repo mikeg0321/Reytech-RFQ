@@ -8167,6 +8167,42 @@ def amazon_match_item(pcid, idx):
     scored.sort(key=lambda x: x["_score"], reverse=True)
     best = scored[0] if scored and scored[0]["_score"] >= 10 else None
 
+    # Persist to catalog if confident match
+    catalog_id = None
+    if best and best.get("price") and best["_score"] >= 30:
+        try:
+            from src.agents.product_catalog import (
+                match_item, add_to_catalog, add_supplier_price, init_catalog_db
+            )
+            init_catalog_db()
+            _desc = best.get("title", "")
+            _pn = mfg or best.get("mfg_number", "")
+            _price = float(best["price"])
+            _asin = best.get("asin", "")
+            _url = best.get("url", "")
+
+            matches = match_item(_desc, _pn, top_n=1) if (_desc or _pn) else []
+            if matches and matches[0].get("match_confidence", 0) >= 0.55:
+                catalog_id = matches[0]["id"]
+            else:
+                catalog_id = add_to_catalog(
+                    description=_desc, part_number=_pn,
+                    cost=_price, supplier_url=_url,
+                    manufacturer=best.get("manufacturer", ""),
+                    mfg_number=_pn,
+                    source="amazon_match"
+                )
+            if catalog_id and _price > 0:
+                add_supplier_price(
+                    product_id=catalog_id, supplier_name="Amazon",
+                    price=_price, url=_url,
+                    source="amazon_match"
+                )
+            log.info("Amazon match → catalog %s for %s item %d (score %d)",
+                     catalog_id, pcid, idx, best["_score"])
+        except Exception as e:
+            log.warning("Amazon match catalog write failed: %s", e)
+
     return jsonify({
         "ok": True,
         "matches": [{"title": s["title"], "price": s.get("price", 0),
@@ -8175,7 +8211,8 @@ def amazon_match_item(pcid, idx):
                      for s in scored[:3]],
         "best": {"title": best["title"], "price": best.get("price", 0),
                  "asin": best.get("asin", ""), "url": best.get("url", ""),
-                 "score": best["_score"], "title_qty": best.get("_title_qty")}
+                 "score": best["_score"], "title_qty": best.get("_title_qty"),
+                 "catalog_id": catalog_id}
                 if best else None,
     })
 
