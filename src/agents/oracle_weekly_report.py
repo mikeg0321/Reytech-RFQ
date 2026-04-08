@@ -1,0 +1,347 @@
+"""
+Oracle V3 Weekly Report — Calibration Health + Win/Loss Intelligence
+
+Three responsibilities:
+1. Retroactive seeder: process historical wins/losses into oracle_calibration
+2. Weekly email report: summarize calibration changes, wins, losses
+3. Scheduled runner: fire weekly via scheduler + heartbeat
+"""
+import logging
+import json
+from datetime import datetime, timedelta
+
+log = logging.getLogger("reytech.oracle_report")
+
+_REPORT_INTERVAL_SEC = 7 * 24 * 3600  # 1 week
+_scheduler_started = False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 1. RETROACTIVE SEEDER — process historical outcomes into calibration table
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def seed_calibration_from_history():
+    """One-time seeder: reads all historical wins/losses and calibrates Oracle V3.
+    Safe to run multiple times — calibration is idempotent (EMA converges)."""
+    from src.core.db import get_db
+    from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+    stats = {"wins_processed": 0, "losses_processed": 0, "errors": 0}
+
+    try:
+        with get_db() as conn:
+            # Process WON quotes
+            won_rows = conn.execute("""
+                SELECT quote_number, status, items_detail,
+                       institution, agency, created_at
+                FROM quotes WHERE status='won' AND is_test=0
+                ORDER BY created_at ASC
+            """).fetchall()
+
+            for row in won_rows:
+                try:
+                    items_json = row[2]
+                    if not items_json:
+                        continue
+                    items = json.loads(items_json) if isinstance(items_json, str) else items_json
+                    if not isinstance(items, list) or not items:
+                        continue
+                    agency = row[3] or row[4] or ""
+                    calibrate_from_outcome(items, "won", agency=agency)
+                    stats["wins_processed"] += 1
+                except Exception as e:
+                    stats["errors"] += 1
+                    log.debug("Seed win error for %s: %s", row[0], e)
+
+            # Process LOST quotes (from competitor_intel)
+            loss_rows = conn.execute("""
+                SELECT ci.quote_number, ci.agency, ci.competitor_price,
+                       ci.loss_reason_class, q.items_detail
+                FROM competitor_intel ci
+                LEFT JOIN quotes q ON q.quote_number = ci.quote_number
+                WHERE ci.outcome='lost'
+                ORDER BY ci.found_at ASC
+            """).fetchall()
+
+            for row in loss_rows:
+                try:
+                    items_json = row[4]
+                    if not items_json:
+                        continue
+                    items = json.loads(items_json) if isinstance(items_json, str) else items_json
+                    if not isinstance(items, list) or not items:
+                        continue
+                    agency = row[1] or ""
+                    reason = "price" if row[3] in ("price_higher", "margin_too_high") else "other"
+                    calibrate_from_outcome(items, "lost", agency=agency, loss_reason=reason)
+                    stats["losses_processed"] += 1
+                except Exception as e:
+                    stats["errors"] += 1
+                    log.debug("Seed loss error for %s: %s", row[0], e)
+
+    except Exception as e:
+        log.error("Calibration seeder failed: %s", e, exc_info=True)
+        stats["error"] = str(e)
+
+    log.info("Oracle V3 calibration seeded: %s", stats)
+    return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 2. WEEKLY REPORT GENERATION
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def generate_weekly_report():
+    """Build the weekly Oracle intelligence report."""
+    from src.core.db import get_db
+
+    now = datetime.now()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    report = {
+        "period_start": week_ago[:10],
+        "period_end": now.strftime("%Y-%m-%d"),
+        "generated_at": now.isoformat(),
+    }
+
+    try:
+        with get_db() as conn:
+            # Recent wins
+            wins = conn.execute("""
+                SELECT quote_number, institution, total, po_number, created_at
+                FROM quotes WHERE status='won' AND is_test=0
+                AND created_at > ? ORDER BY created_at DESC
+            """, (week_ago,)).fetchall()
+            report["wins"] = [{
+                "quote": r[0], "agency": r[1], "total": r[2],
+                "po": r[3], "date": (r[4] or "")[:10]
+            } for r in wins]
+            report["win_count"] = len(wins)
+            report["win_revenue"] = sum(r[2] or 0 for r in wins)
+
+            # Recent losses
+            losses = conn.execute("""
+                SELECT quote_number, competitor_name, competitor_price,
+                       our_price, price_delta_pct, agency, loss_reason_class, found_at
+                FROM competitor_intel WHERE outcome='lost'
+                AND found_at > ? ORDER BY found_at DESC
+            """, (week_ago,)).fetchall()
+            report["losses"] = [{
+                "quote": r[0], "competitor": r[1], "their_price": r[2],
+                "our_price": r[3], "delta_pct": r[4], "agency": r[5],
+                "reason": r[6], "date": (r[7] or "")[:10]
+            } for r in losses]
+            report["loss_count"] = len(losses)
+
+            # Calibration table state
+            try:
+                cal_rows = conn.execute("""
+                    SELECT category, agency, sample_size, win_count,
+                           loss_on_price, avg_winning_margin,
+                           recommended_max_markup, last_updated
+                    FROM oracle_calibration
+                    ORDER BY sample_size DESC
+                """).fetchall()
+                report["calibrations"] = [{
+                    "category": r[0], "agency": r[1], "samples": r[2],
+                    "wins": r[3], "losses_price": r[4],
+                    "win_rate": round(r[3] / r[2] * 100) if r[2] > 0 else 0,
+                    "avg_win_margin": round(r[5], 1),
+                    "rec_max_markup": round(r[6], 1),
+                    "last_updated": (r[7] or "")[:10],
+                } for r in cal_rows]
+            except Exception:
+                report["calibrations"] = []
+
+            # Winning prices stats (all time)
+            try:
+                wp_stats = conn.execute("""
+                    SELECT COUNT(*), COUNT(DISTINCT fingerprint),
+                           AVG(margin_pct), MIN(recorded_at), MAX(recorded_at)
+                    FROM winning_prices
+                """).fetchone()
+                report["winning_prices_total"] = wp_stats[0] or 0
+                report["winning_prices_unique"] = wp_stats[1] or 0
+                report["avg_margin_all_time"] = round(wp_stats[2] or 0, 1)
+            except Exception:
+                report["winning_prices_total"] = 0
+
+    except Exception as e:
+        log.error("Weekly report generation failed: %s", e, exc_info=True)
+        report["error"] = str(e)
+
+    return report
+
+
+def format_report_email(report):
+    """Format the report as HTML email body."""
+    wins = report.get("wins", [])
+    losses = report.get("losses", [])
+    cals = report.get("calibrations", [])
+
+    html = f"""
+<div style="font-family:system-ui,sans-serif;max-width:700px;margin:0 auto;color:#e6edf3;background:#0d1117;padding:20px;border-radius:8px">
+<h2 style="color:#58a6ff;margin-top:0">Oracle V3 Weekly Intelligence</h2>
+<p style="color:#8b949e">{report['period_start']} to {report['period_end']}</p>
+
+<div style="display:flex;gap:20px;margin:16px 0">
+  <div style="flex:1;background:#23863622;padding:12px;border-radius:8px;border:1px solid #23863655">
+    <div style="font-size:24px;font-weight:700;color:#3fb950">{report.get('win_count', 0)}</div>
+    <div style="color:#8b949e;font-size:13px">Wins</div>
+    <div style="color:#3fb950;font-size:14px;font-weight:600">${report.get('win_revenue', 0):,.2f}</div>
+  </div>
+  <div style="flex:1;background:#da363322;padding:12px;border-radius:8px;border:1px solid #da363355">
+    <div style="font-size:24px;font-weight:700;color:#f85149">{report.get('loss_count', 0)}</div>
+    <div style="color:#8b949e;font-size:13px">Losses</div>
+  </div>
+  <div style="flex:1;background:#1f6feb22;padding:12px;border-radius:8px;border:1px solid #1f6feb55">
+    <div style="font-size:24px;font-weight:700;color:#58a6ff">{report.get('winning_prices_total', 0)}</div>
+    <div style="color:#8b949e;font-size:13px">Data Points</div>
+    <div style="color:#8b949e;font-size:12px">{report.get('avg_margin_all_time', 0)}% avg margin</div>
+  </div>
+</div>
+"""
+
+    # Wins detail
+    if wins:
+        html += '<h3 style="color:#3fb950;margin-top:20px">Wins This Week</h3>'
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        html += '<tr style="color:#8b949e;border-bottom:1px solid #30363d"><th style="text-align:left;padding:4px">Quote</th><th>Agency</th><th style="text-align:right">Revenue</th><th>PO</th></tr>'
+        for w in wins[:10]:
+            html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:#e6edf3">{w["quote"]}</td><td style="color:#8b949e">{w["agency"]}</td><td style="text-align:right;color:#3fb950;font-weight:600">${w["total"]:,.2f}</td><td style="color:#8b949e">{w["po"] or "—"}</td></tr>'
+        html += '</table>'
+
+    # Losses detail
+    if losses:
+        html += '<h3 style="color:#f85149;margin-top:20px">Losses This Week</h3>'
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        html += '<tr style="color:#8b949e;border-bottom:1px solid #30363d"><th style="text-align:left;padding:4px">Quote</th><th>Competitor</th><th style="text-align:right">Delta</th><th>Reason</th></tr>'
+        for l in losses[:10]:
+            delta = f"+{l['delta_pct']:.1f}%" if l.get("delta_pct") else "—"
+            html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:#e6edf3">{l["quote"]}</td><td style="color:#f0883e">{l["competitor"]}</td><td style="text-align:right;color:#f85149">{delta}</td><td style="color:#8b949e;font-size:12px">{l.get("reason","")}</td></tr>'
+        html += '</table>'
+
+    # Calibration state
+    if cals:
+        html += '<h3 style="color:#d29922;margin-top:20px">Oracle Calibration State</h3>'
+        html += '<p style="color:#8b949e;font-size:12px">How the algorithm is adjusting based on outcomes:</p>'
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        html += '<tr style="color:#8b949e;border-bottom:1px solid #30363d"><th style="text-align:left;padding:4px">Category</th><th>Samples</th><th>Win Rate</th><th>Avg Win Margin</th><th>Max Markup</th><th>Why</th></tr>'
+        for c in cals:
+            wr_color = "#3fb950" if c["win_rate"] >= 70 else ("#d29922" if c["win_rate"] >= 40 else "#f85149")
+            why = ""
+            if c["win_rate"] >= 80:
+                why = "Strong — room for margin"
+            elif c["win_rate"] >= 60:
+                why = "Healthy — holding steady"
+            elif c["win_rate"] >= 40:
+                why = "Compressing markup to win more"
+            else:
+                why = "Aggressive reduction — too many losses"
+            html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:#e6edf3;text-transform:capitalize">{c["category"]}</td><td style="color:#8b949e">{c["samples"]}</td><td style="color:{wr_color};font-weight:600">{c["win_rate"]}%</td><td style="color:#8b949e">{c["avg_win_margin"]}%</td><td style="color:#58a6ff;font-weight:600">{c["rec_max_markup"]}%</td><td style="color:#8b949e;font-size:11px">{why}</td></tr>'
+        html += '</table>'
+
+    if not wins and not losses:
+        html += '<p style="color:#8b949e;margin-top:16px">No win/loss activity this week. Oracle calibration unchanged.</p>'
+
+    html += f"""
+<div style="margin-top:20px;padding-top:12px;border-top:1px solid #30363d;color:#484f58;font-size:11px">
+Oracle V3 Self-Calibrating Pricing Engine — Generated {report['generated_at'][:16]}<br>
+Learning rate: alpha=0.15 | Markup floor: 15% | Ceiling: 50% | Min samples: 5
+</div>
+</div>
+"""
+    return html
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 3. SCHEDULED RUNNER + HEALTH CHECK
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def run_weekly_report():
+    """Generate and send the weekly Oracle report. Called by scheduler."""
+    from src.core.scheduler import heartbeat
+
+    try:
+        report = generate_weekly_report()
+        html_body = format_report_email(report)
+
+        # Plain text summary
+        plain = (
+            f"Oracle V3 Weekly: {report['period_start']} to {report['period_end']}\n"
+            f"Wins: {report.get('win_count', 0)} (${report.get('win_revenue', 0):,.2f})\n"
+            f"Losses: {report.get('loss_count', 0)}\n"
+            f"Data points: {report.get('winning_prices_total', 0)}\n"
+            f"Calibrations active: {len(report.get('calibrations', []))}"
+        )
+
+        from src.agents.notify_agent import send_alert
+        result = send_alert(
+            event_type="oracle_weekly",
+            title=f"Oracle V3 Weekly: {report.get('win_count', 0)}W / {report.get('loss_count', 0)}L",
+            body=plain,
+            urgency="info",
+            channels=["email"],
+            context={"html_body": html_body},
+            run_async=False,
+        )
+
+        heartbeat("oracle-weekly-report", success=True)
+        log.info("Oracle weekly report sent: %s wins, %s losses",
+                 report.get("win_count", 0), report.get("loss_count", 0))
+        return {"ok": True, "report": report, "email": result}
+
+    except Exception as e:
+        log.error("Oracle weekly report failed: %s", e, exc_info=True)
+        heartbeat("oracle-weekly-report", success=False, error=str(e))
+        return {"ok": False, "error": str(e)}
+
+
+def start_weekly_reporter():
+    """Start the weekly report scheduler. Called once at app boot."""
+    global _scheduler_started
+    if _scheduler_started:
+        return
+    _scheduler_started = True
+
+    import threading
+    from src.core.scheduler import register_job
+
+    register_job("oracle-weekly-report", _REPORT_INTERVAL_SEC)
+
+    def _loop():
+        import time
+        # Wait 60s after boot before first check
+        time.sleep(60)
+        # Seed calibration on first boot if table is empty
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                try:
+                    count = conn.execute("SELECT COUNT(*) FROM oracle_calibration").fetchone()[0]
+                except Exception:
+                    count = 0
+            if count == 0:
+                log.info("Oracle V3: seeding calibration from historical data...")
+                stats = seed_calibration_from_history()
+                log.info("Oracle V3 seeded: %s", stats)
+        except Exception as e:
+            log.warning("Oracle V3 seed failed: %s", e)
+
+        while True:
+            try:
+                # Check if it's Monday 8am PST (report day)
+                from datetime import timezone
+                now = datetime.now()
+                # Simple weekly check: run if Monday and hour is 8
+                if now.weekday() == 0 and now.hour == 15:  # 15 UTC = 8am PST
+                    run_weekly_report()
+                    time.sleep(3600)  # Don't re-trigger for an hour
+                else:
+                    time.sleep(1800)  # Check every 30 minutes
+            except Exception as e:
+                log.error("Oracle weekly loop error: %s", e)
+                time.sleep(3600)
+
+    t = threading.Thread(target=_loop, daemon=True, name="oracle-weekly-report")
+    t.start()
+    log.info("Oracle V3 weekly reporter started (Mondays 8am PST)")

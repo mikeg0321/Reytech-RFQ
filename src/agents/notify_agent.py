@@ -256,6 +256,7 @@ def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> 
             "outbox_stale":      "⏰ [REMINDER] Drafts Waiting",
             "quote_lost_signal": "📉 [FYI] Quote Lost Signal",
             "invoice_unpaid":    "💸 [FOLLOW-UP] Invoice Unpaid",
+            "oracle_weekly":     "📊 [ORACLE] Weekly Intelligence",
         }
         subject = URGENCY_SUBJECT_PREFIX.get(event_type, f"🔔 Reytech: {title}")
 
@@ -291,6 +292,10 @@ def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> 
     <p style="color:#3b6fd4;font-size:14px;margin:20px 0 0">Reytech RFQ Dashboard — Automated Alert</p>
   </div>
 </div></body></html>"""
+
+        # Allow callers to provide custom HTML (e.g. Oracle weekly report)
+        if context.get("html_body"):
+            html = context["html_body"]
 
         msg = MIMEMultipart("alternative")
         msg["From"] = f"Reytech Dashboard <{GMAIL_ADDRESS}>"

@@ -8036,6 +8036,26 @@ def api_pc_item_oracle(pcid, item_idx):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/oracle/weekly-report", methods=["POST"])
+@auth_required
+@safe_route
+def api_oracle_weekly_report():
+    """Manually trigger Oracle V3 weekly report."""
+    from src.agents.oracle_weekly_report import run_weekly_report
+    result = run_weekly_report()
+    return jsonify(result)
+
+
+@bp.route("/api/oracle/seed-calibration", methods=["POST"])
+@auth_required
+@safe_route
+def api_oracle_seed_calibration():
+    """One-time seed: process all historical wins/losses into calibration table."""
+    from src.agents.oracle_weekly_report import seed_calibration_from_history
+    stats = seed_calibration_from_history()
+    return jsonify({"ok": True, "stats": stats})
+
+
 @bp.route("/api/pricecheck/<pcid>/oracle-auto-price")
 @auth_required
 @safe_route
