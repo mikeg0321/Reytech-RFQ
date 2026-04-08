@@ -190,12 +190,10 @@ def get_agent_key(agent_name: str) -> str:
 
 
 def mask(value: str) -> str:
-    """Mask a secret for safe logging. Shows first 8 chars."""
+    """Mask a secret for safe logging. Shows first 4 chars only."""
     if not value:
         return "(not set)"
-    if len(value) <= 12:
-        return value[:4] + "****"
-    return value[:8] + "****" + f"({len(value)} chars)"
+    return value[:4] + "****" + f"({len(value)} chars)"
 
 
 def validate_all() -> dict:

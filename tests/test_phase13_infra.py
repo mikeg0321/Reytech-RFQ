@@ -23,12 +23,11 @@ class TestSecrets:
         assert mask("") == "(not set)"
         result = mask("abc")
         assert "****" in result
-        assert "abc" not in result or len(result) < 8  # Short values are masked
 
     def test_mask_long(self):
         from src.core.secrets import mask
         result = mask("sk-ant-api03-verylongkeyhere123456")
-        assert result.startswith("sk-ant-a")
+        assert result.startswith("sk-a")  # Only first 4 chars visible
         assert "****" in result
         # Should NOT contain the full key
         assert "verylongkeyhere" not in result

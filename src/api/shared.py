@@ -30,6 +30,8 @@ if DASH_PASS == "changeme":
     if os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"):
         raise RuntimeError("SECURITY: DASH_PASS must be set in production. Configure via Railway secrets.")
     log.warning("DASH_PASS is default 'changeme' — OK for local dev only")
+elif len(DASH_PASS) < 16 and (os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT")):
+    raise RuntimeError("SECURITY: DASH_PASS must be >= 16 characters in production.")
 
 
 def check_auth(username, password):

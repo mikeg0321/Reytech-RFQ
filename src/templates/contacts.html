@@ -38,11 +38,11 @@
 
 <!-- Filters -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
- <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items..." oninput="filterTable()" style="flex:1;min-width:220px">
- <select id="cat-filter" class="filter-input" onchange="filterTable()">
+ <input id="search" class="filter-input" placeholder="🔍  Search agency, name, email, items..." aria-label="Search contacts" oninput="filterTable()" style="flex:1;min-width:220px">
+ <select id="cat-filter" class="filter-input" aria-label="Filter by category" onchange="filterTable()">
   <option value="">All Categories</option>{% for c in all_cats %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
  </select>
- <select id="status-filter" class="filter-input" onchange="filterTable()">
+ <select id="status-filter" class="filter-input" aria-label="Filter by status" onchange="filterTable()">
   <option value="">All Statuses</option>{% for s in all_statuses %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
  </select>
  <span id="count-label" style="font-size:13px;color:var(--tx2);white-space:nowrap">{{ total }} contacts</span>

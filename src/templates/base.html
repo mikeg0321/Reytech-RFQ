@@ -132,12 +132,24 @@
 </main>
 <script src="/static/header.js"></script>
 <script>
+// Global toast notification (available on all pages)
+window.showMsg=window.showMsg||function(msg,type){
+ var t=document.createElement('div');
+ var bg=type==='err'?'rgba(248,113,113,.15)':type==='warn'?'rgba(251,191,36,.15)':'rgba(52,211,153,.15)';
+ var color=type==='err'?'#f85149':type==='warn'?'#d29922':'#3fb950';
+ var border=type==='err'?'rgba(248,113,113,.3)':type==='warn'?'rgba(251,191,36,.3)':'rgba(52,211,153,.3)';
+ t.style.cssText='position:fixed;bottom:20px;right:20px;padding:12px 20px;background:'+bg+';border:1px solid '+border+';border-radius:8px;color:'+color+';font-size:14px;font-weight:600;z-index:9999;max-width:500px;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer';
+ t.textContent=msg;t.onclick=function(){t.remove()};
+ document.body.appendChild(t);setTimeout(function(){if(t.parentNode)t.remove()},5000);
+};
 // Close "More" nav menu on outside click
 document.addEventListener('click',function(e){
  var wrap=document.getElementById('more-nav');
  var menu=document.getElementById('more-menu');
  if(wrap&&menu&&!wrap.contains(e.target)){menu.style.display='none';}
 });
+// Mobile nav: close after link click
+(function(){var nav=document.querySelector('nav');if(!nav)return;nav.addEventListener('click',function(e){if(e.target.tagName==='A'&&nav.classList.contains('mobile-open')){nav.classList.remove('mobile-open');}});})();
 </script>
 <script>
 // Check Now button — trigger email poll, reload if new items found

@@ -97,7 +97,7 @@ setTimeout(function(){
    document.getElementById('health-msg').textContent=d.failed+' check(s) failed: '+names;
    el.style.display='block';
   }
- }).catch(function(e){console.debug('fetch error:',e)});
+ }).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 },3000);
 </script>
 
@@ -111,7 +111,7 @@ fetch('/api/awards/pending').then(r=>r.json()).then(d=>{
   var details = d.pending.map(function(p){ return 'PO#' + (p.po_number || '?') + ' $' + (p.total || 0).toFixed(2); }).join(' · ');
   document.getElementById('po-banner-detail').textContent = details + ' — Click to review';
  }
-}).catch(function(e){console.debug('fetch error:',e)});
+}).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 </script>
 
 <!-- ═══ Compliance Alerts — Phase 3 ═══ -->
@@ -137,7 +137,7 @@ setTimeout(function(){ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then
     }
   });
   el.innerHTML=html;
-}).catch(function(e){console.debug('fetch error:',e)}); },5000);
+}).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')}); },5000);
 </script>
 
 <!-- ═══ Agent Status Card — Layer 2 ═══ -->
@@ -196,7 +196,7 @@ function _refreshAgentStatus(){
     mikeTxt.textContent='Active — '+(mkd.addr||'mike@')+(mkd.emails_returned?' ('+mkd.emails_returned+' found)':'');
    }
   }).catch(function(){mikeTxt.textContent='unknown';});
- }).catch(function(e){console.debug('fetch error:',e)});
+ }).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 }
 setTimeout(_refreshAgentStatus,4000);
 setInterval(_refreshAgentStatus,300000); // 5 min (was 60s)
@@ -269,7 +269,7 @@ var _dashData = null;
 fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   _dashData = d;
   // Also fetch /api/manager/metrics for manager-specific KPIs
-  fetch('/api/manager/metrics').then(r=>r.json()).then(m=>{if(m&&m.ok)Object.assign(_dashData,{manager_metrics:m});}).catch(function(e){console.debug('fetch error:',e)});
+  fetch('/api/manager/metrics').then(r=>r.json()).then(m=>{if(m&&m.ok)Object.assign(_dashData,{manager_metrics:m});}).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
   // ── Actions widget ──
   if(d.actions && d.actions.ok){
     function renderItems(items,el){
@@ -337,7 +337,7 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
       freshEl.innerHTML=html;
     }
   }
-}).catch(function(e){console.debug('fetch error:',e)});
+}).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 </script>
 
 <!-- ═══ Action Bar ═══ -->
@@ -1235,7 +1235,7 @@ setTimeout(function(){
   });
   if(d.count>5)html+='<div style="text-align:center;padding:6px;color:var(--tx2);font-size:14px">+'+(d.count-5)+' more — <a href="/follow-ups" style="color:var(--ac)">view all</a></div>';
   document.getElementById('stale-items').innerHTML=html;
- }).catch(function(e){console.debug('fetch error:',e)});
+ }).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 },6000);
 function sendQuickFollowUp(type,id,email,num){
  if(!confirm('Send follow-up to '+email+'?'))return;

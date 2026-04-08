@@ -62,8 +62,8 @@
 <!-- F3: Filters + Search -->
 <div class="card" style="margin-bottom:12px;padding:14px 18px">
  <form method="get" action="/orders" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-  <input name="q" value="{{ search_q }}" placeholder="🔍 Search PO, institution, agency..." style="flex:1;min-width:200px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 14px;color:var(--tx);font-size:15px">
-  <select name="status" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
+  <input name="q" value="{{ search_q }}" placeholder="🔍 Search PO, institution, agency..." aria-label="Search orders" style="flex:1;min-width:200px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 14px;color:var(--tx);font-size:15px">
+  <select name="status" aria-label="Filter by status" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
    <option value="">All Statuses</option>
    <option value="new" {{ 'selected' if filter_status=='new' }}>🆕 New</option>
    <option value="sourcing" {{ 'selected' if filter_status=='sourcing' }}>🛒 Sourcing</option>
@@ -72,7 +72,7 @@
    <option value="invoiced" {{ 'selected' if filter_status=='invoiced' }}>💰 Invoiced</option>
    <option value="closed" {{ 'selected' if filter_status=='closed' }}>🏁 Closed</option>
   </select>
-  <select name="agency" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
+  <select name="agency" aria-label="Filter by agency" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
    <option value="">All Agencies</option>
    {% for a in all_agencies %}<option value="{{ a }}" {{ 'selected' if filter_agency==a }}>{{ a }}</option>{% endfor %}
   </select>

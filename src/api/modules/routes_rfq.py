@@ -5817,10 +5817,19 @@ def rfq_download_file(rid, file_id):
         flash("File not found", "error")
         return redirect(f"/rfq/{rid}")
     from flask import Response
+    # Validate MIME type against allowlist to prevent XSS via stored type
+    _allowed_mimes = {"application/pdf", "image/png", "image/jpeg",
+                      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+    _mime = f.get("mime_type", "application/pdf")
+    if _mime not in _allowed_mimes:
+        _mime = "application/octet-stream"
+    _inline = request.args.get("inline") == "1"
+    _disp = "inline" if _inline else "attachment"
     return Response(
         f["data"],
-        mimetype=f.get("mime_type", "application/pdf"),
-        headers={"Content-Disposition": f"inline; filename=\"{f['filename']}\""}
+        mimetype=_mime,
+        headers={"Content-Disposition": f"{_disp}; filename=\"{f['filename']}\""}
     )
 
 

@@ -31,8 +31,8 @@
      <!-- Search + Filters — one compact bar -->
      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <form method="get" style="display:contents">
-       <input name="q" value="{{ q }}" placeholder="Search quotes, institutions, items, part numbers, RFQ #..." style="flex:1;min-width:240px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
-       <select name="agency" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+       <input name="q" value="{{ q }}" placeholder="Search quotes, institutions, items, part numbers, RFQ #..." aria-label="Search quotes" style="flex:1;min-width:240px;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+       <select name="agency" aria-label="Filter by agency" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
         <option value="">All Agencies</option>
         <option value="CDCR" {{ "selected" if agency_filter=="CDCR" }}>CDCR</option>
         <option value="CCHCS" {{ "selected" if agency_filter=="CCHCS" }}>CCHCS</option>
@@ -40,7 +40,7 @@
         <option value="DGS" {{ "selected" if agency_filter=="DGS" }}>DGS</option>
         <option value="DSH" {{ "selected" if agency_filter=="DSH" }}>DSH</option>
        </select>
-       <select name="status" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
+       <select name="status" aria-label="Filter by status" style="padding:10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:13px">
         <option value="">All Status</option>
         <option value="pending" {{ "selected" if status_filter=="pending" }}>⏳ Pending</option>
         <option value="won" {{ "selected" if status_filter=="won" }}>✅ Won</option>
