@@ -6426,6 +6426,7 @@ def api_pc_retry_auto_price(pcid):
         from src.agents.pc_enrichment_pipeline import enrich_pc
         enrich_pc(pcid, force=True)
         # Reload to get enrichment results
+        from src.api.dashboard import _load_price_checks
         pcs = _load_price_checks()
         pc = pcs.get(pcid, pc)
         summary = pc.get("enrichment_summary", {})
@@ -8087,6 +8088,10 @@ def api_pc_item_sources(pcid, idx):
     """Return fresh source chips HTML for a single item (after price/link update)."""
     log.info("Refresh sources: %s item %d", pcid, idx)
     import copy as _copy
+    def _safe_float(v, default=0):
+        if v is None: return default
+        try: return float(v)
+        except (ValueError, TypeError): return default
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
