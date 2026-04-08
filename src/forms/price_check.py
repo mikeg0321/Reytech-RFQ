@@ -2589,9 +2589,9 @@ def fill_ams704(
 
         # ── ORIGINAL MODE: only fill pricing fields, leave buyer fields untouched ──
         if original_mode:
-            unit_price = item.get("unit_price") or pricing.get("recommended_price")
-            if not unit_price:
-                unit_price = pricing.get("amazon_price")
+            # ONLY use prices the user explicitly set — never auto-fill from
+            # enrichment/Oracle/Amazon. Those are reference data, not bid prices.
+            unit_price = item.get("unit_price") or item.get("final_price") or pricing.get("final_price") or pricing.get("bid_price")
             if unit_price:
                 try:
                     unit_price = float(unit_price)
