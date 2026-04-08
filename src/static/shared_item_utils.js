@@ -7,6 +7,24 @@
  * if the page defines the same function name AFTER this script loads.
  */
 
+/** Compare PC description to lookup product title — returns 0-100 match score */
+function _productMatchScore(pcDesc, lookupTitle) {
+  if (!pcDesc || !lookupTitle) return 0;
+  function _tokenize(s) {
+    return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(function(w) {
+      return w.length > 1 && ['the','and','for','with','pack','of','per','ea','each','box','pk','set'].indexOf(w) < 0;
+    });
+  }
+  var a = _tokenize(pcDesc), b = _tokenize(lookupTitle);
+  if (!a.length || !b.length) return 0;
+  var setA = {}, setB = {};
+  a.forEach(function(w){ setA[w] = true; });
+  b.forEach(function(w){ setB[w] = true; });
+  var overlap = 0;
+  for (var w in setA) { if (setB[w]) overlap++; }
+  return Math.round(overlap / Math.max(Object.keys(setA).length, Object.keys(setB).length) * 100);
+}
+
 /** Check if a string is a URL */
 function _isUrl(v) {
   if (!v || typeof v !== 'string') return false;
@@ -300,6 +318,18 @@ function _applyLinkData(idx, d, mode) {
   if (d.asin) {
     statusHtml += ' <span style="font-size:11px;background:rgba(255,153,0,.12);color:#ff9900;padding:2px 6px;border-radius:3px;margin-left:4px">' +
       'ASIN: <a href="https://www.amazon.com/dp/' + d.asin + '" target="_blank" style="color:#ff9900">' + d.asin + ' ↗</a></span>';
+  }
+  // Product match validation: compare lookup title to PC description
+  var _lookupTitle = d.title || d.description || '';
+  var _pcDescEl = document.querySelector('[name="desc_' + idx + '"]');
+  var _pcDesc = _pcDescEl ? (_pcDescEl.value || '').trim() : '';
+  if (_lookupTitle && _pcDesc) {
+    var _ms = _productMatchScore(_pcDesc, _lookupTitle);
+    var _mClr = _ms >= 70 ? '#3fb950' : (_ms >= 40 ? '#d29922' : '#f85149');
+    var _mLabel = _ms >= 70 ? '✓ Match' : (_ms >= 40 ? '~ Partial' : '✗ Low match');
+    statusHtml += ' <span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:3px;background:' + _mClr + '20;color:' + _mClr + ';border:1px solid ' + _mClr + '40;cursor:help" '
+      + 'title="PC: ' + _pcDesc.substring(0,60).replace(/"/g,'&quot;') + '\nFound: ' + _lookupTitle.substring(0,60).replace(/"/g,'&quot;') + '">'
+      + _mLabel + ' ' + _ms + '%</span>';
   }
   if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
 
