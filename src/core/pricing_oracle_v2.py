@@ -481,6 +481,10 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
               "calibration": None}
     qty = float(quantity) if quantity else 1
     comp_avg = market.get("competitor_avg")
+    # Fallback: if no competitor-only avg, use our own past wins or weighted avg
+    # This prevents "No market data" when we have data but it's all ours
+    if not comp_avg and market.get("data_points", 0) > 0:
+        comp_avg = market.get("reytech_avg") or market.get("weighted_avg")
     comp_low = market.get("competitor_low") or comp_avg
     has_cost = cost is not None and cost > 0
     has_market = market.get("data_points", 0) > 0 and comp_avg
