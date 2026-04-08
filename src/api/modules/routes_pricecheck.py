@@ -10427,6 +10427,54 @@ def api_quote_set_counter(num):
                     "note": "All counter keys synced (quote_counter, quote_counter_seq, quote_counter_year)"})
 
 
+def _reconcile_mfg_from_descriptions(items):
+    """Extract S&S/supplier item numbers from descriptions and fix MFG# mismatches.
+    Patterns: 'S&S Item #: PS1474', 'Item #: NL304', 'MFG#: W12919', 'SKU: 343586'."""
+    import re as _re_rec
+    _patterns = [
+        _re_rec.compile(r'S&S\s+Item\s*#?\s*:?\s*([A-Z]{1,3}\d{2,6})', _re_rec.IGNORECASE),
+        _re_rec.compile(r'(?:Item|MFG|SKU|PN)\s*#?\s*:?\s*([A-Z]{1,3}\d{2,6})', _re_rec.IGNORECASE),
+        _re_rec.compile(r'(?:Item|MFG|SKU|PN)\s*#?\s*:?\s*(\d{4,7})', _re_rec.IGNORECASE),
+    ]
+    fixes = []
+    for idx, item in enumerate(items):
+        desc = item.get("description", "") or ""
+        if not desc:
+            continue
+        current_mfg = (item.get("mfg_number") or item.get("item_number") or "").strip()
+        for pat in _patterns:
+            m = pat.search(desc)
+            if m:
+                extracted = m.group(1).strip().upper()
+                if extracted and extracted != current_mfg.upper():
+                    old_mfg = current_mfg
+                    item["mfg_number"] = extracted
+                    item["item_number"] = extracted
+                    fixes.append({"line": idx + 1, "old": old_mfg, "new": extracted,
+                                  "desc": desc[:60]})
+                    log.info("MFG# reconcile line %d: %s → %s (from desc: %s)",
+                             idx + 1, old_mfg, extracted, desc[:60])
+                break
+    return fixes
+
+
+@bp.route("/api/pricecheck/<pcid>/reconcile-mfg", methods=["POST"])
+@auth_required
+@safe_route
+def api_reconcile_mfg(pcid):
+    """Scan descriptions for embedded supplier item numbers and fix MFG# mismatches."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items", [])
+    fixes = _reconcile_mfg_from_descriptions(items)
+    if fixes:
+        _save_single_pc(pcid, pc)
+        log.info("MFG# reconcile for %s: %d fixes applied", pcid, len(fixes))
+    return jsonify({"ok": True, "fixes": fixes, "count": len(fixes)})
+
+
 @bp.route("/api/pricecheck/<pcid>/rescrape-unpriced", methods=["POST"])
 @auth_required
 @safe_route
@@ -10735,6 +10783,11 @@ def api_bulk_scrape_urls(pcid):
 
     if not urls and not item_map:
         return jsonify({"ok": False, "error": "No URLs provided"})
+
+    # Auto-reconcile MFG# from descriptions before scraping
+    _mfg_fixes = _reconcile_mfg_from_descriptions(items)
+    if _mfg_fixes:
+        log.info("Bulk scrape auto-reconcile: %d MFG# fixes for %s", len(_mfg_fixes), pcid)
 
     for i, raw_line in enumerate(urls):
         raw_line = (raw_line or "").strip()
@@ -11072,10 +11125,19 @@ def api_bulk_scrape_urls_stream(pcid):
     # Count non-empty URLs for accurate progress
     real_count = sum(1 for u in urls if (u or "").strip())
 
+    # Auto-reconcile MFG# from descriptions before scraping
+    _mfg_fixes = _reconcile_mfg_from_descriptions(items)
+    if _mfg_fixes:
+        log.info("Bulk scrape SSE auto-reconcile: %d MFG# fixes for %s", len(_mfg_fixes), pcid)
+
     def generate():
         import json as _json_sse
         applied = 0
         processed = 0
+
+        # Emit reconciliation fixes if any
+        if _mfg_fixes:
+            yield f"data: {_json_sse.dumps({'type': 'reconcile', 'fixes': _mfg_fixes, 'count': len(_mfg_fixes)})}\n\n"
 
         # Emit initial event with total count
         yield f"data: {_json_sse.dumps({'type': 'start', 'total': total, 'real_count': real_count})}\n\n"

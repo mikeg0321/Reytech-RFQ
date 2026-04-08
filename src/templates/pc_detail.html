@@ -449,6 +449,7 @@
        <div style="border-top:1px solid #30363d;margin:4px 0"></div>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';openBulkPaste()" style="display:block;padding:8px 16px;font-size:13px;color:#d2a8ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Bulk Paste URLs</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';rescrapeUnpriced(this)" style="display:block;padding:8px 16px;font-size:13px;color:#d29922;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Re-scrape Missing Prices</a>
+       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';reconcileMfg(this)" style="display:block;padding:8px 16px;font-size:13px;color:#79c0ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Fix MFG# from Descriptions</a>
       </div>
      </div>
     </div>
@@ -3887,7 +3888,15 @@
            if(!line.startsWith('data: '))return;
            try{
              var d=JSON.parse(line.substring(6));
-             if(d.type==='start'){
+             if(d.type==='reconcile'){
+               // MFG# auto-fixes happened before scraping
+               if(d.count>0){
+                 var fixRow=document.createElement('div');
+                 fixRow.style.cssText='font-size:12px;padding:4px 8px;margin-bottom:4px;background:#1a1f29;border:1px solid #30363d;border-radius:4px;color:#79c0ff';
+                 fixRow.textContent='🔧 Auto-fixed '+d.count+' MFG#: '+d.fixes.map(function(f){return '#'+f.line+' '+f.old+'→'+f.new}).join(', ');
+                 if(res)res.appendChild(fixRow);
+               }
+             } else if(d.type==='start'){
                total=d.total;
                realCount=d.real_count||d.total;
                if(lbl)lbl.textContent='Processing 0/'+realCount+'...';
@@ -3977,6 +3986,19 @@
       showMsg('Re-scraped: '+d.priced+'/'+d.attempted+' now priced','ok');
       if(d.priced>0)setTimeout(function(){location.reload()},2000);
      }).catch(function(e){btn.disabled=false;btn.textContent='🔄 Re-scrape Missing';alert('Error: '+e.message);});
+    }
+
+    function reconcileMfg(el) {
+     if(el)el.textContent='Fixing MFG#s...';
+     fetch('/api/pricecheck/'+_pcid+'/reconcile-mfg',{method:'POST',credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      if(el)el.textContent='Fix MFG# from Descriptions';
+      if(!d.ok){alert(d.error||'Failed');return;}
+      if(d.count===0){showMsg('All MFG#s already match descriptions','info');return;}
+      var msg=d.count+' MFG# fixed: '+d.fixes.map(function(f){return '#'+f.line+' '+f.old+' → '+f.new}).join(', ');
+      showMsg(msg,'ok');
+      setTimeout(function(){location.reload()},1500);
+     }).catch(function(e){if(el)el.textContent='Fix MFG# from Descriptions';alert('Error: '+e.message);});
     }
 
     // Duplicate autosave removed — doPcAutosave handles all saves
