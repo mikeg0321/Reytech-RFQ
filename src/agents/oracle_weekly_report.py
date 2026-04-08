@@ -165,6 +165,43 @@ def generate_weekly_report():
             except Exception:
                 report["winning_prices_total"] = 0
 
+            # V4: Recent supplier research action items (cost reduction leads)
+            try:
+                v4_types = ("contact_mfg_rep", "sign_up_wholesale", "negotiate_volume",
+                            "alternative_supplier", "direct_from_mfg")
+                placeholders = ",".join("?" for _ in v4_types)
+                supplier_leads = conn.execute(f"""
+                    SELECT action_type, description, priority, source_quote, created_at
+                    FROM action_items
+                    WHERE action_type IN ({placeholders})
+                    AND created_at > ? AND status='pending'
+                    ORDER BY priority DESC, created_at DESC
+                """, (*v4_types, week_ago)).fetchall()
+                report["supplier_leads"] = [{
+                    "type": r[0], "description": r[1], "priority": r[2],
+                    "quote": r[3], "date": (r[4] or "")[:10],
+                } for r in supplier_leads]
+            except Exception:
+                report["supplier_leads"] = []
+
+            # Also pull pending action items of all types for the "do this" section
+            try:
+                pending = conn.execute("""
+                    SELECT action_type, description, priority, source_quote, created_at
+                    FROM action_items
+                    WHERE status='pending'
+                    ORDER BY
+                        CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                        created_at DESC
+                    LIMIT 15
+                """).fetchall()
+                report["pending_actions"] = [{
+                    "type": r[0], "description": r[1], "priority": r[2],
+                    "quote": r[3], "date": (r[4] or "")[:10],
+                } for r in pending]
+            except Exception:
+                report["pending_actions"] = []
+
     except Exception as e:
         log.error("Weekly report generation failed: %s", e, exc_info=True)
         report["error"] = str(e)
@@ -243,9 +280,43 @@ def format_report_email(report):
     if not wins and not losses:
         html += '<p style="color:#8b949e;margin-top:16px">No win/loss activity this week. Oracle calibration unchanged.</p>'
 
+    # V4: Supplier Research Leads
+    supplier_leads = report.get("supplier_leads", [])
+    if supplier_leads:
+        html += '<h3 style="color:#f0883e;margin-top:20px">🔍 Do This for Better Pricing</h3>'
+        html += '<p style="color:#8b949e;font-size:12px;margin-bottom:8px">AI-researched supplier leads from recent losses. Act on these to lower your cost basis:</p>'
+        _type_labels = {
+            "contact_mfg_rep": "📞 Contact MFG Rep",
+            "sign_up_wholesale": "🏪 Sign Up Wholesale",
+            "negotiate_volume": "📦 Negotiate Volume",
+            "alternative_supplier": "🔄 Alt Supplier",
+            "direct_from_mfg": "🏭 Direct from MFG",
+        }
+        for lead in supplier_leads[:10]:
+            prio_color = "#3fb950" if lead["priority"] == "high" else ("#d29922" if lead["priority"] == "medium" else "#8b949e")
+            type_label = _type_labels.get(lead["type"], lead["type"])
+            html += f'<div style="padding:8px 12px;margin-bottom:4px;background:#21262d;border-radius:6px;border-left:3px solid {prio_color}">'
+            html += f'<div style="font-size:11px;color:{prio_color};font-weight:600;text-transform:uppercase;margin-bottom:2px">{type_label} · {lead["priority"]}</div>'
+            html += f'<div style="color:#e6edf3;font-size:13px">{lead["description"]}</div>'
+            if lead.get("quote"):
+                html += f'<div style="color:#484f58;font-size:11px;margin-top:2px">From: {lead["quote"]} · {lead["date"]}</div>'
+            html += '</div>'
+
+    # Pending Action Items (all types)
+    pending = report.get("pending_actions", [])
+    if pending:
+        html += '<h3 style="color:#a78bfa;margin-top:20px">📋 Pending Action Items</h3>'
+        html += '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+        html += '<tr style="color:#8b949e;border-bottom:1px solid #30363d"><th style="text-align:left;padding:4px">Priority</th><th style="text-align:left">Action</th><th>Quote</th></tr>'
+        for a in pending[:15]:
+            prio_color = "#f85149" if a["priority"] == "high" else ("#d29922" if a["priority"] == "medium" else "#8b949e")
+            desc_short = a["description"][:120] + ("..." if len(a["description"]) > 120 else "")
+            html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:{prio_color};font-weight:600;text-transform:uppercase;font-size:11px">{a["priority"]}</td><td style="padding:4px;color:#c9d1d9;font-size:12px">{desc_short}</td><td style="padding:4px;color:#8b949e;font-size:11px">{a.get("quote","")}</td></tr>'
+        html += '</table>'
+
     html += f"""
 <div style="margin-top:20px;padding-top:12px;border-top:1px solid #30363d;color:#484f58;font-size:11px">
-Oracle V3 Self-Calibrating Pricing Engine — Generated {report['generated_at'][:16]}<br>
+Oracle V4 Self-Calibrating Pricing + AI Supplier Discovery — Generated {report['generated_at'][:16]}<br>
 Learning rate: alpha=0.15 | Markup floor: 15% | Ceiling: 50% | Min samples: 5
 </div>
 </div>
