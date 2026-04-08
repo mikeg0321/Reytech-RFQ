@@ -578,19 +578,46 @@ function sortTable(th, col) {
   <div class="empty" style="padding:32px 16px">No Price Checks yet — upload a 704 or configure email polling</div>
   {% endif %}
   {% if sent_pcs %}
-  <details style="margin-top:8px">
-   <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">📨 Sent / Awaiting Award ({{ sent_pcs|length }})</summary>
+  <details style="margin-top:8px" id="sent-pcs-section">
+   <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">📨 Sent / Awaiting Award (<span id="sent-pc-count">{{ sent_pcs|length }}</span>)</summary>
+   <div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
+    <div style="display:flex;gap:4px">
+     <button onclick="filterSent('pc',15)" class="sent-filter-btn" data-section="pc" data-days="15" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">15 days</button>
+     <button onclick="filterSent('pc',30)" class="sent-filter-btn" data-section="pc" data-days="30" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">30 days</button>
+     <button onclick="filterSent('pc',0)" class="sent-filter-btn active" data-section="pc" data-days="0" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--ac);background:rgba(79,140,255,.15);color:var(--ac);cursor:pointer">All</button>
+    </div>
+    <input type="text" placeholder="Filter sent PCs..." oninput="searchSent('pc',this.value)" style="flex:1;min-width:140px;max-width:240px;padding:4px 8px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);outline:none" onfocus="this.style.borderColor='var(--ac)'" onblur="this.style.borderColor='var(--bd)'">
+   </div>
    <table style="width:100%;font-size:13px;margin-top:4px">
-    {% for pid, pc in sent_pcs.items() %}
-    <tr style="border-bottom:1px solid var(--bd);opacity:0.7" onclick="location.href='/pricecheck/{{ pid }}'" class="home-row">
-     <td style="padding:6px 8px"><a href="/pricecheck/{{ pid }}" style="color:var(--ac)">#{{ pc.solicitation_number or pc.pc_number or '?' }}</a></td>
-     <td style="padding:6px 8px;color:var(--tx2)">{{ pc.institution or '' }}</td>
-     <td style="padding:6px 8px;color:var(--tx2)">{{ pc.get('items', [])|length }}</td>
-     <td style="padding:6px 8px">
-      <span style="font-size:12px;padding:2px 8px;border-radius:4px;background:rgba(210,153,34,.15);color:#d29922">{{ pc.status|upper }}</span>
-     </td>
-    </tr>
-    {% endfor %}
+    <thead><tr style="color:var(--tx2);font-size:11px;text-transform:uppercase;letter-spacing:.3px">
+     <th style="padding:4px 8px;text-align:left;font-weight:500">Solicitation</th>
+     <th style="padding:4px 8px;text-align:left;font-weight:500">Institution</th>
+     <th style="padding:4px 8px;text-align:center;font-weight:500">Items</th>
+     <th style="padding:4px 8px;text-align:left;font-weight:500">Sent</th>
+     <th style="padding:4px 8px;text-align:center;font-weight:500">Status</th>
+    </tr></thead>
+    <tbody id="sent-pc-tbody">
+     {% for pid, pc in sent_pcs.items() %}
+     {% set sent_date = pc.get('sent_at') or pc.get('updated_at') or '' %}
+     <tr class="home-row sent-row"
+         data-sent="{{ sent_date }}"
+         data-search="{{ (pc.solicitation_number or pc.pc_number or '')|lower }} {{ (pc.institution or '')|lower }} {{ pc.status|lower }}"
+         onclick="location.href='/pricecheck/{{ pid }}'"
+         style="border-bottom:1px solid var(--bd);opacity:0.7">
+      <td style="padding:6px 8px"><a href="/pricecheck/{{ pid }}" style="color:var(--ac)">#{{ pc.solicitation_number or pc.pc_number or '?' }}</a></td>
+      <td style="padding:6px 8px;color:var(--tx2)">{{ pc.institution or '' }}</td>
+      <td style="padding:6px 8px;color:var(--tx2);text-align:center">{{ pc.get('items', [])|length }}</td>
+      <td style="padding:6px 8px;color:var(--tx2);font-size:12px;white-space:nowrap">{{ sent_date[:10] if sent_date|length >= 10 else '—' }}</td>
+      <td style="padding:6px 8px;text-align:center">
+       <span style="font-size:12px;padding:2px 8px;border-radius:4px;
+        {% if pc.status == 'won' %}background:rgba(46,160,67,.15);color:#3fb950
+        {% elif pc.status == 'lost' %}background:rgba(248,81,73,.15);color:#f85149
+        {% else %}background:rgba(210,153,34,.15);color:#d29922
+        {% endif %}">{{ pc.status|upper }}</span>
+      </td>
+     </tr>
+     {% endfor %}
+    </tbody>
    </table>
   </details>
   {% endif %}
@@ -659,23 +686,46 @@ function sortTable(th, col) {
   <div class="empty" style="padding:32px 16px">No RFQs — configure email polling or upload below</div>
   {% endif %}
   {% if sent_rfqs %}
-  <details style="margin-top:8px">
-   <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">📨 Sent / Completed ({{ sent_rfqs|length }})</summary>
+  <details style="margin-top:8px" id="sent-rfqs-section">
+   <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">📨 Sent / Completed (<span id="sent-rfq-count">{{ sent_rfqs|length }}</span>)</summary>
+   <div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
+    <div style="display:flex;gap:4px">
+     <button onclick="filterSent('rfq',15)" class="sent-filter-btn" data-section="rfq" data-days="15" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">15 days</button>
+     <button onclick="filterSent('rfq',30)" class="sent-filter-btn" data-section="rfq" data-days="30" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">30 days</button>
+     <button onclick="filterSent('rfq',0)" class="sent-filter-btn active" data-section="rfq" data-days="0" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--ac);background:rgba(79,140,255,.15);color:var(--ac);cursor:pointer">All</button>
+    </div>
+    <input type="text" placeholder="Filter sent RFQs..." oninput="searchSent('rfq',this.value)" style="flex:1;min-width:140px;max-width:240px;padding:4px 8px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);outline:none" onfocus="this.style.borderColor='var(--ac)'" onblur="this.style.borderColor='var(--bd)'">
+   </div>
    <table style="width:100%;font-size:13px;margin-top:4px">
-    {% for rid, r in sent_rfqs.items() %}
-    <tr style="border-bottom:1px solid var(--bd);opacity:0.7" onclick="location.href='/rfq/{{ rid }}'" class="home-row">
-     <td style="padding:6px 8px"><a href="/rfq/{{ rid }}" style="color:var(--ac)">#{{ r.solicitation_number or r.rfq_number or '?' }}</a></td>
-     <td style="padding:6px 8px;color:var(--tx2)">{{ r.requestor_name or '' }}</td>
-     <td style="padding:6px 8px;color:var(--tx2)">{{ r.get('line_items', r.get('items', []))|length }}</td>
-     <td style="padding:6px 8px">
-      <span style="font-size:12px;padding:2px 8px;border-radius:4px;
-       {% if r.status == 'sent' %}background:rgba(210,153,34,.15);color:#d29922
-       {% elif r.status == 'won' %}background:rgba(46,160,67,.15);color:#3fb950
-       {% elif r.status == 'lost' %}background:rgba(248,81,73,.15);color:#f85149
-       {% endif %}">{{ r.status|upper }}</span>
-     </td>
-    </tr>
-    {% endfor %}
+    <thead><tr style="color:var(--tx2);font-size:11px;text-transform:uppercase;letter-spacing:.3px">
+     <th style="padding:4px 8px;text-align:left;font-weight:500">Solicitation</th>
+     <th style="padding:4px 8px;text-align:left;font-weight:500">Buyer</th>
+     <th style="padding:4px 8px;text-align:center;font-weight:500">Items</th>
+     <th style="padding:4px 8px;text-align:left;font-weight:500">Sent</th>
+     <th style="padding:4px 8px;text-align:center;font-weight:500">Status</th>
+    </tr></thead>
+    <tbody id="sent-rfq-tbody">
+     {% for rid, r in sent_rfqs.items() %}
+     {% set sent_date = r.get('sent_at') or r.get('updated_at') or '' %}
+     <tr class="home-row sent-row"
+         data-sent="{{ sent_date }}"
+         data-search="{{ (r.solicitation_number or r.rfq_number or '')|lower }} {{ (r.requestor_name or '')|lower }} {{ r.status|lower }}"
+         onclick="location.href='/rfq/{{ rid }}'"
+         style="border-bottom:1px solid var(--bd);opacity:0.7">
+      <td style="padding:6px 8px"><a href="/rfq/{{ rid }}" style="color:var(--ac)">#{{ r.solicitation_number or r.rfq_number or '?' }}</a></td>
+      <td style="padding:6px 8px;color:var(--tx2)">{{ r.requestor_name or '' }}</td>
+      <td style="padding:6px 8px;color:var(--tx2);text-align:center">{{ r.get('line_items', r.get('items', []))|length }}</td>
+      <td style="padding:6px 8px;color:var(--tx2);font-size:12px;white-space:nowrap">{{ sent_date[:10] if sent_date|length >= 10 else '—' }}</td>
+      <td style="padding:6px 8px;text-align:center">
+       <span style="font-size:12px;padding:2px 8px;border-radius:4px;
+        {% if r.status == 'sent' %}background:rgba(210,153,34,.15);color:#d29922
+        {% elif r.status == 'won' %}background:rgba(46,160,67,.15);color:#3fb950
+        {% elif r.status == 'lost' %}background:rgba(248,81,73,.15);color:#f85149
+        {% endif %}">{{ r.status|upper }}</span>
+      </td>
+     </tr>
+     {% endfor %}
+    </tbody>
    </table>
   </details>
   {% endif %}
@@ -1572,6 +1622,72 @@ function confirmMpcCreate(){
  h+='</div><div style="margin-top:14px;text-align:center"><button onclick="closeMultiPcUpload();location.reload()" style="background:rgba(79,140,255,.15);border:1px solid rgba(79,140,255,.3);color:#58a6ff;border-radius:8px;padding:8px 20px;font-size:14px;font-weight:600;cursor:pointer">↩ Dashboard</button></div>';
  document.getElementById('mpc-results-html').innerHTML=h;
 }
+</script>
+
+<script>
+(function(){
+ var NOW=Date.now();
+ var THIRTY=30*86400000;
+ function filterSent(section,days){
+  var tbody=document.getElementById('sent-'+section+'-tbody');
+  if(!tbody)return;
+  var rows=tbody.querySelectorAll('.sent-row');
+  var cutoff=days>0?NOW-(days*86400000):0;
+  var visible=0;
+  var btns=document.querySelectorAll('.sent-filter-btn[data-section="'+section+'"]');
+  for(var i=0;i<btns.length;i++){
+   var b=btns[i];
+   if(parseInt(b.getAttribute('data-days'))===days){
+    b.style.borderColor='var(--ac)';b.style.background='rgba(79,140,255,.15)';b.style.color='var(--ac)';
+   }else{
+    b.style.borderColor='var(--bd)';b.style.background='var(--sf)';b.style.color='var(--tx2)';
+   }
+  }
+  for(var i=0;i<rows.length;i++){
+   var row=rows[i];
+   var sent=row.getAttribute('data-sent')||'';
+   var ts=sent?new Date(sent.replace(' ','T')).getTime():0;
+   var searchHidden=row.getAttribute('data-search-hidden')==='1';
+   var dateMatch=!cutoff||(ts&&ts>=cutoff);
+   row.setAttribute('data-date-hidden',dateMatch?'0':'1');
+   if(!dateMatch||searchHidden){row.style.display='none';}
+   else{row.style.display='';row.style.opacity=(ts&&ts<NOW-THIRTY)?'0.45':'0.7';visible++;}
+  }
+  var c=document.getElementById('sent-'+section+'-count');
+  if(c)c.textContent=visible;
+ }
+ function searchSent(section,query){
+  var tbody=document.getElementById('sent-'+section+'-tbody');
+  if(!tbody)return;
+  var rows=tbody.querySelectorAll('.sent-row');
+  var q=(query||'').toLowerCase().trim();
+  var visible=0;
+  for(var i=0;i<rows.length;i++){
+   var row=rows[i];
+   var text=row.getAttribute('data-search')||'';
+   var match=!q||text.indexOf(q)!==-1;
+   row.setAttribute('data-search-hidden',match?'0':'1');
+   var dateHidden=row.getAttribute('data-date-hidden')==='1';
+   if(!match||dateHidden){row.style.display='none';}
+   else{row.style.display='';visible++;}
+  }
+  var c=document.getElementById('sent-'+section+'-count');
+  if(c)c.textContent=visible;
+ }
+ // Set initial opacity for >30d items
+ ['rfq','pc'].forEach(function(section){
+  var tbody=document.getElementById('sent-'+section+'-tbody');
+  if(!tbody)return;
+  var rows=tbody.querySelectorAll('.sent-row');
+  for(var i=0;i<rows.length;i++){
+   var sent=rows[i].getAttribute('data-sent')||'';
+   var ts=sent?new Date(sent.replace(' ','T')).getTime():0;
+   if(ts&&ts<NOW-THIRTY)rows[i].style.opacity='0.45';
+  }
+ });
+ window.filterSent=filterSent;
+ window.searchSent=searchSent;
+})();
 </script>
 
 {% endblock %}

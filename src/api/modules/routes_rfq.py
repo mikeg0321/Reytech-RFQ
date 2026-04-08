@@ -378,6 +378,7 @@ def home():
     _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
+    sent_pcs = dict(sorted(sent_pcs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
     # Pacific "today" for California-based due date comparisons (PST/PDT aware)
     from zoneinfo import ZoneInfo as _ZI
     _today = datetime.now(_ZI("America/Los_Angeles")).replace(tzinfo=None)
@@ -439,6 +440,7 @@ def home():
                    if len(v.get("line_items", v.get("items", []))) > 0
                    or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown", "RFQ")}
     sent_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in ("sent", "won", "lost")}
+    sent_rfqs = dict(sorted(sent_rfqs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
     for rid, r in active_rfqs.items():
         due = r.get("due_date", "") or ""
         r["_days_left"] = None
