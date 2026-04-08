@@ -74,12 +74,13 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     # Step 5: Competitors
     result["competitors"] = _get_competitor_breakdown(market_prices)
 
-    # Step 6: Recommendation (V3: with calibration data)
+    # Step 6: Recommendation (V3: with calibration + win history)
     category = _classify_item_category(description)
     result["category"] = category
     rec = _calculate_recommendation(cost, result["market"], quantity,
                                      category=category, agency=department, _db=db,
-                                     qty_per_uom=qty_per_uom)
+                                     qty_per_uom=qty_per_uom,
+                                     win_history=result.get("matched_item"))
     result["strategies"] = rec.pop("strategies", [])
     result["tiers"] = rec.pop("tiers", [])
     result["recommendation"] = rec
@@ -479,10 +480,10 @@ def _analyze_market_prices(market_prices, request_qty):
 
 
 def _calculate_recommendation(cost, market, quantity, category=None, agency=None,
-                               _db=None, qty_per_uom=1):
+                               _db=None, qty_per_uom=1, win_history=None):
     result = {"strategies": [], "tiers": [], "rationale": "",
               "quote_price": None, "markup_pct": None, "confidence": "low",
-              "calibration": None}
+              "calibration": None, "win_anchor": None}
     qty = float(quantity) if quantity else 1
     qpu = int(qty_per_uom) if qty_per_uom and qty_per_uom > 1 else 1
     comp_avg = market.get("competitor_avg")
@@ -493,11 +494,20 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
     has_cost = cost is not None and cost > 0
     has_market = market.get("data_points", 0) > 0 and comp_avg
 
+    # WIN HISTORY ANCHOR — the strongest signal we have.
+    # If we've won this exact item before (confirmed 3+ times), that price
+    # is more reliable than any SCPRS/catalog estimate.
+    win_price = None
+    win_times = 0
+    if win_history and isinstance(win_history, dict):
+        _wp = win_history.get("last_sell_price", 0)
+        _wt = win_history.get("times_confirmed", 0)
+        if _wp and _wp > 0 and _wt >= 3:
+            win_price = float(_wp)
+            win_times = int(_wt)
+            result["win_anchor"] = {"price": win_price, "times": win_times}
+
     # UOM normalization: market data is per-unit, cost may be per-pack.
-    # Scale market prices UP to per-pack level so we compare apples to apples.
-    # Always apply when qpu > 1 — the market data was normalized to per-unit
-    # by _normalize_to_per_unit(), so we must scale back to per-pack for
-    # a fair comparison against our per-pack cost.
     if has_cost and has_market and qpu > 1:
         comp_avg = comp_avg * qpu if comp_avg else None
         comp_low = comp_low * qpu if comp_low else None
@@ -515,12 +525,41 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                 "category": category,
             }
 
+    # If we have a strong win history, that's the best ceiling — we KNOW this
+    # price wins. Use it instead of SCPRS/market estimates.
+    if has_cost and win_price and win_price > cost:
+        ceiling = round(win_price, 2)
+        ceiling_m = ((ceiling - cost) / cost * 100) if cost > 0 else 0
+        # If market data would suggest a higher price, note it but don't use it
+        market_ceiling = round(comp_avg * 0.98, 2) if has_market and comp_avg else 0
+        result["strategies"] = [
+            {"name": "Win Price", "price": ceiling, "markup_pct": round(ceiling_m, 1),
+             "margin_per_unit": round(ceiling - cost, 2), "margin_total": round((ceiling - cost) * qty, 2)},
+        ]
+        if has_market and market_ceiling > ceiling:
+            result["strategies"].append(
+                {"name": "Market Ceiling", "price": market_ceiling,
+                 "markup_pct": round(((market_ceiling - cost) / cost * 100) if cost > 0 else 0, 1),
+                 "margin_per_unit": round(market_ceiling - cost, 2),
+                 "margin_total": round((market_ceiling - cost) * qty, 2)})
+        floor = round(cost * 1.15, 2)
+        result["strategies"].append(
+            {"name": "Floor", "price": floor, "markup_pct": 15,
+             "margin_per_unit": round(floor - cost, 2), "margin_total": round((floor - cost) * qty, 2)})
+        for pct in [15, 20, 25, 30, 35, 40, 45, 50]:
+            tp = round(cost * (1 + pct / 100), 2)
+            result["tiers"].append({"pct": pct, "price": tp, "margin_total": round((tp - cost) * qty, 2),
+                                     "beats_avg": tp < (comp_avg or 99999), "beats_low": tp < (comp_low or 99999)})
+        result.update({"quote_price": ceiling, "markup_pct": round(ceiling_m, 1), "confidence": "high",
+                       "rationale": f"Won {win_times}x at ${ceiling:.2f} ({ceiling_m:.0f}% on ${cost:.2f})"})
+        return result
+
     if has_cost and has_market:
         # V3: Use calibrated ceiling if available, otherwise fallback to V2
         if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
             cal_ceiling = round(cost * (1 + cal["recommended_max_markup"] / 100), 2)
             market_ceiling = round(comp_avg * 0.98, 2)
-            ceiling = min(cal_ceiling, market_ceiling)  # Take the more competitive price
+            ceiling = min(cal_ceiling, market_ceiling)
         else:
             ceiling = round(comp_avg * 0.98, 2)
         ceiling_m = ((ceiling - cost) / cost * 100) if cost > 0 else 0
