@@ -3801,9 +3801,26 @@ def api_force_reprocess():
     except Exception as _db_e:
         log.warning("Force-reprocess: SQLite clear failed: %s", _db_e)
 
-    # Reset poller instance so it rebuilds _processed from (now empty) stores
+    # Reset poller: clear in-memory set + null the instance
+    # Must clear in-memory set directly because global may not propagate
+    # across exec() module boundary to dashboard.py's _shared_poller
     global _shared_poller
+    if _shared_poller and hasattr(_shared_poller, '_processed'):
+        old_count = max(old_count, len(_shared_poller._processed))
+        _shared_poller._processed.clear()
+        log.info("Force-reprocess: cleared %d in-memory processed UIDs", old_count)
     _shared_poller = None
+    # Also clear via dashboard module directly
+    try:
+        import sys as _sys
+        _dash = _sys.modules.get('src.api.dashboard')
+        if _dash and hasattr(_dash, '_shared_poller') and _dash._shared_poller:
+            if hasattr(_dash._shared_poller, '_processed'):
+                _dash._shared_poller._processed.clear()
+            _dash._shared_poller = None
+            log.info("Force-reprocess: cleared dashboard._shared_poller")
+    except Exception:
+        pass
     
     # Re-poll
     try:
