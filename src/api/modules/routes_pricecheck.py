@@ -8077,6 +8077,7 @@ def api_oracle_weekly_report():
 @safe_route
 def api_pc_item_sources(pcid, idx):
     """Return fresh source chips HTML for a single item (after price/link update)."""
+    log.info("Refresh sources: %s item %d", pcid, idx)
     import copy as _copy
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
@@ -8400,7 +8401,7 @@ def api_pc_oracle_auto_price(pcid):
                         real_items[ridx]["oracle_rationale"] = r.get("rationale", "")
                 _save_price_checks(real_pcs)
         except Exception as e:
-            log.debug("Oracle auto-price persist: %s", e)
+            log.warning("Oracle auto-price persist failed: %s", e)
 
         return jsonify({
             "ok": True,

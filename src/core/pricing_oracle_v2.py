@@ -506,6 +506,9 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
             win_price = float(_wp)
             win_times = int(_wt)
             result["win_anchor"] = {"price": win_price, "times": win_times}
+            log.info("Win anchor: $%.2f (%dx confirmed)", win_price, win_times)
+            if has_cost and win_price < cost:
+                log.warning("Win anchor $%.2f is BELOW current cost $%.2f — previous win price is now unprofitable", win_price, cost)
 
     # UOM normalization: market data is per-unit, cost may be per-pack.
     if has_cost and has_market and qpu > 1:

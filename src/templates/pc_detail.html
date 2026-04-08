@@ -929,7 +929,7 @@
        // Check against sources
        var row=document.querySelector('tr[data-row="'+idx+'"]');
        if(row){
-        var srcText=(row.querySelectorAll('td')[8]||{}).textContent||'';
+        var srcText=(row.querySelectorAll('td')[6]||{}).textContent||'';
         var refs=srcText.match(/\$(\d+\.?\d*)/g);
         if(refs){
          var lowest=Math.min.apply(null,refs.map(function(p){return parseFloat(p.replace('$',''));}));
@@ -1510,9 +1510,7 @@
          var row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
          if(!row) return;
          // Sources is the 8th column (0-indexed: #, MFG#, Qty, UOM, Desc, Link, Sources, Cost...)
-         var cells=row.querySelectorAll('td');
-         var srcCell=null;
-         for(var i=0;i<cells.length;i++){if(cells[i].style.verticalAlign==='top'){srcCell=cells[i];break;}}
+         var srcCell=row.querySelectorAll('td')[6];
          if(srcCell && d.html) srcCell.innerHTML=d.html;
        }).catch(function(e){console.error('Refresh sources error:',e)});
      }, 1500);
@@ -1918,7 +1916,7 @@
       var cost=parseFloat(costEl.value)||0;
       if(cost<=0) return;
       // Check if Sources column has a reference price
-      var srcCell=row.querySelectorAll('td')[8];
+      var srcCell=row.querySelectorAll('td')[6];
       if(!srcCell) return;
       var srcText=srcCell.textContent||'';
       // Extract lowest reference price from sources text (e.g., "$16.00 SCPRS")
@@ -2125,7 +2123,7 @@
        // Update Sources column
        var row=document.querySelector('tr[data-row="'+idx+'"]');
        if(row){
-        var srcCell=row.querySelectorAll('td')[8];
+        var srcCell=row.querySelectorAll('td')[6];
         if(srcCell && (srcCell.textContent.trim()==='No sources'||!srcCell.textContent.trim())){
          srcCell.innerHTML='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span>';
         }
@@ -2182,7 +2180,7 @@
      // Update Sources column
      var row=document.querySelector('tr[data-row="'+idx+'"]');
      if(row){
-      var srcCell=row.querySelectorAll('td')[8];
+      var srcCell=row.querySelectorAll('td')[6];
       if(srcCell){
        srcCell.innerHTML='<span style="background:rgba(63,185,80,.12);color:#3fb950;padding:2px 6px;border-radius:4px;font-size:12px;font-weight:600">Catalog</span>';
       }
@@ -2425,7 +2423,7 @@
        // Update Sources column (8th td, 0-indexed) — works on re-runs
        var row=document.querySelector('tr[data-row="'+idx+'"]');
        if(row){
-        var srcCell=row.querySelectorAll('td')[8];
+        var srcCell=row.querySelectorAll('td')[6];
         if(srcCell){
          var srcHtml='';
          if(r.matched && r.catalog_name){
