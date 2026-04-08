@@ -8596,9 +8596,17 @@ def api_pc_oracle_auto_price(pcid):
                 floor_price = round(cost * 1.15, 2) if cost > 0 else 0
                 if floor_price > 0 and sp < floor_price:
                     sp = floor_price
+                # Sanity cap: if strategy price is absurdly above cost AND no real
+                # competitor data backs it, fall back to safe markup. But if there IS
+                # real comp_avg data, trust the market (competitors pay that price).
+                _has_real_comps = bool(market.get("competitor_avg") or market.get("competitor_low"))
+                ceiling_cap = round(cost * (10 if _has_real_comps else 3), 2) if cost > 0 else 0
+                if ceiling_cap > 0 and sp > ceiling_cap:
+                    sp = round(cost * 1.25, 2)  # Fall back to safe 25% markup
+                    rationale = f"Market data too high (${_win_strat['price']:.2f}) — capped to 25% on ${cost:.2f}"
                 if not cost or sp > cost:
                     rec_price = sp
-                    rationale = f"{_win_strat['name']}: ${sp:.2f} ({_win_strat.get('markup_pct', 0):.0f}%)"
+                    rationale = rationale or f"{_win_strat['name']}: ${sp:.2f} ({_win_strat.get('markup_pct', 0):.0f}%)"
 
             # Fallback: cost + 25% if no Oracle data
             if not rec_price and cost > 0:

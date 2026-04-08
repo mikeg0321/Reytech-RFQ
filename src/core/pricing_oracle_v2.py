@@ -510,10 +510,11 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
             if has_cost and win_price < cost:
                 log.warning("Win anchor $%.2f is BELOW current cost $%.2f — previous win price is now unprofitable", win_price, cost)
 
-    # UOM normalization: market data is per-unit, cost may be per-pack.
-    if has_cost and has_market and qpu > 1:
-        comp_avg = comp_avg * qpu if comp_avg else None
-        comp_low = comp_low * qpu if comp_low else None
+    # UOM normalization: SCPRS/market data is already per-line (not per-unit).
+    # Cost is per-pack/per-UOM. Do NOT multiply market prices by qpu — that inflates
+    # them by 100x for items with 100 units/pack. Market prices and cost are in the
+    # same unit (what the buyer pays per UOM ordered).
+    # (Removed: comp_avg *= qpu was causing 2000%+ markups on high-qpu items)
 
     # V3: Read calibration data if available
     cal = None
