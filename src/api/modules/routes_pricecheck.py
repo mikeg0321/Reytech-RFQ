@@ -10750,6 +10750,231 @@ def api_bulk_scrape_urls(pcid):
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
+# ── SSE streaming bulk scrape — real-time per-item progress ──
+
+def _process_single_bulk_item(i, raw_line, items, pc, _line_labels, _re_bulk):
+    """Process one bulk-scrape item. Returns (result_dict, was_applied, updated_item_or_None)."""
+    raw_line = (raw_line or "").strip()
+    raw_line = _re_bulk.sub(r'^\d+[\.\)]\s*', '', raw_line)
+    _display_line = _line_labels.get(i, i + 1)
+    if not raw_line or i >= len(items):
+        return {"line": _display_line, "url": raw_line[:60], "status": "skipped"}, False, None
+
+    _url_match = _re_bulk.search(r'(https?://\S+)', raw_line)
+    if _url_match:
+        url = _url_match.group(1).rstrip('.,;)')
+        _pre = raw_line[:_url_match.start()].strip().rstrip(',')
+    else:
+        url = raw_line
+        _pre = ""
+
+    _parsed_desc = ""
+    _parsed_mfg = ""
+    _parsed_qty = 0
+    if _pre and ',' in _pre:
+        _parts = [p.strip() for p in _pre.split(',')]
+        for _part in _parts:
+            if not _part:
+                continue
+            if _re_bulk.match(r'^(SKU|MFG|PN|Item)\s*#?\s*\d', _part, _re_bulk.IGNORECASE):
+                _parsed_mfg = _re_bulk.sub(r'^(SKU|MFG|PN|Item)\s*#?\s*', '', _part, flags=_re_bulk.IGNORECASE).strip()
+            elif _re_bulk.match(r'^\d{1,4}$', _part) and not _parsed_qty:
+                _v = int(_part)
+                if _v > 0 and _v < 10000:
+                    _parsed_qty = _v
+            elif len(_part) > 10 and not _re_bulk.match(r'^(Each|EA|CS|BX|PK|Case|Box|Pack|DZ|CT)$', _part, _re_bulk.IGNORECASE):
+                _parsed_desc = _part
+    elif _pre and len(_pre) > 5:
+        _parsed_desc = _pre
+
+    try:
+        from src.agents.item_link_lookup import lookup_from_url
+        r = lookup_from_url(url)
+        item = items[i]
+        item["item_link"] = r.get("url", url)
+        item["item_supplier"] = r.get("supplier", "")
+        _pn = r.get("mfg_number") or r.get("part_number") or _parsed_mfg or ""
+        if _pn:
+            item["item_number"] = _pn
+            item["mfg_number"] = _pn
+        _title = r.get("title") or r.get("description") or _parsed_desc or ""
+        if _title:
+            _title = _re_bulk.sub(r'\s*https?://\S+', '', _title).strip()
+        if _title and (not item.get("description") or len(item.get("description", "")) < 10):
+            item["description"] = _title
+        if _parsed_qty > 0 and (not item.get("qty") or item.get("qty") == 1):
+            item["qty"] = _parsed_qty
+        price = r.get("price") or r.get("list_price") or r.get("cost")
+        if price:
+            try:
+                price = float(price)
+            except (ValueError, TypeError):
+                price = 0
+        else:
+            price = 0
+        amazon_fallback = False
+        if price <= 0 and "amazon.com" not in url.lower():
+            _search_q = _title or item.get("description", "")
+            if _search_q and len(_search_q) >= 8:
+                try:
+                    from src.agents.product_research import search_amazon
+                    amz = search_amazon(_search_q, max_results=1)
+                    if amz and amz[0].get("price", 0) > 0:
+                        price = float(amz[0]["price"])
+                        amazon_fallback = True
+                        _amz_asin = amz[0].get("asin", "")
+                        if _amz_asin:
+                            if not item.get("pricing"):
+                                item["pricing"] = {}
+                            item["pricing"]["amazon_asin"] = _amz_asin
+                            item["pricing"]["amazon_url"] = amz[0].get("url", "")
+                            item["pricing"]["amazon_price"] = price
+                            item["pricing"]["amazon_title"] = amz[0].get("title", "")[:200]
+                            item["item_link"] = amz[0].get("url", "") or f"https://www.amazon.com/dp/{_amz_asin}"
+                            item["item_supplier"] = "Amazon"
+                            url = item["item_link"]
+                            try:
+                                from src.agents.product_research import lookup_amazon_product
+                                _prod = lookup_amazon_product(_amz_asin)
+                                if _prod:
+                                    if _prod.get("list_price"):
+                                        item["pricing"]["list_price"] = _prod["list_price"]
+                                        item["list_price"] = _prod["list_price"]
+                                    if _prod.get("sale_price"):
+                                        item["pricing"]["sale_price"] = _prod["sale_price"]
+                                        item["sale_price"] = _prod["sale_price"]
+                            except Exception:
+                                pass
+                        log.info("Amazon fallback for line %d: %s → $%.2f (ASIN: %s)",
+                                 i + 1, _search_q[:40], price, _amz_asin)
+                except Exception as e:
+                    log.debug("Amazon fallback error line %d: %s", i + 1, e)
+        if price > 0:
+            if not item.get("pricing"):
+                item["pricing"] = {}
+            item["pricing"]["unit_cost"] = price
+            item["pricing"]["source_url"] = url
+            item["pricing"]["source"] = "amazon_fallback" if amazon_fallback else "bulk_scrape"
+            item["vendor_cost"] = price
+            markup = item.get("markup_pct") or pc.get("default_markup") or 25
+            try:
+                markup = float(markup)
+            except (ValueError, TypeError):
+                markup = 25
+            item["markup_pct"] = markup
+            unit_price = round(price * (1 + markup / 100), 2)
+            item["unit_price"] = unit_price
+            item["pricing"]["recommended_price"] = unit_price
+            qty = item.get("qty", 1) or 1
+            try:
+                qty = float(qty)
+            except (ValueError, TypeError):
+                qty = 1
+            item["extension"] = round(unit_price * qty, 2)
+            _status = "ok" if not amazon_fallback else "ok_amazon"
+            return {"line": _display_line, "url": url[:60], "status": _status,
+                    "price": price, "supplier": r.get("supplier", ""),
+                    "note": "Price from Amazon" if amazon_fallback else ""}, True, item
+        else:
+            return {"line": _display_line, "url": url[:60], "status": "linked",
+                    "supplier": r.get("supplier", ""), "note": "URL linked, no price found"}, True, item
+    except Exception as e:
+        return {"line": _display_line, "url": url[:60], "status": "error", "error": str(e)[:80]}, False, None
+
+
+@bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls-stream", methods=["POST"])
+@auth_required
+@safe_route
+def api_bulk_scrape_urls_stream(pcid):
+    """SSE streaming bulk scrape — sends per-item results as they resolve."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    data = request.get_json(force=True, silent=True) or {}
+    items = pc.get("items", [])
+    import re as _re_bulk
+
+    # Parse input — same logic as non-streaming endpoint
+    item_map = data.get("item_map")
+    _line_labels = {}
+    skipped_results = []
+    if item_map and isinstance(item_map, dict):
+        log.info("Bulk scrape SSE (structured): %s — %d item mappings", pcid, len(item_map))
+        _item_idx = {}
+        for idx_i, it in enumerate(items):
+            _num = str(it.get("item_number", "")).strip()
+            if _num:
+                _item_idx[_num] = idx_i
+            _ridx = str(it.get("row_index", "")).strip()
+            if _ridx and _ridx not in _item_idx:
+                _item_idx[_ridx] = idx_i
+        _structured_map = {}
+        for item_num, url in item_map.items():
+            target_idx = _item_idx.get(str(item_num).strip())
+            if target_idx is not None:
+                _structured_map[target_idx] = (url, int(item_num))
+                _line_labels[target_idx] = int(item_num)
+            else:
+                skipped_results.append({"line": int(item_num), "url": url[:60], "status": "skipped",
+                                        "error": f"Item #{item_num} not found in PC"})
+        urls = []
+        for idx_j in range(len(items)):
+            urls.append(_structured_map[idx_j][0] if idx_j in _structured_map else "")
+    else:
+        urls = data.get("urls", [])
+
+    if not urls and not item_map:
+        return jsonify({"ok": False, "error": "No URLs provided"})
+
+    total = len(urls)
+    # Count non-empty URLs for accurate progress
+    real_count = sum(1 for u in urls if (u or "").strip())
+
+    def generate():
+        import json as _json_sse
+        applied = 0
+        processed = 0
+
+        # Emit initial event with total count
+        yield f"data: {_json_sse.dumps({'type': 'start', 'total': total, 'real_count': real_count})}\n\n"
+
+        # Emit any pre-skipped items from structured mapping
+        for sr in skipped_results:
+            sr["type"] = "item"
+            processed += 1
+            sr["progress"] = processed
+            yield f"data: {_json_sse.dumps(sr)}\n\n"
+
+        for i, raw_line in enumerate(urls):
+            result, was_applied, _updated = _process_single_bulk_item(
+                i, raw_line, items, pc, _line_labels, _re_bulk
+            )
+            if was_applied:
+                applied += 1
+            processed += 1
+            result["type"] = "item"
+            result["progress"] = processed
+            yield f"data: {_json_sse.dumps(result)}\n\n"
+
+        # Save and sync catalog
+        if applied:
+            _save_single_pc(pcid, pc)
+            try:
+                from src.agents.product_catalog import save_pc_items_to_catalog
+                cat_result = save_pc_items_to_catalog(pc)
+                log.info("Bulk-scrape SSE catalog sync: added=%d existing=%d skipped=%d",
+                         cat_result.get("added", 0), cat_result.get("existing", 0), cat_result.get("skipped", 0))
+            except Exception as e:
+                log.error("Bulk-scrape SSE catalog sync error: %s", e, exc_info=True)
+
+        # Final done event
+        yield f"data: {_json_sse.dumps({'type': 'done', 'applied': applied, 'total': total})}\n\n"
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
 def _resolve_buyer_name(pc, buyer_email):
     """Resolve buyer display name from CRM contacts, falling back to email parse."""
     buyer_name = ""
