@@ -1261,6 +1261,17 @@ def parse_ams704(pdf_path: str) -> dict:
     # Filter out junk items (legal text, instructions, boilerplate)
     result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
 
+    # Sort by buyer's item number to restore logical order.
+    # Multi-page 704s have unsuffixed rows (Row1-Row11) parsed first, then
+    # _2 suffix rows (Row1_2-Row8_2) parsed after. This can put buyer items
+    # out of order (e.g., 11-18, 27-29, 19-26). Sort by numeric item_number.
+    def _sort_key(item):
+        try:
+            return int(float(item.get("item_number", "9999")))
+        except (ValueError, TypeError):
+            return 9999
+    result["line_items"].sort(key=_sort_key)
+
     # Re-index: only renumber items that had NO buyer-provided item number.
     # If the buyer wrote 11, 12, 13... preserve those exactly.
     # Only re-index when all item_numbers are sequential from 1 (auto-filled by form)
