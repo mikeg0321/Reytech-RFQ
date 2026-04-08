@@ -1,0 +1,168 @@
+{#- Unified queue table macro — used for both PC and RFQ queues on the home page.
+    All data must be pre-normalized via queue_helpers.normalize_queue_item().
+    queue_type: 'pc' or 'rfq'
+    items: dict {id: normalized_item} for active queue
+    sent_items: dict {id: normalized_sent_item} for sent/completed section
+    title: card header text
+    subtitle: gray subtitle text
+    bulk_actions: list of dicts [{action, label, style?, icon?, handler?}]
+    empty_msg: message when items is empty
+-#}
+{% macro queue_table(queue_type, items, sent_items, title, subtitle, bulk_actions, empty_msg) %}
+<div class="card" style="margin:0;overflow:visible">
+ {# ── Card Header ── #}
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+  <div class="card-t" style="margin:0">{{ title }} <span style="font-size:14px;font-weight:400;color:var(--tx2)">{{ subtitle }}</span> <span id="{{ queue_type }}-queue-count" style="font-family:'JetBrains Mono',monospace;font-weight:700">{{ items|length }}</span></div>
+ </div>
+
+ {# ── E2: Active Queue Search ── #}
+ <div style="margin-bottom:10px">
+  <input type="text" placeholder="Filter {{ title|lower }}..." oninput="searchActive('{{ queue_type }}',this.value)" style="width:100%;max-width:280px;padding:5px 10px;font-size:13px;border-radius:6px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);outline:none" onfocus="this.style.borderColor='var(--ac)'" onblur="this.style.borderColor='var(--bd)'">
+ </div>
+
+ {# ── Bulk Action Bar ── #}
+ <div class="bulk-bar" id="{{ queue_type }}-bulk-bar">
+  <span class="bulk-count"><span id="{{ queue_type }}-bulk-count">0</span> selected</span>
+  {% for ba in bulk_actions %}
+  <button class="{{ ba.css|default('btn btn-sm btn-s') }}"{% if ba.style %} style="{{ ba.style }}"{% endif %} onclick="{{ ba.handler|default('bulkAction') }}('{{ queue_type }}','{{ ba.action }}')" aria-label="{{ ba.label }}">{% if ba.icon %}{{ ba.icon }} {% endif %}{{ ba.label }}</button>
+  {% endfor %}
+  <button onclick="batchClearSelection()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:13px;margin-left:auto" aria-label="Clear selection">Clear selection</button>
+ </div>
+
+ {# ── E5: Pipeline Summary ── #}
+ {% set ns = namespace(total=0, overdue=0, priced_sum=0) %}
+ {% for id, r in items.items() %}
+  {% set ns.total = ns.total + 1 %}
+  {% if r._urgency == 'overdue' %}{% set ns.overdue = ns.overdue + 1 %}{% endif %}
+  {% set ns.priced_sum = ns.priced_sum + r._readiness.get('priced', 0)|default(0) %}
+ {% endfor %}
+ {% if ns.total > 0 %}
+ <div style="display:flex;gap:16px;font-size:12px;color:var(--tx2);margin-bottom:8px;font-family:'JetBrains Mono',monospace;letter-spacing:.3px">
+  <span>{{ ns.total }} active</span>
+  {% if ns.overdue > 0 %}<span style="color:#f85149;font-weight:600">{{ ns.overdue }} overdue</span>{% endif %}
+  <span>{{ ns.priced_sum }} items priced</span>
+ </div>
+ {% endif %}
+
+ {# ── Active Queue Table ── #}
+ {% if items %}
+ <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+ <table class="home-tbl">
+  <thead>
+   <tr>
+    <th style="width:28px"><input type="checkbox" class="row-check" onchange="toggleAllChecks('{{ queue_type }}',this)"></th>
+    <th onclick="sortTable(this,1)" style="cursor:pointer">Number &#8693;</th>
+    <th onclick="sortTable(this,2)" style="cursor:pointer">Institution &#8693;</th>
+    <th onclick="sortTable(this,3)" style="cursor:pointer">Buyer &#8693;</th>
+    <th onclick="sortTable(this,4)" style="cursor:pointer;width:90px">Due &#8693;</th>
+    <th onclick="sortTable(this,5)" style="cursor:pointer;width:56px;text-align:center">Items &#8693;</th>
+    <th style="padding:8px 6px;text-align:center;width:70px">Priced</th>
+    <th style="width:74px;text-align:center">Quote</th>
+    <th onclick="sortTable(this,8)" style="cursor:pointer;width:80px;text-align:center">Status &#8693;</th>
+    <th style="width:64px"></th>
+   </tr>
+  </thead>
+  <tbody>
+   {% for id, r in items.items() %}
+   <tr class="home-row" id="{{ queue_type }}-row-{{ id }}"
+       onclick="location.href='{{ r.url }}'"
+       data-search="{{ (r.number or '')|lower }} {{ (r.institution or '')|lower }} {{ (r.buyer or '')|lower }} {{ r.display_status|lower }}"
+       style="border-left:3px solid {% if r._urgency == 'overdue' %}#f85149{% elif r._urgency == 'critical' %}#f0883e{% elif r._urgency == 'soon' %}#d29922{% else %}transparent{% endif %};{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
+    {# Col 0: Checkbox #}
+    <td onclick="event.stopPropagation()"><input type="checkbox" class="{{ queue_type }}-check row-check" value="{{ id }}" onchange="updateBulkBar('{{ queue_type }}')"></td>
+    {# Col 1: Number #}
+    <td><a href="{{ r.url }}" class="sol">{% if r.number %}#{{ r.number }}{% else %}<span style="color:var(--tx2);opacity:.6">Pending</span>{% endif %}</a></td>
+    {# Col 2: Institution #}
+    <td style="font-weight:600">{{ r.institution }}</td>
+    {# Col 3: Buyer #}
+    <td>
+     <span style="font-weight:600">{{ r.buyer }}</span>
+     {% if r.buyer_sub %}{% for line in r.buyer_sub.split('\n') %}
+     <span style="display:block;font-size:12px;{% if loop.last and r.buyer_sub.split('\n')|length > 1 %}font-weight:500;color:#a78bfa{% else %}color:var(--tx2){% endif %}">{% if loop.first and 'Req:' not in line %}Req: {% endif %}{{ line }}</span>
+     {% endfor %}{% endif %}
+    </td>
+    {# Col 4: Due date with urgency #}
+    <td class="mono">
+     {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{ r.due_date }}</span>
+     {% elif r._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{ r.due_date }}</span>
+     {% elif r._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{ r.due_date }}</span>
+     {% elif r.due_date %}{{ r.due_date }}
+     {% else %}<span style="color:var(--tx2);font-size:12px;opacity:.6">TBD</span>{% endif %}
+     {% if r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+      {% if r._days_left < 0 %}{{ -r._days_left }}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{ r._days_left }}d left{% endif %}
+     </div>{% endif %}
+    </td>
+    {# Col 5: Item count #}
+    <td style="text-align:center" class="mono">{{ r.item_count }}</td>
+    {# Col 6: Priced readiness #}
+    <td style="padding:8px 6px;text-align:center">
+     {% set rd = r._readiness %}
+     {% set rpct = rd.get('pct', 0)|default(0) if rd else 0 %}
+     <span style="color:{{ '#3fb950' if rpct == 100 else ('#d29922' if rpct >= 50 else '#f85149') }};font-weight:600;font-size:13px">
+       {{ rd.get('priced', 0)|default(0) }}/{{ rd.get('total', 0)|default(0) }}
+     </span>
+    </td>
+    {# Col 7: Quote number #}
+    <td style="text-align:center" onclick="event.stopPropagation()">{% if r.quote_number %}<span style="color:var(--gn);font-weight:600;font-family:'JetBrains Mono',monospace;font-size:14px">{{ r.quote_number }}</span>{% else %}&mdash;{% endif %}</td>
+    {# Col 8: Status pill #}
+    <td style="text-align:center">
+     <span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;color:{{ r.status_color }};background:{{ r.status_color }}18;white-space:nowrap">{{ r.display_status }}</span>
+    </td>
+    {# Col 9: Actions — Quick Price + Dismiss #}
+    <td style="text-align:center" onclick="event.stopPropagation()">
+     <button onclick="openQP('{{ queue_type }}','{{ id }}',event)" title="Quick Price" style="background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:#3fb950;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;margin-right:4px" onmouseover="this.style.background='rgba(52,211,153,.2)'" onmouseout="this.style.background='rgba(52,211,153,.08)'">&#9889;</button>
+     <button class="dismiss-x-btn" onclick="showDismissMenu('{{ queue_type }}','{{ id }}',this,event)" title="Dismiss" style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149;cursor:pointer;font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600" onmouseover="this.style.background='rgba(248,81,73,.2)'" onmouseout="this.style.background='rgba(248,81,73,.08)'">&times;</button>
+    </td>
+   </tr>
+   {% endfor %}
+  </tbody>
+ </table>
+ </div>
+ {% else %}
+ <div class="empty" style="padding:32px 16px">{{ empty_msg }}</div>
+ {% endif %}
+
+ {# ── Sent / Completed Section ── #}
+ {% if sent_items %}
+ <details style="margin-top:8px" id="sent-{{ queue_type }}s-section">
+  <summary style="font-size:13px;color:var(--tx2);cursor:pointer;padding:6px 0">&#128232; Sent / Completed (<span id="sent-{{ queue_type }}-count">{{ sent_items|length }}</span>)</summary>
+  <div style="display:flex;align-items:center;gap:8px;margin:8px 0 4px;flex-wrap:wrap">
+   <div style="display:flex;gap:4px">
+    <button onclick="filterSent('{{ queue_type }}',15)" class="sent-filter-btn" data-section="{{ queue_type }}" data-days="15" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">15 days</button>
+    <button onclick="filterSent('{{ queue_type }}',30)" class="sent-filter-btn" data-section="{{ queue_type }}" data-days="30" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx2);cursor:pointer">30 days</button>
+    <button onclick="filterSent('{{ queue_type }}',0)" class="sent-filter-btn active" data-section="{{ queue_type }}" data-days="0" style="padding:3px 10px;font-size:12px;border-radius:4px;border:1px solid var(--ac);background:rgba(79,140,255,.15);color:var(--ac);cursor:pointer">All</button>
+   </div>
+   <input type="text" placeholder="Filter sent..." oninput="searchSent('{{ queue_type }}',this.value)" style="flex:1;min-width:140px;max-width:240px;padding:4px 8px;font-size:12px;border-radius:4px;border:1px solid var(--bd);background:var(--sf);color:var(--tx);outline:none" onfocus="this.style.borderColor='var(--ac)'" onblur="this.style.borderColor='var(--bd)'">
+  </div>
+  <table style="width:100%;font-size:13px;margin-top:4px">
+   <thead><tr style="color:var(--tx2);font-size:11px;text-transform:uppercase;letter-spacing:.3px">
+    <th style="padding:4px 8px;text-align:left;font-weight:500">Number</th>
+    <th style="padding:4px 8px;text-align:left;font-weight:500">Institution</th>
+    <th style="padding:4px 8px;text-align:left;font-weight:500">Buyer</th>
+    <th style="padding:4px 8px;text-align:center;font-weight:500">Items</th>
+    <th style="padding:4px 8px;text-align:left;font-weight:500">Sent</th>
+    <th style="padding:4px 8px;text-align:center;font-weight:500">Status</th>
+   </tr></thead>
+   <tbody id="sent-{{ queue_type }}-tbody">
+    {% for sid, s in sent_items.items() %}
+    <tr class="home-row sent-row"
+        data-sent="{{ s.sent_date }}"
+        data-search="{{ s.search_text }}"
+        onclick="location.href='{{ s.url }}'"
+        style="border-bottom:1px solid var(--bd);opacity:0.7">
+     <td style="padding:6px 8px"><a href="{{ s.url }}" style="color:var(--ac)">#{{ s.number or '?' }}</a></td>
+     <td style="padding:6px 8px;color:var(--tx2)">{{ s.institution }}</td>
+     <td style="padding:6px 8px;color:var(--tx2)">{{ s.buyer }}</td>
+     <td style="padding:6px 8px;color:var(--tx2);text-align:center">{{ s.item_count }}</td>
+     <td style="padding:6px 8px;color:var(--tx2);font-size:12px;white-space:nowrap">{{ s.sent_date[:10] if s.sent_date|length >= 10 else '&mdash;' }}</td>
+     <td style="padding:6px 8px;text-align:center">
+      <span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;color:{{ s.status_color }};background:{{ s.status_color }}18">{{ s.display_status }}</span>
+     </td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+ </details>
+ {% endif %}
+</div>
+{% endmacro %}

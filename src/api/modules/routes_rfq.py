@@ -545,9 +545,32 @@ def home():
             "pct": round(_rwith_price / _rtotal * 100) if _rtotal > 0 else 0,
         }
 
+    # ── Normalize queue data for unified table macro ──
+    from src.core.queue_helpers import normalize_queue_item, normalize_sent_item
+    norm_pcs = {pid: normalize_queue_item(pc, "pc", pid) for pid, pc in sorted_pcs.items()}
+    norm_sent_pcs = {pid: normalize_sent_item(pc, "pc", pid) for pid, pc in sent_pcs.items()}
+    norm_rfqs = {rid: normalize_queue_item(r, "rfq", rid) for rid, r in active_rfqs.items()}
+    norm_sent_rfqs = {rid: normalize_sent_item(r, "rfq", rid) for rid, r in sent_rfqs.items()}
+
+    pc_bulk_actions = [
+        {"action": "dismiss", "label": "Dismiss Selected", "css": "btn btn-sm btn-s"},
+        {"action": "generate", "label": "Generate All", "icon": "\U0001f4c4", "css": "btn btn-sm", "style": "background:rgba(52,211,153,.15);color:var(--gn)", "handler": "bulkGenerate"},
+    ]
+    rfq_bulk_actions = [
+        {"action": "dismiss", "label": "Dismiss Selected", "css": "btn btn-sm btn-s"},
+        {"action": "archive", "label": "Archive", "css": "btn btn-sm btn-s"},
+        {"action": "markup", "label": "+20% Markup", "css": "btn btn-sm", "style": "background:rgba(251,191,36,.15);color:var(--yl)"},
+    ]
+
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
-    return render_page("home.html", active_page="Home", rfqs=active_rfqs, price_checks=sorted_pcs, sent_rfqs=sent_rfqs, sent_pcs=sent_pcs, action_items=action_items)
+    return render_page("home.html", active_page="Home",
+                       rfqs=active_rfqs, price_checks=sorted_pcs,
+                       sent_rfqs=sent_rfqs, sent_pcs=sent_pcs,
+                       norm_pcs=norm_pcs, norm_sent_pcs=norm_sent_pcs,
+                       norm_rfqs=norm_rfqs, norm_sent_rfqs=norm_sent_rfqs,
+                       pc_bulk_actions=pc_bulk_actions, rfq_bulk_actions=rfq_bulk_actions,
+                       action_items=action_items)
 
 @bp.route("/growth")
 @auth_required
