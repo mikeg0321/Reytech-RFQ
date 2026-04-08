@@ -406,18 +406,34 @@ def _lookup_amazon(url: str) -> dict:
             # MFG# stored in part_number field, ASIN in asin field only.
             structured_desc = title
 
-            # If no MFG# yet, try product page specs
-            if not mfg and asin and not _is_isbn:
+            # Scrape product page for MFG# and/or list price when SerpApi didn't have them
+            _page = None
+            if (not mfg and asin and not _is_isbn) or (not _list and _sale):
                 try:
                     _page = _scrape_generic(f"https://www.amazon.com/dp/{asin}")
-                    import re as _re_mfg
-                    _page_text = str(_page.get("raw_text", "") or _page.get("meta_description", ""))
-                    _model_match = _re_mfg.search(
-                        r'(?:Item model number|Part Number|Model Number|Manufacturer Part Number)'
-                        r'[:\s]+([A-Z0-9][A-Z0-9\-/]{2,25})',
-                        _page_text, _re_mfg.IGNORECASE)
-                    if _model_match:
-                        mfg = _model_match.group(1).strip()
+                    # Extract MFG# from page
+                    if not mfg:
+                        import re as _re_mfg
+                        _page_text = str(_page.get("raw_text", "") or _page.get("meta_description", ""))
+                        _model_match = _re_mfg.search(
+                            r'(?:Item model number|Part Number|Model Number|Manufacturer Part Number)'
+                            r'[:\s]+([A-Z0-9][A-Z0-9\-/]{2,25})',
+                            _page_text, _re_mfg.IGNORECASE)
+                        if _model_match:
+                            mfg = _model_match.group(1).strip()
+                    # Extract list price from HTML scrape (double validation)
+                    if not _list and _page.get("list_price"):
+                        _list = _page["list_price"]
+                        _use_price = _list
+                        import logging as _ll2
+                        _ll2.getLogger(__name__).info(
+                            "Amazon ASIN %s: list price $%.2f found via HTML scrape (SerpApi missed it)",
+                            asin, _list)
+                    # Also grab sale_price from scrape if we didn't have it
+                    if not _sale and _page.get("sale_price"):
+                        _sale = _page["sale_price"]
+                    elif not _sale and _page.get("price") and _page["price"] != _list:
+                        _sale = _page["price"]
                 except Exception:
                     pass
 
