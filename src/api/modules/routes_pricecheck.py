@@ -2256,6 +2256,7 @@ def pricecheck_reparse(pcid):
 
     # Update PC with fresh parse
     pc["parsed"] = fresh
+    pc["parse_quality"] = fresh.get("parse_quality", {})
     _sync_pc_items(pc, fresh["line_items"])
 
     # Clear stale enrichment status — items changed, old enrichment doesn't apply
@@ -2265,9 +2266,12 @@ def pricecheck_reparse(pcid):
 
     _save_single_pc(pcid, pc)
 
-    log.info("REPARSE PC %s: %d items re-parsed, enrichment cleared", pcid, len(fresh["line_items"]))
+    _pq = fresh.get("parse_quality", {})
+    log.info("REPARSE PC %s: %d items re-parsed, parse quality=%s, enrichment cleared",
+             pcid, len(fresh["line_items"]), _pq.get("grade", "?"))
     return jsonify({"ok": True, "items": len(fresh["line_items"]),
-                    "msg": f"Re-parsed {len(fresh['line_items'])} items — run Find Prices to re-enrich"})
+                    "parse_quality": _pq,
+                    "msg": f"Re-parsed {len(fresh['line_items'])} items (Parse {_pq.get('grade','?')} {_pq.get('score',0)}%) — run Find Prices to re-enrich"})
 
 
 @bp.route("/api/pricecheck/<pcid>/lookup-tax-rate", methods=["POST"])
@@ -2405,6 +2409,7 @@ def pricecheck_upload_pdf(pcid):
     if items:
         pc["items"] = items
         pc["parsed"] = result
+        pc["parse_quality"] = result.get("parse_quality", {})
         # Overwrite ALL header fields from the uploaded doc — user is explicitly
         # re-uploading to replace what's there
         for hk, hv in header.items():
@@ -2432,7 +2437,9 @@ def pricecheck_upload_pdf(pcid):
         except Exception as _ae:
             log.warning("PC %s: auto-enrich failed to start: %s", pcid, _ae)
         from flask import flash
-        flash(f"Parsed {len(items)} items from uploaded file", "success")
+        _pq = result.get("parse_quality", {})
+        _pq_msg = f" (Parse {_pq.get('grade','?')} {_pq.get('score',0)}%)" if _pq else ""
+        flash(f"Parsed {len(items)} items from uploaded file{_pq_msg}", "success")
     else:
         _save_single_pc(pcid, pc)
         log.warning("PC %s: uploaded file parsed 0 items (error: %s)", pcid, _parse_error)
@@ -3614,6 +3621,7 @@ def api_pc_multi_upload():
             "items": items, "source_pdf": pc_file,
             "status": "parsed" if items else "new",
             "parsed": parsed,
+            "parse_quality": parsed.get("parse_quality", {}),
             "created_at": datetime.now().isoformat(),
             "source": "manual_multi_upload",
             "reytech_quote_number": "", "linked_quote_number": "",

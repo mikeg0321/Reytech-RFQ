@@ -514,7 +514,14 @@
     {% endif %}
 
     <div class="card">
-     <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span></h3>
+     <h3 style="margin-top:0;font-size:18px">Line Items <span id="itemCount" style="font-weight:normal;color:#8b949e;font-size:15px">({{ items|length }} items)</span>
+     {% set pq = pc.get('parse_quality', pc.get('parsed', {}).get('parse_quality', {})) %}
+     {% if pq and pq.get('grade') %}
+       {% set _g = pq.grade %}
+       {% set _clr = '#3fb950' if _g in ('A','B') else ('#d29922' if _g == 'C' else '#f85149') %}
+       <span id="parseQualityBadge" style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:{{ _clr }}20;color:{{ _clr }};border:1px solid {{ _clr }}40;margin-left:8px;cursor:help" title="Parse Quality: {{ pq.score }}/100 | Expected ~{{ pq.expected_items }} items, parsed {{ pq.parsed_items }}{% for w in pq.get('warnings', []) %} | {{ w }}{% endfor %}">Parse {{ _g }} ({{ pq.score }}%)</span>
+     {% endif %}
+     </h3>
      <!-- Lock Toggle -->
      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
       <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>

@@ -874,6 +874,129 @@ def _check_filled(result, field_name, label):
         result["warnings"].append(f"{label} is empty")
 
 
+# ─── Parse Quality Validation ────────────────────────────────────────────────
+
+def validate_parse_quality(pdf_path: str, parsed_items: list) -> dict:
+    """Validate parsed items against the source PDF to catch parse errors.
+
+    Uses pdfplumber to count data rows in tables and compares against parsed
+    item count. Also checks for doubled descriptions, empty fields, etc.
+
+    Returns:
+        {"score": 0-100, "grade": "A/B/C/F", "expected_items": N,
+         "parsed_items": N, "warnings": [...]}
+    """
+    result = {
+        "score": 100,
+        "grade": "A",
+        "expected_items": 0,
+        "parsed_items": len(parsed_items),
+        "warnings": [],
+    }
+
+    if not parsed_items:
+        result["score"] = 0
+        result["grade"] = "F"
+        result["warnings"].append("No items parsed from PDF")
+        return result
+
+    # ── Count expected data rows from the PDF tables ──
+    pdf_data_rows = 0
+    try:
+        import pdfplumber
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                tables = page.extract_tables()
+                for table in tables:
+                    for row in table:
+                        if not row:
+                            continue
+                        # A data row has a numeric value in one of the first 3 cells
+                        # (item#, qty, or qty_per_uom) AND text in a later cell (description)
+                        cells = [str(c or "").strip() for c in row]
+                        has_number = any(
+                            c.isdigit() and 0 < int(c) <= 999
+                            for c in cells[:4] if c
+                        )
+                        has_text = any(
+                            len(c) > 10 and not c.upper().startswith(("ITEM", "QTY", "UNIT OF", "PRICE", "EXTENSION", "SUBSTITUT"))
+                            for c in cells[3:] if c
+                        )
+                        if has_number and has_text:
+                            pdf_data_rows += 1
+    except ImportError:
+        log.debug("validate_parse_quality: pdfplumber not available")
+    except Exception as e:
+        log.debug("validate_parse_quality: table count failed: %s", e)
+
+    result["expected_items"] = pdf_data_rows
+    penalty = 0
+
+    # ── Item count mismatch ──
+    if pdf_data_rows > 0:
+        diff = abs(pdf_data_rows - len(parsed_items))
+        if diff == 0:
+            pass  # perfect
+        elif diff <= 2:
+            penalty += 15
+            result["warnings"].append(
+                f"Item count mismatch: PDF has ~{pdf_data_rows} rows, parsed {len(parsed_items)}"
+            )
+        else:
+            penalty += 30 + min(diff * 5, 30)
+            result["warnings"].append(
+                f"Major item count mismatch: PDF has ~{pdf_data_rows} rows, parsed {len(parsed_items)}"
+            )
+
+    # ── Check each parsed item for quality issues ──
+    for i, item in enumerate(parsed_items):
+        desc = (item.get("description") or "").strip()
+        raw = (item.get("description_raw") or desc).strip()
+        label = f"Item {item.get('item_number', i+1)}"
+
+        # Doubled description: same phrase (5+ words) appears twice
+        if desc and len(desc) > 20:
+            words = desc.split()
+            if len(words) >= 10:
+                half = len(words) // 2
+                first_half = " ".join(words[:half]).lower()
+                second_half = " ".join(words[half:]).lower()
+                # Check if the two halves are very similar (>70% overlap)
+                w1 = set(first_half.split())
+                w2 = set(second_half.split())
+                if w1 and w2:
+                    overlap = len(w1 & w2) / max(len(w1), len(w2))
+                    if overlap > 0.7:
+                        penalty += 10
+                        result["warnings"].append(f"{label}: possible doubled description")
+
+        # Very short description
+        if len(desc) < 5:
+            penalty += 5
+            result["warnings"].append(f"{label}: very short description ({len(desc)} chars)")
+
+        # Missing qty
+        if not item.get("qty") or item.get("qty", 0) <= 0:
+            penalty += 5
+            result["warnings"].append(f"{label}: missing or zero quantity")
+
+    # ── Compute final score and grade ──
+    result["score"] = max(0, 100 - penalty)
+    if result["score"] >= 90:
+        result["grade"] = "A"
+    elif result["score"] >= 70:
+        result["grade"] = "B"
+    elif result["score"] >= 50:
+        result["grade"] = "C"
+    else:
+        result["grade"] = "F"
+
+    log.info("validate_parse_quality: score=%d grade=%s expected=%d parsed=%d warnings=%d",
+             result["score"], result["grade"], pdf_data_rows, len(parsed_items),
+             len(result["warnings"]))
+    return result
+
+
 # ─── Parse AMS 704 ──────────────────────────────────────────────────────────
 
 def parse_ams704(pdf_path: str) -> dict:
@@ -1156,6 +1279,9 @@ def parse_ams704(pdf_path: str) -> dict:
         for i, item in enumerate(result["line_items"]):
             item["row_index"] = i + 1
 
+    # Parse quality validation
+    result["parse_quality"] = validate_parse_quality(pdf_path, result["line_items"])
+
     return result
 
 
@@ -1203,16 +1329,25 @@ def _merge_continuation_items(items: list) -> list:
         desc = (item.get("description") or "").strip()
         raw_desc = (item.get("description_raw") or desc).strip()
         
+        # ── GUARD: Never merge items that have their own line number ──
+        # If the form gave this item a distinct item_number, it's a real line item.
+        # Only exception: descriptions that are clearly supplementary (pack info, MFG#).
+        item_num = (item.get("item_number") or "").strip()
+        has_own_line_num = bool(item_num and item_num.isdigit() and int(item_num) > 0)
+
         # Candidate for merging if:
         # 1. Default qty (0 or 1) and default/missing UOM — no real data was parsed
         # 2. OR description is clearly supplementary (pack info, part number)
         is_default_qty = (item.get("qty", 1) in (0, 1))
         is_default_uom = (item.get("uom", "EA").upper() in ("EA", ""))
         is_supplement = _is_supplementary_desc(raw_desc)
-        
+
         should_merge = False
-        if is_supplement:
+        if is_supplement and not has_own_line_num:
             should_merge = True
+        elif has_own_line_num:
+            # Item has its own line number — never merge, period.
+            should_merge = False
         elif is_default_qty and is_default_uom and prev.get("qty", 1) > 1:
             # Previous item has a real quantity but this one is default — likely continuation
             should_merge = True
@@ -1220,25 +1355,19 @@ def _merge_continuation_items(items: list) -> list:
             # Zero-qty items are never real line items — always merge
             should_merge = True
         elif is_default_qty and is_default_uom:
-            # Default qty + default UOM: possible continuation. But NEVER merge if
-            # the item has its own item_number (distinct line on the form).
-            item_num = (item.get("item_number") or "").strip()
-            has_own_line_num = bool(item_num and item_num.isdigit() and int(item_num) > 0)
-            if has_own_line_num:
-                should_merge = False  # Distinct line item on the form — never merge
-            else:
-                # Check if desc is just more detail text (not a distinct product)
-                desc_up = desc.upper()
-                has_product_word = any(w in desc_up for w in [
-                    "GLOVE", "MASK", "BRIEF", "WIPE", "GOWN", "SYRINGE", "BANDAGE",
-                    "GAUZE", "TAPE", "SOAP", "TOWEL", "PAPER", "BAG", "LINER",
-                    "SANITIZER", "CATHETER", "NEEDLE", "BOOT", "VEST", "HELMET",
-                    "GAME", "STACKS", "DOMINO", "CHESS", "JACK", "PUZZLE", "ART",
-                    "PENCIL", "CRAYON", "PAINT", "CANVAS", "POSTER", "TOTE",
-                    "PACK", "KIT", "SET", "BOX", "TUB", "STORAGE",
-                ])
-                if not has_product_word and len(desc) < 40:
-                    should_merge = True
+            # Default qty + default UOM and no own line number: possible continuation.
+            # Check if desc is just more detail text (not a distinct product)
+            desc_up = desc.upper()
+            has_product_word = any(w in desc_up for w in [
+                "GLOVE", "MASK", "BRIEF", "WIPE", "GOWN", "SYRINGE", "BANDAGE",
+                "GAUZE", "TAPE", "SOAP", "TOWEL", "PAPER", "BAG", "LINER",
+                "SANITIZER", "CATHETER", "NEEDLE", "BOOT", "VEST", "HELMET",
+                "GAME", "STACKS", "DOMINO", "CHESS", "JACK", "PUZZLE", "ART",
+                "PENCIL", "CRAYON", "PAINT", "CANVAS", "POSTER", "TOTE",
+                "PACK", "KIT", "SET", "BOX", "TUB", "STORAGE",
+            ])
+            if not has_product_word and len(desc) < 40:
+                should_merge = True
         elif item.get("qty") == prev.get("qty") and item.get("uom") == prev.get("uom"):
             # Same qty AND same UOM as previous item — could be auto-filled from above row,
             # but also could be two distinct items with same qty. Only merge if description
@@ -1297,6 +1426,7 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
         result["line_items"] = _merge_continuation_items(result["line_items"])
         # Filter out junk items (legal text, instructions, boilerplate)
         result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
+        result["parse_quality"] = validate_parse_quality(pdf_path, result["line_items"])
         return result
 
     # pdfplumber failed — use regex text parser on pypdf output
@@ -1356,6 +1486,7 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
                              len(vision_result["line_items"]), text_item_count)
                     # Filter out junk items (legal text, instructions, boilerplate)
                     vision_result["line_items"] = _filter_junk_items(_sanitize_parsed_items(vision_result.get("line_items", [])))
+                    vision_result["parse_quality"] = validate_parse_quality(pdf_path, vision_result["line_items"])
                     return vision_result
                 else:
                     log.info("Vision parser got %d items — keeping text result (%d items)",
@@ -1368,6 +1499,7 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
 
     # Filter out junk items (legal text, instructions, boilerplate)
     result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
+    result["parse_quality"] = validate_parse_quality(pdf_path, result["line_items"])
     return result
 
 
@@ -2006,8 +2138,9 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
             is_continuation = True
         if is_continuation:
             prev = result["line_items"][-1]
-            prev["description"] = (prev["description"] + " " + desc.strip()).strip()
-            prev["description_raw"] = prev.get("description_raw", prev["description"])
+            prev_raw = prev.get("description_raw", prev["description"])
+            prev["description"] = clean_description(prev_raw + " " + desc.strip())
+            prev["description_raw"] = (prev_raw + " " + desc.strip()).strip()
             # Re-extract MFG/part number with the fuller description
             real_pn = extract_item_numbers(prev)
             if real_pn:
@@ -2042,7 +2175,8 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
             "qty": qty,
             "uom": (uom_raw or "ea").upper(),
             "qty_per_uom": _qpu,
-            "description": desc.strip(),
+            "description": clean_description(desc.strip()),
+            "description_raw": desc.strip(),
             "substituted": sub_text,
             "row_index": row_num,
         }
