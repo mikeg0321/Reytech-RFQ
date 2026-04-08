@@ -61,12 +61,32 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
     # Record to catalog
     try:
         from src.knowledge.pricing_intel import record_winning_prices
+        # Build line_items with fields record_winning_prices expects
+        line_items = []
+        for it in items:
+            if it.get("no_bid"):
+                continue
+            price = (it.get("unit_price") or it.get("price_per_unit")
+                     or (it.get("pricing") or {}).get("recommended_price") or 0)
+            cost = (it.get("vendor_cost") or it.get("cost")
+                    or (it.get("pricing") or {}).get("unit_cost") or 0)
+            if not price or not it.get("description"):
+                continue
+            line_items.append({
+                "description": it.get("description", ""),
+                "part_number": it.get("mfg_number", "") or it.get("part_number", ""),
+                "sku": it.get("mfg_number", ""),
+                "qty": it.get("qty", 1) or 1,
+                "unit_price": float(price),
+                "cost": float(cost),
+                "supplier": it.get("item_supplier", "") or it.get("supplier", ""),
+            })
         record_winning_prices({
             "quote_number": record.get("reytech_quote_number", record_id),
             "po_number": po_number,
             "agency": record.get("institution") or record.get("agency", ""),
             "institution": record.get("institution", ""),
-            "items": items,
+            "line_items": line_items,
         })
     except Exception as e:
         log.debug("mark_won catalog: %s", e)

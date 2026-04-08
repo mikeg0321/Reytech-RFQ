@@ -2957,16 +2957,16 @@ def _ingest_pc_to_won_quotes(pc):
             price = pricing.get("recommended_price")
             if not price:
                 continue
-            ingest_scprs_result({
-                "po_number": f"PC-{pc_num}",
-                "item_number": item.get("item_number", ""),
-                "description": item.get("description", ""),
-                "unit_price": price,
-                "supplier": "Reytech Inc.",
-                "department": institution,
-                "award_date": datetime.now().strftime("%Y-%m-%d"),
-                "source": "price_check",
-            })
+            ingest_scprs_result(
+                po_number=f"PC-{pc_num}",
+                item_number=item.get("item_number", ""),
+                description=item.get("description", ""),
+                unit_price=price,
+                supplier="Reytech Inc.",
+                department=institution,
+                award_date=datetime.now().strftime("%Y-%m-%d"),
+                source="price_check",
+            )
         log.info(f"Ingested {len(items)} items from PC #{pc_num} into Won Quotes KB")
     except Exception as e:
         log.error(f"KB ingestion error: {e}")
@@ -6570,6 +6570,41 @@ def api_pricecheck_mark_won(pcid):
     except Exception as e:
         log.debug("mark-won catalog feedback error: %s", e)
     _enrich_catalog_from_pc(pc)
+    # ── Record winning prices to pricing intelligence (ALWAYS, not just with PO) ──
+    try:
+        from src.knowledge.pricing_intel import record_winning_prices
+        line_items = []
+        for it in pc.get("items", []):
+            if it.get("no_bid"):
+                continue
+            price = (it.get("unit_price") or (it.get("pricing") or {}).get("recommended_price") or 0)
+            cost = (it.get("vendor_cost") or (it.get("pricing") or {}).get("unit_cost") or 0)
+            if not price or not it.get("description"):
+                continue
+            line_items.append({
+                "description": it.get("description", ""),
+                "part_number": it.get("mfg_number", "") or it.get("part_number", ""),
+                "sku": it.get("mfg_number", ""),
+                "qty": it.get("qty", 1) or 1,
+                "unit_price": float(price),
+                "cost": float(cost),
+                "supplier": it.get("item_supplier", "") or it.get("supplier", ""),
+            })
+        recorded = record_winning_prices({
+            "quote_number": pc.get("reytech_quote_number", pcid),
+            "po_number": data.get("po_number", ""),
+            "agency": pc.get("institution") or pc.get("agency", ""),
+            "institution": pc.get("institution", ""),
+            "line_items": line_items,
+        })
+        log.info("mark-won winning_prices: recorded %s items from PC %s", recorded, pcid)
+    except Exception as e:
+        log.warning("mark-won winning_prices error: %s", e)
+    # ── Ingest won items into Won Quotes KB ──
+    try:
+        _ingest_pc_to_won_quotes(pc)
+    except Exception as e:
+        log.warning("mark-won won_quotes ingest error: %s", e)
     # ── Feed won items to FI$Cal catalog for future intelligence ──
     try:
         from src.agents.quote_intelligence import learn_new_item
@@ -6678,6 +6713,48 @@ def api_pricecheck_mark_lost(pcid):
         log.info("mark-lost catalog feedback: %s", result)
     except Exception as e:
         log.debug("mark-lost catalog feedback error: %s", e)
+    # ── Write competitor prices to won_quotes as competitor_intel ──
+    comp_price_total = float(pc.get("competitor_price", 0) or 0)
+    try:
+        items = pc.get("items", [])
+        num_items = max(len([it for it in items if not it.get("no_bid")]), 1)
+        for it in items:
+            if it.get("no_bid"):
+                continue
+            desc = it.get("description", "")
+            if not desc:
+                continue
+            # Use per-item competitor price if available, else prorate total
+            item_comp_price = comp_price_total / num_items if comp_price_total > 0 else 0
+            if item_comp_price <= 0:
+                continue
+            qty = it.get("qty", 1) or 1
+            per_unit_comp = item_comp_price / float(qty) if qty > 1 else item_comp_price
+            ingest_scprs_result(
+                po_number=f"LOST-{pc.get('pc_number', pcid)}",
+                item_number=it.get("item_number", ""),
+                description=desc,
+                unit_price=per_unit_comp,
+                supplier=comp_name,
+                department=pc.get("institution", ""),
+                award_date=datetime.now().strftime("%Y-%m-%d"),
+                source="competitor_intel",
+            )
+        log.info("mark-lost competitor_intel: wrote %d items to won_quotes for PC %s", num_items, pcid)
+    except Exception as e:
+        log.warning("mark-lost competitor_intel won_quotes error: %s", e)
+    # ── Calibrate Oracle from loss ──
+    try:
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+        items = pc.get("items", [])
+        loss_type = "price" if comp_price_total > 0 else "other"
+        calibrate_from_outcome(
+            items, "lost",
+            agency=pc.get("institution") or pc.get("agency", ""),
+            loss_reason=loss_type,
+        )
+    except Exception as e:
+        log.debug("mark-lost calibration error: %s", e)
     return jsonify({"ok": True, "status": "lost"})
 
 
@@ -7841,6 +7918,70 @@ def api_admin_clean_activity():
         "before": before_count,
         "after": len(activities),
         "removed": before_count - len(activities),
+    })
+
+
+@bp.route("/api/admin/backfill-wins", methods=["GET", "POST"])
+@auth_required
+@safe_route
+def api_admin_backfill_wins():
+    """Retroactively record winning prices for all won PCs.
+    Scans PCs with award_status=won and feeds them into winning_prices + won_quotes."""
+    pcs = _load_price_checks()
+    won_pcs = {k: v for k, v in pcs.items() if v.get("award_status") == "won"}
+
+    wp_total = 0
+    wq_total = 0
+    errors = []
+
+    for pcid, pc in won_pcs.items():
+        # Record to winning_prices
+        try:
+            from src.knowledge.pricing_intel import record_winning_prices
+            line_items = []
+            for it in pc.get("items", []):
+                if it.get("no_bid"):
+                    continue
+                price = (it.get("unit_price") or (it.get("pricing") or {}).get("recommended_price") or 0)
+                cost = (it.get("vendor_cost") or (it.get("pricing") or {}).get("unit_cost") or 0)
+                if not price or not it.get("description"):
+                    continue
+                line_items.append({
+                    "description": it.get("description", ""),
+                    "part_number": it.get("mfg_number", "") or it.get("part_number", ""),
+                    "sku": it.get("mfg_number", ""),
+                    "qty": it.get("qty", 1) or 1,
+                    "unit_price": float(price),
+                    "cost": float(cost),
+                    "supplier": it.get("item_supplier", "") or it.get("supplier", ""),
+                })
+            recorded = record_winning_prices({
+                "quote_number": pc.get("reytech_quote_number", pcid),
+                "po_number": pc.get("po_number", ""),
+                "agency": pc.get("institution") or pc.get("agency", ""),
+                "institution": pc.get("institution", ""),
+                "line_items": line_items,
+            })
+            wp_total += recorded
+        except Exception as e:
+            errors.append(f"winning_prices {pcid}: {e}")
+
+        # Record to won_quotes
+        try:
+            _ingest_pc_to_won_quotes(pc)
+            wq_total += len([it for it in pc.get("items", [])
+                            if (it.get("pricing") or {}).get("recommended_price")])
+        except Exception as e:
+            errors.append(f"won_quotes {pcid}: {e}")
+
+    log.info("BACKFILL_WINS: %d PCs, %d winning_prices rows, %d won_quotes rows, %d errors",
+             len(won_pcs), wp_total, wq_total, len(errors))
+    return jsonify({
+        "ok": True,
+        "won_pcs_found": len(won_pcs),
+        "winning_prices_recorded": wp_total,
+        "won_quotes_ingested": wq_total,
+        "errors": errors[:20],
     })
 
 
