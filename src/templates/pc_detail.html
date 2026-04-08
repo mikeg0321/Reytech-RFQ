@@ -3813,12 +3813,44 @@
     document.addEventListener('keydown',function(e){if(e.key==='Escape')closeBulkPaste();});
     function startBulkScrape(){
      var ta=document.getElementById('bulkUrlsInput');
-     var urls=ta.value.trim().split('\n').map(function(u){return u.trim()}).filter(function(u){return u.length>5});
-     if(!urls.length){alert('Paste at least one URL');return;}
+     var raw=ta.value.trim();
+     if(!raw||raw.length<10){alert('Paste URLs or structured item data');return;}
+
+     // Detect structured "Item N" format with URLs
+     var itemMap={};
+     var structuredMatch=raw.match(/Item\s+(\d+)/gi);
+     if(structuredMatch&&structuredMatch.length>=2){
+       // Parse structured format: "Item 12\n...\nAmazon link: https://...\nItem 14\n..."
+       var blocks=raw.split(/(?=Item\s+\d+)/i);
+       blocks.forEach(function(block){
+         var numMatch=block.match(/^Item\s+(\d+)/i);
+         if(!numMatch)return;
+         var itemNum=numMatch[1];
+         var urlMatch=block.match(/(https?:\/\/\S+)/);
+         if(urlMatch){
+           itemMap[itemNum]=urlMatch[1].replace(/[),;]+$/,'');
+         }
+       });
+     }
+
+     var payload;
+     var count;
+     if(Object.keys(itemMap).length>=2){
+       // Structured mode: map by item number
+       payload={item_map:itemMap};
+       count=Object.keys(itemMap).length;
+     } else {
+       // Legacy mode: one URL per line
+       var urls=raw.split('\n').map(function(u){return u.trim()}).filter(function(u){return u.length>5});
+       if(!urls.length){alert('No URLs found');return;}
+       payload={urls:urls};
+       count=urls.length;
+     }
+
      var btn=document.getElementById('bulkScrapeBtn');
-     btn.disabled=true;btn.textContent='Scraping '+urls.length+' URLs...';
+     btn.disabled=true;btn.textContent='Scraping '+count+' items...';
      var prog=document.getElementById('bulkProgress');prog.style.display='block';
-     fetch('/api/pricecheck/'+_pcid+'/bulk-scrape-urls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({urls:urls}),credentials:'same-origin'})
+     fetch('/api/pricecheck/'+_pcid+'/bulk-scrape-urls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin'})
      .then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;btn.textContent='Scrape & Apply Prices';prog.style.display='none';
       if(!d.ok){alert(d.error||'Failed');return;}
