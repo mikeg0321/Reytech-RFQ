@@ -8061,6 +8061,78 @@ def api_oracle_weekly_report():
     return jsonify(result)
 
 
+@bp.route("/api/pricecheck/<pcid>/item-sources/<int:idx>", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_item_sources(pcid, idx):
+    """Return fresh source chips HTML for a single item (after price/link update)."""
+    import copy as _copy
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items") or []
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Item not found"})
+
+    item = _copy.deepcopy(items[idx])
+    p = item.get("pricing") or {}
+    unit_cost = float(item.get("vendor_cost") or p.get("unit_cost") or 0)
+
+    # Build source chips using same logic as detail page rendering
+    sources = []
+    # Catalog
+    cat_cost = _safe_float(p.get("catalog_cost"), 0)
+    if cat_cost > 0:
+        cat_label = p.get("catalog_supplier") or "Catalog"
+        cat_url = p.get("catalog_url") or ""
+        cat_conf = _safe_float(p.get("catalog_confidence"), 0.5)
+        sources.append((cat_cost, cat_label, cat_url, "#f59e0b", True, cat_conf))
+    # Oracle/SCPRS
+    oracle_p = _safe_float(p.get("oracle_cost") or p.get("scprs_price"), 0)
+    if oracle_p > 0:
+        sources.append((oracle_p, "Oracle", "", "#8b949e", False, 0.7))
+    # Web/scraped
+    web_cost = _safe_float(p.get("web_cost"), 0)
+    if web_cost > 0:
+        web_label = p.get("web_supplier") or "Web"
+        web_url = p.get("web_url") or item.get("item_link") or ""
+        sources.append((web_cost, web_label, web_url, "#58a6ff", False, 0.85))
+    # Amazon
+    amz_price = _safe_float(p.get("amazon_price"), 0)
+    if amz_price > 0:
+        amz_url = p.get("amazon_url") or ""
+        sources.append((amz_price, "Amazon", amz_url, "#f59e0b", False, 0.8))
+    # Item link (current supplier)
+    item_link = (item.get("item_link") or "").strip()
+    il_price = _safe_float(p.get("item_link_price") or unit_cost, 0)
+    il_supplier = p.get("item_supplier") or ""
+    if il_price > 0 and il_supplier:
+        sources.append((il_price, il_supplier, item_link, "#f59e0b", True, 0.99))
+
+    if sources:
+        sources.sort(key=lambda s: s[0])
+
+    # Build chips HTML
+    chips = []
+    for sprice, slabel, surl, scolor, spref, sconf in sources:
+        pref_icon = "★ " if spref else ""
+        price_fmt = f"${sprice:.2f}"
+        if sconf > 0.95:
+            conf_tag = ' <b style="font-size:10px;padding:1px 4px;border-radius:3px;background:#3fb95030;border:1px solid #3fb95060">EXACT</b>'
+        elif sconf >= 0.75:
+            conf_tag = ""
+        else:
+            conf_tag = ' <span style="font-size:10px;padding:1px 4px;border-radius:3px;background:#d2992230;border:1px solid #d2992260">~FUZZY</span>'
+        if surl:
+            chips.append(f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};text-decoration:none;white-space:nowrap">{pref_icon}<b>{price_fmt}</b> {slabel}{conf_tag}</a>')
+        else:
+            chips.append(f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};white-space:nowrap">{pref_icon}<b>{price_fmt}</b> {slabel}{conf_tag}</span>')
+
+    html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(chips) + '</div>' if chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
+    return jsonify({"ok": True, "html": html})
+
+
 @bp.route("/api/pricecheck/<pcid>/find-better-pricing/<int:idx>", methods=["POST"])
 @auth_required
 @safe_route

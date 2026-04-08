@@ -254,6 +254,11 @@ function _applyLinkData(idx, d, mode) {
   // Supplier badge
   if (d.supplier) { var badge = document.getElementById('supplier_badge_' + idx); if (badge) badge.textContent = d.supplier; }
 
+  // Refresh Sources column after new price data arrives
+  if (filled.length && typeof _refreshSources === 'function') {
+    _refreshSources(idx);
+  }
+
   // Status message
   var statusHtml = '';
   if (metaEl && filled.length) {

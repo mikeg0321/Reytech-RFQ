@@ -1304,6 +1304,7 @@
            }
            if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
            triggerPcAutosave();
+           _refreshSources(idx);
          } else if (d.matches && d.matches.length > 0) {
            // No confident match — show top results for manual pick
            if (status) {
@@ -1502,6 +1503,24 @@
      }).catch(function(e){console.error('Find better pricing error:',e);showMsg('❌ Error: '+e.message,'err')});
     }
 
+    function _refreshSources(idx) {
+     // Save first so backend has latest data, then fetch fresh source chips
+     doPcAutosave();
+     setTimeout(function(){
+       fetch('/api/pricecheck/'+_pcid+'/item-sources/'+idx,{method:'POST',credentials:'same-origin'})
+       .then(function(r){return r.json()}).then(function(d){
+         if(!d.ok) return;
+         var row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
+         if(!row) return;
+         // Sources is the 8th column (0-indexed: #, MFG#, Qty, UOM, Desc, Link, Sources, Cost...)
+         var cells=row.querySelectorAll('td');
+         var srcCell=null;
+         for(var i=0;i<cells.length;i++){if(cells[i].style.verticalAlign==='top'){srcCell=cells[i];break;}}
+         if(srcCell && d.html) srcCell.innerHTML=d.html;
+       }).catch(function(e){console.error('Refresh sources error:',e)});
+     }, 1500);
+    }
+
     function oracleAutoPrice() {
      var btn=document.getElementById('oracleAutoPriceBtn');
      btn.disabled=true;btn.textContent='⏳ Pricing...';
@@ -1680,12 +1699,6 @@
     function _backgroundEnrichItem(idx) {
       var desc = (document.querySelector('[name="desc_'+idx+'"]') || {}).value || '';
       if (!desc || desc.length < 5) return;
-      // Skip if cost already filled (user or extension already set it)
-      var costEl = document.querySelector('[name=cost_'+idx+']');
-      if (costEl && parseFloat(costEl.value) > 0) {
-        console.log('[PC] Skip background enrich for item '+idx+' — cost already filled: $'+costEl.value);
-        return;
-      }
       // Save current prices first so the backend has the latest data
       fetch('/pricecheck/'+_pcid+'/save-prices', {
         method:'POST', headers:{'Content-Type':'application/json'},
