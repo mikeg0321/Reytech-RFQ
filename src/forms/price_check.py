@@ -1090,8 +1090,10 @@ def parse_ams704(pdf_path: str) -> dict:
                 qty_per_uom = 1
 
             _logical_row += 1
+            # Preserve buyer's original item number from the form field
+            _buyer_item_num = (row_data.get("item_number") or "").strip()
             item = {
-                "item_number": str(_logical_row),
+                "item_number": _buyer_item_num or str(_logical_row),
                 "qty": qty,
                 "uom": (row_data.get("uom", "ea") or "ea").upper(),
                 "qty_per_uom": qty_per_uom,
@@ -1136,11 +1138,23 @@ def parse_ams704(pdf_path: str) -> dict:
     # Filter out junk items (legal text, instructions, boilerplate)
     result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
 
-    # Re-index items sequentially (1, 2, 3...) after continuation merges removed rows.
-    # Without this, a 3-item PC parsed from a 5-row form shows line numbers 1, 3, 5.
-    for i, item in enumerate(result["line_items"]):
-        item["item_number"] = str(i + 1)
-        item["row_index"] = i + 1
+    # Re-index: only renumber items that had NO buyer-provided item number.
+    # If the buyer wrote 11, 12, 13... preserve those exactly.
+    # Only re-index when all item_numbers are sequential from 1 (auto-filled by form)
+    # and merges removed rows, causing gaps like 1, 3, 5.
+    _all_nums = [item.get("item_number", "") for item in result["line_items"]]
+    _is_auto_sequential = all(
+        n == str(i + 1) for i, n in enumerate(_all_nums) if n
+    ) if _all_nums else True
+    if _is_auto_sequential:
+        # Auto-filled sequential numbers — safe to re-index after merges
+        for i, item in enumerate(result["line_items"]):
+            item["item_number"] = str(i + 1)
+            item["row_index"] = i + 1
+    else:
+        # Buyer provided custom line numbers — preserve them, only update row_index
+        for i, item in enumerate(result["line_items"]):
+            item["row_index"] = i + 1
 
     return result
 
