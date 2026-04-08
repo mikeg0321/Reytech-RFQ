@@ -1546,6 +1546,10 @@ def _validate_item_field(field_type, val):
 
 def _do_save_prices(pcid):
     """Inner save handler — separated so exceptions always return JSON."""
+    def _safe_float(v, default=0):
+        if v is None: return default
+        try: return float(v)
+        except (ValueError, TypeError): return default
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
 
