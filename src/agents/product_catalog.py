@@ -1801,6 +1801,8 @@ def match_items_batch(items: list) -> list:
     """
     now = datetime.now(timezone.utc)
     results = []
+    init_catalog_db()
+    conn = _get_conn()
     for item in items[:30]:
         desc = (item.get("description") or "").strip()
         part = (item.get("part_number") or "").strip()

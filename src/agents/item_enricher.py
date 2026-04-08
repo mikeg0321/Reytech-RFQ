@@ -34,10 +34,21 @@ def parse_identifiers(description):
     for m in re.finditer(r'\s-\s+(\d{12,13})\s*$', desc.strip()):
         if m.group(1) not in result["upc_codes"]:
             result["upc_codes"].append(m.group(1))
-    # Any standalone 12-13 digit number (likely a UPC/EAN barcode)
-    for m in re.finditer(r'\b(\d{12,13})\b', desc):
-        if m.group(1) not in result["upc_codes"]:
-            result["upc_codes"].append(m.group(1))
+    # Any standalone 12-13 digit number — but NOT if preceded by phone/PO context
+    for m in re.finditer(r'(?<![.\-/])(\b\d{12,13}\b)(?![.\-/])', desc):
+        val = m.group(1)
+        if val in result["upc_codes"]:
+            continue
+        # Skip if looks like a phone number (has hyphens nearby in original text)
+        _start = max(0, m.start() - 5)
+        _ctx = desc[_start:m.end() + 5]
+        if re.search(r'[\(\)\-]\d{3}[\)\-]', _ctx):
+            continue
+        # Skip if preceded by PO/contract/order keywords
+        _before = desc[max(0, m.start() - 20):m.start()].upper()
+        if any(kw in _before for kw in ("PO ", "PO#", "CONTRACT", "ORDER", "INVOICE", "PHONE", "FAX", "TEL")):
+            continue
+        result["upc_codes"].append(val)
 
     # NSN: XXXX-XX-XXX-XXXX
     for m in re.finditer(r'\b(\d{4}-\d{2}-\d{3,4}-\d{4})\b', desc):
@@ -97,7 +108,7 @@ def parse_identifiers(description):
         supplier_skus.setdefault("ssww", m.group(1))
     # S&S in description context (e.g., "S&S Worldwide Mini Velvet Art Posters II")
     if "S&S" in desc_upper or "S & S" in desc_upper or "SSWW" in desc_upper:
-        supplier_skus.setdefault("ssww_item", "true")  # flag for Amazon resolution
+        supplier_skus.setdefault("ssww_item", True)  # flag for Amazon resolution
 
     # Grainger — typically 5-10 digit codes
     for m in re.finditer(r'GRAINGER\s*#?\s*:?\s*(\w{5,12})', desc_upper):
