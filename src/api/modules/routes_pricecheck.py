@@ -8023,10 +8023,11 @@ def api_pc_item_oracle(pcid, item_idx):
         cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
         item_num = item.get("mfg_number", "") or item.get("item_number", "")
         qty = item.get("qty", 1) or 1
+        qpu = item.get("qty_per_uom", 1) or 1
         from src.core.pricing_oracle_v2 import get_pricing
         result = get_pricing(
             description=desc, quantity=qty, cost=cost if cost > 0 else None,
-            item_number=item_num
+            item_number=item_num, qty_per_uom=qpu
         )
         result["ok"] = True
         result["item_idx"] = item_idx
@@ -8192,11 +8193,12 @@ def api_pc_oracle_auto_price(pcid):
                     break
             item_num = item.get("mfg_number") or p.get("mfg_number") or ""
             qty = item.get("qty", 1) or 1
+            qpu = item.get("qty_per_uom", 1) or 1
 
             oracle = get_pricing(
                 description=desc, quantity=qty,
                 cost=cost if cost > 0 else None,
-                item_number=item_num
+                item_number=item_num, qty_per_uom=qpu
             )
             rec = oracle.get("recommendation") or {}
             market = oracle.get("market") or {}
@@ -8331,6 +8333,7 @@ def api_pc_quote_analysis(pcid):
                 cost = 0
             item_num = item.get("mfg_number") or p.get("mfg_number") or ""
             qty = item.get("qty", 1) or 1
+            qpu = item.get("qty_per_uom", 1) or 1
             # Get current bid price
             your_price = p.get("final_price") or p.get("bid_price") or 0
             try:
@@ -8342,7 +8345,7 @@ def api_pc_quote_analysis(pcid):
             oracle = get_pricing(
                 description=desc, quantity=qty,
                 cost=cost if cost > 0 else None,
-                item_number=item_num
+                item_number=item_num, qty_per_uom=qpu
             )
             market = oracle.get("market") or {}
             sc = oracle.get("source_counts") or {}

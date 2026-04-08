@@ -14,8 +14,10 @@ log = logging.getLogger("reytech.pricing_oracle")
 
 
 def get_pricing(description, quantity=1, cost=None, item_number="",
-                department="", force_refresh=False):
-    """THE pricing function. Call this for everything."""
+                department="", force_refresh=False, qty_per_uom=1):
+    """THE pricing function. Call this for everything.
+    qty_per_uom: pack size (e.g., 200 for a box of 200 markers). Used to
+    normalize cost to per-unit for proper comparison with market data."""
     import sqlite3
     from src.core.db import DB_PATH
 
@@ -76,7 +78,8 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     category = _classify_item_category(description)
     result["category"] = category
     rec = _calculate_recommendation(cost, result["market"], quantity,
-                                     category=category, agency=department, _db=db)
+                                     category=category, agency=department, _db=db,
+                                     qty_per_uom=qty_per_uom)
     result["strategies"] = rec.pop("strategies", [])
     result["tiers"] = rec.pop("tiers", [])
     result["recommendation"] = rec
@@ -475,19 +478,29 @@ def _analyze_market_prices(market_prices, request_qty):
     }
 
 
-def _calculate_recommendation(cost, market, quantity, category=None, agency=None, _db=None):
+def _calculate_recommendation(cost, market, quantity, category=None, agency=None,
+                               _db=None, qty_per_uom=1):
     result = {"strategies": [], "tiers": [], "rationale": "",
               "quote_price": None, "markup_pct": None, "confidence": "low",
               "calibration": None}
     qty = float(quantity) if quantity else 1
+    qpu = int(qty_per_uom) if qty_per_uom and qty_per_uom > 1 else 1
     comp_avg = market.get("competitor_avg")
     # Fallback: if no competitor-only avg, use our own past wins or weighted avg
-    # This prevents "No market data" when we have data but it's all ours
     if not comp_avg and market.get("data_points", 0) > 0:
         comp_avg = market.get("reytech_avg") or market.get("weighted_avg")
     comp_low = market.get("competitor_low") or comp_avg
     has_cost = cost is not None and cost > 0
     has_market = market.get("data_points", 0) > 0 and comp_avg
+
+    # UOM normalization: market data is per-unit, cost may be per-pack.
+    # Scale market prices UP to per-pack level so we compare apples to apples.
+    if has_cost and has_market and qpu > 1:
+        wavg = market.get("weighted_avg", 0)
+        if wavg and wavg > 0 and cost / wavg > 10:
+            # Cost is way above market per-unit → likely UOM mismatch
+            comp_avg = comp_avg * qpu if comp_avg else None
+            comp_low = comp_low * qpu if comp_low else None
 
     # V3: Read calibration data if available
     cal = None
