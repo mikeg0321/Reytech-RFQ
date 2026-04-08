@@ -2506,6 +2506,15 @@ def fill_ams704(
                 asin = pricing.get("amazon_asin", "")
                 if asin and asin not in desc_final:
                     desc_final = f"{desc_final}\nASIN: {asin}"
+            # Append pack size if qty_per_uom > 1
+            _qpu = item.get("qty_per_uom", 1)
+            try:
+                _qpu = int(float(_qpu))
+            except (ValueError, TypeError):
+                _qpu = 1
+            if _qpu > 1:
+                _uom_short = (item.get("uom") or "ea").lower()[:2]
+                desc_final = f"{desc_final}\nPack: {_qpu}/{_uom_short}"
             item_notes = (item.get("notes") or "").strip()
             if item_notes:
                 desc_final = f"{desc_final}\nNote: {item_notes}"

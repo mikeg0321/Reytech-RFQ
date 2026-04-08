@@ -1531,6 +1531,15 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
         desc = item.get("description", "")
         if asin and f"ASIN" not in desc:
             desc = f"{desc}\nRef ASIN: {asin}"
+        # Append pack size if qty_per_uom > 1
+        _qpu = item.get("qty_per_uom", 1)
+        try:
+            _qpu = int(float(_qpu))
+        except (ValueError, TypeError):
+            _qpu = 1
+        if _qpu > 1:
+            _uom_short = (item.get("uom") or "ea").lower()[:2]
+            desc = f"{desc}\nPack: {_qpu}/{_uom_short}"
 
         data["line_items"].append({
             "line_number": item.get("item_number", ""),
