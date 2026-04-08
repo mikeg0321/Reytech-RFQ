@@ -744,7 +744,7 @@ def _pricecheck_detail_inner(pcid):
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
-         <td style="position:relative"><textarea name="desc_{idx}" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button></td>
+         <td style="position:relative"><textarea name="desc_{idx}" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button><button type="button" class="amazon-match-btn" onclick="matchAmazon({idx})" title="Search Amazon for exact product match">🔍 Amazon</button><span id="amz_status_{idx}" style="display:none;font-size:11px;margin-left:4px"></span></td>
          <td>
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
@@ -8059,6 +8059,125 @@ def api_pc_item_price_history(pcid, item_idx):
     except Exception as e:
         log.error("price-history %s item %d: %s", pcid, item_idx, e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/amazon-match/<int:idx>")
+@auth_required
+@safe_route
+def amazon_match_item(pcid, idx):
+    """Per-item Amazon search with pack-size-aware matching."""
+    import re as _re
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items") or []
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Item index out of range"})
+    item = items[idx]
+    p = item.get("pricing") or {}
+
+    desc = (item.get("description") or "").strip()
+    mfg = (item.get("mfg_number") or p.get("mfg_number") or "").strip()
+    qpu = 1
+    try:
+        qpu = int(float(item.get("qty_per_uom", 1)))
+    except (ValueError, TypeError):
+        pass
+    uom = (item.get("uom") or "EA").upper().strip()
+    _UOM_LABELS = {"PK": "pack", "BX": "box", "BOX": "box", "CS": "case",
+                   "EA": "each", "CT": "carton", "DZ": "dozen"}
+
+    # Build qty-aware search query
+    query_parts = []
+    # Use first ~80 chars of description (avoid noise)
+    if desc:
+        query_parts.append(desc[:80])
+    if mfg:
+        query_parts.append(mfg)
+    if qpu > 1:
+        uom_label = _UOM_LABELS.get(uom, uom.lower())
+        query_parts.append(f"{qpu} {uom_label}")
+    query = " ".join(query_parts)
+    if not query.strip():
+        return jsonify({"ok": False, "error": "No description or MFG# to search"})
+
+    try:
+        from src.agents.product_research import search_amazon
+        results = search_amazon(query, max_results=5)
+    except Exception as e:
+        log.error("Amazon match error for %s item %d: %s", pcid, idx, e)
+        return jsonify({"ok": False, "error": f"Search failed: {e}"})
+
+    if not results:
+        return jsonify({"ok": True, "matches": [], "best": None,
+                        "message": "No Amazon results found"})
+
+    # Score results — pack size matching is the key differentiator
+    _QTY_PATTERNS = [
+        _re.compile(r'(\d+)\s*[-/]?\s*(?:pack|pk|count|ct)', _re.I),
+        _re.compile(r'(?:pack|box|case|set)\s+(?:of\s+)?(\d+)', _re.I),
+        _re.compile(r'(\d+)\s*(?:pc|pcs|pieces?|sheets?|per\s+box)', _re.I),
+        _re.compile(r',\s*(\d+)\s*$', _re.I),
+    ]
+
+    def _extract_title_qty(title):
+        for pat in _QTY_PATTERNS:
+            m = pat.search(title)
+            if m:
+                try:
+                    return int(m.group(1))
+                except (ValueError, IndexError):
+                    pass
+        return None
+
+    desc_tokens = set(_re.findall(r'[a-z]{3,}', desc.lower()))
+    scored = []
+    for r in results:
+        score = 0
+        title = r.get("title", "")
+        title_lower = title.lower()
+
+        # MFG# match
+        if mfg and mfg.lower() in title_lower:
+            score += 30
+
+        # Description token overlap
+        title_tokens = set(_re.findall(r'[a-z]{3,}', title_lower))
+        if desc_tokens and title_tokens:
+            overlap = len(desc_tokens & title_tokens)
+            score += min(20, overlap * 4)
+
+        # Pack size match (most important)
+        title_qty = _extract_title_qty(title)
+        if qpu > 1 and title_qty:
+            if title_qty == qpu:
+                score += 50  # Exact match
+            elif abs(title_qty - qpu) / max(qpu, 1) < 0.1:
+                score += 30  # Within 10%
+            else:
+                score -= 40  # Wrong size
+        elif qpu > 1 and not title_qty:
+            score -= 10  # Can't verify qty
+
+        r["_score"] = score
+        r["_title_qty"] = title_qty
+        scored.append(r)
+
+    scored.sort(key=lambda x: x["_score"], reverse=True)
+    best = scored[0] if scored and scored[0]["_score"] >= 10 else None
+
+    return jsonify({
+        "ok": True,
+        "matches": [{"title": s["title"], "price": s.get("price", 0),
+                      "asin": s.get("asin", ""), "url": s.get("url", ""),
+                      "score": s["_score"], "title_qty": s.get("_title_qty")}
+                     for s in scored[:3]],
+        "best": {"title": best["title"], "price": best.get("price", 0),
+                 "asin": best.get("asin", ""), "url": best.get("url", ""),
+                 "score": best["_score"], "title_qty": best.get("_title_qty")}
+                if best else None,
+    })
 
 
 @bp.route("/api/item-link/lookup", methods=["POST"])

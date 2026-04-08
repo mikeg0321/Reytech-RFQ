@@ -74,6 +74,9 @@
      .row-badge{display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-top:2px;font-weight:600;line-height:1.4}
      .row-badge-skip{background:#da363322;color:#f85149;border:1px solid #da363355}
      .row-badge-sub{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}
+     .amazon-match-btn{display:block;margin-top:3px;background:rgba(255,153,0,.12);border:1px solid rgba(255,153,0,.3);color:#f90;font-size:11px;padding:2px 8px;border-radius:3px;cursor:pointer;transition:background .15s}
+     .amazon-match-btn:hover{background:rgba(255,153,0,.25)}
+     .amazon-match-btn:disabled{opacity:.5;cursor:wait}
      .msg{padding:10px 14px;border-radius:6px;margin:8px 0;font-size:14px}
      .msg-ok{background:#23863622;color:#3fb950;border:1px solid #23863655}
      .msg-warn{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}
@@ -1259,6 +1262,65 @@
      if (nr) nr.style.display = nr.style.display === 'none' ? 'table-row' : 'none';
     }
 
+    function matchAmazon(idx) {
+     var btn = document.querySelector('tr[data-row="'+idx+'"] .amazon-match-btn');
+     var status = document.getElementById('amz_status_'+idx);
+     if (btn) { btn.disabled = true; btn.textContent = '⏳ Searching...'; }
+     if (status) { status.style.display = 'inline'; status.textContent = ''; }
+     var pcid = {{ pcid|tojson }};
+     fetch('/api/pricecheck/'+pcid+'/amazon-match/'+idx)
+       .then(function(r){ return r.json(); })
+       .then(function(d){
+         if (!d.ok) {
+           if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
+           if (status) { status.textContent = '❌ ' + (d.error||'Failed'); status.style.color = '#f85149'; }
+           return;
+         }
+         if (d.best) {
+           // Populate item link
+           var linkEl = document.querySelector('[name=link_'+idx+']');
+           if (linkEl) { linkEl.value = d.best.url; handleLinkInput(idx, linkEl); }
+           // Populate cost if available and current cost is 0
+           var costEl = document.querySelector('[name=cost_'+idx+']');
+           if (costEl && (!costEl.value || parseFloat(costEl.value) === 0) && d.best.price > 0) {
+             costEl.value = d.best.price.toFixed(2);
+             recalcRow(idx, true);
+           }
+           // Show match info
+           var title = d.best.title.length > 60 ? d.best.title.substring(0,57)+'...' : d.best.title;
+           var qtyNote = d.best.title_qty ? ' (qty:'+d.best.title_qty+')' : '';
+           if (status) {
+             status.style.color = d.best.score >= 40 ? '#3fb950' : '#d29922';
+             status.textContent = '✓ ' + title + qtyNote;
+           }
+           if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
+           triggerPcAutosave();
+         } else if (d.matches && d.matches.length > 0) {
+           // No confident match — show top results for manual pick
+           if (status) {
+             status.style.color = '#d29922';
+             var html = '⚠ No exact match. Top results:<br>';
+             d.matches.forEach(function(m, i){
+               var t = m.title.length > 50 ? m.title.substring(0,47)+'...' : m.title;
+               html += '<a href="'+m.url+'" target="_blank" style="color:#58a6ff;font-size:11px" title="'+m.title.replace(/"/g,'&quot;')+'">'+t+'</a>';
+               if (m.price) html += ' <span style="color:#3fb950">$'+m.price.toFixed(2)+'</span>';
+               if (m.title_qty) html += ' <span style="color:#a78bfa">('+m.title_qty+'ct)</span>';
+               html += '<br>';
+             });
+             status.innerHTML = html;
+           }
+           if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
+         } else {
+           if (status) { status.textContent = '— No results found'; status.style.color = '#484f58'; }
+           if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
+         }
+       })
+       .catch(function(e){
+         if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
+         if (status) { status.textContent = '❌ Network error'; status.style.color = '#f85149'; }
+       });
+    }
+
     function toggleAllNotes() {
      var rows = document.querySelectorAll('.notes-row');
      var anyHidden = false;
@@ -1360,7 +1422,7 @@
       +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:14px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput('+idx+',this)"></td>'
       +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"><input type="hidden" name="qpu_'+idx+'" value="1"></td>'
       +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
-      +'<td style="position:relative"><textarea name="desc_'+idx+'" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" placeholder="Enter description or paste URL" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl('+idx+',this)"></textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">\u2922</button></td>'
+      +'<td style="position:relative"><textarea name="desc_'+idx+'" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" placeholder="Enter description or paste URL" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl('+idx+',this)"></textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">\u2922</button><button type="button" class="amazon-match-btn" onclick="matchAmazon('+idx+')" title="Search Amazon for exact product match">\uD83D\uDD0D Amazon</button><span id="amz_status_'+idx+'" style="display:none;font-size:11px;margin-left:4px"></span></td>'
       +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
