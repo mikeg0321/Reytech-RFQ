@@ -530,7 +530,10 @@
       <span style="color:#8b949e;font-size:14px">Profit</span> <span id="pc-ms-profit" style="font-weight:700;font-family:'JetBrains Mono',monospace">$0</span>
       <span id="pc-ms-pct" style="font-weight:700;padding:3px 10px;border-radius:12px;font-size:14px">0%</span>
       <span id="pc-ms-landed" style="display:none;font-size:12px;color:#d29922;margin-left:4px" title="True margin after shipping + tax on non-exempt suppliers"></span>
+      <span style="border-left:1px solid #484f58;height:20px"></span>
+      <button id="quoteAnalysisBtn" onclick="runQuoteAnalysis()" style="background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.3);color:#58a6ff;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Run Oracle analysis on full quote">📊 Quote Analysis</button>
      </div>
+     <div id="quote-analysis-panel" style="display:none;margin-bottom:12px"></div>
      <div class="pc-table-wrap" style="overflow-x:auto">
      <table id="itemsTable">
       <thead><tr><th style="width:62px">#</th><th style="width:110px">MFG#</th><th style="width:58px">Qty</th><th style="width:48px">UOM</th><th style="width:290px">Description</th><th style="width:170px">Item Link</th><th style="width:155px">Sources</th><th style="width:100px">Unit Cost</th><th style="width:72px">Markup</th><th style="width:100px">Our Price</th><th style="width:90px">Extension</th><th style="width:80px">Profit</th></tr></thead>
@@ -1453,6 +1456,54 @@
      }).then(function(r){return r.json()}).then(function(d){
       if(d.ok){showMsg('✅ Status: '+d.old_status+' → '+d.new_status,'ok');setTimeout(function(){location.reload()},600)}
       else{showMsg('❌ '+d.error,'err')}
+     });
+    }
+
+    function runQuoteAnalysis() {
+     var btn=document.getElementById('quoteAnalysisBtn');
+     var panel=document.getElementById('quote-analysis-panel');
+     if(panel.style.display!=='none'){panel.style.display='none';return;}
+     btn.disabled=true;btn.textContent='⏳ Analyzing...';
+     panel.style.display='block';
+     panel.innerHTML='<div style="padding:12px 16px;background:#21262d;border:1px solid #30363d;border-radius:8px;color:#8b949e;font-size:13px">Analyzing all items against SCPRS data...</div>';
+     fetch('/api/pricecheck/'+_pcid+'/quote-analysis',{credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;btn.textContent='📊 Quote Analysis';
+      if(!d.ok){panel.innerHTML='<div style="padding:12px;background:#da363322;border:1px solid #da3633;border-radius:8px;color:#f85149">'+d.error+'</div>';return;}
+      var _p=function(v){return v!=null?'$'+v.toFixed(2):'—'};
+      var s=d.summary;
+      // Win probability color
+      var wp=s.win_probability||0;
+      var wpColor=wp>=70?'#3fb950':wp>=40?'#d29922':'#f85149';
+      var html='<div style="padding:14px 18px;background:#21262d;border:1px solid #30363d;border-radius:8px">';
+      // Header row: Win probability + key metrics
+      html+='<div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-bottom:12px">';
+      html+='<div style="text-align:center"><div style="font-size:28px;font-weight:700;color:'+wpColor+';font-family:JetBrains Mono,monospace">'+wp+'%</div><div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">Win Probability</div></div>';
+      html+='<span style="border-left:1px solid #484f58;height:40px"></span>';
+      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">Items Competitive</div><div style="font-size:16px;font-weight:600;color:#3fb950">'+s.items_competitive+' / '+s.total_items+'</div></div>';
+      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">Items At Risk</div><div style="font-size:16px;font-weight:600;color:'+(s.items_at_risk>0?'#f85149':'#3fb950')+'">'+s.items_at_risk+'</div></div>';
+      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">No Market Data</div><div style="font-size:16px;font-weight:600;color:'+(s.items_no_data>0?'#d29922':'#8b949e')+'">'+s.items_no_data+'</div></div>';
+      html+='<span style="border-left:1px solid #484f58;height:40px"></span>';
+      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">SCPRS Data Points</div><div style="font-size:16px;font-weight:600;color:#58a6ff">'+s.total_scprs_points+'</div></div>';
+      html+='<div><div style="font-size:11px;color:#8b949e;text-transform:uppercase">Avg Markup</div><div style="font-size:16px;font-weight:600;color:#e6edf3">'+(s.avg_markup||0).toFixed(0)+'%</div></div>';
+      html+='</div>';
+      // Item breakdown
+      if(d.items&&d.items.length){
+        html+='<div style="border-top:1px solid #30363d;padding-top:10px;margin-top:4px">';
+        html+='<table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.3px"><th style="text-align:left;padding:4px 6px">#</th><th style="text-align:left;padding:4px 6px">Description</th><th style="text-align:right;padding:4px 6px">Your Price</th><th style="text-align:right;padding:4px 6px">SCPRS Avg</th><th style="text-align:right;padding:4px 6px">Comp Low</th><th style="text-align:center;padding:4px 6px">Status</th><th style="text-align:right;padding:4px 6px">Markup</th></tr>';
+        d.items.forEach(function(it){
+          var statusColor=it.status==='competitive'?'#3fb950':it.status==='at_risk'?'#f85149':'#8b949e';
+          var statusLabel=it.status==='competitive'?'✓ Competitive':it.status==='at_risk'?'⚠ Above Market':'— No Data';
+          var desc=it.description||'';if(desc.length>40)desc=desc.substring(0,37)+'...';
+          html+='<tr style="border-top:1px solid #21262d"><td style="padding:4px 6px;color:#8b949e">'+it.line_num+'</td><td style="padding:4px 6px;color:#c9d1d9" title="'+(it.description||'').replace(/"/g,'&quot;')+'">'+desc+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#e6edf3">'+_p(it.your_price)+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#58a6ff">'+(it.scprs_avg?_p(it.scprs_avg):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#f0883e">'+(it.comp_low?_p(it.comp_low):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:center;color:'+statusColor+';font-size:11px">'+statusLabel+'</td><td style="padding:4px 6px;text-align:right;color:#8b949e">'+(it.markup_pct!=null?it.markup_pct.toFixed(0)+'%':'—')+'</td></tr>';
+        });
+        html+='</table></div>';
+      }
+      html+='</div>';
+      panel.innerHTML=html;
+     }).catch(function(e){
+      btn.disabled=false;btn.textContent='📊 Quote Analysis';
+      panel.innerHTML='<div style="padding:12px;background:#da363322;border:1px solid #da3633;border-radius:8px;color:#f85149">Error: '+e.message+'</div>';
      });
     }
 

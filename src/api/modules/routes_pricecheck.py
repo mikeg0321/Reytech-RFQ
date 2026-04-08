@@ -8036,6 +8036,135 @@ def api_pc_item_oracle(pcid, item_idx):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/quote-analysis")
+@auth_required
+@safe_route
+def api_pc_quote_analysis(pcid):
+    """Portfolio-level Oracle analysis — win probability for the full quote."""
+    try:
+        import copy as _copy
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+        items = _copy.deepcopy(pc.get("items") or [])
+        if not items:
+            return jsonify({"ok": False, "error": "No items"})
+
+        from src.core.pricing_oracle_v2 import get_pricing
+
+        analysis_items = []
+        total_competitive = 0
+        total_at_risk = 0
+        total_no_data = 0
+        total_scprs_points = 0
+        markup_pcts = []
+
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            p = item.get("pricing") or {}
+            desc = (item.get("description") or "").strip()
+            if not desc:
+                continue
+            cost = item.get("vendor_cost") or p.get("unit_cost") or 0
+            try:
+                cost = float(cost)
+            except (ValueError, TypeError):
+                cost = 0
+            item_num = item.get("mfg_number") or p.get("mfg_number") or ""
+            qty = item.get("qty", 1) or 1
+            # Get current bid price
+            your_price = p.get("final_price") or p.get("bid_price") or 0
+            try:
+                your_price = float(your_price)
+            except (ValueError, TypeError):
+                your_price = 0
+
+            # Run Oracle for this item
+            oracle = get_pricing(
+                description=desc, quantity=qty,
+                cost=cost if cost > 0 else None,
+                item_number=item_num
+            )
+            market = oracle.get("market") or {}
+            sc = oracle.get("source_counts") or {}
+            scprs_pts = sum(sc.get(k, 0) for k in
+                           ["won_quotes", "winning_prices", "scprs_catalog", "scprs_po_lines"])
+            total_scprs_points += scprs_pts
+
+            comp_avg = market.get("competitor_avg")
+            comp_low = market.get("competitor_low")
+            scprs_avg = market.get("weighted_avg")
+
+            # Determine status
+            status = "no_data"
+            if comp_avg and your_price > 0:
+                if your_price <= comp_avg:
+                    status = "competitive"
+                    total_competitive += 1
+                else:
+                    status = "at_risk"
+                    total_at_risk += 1
+            elif scprs_avg and your_price > 0:
+                if your_price <= scprs_avg:
+                    status = "competitive"
+                    total_competitive += 1
+                else:
+                    status = "at_risk"
+                    total_at_risk += 1
+            else:
+                total_no_data += 1
+
+            # Markup
+            mkp = None
+            if cost > 0 and your_price > 0:
+                mkp = ((your_price - cost) / cost) * 100
+                markup_pcts.append(mkp)
+
+            analysis_items.append({
+                "line_num": idx + 1,
+                "description": desc[:60],
+                "your_price": your_price if your_price > 0 else None,
+                "scprs_avg": scprs_avg,
+                "comp_low": comp_low,
+                "status": status,
+                "markup_pct": round(mkp, 1) if mkp is not None else None,
+                "data_points": market.get("data_points", 0),
+            })
+
+        total_items = len(analysis_items)
+        # Win probability: weighted score
+        if total_items > 0:
+            comp_ratio = total_competitive / total_items
+            risk_ratio = total_at_risk / total_items
+            # Base: % competitive items, penalize at-risk items heavily
+            win_prob = max(0, min(95, int(comp_ratio * 85 - risk_ratio * 30 + 10)))
+            if total_no_data > total_items * 0.5:
+                win_prob = min(win_prob, 40)  # Cap if >50% items lack data
+        else:
+            win_prob = 0
+
+        avg_markup = round(sum(markup_pcts) / len(markup_pcts), 1) if markup_pcts else 0
+
+        return jsonify({
+            "ok": True,
+            "summary": {
+                "total_items": total_items,
+                "items_competitive": total_competitive,
+                "items_at_risk": total_at_risk,
+                "items_no_data": total_no_data,
+                "win_probability": win_prob,
+                "total_scprs_points": total_scprs_points,
+                "avg_markup": avg_markup,
+            },
+            "items": analysis_items,
+        })
+    except Exception as e:
+        log.error("Quote analysis for %s: %s", pcid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/pricecheck/<pcid>/price-history/<int:item_idx>")
 @auth_required
 @safe_route
