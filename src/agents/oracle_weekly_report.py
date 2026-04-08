@@ -54,9 +54,11 @@ def seed_calibration_from_history():
                     log.debug("Seed win error for %s: %s", row[0], e)
 
             # Process LOST quotes (from competitor_intel)
+            # Try quote items first, fall back to competitor_intel.items_detail or item_summary
             loss_rows = conn.execute("""
                 SELECT ci.quote_number, ci.agency, ci.competitor_price,
-                       ci.loss_reason_class, q.items_detail
+                       ci.loss_reason_class, q.items_detail,
+                       ci.items_detail, ci.item_summary
                 FROM competitor_intel ci
                 LEFT JOIN quotes q ON q.quote_number = ci.quote_number
                 WHERE ci.outcome='lost'
@@ -65,12 +67,21 @@ def seed_calibration_from_history():
 
             for row in loss_rows:
                 try:
-                    items_json = row[4]
-                    if not items_json:
-                        continue
-                    items = json.loads(items_json) if isinstance(items_json, str) else items_json
+                    # Try quote items, then CI items_detail, then build from summary
+                    items_json = row[4] or row[5]
+                    items = None
+                    if items_json:
+                        try:
+                            items = json.loads(items_json) if isinstance(items_json, str) else items_json
+                        except (json.JSONDecodeError, TypeError):
+                            items = None
                     if not isinstance(items, list) or not items:
-                        continue
+                        # Build minimal items from item_summary text
+                        summary = row[6] or ""
+                        if summary:
+                            items = [{"description": summary[:200], "pricing": {}}]
+                        else:
+                            continue
                     agency = row[1] or ""
                     reason = "price" if row[3] in ("price_higher", "margin_too_high") else "other"
                     calibrate_from_outcome(items, "lost", agency=agency, loss_reason=reason)
