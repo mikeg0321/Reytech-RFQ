@@ -8642,27 +8642,84 @@ def api_pc_oracle_auto_price(pcid):
                 "qty": qty,
             })
 
-        # Pass 2: Portfolio balance — check if any items are wildly above market
-        # and could jeopardize the whole quote
-        items_with_market = [r for r in item_recs
-                             if not r.get("skip") and r.get("comp_avg") and r.get("recommended_price")]
-        if len(items_with_market) >= 3:
-            # Calculate portfolio avg markup vs market
-            total_above = 0
-            for r in items_with_market:
-                if r["recommended_price"] > r["comp_avg"] * 1.05:
-                    total_above += 1
-            # If >40% of items are 5%+ above competitor avg, pull them down
-            if total_above > len(items_with_market) * 0.4:
-                for r in items_with_market:
-                    if r["recommended_price"] > r["comp_avg"] * 1.05:
-                        # Reduce to 2% below competitor avg (more competitive)
-                        new_price = round(r["comp_avg"] * 0.98, 2)
-                        floor = r["cost"] * 1.15 if r.get("cost") and r["cost"] > 0 else 0
-                        if new_price > floor:
-                            r["recommended_price"] = new_price
-                            r["confidence"] = "high"
-                            r["rationale"] = f"Portfolio balanced: ${new_price:.2f} (2% under market ${r['comp_avg']:.2f})"
+        # ═══ Pass 2: Portfolio-level optimization ═══
+        # Goal: ALWAYS win. Margin covers cost proportional to risk + effort.
+        #
+        # 1. Calculate minimum profit needed (effort cost + cost of capital)
+        # 2. If current profit already covers it → leave prices alone
+        # 3. If under → find items with market room and push UP (never above market)
+        # 4. If over AND items are above market → pull DOWN to ensure winning
+        active = [r for r in item_recs if not r.get("skip") and r.get("recommended_price")]
+        n_items = len(active)
+
+        total_cost = sum(r.get("cost", 0) or 0 for r in active)
+        total_revenue = sum((r.get("recommended_price", 0) or 0) * max(r.get("qty", 1), 1) for r in active)
+        total_item_cost = sum((r.get("cost", 0) or 0) * max(r.get("qty", 1), 1) for r in active)
+        total_profit = total_revenue - total_item_cost
+
+        # Minimum profit = effort + capital at risk
+        effort_cost = n_items * 25  # ~$25/item for research, pricing, forms
+        capital_cost = total_item_cost * 0.08 * (90 / 365)  # 8% annual, 90-day exposure
+        min_profit = effort_cost + capital_cost
+
+        log.info("Oracle portfolio: %d items, cost=$%.0f, revenue=$%.0f, profit=$%.0f "
+                 "(min=$%.0f = $%d effort + $%.0f capital)",
+                 n_items, total_item_cost, total_revenue, total_profit,
+                 min_profit, effort_cost, capital_cost)
+
+        # Step A: Pull DOWN items priced above market average (ensure we WIN)
+        for r in active:
+            if r.get("comp_avg") and r["recommended_price"] > r["comp_avg"]:
+                new_price = round(r["comp_avg"] * 0.98, 2)
+                floor = r["cost"] * 1.20 if r.get("cost") and r["cost"] > 0 else 0
+                if new_price > floor:
+                    r["recommended_price"] = new_price
+                    r["rationale"] = f"Win: ${new_price:.2f} (2% under avg ${r['comp_avg']:.2f})"
+                    r["confidence"] = "high"
+
+        # Recalculate after pull-down
+        total_revenue = sum((r.get("recommended_price", 0) or 0) * max(r.get("qty", 1), 1) for r in active)
+        total_profit = total_revenue - total_item_cost
+
+        # Step B: If profit is below minimum, push UP items that have market room
+        if total_profit < min_profit and n_items > 0:
+            shortfall = min_profit - total_profit
+            # Find items with room: price is well below comp_avg (>15% gap)
+            flex_items = []
+            for r in active:
+                ca = r.get("comp_avg")
+                rp = r.get("recommended_price", 0) or 0
+                q = max(r.get("qty", 1), 1)
+                if ca and rp < ca * 0.95:
+                    room = (ca * 0.98 - rp) * q  # max $ we can add per this item
+                    if room > 0:
+                        flex_items.append((r, room, ca))
+            # Distribute shortfall proportionally across flex items
+            total_room = sum(room for _, room, _ in flex_items)
+            if total_room > 0:
+                for r, room, ca in flex_items:
+                    share = min(room, shortfall * (room / total_room))
+                    q = max(r.get("qty", 1), 1)
+                    new_price = round(r["recommended_price"] + share / q, 2)
+                    # Never exceed 98% of comp_avg (still winning)
+                    cap = round(ca * 0.98, 2)
+                    new_price = min(new_price, cap)
+                    if new_price > r["recommended_price"]:
+                        old = r["recommended_price"]
+                        r["recommended_price"] = new_price
+                        r["rationale"] = f"Portfolio +${(new_price-old)*q:.0f}: ${new_price:.2f} (still under avg ${ca:.2f})"
+                        r["confidence"] = "high"
+                log.info("Oracle portfolio: pushed up %d items to cover $%.0f shortfall",
+                         len(flex_items), shortfall)
+
+        # Final totals for response
+        total_revenue = sum((r.get("recommended_price", 0) or 0) * max(r.get("qty", 1), 1) for r in active)
+        total_profit = total_revenue - total_item_cost
+        overall_margin = round(total_profit / total_revenue * 100, 1) if total_revenue > 0 else 0
+
+        log.info("Oracle portfolio final: revenue=$%.0f, profit=$%.0f (%.1f%%), min_needed=$%.0f, %s",
+                 total_revenue, total_profit, overall_margin, min_profit,
+                 "COVERED" if total_profit >= min_profit else "SHORTFALL")
 
         # Build win labels
         for r in item_recs:
@@ -8708,6 +8765,16 @@ def api_pc_oracle_auto_price(pcid):
             "win_probability": win_prob,
             "total_items": total,
             "items_competitive": competitive,
+            "portfolio": {
+                "total_cost": round(total_item_cost, 2),
+                "total_revenue": round(total_revenue, 2),
+                "total_profit": round(total_profit, 2),
+                "margin_pct": overall_margin,
+                "min_profit_needed": round(min_profit, 2),
+                "effort_cost": effort_cost,
+                "capital_cost": round(capital_cost, 2),
+                "profit_covers_cost": total_profit >= min_profit,
+            },
         })
     except Exception as e:
         log.error("Oracle auto-price for %s: %s", pcid, e, exc_info=True)
