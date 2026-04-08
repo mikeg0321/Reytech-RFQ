@@ -582,6 +582,9 @@ def _pricecheck_detail_inner(pcid):
         if scprs_cost:
             scprs_conf_str = f" ({scprs_conf:.0%})" if scprs_conf else ""
             sources.append((scprs_cost, f"SCPRS{scprs_conf_str}", "", "#3fb950", True, scprs_conf))
+        # Fallback: if amazon_price not stored but item supplier is Amazon with ASIN, use unit_cost
+        if not amazon_cost and asin and (item.get("item_supplier") or "").lower() == "amazon" and unit_cost:
+            amazon_cost = unit_cost
         if amazon_cost:
             a_url = p.get("amazon_url", "")
             # Detect actual source from URL — don't assume Amazon
@@ -658,14 +661,15 @@ def _pricecheck_detail_inner(pcid):
             # Truncate long supplier names
             slabel_short = slabel[:15] + "…" if len(slabel) > 15 else slabel
             # Confidence tier: EXACT (>0.95), normal (0.75-0.95), ~FUZZY (0.50-0.75)
+            # Text labels (not color-only) — user is colorblind
             if sconf > 0.95:
-                conf_tag = ""  # Price + supplier is enough at EXACT
+                conf_tag = ' <b style="font-size:9px;padding:1px 3px;border-radius:2px;background:#3fb95030;letter-spacing:.3px">EXACT</b>'
                 border_style = f"border:2px solid {scolor}80"
             elif sconf >= 0.75:
                 conf_tag = ""
                 border_style = f"border:1px solid {scolor}40"
             else:
-                conf_tag = ' <span style="font-size:9px;color:#d29922">~</span>'
+                conf_tag = ' <span style="font-size:9px;padding:1px 3px;border-radius:2px;background:#d2992230;letter-spacing:.3px">~FUZZY</span>'
                 border_style = f"border:1px dashed {scolor}60"
             conf_title = f" ({sconf:.0%} match)" if sconf else ""
             _chip_style = f"display:inline-flex;align-items:center;gap:2px;padding:2px 5px;border-radius:4px;font-size:12px;background:{scolor}15;{border_style};color:{scolor};max-width:170px;overflow:hidden"
@@ -673,9 +677,9 @@ def _pricecheck_detail_inner(pcid):
                 chip = f'<a href="{surl}" target="_blank" style="{_chip_style};text-decoration:none;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</a>'
             else:
                 chip = f'<span style="{_chip_style}" title="{slabel}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</span>'
-            # First source gets "Use" action
+            # First source gets "Use" action — wrapped in a flex container to prevent overlap
             if i_src == 0 and len(sources) > 1 and sprice != unit_cost:
-                chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:13px;text-decoration:none" title="Use this price">⬇</a>'
+                chip = f'<span style="display:inline-flex;align-items:center;gap:2px">{chip}<a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:14px;text-decoration:none;flex-shrink:0" title="Use this price as cost">⬇</a></span>'
             source_chips.append(chip)
         source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
         # Oracle pricing intelligence badge
