@@ -650,21 +650,24 @@ def _pricecheck_detail_inner(pcid):
         for i_src, (sprice, slabel, surl, scolor, spref, sconf) in enumerate(sources):
             pref_icon = "★ " if spref else ""
             price_fmt = f"${sprice:.2f}"
+            # Truncate long supplier names
+            slabel_short = slabel[:15] + "…" if len(slabel) > 15 else slabel
             # Confidence tier: EXACT (>0.95), normal (0.75-0.95), ~FUZZY (0.50-0.75)
             if sconf > 0.95:
-                conf_tag = ' <b style="font-size:10px;padding:1px 4px;border-radius:3px;background:#3fb95030;border:1px solid #3fb95060;letter-spacing:.5px">EXACT</b>'
+                conf_tag = ""  # Price + supplier is enough at EXACT
                 border_style = f"border:2px solid {scolor}80"
             elif sconf >= 0.75:
                 conf_tag = ""
                 border_style = f"border:1px solid {scolor}40"
             else:
-                conf_tag = ' <span style="font-size:10px;padding:1px 4px;border-radius:3px;background:#d2992230;border:1px solid #d2992260;letter-spacing:.5px">~FUZZY</span>'
+                conf_tag = ' <span style="font-size:9px;color:#d29922">~</span>'
                 border_style = f"border:1px dashed {scolor}60"
             conf_title = f" ({sconf:.0%} match)" if sconf else ""
+            _chip_style = f"display:inline-flex;align-items:center;gap:2px;padding:2px 5px;border-radius:4px;font-size:12px;background:{scolor}15;{border_style};color:{scolor};max-width:170px;overflow:hidden"
             if surl:
-                chip = f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;{border_style};color:{scolor};text-decoration:none;white-space:nowrap;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel}{conf_tag}</a>'
+                chip = f'<a href="{surl}" target="_blank" style="{_chip_style};text-decoration:none;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</a>'
             else:
-                chip = f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;{border_style};color:{scolor};white-space:nowrap" title="{slabel}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel}{conf_tag}</span>'
+                chip = f'<span style="{_chip_style}" title="{slabel}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</span>'
             # First source gets "Use" action
             if i_src == 0 and len(sources) > 1 and sprice != unit_cost:
                 chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:13px;text-decoration:none" title="Use this price">⬇</a>'
@@ -768,7 +771,7 @@ def _pricecheck_detail_inner(pcid):
            <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}{ph_link}</div>
           </div>
          </td>
-         <td style="vertical-align:top;padding:6px 4px">{source_html}</td>
+         <td style="vertical-align:top;padding:6px 4px;overflow:hidden">{source_html}</td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow({idx},true)" onblur="fmtCurrency(this)"></div></td>
          <td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow({idx},true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
