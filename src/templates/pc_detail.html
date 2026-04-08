@@ -74,6 +74,11 @@
      .row-badge{display:inline-block;font-size:10px;padding:1px 5px;border-radius:3px;margin-top:2px;font-weight:600;line-height:1.4}
      .row-badge-skip{background:#da363322;color:#f85149;border:1px solid #da363355}
      .row-badge-sub{background:#9e6a0322;color:#d29922;border:1px solid #9e6a0355}
+     .oracle-rec{font-size:11px;padding:2px 6px;border-radius:3px;margin-top:2px;display:block;font-family:'JetBrains Mono',monospace;cursor:pointer}
+     .oracle-rec:hover{filter:brightness(1.2)}
+     .oracle-rec-high{background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.3)}
+     .oracle-rec-med{background:rgba(210,153,34,.12);color:#d29922;border:1px solid rgba(210,153,34,.3)}
+     .oracle-rec-low{background:rgba(139,148,158,.12);color:#8b949e;border:1px solid rgba(139,148,158,.3)}
      .amazon-match-btn{display:block;margin-top:3px;background:rgba(255,153,0,.12);border:1px solid rgba(255,153,0,.3);color:#f90;font-size:11px;padding:2px 8px;border-radius:3px;cursor:pointer;transition:background .15s}
      .amazon-match-btn:hover{background:rgba(255,153,0,.25)}
      .amazon-match-btn:disabled{opacity:.5;cursor:wait}
@@ -531,6 +536,7 @@
       <span id="pc-ms-pct" style="font-weight:700;padding:3px 10px;border-radius:12px;font-size:14px">0%</span>
       <span id="pc-ms-landed" style="display:none;font-size:12px;color:#d29922;margin-left:4px" title="True margin after shipping + tax on non-exempt suppliers"></span>
       <span style="border-left:1px solid #484f58;height:20px"></span>
+      <button id="oracleAutoPriceBtn" onclick="oracleAutoPrice()" style="background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.4);color:#3fb950;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Auto-price all items using Oracle market data">⚡ Oracle Price</button>
       <button id="quoteAnalysisBtn" onclick="runQuoteAnalysis()" style="background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.3);color:#58a6ff;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Run Oracle analysis on full quote">📊 Quote Analysis</button>
      </div>
      <div id="quote-analysis-panel" style="display:none;margin-bottom:12px"></div>
@@ -1456,6 +1462,69 @@
      }).then(function(r){return r.json()}).then(function(d){
       if(d.ok){showMsg('✅ Status: '+d.old_status+' → '+d.new_status,'ok');setTimeout(function(){location.reload()},600)}
       else{showMsg('❌ '+d.error,'err')}
+     });
+    }
+
+    function oracleAutoPrice() {
+     var btn=document.getElementById('oracleAutoPriceBtn');
+     btn.disabled=true;btn.textContent='⏳ Pricing...';
+     fetch('/api/pricecheck/'+_pcid+'/oracle-auto-price',{credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      btn.disabled=false;btn.textContent='⚡ Oracle Price';
+      if(!d.ok){showMsg('❌ '+(d.error||'Oracle pricing failed'),'err');return;}
+      var applied=0, skipped=0;
+      (d.items||[]).forEach(function(it){
+        var idx=it.idx;
+        var row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
+        if(!row) return;
+        // Show recommendation badge on the price cell
+        var priceCell=row.querySelector('.profit')?.previousElementSibling?.previousElementSibling;
+        // Find the Our Price td (col index varies) — use the price input directly
+        var priceEl=document.querySelector('[name=price_'+idx+']');
+        var costEl=document.querySelector('[name=cost_'+idx+']');
+        var markupEl=document.querySelector('[name=markup_'+idx+']');
+        if(!it.recommended_price || it.recommended_price<=0){skipped++;return;}
+        // Set cost if we have one and field is empty
+        if(it.cost && it.cost>0 && costEl){
+          var curCost=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
+          if(curCost===0){
+            costEl.value=it.cost.toFixed(2);
+          }
+        }
+        // Set price
+        if(priceEl){
+          priceEl.value=it.recommended_price.toFixed(2);
+          priceEl.style.transition='background .5s';
+          priceEl.style.background='#23863633';
+          setTimeout(function(){priceEl.style.background='';},1500);
+        }
+        // Reverse-calculate markup from cost and price
+        var actualCost=costEl?parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0:0;
+        if(markupEl && actualCost>0){
+          var mkp=((it.recommended_price-actualCost)/actualCost*100);
+          markupEl.value=Math.round(mkp);
+        }
+        // Add recommendation badge to the # cell
+        var numCell=row.querySelector('td:first-child');
+        if(numCell){
+          var old=numCell.querySelector('.oracle-rec');
+          if(old)old.remove();
+          var badge=document.createElement('div');
+          var cls=it.confidence==='high'?'oracle-rec-high':it.confidence==='medium'?'oracle-rec-med':'oracle-rec-low';
+          badge.className='oracle-rec '+cls;
+          badge.title=it.rationale||'Oracle recommendation';
+          badge.textContent=it.win_label||('$'+it.recommended_price.toFixed(2));
+          badge.onclick=function(){loadOracleDetail(idx)};
+          numCell.appendChild(badge);
+        }
+        applied++;
+      });
+      recalcPC();
+      triggerPcAutosave();
+      showMsg('⚡ Oracle priced '+applied+' items'+(skipped?' ('+skipped+' skipped — no data)':''),'ok');
+     }).catch(function(e){
+      btn.disabled=false;btn.textContent='⚡ Oracle Price';
+      showMsg('❌ Error: '+e.message,'err');
      });
     }
 

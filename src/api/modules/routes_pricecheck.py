@@ -8036,6 +8036,150 @@ def api_pc_item_oracle(pcid, item_idx):
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/pricecheck/<pcid>/oracle-auto-price")
+@auth_required
+@safe_route
+def api_pc_oracle_auto_price(pcid):
+    """Oracle Auto-Price: holistic pricing for the full quote.
+
+    Runs Oracle on every item, then does a portfolio balance pass:
+    - Items with strong SCPRS data → price to win (just below competitor avg)
+    - Items with no data → cost + default markup
+    - Portfolio pass: if overall markup is too high vs market, reduce outliers
+    Each item gets a clear "Price at $X to win" recommendation.
+    """
+    import copy as _copy
+    try:
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": "PC not found"})
+        items = _copy.deepcopy(pc.get("items") or [])
+        if not items:
+            return jsonify({"ok": False, "error": "No items"})
+
+        from src.core.pricing_oracle_v2 import get_pricing
+
+        # Pass 1: Get Oracle recommendation for each item
+        item_recs = []
+        for idx, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            p = item.get("pricing") or {}
+            desc = (item.get("description") or "").strip()
+            if not desc:
+                item_recs.append({"idx": idx, "skip": True})
+                continue
+            cost = 0
+            for k in ["vendor_cost", "unit_cost"]:
+                v = item.get(k) or p.get(k) or 0
+                try:
+                    cost = float(v)
+                except (ValueError, TypeError):
+                    cost = 0
+                if cost > 0:
+                    break
+            item_num = item.get("mfg_number") or p.get("mfg_number") or ""
+            qty = item.get("qty", 1) or 1
+
+            oracle = get_pricing(
+                description=desc, quantity=qty,
+                cost=cost if cost > 0 else None,
+                item_number=item_num
+            )
+            rec = oracle.get("recommendation") or {}
+            market = oracle.get("market") or {}
+            strategies = oracle.get("strategies") or []
+
+            # Pick optimal price: prefer ceiling (Maximize Margin) strategy
+            rec_price = rec.get("quote_price")
+            confidence = rec.get("confidence", "low")
+            rationale = rec.get("rationale", "")
+
+            # If we have strategies, use Maximize Margin (index 0)
+            if strategies and strategies[0].get("price"):
+                strat = strategies[0]
+                if strat["price"] > 0 and (not cost or strat["price"] > cost):
+                    rec_price = strat["price"]
+                    rationale = f"{strat['name']}: ${strat['price']:.2f} ({strat.get('markup_pct', 0):.0f}%)"
+
+            # Fallback: cost + 25% if no Oracle data
+            if not rec_price and cost > 0:
+                rec_price = round(cost * 1.25, 2)
+                confidence = "low"
+                rationale = f"No market data — 25% on ${cost:.2f}"
+
+            comp_avg = market.get("competitor_avg")
+            comp_low = market.get("competitor_low")
+            data_pts = market.get("data_points", 0)
+
+            item_recs.append({
+                "idx": idx,
+                "skip": False,
+                "recommended_price": rec_price,
+                "cost": cost if cost > 0 else None,
+                "confidence": confidence,
+                "rationale": rationale,
+                "comp_avg": comp_avg,
+                "comp_low": comp_low,
+                "data_points": data_pts,
+                "qty": qty,
+            })
+
+        # Pass 2: Portfolio balance — check if any items are wildly above market
+        # and could jeopardize the whole quote
+        items_with_market = [r for r in item_recs
+                             if not r.get("skip") and r.get("comp_avg") and r.get("recommended_price")]
+        if len(items_with_market) >= 3:
+            # Calculate portfolio avg markup vs market
+            total_above = 0
+            for r in items_with_market:
+                if r["recommended_price"] > r["comp_avg"] * 1.05:
+                    total_above += 1
+            # If >40% of items are 5%+ above competitor avg, pull them down
+            if total_above > len(items_with_market) * 0.4:
+                for r in items_with_market:
+                    if r["recommended_price"] > r["comp_avg"] * 1.05:
+                        # Reduce to 2% below competitor avg (more competitive)
+                        new_price = round(r["comp_avg"] * 0.98, 2)
+                        floor = r["cost"] * 1.15 if r.get("cost") and r["cost"] > 0 else 0
+                        if new_price > floor:
+                            r["recommended_price"] = new_price
+                            r["confidence"] = "high"
+                            r["rationale"] = f"Portfolio balanced: ${new_price:.2f} (2% under market ${r['comp_avg']:.2f})"
+
+        # Build win labels
+        for r in item_recs:
+            if r.get("skip") or not r.get("recommended_price"):
+                continue
+            if r.get("comp_avg") and r["recommended_price"] <= r["comp_avg"]:
+                pct_under = round((1 - r["recommended_price"] / r["comp_avg"]) * 100)
+                r["win_label"] = f"${r['recommended_price']:.2f} ↓{pct_under}%"
+            elif r.get("recommended_price"):
+                r["win_label"] = f"${r['recommended_price']:.2f}"
+
+        # Calculate overall win probability
+        total = len([r for r in item_recs if not r.get("skip")])
+        competitive = len([r for r in item_recs if not r.get("skip")
+                          and r.get("comp_avg") and r.get("recommended_price")
+                          and r["recommended_price"] <= r["comp_avg"]])
+        no_data = len([r for r in item_recs if not r.get("skip") and not r.get("comp_avg")])
+        win_prob = max(0, min(95, int((competitive / total * 85) + 10))) if total > 0 else 0
+        if no_data > total * 0.5:
+            win_prob = min(win_prob, 40)
+
+        return jsonify({
+            "ok": True,
+            "items": [r for r in item_recs if not r.get("skip")],
+            "win_probability": win_prob,
+            "total_items": total,
+            "items_competitive": competitive,
+        })
+    except Exception as e:
+        log.error("Oracle auto-price for %s: %s", pcid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/pricecheck/<pcid>/quote-analysis")
 @auth_required
 @safe_route
