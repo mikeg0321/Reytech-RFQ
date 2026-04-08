@@ -89,7 +89,7 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
 }
 @media(max-width:1200px){
  .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
- .pc-table-wrap table{min-width:900px}
+ .pc-table-wrap table:not(#itemsTable){min-width:900px}
  .bento-2,.bento-2e{grid-template-columns:1fr}
  .bento-4{grid-template-columns:repeat(2,1fr)}
 }
@@ -119,7 +119,7 @@ nav::-webkit-scrollbar{height:4px}nav::-webkit-scrollbar-track{background:transp
  #pipeline-bar{flex-wrap:wrap;gap:6px}
  #pipeline-bar .bar-item{font-size:14px}
  .pc-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
- .pc-table-wrap table{min-width:700px}
+ .pc-table-wrap table:not(#itemsTable){min-width:700px}
  .quote-gen-banner{flex-direction:column!important;gap:8px!important}
  .quote-gen-banner button{width:100%}
  h1{font-size:18px}
