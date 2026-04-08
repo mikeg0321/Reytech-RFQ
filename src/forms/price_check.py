@@ -2029,11 +2029,19 @@ def _extract_items_from_table(table: list, result: dict, page_num: int):
         if "substituted" in col_map and col_map["substituted"] < len(row):
             sub_text = str(row[col_map["substituted"]] or "").strip()
 
+        # Get qty_per_uom if column exists
+        _qpu = 1
+        if "qty_per_uom" in col_map and col_map["qty_per_uom"] < len(row):
+            try:
+                _qpu = max(1, int(float(str(row[col_map["qty_per_uom"]] or "1").replace(",", ""))))
+            except (ValueError, TypeError):
+                _qpu = 1
+
         item = {
             "item_number": item_num_val or str(row_num),
             "qty": qty,
             "uom": (uom_raw or "ea").upper(),
-            "qty_per_uom": 1,
+            "qty_per_uom": _qpu,
             "description": desc.strip(),
             "substituted": sub_text,
             "row_index": row_num,

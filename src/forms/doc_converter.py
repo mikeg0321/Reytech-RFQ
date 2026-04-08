@@ -193,28 +193,42 @@ def parse_items_from_text(text: str) -> list:
     current_desc = ""
     current_qty = 1
     current_uom = "each"
+    current_qpu = 1
     current_part = ""
     current_asin = ""
 
     # Patterns
     qty_pat = re.compile(r'^(?:qty|quantity)\s*[:=]\s*(\d+)\s*(.*)', re.IGNORECASE)
+    qpu_pat = re.compile(r'^(?:qty\s*per\s*(?:uom|unit)|pack\s*(?:size|qty)|units?\s*per)\s*[:=]\s*(\d+)', re.IGNORECASE)
     asin_pat = re.compile(r'^ASIN\s*[:=]\s*(\S+)', re.IGNORECASE)
     upc_pat = re.compile(r'^UPC\s*[:=]\s*(\S+)', re.IGNORECASE)
     model_pat = re.compile(r'^(?:Model\s*(?:Number|#|No\.?)?|MFG\s*#?|Part\s*(?:Number|#|No\.?))\s*[:=]\s*(\S+)', re.IGNORECASE)
-    unit_count_pat = re.compile(r'^Unit\s*Count\s*[:=]', re.IGNORECASE)
+    unit_count_pat = re.compile(r'^Unit\s*Count\s*[:=]\s*(\d+)', re.IGNORECASE)
     # Skip lines that are metadata (product dimensions, color, style, etc.)
     meta_pat = re.compile(r'^(?:Product Dimensions|Color|Style|Base Material|Top Material|'
                           r'Finish Type|Special Feature|Brand|Item Weight|Manufacturer)\b', re.IGNORECASE)
 
     def _flush():
-        nonlocal current_desc, current_qty, current_uom, current_part, current_asin
+        nonlocal current_desc, current_qty, current_uom, current_qpu, current_part, current_asin
         if current_desc and len(current_desc) >= 5:
+            # Detect pack size from description if not explicitly set
+            qpu = current_qpu
+            if qpu <= 1:
+                _d = current_desc.upper()
+                for _p in [r'PACK\s+(?:OF\s+)?(\d+)', r'(\d+)\s*[-/]?\s*(?:PACK|PK|COUNT|CT)',
+                           r'(\d+)\s+PER\s+(?:BOX|CASE|PACK)', r'(\d+)\s*(?:PC|PCS)\b']:
+                    _m = re.search(_p, _d)
+                    if _m:
+                        _v = int(_m.group(1))
+                        if 1 < _v < 10000:
+                            qpu = _v
+                            break
             items.append({
                 "line_number": len(items) + 1,
                 "item_number": current_part or current_asin or str(len(items) + 1),
                 "qty": current_qty,
                 "uom": current_uom,
-                "qty_per_uom": 1,
+                "qty_per_uom": qpu,
                 "description": current_desc,
                 "part_number": current_part or current_asin,
                 "item_link": "",
@@ -223,6 +237,7 @@ def parse_items_from_text(text: str) -> list:
         current_desc = ""
         current_qty = 1
         current_uom = "each"
+        current_qpu = 1
         current_part = ""
         current_asin = ""
 
@@ -233,7 +248,15 @@ def parse_items_from_text(text: str) -> list:
         # Skip table metadata lines
         if meta_pat.match(line):
             continue
-        if unit_count_pat.match(line):
+
+        # Check for qty_per_uom / unit count line
+        m = qpu_pat.match(line)
+        if m:
+            current_qpu = max(1, int(m.group(1)))
+            continue
+        m = unit_count_pat.match(line)
+        if m:
+            current_qpu = max(1, int(m.group(1)))
             continue
 
         # Check for qty line
