@@ -2376,10 +2376,15 @@ def process_rfq_email(rfq_email):
         bn = os.path.basename(path).lower()
         if any(x in bn for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
             return False
+        # Office docs: filename-only check (can't inspect content like PDFs)
+        if bn.endswith((".xlsx", ".xls", ".docx")):
+            return "704" in bn and "704b" not in bn
+        # Quick filename match for PDFs
         if "704" in bn and "ams" in bn:
             return True
         if "704" in bn and "704b" not in bn:
             return True
+        # PDF content inspection fallback
         try:
             from pypdf import PdfReader
             reader = PdfReader(path)
@@ -2460,7 +2465,27 @@ def process_rfq_email(rfq_email):
                     _trace.append(f"PDF copied: {os.path.basename(pc_file)} ({_file_size} bytes)")
                     log.info("PC parse: %s (%d bytes)", os.path.basename(pc_file), _file_size)
 
-                    parsed = parse_ams704(pc_file)
+                    # Dual-path parsing: PDF → parse_ams704, office docs → doc_converter
+                    from src.forms.doc_converter import is_office_doc as _is_office
+                    if _is_office(pc_file):
+                        try:
+                            from src.forms.doc_converter import extract_text as _extr, parse_items_from_text as _parse_txt
+                            _doc_text = _extr(pc_file)
+                            _trace.append(f"Office doc: extracted {len(_doc_text)} chars")
+                            parsed = {}
+                            try:
+                                from src.forms.vision_parser import parse_from_text as _ai_parse, is_available as _ai_ok
+                                if _ai_ok():
+                                    parsed = _ai_parse(_doc_text, source_path=pc_file) or {}
+                            except Exception:
+                                pass
+                            if not parsed.get("line_items"):
+                                _fb = _parse_txt(_doc_text)
+                                parsed = {"line_items": _fb or [], "header": {}, "parse_method": "regex_fallback"}
+                        except Exception as _doc_e:
+                            parsed = {"error": str(_doc_e), "line_items": [], "header": {}}
+                    else:
+                        parsed = parse_ams704(pc_file)
                     parse_error = parsed.get("error")
                     _item_count = len(parsed.get("line_items", []))
                     _method = parsed.get("parse_method", "?")
@@ -2631,6 +2656,24 @@ def process_rfq_email(rfq_email):
                     _save_single_pc(pc_id, pcs[pc_id])
                     if _pc_pdf_idx == 0:
                         _ensure_contact_from_email(rfq_email)
+                        # Save supplementary files (non-704 attachments like Purchase Justification)
+                        for _att in rfq_email.get("attachments", []):
+                            _att_fn = _att.get("filename", "")
+                            _att_path = _att.get("path", "")
+                            if not _att_path or not os.path.exists(_att_path):
+                                continue
+                            if _is_pc_filename(_att_path):
+                                continue  # Skip 704 files (already processed as PCs)
+                            if any(x in _att_fn.lower() for x in ["703b", "704b", "bid_package"]):
+                                continue
+                            try:
+                                with open(_att_path, "rb") as _sf:
+                                    save_rfq_file(pc_id, _att_fn, "application/octet-stream",
+                                                  _sf.read(), category="supplementary",
+                                                  uploaded_by="email_poller")
+                                _trace.append(f"Supplementary: {_att_fn} → {pc_id}")
+                            except Exception:
+                                pass
                     try:
                         from src.agents.pc_enrichment_pipeline import enrich_pc_background
                         enrich_pc_background(pc_id)

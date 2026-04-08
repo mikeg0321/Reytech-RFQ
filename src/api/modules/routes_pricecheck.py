@@ -3454,7 +3454,7 @@ def pricecheck_bundle_view(bundle_id):
 @auth_required
 @safe_route
 def api_pc_multi_upload():
-    """Upload multiple separate AMS 704 PDFs. Creates one PC per file, bundled."""
+    """Upload multiple separate AMS 704 files (PDF or office docs). Creates one PC per file, bundled."""
     files = request.files.getlist("files")
     if not files or not any(f.filename for f in files):
         return jsonify({"ok": False, "error": "No files uploaded"})
@@ -3486,9 +3486,24 @@ def api_pc_multi_upload():
         pc_file = os.path.join(upload_dir, f"{pc_id}_{safe_name}")
         f.save(pc_file)
 
-        # Parse
+        # Parse — PDF uses AMS 704 parser, office docs use doc_converter
         try:
-            parsed = parse_ams704(pc_file)
+            from src.forms.doc_converter import is_office_doc as _is_office
+            if _is_office(pc_file):
+                from src.forms.doc_converter import extract_text as _extr, parse_items_from_text as _parse_txt
+                _doc_text = _extr(pc_file)
+                parsed = {}
+                try:
+                    from src.forms.vision_parser import parse_from_text as _ai_parse, is_available as _ai_ok
+                    if _ai_ok():
+                        parsed = _ai_parse(_doc_text, source_path=pc_file) or {}
+                except Exception:
+                    pass
+                if not parsed.get("line_items"):
+                    _fb = _parse_txt(_doc_text)
+                    parsed = {"line_items": _fb or [], "header": {}, "parse_method": "regex_fallback"}
+            else:
+                parsed = parse_ams704(pc_file)
         except Exception as e:
             log.error("multi-upload parse error for %s: %s", safe_name, e)
             parsed = {"error": str(e), "line_items": [], "header": {}}

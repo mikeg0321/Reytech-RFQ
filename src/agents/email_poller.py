@@ -1074,11 +1074,13 @@ def is_price_check_email(subject, body, sender, pdf_names):
     signals = []
     score = 0
 
-    # ── Guard: A PC MUST have at least one PDF attachment ──
-    # Without a 704 form PDF, there's nothing to parse as a Price Check.
-    # Emails with only DOCX/XLS should route to RFQ instead.
-    if not pdf_names:
-        log.debug("PC check: no PDF attachments — cannot be a PC")
+    # ── Guard: A PC MUST have at least one 704 attachment (PDF or office doc) ──
+    _pdf_only = [p for p in pdf_names if p.lower().endswith(".pdf")]
+    _office_704s = [p for p in pdf_names
+                    if p.lower().endswith((".xlsx", ".xls", ".docx"))
+                    and "704" in p.lower() and "704b" not in p.lower()]
+    if not _pdf_only and not _office_704s:
+        log.debug("PC check: no PDF/office-704 attachments — cannot be a PC")
         return None
 
     # ── Signal 1: Known PC sender (check FIRST, before negatives) ──
@@ -1127,23 +1129,24 @@ def is_price_check_email(subject, body, sender, pdf_names):
     
     # ── Signal 3: (subject already checked above) ──
     
-    # ── Signal 4: PDF filename contains "704" but NOT "704b" ──
+    # ── Signal 4: Attachment filename contains "704" but NOT "704b" ──
     # This is the strongest signal — AMS 704 forms are almost always price checks
-    # Count ALL 704 PDFs (not just first) to support multi-attachment emails
+    # Count ALL 704 files (PDFs + office docs) to support multi-attachment emails
     _pc_704_count = 0
     for pdf in pdf_names:
         pl = pdf.lower()
         if "704" in pl and "704b" not in pl:
             _pc_704_count += 1
             if _pc_704_count == 1:  # Score only once (strongest match)
+                _is_office = pl.endswith((".xlsx", ".xls", ".docx"))
                 if "ams" in pl:
-                    signals.append(f"pdf_ams704:{pdf}")
-                    score += 5  # Very strong: "AMS 704" in filename
+                    signals.append(f"{'office' if _is_office else 'pdf'}_ams704:{pdf}")
+                    score += 5 if not _is_office else 4
                 else:
-                    signals.append(f"pdf_704:{pdf}")
-                    score += 3  # Moderate: "704" in filename without "ams"
+                    signals.append(f"{'office' if _is_office else 'pdf'}_704:{pdf}")
+                    score += 3
     if _pc_704_count > 1:
-        signals.append(f"multi_704_pdfs:{_pc_704_count}")
+        signals.append(f"multi_704_files:{_pc_704_count}")
     
     # ── Signal 5: Body contains PC-like phrases ──
     pc_phrases = ["please email me a quote", "price your response",
@@ -2351,7 +2354,7 @@ class EmailPoller:
         return results
 
     def _get_pdf_names(self, msg):
-        """Get list of PDF filenames without saving them. Checks inside ZIPs too."""
+        """Get list of PDF + office doc filenames without saving them. Checks inside ZIPs too."""
         names = []
         for part in msg.walk():
             if part.get_content_maintype() == "multipart":
@@ -2360,6 +2363,9 @@ class EmailPoller:
             if filename:
                 fname_lower = filename.lower()
                 if fname_lower.endswith(".pdf"):
+                    names.append(self._decode_header(filename) if isinstance(filename, str) else filename)
+                elif fname_lower.endswith((".xlsx", ".xls", ".docx")):
+                    # Include office docs so is_price_check_email() can detect 704 spreadsheets
                     names.append(self._decode_header(filename) if isinstance(filename, str) else filename)
                 elif fname_lower.endswith(".zip"):
                     # Peek inside ZIP for PDFs
