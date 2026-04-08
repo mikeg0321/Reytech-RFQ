@@ -90,8 +90,8 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
                 VALUES (?, 'quote_won', ?, ?, ?)
             """, (record.get("requestor_email", ""), f"Won — PO {po_number}",
                   now, f'{{"record_type":"{record_type}","record_id":"{record_id}"}}'))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("mark_won CRM activity: %s", e)
 
     # Update recommendation_audit
     try:
@@ -101,8 +101,8 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
                 UPDATE recommendation_audit SET outcome='won', updated_at=datetime('now')
                 WHERE (pc_id=? OR quote_number=?) AND outcome='pending'
             """, (record_id, record.get("reytech_quote_number", "")))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("mark_won recommendation_audit: %s", e)
 
     # Stop award tracker monitoring
     try:
@@ -113,8 +113,8 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
                 (quote_number, checked_at, outcome, notes)
                 VALUES (?, datetime('now'), 'won_manual', ?)
             """, (record.get("reytech_quote_number", record_id), notes or f"PO {po_number}"))
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("mark_won award_tracker_log: %s", e)
 
     log.info("MARK_WON: %s %s — PO %s", record_type, record_id, po_number)
     return result

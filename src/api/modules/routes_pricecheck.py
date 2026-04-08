@@ -8162,7 +8162,7 @@ def api_oracle_seed_calibration():
     return jsonify({"ok": True, "stats": stats})
 
 
-@bp.route("/api/pricecheck/<pcid>/oracle-auto-price")
+@bp.route("/api/pricecheck/<pcid>/oracle-auto-price", methods=["POST"])
 @auth_required
 @safe_route
 def api_pc_oracle_auto_price(pcid):
@@ -8183,6 +8183,10 @@ def api_pc_oracle_auto_price(pcid):
         items = _copy.deepcopy(pc.get("items") or [])
         if not items:
             return jsonify({"ok": False, "error": "No items"})
+        if len(items) > 30:
+            log.warning("Oracle auto-price: capping %d items to 30 for %s", len(items), pcid)
+            items = items[:30]
+        log.info("Oracle auto-price: %s — %d items", pcid, len(items))
 
         from src.core.pricing_oracle_v2 import get_pricing
 
@@ -8309,7 +8313,7 @@ def api_pc_oracle_auto_price(pcid):
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/pricecheck/<pcid>/quote-analysis")
+@bp.route("/api/pricecheck/<pcid>/quote-analysis", methods=["POST"])
 @auth_required
 @safe_route
 def api_pc_quote_analysis(pcid):
@@ -8464,7 +8468,7 @@ def api_pc_item_price_history(pcid, item_idx):
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/pricecheck/<pcid>/amazon-match/<int:idx>")
+@bp.route("/api/pricecheck/<pcid>/amazon-match/<int:idx>", methods=["POST"])
 @auth_required
 @safe_route
 def amazon_match_item(pcid, idx):

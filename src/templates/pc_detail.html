@@ -1277,7 +1277,7 @@
      if (btn) { btn.disabled = true; btn.textContent = '⏳ Searching...'; }
      if (status) { status.style.display = 'inline'; status.textContent = ''; }
      var pcid = {{ pcid|tojson }};
-     fetch('/api/pricecheck/'+pcid+'/amazon-match/'+idx)
+     fetch('/api/pricecheck/'+pcid+'/amazon-match/'+idx,{method:'POST',credentials:'same-origin'})
        .then(function(r){ return r.json(); })
        .then(function(d){
          if (!d.ok) {
@@ -1325,6 +1325,7 @@
          }
        })
        .catch(function(e){
+         console.error('Amazon match error:', e);
          if (btn) { btn.disabled = false; btn.textContent = '🔍 Amazon'; }
          if (status) { status.textContent = '❌ Network error'; status.style.color = '#f85149'; }
        });
@@ -1498,13 +1499,13 @@
       panel.innerHTML=html;
       row.insertAdjacentElement('afterend',panel);
       showMsg('✅ Found '+strats.length+' sourcing strategies','ok');
-     }).catch(function(e){showMsg('❌ Error: '+e.message,'err')});
+     }).catch(function(e){console.error('Find better pricing error:',e);showMsg('❌ Error: '+e.message,'err')});
     }
 
     function oracleAutoPrice() {
      var btn=document.getElementById('oracleAutoPriceBtn');
      btn.disabled=true;btn.textContent='⏳ Pricing...';
-     fetch('/api/pricecheck/'+_pcid+'/oracle-auto-price',{credentials:'same-origin'})
+     fetch('/api/pricecheck/'+_pcid+'/oracle-auto-price',{method:'POST',credentials:'same-origin'})
      .then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;btn.textContent='⚡ Oracle Price';
       if(!d.ok){showMsg('❌ '+(d.error||'Oracle pricing failed'),'err');return;}
@@ -1514,7 +1515,9 @@
         var row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
         if(!row) return;
         // Show recommendation badge on the price cell
-        var priceCell=row.querySelector('.profit')?.previousElementSibling?.previousElementSibling;
+        var _profitEl=row.querySelector('.profit');
+        var priceCell=_profitEl?_profitEl.previousElementSibling:null;
+        priceCell=priceCell?priceCell.previousElementSibling:null;
         // Find the Our Price td (col index varies) — use the price input directly
         var priceEl=document.querySelector('[name=price_'+idx+']');
         var costEl=document.querySelector('[name=cost_'+idx+']');
@@ -1559,6 +1562,7 @@
       triggerPcAutosave();
       showMsg('⚡ Oracle priced '+applied+' items'+(skipped?' ('+skipped+' skipped — no data)':''),'ok');
      }).catch(function(e){
+      console.error('Oracle auto-price error:',e);
       btn.disabled=false;btn.textContent='⚡ Oracle Price';
       showMsg('❌ Error: '+e.message,'err');
      });
@@ -1571,7 +1575,7 @@
      btn.disabled=true;btn.textContent='⏳ Analyzing...';
      panel.style.display='block';
      panel.innerHTML='<div style="padding:12px 16px;background:#21262d;border:1px solid #30363d;border-radius:8px;color:#8b949e;font-size:13px">Analyzing all items against SCPRS data...</div>';
-     fetch('/api/pricecheck/'+_pcid+'/quote-analysis',{credentials:'same-origin'})
+     fetch('/api/pricecheck/'+_pcid+'/quote-analysis',{method:'POST',credentials:'same-origin'})
      .then(function(r){return r.json()}).then(function(d){
       btn.disabled=false;btn.textContent='📊 Quote Analysis';
       if(!d.ok){panel.innerHTML='<div style="padding:12px;background:#da363322;border:1px solid #da3633;border-radius:8px;color:#f85149">'+d.error+'</div>';return;}
@@ -1607,6 +1611,7 @@
       html+='</div>';
       panel.innerHTML=html;
      }).catch(function(e){
+      console.error('Quote analysis error:',e);
       btn.disabled=false;btn.textContent='📊 Quote Analysis';
       panel.innerHTML='<div style="padding:12px;background:#da363322;border:1px solid #da3633;border-radius:8px;color:#f85149">Error: '+e.message+'</div>';
      });

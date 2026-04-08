@@ -69,10 +69,15 @@ def research_cost_reduction(description, current_cost, competitor_price=None,
         }
     """
     if not description:
+        log.debug("cost_reduction: skipped — no description")
         return {"ok": False, "error": "No description"}
+
+    log.info("V4 cost reduction research: '%s' cost=$%s comp=$%s",
+             description[:60], current_cost or "?", competitor_price or "?")
 
     api_key = _get_api_key()
     if not api_key:
+        log.warning("V4 cost reduction: ANTHROPIC_API_KEY not set")
         return {"ok": False, "error": "ANTHROPIC_API_KEY not set"}
 
     if not HAS_REQUESTS:
@@ -169,9 +174,12 @@ Respond in this exact JSON format:
         # Parse JSON from response
         json_match = re.search(r'\{[\s\S]*\}', text)
         if not json_match:
+            log.warning("V4 cost reduction: no JSON in Claude response for '%s'", description[:40])
             return {"ok": False, "error": "No JSON in response", "raw": text[:500]}
 
         result = json.loads(json_match.group())
+        log.info("V4 cost reduction: found %d strategies for '%s'",
+                 len(result.get("strategies", [])), description[:40])
 
         # Enrich strategies with savings calculations
         strategies = result.get("strategies", [])
@@ -208,6 +216,11 @@ def research_and_create_action_items(items, agency="", source_quote=""):
         {"ok": True, "items_researched": N, "action_items_created": N}
     """
     from src.core.db import get_db
+
+    _MAX_ITEMS = 10  # Cap to prevent runaway API spend
+    if len(items) > _MAX_ITEMS:
+        log.warning("V4 cost reduction: capping %d items to %d", len(items), _MAX_ITEMS)
+        items = items[:_MAX_ITEMS]
 
     stats = {"items_researched": 0, "action_items_created": 0, "errors": 0}
     now = datetime.now().isoformat()
