@@ -306,6 +306,7 @@ def search_amazon(query: str, max_results: int = 5) -> list:
                 link = f"https://www.amazon.com/dp/{asin}"
 
             mfg_info = _extract_mfg_info(title, asin)
+            _thumb = item.get("thumbnail", "") or item.get("image", "")
             results.append({
                 "title": title[:200],
                 "price": price,
@@ -317,6 +318,7 @@ def search_amazon(query: str, max_results: int = 5) -> list:
                 "manufacturer": mfg_info.get("manufacturer", ""),
                 "mfg_number": mfg_info.get("mfg_number", ""),
                 "item_number": mfg_info.get("item_number", asin),
+                "photo_url": _thumb if isinstance(_thumb, str) and _thumb.startswith("http") else "",
             })
 
             if len(results) >= max_results:
@@ -474,6 +476,17 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
             "manufacturer": mfg_info.get("manufacturer", ""),
             "mfg_number": mfg_info.get("mfg_number", ""),
         }
+        # Extract product image
+        _img = product.get("main_image") or ""
+        if not _img:
+            _images = product.get("images", [])
+            if _images and isinstance(_images, list):
+                _first = _images[0]
+                _img = _first.get("link") or _first if isinstance(_first, str) else ""
+        if not _img:
+            _img = product.get("thumbnail", "")
+        if _img and isinstance(_img, str) and _img.startswith("http"):
+            result["photo_url"] = _img
         if typical and price and price < typical:
             result["discount_pct"] = round((1 - price / typical) * 100, 1)
         log.info(f"SerpApi product lookup: {asin} → ${price} '{title[:50]}'")

@@ -2249,6 +2249,101 @@ def find_by_supplier_sku(sku: str, supplier_name: str = "") -> list:
         return []
 
 
+def enrich_catalog_product(product_id: int, **fields):
+    """
+    Enrich an existing catalog product with new data from ANY lookup source.
+    Only updates fields that are currently empty/null — never overwrites good data.
+    This is the catalog flywheel: every lookup makes the catalog richer.
+
+    Supported fields: upc, asin, mfg_number, manufacturer, photo_url,
+    description, best_supplier, best_cost, supplier_name, supplier_sku, supplier_url
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    updated = []
+
+    # Direct column updates (only if currently empty)
+    _col_map = {
+        "upc": "upc",
+        "mfg_number": "mfg_number",
+        "manufacturer": "manufacturer",
+        "photo_url": "photo_url",
+        "best_supplier": "best_supplier",
+    }
+    for field_key, col_name in _col_map.items():
+        val = fields.get(field_key, "")
+        if val and isinstance(val, str) and val.strip():
+            try:
+                conn.execute(
+                    f"UPDATE product_catalog SET {col_name}=?, updated_at=? "
+                    f"WHERE id=? AND ({col_name} IS NULL OR {col_name}='')",
+                    (val.strip(), now, product_id)
+                )
+                if conn.total_changes:
+                    updated.append(col_name)
+            except Exception:
+                pass
+
+    # Cost update (only if better/newer)
+    _cost = fields.get("best_cost") or fields.get("cost")
+    if _cost and float(_cost) > 0:
+        try:
+            conn.execute(
+                "UPDATE product_catalog SET best_cost=?, cost=?, updated_at=? "
+                "WHERE id=? AND (best_cost IS NULL OR best_cost=0 OR best_cost > ?)",
+                (float(_cost), float(_cost), now, product_id, float(_cost))
+            )
+        except Exception:
+            pass
+
+    # Photo URL update (always update if we have one and current is empty)
+    _photo = fields.get("photo_url", "")
+    if _photo and _photo.startswith("http"):
+        try:
+            conn.execute(
+                "UPDATE product_catalog SET photo_url=?, updated_at=? "
+                "WHERE id=? AND (photo_url IS NULL OR photo_url='')",
+                (_photo, now, product_id)
+            )
+        except Exception:
+            pass
+
+    conn.commit()
+    conn.close()
+
+    # Add supplier cross-reference if provided
+    _sup_name = fields.get("supplier_name", "")
+    _sup_sku = fields.get("supplier_sku", "")
+    _sup_url = fields.get("supplier_url", "")
+    _sup_price = float(fields.get("supplier_price", 0) or 0)
+    if _sup_name and (_sup_sku or _sup_url or _sup_price > 0):
+        try:
+            add_supplier_price(
+                product_id, _sup_name, _sup_price,
+                url=_sup_url, sku=_sup_sku
+            )
+        except Exception:
+            pass
+
+    # Add Amazon as a supplier if ASIN provided
+    _asin = fields.get("asin", "")
+    _amz_price = float(fields.get("amazon_price", 0) or 0)
+    if _asin and _amz_price > 0:
+        try:
+            add_supplier_price(
+                product_id, "Amazon", _amz_price,
+                url=f"https://www.amazon.com/dp/{_asin}",
+                sku=_asin
+            )
+        except Exception:
+            pass
+
+    if updated:
+        log.info("Catalog enriched product #%d: %s", product_id, ", ".join(updated))
+    return updated
+
+
 def record_catalog_quote(product_id: int, price_type: str, price: float,
                          quantity: float = 1, source: str = "pc_save",
                          agency: str = "", institution: str = "",

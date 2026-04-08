@@ -9059,10 +9059,31 @@ def api_item_link_lookup():
                         cost=price, supplier_url=url,
                         manufacturer=result.get("manufacturer", ""),
                         mfg_number=result.get("mfg_number", ""),
+                        photo_url=result.get("photo_url", ""),
                         source=f"link_lookup_{supplier.lower()[:20]}"
                     )
                     if pid:
                         result["catalog_product_id"] = pid
+
+                # Enrich catalog with all available data (flywheel)
+                if pid:
+                    try:
+                        from src.agents.product_catalog import enrich_catalog_product
+                        enrich_catalog_product(
+                            pid,
+                            upc=result.get("upc", ""),
+                            asin=result.get("asin", ""),
+                            mfg_number=pn,
+                            manufacturer=result.get("manufacturer", ""),
+                            photo_url=result.get("photo_url", ""),
+                            supplier_name=supplier,
+                            supplier_sku=pn,
+                            supplier_url=url,
+                            supplier_price=price,
+                            amazon_price=price if result.get("asin") else 0,
+                        )
+                    except Exception:
+                        pass
 
                 # Record supplier price
                 if pid and supplier and price > 0:
