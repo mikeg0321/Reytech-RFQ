@@ -1286,15 +1286,12 @@
            return;
          }
          if (d.best) {
-           // Populate item link
+           // Populate item link — handleLinkInput triggers full lookup
+           // which gets MSRP/sale price separation via lookup_from_url
            var linkEl = document.querySelector('[name=link_'+idx+']');
            if (linkEl) { linkEl.value = d.best.url; handleLinkInput(idx, linkEl); }
-           // Populate cost if available and current cost is 0
-           var costEl = document.querySelector('[name=cost_'+idx+']');
-           if (costEl && (!costEl.value || parseFloat(costEl.value) === 0) && d.best.price > 0) {
-             costEl.value = d.best.price.toFixed(2);
-             recalcRow(idx, true);
-           }
+           // Don't set cost from search price — let the link lookup handle it
+           // with proper MSRP (list_price) vs sale_price distinction
            // Show match info
            var title = d.best.title.length > 60 ? d.best.title.substring(0,57)+'...' : d.best.title;
            var qtyNote = d.best.title_qty ? ' (qty:'+d.best.title_qty+')' : '';
