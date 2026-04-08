@@ -235,8 +235,8 @@ function _applyLinkData(idx, d, mode) {
   if (costEl && d.price && d.price > 0) {
     var existingCost = parseFloat(costEl.value) || 0;
     // Block auto-fill if match score < 40% — wrong product, cost is meaningless
-    if (_matchScore < 40 && existingCost > 0) {
-      filled.push('cost BLOCKED — low match ' + _matchScore + '%');
+    if (_matchScore < 40) {
+      filled.push('cost BLOCKED — low match ' + _matchScore + '%, verify product');
     } else {
       var msrp = d.list_price ? parseFloat(d.list_price) : d.price;
       costEl.value = (msrp || d.price).toFixed(2);
@@ -340,10 +340,19 @@ function _applyLinkData(idx, d, mode) {
   if (_lookupTitle && _pcDesc) {
     var _ms = _productMatchScore(_pcDesc, _lookupTitle);
     var _mClr = _ms >= 70 ? '#3fb950' : (_ms >= 40 ? '#d29922' : '#f85149');
-    var _mLabel = _ms >= 70 ? '✓ Match' : (_ms >= 40 ? '~ Partial' : '✗ Low match');
+    var _mLabel = _ms >= 70 ? '✓ Match' : (_ms >= 40 ? '~ Partial' : '✗ Wrong product?');
     statusHtml += ' <span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:3px;background:' + _mClr + '20;color:' + _mClr + ';border:1px solid ' + _mClr + '40;cursor:help" '
       + 'title="PC: ' + _pcDesc.substring(0,60).replace(/"/g,'&quot;') + '\nFound: ' + _lookupTitle.substring(0,60).replace(/"/g,'&quot;') + '">'
       + _mLabel + ' ' + _ms + '%</span>';
+    // For low matches, show the found product title so user can verify without hovering
+    if (_ms < 40) {
+      statusHtml += '<div style="font-size:11px;color:#f85149;margin-top:3px;line-height:1.3">'
+        + '⚠ Found: <b>' + _lookupTitle.substring(0,80).replace(/</g,'&lt;') + '</b>'
+        + '<br>Cost NOT auto-filled — verify this is the right product</div>';
+    } else if (_ms < 70) {
+      statusHtml += '<div style="font-size:11px;color:#d29922;margin-top:2px">Found: '
+        + _lookupTitle.substring(0,80).replace(/</g,'&lt;') + '</div>';
+    }
   }
   if (metaEl && statusHtml) metaEl.innerHTML = statusHtml;
 
