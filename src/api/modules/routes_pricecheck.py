@@ -8574,39 +8574,48 @@ def api_pc_oracle_auto_price(pcid):
             market = oracle.get("market") or {}
             strategies = oracle.get("strategies") or []
 
-            # Pick optimal price: price to win (undercut competitors)
+            # Pick optimal price: MAXIMIZE margin while still WINNING.
+            # Strategy: price just below competitor average (highest viable price).
+            # Floor at cost+20% to cover 90-day price risk (45-day quote + net45).
             rec_price = rec.get("quote_price")
             confidence = rec.get("confidence", "low")
             rationale = rec.get("rationale", "")
 
-            # Strategy priority: "Undercut All" > "Win Price" > "Maximize Margin" > Floor
-            # Goal is to WIN the bid, not maximize margin on a losing quote.
-            _win_strat = None
+            # Floor: cost + 20% covers price fluctuations over 90-day exposure
+            floor_price = round(cost * 1.20, 2) if cost > 0 else 0
+
+            # Build a sorted list of candidate prices from strategies
+            # Priority: Maximize Margin (highest winning) > Win Price > Undercut All
+            _candidates = []
             for strat in strategies:
+                sp = strat.get("price", 0)
                 sn = strat.get("name", "").lower()
-                if "undercut" in sn or "win" in sn:
-                    _win_strat = strat
-                    break
-            if not _win_strat and strategies:
-                # No explicit win strategy — use first but cap at comp_low if available
-                _win_strat = strategies[0]
-            if _win_strat and _win_strat.get("price", 0) > 0:
-                sp = _win_strat["price"]
-                # Ensure we're above cost (floor = cost + 15%)
-                floor_price = round(cost * 1.15, 2) if cost > 0 else 0
+                if sp > 0 and "floor" not in sn:
+                    _candidates.append((sp, strat))
+            # Sort descending — prefer highest price that's still viable
+            _candidates.sort(key=lambda x: -x[0])
+
+            _best = None
+            for sp, strat in _candidates:
+                # Skip if below floor
                 if floor_price > 0 and sp < floor_price:
-                    sp = floor_price
-                # Sanity cap: if strategy price is absurdly above cost AND no real
-                # competitor data backs it, fall back to safe markup. But if there IS
-                # real comp_avg data, trust the market (competitors pay that price).
+                    continue
+                # Sanity cap: without real competitor data, cap at 3x cost
                 _has_real_comps = bool(market.get("competitor_avg") or market.get("competitor_low"))
                 ceiling_cap = round(cost * (10 if _has_real_comps else 3), 2) if cost > 0 else 0
                 if ceiling_cap > 0 and sp > ceiling_cap:
-                    sp = round(cost * 1.25, 2)  # Fall back to safe 25% markup
-                    rationale = f"Market data too high (${_win_strat['price']:.2f}) — capped to 25% on ${cost:.2f}"
-                if not cost or sp > cost:
-                    rec_price = sp
-                    rationale = rationale or f"{_win_strat['name']}: ${sp:.2f} ({_win_strat.get('markup_pct', 0):.0f}%)"
+                    continue
+                _best = (sp, strat)
+                break
+
+            if _best:
+                sp, strat = _best
+                rec_price = sp
+                rationale = f"{strat['name']}: ${sp:.2f} ({strat.get('markup_pct', 0):.0f}% on ${cost:.2f})"
+            elif floor_price > 0:
+                # All strategies below floor — use floor
+                rec_price = floor_price
+                rationale = f"Market below floor — ${floor_price:.2f} (20% on ${cost:.2f})"
 
             # Fallback: cost + 25% if no Oracle data
             if not rec_price and cost > 0:
