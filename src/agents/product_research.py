@@ -417,7 +417,7 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
         #   price_strikethrough (buybox level — the crossed-out "was" price)
         #   rrp (recommended retail price)
         typical = None
-        for _tp_field in ("typical_price", "list_price", "before_price", "rrp"):
+        for _tp_field in ("typical_price", "list_price", "before_price", "old_price", "rrp"):
             _tp = product.get(_tp_field)
             if isinstance(_tp, dict):
                 _tv = _tp.get("value") or _tp.get("raw", "") or _tp.get("extracted_price")
@@ -458,6 +458,11 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
                         break
                 if typical and typical > 0:
                     break
+        # Check extracted_old_price (numeric version SerpApi provides alongside old_price)
+        if not typical:
+            _eop = product.get("extracted_old_price")
+            if isinstance(_eop, (int, float)) and _eop > 0:
+                typical = float(_eop)
         # Last resort: check top-level pricing_info or savings
         if not typical and price:
             _savings = product.get("savings")
