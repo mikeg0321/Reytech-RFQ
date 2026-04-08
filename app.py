@@ -89,6 +89,8 @@ def create_app():
 
     # ── CRITICAL PATH: DB schema + data sync + blueprint ──
     print("[BOOT] DB schema init...", flush=True)
+    _db_degraded = False
+    _db_degraded_error = None
     try:
         if os.environ.get("FORCE_CLEAN_BOOT"):
             from src.core.db import get_db, SCHEMA, DB_PATH, _is_railway_volume
@@ -122,8 +124,16 @@ def create_app():
                     signal.alarm(0)
                     signal.signal(signal.SIGALRM, old_handler)
     except Exception as e:
-        logging.getLogger("reytech").warning("DB init: %s", e)
-    print(f"[BOOT] DB ready ({time.time()-t0:.1f}s)", flush=True)
+        _db_degraded = True
+        _db_degraded_error = str(e)
+        logging.getLogger("reytech").error("DB INIT FAILED — entering degraded mode: %s", e)
+        print(f"[BOOT] DB FAILED — degraded mode: {e}", flush=True)
+    app.config["DB_DEGRADED"] = _db_degraded
+    app.config["DB_DEGRADED_ERROR"] = _db_degraded_error
+    if not _db_degraded:
+        print(f"[BOOT] DB ready ({time.time()-t0:.1f}s)", flush=True)
+    else:
+        print(f"[BOOT] DB DEGRADED ({time.time()-t0:.1f}s)", flush=True)
 
     # ── Schema validation — fix missing tables/columns before first request ──
     try:
@@ -249,6 +259,40 @@ def create_app():
         if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
             return {"ok": False, "error": "Internal server error"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
+
+    # ── Degraded mode middleware — returns maintenance page when DB is down ──
+    _DEGRADED_EXEMPT = {"/ping", "/api/system/status", "/static/"}
+
+    @app.before_request
+    def _check_degraded_mode():
+        if not app.config.get("DB_DEGRADED"):
+            return None
+        # Allow health checks and static files through
+        for exempt in _DEGRADED_EXEMPT:
+            if request.path.startswith(exempt) or request.path == exempt:
+                return None
+        if request.path.startswith("/api/"):
+            return jsonify({
+                "ok": False,
+                "error": "System in maintenance mode — database unavailable",
+                "degraded": True,
+                "detail": app.config.get("DB_DEGRADED_ERROR", "unknown"),
+            }), 503
+        return (
+            "<html><head><title>Maintenance</title>"
+            "<style>body{font-family:system-ui;display:flex;justify-content:center;"
+            "align-items:center;min-height:100vh;margin:0;background:#0d1117;color:#c9d1d9}"
+            ".box{text-align:center;padding:40px;border:1px solid #30363d;border-radius:12px;"
+            "background:#161b22;max-width:500px}"
+            "h1{color:#f0883e;margin:0 0 16px}p{color:#8b949e;line-height:1.6}"
+            "</style></head><body><div class='box'>"
+            "<h1>System Maintenance</h1>"
+            "<p>The database is temporarily unavailable. The system will automatically "
+            "recover when the issue is resolved.</p>"
+            "<p style='font-size:13px;margin-top:20px'>Error: "
+            + (app.config.get("DB_DEGRADED_ERROR") or "unknown") +
+            "</p></div></body></html>"
+        ), 503
 
     # ── Response compression + caching ──
     @app.after_request

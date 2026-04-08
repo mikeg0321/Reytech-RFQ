@@ -1350,7 +1350,10 @@ class EmailPoller:
             log.debug("SQLite processed_emails save: %s", e)
 
     def connect(self):
-        """Connect to IMAP server. Returns True on success."""
+        """Connect to IMAP server. Returns True on success.
+        Protected by gmail circuit breaker — stops hammering Gmail if connection
+        fails repeatedly (3 failures → 5min cooldown).
+        """
         try:
             if self.mail and self._connected:
                 try:
@@ -1358,20 +1361,46 @@ class EmailPoller:
                     return True
                 except Exception:
                     self._connected = False
-            
+
+            # Check circuit breaker before attempting connection
+            try:
+                from src.core.circuit_breaker import get_breaker, CircuitOpenError
+                breaker = get_breaker("gmail")
+                if breaker.state == "open":
+                    log.warning("Gmail circuit breaker OPEN — skipping IMAP connect")
+                    return False
+            except ImportError:
+                pass
+
             self.mail = imaplib.IMAP4_SSL(self.host, self.port)
             self.mail.login(self.email_addr, self.password)
             self.mail.select(self.folder)
             self._connected = True
             log.info(f"Connected to {self.host} as {self.email_addr}")
+            # Record success with circuit breaker
+            try:
+                from src.core.circuit_breaker import get_breaker
+                get_breaker("gmail")._on_success()
+            except Exception:
+                pass
             return True
         except imaplib.IMAP4.error as e:
             log.error(f"IMAP auth failed: {e}")
             self._connected = False
+            try:
+                from src.core.circuit_breaker import get_breaker
+                get_breaker("gmail")._on_failure(e)
+            except Exception:
+                pass
             return False
         except Exception as e:
             log.error(f"IMAP connection failed: {e}")
             self._connected = False
+            try:
+                from src.core.circuit_breaker import get_breaker
+                get_breaker("gmail")._on_failure(e)
+            except Exception:
+                pass
             return False
 
     def check_for_rfqs(self, save_dir="uploads"):

@@ -54,6 +54,7 @@ class JobInfo:
         "name", "interval_sec", "func", "thread",
         "last_run", "last_success", "last_error",
         "run_count", "error_count", "started_at", "status",
+        "restart_func", "restart_count", "max_restarts",
     )
 
     def __init__(self, name: str, interval_sec: int, func: Optional[Callable] = None):
@@ -68,6 +69,9 @@ class JobInfo:
         self.error_count = 0
         self.started_at: Optional[str] = None
         self.status = "registered"
+        self.restart_func: Optional[Callable] = None
+        self.restart_count = 0
+        self.max_restarts = 3
 
     def to_dict(self) -> dict:
         is_alive = self.thread.is_alive() if self.thread else False
@@ -77,6 +81,9 @@ class JobInfo:
             last = datetime.fromisoformat(self.last_run)
             if (datetime.now(timezone.utc) - last).total_seconds() > self.interval_sec * 3:
                 is_dead = True
+        # Also dead if thread existed but is no longer alive and had been running
+        if not is_alive and self.status == "running" and self.started_at:
+            is_dead = True
 
         return {
             "name": self.name,
@@ -89,6 +96,9 @@ class JobInfo:
             "run_count": self.run_count,
             "error_count": self.error_count,
             "started_at": self.started_at,
+            "restart_count": self.restart_count,
+            "max_restarts": self.max_restarts,
+            "restartable": self.restart_func is not None or self.func is not None,
         }
 
 
@@ -152,32 +162,73 @@ def get_all_jobs() -> list:
 
 
 def restart_dead_jobs():
-    """Check for dead jobs and restart them if a func reference is stored."""
+    """Check for dead jobs and restart them via restart_func or func reference.
+
+    Tracks restart count per job. After max_restarts (default 3), stops trying
+    and sends a critical alert instead of retrying forever.
+    """
     restarted = []
+    exhausted = []
     with _lock:
         for name, job in _jobs.items():
-            if not job.func:
+            has_restart = job.restart_func or job.func
+            if not has_restart:
                 continue
             is_alive = job.thread.is_alive() if job.thread else False
             if is_alive:
+                # Thread alive and healthy — reset restart counter
+                if job.restart_count > 0 and job.status not in ("dead", "restarted"):
+                    job.restart_count = 0
                 continue
-            # Check if job was previously running and has gone silent
+
+            # Determine if job is dead (silent for 3x interval or thread died)
+            is_dead = False
+            elapsed = 0
             if job.last_run and job.interval_sec > 0:
                 try:
                     last = datetime.fromisoformat(job.last_run)
                     elapsed = (datetime.now(timezone.utc) - last).total_seconds()
                     if elapsed > job.interval_sec * 3:
-                        # Dead — restart it
-                        t = threading.Thread(target=job.func, daemon=True, name=f"restart-{name}")
-                        t.start()
-                        job.thread = t
-                        job.started_at = datetime.now(timezone.utc).isoformat()
-                        job.status = "restarted"
-                        restarted.append(name)
-                        log.warning("RESTARTED dead job: %s (was silent for %.0fs)", name, elapsed)
-                except Exception as e:
-                    log.error("Failed to restart job %s: %s", name, e)
-    return restarted
+                        is_dead = True
+                except Exception:
+                    pass
+            # Thread was running but died
+            if not is_alive and job.status in ("running", "restarted") and job.started_at:
+                is_dead = True
+
+            if not is_dead:
+                continue
+
+            # Check restart budget
+            if job.restart_count >= job.max_restarts:
+                exhausted.append(name)
+                continue
+
+            # Attempt restart
+            try:
+                if job.restart_func:
+                    job.restart_func()
+                elif job.func:
+                    t = threading.Thread(target=job.func, daemon=True, name=f"restart-{name}")
+                    t.start()
+                    job.thread = t
+                job.restart_count += 1
+                job.started_at = datetime.now(timezone.utc).isoformat()
+                job.status = "restarted"
+                restarted.append(name)
+                log.warning("RESTARTED dead job: %s (attempt %d/%d, silent for %.0fs)",
+                            name, job.restart_count, job.max_restarts, elapsed)
+            except Exception as e:
+                job.restart_count += 1
+                log.error("Failed to restart job %s (attempt %d/%d): %s",
+                          name, job.restart_count, job.max_restarts, e)
+
+    # Alert for exhausted jobs (outside lock)
+    for name in exhausted:
+        log.critical("Job %s EXHAUSTED all %d restart attempts — requires manual intervention",
+                     name, _jobs[name].max_restarts)
+
+    return restarted, exhausted
 
 
 def start_watchdog(check_interval: int = 300):
@@ -186,7 +237,7 @@ def start_watchdog(check_interval: int = 300):
         time.sleep(120)  # Wait 2 min after boot before first check
         while True:
             try:
-                restarted = restart_dead_jobs()
+                restarted, exhausted = restart_dead_jobs()
                 if restarted:
                     try:
                         from src.agents.notify_agent import send_alert
@@ -200,6 +251,19 @@ def start_watchdog(check_interval: int = 300):
                         )
                     except Exception:
                         pass
+                if exhausted:
+                    try:
+                        from src.agents.notify_agent import send_alert
+                        send_alert(
+                            event_type="job_exhausted",
+                            title=f"CRITICAL: {len(exhausted)} job(s) failed all restarts",
+                            body=f"Jobs exhausted: {', '.join(exhausted)}. Manual restart required.",
+                            urgency="critical",
+                            channels=["email", "bell"],
+                            cooldown_key="exhausted:" + ",".join(exhausted),
+                        )
+                    except Exception:
+                        pass
             except Exception as e:
                 log.error("Watchdog error: %s", e)
             time.sleep(check_interval)
@@ -207,6 +271,50 @@ def start_watchdog(check_interval: int = 300):
     t = threading.Thread(target=_watchdog_loop, daemon=True, name="job-watchdog")
     t.start()
     log.info("Job watchdog started (check every %ds)", check_interval)
+
+
+def register_restartable(name: str, interval_sec: int, module, guard_attr: str,
+                         start_func: Callable, max_restarts: int = 3):
+    """Register a job that can be auto-restarted by the watchdog.
+
+    When the watchdog detects this job is dead, it resets the module's guard
+    attribute (e.g. _scheduler_started = False) and calls start_func() again.
+
+    Args:
+        name: Job name (must match heartbeat calls)
+        interval_sec: Expected heartbeat interval
+        module: The agent module object (e.g. src.agents.follow_up_engine)
+        guard_attr: Module-level boolean that prevents double-start (e.g. "_scheduler_started")
+        start_func: The module's start function (e.g. start_follow_up_scheduler)
+        max_restarts: Max restart attempts before giving up (default 3)
+    """
+    def _restart():
+        setattr(module, guard_attr, False)
+        start_func()
+
+    with _lock:
+        job = _jobs.get(name)
+        if not job:
+            job = JobInfo(name, interval_sec)
+            _jobs[name] = job
+        job.interval_sec = interval_sec
+        job.restart_func = _restart
+        job.max_restarts = max_restarts
+        log.info("Job %s registered as restartable (guard=%s.%s, max_restarts=%d)",
+                 name, module.__name__, guard_attr, max_restarts)
+    return job
+
+
+def get_scheduler_status() -> dict:
+    """Summary status for health checks."""
+    jobs = get_all_jobs()
+    dead = [j for j in jobs if j["status"] == "dead"]
+    return {
+        "job_count": len(jobs),
+        "dead_count": len(dead),
+        "dead_jobs": [j["name"] for j in dead],
+        "restartable_count": sum(1 for j in jobs if j.get("restartable")),
+    }
 
 
 # ── Database Backup (F5) ─────────────────────────────────────────────────────

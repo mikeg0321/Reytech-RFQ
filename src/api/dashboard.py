@@ -4392,6 +4392,24 @@ function renderBrief(data){
  if(agRow&&agList&&data.agents&&data.agents.length>0){agRow.style.display='block';agList.innerHTML=data.agents.map(function(a){var isOk=a.status==='active'||a.status==='ready'||a.status==='connected';var isWait=a.status==='not configured'||a.status==='waiting';var color=isOk?'#3fb950':isWait?'#d29922':'#f85149';var bg=isOk?'rgba(52,211,153,.08)':isWait?'rgba(251,191,36,.08)':'rgba(248,113,113,.08)';var border=isOk?'rgba(52,211,153,.25)':isWait?'rgba(251,191,36,.25)':'rgba(248,113,113,.25)';return '<span style="font-size:13px;padding:8px 14px;border-radius:8px;background:'+bg+';border:1px solid '+border+';display:inline-flex;align-items:center;gap:7px;font-weight:500"><span style="width:10px;height:10px;border-radius:50%;background:'+color+';display:inline-block;flex-shrink:0;box-shadow:0 0 6px '+color+'66"></span><span style="font-size:15px">'+a.icon+'</span><span>'+a.name+'</span></span>';}).join('');}
 }
 loadBrief();
+// Health banner — shows critical system warnings (dead jobs, circuit breakers, stale poller)
+(function(){
+ fetch('/api/system/health-banner',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+  if(!d.ok||!d.warnings||d.warnings.length===0)return;
+  var banner=document.createElement('div');
+  banner.id='health-banner';
+  banner.style.cssText='background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.4);border-radius:8px;padding:10px 16px;margin-bottom:12px;font-size:14px;color:#f87171';
+  var html='<div style="font-weight:600;margin-bottom:4px">\\u26A0 System Warnings</div>';
+  d.warnings.forEach(function(w){
+   var icon=w.level==='critical'?'\\uD83D\\uDED1':'\\u26A0\\uFE0F';
+   html+='<div style="margin:3px 0">'+icon+' '+w.msg+'</div>';
+  });
+  banner.innerHTML=html;
+  var brief=document.getElementById('brief-section');
+  if(brief&&brief.parentNode)brief.parentNode.insertBefore(banner,brief);
+  else{var main=document.querySelector('main')||document.querySelector('.container')||document.body;main.insertBefore(banner,main.firstChild);}
+ }).catch(function(){});
+})();
 """
 
 # Shared header JS — pollNow, resync, notifications, poll time. Injected into BOTH render() and _header() pages.
@@ -4609,205 +4627,77 @@ def api_qa_trace_diagnostic():
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Scheduler & Backup API (F4 + F5) ─────────────────────────────────────────
 
-@bp.route("/api/scheduler/status")
+
+# scheduler_status extracted to routes_system.py
+
+
+@bp.route("/api/system/health-banner")
 @auth_required
-def scheduler_status():
-    """Returns health status of all background jobs."""
+def api_health_banner():
+    """Returns critical warnings for the dashboard banner: dead jobs, open circuits, stale poller."""
+    warnings = []
     try:
-        from src.core.scheduler import get_all_jobs, backup_health
-        jobs = get_all_jobs()
-        bh = backup_health()
-        dead = [j for j in jobs if j["status"] == "dead"]
-        return jsonify({
-            "ok": True,
-            "jobs": jobs,
-            "total": len(jobs),
-            "dead_count": len(dead),
-            "dead_jobs": [j["name"] for j in dead],
-            "backup_health": bh,
-        })
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/system/circuits")
-@auth_required
-def api_circuit_breaker_status():
-    """Returns status of all circuit breakers for external API monitoring."""
+        from src.core.scheduler import get_all_jobs
+        for job in get_all_jobs():
+            if job["status"] == "dead":
+                detail = f"{job['name']} offline"
+                if job.get("last_error"):
+                    detail += f" — {str(job['last_error'])[:80]}"
+                if job.get("restart_count", 0) >= job.get("max_restarts", 3):
+                    detail += " (all restart attempts exhausted)"
+                warnings.append({"level": "critical", "msg": detail, "area": "jobs"})
+    except Exception:
+        pass
     try:
         from src.core.circuit_breaker import all_status
-        circuits = all_status()
-        open_count = sum(1 for c in circuits if c["state"] == "open")
-        return jsonify({"ok": True, "circuits": circuits, "total": len(circuits), "open_count": open_count})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/system/resync-scprs", methods=["POST", "GET"])
-@auth_required
-def api_resync_scprs():
-    """Drop all won_quotes and re-sync from SCPRS with corrected per-unit prices."""
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            old_count = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
-            conn.execute("DELETE FROM won_quotes")
-            log.info("Cleared %d old won_quotes for clean re-sync", old_count)
-        from src.knowledge.won_quotes_db import sync_from_scprs_tables
-        result = sync_from_scprs_tables()
-        with get_db() as conn:
-            new_count = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
-        result["cleared"] = old_count
-        result["won_quotes_total"] = new_count
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@bp.route("/api/system/sync-scprs", methods=["POST", "GET"])
-@auth_required
-def api_sync_scprs():
-    """Force sync SCPRS harvest data → won_quotes KB. Safe to call repeatedly."""
-    try:
-        from src.core.db import get_db
-        # Diagnostic: check how many lines are eligible
-        with get_db() as conn:
-            total_lines = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
-            eligible = conn.execute("SELECT COUNT(*) FROM scprs_po_lines WHERE unit_price > 0 AND description != ''").fetchone()[0]
-            zero_price = conn.execute("SELECT COUNT(*) FROM scprs_po_lines WHERE unit_price = 0 OR unit_price IS NULL").fetchone()[0]
-            no_master = conn.execute("""
-                SELECT COUNT(*) FROM scprs_po_lines l
-                LEFT JOIN scprs_po_master p ON l.po_id = p.id
-                WHERE p.id IS NULL
-            """).fetchone()[0]
-
-        from src.knowledge.won_quotes_db import sync_from_scprs_tables
-        result = sync_from_scprs_tables()
-
-        with get_db() as conn:
-            wq = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
-        result["won_quotes_total"] = wq
-        result["scprs_po_lines_total"] = total_lines
-        result["eligible_lines"] = eligible
-        result["zero_price_lines"] = zero_price
-        result["orphan_lines"] = no_master
-        result["coverage_pct"] = round(wq / max(eligible, 1) * 100, 1)
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        log.error("Route error: %s", e, exc_info=True)
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@bp.route("/api/system/pipeline-health")
-@auth_required
-def api_pipeline_health():
-    """Self-diagnosis: checks every stage of the data pipeline for issues."""
-    from src.core.db import get_db
-    issues = []
-    stats = {}
-    try:
-        with get_db() as conn:
-            # 1. SCPRS data freshness
-            stats["scprs_po_lines"] = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
-            stats["scprs_po_master"] = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
-            if stats["scprs_po_lines"] == 0:
-                issues.append({"level": "critical", "area": "SCPRS", "msg": "No SCPRS PO data — run harvest first"})
-
-            # 2. Won Quotes KB
-            stats["won_quotes"] = conn.execute("SELECT COUNT(*) FROM won_quotes").fetchone()[0]
-            if stats["won_quotes"] == 0 and stats["scprs_po_lines"] > 0:
-                issues.append({"level": "critical", "area": "won_quotes", "msg": f"SCPRS has {stats['scprs_po_lines']} lines but won_quotes KB is empty — sync needed"})
-
-            # 3. Product catalog
-            stats["product_catalog"] = conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
-            if stats["product_catalog"] == 0:
-                issues.append({"level": "warning", "area": "catalog", "msg": "Product catalog empty — enrichment matches will fail"})
-
-            # 4. Price checks
-            stats["price_checks"] = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+        for cb in all_status():
+            if cb["state"] == "open":
+                warnings.append({
+                    "level": "warning",
+                    "msg": f"{cb['name']} service unavailable ({cb['failure_count']} failures)",
+                    "area": "circuits",
+                })
+    except Exception:
+        pass
+    # Check email poller specifically
+    if POLL_STATUS.get("running") and not POLL_STATUS.get("paused"):
+        last = POLL_STATUS.get("last_check")
+        if last:
             try:
-                stuck_pcs = conn.execute(
-                    "SELECT COUNT(*) FROM price_checks WHERE status IN ('new','parsed') AND created_at < datetime('now', '-7 days')"
-                ).fetchone()[0]
-                if stuck_pcs > 0:
-                    issues.append({"level": "warning", "area": "price_checks", "msg": f"{stuck_pcs} PCs stuck in new/parsed for >7 days"})
+                from datetime import datetime as _dt
+                age_min = (_dt.now() - _dt.fromisoformat(str(last))).total_seconds() / 60
+                if age_min > 15:
+                    warnings.append({
+                        "level": "warning",
+                        "msg": f"Email poller stale — last check {int(age_min)}m ago",
+                        "area": "email",
+                    })
             except Exception:
                 pass
-
-            # 5. Quotes
-            try:
-                pending_old = conn.execute(
-                    "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='pending' AND created_date < date('now', '-7 days')"
-                ).fetchone()[0]
-                if pending_old > 0:
-                    issues.append({"level": "warning", "area": "quotes", "msg": f"{pending_old} quotes stuck as pending for >7 days — never sent?"})
-                sent_no_followup = conn.execute(
-                    "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='sent' AND follow_up_count=0 AND sent_at < datetime('now', '-7 days')"
-                ).fetchone()[0]
-                if sent_no_followup > 0:
-                    issues.append({"level": "info", "area": "quotes", "msg": f"{sent_no_followup} sent quotes with 0 follow-ups after 7+ days"})
-            except Exception:
-                pass
-
-            # 6. SCPRS pull schedule
-            try:
-                overdue_pulls = conn.execute("""
-                    SELECT agency_key, last_pull, pull_interval_hours,
-                           ROUND((JULIANDAY('now') - JULIANDAY(last_pull)) * 24, 1) as hours_since
-                    FROM scprs_pull_schedule
-                    WHERE last_pull IS NOT NULL
-                      AND (JULIANDAY('now') - JULIANDAY(last_pull)) * 24 > pull_interval_hours * 2
-                """).fetchall()
-                for r in overdue_pulls:
-                    issues.append({"level": "warning", "area": "SCPRS", "msg": f"{r[0]} pull overdue ({r[3]}h since last, expected every {r[2]}h)"})
-            except Exception:
-                pass
-
-            # 7. Circuit breakers
-            try:
-                from src.core.circuit_breaker import all_status
-                for cb in all_status():
-                    if cb["state"] == "open":
-                        issues.append({"level": "critical", "area": "circuits", "msg": f"{cb['name']} circuit OPEN ({cb['failure_count']} failures)"})
-            except Exception:
-                pass
-
-            stats["issues_count"] = len(issues)
-            stats["critical"] = sum(1 for i in issues if i["level"] == "critical")
-            stats["warnings"] = sum(1 for i in issues if i["level"] == "warning")
-
-    except Exception as e:
-        issues.append({"level": "critical", "area": "database", "msg": str(e)})
-
-    health = "healthy" if not issues else ("degraded" if all(i["level"] != "critical" for i in issues) else "unhealthy")
-    return jsonify({"ok": True, "health": health, "issues": issues, "stats": stats})
+    elif not POLL_STATUS.get("running"):
+        if POLL_STATUS.get("error"):
+            warnings.append({"level": "critical", "msg": f"Email poller offline: {POLL_STATUS['error']}", "area": "email"})
+    return jsonify({"ok": True, "warnings": warnings, "count": len(warnings)})
 
 
-@bp.route("/api/admin/backups")
-@auth_required
-def admin_backups():
-    """List available database backups."""
-    try:
-        from src.core.scheduler import list_backups, backup_health
-        return jsonify({
-            "ok": True,
-            "backups": list_backups(),
-            "health": backup_health(),
-        })
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+
+# api_circuit_breaker_status extracted to routes_system.py
 
 
-@bp.route("/api/admin/backup-now", methods=["GET", "POST"])
-@auth_required
-def admin_backup_now():
-    """Trigger an immediate database backup."""
-    try:
-        from src.core.scheduler import run_backup
-        result = run_backup()
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+
+# api_resync_scprs extracted to routes_system.py
+
+
+
+# api_sync_scprs extracted to routes_system.py
+
+
+
+# api_pipeline_health extracted to routes_system.py
+
+
+
+# admin_backups, admin_backup_now extracted to routes_system.py
 
 
 @bp.route("/api/admin/cleanup-queue", methods=["GET", "POST"])
@@ -5465,297 +5355,45 @@ def unpaid_invoices():
 
 # ── System Operations API (Sprint 5) ────────────────────────────────────────
 
-@bp.route("/ver")
-def public_version():
-    """Public — returns deployed git commit. No auth needed. Use to verify Railway deployed latest code."""
-    import subprocess as _sp
-    try:
-        commit = _sp.check_output(["git", "rev-parse", "--short", "HEAD"],
-                                   stderr=_sp.DEVNULL).decode().strip()
-    except Exception:
-        commit = "04fc5bd"  # hardcoded — git not available at runtime in Railway
-    return jsonify({"commit": commit, "expected": "04fc5bd",
-                    "up_to_date": commit == "04fc5bd"})
+
+# public_version extracted to routes_system.py
 
 
-@bp.route("/api/system/health")
-@auth_required
-def system_health():
-    import os as _os
-    health = {"status": "ok", "checks": {}}
-    try:
-        # DB health
-        from src.core.db import get_db, DB_PATH
-        with get_db() as conn:
-            tables = conn.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-            ).fetchone()[0]
-            db_size = _os.path.getsize(DB_PATH) if _os.path.exists(DB_PATH) else 0
-            health["checks"]["database"] = {
-                "ok": True, "tables": tables,
-                "size_mb": round(db_size / 1048576, 1)
-            }
-    except Exception as e:
-        health["checks"]["database"] = {"ok": False, "error": str(e)}
-        health["status"] = "degraded"
 
-    try:
-        # Scheduler health
-        from src.core.scheduler import get_scheduler_status
-        sched = get_scheduler_status()
-        dead = sched.get("dead_count", 0)
-        health["checks"]["scheduler"] = {
-            "ok": dead == 0, "jobs": sched.get("job_count", 0),
-            "dead_jobs": dead
-        }
-        if dead > 0:
-            health["status"] = "degraded"
-    except Exception as e:
-        health["checks"]["scheduler"] = {"ok": False, "error": str(e)}
-
-    try:
-        # Backup health
-        from src.core.scheduler import backup_health
-        bh = backup_health()
-        health["checks"]["backups"] = bh
-        if not bh.get("ok"):
-            health["status"] = "degraded"
-    except Exception as e:
-        health["checks"]["backups"] = {"ok": False, "error": str(e)}
-
-    try:
-        # Schema migration status
-        from src.core.migrations import get_migration_status
-        ms = get_migration_status()
-        health["checks"]["schema"] = {
-            "ok": ms.get("up_to_date", False),
-            "version": ms.get("current_version", 0),
-            "pending": len(ms.get("pending", []))
-        }
-    except Exception as e:
-        health["checks"]["schema"] = {"ok": False, "error": str(e)}
-
-    return jsonify(health)
+# system_health extracted to routes_system.py
 
 
-@bp.route("/api/system/migrations")
-@auth_required
-def migration_status():
-    """Schema migration status and history."""
-    try:
-        from src.core.migrations import get_migration_status
-        return jsonify(get_migration_status())
-    except Exception as e:
-        return jsonify({"error": str(e)})
+
+# migration_status extracted to routes_system.py
 
 
-@bp.route("/api/system/migrations/run", methods=["POST"])
-@auth_required
-def run_migrations_api():
-    """Apply pending schema migrations."""
-    try:
-        from src.core.migrations import run_migrations
-        result = run_migrations()
-        return jsonify(result)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+
+# run_migrations_api extracted to routes_system.py
 
 
-@bp.route("/api/system/integrity")
-@auth_required
-def data_integrity():
-    """Run data integrity checks across all tables."""
-    try:
-        from src.core.data_integrity import run_integrity_checks
-        return jsonify(run_integrity_checks())
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+
+# data_integrity extracted to routes_system.py
 
 
-@bp.route("/api/system/pdf-versions")
-@auth_required
-def pdf_template_versions():
-    """Current PDF template versions and generation stats."""
-    try:
-        from src.forms.pdf_versioning import get_version_info, TEMPLATE_VERSIONS
-        info = get_version_info()
-        return jsonify({"ok": True, "templates": info,
-                        "registry": {k: v["history"] for k, v in TEMPLATE_VERSIONS.items()}})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+
+# pdf_template_versions extracted to routes_system.py
 
 
-@bp.route("/api/system/trace/<doc_id>")
-@auth_required
-def trace_document_api(doc_id):
-    """Trace a document through the full RFQ→Quote→Order pipeline.
-    GET /api/system/trace/R26Q14?type=quote
-    """
-    from src.core.data_tracer import trace_document
-    doc_type = request.args.get("type", "auto")
-    return jsonify(trace_document(doc_id, doc_type=doc_type))
+
+# trace_document_api, pipeline_stats extracted to routes_system.py
 
 
-@bp.route("/api/system/pipeline")
-@auth_required
-def pipeline_stats():
-    """Pipeline overview: counts and conversion rates across all stages."""
-    from src.core.data_tracer import get_pipeline_stats
-    return jsonify(get_pipeline_stats())
+
+# qa_dashboard extracted to routes_system.py
 
 
-@bp.route("/api/system/qa")
-@auth_required
-def qa_dashboard():
-    """QA dashboard — combined health, integrity, pipeline, and test status."""
-    result = {"ok": True, "checked_at": datetime.now().isoformat(), "sections": {}}
-    
-    # 1. System health
-    try:
-        from src.core.db import get_db, DB_PATH
-        import os as _os
-        with get_db() as conn:
-            tables = conn.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-            ).fetchone()[0]
-            db_size = _os.path.getsize(DB_PATH) if _os.path.exists(DB_PATH) else 0
-        result["sections"]["database"] = {
-            "ok": True, "tables": tables,
-            "size_mb": round(db_size / 1048576, 1)
-        }
-    except Exception as e:
-        result["sections"]["database"] = {"ok": False, "error": str(e)}
-        result["ok"] = False
-    
-    # 2. Data integrity
-    try:
-        from src.core.data_integrity import run_integrity_checks
-        ic = run_integrity_checks()
-        result["sections"]["integrity"] = {
-            "ok": ic["ok"], "passed": ic["passed"], "failed": ic["failed"],
-            "details": [c for c in ic["checks"] if not c["ok"]]
-        }
-        if not ic["ok"]:
-            result["ok"] = False
-    except Exception as e:
-        result["sections"]["integrity"] = {"ok": False, "error": str(e)}
-    
-    # 3. Pipeline stats
-    try:
-        from src.core.data_tracer import get_pipeline_stats
-        ps = get_pipeline_stats()
-        result["sections"]["pipeline"] = ps
-    except Exception as e:
-        result["sections"]["pipeline"] = {"ok": False, "error": str(e)}
-    
-    # 4. Schema status
-    try:
-        from src.core.migrations import get_migration_status
-        ms = get_migration_status()
-        result["sections"]["schema"] = {
-            "ok": ms.get("up_to_date", False),
-            "version": ms.get("current_version"),
-            "pending": len(ms.get("pending", []))
-        }
-    except Exception as e:
-        result["sections"]["schema"] = {"ok": False, "error": str(e)}
-    
-    # 5. Route health
-    try:
-        from flask import current_app
-        rules = list(current_app.url_map.iter_rules())
-        result["sections"]["routes"] = {"ok": len(rules) > 500, "count": len(rules)}
-    except Exception as e:
-        result["sections"]["routes"] = {"ok": False, "error": str(e)}
-    
-    # 6. PDF template versions
-    try:
-        from src.forms.pdf_versioning import get_version_info
-        result["sections"]["pdf_templates"] = get_version_info()
-    except Exception as e:
-        result["sections"]["pdf_templates"] = {"error": str(e)}
-    
-    return jsonify(result)
+
+# system_preflight extracted to routes_system.py
 
 
-@bp.route("/api/system/preflight")
-@auth_required
-def system_preflight():
-    """Combined pre-flight check: health + integrity + schema."""
-    result = {"status": "ok", "checks": {}}
-    
-    # Health
-    try:
-        from src.core.db import get_db, DB_PATH
-        import os as _os
-        with get_db() as conn:
-            tables = conn.execute(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
-            ).fetchone()[0]
-            db_size = _os.path.getsize(DB_PATH) if _os.path.exists(DB_PATH) else 0
-        result["checks"]["database"] = {"ok": True, "tables": tables,
-                                         "size_mb": round(db_size / 1048576, 1)}
-    except Exception as e:
-        result["checks"]["database"] = {"ok": False, "error": str(e)}
-        result["status"] = "degraded"
-
-    # Schema
-    try:
-        from src.core.migrations import get_migration_status
-        ms = get_migration_status()
-        result["checks"]["schema"] = {
-            "ok": ms.get("up_to_date", False),
-            "version": ms.get("current_version"),
-            "pending": len(ms.get("pending", []))
-        }
-    except Exception as e:
-        result["checks"]["schema"] = {"ok": False, "error": str(e)}
-
-    # Integrity
-    try:
-        from src.core.data_integrity import run_integrity_checks
-        ic = run_integrity_checks()
-        result["checks"]["integrity"] = {
-            "ok": ic["ok"], "passed": ic["passed"],
-            "failed": ic["failed"]
-        }
-        if not ic["ok"]:
-            result["status"] = "degraded"
-    except Exception as e:
-        result["checks"]["integrity"] = {"ok": False, "error": str(e)}
-
-    # Route count
-    try:
-        from flask import current_app
-        rules = list(current_app.url_map.iter_rules())
-        result["checks"]["routes"] = {"ok": len(rules) > 500, "count": len(rules)}
-    except Exception as e:
-        result["checks"]["routes"] = {"ok": False, "error": str(e)}
-
-    return jsonify(result)
-
-
-@bp.route("/api/system/routes")
-@auth_required
-def api_route_map():
-    """Auto-generated API documentation — all routes with methods."""
-    from flask import current_app
-    routes = []
-    for rule in sorted(current_app.url_map.iter_rules(), key=lambda r: r.rule):
-        if rule.rule.startswith("/static"):
-            continue
-        methods = sorted(rule.methods - {"HEAD", "OPTIONS"})
-        routes.append({
-            "path": rule.rule,
-            "methods": methods,
-            "endpoint": rule.endpoint,
-        })
-    return jsonify({
-        "total": len(routes),
-        "api_routes": [r for r in routes if r["path"].startswith("/api/")],
-        "page_routes": [r for r in routes if not r["path"].startswith("/api/")],
-    })
-
+# Routes extracted to routes_system.py: api_route_map, system_preflight, qa_dashboard,
+# pipeline_stats, trace_document_api, pdf_template_versions, data_integrity,
+# run_migrations_api, migration_status, system_health
 
 # Route Modules — loaded at import time, register routes onto this Blueprint
 # Split from dashboard.py for maintainability (was 13,831 lines)
@@ -5803,6 +5441,7 @@ def _load_route_module(module_name: str):
 
 
 _ROUTE_MODULES = [
+    "routes_system",           # System health, scheduler, backups, migrations, circuits, pipeline diagnostics
     "routes_rfq",              # Home, upload, RFQ pages, quote generation
     "routes_agents",           # Agent control panel, email templates
     "routes_pricecheck",       # Price check pages + lookup
@@ -5856,34 +5495,46 @@ log.info("Boot checks deferred to background (app starts immediately)")
 if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
     # ── Start Follow-Up Engine (auto-creates follow-up drafts) ──────────────
     try:
-        from src.agents.follow_up_engine import start_follow_up_scheduler
-        start_follow_up_scheduler()
-        log.info("Follow-up engine started (scans every 1h)")
+        import src.agents.follow_up_engine as _fue_mod
+        _fue_mod.start_follow_up_scheduler()
+        from src.core.scheduler import register_restartable
+        register_restartable("follow-up-engine", 3600, _fue_mod, "_scheduler_started",
+                             _fue_mod.start_follow_up_scheduler)
+        log.info("Follow-up engine started (scans every 1h, restartable)")
     except Exception as _e:
         log.warning("Follow-up engine failed to start: %s", _e)
 
     # ── Start Unified Award Tracker (SCPRS-aligned schedule) ─────────────
     try:
-        from src.agents.award_tracker import start_award_tracker
-        start_award_tracker()
+        import src.agents.award_tracker as _at_mod
+        _at_mod.start_award_tracker()
+        from src.core.scheduler import register_restartable
+        register_restartable("award-tracker", 3600, _at_mod, "_scheduler_started",
+                             _at_mod.start_award_tracker)
         log.info("Award tracker started (unified system — SCPRS-aligned, "
-                 "daily→3x/day adaptive schedule, quotes + RFQs + PCs)")
+                 "daily→3x/day adaptive schedule, quotes + RFQs + PCs, restartable)")
     except Exception as _e:
         log.warning("Award tracker failed to start: %s", _e)
 
     # ── Start Quote Lifecycle (auto-expire, follow-up triggers) ──────────────
     try:
-        from src.agents.quote_lifecycle import start_lifecycle_scheduler
-        start_lifecycle_scheduler()
-        log.info("Quote lifecycle scheduler started (checks every 1h)")
+        import src.agents.quote_lifecycle as _ql_mod
+        _ql_mod.start_lifecycle_scheduler()
+        from src.core.scheduler import register_restartable
+        register_restartable("quote-lifecycle", 3600, _ql_mod, "_scheduler_running",
+                             _ql_mod.start_lifecycle_scheduler)
+        log.info("Quote lifecycle scheduler started (checks every 1h, restartable)")
     except Exception as _e:
         log.warning("Quote lifecycle failed to start: %s", _e)
 
     # ── Start Email Retry Scheduler (retries failed emails) ─────────────────
     try:
-        from src.agents.email_lifecycle import start_retry_scheduler
-        start_retry_scheduler()
-        log.info("Email retry scheduler started (checks every 15m)")
+        import src.agents.email_lifecycle as _el_mod
+        _el_mod.start_retry_scheduler()
+        from src.core.scheduler import register_restartable
+        register_restartable("email-retry", 900, _el_mod, "_scheduler_running",
+                             _el_mod.start_retry_scheduler)
+        log.info("Email retry scheduler started (checks every 15m, restartable)")
     except Exception as _e:
         log.warning("Email retry scheduler failed to start: %s", _e)
 
@@ -5897,9 +5548,12 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
 
     # ── Start Lead Nurture Scheduler (drip sequences + rescoring) ────────────
     try:
-        from src.agents.lead_nurture_agent import start_nurture_scheduler
-        start_nurture_scheduler()
-        log.info("Lead nurture scheduler started (daily)")
+        import src.agents.lead_nurture_agent as _ln_mod
+        _ln_mod.start_nurture_scheduler()
+        from src.core.scheduler import register_restartable
+        register_restartable("lead-nurture", 86400, _ln_mod, "_scheduler_running",
+                             _ln_mod.start_nurture_scheduler)
+        log.info("Lead nurture scheduler started (daily, restartable)")
     except Exception as _e:
         log.warning("Lead nurture scheduler failed to start: %s", _e)
 
