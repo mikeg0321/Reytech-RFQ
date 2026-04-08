@@ -1474,6 +1474,9 @@ def _migrate_columns():
         # ── Match Feedback ──
         ("item_mappings", "rejected", "INTEGER DEFAULT 0"),
         ("item_mappings", "reject_count", "INTEGER DEFAULT 0"),
+        # ── UPC identifier matching ──
+        ("won_quotes", "upc", "TEXT DEFAULT ''"),
+        ("product_catalog", "upc", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -1488,6 +1491,15 @@ def _migrate_columns():
                     pass  # Table doesn't exist yet — CREATE TABLE will handle it
                 else:
                     log.warning("Migration %s.%s failed: %s", table, col, e)
+        # UPC indexes for fast barcode lookups
+        for _idx_sql in [
+            "CREATE INDEX IF NOT EXISTS idx_wq_upc ON won_quotes(upc)",
+            "CREATE INDEX IF NOT EXISTS idx_pc_upc ON product_catalog(upc)",
+        ]:
+            try:
+                conn.execute(_idx_sql)
+            except Exception:
+                pass
         # Copy agency_code → agency_key for existing SCPRS data
         try:
             conn.execute("""

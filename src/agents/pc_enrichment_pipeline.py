@@ -165,6 +165,16 @@ def _run_pipeline(pc_id: str, force: bool):
             if pmfg and not it.get("mfg_number"):
                 it["mfg_number"] = pmfg
                 counters["identifiers_extracted"] += 1
+            # Populate UPC if extracted
+            pupc = ids.get("primary_upc", "")
+            if pupc and not it.get("upc"):
+                it["upc"] = pupc
+                it["pricing"]["upc"] = pupc
+            # Detect barcode MFG# (12-13 digit number = UPC barcode)
+            _mfg = it.get("mfg_number", "")
+            if _mfg and _mfg.isdigit() and len(_mfg) in (12, 13) and not it.get("upc"):
+                it["upc"] = _mfg
+                it["pricing"]["upc"] = _mfg
             # Populate ASIN/Amazon URL
             asin = ids.get("primary_asin", "")
             if asin and not it["pricing"].get("asin"):
@@ -182,6 +192,59 @@ def _run_pipeline(pc_id: str, force: bool):
         log.warning("ENRICH %s: identifier extraction error: %s", pc_id, e)
     _mark_step_done(pc_id,"identifiers")
 
+    # ── Step 1.5: Resolve UPCs via Amazon product lookup ───────────────
+    _update_status(pc_id, "upc_resolution", "resolving barcodes")
+    _upc_lookups = 0
+    _UPC_LIMIT = 3  # max Amazon lookups per PC to preserve SerpApi credits
+    try:
+        from src.agents.product_research import search_amazon, lookup_amazon_product
+        for i, it in enumerate(items):
+            if _upc_lookups >= _UPC_LIMIT:
+                break
+            _upc = it.get("upc", "")
+            if not _upc:
+                continue
+            if it["pricing"].get("amazon_asin") and it["pricing"].get("amazon_price"):
+                continue  # already resolved
+            try:
+                results = search_amazon(_upc, max_results=1)
+                if results and results[0].get("price", 0) > 0:
+                    r = results[0]
+                    _amz_asin = r.get("asin", "")
+                    it["pricing"]["amazon_price"] = r["price"]
+                    it["pricing"]["amazon_asin"] = _amz_asin
+                    it["pricing"]["amazon_url"] = r.get("url", "")
+                    it["pricing"]["amazon_title"] = r.get("title", "")[:200]
+                    if not it.get("item_link"):
+                        it["item_link"] = r.get("url", "")
+                        it["item_supplier"] = "Amazon"
+                    # ASIN product lookup for list/sale price split
+                    if _amz_asin:
+                        try:
+                            _prod = lookup_amazon_product(_amz_asin)
+                            if _prod:
+                                if _prod.get("list_price"):
+                                    it["pricing"]["list_price"] = _prod["list_price"]
+                                    it["list_price"] = _prod["list_price"]
+                                if _prod.get("sale_price"):
+                                    it["pricing"]["sale_price"] = _prod["sale_price"]
+                                    it["sale_price"] = _prod["sale_price"]
+                        except Exception:
+                            pass
+                    counters.setdefault("upc_resolved", 0)
+                    counters["upc_resolved"] += 1
+                    log.info("ENRICH %s: UPC %s → %s $%.2f (ASIN: %s)",
+                             pc_id, _upc, r.get("title", "")[:30], r["price"], _amz_asin)
+                    _upc_lookups += 1
+                    time.sleep(0.5)  # rate limit
+            except Exception as e:
+                log.debug("ENRICH %s: UPC resolution error for %s: %s", pc_id, _upc, e)
+    except ImportError:
+        pass
+    except Exception as e:
+        log.debug("ENRICH %s: UPC resolution error: %s", pc_id, e)
+    _mark_step_done(pc_id, "upc_resolution")
+
     # ── Step 2: Extract URLs from descriptions ───────────────────────────
     _update_status(pc_id, "url_extraction", "scanning descriptions")
     try:
@@ -196,7 +259,8 @@ def _run_pipeline(pc_id: str, force: bool):
         from src.agents.product_catalog import match_items_batch
         batch_input = [
             {"idx": i, "description": it.get("description", ""),
-             "part_number": it.get("mfg_number", "") or it.get("part_number", "")}
+             "part_number": it.get("mfg_number", "") or it.get("part_number", ""),
+             "upc": it.get("upc", "")}
             for i, it in enumerate(items)
         ]
         batch_results = match_items_batch(batch_input)
@@ -247,7 +311,8 @@ def _run_pipeline(pc_id: str, force: bool):
                 continue  # already has SCPRS data
             desc = it.get("description", "")
             pn = it.get("mfg_number", "") or it.get("part_number", "")
-            matches = find_similar_items(pn, desc, max_results=1, min_confidence=0.30)
+            _upc = it.get("upc", "")
+            matches = find_similar_items(pn, desc, upc=_upc, max_results=1, min_confidence=0.30)
             if matches:
                 best = matches[0]
                 q = best.get("quote", best)

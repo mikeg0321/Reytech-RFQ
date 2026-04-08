@@ -293,6 +293,7 @@ def token_overlap_score(tokens_a: set, tokens_b: set) -> float:
 def find_similar_items(
     item_number: str,
     description: str,
+    upc: str = "",
     max_results: int = 10,
     min_confidence: float = 0.3,
     max_age_days: int = 730,
@@ -323,22 +324,35 @@ def find_similar_items(
     except Exception:
         pass
 
-    # Load from SQLite — pre-filter by item_number if provided (fast index hit)
+    # Detect UPC: explicit parameter, or item_number that's a 12-13 digit barcode
+    _upc = upc
+    if not _upc and normalized_item and normalized_item.isdigit() and len(normalized_item) in (12, 13):
+        _upc = normalized_item
+
+    # Load from SQLite — try UPC first, then item_number, then full scan
     try:
         _ensure_won_quotes_table()
         conn = _get_db_conn()
-        if normalized_item:
-            # Try exact item number first (index scan)
+        rows = []
+        # Priority 1: UPC exact match (barcode lookup)
+        if _upc:
+            try:
+                rows = conn.execute(
+                    "SELECT * FROM won_quotes WHERE upc=? ORDER BY ingested_at DESC LIMIT 50",
+                    (_upc,)
+                ).fetchall()
+                if rows:
+                    log.info("KB UPC match: %s → %d results", _upc, len(rows))
+            except Exception:
+                pass  # upc column may not exist yet
+        # Priority 2: exact item number (index scan)
+        if not rows and normalized_item:
             rows = conn.execute(
                 "SELECT * FROM won_quotes WHERE item_number=? ORDER BY ingested_at DESC LIMIT 200",
                 (normalized_item,)
             ).fetchall()
-            if not rows:
-                # Broaden to all rows for token matching
-                rows = conn.execute(
-                    "SELECT * FROM won_quotes ORDER BY ingested_at DESC LIMIT 2000"
-                ).fetchall()
-        else:
+        # Priority 3: full scan for token matching
+        if not rows:
             rows = conn.execute(
                 "SELECT * FROM won_quotes ORDER BY ingested_at DESC LIMIT 2000"
             ).fetchall()
