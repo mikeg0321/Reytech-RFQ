@@ -362,20 +362,6 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
         product = data.get("product_results", {})
         if not product:
             return None
-        # Debug: log all price-related fields from SerpApi response
-        _price_fields = {k: v for k, v in product.items()
-                         if any(w in k.lower() for w in ("price", "typical", "list", "rrp", "saving", "before", "strike", "was"))}
-        _bb_raw = data.get("buybox", [])
-        _bb_fields = []
-        if isinstance(_bb_raw, list):
-            for _bbi, _bb in enumerate(_bb_raw):
-                _bb_price_keys = {k: v for k, v in _bb.items()
-                                  if any(w in k.lower() for w in ("price", "typical", "list", "rrp", "saving", "before", "strike", "was"))}
-                if _bb_price_keys:
-                    _bb_fields.append((_bbi, _bb_price_keys))
-        log.info("SerpApi %s product_results price fields: %s", asin, _price_fields)
-        log.info("SerpApi %s buybox price fields: %s", asin, _bb_fields)
-
         title = product.get("title", "")
         # Extract price from buybox or price field
         price = None

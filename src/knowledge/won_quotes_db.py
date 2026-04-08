@@ -305,8 +305,23 @@ def find_similar_items(
     """
     query_tokens = tokenize(description)
     normalized_item = normalize_text(item_number) if item_number else ""
+    norm_query = normalize_text(description)
     cutoff_date = datetime.now() - timedelta(days=max_age_days)
     results = []
+
+    # Load rejection blocklist for this query (match_feedback table)
+    _rejected_matches = set()
+    try:
+        from src.core.db import get_db as _get_main_db
+        with _get_main_db() as _mdb:
+            _rej_rows = _mdb.execute(
+                "SELECT normalized_match FROM match_feedback "
+                "WHERE normalized_query=? AND feedback_type='reject'",
+                (norm_query,)
+            ).fetchall()
+            _rejected_matches = {r[0] for r in _rej_rows}
+    except Exception:
+        pass
 
     # Load from SQLite — pre-filter by item_number if provided (fast index hit)
     try:
@@ -343,6 +358,10 @@ def find_similar_items(
         return []
 
     for quote in quotes:
+        # Rejection blocklist check
+        _q_norm = normalize_text(quote.get("description", ""))
+        if _q_norm and _q_norm in _rejected_matches:
+            continue
         # Age filter
         try:
             award_str = quote.get("award_date", "")

@@ -1062,6 +1062,27 @@ CREATE TABLE IF NOT EXISTS supplier_costs (
     UNIQUE(description, supplier)
 );
 
+CREATE TABLE IF NOT EXISTS match_feedback (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    pc_id            TEXT NOT NULL,
+    item_index       INTEGER NOT NULL,
+    item_description TEXT NOT NULL,
+    match_source     TEXT NOT NULL,
+    match_id         TEXT DEFAULT '',
+    match_description TEXT DEFAULT '',
+    match_confidence REAL DEFAULT 0,
+    feedback_type    TEXT NOT NULL,
+    user_price       REAL DEFAULT 0,
+    match_price      REAL DEFAULT 0,
+    reason           TEXT DEFAULT '',
+    normalized_query TEXT DEFAULT '',
+    normalized_match TEXT DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_mf_query ON match_feedback(normalized_query);
+CREATE INDEX IF NOT EXISTS idx_mf_match ON match_feedback(normalized_match);
+CREATE INDEX IF NOT EXISTS idx_mf_source ON match_feedback(match_source);
+
 CREATE TABLE IF NOT EXISTS parse_gaps (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     rfq_id          TEXT,
@@ -1450,6 +1471,9 @@ def _migrate_columns():
         ("vendor_orders", "order_id", "TEXT DEFAULT ''"),
         # ── Multi-PC Bundle support ──
         ("price_checks", "bundle_id", "TEXT DEFAULT ''"),
+        # ── Match Feedback ──
+        ("item_mappings", "rejected", "INTEGER DEFAULT 0"),
+        ("item_mappings", "reject_count", "INTEGER DEFAULT 0"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

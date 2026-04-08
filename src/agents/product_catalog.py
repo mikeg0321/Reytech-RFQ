@@ -279,6 +279,25 @@ def _verify_match_quality(query_desc: str, catalog_desc: str,
         penalty += 0.2
         reasons.append(f"part_numbers_differ: query={list(q_parts)[:2]}, catalog={list(c_parts)[:2]}")
 
+    # ── 7. Rejection history penalty — frequently rejected matches ──
+    try:
+        from src.knowledge.won_quotes_db import normalize_text as _norm_text
+        from src.core.db import get_db as _get_main_db
+        _cat_norm = _norm_text(catalog_desc + " " + catalog_name)
+        with _get_main_db() as _mdb:
+            rej_count = _mdb.execute(
+                "SELECT COUNT(*) FROM match_feedback WHERE normalized_match=? AND feedback_type='reject'",
+                (_cat_norm,)
+            ).fetchone()[0]
+            if rej_count >= 3:
+                penalty += 0.30
+                reasons.append(f"frequently_rejected_match({rej_count})")
+            elif rej_count >= 1:
+                penalty += 0.10
+                reasons.append(f"previously_rejected_match({rej_count})")
+    except Exception:
+        pass
+
     return (min(penalty, 1.0), reasons)
 
 
@@ -1585,6 +1604,22 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
     matches = []
     seen_ids = set()
 
+    # Load rejection blocklist for this query
+    _rejected_ids = set()
+    try:
+        from src.knowledge.won_quotes_db import normalize_text as _norm
+        from src.core.db import get_db as _get_main_db
+        _nq = _norm(description)
+        with _get_main_db() as _mdb:
+            _rej_rows = _mdb.execute(
+                "SELECT match_id FROM match_feedback "
+                "WHERE normalized_query=? AND match_source='catalog' AND feedback_type='reject'",
+                (_nq,)
+            ).fetchall()
+            _rejected_ids = {str(r[0]) for r in _rej_rows if r[0]}
+    except Exception:
+        pass
+
     # Strategy 1: Exact part number match (highest confidence)
     if part_number and part_number.strip():
         pn = part_number.strip()
@@ -1593,7 +1628,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
             (pn, pn, pn)
         ).fetchall()
         for r in rows:
-            if r["id"] not in seen_ids:
+            if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
                 m = dict(r)
                 m["match_confidence"] = 0.98
                 m["match_reason"] = f"Exact part# match: {pn}"
@@ -1607,7 +1642,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
             row = conn.execute(
                 "SELECT * FROM product_catalog WHERE name=? LIMIT 1", (pp,)
             ).fetchone()
-            if row and row["id"] not in seen_ids:
+            if row and row["id"] not in seen_ids and str(row["id"]) not in _rejected_ids:
                 m = dict(row)
                 m["match_confidence"] = 0.92
                 m["match_reason"] = f"Part# found in description: {pp}"
@@ -1630,7 +1665,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
                 ).fetchall()
 
                 for r in candidates:
-                    if r["id"] in seen_ids:
+                    if r["id"] in seen_ids or str(r["id"]) in _rejected_ids:
                         continue
                     prod_tokens = set((r["search_tokens"] or "").split())
                     if not prod_tokens:
@@ -1659,7 +1694,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3) -> list:
             (f"%{first_words}%",)
         ).fetchall()
         for r in rows:
-            if r["id"] not in seen_ids:
+            if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
                 m = dict(r)
                 m["match_confidence"] = 0.40
                 m["match_reason"] = f"Description contains: '{first_words[:30]}'"

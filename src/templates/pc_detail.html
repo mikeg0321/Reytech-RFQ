@@ -1500,6 +1500,22 @@
      }).catch(function(e){console.error('Find better pricing error:',e);showMsg('❌ Error: '+e.message,'err')});
     }
 
+    function rejectMatch(idx, source, btn) {
+     var chip = btn.previousElementSibling || btn.parentElement;
+     var matchDesc = chip ? (chip.getAttribute('title') || '') : '';
+     fetch('/api/pricecheck/'+_pcid+'/reject-match/'+idx, {
+       method:'POST', headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({match_source:source, match_description:matchDesc})
+     }).then(function(r){return r.json()}).then(function(d){
+       if(d.ok){
+         if(chip) chip.style.display='none';
+         if(btn) btn.style.display='none';
+         if(typeof showMsg==='function') showMsg('Match rejected — won\'t be suggested again','ok');
+         _refreshSources(idx);
+       }
+     }).catch(function(e){console.error('Reject match error:',e)});
+    }
+
     function _refreshSources(idx) {
      // Save first so backend has latest data, then fetch fresh source chips
      doPcAutosave();

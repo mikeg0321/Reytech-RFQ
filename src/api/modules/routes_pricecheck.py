@@ -653,11 +653,17 @@ def _pricecheck_detail_inner(pcid):
         if has_exact:
             sources = [s for s in sources if s[5] >= 0.75]
 
-        # Build source chips HTML with confidence text badges
+        # Build source chips HTML with confidence text badges + reject/accept actions
         source_chips = []
         for i_src, (sprice, slabel, surl, scolor, spref, sconf) in enumerate(sources):
             pref_icon = "★ " if spref else ""
             price_fmt = f"${sprice:.2f}"
+            # Derive source key for feedback API
+            _sl = slabel.lower()
+            if "scprs" in _sl: source_key = "scprs"
+            elif "catalog" in _sl or "📦" in slabel: source_key = "catalog"
+            elif "amazon" in _sl: source_key = "amazon"
+            else: source_key = "web"
             # Truncate long supplier names
             slabel_short = slabel[:15] + "…" if len(slabel) > 15 else slabel
             # Confidence tier: EXACT (>0.95), normal (0.75-0.95), ~FUZZY (0.50-0.75)
@@ -672,14 +678,28 @@ def _pricecheck_detail_inner(pcid):
                 conf_tag = ' <span style="font-size:9px;padding:1px 3px;border-radius:2px;background:#d2992230;letter-spacing:.3px">~FUZZY</span>'
                 border_style = f"border:1px dashed {scolor}60"
             conf_title = f" ({sconf:.0%} match)" if sconf else ""
-            _chip_style = f"display:inline-flex;align-items:center;gap:2px;padding:2px 5px;border-radius:4px;font-size:12px;background:{scolor}15;{border_style};color:{scolor};max-width:170px;overflow:hidden"
+            _chip_style = f"display:inline-flex;align-items:center;gap:2px;padding:2px 5px;border-radius:4px;font-size:12px;background:{scolor}15;{border_style};color:{scolor};white-space:nowrap"
             if surl:
                 chip = f'<a href="{surl}" target="_blank" style="{_chip_style};text-decoration:none;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</a>'
             else:
                 chip = f'<span style="{_chip_style}" title="{slabel}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</span>'
-            # First source gets "Use" action — wrapped in a flex container to prevent overlap
+            # Reject button for non-EXACT matches (× to dismiss bad match)
+            if sconf <= 0.95 and source_key in ("scprs", "catalog", "web"):
+                chip += (f'<a href="#" onclick="rejectMatch({idx},\'{source_key}\',this);return false" '
+                         f'style="color:#f85149;font-size:11px;text-decoration:none;opacity:0.4;margin-left:1px" '
+                         f'title="Wrong match — reject" onmouseover="this.style.opacity=1" '
+                         f'onmouseout="this.style.opacity=0.4">&times;</a>')
+            # First source gets "Use" action + accept signal
             if i_src == 0 and len(sources) > 1 and sprice != unit_cost:
-                chip = f'<span style="display:inline-flex;align-items:center;gap:2px">{chip}<a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:14px;text-decoration:none;flex-shrink:0" title="Use this price as cost">⬇</a></span>'
+                _use_onclick = (
+                    f"document.querySelector('[name=cost_{idx}]').value='{sprice:.2f}';"
+                    f"recalcRow({idx});recalcPC();"
+                    f"fetch('/api/pricecheck/'+_pcid+'/accept-match/{idx}',"
+                    f"{{method:'POST',headers:{{'Content-Type':'application/json'}},"
+                    f"body:JSON.stringify({{match_source:'{source_key}'}})}})"
+                    f";return false"
+                )
+                chip = f'<span style="display:inline-flex;align-items:center;gap:2px">{chip}<a href="#" onclick="{_use_onclick}" style="color:{scolor};font-size:14px;text-decoration:none;flex-shrink:0" title="Use this price as cost">⬇</a></span>'
             source_chips.append(chip)
         source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
         # Oracle pricing intelligence badge
@@ -1650,6 +1670,34 @@ def _do_save_prices(pcid):
                         if _err: log.warning("SAVE validation: item[%d] %s", idx, _err)
                         items[idx]["pricing"]["unit_cost"] = v if v else None
                         items[idx]["vendor_cost"] = v if v else None
+                        # Implicit feedback: detect significant price override vs match
+                        if v and v > 0:
+                            _p = items[idx].get("pricing") or {}
+                            _overrides = []
+                            for _ms, _mk in [("scprs", "scprs_price"), ("catalog", "catalog_cost")]:
+                                _mp = _safe_float(_p.get(_mk), 0)
+                                if _mp > 0 and abs(v - _mp) / max(_mp, 0.01) > 0.40:
+                                    _overrides.append((_ms, _mp, _p.get(f"{_ms}_match", "")))
+                            if _overrides:
+                                try:
+                                    from src.core.db import get_db as _fb_db
+                                    from src.knowledge.won_quotes_db import normalize_text as _fb_norm
+                                    _idesc = items[idx].get("description", "")
+                                    with _fb_db() as _fbc:
+                                        for _os, _op, _od in _overrides:
+                                            _fbc.execute(
+                                                "INSERT INTO match_feedback "
+                                                "(pc_id,item_index,item_description,match_source,"
+                                                "match_description,feedback_type,user_price,match_price,"
+                                                "normalized_query,normalized_match) "
+                                                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                                                (pcid, idx, _idesc[:200], _os, _od[:200],
+                                                 "override", v, _op,
+                                                 _fb_norm(_idesc), _fb_norm(_od))
+                                            )
+                                        _fbc.commit()
+                                except Exception:
+                                    pass
                     elif field_type == "markup":
                         v, _err = _validate_item_field("markup", val)
                         items[idx]["pricing"]["markup_pct"] = v
@@ -8079,6 +8127,204 @@ def api_oracle_weekly_report():
     from src.agents.oracle_weekly_report import run_weekly_report
     result = run_weekly_report()
     return jsonify(result)
+
+
+# ═══ Match Feedback / Rejection ═════════════════════════════════════════════
+
+@bp.route("/api/pricecheck/<pcid>/reject-match/<int:idx>", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_reject_match(pcid, idx):
+    """Reject a source match for an item. Stores in match_feedback blocklist."""
+    data = request.get_json(force=True, silent=True) or {}
+    match_source = data.get("match_source", "")
+    match_desc = data.get("match_description", "")
+    reason = data.get("reason", "")
+    if not match_source:
+        return jsonify({"ok": False, "error": "match_source required"})
+
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items") or []
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Item not found"})
+
+    item = items[idx]
+    p = item.get("pricing") or {}
+    item_desc = item.get("description", "")
+
+    # Normalize for blocklist lookup
+    from src.knowledge.won_quotes_db import normalize_text
+    norm_query = normalize_text(item_desc)
+    norm_match = normalize_text(match_desc)
+
+    # Determine match price and ID
+    match_price = 0
+    match_id = ""
+    match_conf = 0
+    if match_source == "scprs":
+        match_price = float(p.get("scprs_price") or 0)
+        match_id = p.get("scprs_po", "")
+        match_conf = float(p.get("scprs_confidence") or 0)
+        if not match_desc:
+            match_desc = p.get("scprs_match", "")
+            norm_match = normalize_text(match_desc)
+    elif match_source == "catalog":
+        match_price = float(p.get("catalog_cost") or 0)
+        match_id = str(p.get("catalog_product_id") or "")
+        match_conf = float(p.get("catalog_confidence") or 0)
+        if not match_desc:
+            match_desc = p.get("catalog_match", "")
+            norm_match = normalize_text(match_desc)
+
+    # Insert feedback record
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO match_feedback "
+                "(pc_id, item_index, item_description, match_source, match_id, "
+                "match_description, match_confidence, feedback_type, match_price, "
+                "reason, normalized_query, normalized_match) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (pcid, idx, item_desc[:200], match_source, match_id,
+                 match_desc[:200], match_conf, "reject", match_price,
+                 reason[:200], norm_query, norm_match)
+            )
+            conn.commit()
+    except Exception as e:
+        log.error("match_feedback insert: %s", e)
+
+    # Clear rejected source data from item pricing
+    if match_source == "scprs":
+        for k in ("scprs_price", "scprs_confidence", "scprs_match", "scprs_source",
+                   "scprs_po", "scprs_line_total", "scprs_qty"):
+            p.pop(k, None)
+    elif match_source == "catalog":
+        for k in ("catalog_match", "catalog_confidence", "catalog_cost",
+                   "catalog_product_id", "catalog_recommended", "catalog_url",
+                   "catalog_best_supplier"):
+            p.pop(k, None)
+    elif match_source == "web":
+        for k in ("web_price", "web_source", "web_url"):
+            p.pop(k, None)
+
+    # Save PC
+    try:
+        _save_single_pc(pcid, pc)
+    except Exception as e:
+        log.error("reject-match save: %s", e)
+
+    log.info("MATCH REJECTED: pc=%s item=%d source=%s match='%s' conf=%.2f",
+             pcid, idx, match_source, match_desc[:40], match_conf)
+    return jsonify({"ok": True, "cleared": match_source})
+
+
+@bp.route("/api/pricecheck/<pcid>/accept-match/<int:idx>", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_accept_match(pcid, idx):
+    """Record that a source match was accepted (user clicked Use)."""
+    data = request.get_json(force=True, silent=True) or {}
+    match_source = data.get("match_source", "")
+    match_id = data.get("match_id", "")
+
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    items = pc.get("items") or []
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Item not found"})
+
+    item = items[idx]
+    p = item.get("pricing") or {}
+    item_desc = item.get("description", "")
+
+    from src.knowledge.won_quotes_db import normalize_text
+    norm_query = normalize_text(item_desc)
+
+    match_desc = ""
+    match_price = 0
+    match_conf = 0
+    if match_source == "scprs":
+        match_desc = p.get("scprs_match", "")
+        match_price = float(p.get("scprs_price") or 0)
+        match_conf = float(p.get("scprs_confidence") or 0)
+    elif match_source == "catalog":
+        match_desc = p.get("catalog_match", "")
+        match_price = float(p.get("catalog_cost") or 0)
+        match_conf = float(p.get("catalog_confidence") or 0)
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO match_feedback "
+                "(pc_id, item_index, item_description, match_source, match_id, "
+                "match_description, match_confidence, feedback_type, match_price, "
+                "normalized_query, normalized_match) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (pcid, idx, item_desc[:200], match_source, match_id,
+                 match_desc[:200], match_conf, "accept", match_price,
+                 norm_query, normalize_text(match_desc))
+            )
+            # Strengthen item_mappings if catalog match
+            if match_source == "catalog" and match_desc:
+                conn.execute(
+                    "UPDATE item_mappings SET confirmed=1, times_confirmed=times_confirmed+1, "
+                    "last_confirmed=datetime('now') "
+                    "WHERE original_description=?",
+                    (item_desc[:200],)
+                )
+            conn.commit()
+    except Exception as e:
+        log.error("match_feedback accept insert: %s", e)
+
+    return jsonify({"ok": True})
+
+
+@bp.route("/api/match-feedback/stats")
+@auth_required
+@safe_route
+def api_match_feedback_stats():
+    """Return aggregate match feedback stats."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            total_rej = conn.execute(
+                "SELECT COUNT(*) FROM match_feedback WHERE feedback_type='reject'"
+            ).fetchone()[0]
+            total_acc = conn.execute(
+                "SELECT COUNT(*) FROM match_feedback WHERE feedback_type='accept'"
+            ).fetchone()[0]
+            by_source = {}
+            for row in conn.execute(
+                "SELECT match_source, COUNT(*) FROM match_feedback "
+                "WHERE feedback_type='reject' GROUP BY match_source"
+            ).fetchall():
+                by_source[row[0]] = row[1]
+            top_rejected = []
+            for row in conn.execute(
+                "SELECT normalized_query, normalized_match, COUNT(*) as c "
+                "FROM match_feedback WHERE feedback_type='reject' "
+                "GROUP BY normalized_query, normalized_match ORDER BY c DESC LIMIT 10"
+            ).fetchall():
+                top_rejected.append({"query": row[0], "match": row[1], "count": row[2]})
+        total = total_rej + total_acc
+        return jsonify({
+            "ok": True,
+            "total_rejections": total_rej,
+            "total_accepts": total_acc,
+            "rejection_rate": round(total_rej / total, 2) if total > 0 else 0,
+            "by_source": by_source,
+            "top_rejected": top_rejected,
+        })
+    except Exception as e:
+        log.error("match_feedback stats: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/pricecheck/<pcid>/item-sources/<int:idx>", methods=["POST"])
