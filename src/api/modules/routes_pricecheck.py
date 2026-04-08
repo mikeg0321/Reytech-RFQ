@@ -581,7 +581,7 @@ def _pricecheck_detail_inner(pcid):
 
         if scprs_cost:
             scprs_conf_str = f" ({scprs_conf:.0%})" if scprs_conf else ""
-            sources.append((scprs_cost, f"SCPRS{scprs_conf_str}", "", "#3fb950", True))
+            sources.append((scprs_cost, f"SCPRS{scprs_conf_str}", "", "#3fb950", True, scprs_conf))
         if amazon_cost:
             a_url = p.get("amazon_url", "")
             # Detect actual source from URL — don't assume Amazon
@@ -607,12 +607,14 @@ def _pricecheck_detail_inner(pcid):
             a_label = a_source + (f" · {asin}" if asin and "amazon" in (a_url or "").lower() else "")
             # Preferred if we've used this supplier before
             a_pref = a_source.lower() in cat_best_sup or a_source.lower() in known_supplier or "amazon" in known_supplier
-            sources.append((amazon_cost, a_label, a_url, "#ff9900", a_pref))
+            # Amazon/retail: exact if ASIN confirmed or part# matched in title
+            _a_conf = 0.90 if asin else 0.70
+            sources.append((amazon_cost, a_label, a_url, "#ff9900", a_pref, _a_conf))
         web_price = _safe_float(p.get("web_price"), 0)
         if web_price and web_price != amazon_cost:
             w_src = p.get("web_source", "Web")[:20]
             w_pref = w_src.lower() in cat_best_sup or w_src.lower() in known_supplier
-            sources.append((web_price, w_src, p.get("web_url", ""), "#d2a8ff", w_pref))
+            sources.append((web_price, w_src, p.get("web_url", ""), "#d2a8ff", w_pref, 0.65))
         cat_cost = _safe_float(p.get("catalog_cost")) or _safe_float(p.get("last_cost"), 0)
         cat_match = p.get("catalog_match", "")
         cat_pid = p.get("catalog_product_id")
@@ -622,35 +624,47 @@ def _pricecheck_detail_inner(pcid):
                 cat_url = f"/catalog/{cat_pid}"
             cat_sup = p.get("catalog_best_supplier", "")
             cat_label = f"📦 {cat_sup}" if cat_sup else "📦 Catalog"
-            sources.append((cat_cost, cat_label, cat_url, "#58a6ff", True))
+            _cat_conf = _safe_float(p.get("catalog_confidence"), 0.80)
+            sources.append((cat_cost, cat_label, cat_url, "#58a6ff", True, _cat_conf))
 
         # Item link URL as a source (if user pasted a URL with a price)
         _item_link = item.get("item_link", "")
         _item_link_price = _safe_float(item.get("item_link_price"), 0)
         if _item_link and _item_link_price and _item_link_price not in [s[0] for s in sources]:
             _il_supplier = item.get("item_supplier", "Link")
-            sources.append((_item_link_price, _il_supplier, _item_link, "#f59e0b", True))
+            sources.append((_item_link_price, _il_supplier, _item_link, "#f59e0b", True, 0.99))
 
         # Sort by price, preferred suppliers get a small boost (within 10% of cheapest = preferred wins)
         if sources:
             cheapest = min(s[0] for s in sources)
             def _sort_key(s):
-                price, label, url, color, preferred = s
+                price, label, url, color, preferred, conf = s
                 # If preferred and within 10% of cheapest, rank it first
                 if preferred and price <= cheapest * 1.10:
                     return (0, price)
                 return (1, price)
             sources.sort(key=_sort_key)
 
-        # Build source chips HTML
+        # Build source chips HTML with confidence text badges
         source_chips = []
-        for i_src, (sprice, slabel, surl, scolor, spref) in enumerate(sources):
+        for i_src, (sprice, slabel, surl, scolor, spref, sconf) in enumerate(sources):
             pref_icon = "★ " if spref else ""
             price_fmt = f"${sprice:.2f}"
-            if surl:
-                chip = f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};text-decoration:none;white-space:nowrap;cursor:pointer" title="{slabel} · {price_fmt}">{pref_icon}<b>{price_fmt}</b> {slabel}</a>'
+            # Confidence tier: EXACT (>0.95), normal (0.75-0.95), ~FUZZY (0.50-0.75)
+            if sconf > 0.95:
+                conf_tag = ' <b style="font-size:10px;padding:1px 4px;border-radius:3px;background:#3fb95030;border:1px solid #3fb95060;letter-spacing:.5px">EXACT</b>'
+                border_style = f"border:2px solid {scolor}80"
+            elif sconf >= 0.75:
+                conf_tag = ""
+                border_style = f"border:1px solid {scolor}40"
             else:
-                chip = f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;border:1px solid {scolor}40;color:{scolor};white-space:nowrap" title="{slabel}">{pref_icon}<b>{price_fmt}</b> {slabel}</span>'
+                conf_tag = ' <span style="font-size:10px;padding:1px 4px;border-radius:3px;background:#d2992230;border:1px solid #d2992260;letter-spacing:.5px">~FUZZY</span>'
+                border_style = f"border:1px dashed {scolor}60"
+            conf_title = f" ({sconf:.0%} match)" if sconf else ""
+            if surl:
+                chip = f'<a href="{surl}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;{border_style};color:{scolor};text-decoration:none;white-space:nowrap;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel}{conf_tag}</a>'
+            else:
+                chip = f'<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:13px;background:{scolor}15;{border_style};color:{scolor};white-space:nowrap" title="{slabel}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel}{conf_tag}</span>'
             # First source gets "Use" action
             if i_src == 0 and len(sources) > 1 and sprice != unit_cost:
                 chip += f' <a href="#" onclick="document.querySelector(\'[name=cost_{idx}]\').value=\'{sprice:.2f}\';recalcRow({idx});recalcPC();return false" style="color:{scolor};font-size:13px;text-decoration:none" title="Use this price">⬇</a>'
