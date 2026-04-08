@@ -76,12 +76,9 @@ def seed_calibration_from_history():
                         except (json.JSONDecodeError, TypeError):
                             items = None
                     if not isinstance(items, list) or not items:
-                        # Build minimal items from item_summary text
+                        # Build minimal item from summary or just use a placeholder
                         summary = row[6] or ""
-                        if summary:
-                            items = [{"description": summary[:200], "pricing": {}}]
-                        else:
-                            continue
+                        items = [{"description": summary[:200] if summary else "general item", "pricing": {}}]
                     agency = row[1] or ""
                     reason = "price" if row[3] in ("price_higher", "margin_too_high") else "other"
                     calibrate_from_outcome(items, "lost", agency=agency, loss_reason=reason)
