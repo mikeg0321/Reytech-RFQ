@@ -719,39 +719,46 @@ def _lookup_ssww(url: str) -> dict:
         except Exception:
             pass
 
-    # Fallback 3: Web price research (Claude-powered)
-    if not ref_price and desc_from_url:
+    # Fallback 3: Claude web search — search for the S&S item directly
+    if not ref_price and (desc_from_url or item_num):
         try:
-            from src.agents.web_price_research import research_price
-            web = research_price(f"{desc_from_url} {item_num or ''}", quantity=1)
-            if web and web.get("price") and web["price"] > 0:
+            from src.agents.web_price_research import search_product_price
+            _query = f"S&S Worldwide {item_num}" if item_num else desc_from_url
+            web = search_product_price(
+                description=_query,
+                part_number=item_num or "",
+                qty=1, uom="EA",
+                context="S&S Worldwide ssww.com product",
+            )
+            if web and web.get("found") and web.get("price", 0) > 0:
                 ref_price = web["price"]
-                ref_source = web.get("source", "Web")
-                log.info("SSWW blocked, web research: %s → $%s", item_num, ref_price)
-        except Exception:
-            pass
+                ref_title = web.get("title", ref_title) or ref_title
+                ref_source = "Claude Web"
+                log.info("SSWW blocked, Claude web search: %s → $%.2f via %s",
+                         item_num, ref_price, web.get("source", "web"))
+        except Exception as _web_err:
+            log.debug("SSWW→Claude web search error: %s", _web_err)
 
     if ref_source:
         result["shipping_note"] = (
-            f"S&S site blocked — {ref_source} reference: ${ref_price:.2f}. "
-            f"Verify on ssww.com directly."
+            f"S&S site blocked — {ref_source} found: ${ref_price:.2f}. "
+            f"Using as MSRP (list price)."
         )
 
     result["title"] = ref_title or desc_from_url
     result["description"] = result["title"]
 
-    # Only set price/cost from CATALOG (trusted supplier cost).
-    # Amazon and web search prices are RETAIL references — not our wholesale cost.
-    # User should enter the actual S&S MSRP via the quick-entry field.
-    if ref_source == "Catalog" and ref_price:
+    # S&S is a TRUSTED SUPPLIER — prices from any source are valid cost basis.
+    # Amazon/Claude prices for S&S items represent MSRP (list price).
+    # Set as list_price; sale_price populated later if user enters discount.
+    if ref_price and ref_price > 0:
         result["price"] = ref_price
         result["cost"] = ref_price
+        result["list_price"] = ref_price  # MSRP — safe bid basis
+        result["reference_source"] = ref_source
     else:
         result["price"] = 0  # Triggers quick-entry field in JS
         result["cost"] = 0
-        if ref_price:
-            result["reference_price"] = ref_price
-            result["reference_source"] = ref_source
 
     return result
 
