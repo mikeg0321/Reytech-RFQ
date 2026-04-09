@@ -260,49 +260,107 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("ENRICH %s: UPC resolution error: %s", pc_id, e)
     _mark_step_done(pc_id, "upc_resolution")
 
-    # ── Step 1.5b: S&S / supplier items → find on Amazon ────────────────
-    # S&S Worldwide is Cloudflare-blocked — can't scrape prices.
-    # Use the description to find the same product on Amazon instead.
-    _update_status(pc_id, "ssww_resolution", "resolving S&S items via Amazon")
+    # ── Step 1.5b: S&S / supplier items → direct S&S lookup with pricing ─
+    # Recognise S&S item numbers, build the S&S URL, look up current MSRP
+    # + sale price. Catalog first, then direct S&S scrape/Claude, Amazon last.
+    _update_status(pc_id, "ssww_resolution", "resolving S&S items")
     _ssww_lookups = 0
-    _SSWW_LIMIT = 5
+    _SSWW_LIMIT = 8
     try:
-        from src.agents.product_research import search_amazon, lookup_amazon_product
         from src.agents.product_catalog import find_by_supplier_sku
-        import re as _re_ssww
+        from src.agents.sku_url_resolver import resolve_sku_url
         for i, it in enumerate(items):
             if _ssww_lookups >= _SSWW_LIMIT:
                 break
             _sup_skus = it.get("supplier_skus") or {}
             _is_ssww = _sup_skus.get("ssww") or _sup_skus.get("ssww_item")
-            # Also detect S&S from item_link or description
+            # Also detect S&S from item_link, description, or MFG# pattern
             _link = it.get("item_link", "")
             _desc = it.get("description", "")
+            _mfg = it.get("mfg_number", "") or it.get("item_number", "") or ""
             if not _is_ssww and "ssww.com" in _link:
                 _is_ssww = True
             if not _is_ssww and ("S&S" in _desc or "S & S" in _desc):
                 _is_ssww = True
+            # Auto-detect S&S from MFG# pattern via SKU resolver
+            if not _is_ssww and _mfg:
+                _resolved = resolve_sku_url(_mfg)
+                if _resolved.get("supplier") == "S&S Worldwide":
+                    _is_ssww = True
+                    _sup_skus["ssww"] = _mfg.upper()
             if not _is_ssww:
                 continue
-            # Skip if already has Amazon data
-            if it["pricing"].get("amazon_asin") and it["pricing"].get("amazon_price"):
+            # Skip if already has pricing
+            if it["pricing"].get("unit_cost") and float(it["pricing"].get("unit_cost", 0)) > 0:
                 continue
+
+            _ssww_sku = _sup_skus.get("ssww", "") or _mfg
+            _priced = False
+
             # Step A: Check catalog for existing S&S cross-ref
-            _ssww_sku = _sup_skus.get("ssww", "")
             if _ssww_sku:
-                existing = find_by_supplier_sku(_ssww_sku, "S&S")
-                if existing:
-                    cat = existing[0]
-                    it["pricing"]["catalog_match"] = cat.get("name", "")
-                    it["pricing"]["catalog_cost"] = cat.get("cost") or cat.get("best_cost", 0)
-                    it["pricing"]["catalog_confidence"] = 0.95
-                    it["pricing"]["catalog_product_id"] = cat.get("id")
-                    counters.setdefault("ssww_catalog_hit", 0)
-                    counters["ssww_catalog_hit"] += 1
-                    continue
-            # Step B: Search Amazon by description
-            if _desc and len(_desc) >= 8:
                 try:
+                    existing = find_by_supplier_sku(_ssww_sku, "S&S")
+                    if existing:
+                        cat = existing[0]
+                        it["pricing"]["catalog_match"] = cat.get("name", "")
+                        it["pricing"]["catalog_cost"] = cat.get("cost") or cat.get("best_cost", 0)
+                        it["pricing"]["catalog_confidence"] = 0.95
+                        it["pricing"]["catalog_product_id"] = cat.get("id")
+                        if it["pricing"]["catalog_cost"]:
+                            it["pricing"]["unit_cost"] = it["pricing"]["catalog_cost"]
+                            it["pricing"]["price_source"] = "ssww_catalog"
+                            _priced = True
+                        counters.setdefault("ssww_catalog_hit", 0)
+                        counters["ssww_catalog_hit"] += 1
+                except Exception:
+                    pass
+
+            # Step B: Build S&S URL and do direct lookup for current pricing
+            if not _priced and _ssww_sku:
+                try:
+                    _ssww_url = f"https://www.ssww.com/item/{_ssww_sku}/"
+                    from src.agents.item_link_lookup import _lookup_ssww
+                    _ssww_result = _lookup_ssww(_ssww_url)
+                    if _ssww_result.get("ok") and _ssww_result.get("price", 0) > 0:
+                        _price = _ssww_result["price"]
+                        it["pricing"]["unit_cost"] = _price
+                        it["pricing"]["price_source"] = "ssww_direct"
+                        it["pricing"]["web_price"] = _price
+                        it["pricing"]["web_source"] = "S&S Worldwide"
+                        it["item_link"] = _ssww_result.get("url") or _ssww_url
+                        it["item_supplier"] = "S&S Worldwide"
+                        # MSRP + sale price
+                        if _ssww_result.get("list_price"):
+                            it["pricing"]["list_price"] = _ssww_result["list_price"]
+                            it["list_price"] = _ssww_result["list_price"]
+                        if _ssww_result.get("sale_price"):
+                            it["pricing"]["sale_price"] = _ssww_result["sale_price"]
+                            it["sale_price"] = _ssww_result["sale_price"]
+                        if _ssww_result.get("title"):
+                            it["pricing"]["amazon_title"] = _ssww_result["title"][:200]
+                        if _ssww_result.get("mfg_number") and not it.get("mfg_number"):
+                            it["mfg_number"] = _ssww_result["mfg_number"]
+                        if _ssww_result.get("shipping_note"):
+                            it["pricing"]["shipping_note"] = _ssww_result["shipping_note"]
+                        _priced = True
+                        counters.setdefault("ssww_direct_priced", 0)
+                        counters["ssww_direct_priced"] += 1
+                        log.info("ENRICH %s: S&S %s → $%.2f (list=$%s sale=$%s)",
+                                 pc_id, _ssww_sku, _price,
+                                 _ssww_result.get("list_price", "?"),
+                                 _ssww_result.get("sale_price", "?"))
+                    elif not _ssww_result.get("price"):
+                        # S&S blocked — still set the URL for manual lookup
+                        it["item_link"] = _ssww_url
+                        it["item_supplier"] = "S&S Worldwide"
+                except Exception as e:
+                    log.debug("ENRICH %s: S&S direct lookup error item %d: %s", pc_id, i+1, e)
+
+            # Step C: Amazon fallback only if S&S direct failed
+            if not _priced and _desc and len(_desc) >= 8:
+                try:
+                    from src.agents.product_research import search_amazon, lookup_amazon_product
                     results = search_amazon(_desc[:100], max_results=1)
                     if results and results[0].get("price", 0) > 0:
                         r = results[0]
@@ -311,11 +369,13 @@ def _run_pipeline(pc_id: str, force: bool):
                         it["pricing"]["amazon_asin"] = _amz_asin
                         it["pricing"]["amazon_url"] = r.get("url", "")
                         it["pricing"]["amazon_title"] = r.get("title", "")[:200]
-                        it["item_link"] = r.get("url", "")
-                        it["item_supplier"] = "Amazon"
+                        # Keep S&S URL if set, Amazon as reference only
+                        if not it.get("item_link"):
+                            it["item_link"] = r.get("url", "")
+                            it["item_supplier"] = "Amazon"
                         if _ssww_sku:
                             it["pricing"]["ssww_sku"] = _ssww_sku
-                            it["pricing"]["source_note"] = f"S&S #{_ssww_sku} → Amazon"
+                            it["pricing"]["source_note"] = f"S&S #{_ssww_sku} → Amazon ref"
                         # ASIN lookup for list/sale split
                         if _amz_asin:
                             try:
@@ -332,10 +392,12 @@ def _run_pipeline(pc_id: str, force: bool):
                         counters["ssww_amazon_resolved"] += 1
                         log.info("ENRICH %s: S&S item %d → Amazon %s $%.2f",
                                  pc_id, i+1, _amz_asin, r["price"])
-                        _ssww_lookups += 1
-                        time.sleep(0.5)
                 except Exception as e:
                     log.debug("ENRICH %s: S&S→Amazon error item %d: %s", pc_id, i+1, e)
+
+            if _priced or it.get("item_link"):
+                _ssww_lookups += 1
+                time.sleep(0.5)
     except ImportError:
         pass
     except Exception as e:
