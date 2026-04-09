@@ -3879,6 +3879,9 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     _HC_CHECKBOX = ("Check Box4", 241.0, 127.5, 256.0, 139.0)
     _HC_PRICE_X = (637.0, 686.0)
     _HC_EXT_X = (691.0, 754.0)
+    _HC_QTY_X = (70.0, 95.0)
+    _HC_UOM_X = (107.0, 148.0)
+    _HC_QPU_X = (158.0, 192.0)
     _HC_PG1_ROWS = [(292.0, 311.5), (237.5, 257.5), (192.5, 212.5)]
     _HC_PG2_ROWS = [(457.5, 484.0), (399.0, 425.5), (340.5, 367.0), (288.7, 308.5), (235.0, 263.5)]
     _HC_PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
@@ -4019,6 +4022,10 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         # ── Coordinate helper for hardcoded fallback ──
         _sx = pw / 792.0
         _sy = ph / 612.0
+        # QTY/UOM/QPU columns — always use scaled hardcoded (consistent across 704 forms)
+        qty_x = (_sx * _HC_QTY_X[0], _sx * _HC_QTY_X[1])
+        uom_x = (_sx * _HC_UOM_X[0], _sx * _HC_UOM_X[1])
+        qpu_x = (_sx * _HC_QPU_X[0], _sx * _HC_QPU_X[1])
         def _sc(x1, y1, x2, y2):
             return (x1 * _sx, y1 * _sy, x2 * _sx, y2 * _sy)
 
@@ -4117,6 +4124,24 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         _need_mask = not bool(pg_detected)
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
+            # QTY — overwrite if user edited
+            qf = ROW_FIELDS["qty"].format(n=rn)
+            qv = fv_map.get(qf, "")
+            if qv and qv.strip():
+                _cell(c, qty_x[0], y_bot, qty_x[1], y_top, qv, fs=9)
+                drew = True
+            # UOM
+            uf = ROW_FIELDS["uom"].format(n=rn)
+            uv = fv_map.get(uf, "")
+            if uv and uv.strip():
+                _cell(c, uom_x[0], y_bot, uom_x[1], y_top, uv, fs=8)
+                drew = True
+            # QTY PER UOM
+            qpf = ROW_FIELDS["qty_per_uom"].format(n=rn)
+            qpv = fv_map.get(qpf, "")
+            if qpv and qpv.strip():
+                _cell(c, qpu_x[0], y_bot, qpu_x[1], y_top, qpv, fs=9)
+                drew = True
             # Price
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
