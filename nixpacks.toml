@@ -1,5 +1,5 @@
 [phases.setup]
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils"]
+aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils", "libreoffice-writer"]
 
 [phases.install]
 cmds = ["python -m venv --copies /opt/venv", "/opt/venv/bin/pip install -r requirements.txt"]

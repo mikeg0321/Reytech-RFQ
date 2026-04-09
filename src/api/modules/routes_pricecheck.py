@@ -2543,56 +2543,27 @@ def _generate_pc_pdf(pcid):
         if not recovered:
             return {"ok": False, "error": "Source PDF not found. Upload the 704 PDF (More \u2192 Upload PDF & Parse), then try again."}
 
-    # If source is an office doc (DOCX/XLSX/etc.), use the blank AMS 704 template instead.
-    # Office docs are parsed for item extraction but can't be used as PDF templates.
-    # Clear both /V (value) and /AP (appearance stream) from all text fields to prevent
-    # stale rendered text from the template's previous fill overlapping with new data.
-    # Keep form field annotations intact so fill_ams704 can detect row layout and fill normally.
+    # If source is an office doc (DOCX/XLSX/etc.), convert to PDF via LibreOffice
+    # so fill_ams704 uses the buyer's ACTUAL form as the template (original_mode).
+    # This preserves the buyer's layout, descriptions, signatures — only pricing is added.
     _src_ext = os.path.splitext(source_pdf)[1].lower()
     _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
     if _is_docx_source:
-        _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
-        if os.path.exists(_blank_704):
-            log.info("GENERATE %s: source is office doc (%s) — using blank AMS 704 template",
-                     pcid, _src_ext)
-            try:
-                from pypdf import PdfReader as _ClnR, PdfWriter as _ClnW
-                from pypdf.generic import NameObject, TextStringObject
-                _cln_reader = _ClnR(_blank_704)
-                _cln_writer = _ClnW()
-                _cln_writer.append(_cln_reader)
-                # Clear /V (value) AND /AP (appearance stream) from all text/choice fields.
-                # /AP contains the rendered bitmap of the old value — must be removed or
-                # pypdf's auto_regenerate won't overwrite it, causing text overlap.
-                _cleared_count = 0
-                for _pg in _cln_writer.pages:
-                    for _annot in (_pg.get("/Annots") or []):
-                        try:
-                            _obj = _annot.get_object()
-                            _ft = str(_obj.get("/FT", ""))
-                            if _ft in ("/Tx", "/Ch"):
-                                _obj[NameObject("/V")] = TextStringObject("")
-                                # Remove appearance stream so it's regenerated from new value
-                                if "/AP" in _obj:
-                                    del _obj[NameObject("/AP")]
-                                # Remove default value too
-                                if "/DV" in _obj:
-                                    del _obj[NameObject("/DV")]
-                                _cleared_count += 1
-                        except Exception:
-                            pass
-                _clean_path = os.path.join(DATA_DIR, f"pc_pdfs/{pcid}_clean_704.pdf")
-                os.makedirs(os.path.dirname(_clean_path), exist_ok=True)
-                with open(_clean_path, "wb") as _cf:
-                    _cln_writer.write(_cf)
-                source_pdf = _clean_path
-                log.info("GENERATE %s: created clean 704 template — cleared %d fields (V+AP)",
-                         pcid, _cleared_count)
-            except Exception as _cln_e:
-                log.warning("GENERATE %s: clean template failed, using raw blank: %s", pcid, _cln_e)
-                source_pdf = _blank_704
-        else:
-            return {"ok": False, "error": f"Source is an office document ({_src_ext}) and blank AMS 704 template not found."}
+        try:
+            from src.forms.doc_converter import convert_to_pdf, can_convert_to_pdf
+            if can_convert_to_pdf():
+                _pdf_dir = os.path.join(DATA_DIR, "pc_pdfs")
+                os.makedirs(_pdf_dir, exist_ok=True)
+                _converted_pdf = convert_to_pdf(source_pdf, output_dir=_pdf_dir)
+                source_pdf = _converted_pdf
+                log.info("GENERATE %s: converted office doc → PDF: %s", pcid, os.path.basename(_converted_pdf))
+            else:
+                log.error("GENERATE %s: LibreOffice not available for DOCX→PDF conversion", pcid)
+                return {"ok": False, "error": "Cannot generate from office docs — LibreOffice not installed on server. "
+                        "Please convert the DOCX to PDF and re-upload."}
+        except Exception as _conv_e:
+            log.error("GENERATE %s: DOCX→PDF conversion failed: %s", pcid, _conv_e, exc_info=True)
+            return {"ok": False, "error": f"DOCX→PDF conversion failed: {_conv_e}"}
 
     # Detailed logging: what exactly will fill_ams704 receive?
     _fill_items = parsed.get("line_items", [])
@@ -2665,7 +2636,6 @@ def _generate_pc_pdf(pcid):
         tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
-        keep_all_pages=_is_docx_source,
     )
 
     # Log result

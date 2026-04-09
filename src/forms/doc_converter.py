@@ -167,6 +167,73 @@ def _extract_docx(file_path: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# DOCX → PDF conversion via LibreOffice headless
+# ═══════════════════════════════════════════════════════════════════════
+
+import subprocess
+import shutil
+
+
+def convert_to_pdf(file_path: str, output_dir: str = None) -> str:
+    """Convert a DOCX/DOC/XLS/XLSX file to PDF using LibreOffice headless.
+
+    Returns the path to the generated PDF, or raises RuntimeError on failure.
+    """
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Source file not found: {file_path}")
+
+    if output_dir is None:
+        output_dir = os.path.dirname(file_path)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Find LibreOffice binary
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        # Common paths
+        for candidate in ["/usr/bin/libreoffice", "/usr/bin/soffice",
+                          "C:/Program Files/LibreOffice/program/soffice.exe"]:
+            if os.path.exists(candidate):
+                soffice = candidate
+                break
+    if not soffice:
+        raise RuntimeError("LibreOffice not found — cannot convert office docs to PDF")
+
+    cmd = [
+        soffice, "--headless", "--norestore", "--convert-to", "pdf",
+        "--outdir", output_dir, file_path
+    ]
+    log.info("convert_to_pdf: %s", " ".join(cmd))
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice conversion failed: {result.stderr[:300]}")
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("LibreOffice conversion timed out (60s)")
+
+    # Find the output PDF
+    base = os.path.splitext(os.path.basename(file_path))[0]
+    pdf_path = os.path.join(output_dir, base + ".pdf")
+    if not os.path.exists(pdf_path):
+        raise RuntimeError(f"Conversion produced no PDF (expected: {pdf_path})")
+
+    log.info("convert_to_pdf: %s → %s (%d bytes)",
+             os.path.basename(file_path), os.path.basename(pdf_path),
+             os.path.getsize(pdf_path))
+    return pdf_path
+
+
+def can_convert_to_pdf() -> bool:
+    """Check if LibreOffice is available for DOCX→PDF conversion."""
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if soffice:
+        return True
+    for candidate in ["/usr/bin/libreoffice", "/usr/bin/soffice"]:
+        if os.path.exists(candidate):
+            return True
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Regex fallback: parse simple item lists from extracted text
 # ═══════════════════════════════════════════════════════════════════════
 
