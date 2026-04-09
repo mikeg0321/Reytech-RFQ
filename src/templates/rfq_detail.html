@@ -1074,7 +1074,7 @@ function handleRfqLinkInput(idx, inp){
   if(openBtn){openBtn.style.display='none';openBtn.href='';}
   return;
  }
- if(!url.startsWith('http')&&_isUrl(url)){url='https://'+url;inp.value=url;}
+ if(!url.startsWith('http')&&_isUrl(url)){var _b=url;if(/^B0[A-Z0-9]{8}$/i.test(_b)||/^\d{10}$/.test(_b)||/^\d{13}$/.test(_b)){url='https://www.amazon.com/dp/'+_b;}else{url='https://'+url;}inp.value=url;}
  if(openBtn&&_isUrl(url)){openBtn.href=url;openBtn.style.display='flex';}
  else if(openBtn){openBtn.style.display='none';}
  const supplier=_detectSupplierJS(url);
