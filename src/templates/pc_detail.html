@@ -763,6 +763,87 @@
       if (overlay) overlay.style.display = 'none';
     }
 
+    // ── QA/QC Agent ─────────────────────────────────────────────────
+    function runQA(callback) {
+     // Run QA audit, show results, then call callback if passed
+     var banner = document.getElementById('qa-banner');
+     if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'qa-banner';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;font-size:14px;display:none;border-bottom:2px solid;transition:all 0.3s';
+      document.body.prepend(banner);
+     }
+     banner.style.display = 'block';
+     banner.style.background = '#1a1d27';
+     banner.style.borderColor = '#d29922';
+     banner.innerHTML = '<span style="color:#d29922;font-weight:700">⏳ Running QA audit...</span>';
+
+     fetch('/api/pricecheck/' + _pcid + '/qa', {method:'POST', credentials:'same-origin'})
+     .then(function(r) { return r.json(); })
+     .then(function(d) {
+      if (!d.ok) {
+       banner.innerHTML = '<span style="color:#f85149">❌ QA error: ' + (d.error || 'unknown') + '</span>'
+        + ' <button onclick="this.parentElement.style.display=\'none\'" style="float:right;background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button>';
+       banner.style.borderColor = '#f85149';
+       return;
+      }
+      var blockers = d.issues.filter(function(i) { return i.severity === 'blocker'; });
+      var warnings = d.issues.filter(function(i) { return i.severity === 'warning'; });
+
+      if (blockers.length > 0) {
+       // BLOCKERS — stop generation
+       var html = '<div style="display:flex;justify-content:space-between;align-items:start">'
+        + '<div><span style="color:#f85149;font-weight:700">🛑 QA FAILED — ' + blockers.length + ' blocker(s) must be fixed</span>'
+        + '<span style="color:#8b949e;margin-left:12px">Score: ' + d.score + '/100</span></div>'
+        + '<button onclick="this.closest(\'#qa-banner\').style.display=\'none\'" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:18px">&times;</button></div>'
+        + '<div style="margin-top:8px;max-height:200px;overflow-y:auto">';
+       d.issues.forEach(function(issue) {
+        var color = issue.severity === 'blocker' ? '#f85149' : (issue.severity === 'warning' ? '#d29922' : '#8b949e');
+        var icon = issue.severity === 'blocker' ? '🔴' : (issue.severity === 'warning' ? '🟡' : '🔵');
+        var itemLabel = issue.item_index >= 0 ? 'Item ' + (issue.item_index + 1) + ': ' : '';
+        html += '<div style="padding:3px 0;font-size:13px;color:' + color + '">' + icon + ' ' + itemLabel + issue.message + '</div>';
+       });
+       html += '</div>';
+       banner.innerHTML = html;
+       banner.style.borderColor = '#f85149';
+       banner.style.background = 'linear-gradient(135deg, #1a1d27 0%, #2d1215 100%)';
+       // Highlight blocker rows
+       blockers.forEach(function(b) {
+        if (b.item_index >= 0) {
+         var row = document.querySelector('tr[data-row="' + b.item_index + '"]');
+         if (row) row.style.boxShadow = 'inset 0 0 0 2px #f85149';
+        }
+       });
+       // DO NOT call callback — generation blocked
+      } else if (warnings.length > 0) {
+       // WARNINGS — show but allow proceed
+       banner.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center">'
+        + '<span style="color:#d29922;font-weight:700">⚠️ QA: ' + warnings.length + ' warning(s)</span>'
+        + '<span style="color:#8b949e;margin:0 12px">Score: ' + d.score + '/100</span>'
+        + '<span style="display:flex;gap:8px">'
+        + '<button onclick="document.getElementById(\'qa-banner\').style.display=\'none\';(' + (callback ? callback.name : 'function(){}') + ')()" style="padding:4px 14px;background:#238636;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">Proceed Anyway</button>'
+        + '<button onclick="this.closest(\'#qa-banner\').style.display=\'none\'" style="padding:4px 14px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer">Review Issues</button>'
+        + '</span></div>'
+        + '<div style="margin-top:6px;font-size:12px;color:#d29922">'
+        + warnings.map(function(w) { return (w.item_index >= 0 ? 'Item ' + (w.item_index+1) + ': ' : '') + w.message; }).join(' | ')
+        + '</div>';
+       banner.style.borderColor = '#d29922';
+       banner.style.background = 'linear-gradient(135deg, #1a1d27 0%, #2d2510 100%)';
+      } else {
+       // ALL PASS — auto-proceed
+       banner.innerHTML = '<span style="color:#3fb950;font-weight:700">✅ QA Passed — Score: ' + d.score + '/100</span>';
+       banner.style.borderColor = '#3fb950';
+       banner.style.background = 'linear-gradient(135deg, #1a1d27 0%, #0d2818 100%)';
+       setTimeout(function() { banner.style.display = 'none'; }, 3000);
+       if (callback) callback();
+      }
+     }).catch(function(e) {
+      banner.innerHTML = '<span style="color:#f85149">QA error: ' + e.message + '</span>';
+      // Don't block on QA failure — let generation proceed
+      if (callback) callback();
+     });
+    }
+
     // Auto-save ship-to on blur so it persists before PDF upload
     function saveShipTo(val) {
       fetch('/pricecheck/'+_pcid+'/save-prices', {
@@ -3153,18 +3234,27 @@
 
     function saveAndGenerate(btn) {
      if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
-     _isGenerating = true; _showGenOverlay();
-     btn.disabled=true;btn.textContent='⏳ Saving prices...';
-     showMsg('Saving prices and filling AMS 704 PDF...','warn');
+     btn.disabled=true; btn.textContent='⏳ Saving prices...';
+     showMsg('Saving prices...','warn');
      fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-     .then(r=>{
-      if(!r.ok) return r.text().then(t=>{throw new Error('Save: Server '+r.status)});
+     .then(function(r){
+      if(!r.ok) return r.text().then(function(t){throw new Error('Save: Server '+r.status)});
       return r.json();
-     }).then(d=>{
-      if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;_hideGenOverlay();showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
-      btn.textContent='⏳ Generating PDF...';
-      return fetch('/pricecheck/'+_pcid+'/generate',{method:'POST',credentials:'same-origin'});
-     }).then(r=>{
+     }).then(function(d){
+      if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
+      // Save succeeded → run QA before generating
+      btn.textContent='🔍 Running QA...';
+      runQA(function() { _doGenerate704(btn); });
+     }).catch(function(e){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
+    }
+
+    function _doGenerate704(btn) {
+     // Internal: actually generate the PDF (called after QA passes)
+     if (!btn) btn = document.querySelector('[onclick*="saveAndGenerate"]') || {};
+     btn.disabled=true;btn.textContent='⏳ Generating PDF...';
+     _isGenerating = true; _showGenOverlay();
+     fetch('/pricecheck/'+_pcid+'/generate',{method:'POST',credentials:'same-origin'})
+     .then(function(r){
       if(!r||!r.json){_hideGenOverlay();return;} // save failed, chain stopped
       if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});
       return r.json();
