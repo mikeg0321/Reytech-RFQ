@@ -169,12 +169,16 @@ def _check_item_deterministic(idx: int, item: dict, p: dict, pc: dict) -> list:
                             "message": f"Price ${price:.2f} doesn't match cost ${cost:.2f} x {markup}% markup (expected ${expected_price:.2f})",
                             "value": price, "expected": expected_price})
 
-        extension = round(price * qty, 2)
-        stated_ext = float(item.get("extension") or 0)
-        if stated_ext > 0 and abs(extension - stated_ext) > 0.05:
-            issues.append({"severity": WARNING, "item_index": idx, "field": "extension",
-                            "message": f"Extension mismatch: {qty} x ${price:.2f} = ${extension:.2f}, shown ${stated_ext:.2f}",
-                            "value": stated_ext, "expected": extension})
+        # Extension check: only flag if Reytech has explicitly set a calculated extension
+        # that doesn't match price * qty. The item["extension"] field is the BUYER's
+        # original value from the parsed form — it's expected to differ from our pricing.
+        _reytech_ext = float(p.get("calculated_extension") or 0)
+        if _reytech_ext > 0:
+            extension = round(price * qty, 2)
+            if abs(extension - _reytech_ext) > 0.05:
+                issues.append({"severity": WARNING, "item_index": idx, "field": "extension",
+                                "message": f"Extension mismatch: {qty} x ${price:.2f} = ${extension:.2f}, shown ${_reytech_ext:.2f}",
+                                "value": _reytech_ext, "expected": extension})
 
     # ── Margin checks ──
     if cost > 0 and price > 0:

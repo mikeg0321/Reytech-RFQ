@@ -810,13 +810,19 @@
 
     function _scrollToItem(idx) {
      // Clear previous highlights
-     document.querySelectorAll('tr[data-row]').forEach(function(r) { r.style.boxShadow = ''; });
+     document.querySelectorAll('tr[data-row]').forEach(function(r) { r.style.boxShadow = ''; r.style.background = ''; });
      var row = document.querySelector('tr[data-row="' + idx + '"]');
      if (!row) return;
      row.style.boxShadow = 'inset 0 0 0 2px #58a6ff';
-     // Save scroll position context then scroll
+     row.style.background = '#1a233280';
+     // Scroll both the page and the table container
+     var wrap = row.closest('.pc-table-wrap');
+     if (wrap) {
+      var rowTop = row.offsetTop - wrap.offsetTop;
+      wrap.scrollTo({top: rowTop - wrap.clientHeight / 3, behavior: 'smooth'});
+     }
      row.scrollIntoView({behavior:'smooth', block:'center'});
-     setTimeout(function() { row.style.boxShadow = ''; }, 4000);
+     setTimeout(function() { row.style.boxShadow = ''; row.style.background = ''; }, 4000);
     }
 
     function _renderQAPanel(d) {
