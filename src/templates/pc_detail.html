@@ -2761,6 +2761,7 @@
     // ── AUTOSAVE ──────────────────────────────────────────────────
     var _pcAutosaveTimer = null;
     var _pcLastSaved = null;
+    var _pcRestoredFromBackup = false;  // True when browser backup was restored but not yet saved to server
     // Expose for extension bridge to invalidate when it fills data programmatically
     window._pcInvalidateSave = function() { _pcLastSaved = null; };
     var _pcSaveInFlight = false;
@@ -2803,6 +2804,7 @@
         _pcSaveInFlight = false;
         if (d.ok) {
           _pcLastSaved = snapshot;
+          _pcRestoredFromBackup = false;
           _showPcSaveStatus('saved');
           // Keep localStorage backup as insurance — don't remove on success
         } else {
@@ -2868,6 +2870,7 @@
             || (backupCosts === serverCosts && backupCosts > 0 && Math.abs(backupTotal - serverTotal) > 0.01);
           if (shouldRestore) {
             console.log('[PC] Auto-restoring from backup: ' + backupCosts + ' costs ($' + backupTotal.toFixed(2) + ') vs server ' + serverCosts + ' costs ($' + serverTotal.toFixed(2) + ')');
+            _pcRestoredFromBackup = true;
             restoreLocalBackup();
             showMsg('Restored ' + backupCosts + ' prices from browser backup (server data was stale or lost)', 'warn');
           } else {
@@ -2937,7 +2940,13 @@
           e.returnValue = 'You have unsaved changes.';
         }
       });
-      setTimeout(function() { _pcLastSaved = JSON.stringify(collectPrices()); }, 1000);
+      setTimeout(function() {
+        // Don't snapshot if browser backup was restored but not yet saved to server —
+        // otherwise Ctrl+S thinks nothing changed and skips the POST
+        if (!_pcRestoredFromBackup) {
+          _pcLastSaved = JSON.stringify(collectPrices());
+        }
+      }, 1000);
     });
 
     // ── Tax Verify ──────────────────────────────────────
