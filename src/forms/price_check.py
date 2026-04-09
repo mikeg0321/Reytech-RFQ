@@ -2393,6 +2393,7 @@ def fill_ams704(
     custom_notes: str = "",  # Editable supplier notes
     delivery_option: str = "",  # Override delivery time
     original_mode: bool = False,  # True = only fill company info + pricing, leave buyer fields
+    keep_all_pages: bool = False,  # True = don't trim unused pages (DOCX sources)
 ) -> dict:
     """
     Fill in the AMS 704 form with supplier info and pricing.
@@ -2920,18 +2921,20 @@ def fill_ams704(
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
     # Page numbering — set on pages with items, BLANK on empty pages
+    # When keep_all_pages=True, treat all template pages as "having content" for numbering.
+    _total_output_pages = max(_pages_with_items, _pdf_total_pages) if keep_all_pages else _pages_with_items
     # Track whether page-specific fields exist (if not, need overlay for page 2+)
     _page_fields_are_shared = "Page" in _pdf_fields and "Page_2" not in _pdf_fields
     for pg in range(1, _pdf_total_pages + 1):
         suffix = "" if pg == 1 else f"_{pg}"
         page_field = f"Page{suffix}"
         of_field = f"of{suffix}"
-        if pg <= _pages_with_items:
-            # Page has items — set correct numbering
+        if pg <= _total_output_pages:
+            # Page is included — set correct numbering
             if page_field in _pdf_fields:
                 field_values.append({"field_id": page_field, "page": pg, "value": str(pg)})
             if of_field in _pdf_fields:
-                field_values.append({"field_id": of_field, "page": pg, "value": str(_pages_with_items)})
+                field_values.append({"field_id": of_field, "page": pg, "value": str(_total_output_pages)})
         else:
             # Empty page — blank out any pre-filled page numbers and supplier
             if page_field in _pdf_fields:
@@ -2962,10 +2965,11 @@ def fill_ams704(
         json.dump(field_values, f, indent=2)
 
     # Trim source template to needed pages for form fill (max 2 — pages 3+ added by overflow)
+    # When keep_all_pages=True (DOCX sources), preserve full template to match original format.
     _fill_pages = min(_pages_with_items, 2)  # Form fields only on pages 1-2
     _fill_source = source_pdf
     _trimmed_tmp = None
-    if _fill_pages < _pdf_total_pages:
+    if _fill_pages < _pdf_total_pages and not keep_all_pages:
         try:
             import tempfile as _tmpmod
             from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW

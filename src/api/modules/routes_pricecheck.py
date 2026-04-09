@@ -2665,6 +2665,7 @@ def _generate_pc_pdf(pcid):
         tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
+        keep_all_pages=_is_docx_source,
     )
 
     # Log result
