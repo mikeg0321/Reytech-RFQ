@@ -2524,6 +2524,37 @@ def fill_ams704(
         original_mode = True
         log.info("fill_ams704: auto-switched to original_mode (pre-filled template detected)")
 
+    # ── Fill buyer header fields when template is blank (not pre-filled) ──
+    # DOCX-sourced PCs use the blank template, so we must write requestor/institution/etc.
+    if not _form_is_prefilled:
+        _hdr = parsed_pc.get("header", {})
+        # Also check top-level parsed_pc keys (upload handler copies header→top-level)
+        def _h(key, *alts):
+            v = _hdr.get(key, "")
+            if not v:
+                for a in alts:
+                    v = _hdr.get(a, "") or parsed_pc.get(a, "")
+                    if v:
+                        break
+            if not v:
+                v = parsed_pc.get(key, "")
+            return str(v).strip() if v else ""
+        _header_mappings = [
+            ("Requestor", _h("requestor")),
+            ("Institution or HQ Program", _h("institution")),
+            ("Delivery Zip Code", _h("zip_code", "delivery_zip")),
+            ("Phone Number", _h("phone", "phone_number")),
+            ("Date of Request", _h("date_of_request")),
+            ("PRICE CHECK", _h("pc_number") or parsed_pc.get("pc_number", "")),
+            ("Text2", _h("due_date")),
+        ]
+        for _hf_id, _hf_val in _header_mappings:
+            if _hf_val:
+                field_values.append({"field_id": _hf_id, "page": 1, "value": str(_hf_val)})
+        _hdr_filled = sum(1 for _, v in _header_mappings if v)
+        if _hdr_filled:
+            log.info("fill_ams704: filled %d buyer header fields (blank template)", _hdr_filled)
+
     seq = 0  # sequential line item counter
     _skipped_no_row = 0
     _skipped_no_price = 0

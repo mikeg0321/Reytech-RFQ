@@ -2543,6 +2543,47 @@ def _generate_pc_pdf(pcid):
         if not recovered:
             return {"ok": False, "error": "Source PDF not found. Upload the 704 PDF (More \u2192 Upload PDF & Parse), then try again."}
 
+    # If source is an office doc (DOCX/XLSX/etc.), use the blank AMS 704 template instead.
+    # Office docs are parsed for item extraction but can't be used as PDF templates.
+    # We create a clean copy with all form fields cleared so fill_ams704 writes everything.
+    _src_ext = os.path.splitext(source_pdf)[1].lower()
+    _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
+    if _is_docx_source:
+        _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
+        if os.path.exists(_blank_704):
+            log.info("GENERATE %s: source is office doc (%s) — using blank AMS 704 template",
+                     pcid, _src_ext)
+            # Create a clean copy with all field values cleared so pre-fill detection
+            # doesn't trigger original_mode (the template may have stale data)
+            try:
+                from pypdf import PdfReader as _ClnR, PdfWriter as _ClnW
+                import tempfile as _tmpmod2
+                _cln_reader = _ClnR(_blank_704)
+                _cln_writer = _ClnW()
+                _cln_writer.append(_cln_reader)
+                # Clear all text/choice field values
+                for _pg in _cln_writer.pages:
+                    for _annot in (_pg.get("/Annots") or []):
+                        try:
+                            _obj = _annot.get_object()
+                            _ft = str(_obj.get("/FT", ""))
+                            if _ft in ("/Tx", "/Ch"):
+                                from pypdf.generic import NameObject, TextStringObject
+                                _obj[NameObject("/V")] = TextStringObject("")
+                        except Exception:
+                            pass
+                _clean_path = os.path.join(DATA_DIR, f"pc_pdfs/{pcid}_clean_704.pdf")
+                os.makedirs(os.path.dirname(_clean_path), exist_ok=True)
+                with open(_clean_path, "wb") as _cf:
+                    _cln_writer.write(_cf)
+                source_pdf = _clean_path
+                log.info("GENERATE %s: created clean 704 template at %s", pcid, os.path.basename(_clean_path))
+            except Exception as _cln_e:
+                log.warning("GENERATE %s: clean template failed, using raw blank: %s", pcid, _cln_e)
+                source_pdf = _blank_704
+        else:
+            return {"ok": False, "error": f"Source is an office document ({_src_ext}) and blank AMS 704 template not found."}
+
     # Detailed logging: what exactly will fill_ams704 receive?
     _fill_items = parsed.get("line_items", [])
     log.info("GENERATE %s: %d items going to fill_ams704 (source: %s)",
