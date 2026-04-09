@@ -2549,6 +2549,11 @@ def _generate_pc_pdf(pcid):
     # detects row positions via pdfplumber and draws supplier info + pricing.
     _src_ext = os.path.splitext(source_pdf)[1].lower()
     _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
+    # Also detect DOCX files that were converted to PDF during upload (e.g. "file.docx.pdf")
+    # These are flat PDFs that need keep_all_pages=True to preserve multi-page layout.
+    _src_basename = os.path.basename(source_pdf).lower()
+    _is_converted_docx = (not _is_docx_source and _src_ext == ".pdf"
+                          and any(x in _src_basename for x in (".docx.", ".doc.", ".xlsx.", ".xls.")))
     if _is_docx_source:
         try:
             from src.forms.doc_converter import convert_to_pdf, can_convert_to_pdf
@@ -2647,7 +2652,7 @@ def _generate_pc_pdf(pcid):
         tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
-        keep_all_pages=_is_docx_source,
+        keep_all_pages=_is_docx_source or _is_converted_docx,
     )
 
     # Log result
