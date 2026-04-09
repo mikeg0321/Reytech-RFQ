@@ -2543,27 +2543,38 @@ def _generate_pc_pdf(pcid):
         if not recovered:
             return {"ok": False, "error": "Source PDF not found. Upload the 704 PDF (More \u2192 Upload PDF & Parse), then try again."}
 
-    # If source is an office doc (DOCX/XLSX/etc.), convert to PDF via LibreOffice
-    # so fill_ams704 uses the buyer's ACTUAL form as the template (original_mode).
-    # This preserves the buyer's layout, descriptions, signatures — only pricing is added.
+    # If source is an office doc (DOCX/XLSX/etc.), convert to PDF via LibreOffice.
+    # The converted PDF preserves the buyer's exact form layout. Since it's a flat PDF
+    # (no form fields), fill_ams704 will use the text overlay path which dynamically
+    # detects row positions via pdfplumber and draws supplier info + pricing.
     _src_ext = os.path.splitext(source_pdf)[1].lower()
     _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
     if _is_docx_source:
         try:
-            from src.forms.doc_converter import convert_to_pdf, can_convert_to_pdf
-            if can_convert_to_pdf():
-                _pdf_dir = os.path.join(DATA_DIR, "pc_pdfs")
-                os.makedirs(_pdf_dir, exist_ok=True)
-                _converted_pdf = convert_to_pdf(source_pdf, output_dir=_pdf_dir)
-                source_pdf = _converted_pdf
-                log.info("GENERATE %s: converted office doc → PDF: %s", pcid, os.path.basename(_converted_pdf))
+            from src.forms.doc_converter import convert_docx_to_pdf, can_convert_to_pdf
+            if not can_convert_to_pdf():
+                # Fallback: use blank AMS 704 template when LibreOffice unavailable
+                _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
+                if os.path.exists(_blank_704):
+                    log.warning("GENERATE %s: LibreOffice unavailable — falling back to blank 704 template", pcid)
+                    source_pdf = _blank_704
+                else:
+                    return {"ok": False, "error": f"Source is an office document ({_src_ext}) and LibreOffice is not available for conversion."}
             else:
-                log.error("GENERATE %s: LibreOffice not available for DOCX→PDF conversion", pcid)
-                return {"ok": False, "error": "Cannot generate from office docs — LibreOffice not installed on server. "
-                        "Please convert the DOCX to PDF and re-upload."}
+                _convert_dir = os.path.join(DATA_DIR, "pc_pdfs")
+                os.makedirs(_convert_dir, exist_ok=True)
+                _converted = convert_docx_to_pdf(source_pdf, _convert_dir)
+                source_pdf = _converted
+                log.info("GENERATE %s: converted %s → PDF (%s)", pcid, _src_ext, os.path.basename(_converted))
         except Exception as _conv_e:
-            log.error("GENERATE %s: DOCX→PDF conversion failed: %s", pcid, _conv_e, exc_info=True)
-            return {"ok": False, "error": f"DOCX→PDF conversion failed: {_conv_e}"}
+            log.error("GENERATE %s: DOCX→PDF conversion failed: %s", pcid, _conv_e)
+            # Fallback to blank template
+            _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
+            if os.path.exists(_blank_704):
+                log.warning("GENERATE %s: falling back to blank 704 template", pcid)
+                source_pdf = _blank_704
+            else:
+                return {"ok": False, "error": f"DOCX→PDF conversion failed: {_conv_e}"}
 
     # Detailed logging: what exactly will fill_ams704 receive?
     _fill_items = parsed.get("line_items", [])
@@ -2636,6 +2647,7 @@ def _generate_pc_pdf(pcid):
         tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
+        keep_all_pages=_is_docx_source,
     )
 
     # Log result
@@ -8514,6 +8526,22 @@ def api_pc_accept_match(pcid, idx):
         log.error("match_feedback accept insert: %s", e)
 
     return jsonify({"ok": True})
+
+
+@bp.route("/api/grok/test")
+@auth_required
+@safe_route
+def api_grok_test():
+    """Quick test: validate a product via Grok API."""
+    desc = request.args.get("desc", "S&S Worldwide Mini Velvet Art Posters - 840614150049")
+    upc = request.args.get("upc", "840614150049")
+    try:
+        from src.agents.product_validator import validate_product
+        result = validate_product(description=desc, upc=upc, qty=4, uom="PK", qty_per_uom=100)
+        return jsonify(result)
+    except Exception as e:
+        log.error("Grok test error: %s", e)
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/match-feedback/stats")
