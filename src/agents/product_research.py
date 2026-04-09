@@ -200,6 +200,29 @@ def _extract_price(item: dict) -> Optional[float]:
     return None
 
 
+def _extract_list_price(item: dict) -> Optional[float]:
+    """Extract list/typical/old price (MSRP) from a SerpApi result.
+    This is the non-discounted price — separate from the current sale price."""
+    for field in ("old_price", "typical_price", "list_price", "before_price",
+                  "price_strikethrough", "rrp", "extracted_old_price"):
+        val = item.get(field)
+        if isinstance(val, dict):
+            v = val.get("value") or val.get("raw") or val.get("extracted_price")
+            if v:
+                try:
+                    return float(str(v).replace("$", "").replace(",", ""))
+                except (ValueError, TypeError):
+                    pass
+        elif isinstance(val, (int, float)) and val > 0:
+            return float(val)
+        elif isinstance(val, str) and val:
+            try:
+                return float(val.replace("$", "").replace(",", ""))
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
 def _extract_mfg_info(title: str, asin: str = "") -> dict:
     """Extract manufacturer name and part/model number from Amazon title.
     
@@ -307,7 +330,8 @@ def search_amazon(query: str, max_results: int = 5) -> list:
 
             mfg_info = _extract_mfg_info(title, asin)
             _thumb = item.get("thumbnail", "") or item.get("image", "")
-            results.append({
+            _list_p = _extract_list_price(item)
+            _result = {
                 "title": title[:200],
                 "price": price,
                 "asin": asin,
@@ -319,7 +343,11 @@ def search_amazon(query: str, max_results: int = 5) -> list:
                 "mfg_number": mfg_info.get("mfg_number", ""),
                 "item_number": mfg_info.get("item_number", asin),
                 "photo_url": _thumb if isinstance(_thumb, str) and _thumb.startswith("http") else "",
-            })
+            }
+            if _list_p and _list_p > price:
+                _result["list_price"] = _list_p
+                _result["sale_price"] = price
+            results.append(_result)
 
             if len(results) >= max_results:
                 break
