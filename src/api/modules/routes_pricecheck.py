@@ -7921,6 +7921,61 @@ def api_admin_clean_activity():
     })
 
 
+@bp.route("/api/admin/undo-mark-won/<pcid>", methods=["GET", "POST"])
+@auth_required
+@safe_route
+def api_admin_undo_mark_won(pcid):
+    """Revert a mark-won: reset PC status to sent, delete winning_prices rows, delete won_quotes rows."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    quote_num = pc.get("reytech_quote_number", pcid)
+    pc_num = pc.get("pc_number", "")
+    # Revert PC status
+    old_status = pc.get("status", "")
+    old_award = pc.get("award_status", "")
+    pc["status"] = "sent"
+    pc.pop("award_status", None)
+    pc.pop("closed_at", None)
+    pc.pop("closed_reason", None)
+    pc.pop("outcome", None)
+    pc.pop("outcome_date", None)
+    _save_single_pc(pcid, pc)
+    try:
+        upsert_price_check(pcid, pc)
+    except Exception:
+        pass
+    # Delete winning_prices rows
+    wp_deleted = 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            cur = conn.execute("DELETE FROM winning_prices WHERE quote_number = ?", (quote_num,))
+            wp_deleted = cur.rowcount
+    except Exception as e:
+        log.warning("undo-mark-won winning_prices cleanup: %s", e)
+    # Delete won_quotes rows from this PC
+    wq_deleted = 0
+    try:
+        from src.knowledge.won_quotes_db import _get_db_conn
+        wqconn = _get_db_conn()
+        cur = wqconn.execute("DELETE FROM won_quotes WHERE po_number = ?", (f"PC-{pc_num}",))
+        wq_deleted = cur.rowcount
+        wqconn.commit()
+        wqconn.close()
+    except Exception as e:
+        log.warning("undo-mark-won won_quotes cleanup: %s", e)
+    log.info("UNDO_MARK_WON: %s — status %s→sent, award %s→none, wp=%d, wq=%d",
+             pcid, old_status, old_award, wp_deleted, wq_deleted)
+    return jsonify({
+        "ok": True, "pcid": pcid,
+        "status_reverted": f"{old_status}→sent",
+        "winning_prices_deleted": wp_deleted,
+        "won_quotes_deleted": wq_deleted,
+    })
+
+
 @bp.route("/api/admin/backfill-wins", methods=["GET", "POST"])
 @auth_required
 @safe_route
