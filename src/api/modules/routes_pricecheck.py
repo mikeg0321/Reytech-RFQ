@@ -701,7 +701,7 @@ def _pricecheck_detail_inner(pcid):
                 )
                 chip = f'<span style="display:inline-flex;align-items:center;gap:2px">{chip}<a href="#" onclick="{_use_onclick}" style="color:{scolor};font-size:14px;text-decoration:none;flex-shrink:0" title="Use this price as cost">⬇</a></span>'
             source_chips.append(chip)
-        source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
+        source_html = '<div style="display:flex;flex-wrap:wrap;gap:3px;max-width:100%">' + ''.join(source_chips) + '</div>' if source_chips else '<span style="color:#484f58;font-size:14px">No sources</span>'
         # Oracle pricing intelligence badge
         _oracle_price = _safe_float(item.get("oracle_price"), 0)
         _oracle_conf = item.get("oracle_confidence", "")
@@ -797,7 +797,7 @@ def _pricecheck_detail_inner(pcid):
          <td>
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
-            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste URL…" class="text-in" style="flex:1;font-size:13px;color:#58a6ff;padding:4px 6px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
+            <input type="text" name="link_{idx}" value="{item_link.replace(chr(34), '&quot;')}" placeholder="Paste URL…" class="text-in" style="flex:1;min-width:0;font-size:13px;color:#58a6ff;padding:4px 6px" oninput="handleLinkInput({idx}, this)" onpaste="setTimeout(()=>handleLinkInput({idx},this),50)">
             <a href="{item_link}" target="_blank" id="linkopen_{idx}" onclick="return !!this.href && this.href!==''" style="display:{'flex' if item_link else 'none'};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
            </div>
            <div id="link_meta_{idx}" style="font-size:13px;color:#8b949e">{supplier_badge}{ph_link}</div>
