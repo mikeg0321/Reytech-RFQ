@@ -164,6 +164,7 @@
       <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
       {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}
       <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf,#161b22);border:1px solid var(--bd,#30363d);border-radius:6px;color:#58a6ff;font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
+      <button id="qaToggleBtn" onclick="toggleQAPanel()" style="padding:4px 10px;background:var(--sf,#161b22);border:1px solid var(--bd,#30363d);border-radius:6px;color:#8b949e;font-size:12px;cursor:pointer;margin-left:4px" title="View QA/QC results">QA</button>
      </h1>
 
      <!-- Pipeline Status Tracker -->
@@ -663,6 +664,30 @@
     </div>
 
     <!-- Source Material Panel -->
+    <!-- QA/QC Panel (slide-out) -->
+    <div id="qa-panel" style="position:fixed;top:0;right:-520px;width:500px;height:100vh;background:#0d1117;border-left:2px solid #30363d;z-index:10001;transition:right 0.3s ease;overflow-y:auto;padding:0;box-shadow:-4px 0 20px rgba(0,0,0,0.4)">
+     <div id="qa-panel-header" style="position:sticky;top:0;background:#0d1117;z-index:2;padding:16px 20px 12px;border-bottom:1px solid #30363d">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+       <div style="display:flex;align-items:center;gap:10px">
+        <span id="qa-status-icon" style="font-size:20px">---</span>
+        <div>
+         <h3 style="margin:0;color:#e6edf3;font-size:16px">QA / Quality Check</h3>
+         <span id="qa-score-label" style="font-size:12px;color:#8b949e"></span>
+        </div>
+       </div>
+       <button onclick="toggleQAPanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;padding:4px">✕</button>
+      </div>
+      <div id="qa-action-bar" style="margin-top:10px;display:none"></div>
+     </div>
+     <div id="qa-panel-body" style="padding:12px 20px 20px">
+      <div style="text-align:center;padding:40px 20px;color:#8b949e">
+       <div style="font-size:32px;margin-bottom:8px">🔍</div>
+       <div>Run QA to check this Price Check</div>
+       <button onclick="runQAManual()" style="margin-top:12px;padding:8px 20px;background:#1f6feb;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:14px">Run QA Now</button>
+      </div>
+     </div>
+    </div>
+
     <div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:#0d1117;border-left:2px solid #30363d;z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h3 style="margin:0;color:#e6edf3">📧 Source Material</h3>
@@ -763,84 +788,223 @@
       if (overlay) overlay.style.display = 'none';
     }
 
-    // ── QA/QC Agent ─────────────────────────────────────────────────
-    function runQA(callback) {
-     // Run QA audit, show results, then call callback if passed
-     var banner = document.getElementById('qa-banner');
-     if (!banner) {
-      banner = document.createElement('div');
-      banner.id = 'qa-banner';
-      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;font-size:14px;display:none;border-bottom:2px solid;transition:all 0.3s';
-      document.body.prepend(banner);
+    // ── QA/QC Agent (slide-out panel) ──────────────────────────────
+    var _qaCallback = null;
+    var _qaPanelOpen = false;
+    var _lastQAReport = null;
+
+    function toggleQAPanel() {
+     var p = document.getElementById('qa-panel');
+     if (!p) return;
+     _qaPanelOpen = !_qaPanelOpen;
+     p.style.right = _qaPanelOpen ? '0' : '-520px';
+     var btn = document.getElementById('qaToggleBtn');
+     if (btn) btn.style.borderColor = _qaPanelOpen ? '#58a6ff' : '#30363d';
+    }
+
+    function _openQAPanel() {
+     if (!_qaPanelOpen) toggleQAPanel();
+    }
+
+    function _scrollToItem(idx) {
+     // Clear previous highlights
+     document.querySelectorAll('tr[data-row]').forEach(function(r) { r.style.boxShadow = ''; });
+     var row = document.querySelector('tr[data-row="' + idx + '"]');
+     if (!row) return;
+     row.style.boxShadow = 'inset 0 0 0 2px #58a6ff';
+     // Save scroll position context then scroll
+     row.scrollIntoView({behavior:'smooth', block:'center'});
+     setTimeout(function() { row.style.boxShadow = ''; }, 4000);
+    }
+
+    function _renderQAPanel(d) {
+     _lastQAReport = d;
+     var header = document.getElementById('qa-panel-header');
+     var body = document.getElementById('qa-panel-body');
+     var actionBar = document.getElementById('qa-action-bar');
+     var iconEl = document.getElementById('qa-status-icon');
+     var scoreEl = document.getElementById('qa-score-label');
+     var toggleBtn = document.getElementById('qaToggleBtn');
+
+     // Categorize issues
+     var blockers = d.issues.filter(function(i) { return i.severity === 'blocker'; });
+     var warnings = d.issues.filter(function(i) { return i.severity === 'warning'; });
+     var infos = d.issues.filter(function(i) { return i.severity === 'info'; });
+     var hasBlockers = blockers.length > 0;
+
+     // Update header
+     scoreEl.textContent = 'Score: ' + d.score + '/100';
+     if (hasBlockers) {
+      iconEl.textContent = '🛑';
+      header.style.borderBottomColor = '#f85149';
+      scoreEl.style.color = '#f85149';
+      if (toggleBtn) { toggleBtn.style.color = '#f85149'; toggleBtn.style.borderColor = '#f85149'; }
+     } else if (warnings.length > 0) {
+      iconEl.textContent = '⚠️';
+      header.style.borderBottomColor = '#d29922';
+      scoreEl.style.color = '#d29922';
+      if (toggleBtn) { toggleBtn.style.color = '#d29922'; toggleBtn.style.borderColor = '#d29922'; }
+     } else {
+      iconEl.textContent = '✅';
+      header.style.borderBottomColor = '#3fb950';
+      scoreEl.style.color = '#3fb950';
+      if (toggleBtn) { toggleBtn.style.color = '#3fb950'; toggleBtn.style.borderColor = '#3fb950'; }
      }
-     banner.style.display = 'block';
-     banner.style.background = '#1a1d27';
-     banner.style.borderColor = '#d29922';
-     banner.innerHTML = '<span style="color:#d29922;font-weight:700">⏳ Running QA audit...</span>';
+
+     // Action bar
+     actionBar.style.display = 'flex';
+     actionBar.style.gap = '8px';
+     if (hasBlockers) {
+      actionBar.innerHTML = '<div style="flex:1;padding:8px 12px;background:#da363322;border:1px solid #da363355;border-radius:6px;color:#f85149;font-size:13px;font-weight:600">'
+       + '🛑 ' + blockers.length + ' blocker(s) — generation blocked</div>';
+     } else if (warnings.length > 0) {
+      actionBar.innerHTML = '<button id="qa-proceed-btn" style="flex:1;padding:8px 16px;background:#238636;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;font-size:13px">Proceed with ' + warnings.length + ' warning(s)</button>'
+       + '<button onclick="toggleQAPanel()" style="padding:8px 12px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer;font-size:13px">Close</button>';
+      var proceedBtn = document.getElementById('qa-proceed-btn');
+      if (proceedBtn) {
+       proceedBtn.addEventListener('click', function() {
+        toggleQAPanel();
+        if (_qaCallback) _qaCallback();
+        _qaCallback = null;
+       });
+      }
+     } else {
+      actionBar.innerHTML = '<div style="flex:1;padding:8px 12px;background:#23863622;border:1px solid #23863655;border-radius:6px;color:#3fb950;font-size:13px;font-weight:600">'
+       + '✅ All checks passed</div>';
+     }
+
+     // Build grouped issue body
+     var html = '';
+
+     // Item scores summary
+     if (d.item_scores && d.item_scores.length > 0) {
+      html += '<div style="margin-bottom:16px">';
+      html += '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Item Summary</div>';
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+      d.item_scores.forEach(function(s) {
+       var bg = s.status === 'fail' ? '#da363322' : (s.status === 'review' ? '#9e6a0322' : '#23863622');
+       var clr = s.status === 'fail' ? '#f85149' : (s.status === 'review' ? '#d29922' : '#3fb950');
+       var bdr = s.status === 'fail' ? '#da363355' : (s.status === 'review' ? '#9e6a0355' : '#23863655');
+       html += '<span onclick="_scrollToItem(' + s.idx + ')" style="cursor:pointer;padding:3px 8px;background:' + bg + ';border:1px solid ' + bdr + ';border-radius:4px;font-size:12px;color:' + clr + ';font-weight:600">'
+        + '#' + (s.idx + 1) + '</span>';
+      });
+      html += '</div></div>';
+     }
+
+     // Totals check
+     if (d.totals_check && !d.totals_check.correct) {
+      html += '<div style="margin-bottom:12px;padding:10px;background:#da363316;border:1px solid #da363333;border-radius:6px;font-size:13px;color:#f85149">'
+       + '<b>Totals Mismatch:</b> Calculated $' + (d.totals_check.calculated_total||0).toFixed(2)
+       + ' vs Displayed $' + (d.totals_check.displayed_total||0).toFixed(2) + '</div>';
+     }
+
+     function renderGroup(title, icon, issues, color, borderColor) {
+      if (issues.length === 0) return '';
+      var g = '<div style="margin-bottom:16px">';
+      g += '<div style="font-size:11px;color:' + color + ';text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:700">'
+       + icon + ' ' + title + ' (' + issues.length + ')</div>';
+      issues.forEach(function(issue) {
+       var itemNum = issue.item_index >= 0 ? (issue.item_index + 1) : null;
+       g += '<div style="padding:8px 10px;margin-bottom:4px;background:#161b22;border:1px solid #30363d;border-left:3px solid ' + borderColor + ';border-radius:4px;font-size:13px;display:flex;align-items:start;gap:8px">';
+       if (itemNum !== null) {
+        g += '<span onclick="_scrollToItem(' + issue.item_index + ')" style="cursor:pointer;min-width:32px;text-align:center;padding:2px 6px;background:' + borderColor + '22;border:1px solid ' + borderColor + '55;border-radius:3px;font-size:11px;font-weight:700;color:' + color + '">#' + itemNum + '</span>';
+       } else {
+        g += '<span style="min-width:32px;text-align:center;padding:2px 6px;background:#21262d;border:1px solid #30363d;border-radius:3px;font-size:11px;font-weight:700;color:#8b949e">PC</span>';
+       }
+       g += '<div style="flex:1;color:#c9d1d9">' + (issue.message||'').replace(/</g,'&lt;');
+       if (issue.field) g += '<span style="display:block;font-size:11px;color:#8b949e;margin-top:2px">Field: ' + issue.field + '</span>';
+       if (issue.value !== undefined && issue.value !== null && issue.value !== '') g += '<span style="display:block;font-size:11px;color:#8b949e">Value: ' + String(issue.value).substring(0,60) + '</span>';
+       g += '</div></div>';
+      });
+      g += '</div>';
+      return g;
+     }
+
+     html += renderGroup('Blockers', '🔴', blockers, '#f85149', '#da3633');
+     html += renderGroup('Warnings', '🟡', warnings, '#d29922', '#9e6a03');
+     html += renderGroup('Info', '🔵', infos, '#8b949e', '#484f58');
+
+     if (d.issues.length === 0) {
+      html += '<div style="text-align:center;padding:30px 20px;color:#3fb950">'
+       + '<div style="font-size:40px;margin-bottom:8px">✅</div>'
+       + '<div style="font-size:16px;font-weight:600">All checks passed</div>'
+       + '<div style="font-size:13px;color:#8b949e;margin-top:4px">Score: ' + d.score + '/100</div></div>';
+     }
+
+     // LLM token usage
+     if (d.tokens_used) {
+      html += '<div style="margin-top:12px;font-size:11px;color:#484f58;text-align:right">Grok tokens: ' + d.tokens_used + '</div>';
+     }
+
+     body.innerHTML = html;
+
+     // Highlight blocker rows in the table
+     document.querySelectorAll('tr[data-row]').forEach(function(r) { r.style.boxShadow = ''; });
+     blockers.forEach(function(b) {
+      if (b.item_index >= 0) {
+       var row = document.querySelector('tr[data-row="' + b.item_index + '"]');
+       if (row) row.style.boxShadow = 'inset 0 0 0 2px #f85149';
+      }
+     });
+    }
+
+    function runQAManual() {
+     runQA(null);
+    }
+
+    function runQA(callback, onBlocked) {
+     _qaCallback = callback;
+     _openQAPanel();
+     var body = document.getElementById('qa-panel-body');
+     var actionBar = document.getElementById('qa-action-bar');
+     var iconEl = document.getElementById('qa-status-icon');
+     var scoreEl = document.getElementById('qa-score-label');
+     iconEl.textContent = '⏳';
+     scoreEl.textContent = 'Running audit...';
+     scoreEl.style.color = '#d29922';
+     actionBar.style.display = 'none';
+     body.innerHTML = '<div style="text-align:center;padding:40px"><div style="font-size:28px;margin-bottom:12px;animation:spin 1s linear infinite">🔍</div><div style="color:#d29922;font-weight:600">Running QA checks...</div><div style="color:#8b949e;font-size:12px;margin-top:4px">Deterministic + LLM validation</div></div>'
+      + '<style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>';
 
      fetch('/api/pricecheck/' + _pcid + '/qa', {method:'POST', credentials:'same-origin'})
      .then(function(r) { return r.json(); })
      .then(function(d) {
       if (!d.ok) {
-       banner.innerHTML = '<span style="color:#f85149">❌ QA error: ' + (d.error || 'unknown') + '</span>'
-        + ' <button onclick="this.parentElement.style.display=\'none\'" style="float:right;background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button>';
-       banner.style.borderColor = '#f85149';
+       iconEl.textContent = '❌';
+       scoreEl.textContent = 'Error';
+       scoreEl.style.color = '#f85149';
+       body.innerHTML = '<div style="padding:20px;text-align:center;color:#f85149"><div style="font-size:28px;margin-bottom:8px">❌</div>'
+        + '<div>QA error: ' + (d.error || 'unknown') + '</div></div>';
+       _qaCallback = null;
+       if (onBlocked) onBlocked('error');
        return;
       }
+      _renderQAPanel(d);
       var blockers = d.issues.filter(function(i) { return i.severity === 'blocker'; });
       var warnings = d.issues.filter(function(i) { return i.severity === 'warning'; });
-
       if (blockers.length > 0) {
-       // BLOCKERS — stop generation
-       var html = '<div style="display:flex;justify-content:space-between;align-items:start">'
-        + '<div><span style="color:#f85149;font-weight:700">🛑 QA FAILED — ' + blockers.length + ' blocker(s) must be fixed</span>'
-        + '<span style="color:#8b949e;margin-left:12px">Score: ' + d.score + '/100</span></div>'
-        + '<button onclick="this.closest(\'#qa-banner\').style.display=\'none\'" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:18px">&times;</button></div>'
-        + '<div style="margin-top:8px;max-height:200px;overflow-y:auto">';
-       d.issues.forEach(function(issue) {
-        var color = issue.severity === 'blocker' ? '#f85149' : (issue.severity === 'warning' ? '#d29922' : '#8b949e');
-        var icon = issue.severity === 'blocker' ? '🔴' : (issue.severity === 'warning' ? '🟡' : '🔵');
-        var itemLabel = issue.item_index >= 0 ? 'Item ' + (issue.item_index + 1) + ': ' : '';
-        html += '<div style="padding:3px 0;font-size:13px;color:' + color + '">' + icon + ' ' + itemLabel + issue.message + '</div>';
-       });
-       html += '</div>';
-       banner.innerHTML = html;
-       banner.style.borderColor = '#f85149';
-       banner.style.background = 'linear-gradient(135deg, #1a1d27 0%, #2d1215 100%)';
-       // Highlight blocker rows
-       blockers.forEach(function(b) {
-        if (b.item_index >= 0) {
-         var row = document.querySelector('tr[data-row="' + b.item_index + '"]');
-         if (row) row.style.boxShadow = 'inset 0 0 0 2px #f85149';
-        }
-       });
-       // DO NOT call callback — generation blocked
+       _qaCallback = null;
+       if (onBlocked) onBlocked('blockers');
       } else if (warnings.length > 0) {
-       // WARNINGS — show but allow proceed
-       banner.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center">'
-        + '<span style="color:#d29922;font-weight:700">⚠️ QA: ' + warnings.length + ' warning(s)</span>'
-        + '<span style="color:#8b949e;margin:0 12px">Score: ' + d.score + '/100</span>'
-        + '<span style="display:flex;gap:8px">'
-        + '<button onclick="document.getElementById(\'qa-banner\').style.display=\'none\';(' + (callback ? callback.name : 'function(){}') + ')()" style="padding:4px 14px;background:#238636;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">Proceed Anyway</button>'
-        + '<button onclick="this.closest(\'#qa-banner\').style.display=\'none\'" style="padding:4px 14px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;cursor:pointer">Review Issues</button>'
-        + '</span></div>'
-        + '<div style="margin-top:6px;font-size:12px;color:#d29922">'
-        + warnings.map(function(w) { return (w.item_index >= 0 ? 'Item ' + (w.item_index+1) + ': ' : '') + w.message; }).join(' | ')
-        + '</div>';
-       banner.style.borderColor = '#d29922';
-       banner.style.background = 'linear-gradient(135deg, #1a1d27 0%, #2d2510 100%)';
-      } else {
-       // ALL PASS — auto-proceed
-       banner.innerHTML = '<span style="color:#3fb950;font-weight:700">✅ QA Passed — Score: ' + d.score + '/100</span>';
-       banner.style.borderColor = '#3fb950';
-       banner.style.background = 'linear-gradient(135deg, #1a1d27 0%, #0d2818 100%)';
-       setTimeout(function() { banner.style.display = 'none'; }, 3000);
-       if (callback) callback();
+       // Warnings — notify partial block (button should update)
+       if (onBlocked) onBlocked('warnings');
+      } else if (warnings.length === 0) {
+       // All pass — auto-proceed after brief display
+       setTimeout(function() {
+        if (_qaCallback) { _qaCallback(); _qaCallback = null; }
+        setTimeout(function() { if (_qaPanelOpen) toggleQAPanel(); }, 2000);
+       }, 800);
       }
+      // If warnings only: user must click "Proceed" button (wired in _renderQAPanel)
+      // onBlocked NOT called — the proceed button will fire _qaCallback when ready
      }).catch(function(e) {
-      banner.innerHTML = '<span style="color:#f85149">QA error: ' + e.message + '</span>';
-      // Don't block on QA failure — let generation proceed
-      if (callback) callback();
+      iconEl.textContent = '❌';
+      scoreEl.textContent = 'Error';
+      scoreEl.style.color = '#f85149';
+      body.innerHTML = '<div style="padding:20px;text-align:center;color:#f85149"><div style="font-size:28px;margin-bottom:8px">❌</div>'
+       + '<div>Network error: ' + e.message + '</div></div>';
+      _qaCallback = null;
+      if (onBlocked) onBlocked('error');
      });
     }
 
@@ -1076,12 +1240,9 @@
         if(g.ok){
          btn.textContent='✅ Saved + PDF Ready';btn.style.background='#238636';
          showMsg('✅ Saved & PDF generated. <a href="'+g.download+'" style="color:#58a6ff">📥 Download</a>','ok');
-         // Update download button if exists
          var dlBtn=document.querySelector('a[href*="/api/pricecheck/download/"]');
          if(dlBtn) dlBtn.href=g.download;
-         // Refresh composer attachments
          if(typeof _refreshComposeAttachments==='function') _refreshComposeAttachments(g.quote_url||null, g.download);
-         // Scroll to composer
          var _comp=document.getElementById('email-composer');
          if(_comp) setTimeout(function(){_comp.scrollIntoView({behavior:'smooth',block:'start'})},500);
         } else {
@@ -1095,7 +1256,19 @@
         showMsg('✅ Prices saved. PDF will generate on next Save & Fill.','ok');
         setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
        });
-       }); // end runQA callback
+       }, function _onBlocked(reason) {
+        btn.disabled=false; _hideGenOverlay();
+        if (reason === 'warnings') {
+         btn.textContent='✅ Saved — review QA panel';
+         btn.style.background='#9e6a03';
+         showMsg('Prices saved. Review warnings in QA panel, then click Proceed.','warn');
+        } else {
+         btn.textContent='✅ Saved (QA: fix issues)';
+         btn.style.background='#da3633';
+         showMsg('Prices saved. Fix QA blockers before generating PDF.','warn');
+        }
+        setTimeout(function(){btn.textContent=origText;btn.style.background=''},5000);
+       });
       } else {
        btn.disabled=false; _hideGenOverlay();
        btn.textContent=origText;

@@ -250,6 +250,36 @@ def _run_pipeline(pc_id: str, force: bool):
                     counters["upc_resolved"] += 1
                     log.info("ENRICH %s: UPC %s → %s $%.2f (ASIN: %s)",
                              pc_id, _upc, r.get("title", "")[:30], r["price"], _amz_asin)
+                    # ── Catalog flywheel: write back UPC/ASIN/photo to catalog ──
+                    # catalog_product_id may not be set yet (catalog match is Step 3)
+                    # so also try matching by UPC/description to find the catalog entry
+                    _cat_pid = it.get("pricing", {}).get("catalog_product_id")
+                    if not _cat_pid:
+                        try:
+                            from src.agents.product_catalog import match_item as _cat_match_upc
+                            _m = _cat_match_upc(it.get("description", ""), it.get("mfg_number", ""), top_n=1, upc=_upc)
+                            if _m and _m[0].get("match_confidence", 0) >= 0.70:
+                                _cat_pid = _m[0]["id"]
+                                it["pricing"]["catalog_product_id"] = _cat_pid
+                        except Exception:
+                            pass
+                    if _cat_pid:
+                        try:
+                            from src.agents.product_catalog import enrich_catalog_product
+                            enrich_catalog_product(
+                                _cat_pid,
+                                upc=_upc,
+                                photo_url=it["pricing"].get("photo_url", ""),
+                                best_cost=r["price"],
+                                supplier_name="Amazon",
+                                supplier_sku=_amz_asin,
+                                supplier_url=r.get("url", ""),
+                                supplier_price=r["price"],
+                                amazon_price=r["price"],
+                                asin=_amz_asin,
+                            )
+                        except Exception:
+                            pass
                     _upc_lookups += 1
                     time.sleep(0.5)  # rate limit
             except Exception as e:
@@ -461,6 +491,20 @@ def _run_pipeline(pc_id: str, force: bool):
                 it["pricing"]["catalog_url"] = _cat_url
                 it["pricing"]["catalog_best_supplier"] = _cat_sup
             counters["catalog_matched"] += 1
+            # ── Catalog flywheel: write back item identifiers to catalog ──
+            _cat_pid = r.get("product_id") or r.get("id")
+            _item_upc = it.get("upc", "")
+            _item_mfg = it.get("mfg_number", "")
+            if _cat_pid and (_item_upc or _item_mfg):
+                try:
+                    from src.agents.product_catalog import enrich_catalog_product
+                    enrich_catalog_product(
+                        _cat_pid,
+                        upc=_item_upc,
+                        mfg_number=_item_mfg,
+                    )
+                except Exception:
+                    pass
     except Exception as e:
         log.warning("ENRICH %s: catalog match error: %s", pc_id, e)
     _mark_step_done(pc_id,"catalog_match")
