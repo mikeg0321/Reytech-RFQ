@@ -2649,7 +2649,22 @@ def fill_ams704(
                                 row, item_idx, unit_price, item.get("qty"))
             else:
                 _skipped_no_price += 1
-            continue  # Skip description, item#, qty, uom, substituted — buyer's fields stay as-is
+
+            # Always write qty/uom — user may have edited these (e.g. 2 Pkg 150 → 150 EA)
+            qty_field = ROW_FIELDS["qty"].format(n=row) + _field_suffix
+            field_values.append({"field_id": qty_field, "page": _page_num, "value": str(qty)})
+            uom_val = str(item.get("uom") or "EA").strip().upper()
+            uom_field = ROW_FIELDS["uom"].format(n=row) + _field_suffix
+            field_values.append({"field_id": uom_field, "page": _page_num, "value": uom_val})
+            _qpu = item.get("qty_per_uom", 1)
+            try:
+                _qpu = int(float(_qpu)) if _qpu else 1
+            except (ValueError, TypeError):
+                _qpu = 1
+            qpu_field = ROW_FIELDS["qty_per_uom"].format(n=row) + _field_suffix
+            field_values.append({"field_id": qpu_field, "page": _page_num, "value": str(_qpu) if _qpu > 1 else ""})
+
+            continue
 
         # ── NORMAL MODE: write all fields ──
 
