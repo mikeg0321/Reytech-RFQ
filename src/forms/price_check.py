@@ -3647,6 +3647,73 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             c.drawString(x1 + _PAD + 1, ly, t)
         c.restoreState()
 
+    # ── Dynamic row detection via pdfplumber for flat/converted PDFs ──
+    # LibreOffice-converted DOCX PDFs have no form fields, so we detect
+    # item row Y positions from the table's horizontal lines.
+    _dynamic_rows = {}  # pg_idx → [(y_bot, y_top), ...]
+    _dynamic_price_x = None
+    _dynamic_ext_x = None
+    try:
+        import pdfplumber as _plumb
+        with _plumb.open(source_pdf) as _ppdf:
+            for _pi, _ppage in enumerate(_ppdf.pages):
+                _tables = _ppage.find_tables()
+                if not _tables:
+                    continue
+                # Use the LARGEST table on the page (the item table)
+                _tbl = max(_tables, key=lambda t: (t.bbox[3] - t.bbox[1]) * (t.bbox[2] - t.bbox[0]))
+                _tbl_rows = _tbl.rows
+                if not _tbl_rows:
+                    continue
+                # Skip the header row(s) — find rows that have item numbers
+                _item_rows = []
+                for _tr in _tbl_rows:
+                    _cells = _tr.cells
+                    if not _cells or len(_cells) < 3:
+                        continue
+                    # pdfplumber coords: (x0, top, x1, bottom) — top is distance from page top
+                    _y_top_plumb = _cells[0][1]   # top of row (plumber coords)
+                    _y_bot_plumb = _cells[0][3]   # bottom of row
+                    _row_h = _y_bot_plumb - _y_top_plumb
+                    # Skip tiny rows and header rows (usually first 1-2 rows with > certain Y)
+                    if _row_h < 8:
+                        continue
+                    # Convert pdfplumber coords (origin top-left) to reportlab (origin bottom-left)
+                    _page_h = float(_ppage.height)
+                    _rl_bot = _page_h - _y_bot_plumb
+                    _rl_top = _page_h - _y_top_plumb
+                    _item_rows.append((_rl_bot, _rl_top))
+
+                    # Detect price/extension column X from rightmost cells
+                    if _dynamic_price_x is None and len(_cells) >= 2:
+                        # Second-to-last cell = PRICE PER UNIT, last = EXTENSION
+                        _price_cell = _cells[-2]
+                        _ext_cell = _cells[-1]
+                        _dynamic_price_x = (_price_cell[0], _price_cell[2])
+                        _dynamic_ext_x = (_ext_cell[0], _ext_cell[2])
+
+                if _item_rows:
+                    # Skip header: header rows are above the item area.
+                    # Item rows have height > 15pt and start below the table header.
+                    # Use a simple heuristic: skip the first row if it's very tall (header)
+                    # or if it's the tallest row (header rows tend to be taller).
+                    _avg_h = sum(t - b for b, t in _item_rows) / len(_item_rows)
+                    _data_rows = [(b, t) for b, t in _item_rows if (t - b) < _avg_h * 2.0]
+                    if _data_rows:
+                        _dynamic_rows[_pi] = _data_rows
+                        log.info("OVERLAY: pdfplumber detected %d item rows on page %d (price_x=%s, ext_x=%s)",
+                                 len(_data_rows), _pi + 1, _dynamic_price_x, _dynamic_ext_x)
+    except ImportError:
+        log.debug("OVERLAY: pdfplumber not available — using hardcoded row positions")
+    except Exception as _plumb_e:
+        log.warning("OVERLAY: pdfplumber row detection failed: %s", _plumb_e)
+
+    # Override column X positions if detected dynamically
+    if _dynamic_price_x:
+        PRICE_X = _dynamic_price_x
+    if _dynamic_ext_x:
+        EXT_X = _dynamic_ext_x
+
     # Find highest priced row to skip empty trailing pages
     max_row = 0
     for fv in field_values:
@@ -3657,7 +3724,9 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     num_pages = len(reader.pages)
     current_row = 1
 
-    log.info("OVERLAY: %d pages, max_row=%d, %d field_values", num_pages, max_row, len(field_values))
+    log.info("OVERLAY: %d pages, max_row=%d, %d field_values, dynamic_rows=%s",
+             num_pages, max_row, len(field_values),
+             {k: len(v) for k, v in _dynamic_rows.items()} if _dynamic_rows else "none")
 
     for pg_idx in range(num_pages):
         page = reader.pages[pg_idx]
@@ -3671,9 +3740,15 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         def _sc(x1, y1, x2, y2):
             return (x1 * _scale_x, y1 * _scale_y, x2 * _scale_x, y2 * _scale_y)
 
-        # Page type: 0,2,4=page-1-format  1,3,5=continuation
+        # Use dynamically detected rows if available, else hardcoded fallback
         is_pg1 = (pg_idx == 0)
-        rows = PG1_ROWS if is_pg1 else PG2_ROWS
+        if pg_idx in _dynamic_rows:
+            rows = _dynamic_rows[pg_idx]
+            # Dynamic rows already in reportlab coords — no scaling needed
+            _scale_x = 1.0
+            _scale_y = 1.0
+        else:
+            rows = PG1_ROWS if is_pg1 else PG2_ROWS
 
         # Skip if all rows on this page are beyond our data
         page_first_row = current_row
@@ -3776,22 +3851,28 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 writer.pages[pg_idx].merge_page(overlay.pages[0])
 
     # ── Remove pages that had no priced items drawn ──
+    # When dynamic rows are detected, keep ALL pages (buyer's original form).
+    # Only trim when using hardcoded fallback positions.
     pages_with_items = set()
-    check_row = 1
-    for pg_idx in range(len(reader.pages)):
-        is_pg1 = (pg_idx == 0)
-        rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
-        page_first = check_row
-        page_last = check_row + rows_on_page - 1
-        has_items = False
-        for rn in range(page_first, page_last + 1):
-            pf = ROW_FIELDS["unit_price"].format(n=rn)
-            if fv_map.get(pf, "").strip():
-                has_items = True
-                break
-        if has_items or pg_idx == 0:  # always keep page 1
-            pages_with_items.add(pg_idx)
-        check_row += rows_on_page
+    if _dynamic_rows:
+        # Buyer's converted PDF — keep all pages
+        pages_with_items = set(range(len(reader.pages)))
+    else:
+        check_row = 1
+        for pg_idx in range(len(reader.pages)):
+            is_pg1 = (pg_idx == 0)
+            rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
+            page_first = check_row
+            page_last = check_row + rows_on_page - 1
+            has_items = False
+            for rn in range(page_first, page_last + 1):
+                pf = ROW_FIELDS["unit_price"].format(n=rn)
+                if fv_map.get(pf, "").strip():
+                    has_items = True
+                    break
+            if has_items or pg_idx == 0:  # always keep page 1
+                pages_with_items.add(pg_idx)
+            check_row += rows_on_page
 
     if len(pages_with_items) < len(writer.pages):
         trimmed_writer = PdfWriter()
