@@ -184,7 +184,11 @@ def _scrape_generic(url: str) -> dict:
     for pat in [r'"listPrice"\s*:\s*"?\$?([\d,]+\.?\d*)"?',
                 r'"was_price"\s*:\s*"?\$?([\d,]+\.?\d*)"?',
                 r'<span[^>]*class\s*=\s*"[^"]*(?:list|was|original|strike|basis)[^"]*"[^>]*>\s*\$?([\d,]+\.\d{2})',
-                r'"typicalPrice"\s*:\s*\{[^}]*"amount"\s*:\s*(\d+\.?\d*)']:
+                r'"typicalPrice"\s*:\s*\{[^}]*"amount"\s*:\s*(\d+\.?\d*)',
+                # S&S Worldwide: "List: $37.59" plain text
+                r'List:\s*[$]?([\d,]+\.\d{2})',
+                # Generic "Was $XX.XX" or "Reg. $XX.XX"
+                r'(?:Was|Reg\.?|Regular|MSRP)\s*:?\s*[$]?([\d,]+\.\d{2})']:
         m = re.search(pat, html, re.IGNORECASE)
         if m:
             try:
@@ -201,7 +205,11 @@ def _scrape_generic(url: str) -> dict:
                 r'data-unit-price\s*=\s*"(\d{1,6}\.\d{2})"',
                 r'itemprop\s*=\s*"price"[^>]*content\s*=\s*"(\d{1,6}\.\d{2})"',
                 r'<span[^>]*class\s*=\s*"[^"]*price[^"]*"[^>]*>\s*\$?([\d,]+\.\d{2})',
-                r'"unitPrice"\s*:\s*(\d+\.?\d*)']:
+                r'"unitPrice"\s*:\s*(\d+\.?\d*)',
+                # S&S Worldwide: "SALE" followed by "$31.99"
+                r'SALE[^$]*[$]\s*([\d,]+\.\d{2})',
+                # Generic "Sale: $XX.XX" or "Now: $XX.XX"
+                r'(?:Sale|Now|Our Price)\s*:?\s*[$]?([\d,]+\.\d{2})']:
         m = re.search(pat, html, re.IGNORECASE)
         if m:
             try:
