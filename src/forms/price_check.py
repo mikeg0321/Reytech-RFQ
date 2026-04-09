@@ -2393,7 +2393,6 @@ def fill_ams704(
     custom_notes: str = "",  # Editable supplier notes
     delivery_option: str = "",  # Override delivery time
     original_mode: bool = False,  # True = only fill company info + pricing, leave buyer fields
-    keep_all_pages: bool = False,  # True = don't trim unused pages (DOCX sources)
 ) -> dict:
     """
     Fill in the AMS 704 form with supplier info and pricing.
@@ -2921,20 +2920,18 @@ def fill_ams704(
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
 
     # Page numbering — set on pages with items, BLANK on empty pages
-    # When keep_all_pages=True, treat all template pages as "having content" for numbering.
-    _total_output_pages = max(_pages_with_items, _pdf_total_pages) if keep_all_pages else _pages_with_items
     # Track whether page-specific fields exist (if not, need overlay for page 2+)
     _page_fields_are_shared = "Page" in _pdf_fields and "Page_2" not in _pdf_fields
     for pg in range(1, _pdf_total_pages + 1):
         suffix = "" if pg == 1 else f"_{pg}"
         page_field = f"Page{suffix}"
         of_field = f"of{suffix}"
-        if pg <= _total_output_pages:
-            # Page is included — set correct numbering
+        if pg <= _pages_with_items:
+            # Page has items — set correct numbering
             if page_field in _pdf_fields:
                 field_values.append({"field_id": page_field, "page": pg, "value": str(pg)})
             if of_field in _pdf_fields:
-                field_values.append({"field_id": of_field, "page": pg, "value": str(_total_output_pages)})
+                field_values.append({"field_id": of_field, "page": pg, "value": str(_pages_with_items)})
         else:
             # Empty page — blank out any pre-filled page numbers and supplier
             if page_field in _pdf_fields:
@@ -2965,11 +2962,10 @@ def fill_ams704(
         json.dump(field_values, f, indent=2)
 
     # Trim source template to needed pages for form fill (max 2 — pages 3+ added by overflow)
-    # When keep_all_pages=True (DOCX sources), preserve full template to match original format.
     _fill_pages = min(_pages_with_items, 2)  # Form fields only on pages 1-2
     _fill_source = source_pdf
     _trimmed_tmp = None
-    if _fill_pages < _pdf_total_pages and not keep_all_pages:
+    if _fill_pages < _pdf_total_pages:
         try:
             import tempfile as _tmpmod
             from pypdf import PdfReader as _TrimR, PdfWriter as _TrimW
@@ -3475,12 +3471,313 @@ def merge_bundle_pdfs(
         return {"ok": False, "error": f"PDF merge error: {e}"}
 
 
+def _detect_ams704_overlay_positions(source_pdf):
+    """Use pdfplumber to detect item table layout for AMS 704 overlay.
+
+    Scans each page for:
+    - Item table rows (Y boundaries for each item row)
+    - PRICE PER UNIT and EXTENSION column X boundaries
+    - Supplier info cell positions (page 1)
+    - Totals area (page 1)
+
+    All returned coordinates are in reportlab space (origin bottom-left).
+    Returns list of per-page dicts, or None if pdfplumber unavailable.
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        log.warning("pdfplumber not available — cannot auto-detect overlay positions")
+        return None
+
+    try:
+        pdf = pdfplumber.open(source_pdf)
+    except Exception as e:
+        log.warning("pdfplumber failed to open %s: %s", source_pdf, e)
+        return None
+
+    pages = []
+    for pg_idx, page in enumerate(pdf.pages):
+        ph = float(page.height)
+        pw = float(page.width)
+
+        def _to_rl_y(plumber_y):
+            return ph - plumber_y
+
+        info = {
+            "item_rows": [],
+            "price_x": None,
+            "ext_x": None,
+            "supplier_cells": {},
+            "totals_cells": {},
+            "notes_area": None,
+            "fob_area": None,
+            "ship_to_area": None,
+            "supplier_name_cont": None,
+            "pw": pw, "ph": ph,
+        }
+
+        words = page.extract_words(keep_blank_chars=False, x_tolerance=3, y_tolerance=3)
+        edges = page.edges
+
+        # ── Find EXTENSION header (unique, always in rightmost area) ──
+        ext_header = None
+        for w in words:
+            if w["text"].upper().strip() == "EXTENSION" and w["x0"] > pw * 0.6:
+                ext_header = w
+                break
+
+        if not ext_header:
+            log.info("OVERLAY detect pg%d: no EXTENSION header found", pg_idx)
+            pages.append(None)
+            continue
+
+        # ── Find PRICE header near EXTENSION but to its left ──
+        # "PRICE PER UNIT" is split across lines: "PRICE" / "PER" / "UNIT"
+        price_header = None
+        for w in words:
+            if w["text"].upper().strip() == "PRICE" and w["x0"] > pw * 0.6:
+                # Must be near EXTENSION Y (within 30pt) and to its left
+                if abs(w["top"] - ext_header["top"]) < 30 and w["x0"] < ext_header["x0"]:
+                    price_header = w
+                    break
+
+        if not price_header:
+            log.info("OVERLAY detect pg%d: no PRICE header found near EXTENSION", pg_idx)
+            pages.append(None)
+            continue
+
+        # ── Column X boundaries ──
+        # Use vertical edges if available, otherwise estimate from text positions
+        v_edges_x = sorted(set(
+            round(e["x0"], 0) for e in edges
+            if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
+        ))
+
+        if v_edges_x:
+            # Snap to nearest vertical edges
+            price_v_left = [v for v in v_edges_x if v <= price_header["x0"] + 5]
+            price_v_right = [v for v in v_edges_x if abs(v - ext_header["x0"]) < 15]
+            p_left = max(price_v_left) if price_v_left else price_header["x0"] - 12
+            p_right = min(price_v_right) if price_v_right else ext_header["x0"] - 8
+            ext_right_v = [v for v in v_edges_x if v > ext_header["x1"] + 5]
+            e_right = min(ext_right_v) if ext_right_v else ext_header["x1"] + 15
+        else:
+            # No vertical edges — estimate from text positions
+            p_left = price_header["x0"] - 12
+            p_right = ext_header["x0"] - 8
+            e_right = ext_header["x1"] + 15
+
+        info["price_x"] = (p_left + 2, p_right - 2)
+        info["ext_x"] = (p_right + 2, e_right - 2)
+
+        log.info("OVERLAY detect pg%d: price_x=(%.1f,%.1f) ext_x=(%.1f,%.1f) v_edges=%d",
+                 pg_idx, info["price_x"][0], info["price_x"][1],
+                 info["ext_x"][0], info["ext_x"][1], len(v_edges_x))
+
+        # ── Find all horizontal lines ──
+        all_h_lines = sorted(set(
+            round(e["top"], 1) for e in edges
+            if abs(e["top"] - e["bottom"]) < 2
+            and e["x1"] - e["x0"] > pw * 0.3
+        ))
+
+        # Group consecutive h-lines within 3pt into single boundaries
+        grouped_h = []
+        for y in all_h_lines:
+            if not grouped_h or y - grouped_h[-1] > 3:
+                grouped_h.append(y)
+            else:
+                grouped_h[-1] = y  # keep the lower line of the pair
+
+        # ── Find item numbers in the leftmost column ──
+        item_positions = []  # [(item_num, pdfplumber_y_top), ...]
+        for w in words:
+            t = w["text"].strip()
+            if (t.isdigit() and 1 <= int(t) <= 50
+                    and w["x0"] < pw * 0.09
+                    and w["top"] > ph * 0.15):  # skip page header area
+                item_positions.append((int(t), w["top"]))
+        item_positions.sort(key=lambda x: x[1])  # sort by Y position
+
+        if not item_positions:
+            log.info("OVERLAY detect pg%d: no item numbers found", pg_idx)
+            pages.append(None)
+            continue
+
+        # ── Map each item to its cell boundaries ──
+        # For each item, cell_top = h-line just above item text
+        # Cell_bottom = cell_top of next item, or table end for last item
+        item_cell_tops = []
+        for _inum, _iy in item_positions:
+            candidates = [h for h in grouped_h if h <= _iy + 2]
+            cell_top = max(candidates) if candidates else _iy - 5
+            item_cell_tops.append(cell_top)
+
+        # Find table bottom: last grouped_h line after all items
+        last_item_y = item_positions[-1][1]
+        table_bottom_candidates = [h for h in grouped_h if h > last_item_y + 20]
+        # Take the second line after the last item (first is sub-row divider, second is cell bottom)
+        if len(table_bottom_candidates) >= 2:
+            table_bottom = table_bottom_candidates[1]
+        elif table_bottom_candidates:
+            table_bottom = table_bottom_candidates[0]
+        else:
+            table_bottom = last_item_y + 50
+
+        # Build item row boundaries
+        for i in range(len(item_cell_tops)):
+            cell_top_pl = item_cell_tops[i]
+            if i + 1 < len(item_cell_tops):
+                cell_bot_pl = item_cell_tops[i + 1]
+            else:
+                cell_bot_pl = table_bottom
+
+            rl_y_top = _to_rl_y(cell_top_pl) - 1
+            rl_y_bot = _to_rl_y(cell_bot_pl) + 1
+            if rl_y_top > rl_y_bot:
+                info["item_rows"].append((rl_y_bot, rl_y_top))
+
+        log.info("OVERLAY detect pg%d: %d items → rows: %s",
+                 pg_idx, len(info["item_rows"]),
+                 [(f"{yb:.0f}-{yt:.0f}") for yb, yt in info["item_rows"]])
+
+        # ── Supplier info detection (page 1 only) ──
+        # For converted DOCXs without vertical edges in the supplier section,
+        # supplier fields use scaled hardcoded positions. Detection here is
+        # best-effort — the overlay function falls back to hardcoded if empty.
+        if pg_idx == 0:
+            # Find "COMPANY NAME" label in supplier section
+            for w in words:
+                if w["text"].upper().strip() == "COMPANY" and w["x0"] < pw * 0.25:
+                    nearby = [w2 for w2 in words
+                              if abs(w2["top"] - w["top"]) < 5
+                              and w2["x0"] > w["x1"] - 5]
+                    if any("NAME" in w2["text"].upper() for w2 in nearby):
+                        # Found COMPANY NAME label. Supplier data cells are below it.
+                        # Find h-lines that form the supplier section grid
+                        sup_area_y = w["bottom"]
+                        sup_h = sorted([h for h in grouped_h
+                                        if sup_area_y - 5 <= h <= sup_area_y + 80])
+                        if len(sup_h) >= 4:
+                            # 3 rows of supplier info between consecutive h-lines
+                            for ri in range(min(3, len(sup_h) - 1)):
+                                r_top_pl = sup_h[ri]
+                                r_bot_pl = sup_h[ri + 1]
+                                # Row 1: COMPANY NAME | REPRESENTATIVE | DELIVERY
+                                # Row 2: Address | Signature | Discount
+                                # Row 3: SB/MB | DVBE | Phone | Email | Expires
+                                rl_top = _to_rl_y(r_top_pl) - 1
+                                rl_bot = _to_rl_y(r_bot_pl) + 1
+                                if ri == 0:
+                                    # Split into 3 cells using proportional widths
+                                    w1 = pw * 0.35
+                                    w2 = pw * 0.76
+                                    info["supplier_cells"]["COMPANY NAME"] = (
+                                        pw * 0.04, rl_bot, w1, rl_top)
+                                    info["supplier_cells"]["COMPANY REPRESENTATIVE print name"] = (
+                                        w1 + 2, rl_bot, w2, rl_top)
+                                    info["supplier_cells"]["Delivery Date and Time ARO"] = (
+                                        w2 + 2, rl_bot, pw * 0.96, rl_top)
+                                elif ri == 1:
+                                    info["supplier_cells"]["Address"] = (
+                                        pw * 0.04, rl_bot, pw * 0.35, rl_top)
+                                    info["supplier_cells"]["Discount Offered"] = (
+                                        pw * 0.76 + 2, rl_bot, pw * 0.96, rl_top)
+                                elif ri == 2:
+                                    # 5 cells in row 3
+                                    xs = [pw*0.04, pw*0.20, pw*0.35, pw*0.56, pw*0.76, pw*0.96]
+                                    fields_r3 = ["Certified SBMB", "Certified DVBE",
+                                                 "Phone Number_2", "EMail Address",
+                                                 "Date Price Check Expires"]
+                                    for fi, fname in enumerate(fields_r3):
+                                        info["supplier_cells"][fname] = (
+                                            xs[fi], rl_bot, xs[fi + 1] - 2, rl_top)
+                        break
+
+            # Totals: look for "$" signs in the bottom-right quadrant
+            dollar_words = [w for w in words
+                            if w["text"].strip() == "$"
+                            and w["x0"] > pw * 0.85
+                            and w["top"] > ph * 0.65]
+            dollar_words.sort(key=lambda w: w["top"])
+            if len(dollar_words) >= 4:
+                total_ids = ["fill_70", "fill_71", "fill_72", "fill_73"]
+                for ti, (dw, fid) in enumerate(zip(dollar_words[:4], total_ids)):
+                    # Dollar sign marks the left edge of the value cell
+                    # Get row boundaries from h-lines near the $ sign
+                    row_h = sorted([h for h in grouped_h
+                                    if abs(h - dw["top"]) < 25 or abs(h - dw["bottom"]) < 25])
+                    if len(row_h) >= 2:
+                        rl_top = _to_rl_y(row_h[0]) - 1
+                        rl_bot = _to_rl_y(row_h[-1]) + 1
+                    else:
+                        rl_top = _to_rl_y(dw["top"]) + 2
+                        rl_bot = _to_rl_y(dw["bottom"]) - 2
+                    info["totals_cells"][fid] = (
+                        dw["x0"] + 8, rl_bot, pw - 10, rl_top)
+
+            # FOB checkbox
+            for w in words:
+                if w["text"].upper().strip() == "FOB" and w["x0"] > pw * 0.2:
+                    fob_cy = (w["top"] + w["bottom"]) / 2
+                    info["fob_area"] = (
+                        w["x0"] - 18, _to_rl_y(fob_cy + 7),
+                        w["x0"] - 3,  _to_rl_y(fob_cy - 7))
+                    break
+
+            # Ship to
+            for w in words:
+                if w["text"].strip().lower() == "ship" and w["x0"] > pw * 0.25:
+                    # Check if next word is "to"
+                    nearby_to = [w2 for w2 in words
+                                 if w2["text"].strip().lower().rstrip(":") == "to"
+                                 and abs(w2["top"] - w["top"]) < 5
+                                 and w2["x0"] > w["x1"] - 5]
+                    if nearby_to:
+                        to_w = nearby_to[0]
+                        info["ship_to_area"] = (
+                            to_w["x1"] + 5, _to_rl_y(w["bottom"]) - 1,
+                            pw * 0.7,        _to_rl_y(w["top"]) + 1)
+                    break
+
+            # Notes area
+            for w in words:
+                if w["text"].upper().strip() == "SUPPLIER" and w["top"] > ph * 0.65:
+                    nearby_notes = [w2 for w2 in words
+                                    if abs(w2["top"] - w["top"]) < 5
+                                    and "NOTES" in w2["text"].upper()]
+                    if nearby_notes:
+                        info["notes_area"] = (
+                            w["x0"], _to_rl_y(w["top"] + 60),
+                            pw * 0.35, _to_rl_y(w["bottom"] + 5))
+                    break
+
+        else:
+            # ── Continuation page: supplier name area ──
+            for w in words:
+                if w["text"].upper().strip() == "SUPPLIER" and w["top"] < ph * 0.15:
+                    nearby_name = [w2 for w2 in words
+                                   if abs(w2["top"] - w["top"]) < 5
+                                   and "NAME" in w2["text"].upper()]
+                    if nearby_name:
+                        name_w = nearby_name[0]
+                        info["supplier_name_cont"] = (
+                            name_w["x1"] + 10, _to_rl_y(name_w["bottom"]) - 1,
+                            pw - 20, _to_rl_y(name_w["top"]) + 1)
+                    break
+
+        pages.append(info)
+
+    pdf.close()
+    return pages
+
+
 def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
     """
     Fallback for flat/DocuSign PDFs with no fillable form fields.
-    Uses exact coordinates from AMS 704 Rev 1/2019 template.
+    Uses pdfplumber to auto-detect item table positions when possible.
+    Falls back to hardcoded coordinates from CCHCS DocuSign AMS 704.
     ONLY draws: supplier info + pricing + totals. Never touches item descriptions.
-    Page type by index: 0,2,4=page-1-format  1,3,5=continuation.
     """
     import io
     import re as _re
@@ -3492,77 +3789,47 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
 
     fv_map = {fv["field_id"]: fv.get("value", "") for fv in field_values}
 
-    # ═══ COORDINATES from PC_Karaoke_Reytech.pdf (real AMS 704 template) ═══
-    SUPPLIER_FIELDS = {
-        # Row 1: full-height cells (no baked-in labels)
+    # ── Try pdfplumber auto-detection first ──
+    detected = _detect_ams704_overlay_positions(source_pdf)
+    _using_detected = detected is not None and any(d is not None for d in detected)
+    if _using_detected:
+        log.info("OVERLAY: using pdfplumber-detected layout (%d pages detected)", len(detected))
+    else:
+        log.info("OVERLAY: using hardcoded DocuSign layout (detection unavailable or failed)")
+
+    # ═══ HARDCODED FALLBACK from CCHCS DocuSign AMS 704 (792×612 landscape) ═══
+    _HC_SUPPLIER = {
         "COMPANY NAME":                       (33.1, 421.3, 278.3, 441.4),
         "COMPANY REPRESENTATIVE print name":  (280.1, 421.3, 602.4, 441.4),
         "Delivery Date and Time ARO":         (604.3, 421.3, 754.9, 441.4),
-        # Row 2: full-height cells
         "Address":                            (33.1, 389.9, 278.3, 412.1),
         "Discount Offered":                   (604.3, 389.9, 754.9, 412.1),
-        # Row 3: full cell coords — have baked-in labels at top
         "Certified SBMB":                     (33.0, 362.8, 156.8, 380.8),
         "Certified DVBE":                     (158.4, 362.8, 278.4, 380.8),
         "Phone Number_2":                     (280.0, 362.8, 445.0, 380.8),
         "EMail Address":                      (446.5, 362.8, 602.5, 380.8),
         "Date Price Check Expires":           (604.2, 362.8, 755.0, 380.8),
-        # Ship to
         "Ship to":                            (278.0, 101.0, 530.0, 114.0),
     }
-    # Fields with baked-in labels at top — only mask bottom 50% to preserve labels
-    _LABELED_FIELDS = {
-        "Certified SBMB", "Certified DVBE", "Phone Number_2",
-        "EMail Address", "Date Price Check Expires",
+    _HC_LABELED = {"Certified SBMB", "Certified DVBE", "Phone Number_2",
+                   "EMail Address", "Date Price Check Expires"}
+    _HC_NOTES = ("Supplier andor Requestor Notes", 32.6, 41.9, 237.2, 118.9)
+    _HC_TOTALS = {
+        "fill_70": (696.0, 141.0, 758.0, 159.0),
+        "fill_71": (694.9, 117.5, 758.0, 138.0),
+        "fill_72": (685.0, 93.6,  758.0, 115.5),
+        "fill_73": (695.5, 69.0,  758.0, 92.0),
     }
-    NOTES_FIELD = ("Supplier andor Requestor Notes", 32.6, 41.9, 237.2, 118.9)
-    TOTALS = {
-        # Exact cell boundaries from pdfplumber rect extraction (vertical border at x=684)
-        "fill_70": (696.0, 141.0, 758.0, 159.0),  # Subtotal  cell=(139.8,160.9)
-        "fill_71": (694.9, 117.5, 758.0, 138.0),  # Freight   cell=(116.0,139.3)
-        "fill_72": (685.0, 93.6,  758.0, 115.5),  # Tax — widened to fully cover baked-in values
-        "fill_73": (695.5, 69.0,  758.0, 92.0),   # Total     cell=(68.0,  93.2)
-    }
-    # FOB checkbox — measured at pdf_y≈127-139 (was 35px too low at y=95-107)
-    CHECKBOX = ("Check Box4", 241.0, 127.5, 256.0, 139.0)
+    _HC_CHECKBOX = ("Check Box4", 241.0, 127.5, 256.0, 139.0)
+    _HC_PRICE_X = (637.0, 686.0)
+    _HC_EXT_X = (691.0, 754.0)
+    _HC_PG1_ROWS = [(292.0, 311.5), (237.5, 257.5), (192.5, 212.5)]
+    _HC_PG2_ROWS = [(457.5, 484.0), (399.0, 425.5), (340.5, 367.0), (288.7, 308.5), (235.0, 263.5)]
+    _HC_PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
 
-    # Price + Extension column X ranges (tight — only these two columns)
-    PRICE_X = (637.0, 686.0)   # inset 2pt from annotation edges to avoid border overlap
-    EXT_X = (691.0, 754.0)     # inset 2pt from annotation edges to avoid border overlap
-
-    # Page-1-format: 3 item rows
-    # Exact cell boundaries from pdfplumber rect extraction on CCHCS DocuSign AMS 704.
-    # Each item spans TWO rows: main (has price) + continuation (SKU/ref, no price).
-    # Measured MAIN row boundaries (vertical border rects at x=620 and x=689):
-    #   Item 1: bot=291.0  top=312.8    Item 2: bot=236.5  top=258.6    Item 3: bot=191.6  top=213.7
-    # Previous coords were 9px too high → white mask crossed cell top border → erased lines
-    PG1_ROWS = [
-        (292.0, 311.5),  # row 1 — cell (291.0, 312.8), 1pt inset
-        (237.5, 257.5),  # row 2 — cell (236.5, 258.6)
-        (192.5, 212.5),  # row 3 — cell (191.6, 213.7)
-    ]
-    # Continuation-format: 5 item rows on page 2
-    # Measured MAIN row boundaries (rects at x=639 and x=689):
-    #   Item 4: bot=456.4 top=485.2   Item 5: bot=397.9 top=426.7
-    #   Item 6: bot=339.3 top=368.1   Item 7: bot=287.6 top=309.7   Item 8: bot=233.9 top=264.8
-    PG2_ROWS = [
-        (457.5, 484.0),  # row 4 — cell (456.4, 485.2)
-        (399.0, 425.5),  # row 5 — cell (397.9, 426.7)
-        (340.5, 367.0),  # row 6 — cell (339.3, 368.1)
-        (288.7, 308.5),  # row 7 — cell (287.6, 309.7)
-        (235.0, 263.5),  # row 8 — cell (233.9, 264.8)
-    ]
-    # Continuation header: SUPPLIER NAME area
-    PG2_SUPPLIER = (330.0, 523.0, 760.0, 550.0)
-
-    # ── Border-safe inset: white mask stays well inside cell borders ──
-    _PAD = 4  # px inset from each cell edge — keeps 0.5-1pt border lines intact
+    _PAD = 4
 
     def _cell(c, x1, y1, x2, y2, text, fs=9, mask_top_pct=1.0):
-        """Draw text in a clipped cell. White mask clears baked-in text
-        but stays _PAD pts inside cell edges to preserve border lines.
-        mask_top_pct: fraction of cell height to mask (1.0=all, 0.5=bottom half only).
-        Use <1.0 for cells with baked-in labels at top that must be preserved."""
         if not text or not text.strip():
             return
         text = text.strip()
@@ -3571,12 +3838,6 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             return
         c.saveState()
         if mask_top_pct < 1.0:
-            # Labeled cell (row 3): has baked-in labels at top ("Certified SB/MB #" etc.)
-            # and empty data area below. NO white mask — just draw text directly
-            # at the measured data position (pdf_y ≈ y1 + 1, baseline of 10pt text).
-            # Measured from real AMS 704 via pdfplumber:
-            #   Labels: y1+7.2 to y1+16.5 (top of cell)
-            #   Data:   y1+0.9 to y1+10.9 (bottom of cell)
             c.setFont("Helvetica", fs)
             c.setFillColorRGB(0, 0, 0)
             while c.stringWidth(text, "Helvetica", fs) > w - 8 and fs > 5.5:
@@ -3584,7 +3845,6 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 c.setFont("Helvetica", fs)
             c.drawString(x1 + 4, y1 + 1, text)
         else:
-            # Full cell: clip to padded interior
             p = c.beginPath()
             p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
             c.clipPath(p, stroke=0)
@@ -3600,7 +3860,6 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         c.restoreState()
 
     def _cell_right(c, x1, y1, x2, y2, text, fs=9):
-        """Draw RIGHT-ALIGNED text in a clipped cell. For prices/currency."""
         if not text or not text.strip():
             return
         text = text.strip()
@@ -3624,7 +3883,6 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         c.restoreState()
 
     def _multiline(c, x1, y1, x2, y2, text, fs=8):
-        """Draw multi-line text in a clipped cell."""
         if not text or not text.strip():
             return
         w, h = x2 - x1, y2 - y1
@@ -3647,73 +3905,6 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             c.drawString(x1 + _PAD + 1, ly, t)
         c.restoreState()
 
-    # ── Dynamic row detection via pdfplumber for flat/converted PDFs ──
-    # LibreOffice-converted DOCX PDFs have no form fields, so we detect
-    # item row Y positions from the table's horizontal lines.
-    _dynamic_rows = {}  # pg_idx → [(y_bot, y_top), ...]
-    _dynamic_price_x = None
-    _dynamic_ext_x = None
-    try:
-        import pdfplumber as _plumb
-        with _plumb.open(source_pdf) as _ppdf:
-            for _pi, _ppage in enumerate(_ppdf.pages):
-                _tables = _ppage.find_tables()
-                if not _tables:
-                    continue
-                # Use the LARGEST table on the page (the item table)
-                _tbl = max(_tables, key=lambda t: (t.bbox[3] - t.bbox[1]) * (t.bbox[2] - t.bbox[0]))
-                _tbl_rows = _tbl.rows
-                if not _tbl_rows:
-                    continue
-                # Skip the header row(s) — find rows that have item numbers
-                _item_rows = []
-                for _tr in _tbl_rows:
-                    _cells = _tr.cells
-                    if not _cells or len(_cells) < 3:
-                        continue
-                    # pdfplumber coords: (x0, top, x1, bottom) — top is distance from page top
-                    _y_top_plumb = _cells[0][1]   # top of row (plumber coords)
-                    _y_bot_plumb = _cells[0][3]   # bottom of row
-                    _row_h = _y_bot_plumb - _y_top_plumb
-                    # Skip tiny rows and header rows (usually first 1-2 rows with > certain Y)
-                    if _row_h < 8:
-                        continue
-                    # Convert pdfplumber coords (origin top-left) to reportlab (origin bottom-left)
-                    _page_h = float(_ppage.height)
-                    _rl_bot = _page_h - _y_bot_plumb
-                    _rl_top = _page_h - _y_top_plumb
-                    _item_rows.append((_rl_bot, _rl_top))
-
-                    # Detect price/extension column X from rightmost cells
-                    if _dynamic_price_x is None and len(_cells) >= 2:
-                        # Second-to-last cell = PRICE PER UNIT, last = EXTENSION
-                        _price_cell = _cells[-2]
-                        _ext_cell = _cells[-1]
-                        _dynamic_price_x = (_price_cell[0], _price_cell[2])
-                        _dynamic_ext_x = (_ext_cell[0], _ext_cell[2])
-
-                if _item_rows:
-                    # Skip header: header rows are above the item area.
-                    # Item rows have height > 15pt and start below the table header.
-                    # Use a simple heuristic: skip the first row if it's very tall (header)
-                    # or if it's the tallest row (header rows tend to be taller).
-                    _avg_h = sum(t - b for b, t in _item_rows) / len(_item_rows)
-                    _data_rows = [(b, t) for b, t in _item_rows if (t - b) < _avg_h * 2.0]
-                    if _data_rows:
-                        _dynamic_rows[_pi] = _data_rows
-                        log.info("OVERLAY: pdfplumber detected %d item rows on page %d (price_x=%s, ext_x=%s)",
-                                 len(_data_rows), _pi + 1, _dynamic_price_x, _dynamic_ext_x)
-    except ImportError:
-        log.debug("OVERLAY: pdfplumber not available — using hardcoded row positions")
-    except Exception as _plumb_e:
-        log.warning("OVERLAY: pdfplumber row detection failed: %s", _plumb_e)
-
-    # Override column X positions if detected dynamically
-    if _dynamic_price_x:
-        PRICE_X = _dynamic_price_x
-    if _dynamic_ext_x:
-        EXT_X = _dynamic_ext_x
-
     # Find highest priced row to skip empty trailing pages
     max_row = 0
     for fv in field_values:
@@ -3724,31 +3915,37 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     num_pages = len(reader.pages)
     current_row = 1
 
-    log.info("OVERLAY: %d pages, max_row=%d, %d field_values, dynamic_rows=%s",
-             num_pages, max_row, len(field_values),
-             {k: len(v) for k, v in _dynamic_rows.items()} if _dynamic_rows else "none")
+    # Pre-compute per-page row counts for detected layout
+    _detected_rows_per_page = []
+    if _using_detected:
+        for d in detected:
+            _detected_rows_per_page.append(len(d["item_rows"]) if d else 0)
+
+    log.info("OVERLAY: %d pages, max_row=%d, %d field_values, detected=%s",
+             num_pages, max_row, len(field_values), _using_detected)
 
     for pg_idx in range(num_pages):
         page = reader.pages[pg_idx]
         mb = page.mediabox
         pw, ph = float(mb.width), float(mb.height)
 
-        # Coordinate scaling for different page sizes
-        # Reference coords are for 792×612 (landscape AMS 704)
-        _scale_x = pw / 792.0
-        _scale_y = ph / 612.0
-        def _sc(x1, y1, x2, y2):
-            return (x1 * _scale_x, y1 * _scale_y, x2 * _scale_x, y2 * _scale_y)
-
-        # Use dynamically detected rows if available, else hardcoded fallback
         is_pg1 = (pg_idx == 0)
-        if pg_idx in _dynamic_rows:
-            rows = _dynamic_rows[pg_idx]
-            # Dynamic rows already in reportlab coords — no scaling needed
-            _scale_x = 1.0
-            _scale_y = 1.0
+
+        # ── Determine layout source for this page ──
+        pg_detected = (detected[pg_idx] if _using_detected and pg_idx < len(detected) else None)
+
+        if pg_detected:
+            # Dynamic layout from pdfplumber
+            rows = pg_detected["item_rows"]
+            price_x = pg_detected["price_x"]
+            ext_x = pg_detected["ext_x"]
         else:
-            rows = PG1_ROWS if is_pg1 else PG2_ROWS
+            # Hardcoded fallback with scaling
+            _sx = pw / 792.0
+            _sy = ph / 612.0
+            rows = [(_sy * yb, _sy * yt) for yb, yt in (_HC_PG1_ROWS if is_pg1 else _HC_PG2_ROWS)]
+            price_x = (_sx * _HC_PRICE_X[0], _sx * _HC_PRICE_X[1])
+            ext_x = (_sx * _HC_EXT_X[0], _sx * _HC_EXT_X[1])
 
         # Skip if all rows on this page are beyond our data
         page_first_row = current_row
@@ -3761,51 +3958,85 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
         drew = False
 
-        # ── SUPPLIER INFO (page-1-format only) ──
+        # ── Coordinate helper for hardcoded fallback ──
+        _sx = pw / 792.0
+        _sy = ph / 612.0
+        def _sc(x1, y1, x2, y2):
+            return (x1 * _sx, y1 * _sy, x2 * _sx, y2 * _sy)
+
+        # ── SUPPLIER INFO (page 1 only) ──
         if is_pg1:
-            for fname, (x1, y1, x2, y2) in SUPPLIER_FIELDS.items():
-                val = fv_map.get(fname, "")
-                if val:
-                    sx1, sy1, sx2, sy2 = _sc(x1, y1, x2, y2)
-                    mtp = 0.65 if fname in _LABELED_FIELDS else 1.0
-                    _cell(c, sx1, sy1, sx2, sy2, val, fs=10, mask_top_pct=mtp)
-                    drew = True
-            # Notes
-            nf, nx1, ny1, nx2, ny2 = NOTES_FIELD
-            nval = fv_map.get(nf, "")
-            if nval:
-                snx1, sny1, snx2, sny2 = _sc(nx1, ny1, nx2, ny2)
-                _multiline(c, snx1, sny1, snx2, sny2, nval, fs=8)
-                drew = True
-            # Checkbox
-            cf, cx1, cy1, cx2, cy2 = CHECKBOX
-            if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
-                scx1, scy1, scx2, scy2 = _sc(cx1, cy1, cx2, cy2)
-                c.saveState()
-                # White background mask
-                c.setFillColorRGB(1, 1, 1)
-                c.rect(scx1 + 2, scy1 + 2, scx2 - scx1 - 4, scy2 - scy1 - 4, fill=1, stroke=0)
-                # Draw X using vector lines — ZapfDingbats glyph "4" in DocuSign
-                # PDFs has inverted ascender (-22pt), making drawString unusable.
-                # c.line() uses coords directly with no font metric transforms.
-                _pad = 3
-                c.setStrokeColorRGB(0, 0, 0)
-                c.setLineWidth(1.5)
-                c.line(scx1 + _pad, scy1 + _pad, scx2 - _pad, scy2 - _pad)  # diagonal \
-                c.line(scx1 + _pad, scy2 - _pad, scx2 - _pad, scy1 + _pad)  # diagonal /
-                c.restoreState()
-                drew = True
-            # Totals (first page only)
-            if pg_idx == 0:
-                for fname, (x1, y1, x2, y2) in TOTALS.items():
+            if pg_detected and pg_detected.get("supplier_cells"):
+                # Use detected positions
+                for fname, coords in pg_detected["supplier_cells"].items():
                     val = fv_map.get(fname, "")
                     if val:
-                        sx1, sy1, sx2, sy2 = _sc(x1, y1, x2, y2)
-                        _cell_right(c, sx1, sy1, sx2, sy2, val, fs=10)
+                        _cell(c, *coords, val, fs=10)
+                        drew = True
+                # Also fill fields not detected — use scaled hardcoded
+                for fname, (x1, y1, x2, y2) in _HC_SUPPLIER.items():
+                    if fname not in pg_detected["supplier_cells"] and fv_map.get(fname, ""):
+                        _cell(c, *_sc(x1, y1, x2, y2), fv_map[fname], fs=10,
+                              mask_top_pct=0.65 if fname in _HC_LABELED else 1.0)
+                        drew = True
+            else:
+                # All hardcoded
+                for fname, (x1, y1, x2, y2) in _HC_SUPPLIER.items():
+                    val = fv_map.get(fname, "")
+                    if val:
+                        mtp = 0.65 if fname in _HC_LABELED else 1.0
+                        _cell(c, *_sc(x1, y1, x2, y2), val, fs=10, mask_top_pct=mtp)
                         drew = True
 
-        # ── CONTINUATION HEADER (mask + fill SUPPLIER NAME) ──
-        # Check if this page has any priced items by looking at field_values (not items — out of scope)
+            # Notes
+            nf = _HC_NOTES[0]
+            nval = fv_map.get(nf, "")
+            if nval:
+                if pg_detected and pg_detected.get("notes_area"):
+                    _multiline(c, *pg_detected["notes_area"], nval, fs=8)
+                else:
+                    _multiline(c, *_sc(_HC_NOTES[1], _HC_NOTES[2], _HC_NOTES[3], _HC_NOTES[4]), nval, fs=8)
+                drew = True
+
+            # FOB Checkbox
+            cf = _HC_CHECKBOX[0]
+            if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
+                if pg_detected and pg_detected.get("fob_area"):
+                    cx1, cy1, cx2, cy2 = pg_detected["fob_area"]
+                else:
+                    cx1, cy1, cx2, cy2 = _sc(_HC_CHECKBOX[1], _HC_CHECKBOX[2],
+                                             _HC_CHECKBOX[3], _HC_CHECKBOX[4])
+                c.saveState()
+                c.setFillColorRGB(1, 1, 1)
+                c.rect(cx1 + 2, cy1 + 2, cx2 - cx1 - 4, cy2 - cy1 - 4, fill=1, stroke=0)
+                c.setStrokeColorRGB(0, 0, 0)
+                c.setLineWidth(1.5)
+                _pad = 3
+                c.line(cx1 + _pad, cy1 + _pad, cx2 - _pad, cy2 - _pad)
+                c.line(cx1 + _pad, cy2 - _pad, cx2 - _pad, cy1 + _pad)
+                c.restoreState()
+                drew = True
+
+            # Totals
+            if pg_detected and pg_detected.get("totals_cells"):
+                for fname, coords in pg_detected["totals_cells"].items():
+                    val = fv_map.get(fname, "")
+                    if val:
+                        _cell_right(c, *coords, val, fs=10)
+                        drew = True
+                # Fallback for any totals not detected
+                for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
+                    if fname not in pg_detected["totals_cells"] and fv_map.get(fname, ""):
+                        _cell_right(c, *_sc(x1, y1, x2, y2), fv_map[fname], fs=10)
+                        drew = True
+            else:
+                for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
+                    val = fv_map.get(fname, "")
+                    if val:
+                        _cell_right(c, *_sc(x1, y1, x2, y2), val, fs=10)
+                        drew = True
+
+        # ── CONTINUATION HEADER (supplier name on page 2+) ──
         _page_has_items = any(
             fv_map.get(ROW_FIELDS["unit_price"].format(n=rn), "").strip()
             for rn in range(current_row, current_row + len(rows))
@@ -3813,34 +4044,34 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         if not is_pg1 and _page_has_items:
             company = fv_map.get("COMPANY NAME", "")
             if company:
-                sp0, sp1, sp2, sp3 = _sc(PG2_SUPPLIER[0], PG2_SUPPLIER[1], PG2_SUPPLIER[2], PG2_SUPPLIER[3])
-                _cell(c, sp0, sp1, sp2, sp3, company, fs=12)
+                if pg_detected and pg_detected.get("supplier_name_cont"):
+                    _cell(c, *pg_detected["supplier_name_cont"], company, fs=12)
+                else:
+                    sp = _sc(_HC_PG2_SUPPLIER[0], _HC_PG2_SUPPLIER[1],
+                             _HC_PG2_SUPPLIER[2], _HC_PG2_SUPPLIER[3])
+                    _cell(c, *sp, company, fs=12)
                 drew = True
-        # Empty continuation pages are stripped entirely after fill (no overlay needed)
 
-        # ── ROW PRICING: only PRICE PER UNIT + EXTENSION columns ──
+        # ── ROW PRICING: PRICE PER UNIT + EXTENSION columns ──
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
-            px1, _, px2, _ = _sc(PRICE_X[0], 0, PRICE_X[1], 0)
-            ex1, _, ex2, _ = _sc(EXT_X[0], 0, EXT_X[1], 0)
-            sy_bot = y_bot * _scale_y
-            sy_top = y_top * _scale_y
             # Price
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
-                _cell_right(c, px1, sy_bot, px2, sy_top, pv, fs=9)
+                _cell_right(c, price_x[0], y_bot, price_x[1], y_top, pv, fs=9)
                 drew = True
             # Extension
             ef = ROW_FIELDS["extension"].format(n=rn)
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
-                _cell_right(c, ex1, sy_bot, ex2, sy_top, ev, fs=9)
+                _cell_right(c, ext_x[0], y_bot, ext_x[1], y_top, ev, fs=9)
                 drew = True
 
-        log.info("OVERLAY pg%d: %s rows=%d-%d drew=%s",
+        log.info("OVERLAY pg%d: %s rows=%d-%d (%d slots) drew=%s detected=%s",
                  pg_idx, "pg1" if is_pg1 else "cont",
-                 current_row, current_row + len(rows) - 1, drew)
+                 current_row, current_row + len(rows) - 1, len(rows),
+                 drew, pg_detected is not None)
         current_row += len(rows)
 
         c.save()
@@ -3851,28 +4082,23 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 writer.pages[pg_idx].merge_page(overlay.pages[0])
 
     # ── Remove pages that had no priced items drawn ──
-    # When dynamic rows are detected, keep ALL pages (buyer's original form).
-    # Only trim when using hardcoded fallback positions.
     pages_with_items = set()
-    if _dynamic_rows:
-        # Buyer's converted PDF — keep all pages
-        pages_with_items = set(range(len(reader.pages)))
-    else:
-        check_row = 1
-        for pg_idx in range(len(reader.pages)):
-            is_pg1 = (pg_idx == 0)
-            rows_on_page = len(PG1_ROWS) if is_pg1 else len(PG2_ROWS)
-            page_first = check_row
-            page_last = check_row + rows_on_page - 1
-            has_items = False
-            for rn in range(page_first, page_last + 1):
-                pf = ROW_FIELDS["unit_price"].format(n=rn)
-                if fv_map.get(pf, "").strip():
-                    has_items = True
-                    break
-            if has_items or pg_idx == 0:  # always keep page 1
-                pages_with_items.add(pg_idx)
-            check_row += rows_on_page
+    check_row = 1
+    for pg_idx in range(num_pages):
+        if _using_detected and pg_idx < len(detected) and detected[pg_idx]:
+            rows_on_page = len(detected[pg_idx]["item_rows"])
+        else:
+            rows_on_page = len(_HC_PG1_ROWS) if pg_idx == 0 else len(_HC_PG2_ROWS)
+        page_first = check_row
+        has_items = False
+        for rn in range(page_first, page_first + rows_on_page):
+            pf = ROW_FIELDS["unit_price"].format(n=rn)
+            if fv_map.get(pf, "").strip():
+                has_items = True
+                break
+        if has_items or pg_idx == 0:
+            pages_with_items.add(pg_idx)
+        check_row += rows_on_page
 
     if len(pages_with_items) < len(writer.pages):
         trimmed_writer = PdfWriter()

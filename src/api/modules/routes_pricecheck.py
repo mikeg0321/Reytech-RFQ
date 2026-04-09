@@ -8528,6 +8528,26 @@ def api_pc_accept_match(pcid, idx):
     return jsonify({"ok": True})
 
 
+@bp.route("/api/pricecheck/<pcid>/qa", methods=["POST", "GET"])
+@auth_required
+@safe_route
+def api_pc_qa(pcid):
+    """Run QA/QC audit on a Price Check. Returns structured report."""
+    import copy as _copy
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    use_llm = request.args.get("llm", "1") != "0"
+    try:
+        from src.agents.pc_qa_agent import run_qa
+        report = run_qa(_copy.deepcopy(pc), use_llm=use_llm)
+        return jsonify(report)
+    except Exception as e:
+        log.error("QA error for %s: %s", pcid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)})
+
+
 @bp.route("/api/grok/test")
 @auth_required
 @safe_route

@@ -50,16 +50,6 @@
     "value": "5/23/2026"
   },
   {
-    "field_id": "FOB Destination Freight Prepaid",
-    "page": 1,
-    "value": "/Yes"
-  },
-  {
-    "field_id": "CheckBox4",
-    "page": 1,
-    "value": "/Yes"
-  },
-  {
     "field_id": "FOBDestinationFreightPrepaid",
     "page": 1,
     "value": "/Yes"
@@ -70,12 +60,22 @@
     "value": "/Yes"
   },
   {
-    "field_id": "fob_prepaid",
+    "field_id": "FOB Destination Freight Prepaid",
     "page": 1,
     "value": "/Yes"
   },
   {
     "field_id": "FOB Destination  Freight Prepaid",
+    "page": 1,
+    "value": "/Yes"
+  },
+  {
+    "field_id": "fob_prepaid",
+    "page": 1,
+    "value": "/Yes"
+  },
+  {
+    "field_id": "CheckBox4",
     "page": 1,
     "value": "/Yes"
   },

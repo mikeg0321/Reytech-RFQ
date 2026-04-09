@@ -32,6 +32,75 @@ ACCEPT_ALL = (
 )
 
 
+def convert_docx_to_pdf(input_path: str, output_dir: str = None) -> str:
+    """Convert a DOCX (or DOC/XLS/XLSX) to PDF using LibreOffice headless.
+
+    Args:
+        input_path: Path to the office document.
+        output_dir: Directory for the output PDF. Defaults to same dir as input.
+
+    Returns:
+        Path to the converted PDF.
+
+    Raises:
+        RuntimeError: If LibreOffice is not installed or conversion fails.
+    """
+    import subprocess
+    import shutil
+
+    soffice = shutil.which("soffice") or shutil.which("libreoffice")
+    if not soffice:
+        raise RuntimeError(
+            "LibreOffice is not installed — cannot convert office documents to PDF. "
+            "Install libreoffice-writer and retry."
+        )
+
+    if output_dir is None:
+        output_dir = os.path.dirname(input_path) or "."
+    os.makedirs(output_dir, exist_ok=True)
+
+    cmd = [
+        soffice,
+        "--headless",
+        "--norestore",
+        "--convert-to", "pdf",
+        "--outdir", output_dir,
+        input_path,
+    ]
+    log.info("LibreOffice convert: %s", " ".join(cmd))
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"LibreOffice conversion failed (rc={result.returncode}): "
+                f"{result.stderr[:500]}"
+            )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("LibreOffice conversion timed out after 120s")
+
+    # Output filename: same basename with .pdf extension
+    base = os.path.splitext(os.path.basename(input_path))[0]
+    out_path = os.path.join(output_dir, base + ".pdf")
+    if not os.path.exists(out_path):
+        raise RuntimeError(
+            f"LibreOffice did not produce expected output: {out_path}. "
+            f"stdout: {result.stdout[:300]}"
+        )
+
+    log.info("LibreOffice converted %s → %s (%d bytes)",
+             os.path.basename(input_path), os.path.basename(out_path),
+             os.path.getsize(out_path))
+    return out_path
+
+
+def can_convert_to_pdf() -> bool:
+    """Check if LibreOffice is available for office→PDF conversion."""
+    import shutil
+    return bool(shutil.which("soffice") or shutil.which("libreoffice"))
+
+
 def is_office_doc(filename: str) -> bool:
     """Check if filename has an office document extension."""
     return os.path.splitext(filename)[1].lower() in OFFICE_EXTS
