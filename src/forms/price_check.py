@@ -3554,32 +3554,66 @@ def _detect_ams704_overlay_positions(source_pdf):
             continue
 
         # ── Column X boundaries ──
-        # Use vertical edges if available, otherwise estimate from text positions
-        v_edges_x = sorted(set(
-            round(e["x0"], 0) for e in edges
-            if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
-        ))
+        # Best source: horizontal rects that form the PRICE/EXTENSION column headers.
+        # These give exact cell boundaries. Fallback to v-edges, then text estimation.
+        p_left = p_right = e_right = None
 
-        if v_edges_x:
-            # Snap to nearest vertical edges
-            price_v_left = [v for v in v_edges_x if v <= price_header["x0"] + 5]
-            price_v_right = [v for v in v_edges_x if abs(v - ext_header["x0"]) < 15]
-            p_left = max(price_v_left) if price_v_left else price_header["x0"] - 12
-            p_right = min(price_v_right) if price_v_right else ext_header["x0"] - 8
-            ext_right_v = [v for v in v_edges_x if v > ext_header["x1"] + 5]
-            e_right = min(ext_right_v) if ext_right_v else ext_header["x1"] + 15
-        else:
-            # No vertical edges — estimate from text positions
+        # Method 1: Find horizontal rects that form PRICE/EXTENSION cell boundaries.
+        # These are thin horizontal rects (h<5) with width 40-80pt in the right area.
+        # PRICE rects have width ~50pt, EXTENSION rects have width ~68pt, separated
+        # by a small gap (the border line between columns).
+        # Filter to rects near the column header Y to avoid picking up totals/other areas.
+        _header_y = ext_header["top"]
+        col_rects = [r for r in page.rects
+                     if r["x0"] > pw * 0.75 and r["width"] > 30 and r["width"] < 100
+                     and r["height"] < 5
+                     and abs(r["top"] - _header_y) < 40]
+        if col_rects:
+            # Group by x0 (rects with same x0 belong to same column)
+            x0_groups = {}
+            for r in col_rects:
+                key = round(r["x0"], 0)
+                if key not in x0_groups:
+                    x0_groups[key] = r
+            unique_x0s = sorted(x0_groups.keys())
+            if len(unique_x0s) >= 2:
+                price_rect = x0_groups[unique_x0s[0]]  # leftmost = PRICE
+                ext_rect = x0_groups[unique_x0s[1]]    # next = EXTENSION
+                p_left = price_rect["x0"]
+                p_right = price_rect["x1"]
+                e_right = ext_rect["x1"]
+                log.info("OVERLAY detect pg%d: columns from rects: PRICE=(%.1f,%.1f) EXT=(%.1f,%.1f)",
+                         pg_idx, p_left, p_right, ext_rect["x0"], e_right)
+
+        # Method 2: vertical edges
+        if p_left is None:
+            v_edges_x = sorted(set(
+                round(e["x0"], 0) for e in edges
+                if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
+            ))
+            if v_edges_x:
+                price_v_left = [v for v in v_edges_x if v <= price_header["x0"] + 5]
+                price_v_right = [v for v in v_edges_x if abs(v - ext_header["x0"]) < 15]
+                p_left = max(price_v_left) if price_v_left else None
+                p_right = min(price_v_right) if price_v_right else None
+                ext_right_v = [v for v in v_edges_x if v > ext_header["x1"] + 5]
+                e_right = min(ext_right_v) if ext_right_v else None
+
+        # Method 3: text estimation (least accurate)
+        if p_left is None:
             p_left = price_header["x0"] - 12
+        if p_right is None:
             p_right = ext_header["x0"] - 8
+        if e_right is None:
             e_right = ext_header["x1"] + 15
 
-        info["price_x"] = (p_left + 2, p_right - 2)
-        info["ext_x"] = (p_right + 2, e_right - 2)
+        # Inset 3pt from actual borders to avoid masking border lines
+        info["price_x"] = (p_left + 3, p_right - 3)
+        info["ext_x"] = (p_right + 3, e_right - 3)
 
-        log.info("OVERLAY detect pg%d: price_x=(%.1f,%.1f) ext_x=(%.1f,%.1f) v_edges=%d",
+        log.info("OVERLAY detect pg%d: price_x=(%.1f,%.1f) ext_x=(%.1f,%.1f)",
                  pg_idx, info["price_x"][0], info["price_x"][1],
-                 info["ext_x"][0], info["ext_x"][1], len(v_edges_x))
+                 info["ext_x"][0], info["ext_x"][1])
 
         # ── Find all horizontal lines ──
         all_h_lines = sorted(set(
