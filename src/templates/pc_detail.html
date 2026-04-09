@@ -881,67 +881,91 @@
        + '✅ All checks passed</div>';
      }
 
-     // Build grouped issue body
+     // Build category-grouped issue body
      var html = '';
 
-     // Item scores summary
-     if (d.item_scores && d.item_scores.length > 0) {
-      html += '<div style="margin-bottom:16px">';
-      html += '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Item Summary</div>';
+     // Category config: order, icons, colors
+     var categories = [
+      {id:'math',        label:'Math',         icon:'🔢', color:'#f85149', border:'#da3633'},
+      {id:'profit',      label:'Profit',       icon:'💰', color:'#f0883e', border:'#bd561d'},
+      {id:'completeness',label:'Completeness', icon:'📋', color:'#d29922', border:'#9e6a03'},
+      {id:'identity',    label:'Identity',     icon:'🏷️', color:'#bc8cff', border:'#8957e5'},
+      {id:'shipping',    label:'Shipping',     icon:'🚚', color:'#58a6ff', border:'#1f6feb'},
+      {id:'agency',      label:'Agency',       icon:'🏛️', color:'#58a6ff', border:'#1f6feb'},
+      {id:'spelling',    label:'Spelling',     icon:'✏️', color:'#d29922', border:'#9e6a03'},
+      {id:'duplicate',   label:'Duplicates',   icon:'👯', color:'#d29922', border:'#9e6a03'},
+     ];
+
+     // Item scores summary — only show items with issues
+     var problemItems = (d.item_scores||[]).filter(function(s){return s.status!=='pass'});
+     if (problemItems.length > 0) {
+      html += '<div style="margin-bottom:14px">';
+      html += '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Items with issues</div>';
       html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-      d.item_scores.forEach(function(s) {
-       var bg = s.status === 'fail' ? '#da363322' : (s.status === 'review' ? '#9e6a0322' : '#23863622');
-       var clr = s.status === 'fail' ? '#f85149' : (s.status === 'review' ? '#d29922' : '#3fb950');
-       var bdr = s.status === 'fail' ? '#da363355' : (s.status === 'review' ? '#9e6a0355' : '#23863655');
+      problemItems.forEach(function(s) {
+       var bg = s.status === 'fail' ? '#da363322' : '#9e6a0322';
+       var clr = s.status === 'fail' ? '#f85149' : '#d29922';
+       var bdr = s.status === 'fail' ? '#da363355' : '#9e6a0355';
        html += '<span onclick="_scrollToItem(' + s.idx + ')" style="cursor:pointer;padding:3px 8px;background:' + bg + ';border:1px solid ' + bdr + ';border-radius:4px;font-size:12px;color:' + clr + ';font-weight:600">'
         + '#' + (s.idx + 1) + '</span>';
       });
       html += '</div></div>';
      }
 
-     // Totals check
-     if (d.totals_check && !d.totals_check.correct) {
-      html += '<div style="margin-bottom:12px;padding:10px;background:#da363316;border:1px solid #da363333;border-radius:6px;font-size:13px;color:#f85149">'
-       + '<b>Totals Mismatch:</b> Calculated $' + (d.totals_check.calculated_total||0).toFixed(2)
-       + ' vs Displayed $' + (d.totals_check.displayed_total||0).toFixed(2) + '</div>';
+     // Render issues grouped by category
+     function renderIssueCard(issue, catColor, catBorder) {
+      var sColor = issue.severity === 'blocker' ? '#f85149' : (issue.severity === 'warning' ? '#d29922' : '#8b949e');
+      var sIcon = issue.severity === 'blocker' ? '🔴' : (issue.severity === 'warning' ? '🟡' : '🔵');
+      var itemNum = issue.item_index >= 0 ? (issue.item_index + 1) : null;
+      var c = '<div style="padding:8px 10px;margin-bottom:4px;background:#161b22;border:1px solid #30363d;border-left:3px solid ' + catBorder + ';border-radius:4px;font-size:13px;display:flex;align-items:start;gap:8px">';
+      c += '<span style="font-size:11px;min-width:16px">' + sIcon + '</span>';
+      if (itemNum !== null) {
+       c += '<span onclick="_scrollToItem(' + issue.item_index + ')" style="cursor:pointer;min-width:28px;text-align:center;padding:2px 5px;background:' + catBorder + '22;border:1px solid ' + catBorder + '55;border-radius:3px;font-size:11px;font-weight:700;color:' + catColor + '">#' + itemNum + '</span>';
+      } else {
+       c += '<span style="min-width:28px;text-align:center;padding:2px 5px;background:#21262d;border:1px solid #30363d;border-radius:3px;font-size:11px;font-weight:700;color:#8b949e">PC</span>';
+      }
+      c += '<div style="flex:1;color:#c9d1d9">' + (issue.message||'').replace(/</g,'&lt;') + '</div>';
+      c += '</div>';
+      return c;
      }
 
-     function renderGroup(title, icon, issues, color, borderColor) {
-      if (issues.length === 0) return '';
-      var g = '<div style="margin-bottom:16px">';
-      g += '<div style="font-size:11px;color:' + color + ';text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:700">'
-       + icon + ' ' + title + ' (' + issues.length + ')</div>';
-      issues.forEach(function(issue) {
-       var itemNum = issue.item_index >= 0 ? (issue.item_index + 1) : null;
-       g += '<div style="padding:8px 10px;margin-bottom:4px;background:#161b22;border:1px solid #30363d;border-left:3px solid ' + borderColor + ';border-radius:4px;font-size:13px;display:flex;align-items:start;gap:8px">';
-       if (itemNum !== null) {
-        g += '<span onclick="_scrollToItem(' + issue.item_index + ')" style="cursor:pointer;min-width:32px;text-align:center;padding:2px 6px;background:' + borderColor + '22;border:1px solid ' + borderColor + '55;border-radius:3px;font-size:11px;font-weight:700;color:' + color + '">#' + itemNum + '</span>';
-       } else {
-        g += '<span style="min-width:32px;text-align:center;padding:2px 6px;background:#21262d;border:1px solid #30363d;border-radius:3px;font-size:11px;font-weight:700;color:#8b949e">PC</span>';
-       }
-       g += '<div style="flex:1;color:#c9d1d9">' + (issue.message||'').replace(/</g,'&lt;');
-       if (issue.field) g += '<span style="display:block;font-size:11px;color:#8b949e;margin-top:2px">Field: ' + issue.field + '</span>';
-       if (issue.value !== undefined && issue.value !== null && issue.value !== '') g += '<span style="display:block;font-size:11px;color:#8b949e">Value: ' + String(issue.value).substring(0,60) + '</span>';
-       g += '</div></div>';
+     categories.forEach(function(cat) {
+      var catIssues = d.issues.filter(function(i){return i.category === cat.id});
+      if (catIssues.length === 0) return;
+      var catBlockers = catIssues.filter(function(i){return i.severity==='blocker'}).length;
+      var badge = catBlockers > 0 ? ' <span style="background:#da363344;color:#f85149;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">'+catBlockers+' BLOCKER'+(catBlockers>1?'S':'')+'</span>' : '';
+      html += '<div style="margin-bottom:14px">';
+      html += '<div style="font-size:12px;color:' + cat.color + ';font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px">'
+       + cat.icon + ' ' + cat.label + ' <span style="color:#8b949e;font-weight:400">(' + catIssues.length + ')</span>' + badge + '</div>';
+      catIssues.forEach(function(issue) {
+       html += renderIssueCard(issue, cat.color, cat.border);
       });
-      g += '</div>';
-      return g;
-     }
+      html += '</div>';
+     });
 
-     html += renderGroup('Blockers', '🔴', blockers, '#f85149', '#da3633');
-     html += renderGroup('Warnings', '🟡', warnings, '#d29922', '#9e6a03');
-     html += renderGroup('Info', '🔵', infos, '#8b949e', '#484f58');
+     // Uncategorized issues (safety net)
+     var uncategorized = d.issues.filter(function(i){
+      return !i.category || !categories.some(function(c){return c.id===i.category});
+     });
+     if (uncategorized.length > 0) {
+      html += '<div style="margin-bottom:14px">';
+      html += '<div style="font-size:12px;color:#8b949e;font-weight:700;margin-bottom:6px">Other (' + uncategorized.length + ')</div>';
+      uncategorized.forEach(function(issue) {
+       html += renderIssueCard(issue, '#8b949e', '#484f58');
+      });
+      html += '</div>';
+     }
 
      if (d.issues.length === 0) {
       html += '<div style="text-align:center;padding:30px 20px;color:#3fb950">'
        + '<div style="font-size:40px;margin-bottom:8px">✅</div>'
-       + '<div style="font-size:16px;font-weight:600">All checks passed</div>'
-       + '<div style="font-size:13px;color:#8b949e;margin-top:4px">Score: ' + d.score + '/100</div></div>';
+       + '<div style="font-size:16px;font-weight:600">Ready to send</div>'
+       + '<div style="font-size:13px;color:#8b949e;margin-top:4px">All document checks passed</div></div>';
      }
 
      // LLM token usage
      if (d.tokens_used) {
-      html += '<div style="margin-top:12px;font-size:11px;color:#484f58;text-align:right">Grok tokens: ' + d.tokens_used + '</div>';
+      html += '<div style="margin-top:12px;font-size:11px;color:#484f58;text-align:right">Spelling check: ' + d.tokens_used + ' tokens</div>';
      }
 
      body.innerHTML = html;
