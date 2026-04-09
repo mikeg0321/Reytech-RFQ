@@ -984,7 +984,7 @@
      runQA(null);
     }
 
-    function runQA(callback, onBlocked) {
+    function runQA(callback, onBlocked, skipLlm) {
      _qaCallback = callback;
      _openQAPanel();
      var body = document.getElementById('qa-panel-body');
@@ -995,10 +995,12 @@
      scoreEl.textContent = 'Running audit...';
      scoreEl.style.color = '#d29922';
      actionBar.style.display = 'none';
-     body.innerHTML = '<div style="text-align:center;padding:40px"><div style="font-size:28px;margin-bottom:12px;animation:spin 1s linear infinite">🔍</div><div style="color:#d29922;font-weight:600">Running QA checks...</div><div style="color:#8b949e;font-size:12px;margin-top:4px">Deterministic + LLM validation</div></div>'
+     var _qaLabel = skipLlm ? 'Quick validation' : 'Deterministic + LLM validation';
+     body.innerHTML = '<div style="text-align:center;padding:40px"><div style="font-size:28px;margin-bottom:12px;animation:spin 1s linear infinite">🔍</div><div style="color:#d29922;font-weight:600">Running QA checks...</div><div style="color:#8b949e;font-size:12px;margin-top:4px">' + _qaLabel + '</div></div>'
       + '<style>@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}</style>';
 
-     fetch('/api/pricecheck/' + _pcid + '/qa', {method:'POST', credentials:'same-origin'})
+     var _qaUrl = '/api/pricecheck/' + _pcid + '/qa' + (skipLlm ? '?llm=0' : '');
+     fetch(_qaUrl, {method:'POST', credentials:'same-origin'})
      .then(function(r) { return r.json(); })
      .then(function(d) {
       if (!d.ok) {
@@ -1263,7 +1265,7 @@
      }).then(d=>{
       if(d.ok){
        if (d.profit_summary) updateProfitPanel(d.profit_summary);
-       // QA gate: run audit before generating PDF
+       // QA gate: fast deterministic QA only (no LLM) to avoid 3-min timeout
        btn.textContent='🔍 Running QA...';
        runQA(function _afterQA() {
         btn.textContent='📄 Generating PDF...';
@@ -1300,7 +1302,7 @@
          showMsg('Prices saved. Fix QA blockers before generating PDF.','warn');
         }
         setTimeout(function(){btn.textContent=origText;btn.style.background=''},5000);
-       });
+       }, true);  // skipLlm=true: fast QA only during generate
       } else {
        btn.disabled=false; _hideGenOverlay();
        btn.textContent=origText;
@@ -3450,9 +3452,9 @@
       return r.json();
      }).then(function(d){
       if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
-      // Save succeeded → run QA before generating
+      // Save succeeded → fast QA (no LLM) before generating
       btn.textContent='🔍 Running QA...';
-      runQA(function() { _doGenerate704(btn); });
+      runQA(function() { _doGenerate704(btn); }, null, true);
      }).catch(function(e){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
     }
 
