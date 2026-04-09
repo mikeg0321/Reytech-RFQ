@@ -397,7 +397,15 @@ def _scrape_generic(url: str) -> dict:
 # ─── Supplier-specific handlers ───────────────────────────────────────────────
 
 def _lookup_amazon(url: str) -> dict:
-    """Amazon: extract ASIN, use SerpApi product lookup."""
+    """Amazon: extract ASIN, use SerpApi product lookup.
+    Time budget: 12s total to stay within client's 15s timeout."""
+    import time as _time
+    _t0 = _time.monotonic()
+    _BUDGET = 12.0  # seconds — leave 3s margin for catalog write + response
+
+    def _over_budget():
+        return (_time.monotonic() - _t0) >= _BUDGET
+
     asin = _extract_asin(url)
     if not asin:
         return {"error": "Could not extract ASIN from Amazon URL", "supplier": "Amazon"}
@@ -407,15 +415,16 @@ def _lookup_amazon(url: str) -> dict:
 
     try:
         from src.agents.product_research import search_amazon, lookup_amazon_product
-        # Try direct product lookup first (most reliable for ASIN/ISBN)
+        # Step 1: direct product lookup (most reliable for ASIN/ISBN)
         direct = lookup_amazon_product(asin)
         results = []
         if direct and (direct.get("price") or direct.get("title")):
             results = [direct]
-        else:
-            # Fallback to search — single attempt only to stay within client timeout
+        elif not _over_budget():
+            # Step 2: search fallback — only if budget remains
             _search_q = f"ISBN {asin}" if _is_isbn else f"ASIN {asin}"
             results = search_amazon(_search_q, max_results=1)
+
         if results:
             r = results[0]
             title = r.get("title", "")
@@ -431,62 +440,44 @@ def _lookup_amazon(url: str) -> dict:
             # Price: always use list/typical price — never sale/coupon price
             _list = r.get("list_price") or r.get("typical_price")
             _sale = r.get("sale_price") or r.get("price")
-            # If search_amazon fallback ran (no list_price), try product lookup for MSRP
-            # Skip if direct lookup already ran (avoid double SerpApi call)
-            if not _list and _sale and asin and r.get("source") != "amazon_product" and not direct:
-                try:
-                    _prod = lookup_amazon_product(asin)
-                    if _prod and _prod.get("list_price"):
-                        _list = _prod["list_price"]
-                        if _prod.get("sale_price"):
-                            _sale = _prod["sale_price"]
-                except Exception:
-                    pass
             _use_price = _list or _sale
-            import logging as _ll
-            _ll.getLogger(__name__).info("Amazon ASIN %s: list=$%s sale=$%s use=$%s",
-                                         asin, _list, _sale, _use_price)
+            log.info("Amazon ASIN %s: list=$%s sale=$%s use=$%s (%.1fs)",
+                     asin, _list, _sale, _use_price, _time.monotonic() - _t0)
 
             # MFG#: use scraped MFG#, or ISBN for books
             mfg = r.get("mfg_number", "") or r.get("part_number", "") or ""
             if not mfg and _is_isbn:
                 mfg = asin  # ISBN-10 serves as MFG# for books
-            # Description = clean title only. No ASIN — procurement doesn't want it.
-            # MFG# stored in part_number field, ASIN in asin field only.
             structured_desc = title
 
-            # Scrape product page for MFG# and/or list price when SerpApi didn't have them
-            _page = None
-            if (not mfg and asin and not _is_isbn) or (not _list and _sale):
-                try:
-                    _page = _scrape_generic(f"https://www.amazon.com/dp/{asin}")
-                    # Extract MFG# from page
-                    if not mfg:
-                        import re as _re_mfg
-                        _page_text = str(_page.get("raw_text", "") or _page.get("meta_description", ""))
-                        _model_match = _re_mfg.search(
-                            r'(?:Item model number|Part Number|Model Number|Manufacturer Part Number)'
-                            r'[:\s]+([A-Z0-9][A-Z0-9\-/]{2,25})',
-                            _page_text, _re_mfg.IGNORECASE)
-                        if _model_match:
-                            mfg = _model_match.group(1).strip()
-                    # Extract list price from HTML scrape (double validation)
-                    if not _list and _page.get("list_price"):
-                        _list = _page["list_price"]
-                        _use_price = _list
-                        import logging as _ll2
-                        _ll2.getLogger(__name__).info(
-                            "Amazon ASIN %s: list price $%.2f found via HTML scrape (SerpApi missed it)",
-                            asin, _list)
-                    # Also grab sale_price from scrape if we didn't have it
-                    if not _sale and _page.get("sale_price"):
-                        _sale = _page["sale_price"]
-                    elif not _sale and _page.get("price") and _page["price"] != _list:
-                        _sale = _page["price"]
-                except Exception:
-                    pass
+            # Step 3: scrape product page for MFG# or list price — only if budget remains
+            if not _over_budget():
+                _need_mfg = not mfg and asin and not _is_isbn
+                _need_list = not _list and _sale
+                if _need_mfg or _need_list:
+                    try:
+                        _page = _scrape_generic(f"https://www.amazon.com/dp/{asin}")
+                        if not mfg and _page:
+                            import re as _re_mfg
+                            _page_text = str(_page.get("raw_text", "") or _page.get("meta_description", ""))
+                            _model_match = _re_mfg.search(
+                                r'(?:Item model number|Part Number|Model Number|Manufacturer Part Number)'
+                                r'[:\s]+([A-Z0-9][A-Z0-9\-/]{2,25})',
+                                _page_text, _re_mfg.IGNORECASE)
+                            if _model_match:
+                                mfg = _model_match.group(1).strip()
+                        if not _list and _page and _page.get("list_price"):
+                            _list = _page["list_price"]
+                            _use_price = _list
+                            log.info("Amazon ASIN %s: list $%.2f from HTML scrape", asin, _list)
+                        if not _sale and _page:
+                            _sale = _page.get("sale_price") or _page.get("price")
+                    except Exception:
+                        pass
 
             clean_url = _normalize_amazon_url(url)
+            _elapsed = _time.monotonic() - _t0
+            log.info("Amazon ASIN %s: done in %.1fs", asin, _elapsed)
 
             return {
                 "supplier":      "Amazon",
@@ -507,17 +498,21 @@ def _lookup_amazon(url: str) -> dict:
                 "shipping_note": "Prime/standard shipping — verify delivery window",
                 "source":        "amazon_asin",
                 "price_note":    f"List: ${_list:.2f}" if _list and _sale and _list != _sale else "",
+                "photo_url":     r.get("photo_url", "") or r.get("thumbnail", ""),
             }
-        # Fallback: scrape the product page
-        scraped = _scrape_generic(url)
-        scraped["supplier"] = "Amazon"
-        scraped["asin"] = asin
-        scraped["url"] = _normalize_amazon_url(url)
-        # Description = title only, no ASIN appended
-        _title = scraped.get("title") or scraped.get("description") or ""
-        if _title:
-            scraped["description"] = _title
-        return scraped
+        # Fallback: scrape the product page (only if budget allows)
+        if not _over_budget():
+            scraped = _scrape_generic(url)
+            scraped["supplier"] = "Amazon"
+            scraped["asin"] = asin
+            scraped["url"] = _normalize_amazon_url(url)
+            _title = scraped.get("title") or scraped.get("description") or ""
+            if _title:
+                scraped["description"] = _title
+            return scraped
+        # Budget exhausted with no results
+        return {"supplier": "Amazon", "asin": asin, "url": _normalize_amazon_url(url),
+                "error": "Lookup timed out — paste cost manually"}
     except Exception as e:
         return {"error": str(e), "supplier": "Amazon", "asin": asin}
 

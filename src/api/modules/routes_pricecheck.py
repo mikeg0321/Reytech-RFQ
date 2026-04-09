@@ -9418,6 +9418,10 @@ def api_item_link_lookup():
     Used for the item_link autofill on PC and RFQ line items.
     Also writes price+supplier to catalog DB for future intelligence.
     """
+    import time as _time
+    _t0 = _time.monotonic()
+    _ENDPOINT_BUDGET = 14.0  # seconds — client timeout is 15s
+
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
     if not url:
@@ -9427,10 +9431,10 @@ def api_item_link_lookup():
         from src.agents.item_link_lookup import lookup_from_url
         result = lookup_from_url(url)
 
-        # ── Write-back to catalog DB ──
-        # Write when we have price OR when we have good description/photo data
+        # ── Write-back to catalog DB (skip if near timeout) ──
         _has_useful_data = result.get("price") or result.get("photo_url") or (result.get("title") and len(result.get("title", "")) > 10)
-        if result.get("ok") and _has_useful_data:
+        _time_left = _ENDPOINT_BUDGET - (_time.monotonic() - _t0)
+        if result.get("ok") and _has_useful_data and _time_left > 2.0:
             try:
                 from src.agents.product_catalog import (
                     match_item, add_to_catalog, add_supplier_price, init_catalog_db
@@ -9494,9 +9498,10 @@ def api_item_link_lookup():
 
         # ── Claude semantic match: AI product validation ──
         # When client sends pc_description, compare it to found title.
-        # Only call Claude if token match is uncertain (< 70%) to save API costs.
+        # Only call Claude if token match is uncertain (< 70%) AND we have time budget.
         _pc_desc = (data.get("pc_description") or "").strip()
-        if _pc_desc and result.get("ok") and result.get("title"):
+        _time_left = _ENDPOINT_BUDGET - (_time.monotonic() - _t0)
+        if _pc_desc and result.get("ok") and result.get("title") and _time_left > 3.0:
             _found_title = result.get("title", "")
             _token_score = _quick_token_match(_pc_desc, _found_title)
             if _token_score < 70:
