@@ -2551,7 +2551,7 @@ def _generate_pc_pdf(pcid):
     _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
     if _is_docx_source:
         try:
-            from src.forms.doc_converter import convert_docx_to_pdf, can_convert_to_pdf
+            from src.forms.doc_converter import convert_to_pdf, can_convert_to_pdf
             if not can_convert_to_pdf():
                 # Fallback: use blank AMS 704 template when LibreOffice unavailable
                 _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
@@ -2563,7 +2563,7 @@ def _generate_pc_pdf(pcid):
             else:
                 _convert_dir = os.path.join(DATA_DIR, "pc_pdfs")
                 os.makedirs(_convert_dir, exist_ok=True)
-                _converted = convert_docx_to_pdf(source_pdf, _convert_dir)
+                _converted = convert_to_pdf(source_pdf, _convert_dir)
                 source_pdf = _converted
                 log.info("GENERATE %s: converted %s → PDF (%s)", pcid, _src_ext, os.path.basename(_converted))
         except Exception as _conv_e:

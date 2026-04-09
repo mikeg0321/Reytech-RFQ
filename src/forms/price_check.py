@@ -2393,6 +2393,7 @@ def fill_ams704(
     custom_notes: str = "",  # Editable supplier notes
     delivery_option: str = "",  # Override delivery time
     original_mode: bool = False,  # True = only fill company info + pricing, leave buyer fields
+    keep_all_pages: bool = False,  # True = don't trim unused pages (DOCX-converted sources)
 ) -> dict:
     """
     Fill in the AMS 704 form with supplier info and pricing.
@@ -2918,6 +2919,12 @@ def fill_ams704(
         _overflow = _max_item_row - _form_capacity
         _pages_with_items = 2 + ((_overflow - 1) // _pg2_rows) + 1
     _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
+
+    # When keep_all_pages=True (DOCX-converted sources), treat all source pages as having content.
+    # The converted PDF preserves the buyer's layout — don't trim any pages.
+    if keep_all_pages and _pdf_total_pages > _pages_with_items:
+        _pages_with_items = _pdf_total_pages
+        log.info("fill_ams704: keep_all_pages=True — treating all %d pages as having content", _pdf_total_pages)
 
     # Page numbering — set on pages with items, BLANK on empty pages
     # Track whether page-specific fields exist (if not, need overlay for page 2+)
