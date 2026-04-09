@@ -3900,7 +3900,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             c.drawString(x1 + _PAD + 1, y1 + (h - fs) / 2, text)
         c.restoreState()
 
-    def _cell_right(c, x1, y1, x2, y2, text, fs=9):
+    def _cell_right(c, x1, y1, x2, y2, text, fs=9, mask=True):
+        """Draw RIGHT-ALIGNED text. mask=False skips white background (for empty cells)."""
         if not text or not text.strip():
             return
         text = text.strip()
@@ -3911,8 +3912,9 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         p = c.beginPath()
         p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
         c.clipPath(p, stroke=0)
-        c.setFillColorRGB(1, 1, 1)
-        c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
+        if mask:
+            c.setFillColorRGB(1, 1, 1)
+            c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
         fs = min(fs, h * 0.75)
         c.setFont("Helvetica", fs)
         c.setFillColorRGB(0, 0, 0)
@@ -4058,17 +4060,18 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 c.restoreState()
                 drew = True
 
-            # Totals
+            # Totals — skip mask for detected layouts (empty cells in DOCX forms)
+            _totals_mask = not bool(pg_detected)
             if pg_detected and pg_detected.get("totals_cells"):
                 for fname, coords in pg_detected["totals_cells"].items():
                     val = fv_map.get(fname, "")
                     if val:
-                        _cell_right(c, *coords, val, fs=10)
+                        _cell_right(c, *coords, val, fs=10, mask=False)
                         drew = True
                 # Fallback for any totals not detected
                 for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
                     if fname not in pg_detected["totals_cells"] and fv_map.get(fname, ""):
-                        _cell_right(c, *_sc(x1, y1, x2, y2), fv_map[fname], fs=10)
+                        _cell_right(c, *_sc(x1, y1, x2, y2), fv_map[fname], fs=10, mask=False)
                         drew = True
             else:
                 for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
@@ -4094,19 +4097,22 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                 drew = True
 
         # ── ROW PRICING: PRICE PER UNIT + EXTENSION columns ──
+        # For detected layouts (DOCX-converted flat PDFs), cells are empty — skip white mask
+        # to avoid visible rectangle artifacts. For hardcoded (DocuSign), mask existing content.
+        _need_mask = not bool(pg_detected)
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
             # Price
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
-                _cell_right(c, price_x[0], y_bot, price_x[1], y_top, pv, fs=9)
+                _cell_right(c, price_x[0], y_bot, price_x[1], y_top, pv, fs=9, mask=_need_mask)
                 drew = True
             # Extension
             ef = ROW_FIELDS["extension"].format(n=rn)
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
-                _cell_right(c, ext_x[0], y_bot, ext_x[1], y_top, ev, fs=9)
+                _cell_right(c, ext_x[0], y_bot, ext_x[1], y_top, ev, fs=9, mask=_need_mask)
                 drew = True
 
         log.info("OVERLAY pg%d: %s rows=%d-%d (%d slots) drew=%s detected=%s",
