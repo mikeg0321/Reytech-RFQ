@@ -4124,23 +4124,28 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         _need_mask = not bool(pg_detected)
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
+            # QTY/UOM/QPU: buyer text sits at the TOP of the full row (description line),
+            # while (y_bot, y_top) tracks the price line at the BOTTOM. Extend the mask
+            # upward to cover the original buyer text (~25pt above y_top).
+            _row_h = y_top - y_bot
+            _qty_top = y_top + _row_h  # full row height above price line
             # QTY — overwrite if user edited
             qf = ROW_FIELDS["qty"].format(n=rn)
             qv = fv_map.get(qf, "")
             if qv and qv.strip():
-                _cell(c, qty_x[0], y_bot, qty_x[1], y_top, qv, fs=9)
+                _cell(c, qty_x[0], y_top, qty_x[1], _qty_top, qv, fs=9)
                 drew = True
             # UOM
             uf = ROW_FIELDS["uom"].format(n=rn)
             uv = fv_map.get(uf, "")
             if uv and uv.strip():
-                _cell(c, uom_x[0], y_bot, uom_x[1], y_top, uv, fs=8)
+                _cell(c, uom_x[0], y_top, uom_x[1], _qty_top, uv, fs=8)
                 drew = True
             # QTY PER UOM
             qpf = ROW_FIELDS["qty_per_uom"].format(n=rn)
             qpv = fv_map.get(qpf, "")
             if qpv and qpv.strip():
-                _cell(c, qpu_x[0], y_bot, qpu_x[1], y_top, qpv, fs=9)
+                _cell(c, qpu_x[0], y_top, qpu_x[1], _qty_top, qpv, fs=9)
                 drew = True
             # Price
             pf = ROW_FIELDS["unit_price"].format(n=rn)
