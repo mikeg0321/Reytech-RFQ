@@ -1067,9 +1067,11 @@
      }).then(d=>{
       if(d.ok){
        if (d.profit_summary) updateProfitPanel(d.profit_summary);
-       // Smart Save: auto-generate PDF after saving prices
-       btn.textContent='📄 Generating PDF...';
-       fetch('/pricecheck/'+_pcid+'/generate',{method:'POST'}).then(r=>r.json()).then(g=>{
+       // QA gate: run audit before generating PDF
+       btn.textContent='🔍 Running QA...';
+       runQA(function _afterQA() {
+        btn.textContent='📄 Generating PDF...';
+        fetch('/pricecheck/'+_pcid+'/generate',{method:'POST'}).then(r=>r.json()).then(g=>{
         btn.disabled=false; _hideGenOverlay();
         if(g.ok){
          btn.textContent='✅ Saved + PDF Ready';btn.style.background='#238636';
@@ -1093,6 +1095,7 @@
         showMsg('✅ Prices saved. PDF will generate on next Save & Fill.','ok');
         setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
        });
+       }); // end runQA callback
       } else {
        btn.disabled=false; _hideGenOverlay();
        btn.textContent=origText;
