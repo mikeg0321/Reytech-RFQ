@@ -272,7 +272,7 @@ def search_amazon(query: str, max_results: int = 5) -> list:
     try:
         url = f"{SERPAPI_BASE}?{urlencode(params)}"
         log.info(f"SerpApi Amazon search: '{query}'")
-        resp = requests.get(url, timeout=12)
+        resp = requests.get(url, timeout=5)
 
         if resp.status_code != 200:
             log.warning(f"SerpApi returned {resp.status_code}: {resp.text[:200]}")
@@ -352,7 +352,7 @@ def lookup_amazon_product(asin: str) -> Optional[dict]:
     try:
         url = f"{SERPAPI_BASE}?{urlencode(params)}"
         log.info(f"SerpApi product lookup: ASIN/ISBN {asin}")
-        resp = requests.get(url, timeout=12)
+        resp = requests.get(url, timeout=5)
         if resp.status_code != 200:
             log.warning(f"SerpApi product lookup {resp.status_code}: {resp.text[:200]}")
             return None
