@@ -78,6 +78,8 @@ SUPPLIER_MAP = {
     "allegromedical.com":    "Allegro Medical",
     "target.com":            "Target",
     "dollartree.com":        "Dollar Tree",
+    "costco.com":            "Costco",
+    "sears.com":             "Sears",
 }
 
 def detect_supplier(url: str) -> str:
@@ -171,7 +173,7 @@ def _scrape_generic(url: str) -> dict:
     if m:
         title = m.group(1).strip()
         # Strip " - Grainger" " | Amazon" etc.
-        title = re.split(r'\s*[|\-–]\s*(Grainger|Amazon|McMaster|Fisher|Medline|Bound Tree|Henry Schein|Uline|Zoro|Staples|Waxie)', title)[0].strip()
+        title = re.split(r'\s*[|\-–]\s*(Grainger|Amazon|McMaster|Fisher|Medline|Bound Tree|Henry Schein|Uline|Zoro|Staples|Waxie|Costco|Sears)', title)[0].strip()
         result["title"] = title[:200]
 
     # Price — extract BOTH list price (non-discounted) and sale price
@@ -217,6 +219,35 @@ def _scrape_generic(url: str) -> dict:
                 if 0.01 < v < 100000:
                     sale_price = v
                     break
+            except Exception:
+                pass
+
+    # JSON-LD offer price (structured, reliable when present)
+    jld_offer_price = re.search(
+        r'"offers"\s*:\s*\{[^}]*"price"\s*:\s*"?(\d+\.?\d*)"?', html, re.IGNORECASE | re.DOTALL)
+    if jld_offer_price:
+        try:
+            v = float(jld_offer_price.group(1))
+            # Skip placeholder prices (e.g. Costco uses price=1 for out-of-stock)
+            if v >= 2.0 and v < 100000:
+                if not sale_price:
+                    sale_price = v
+        except Exception:
+            pass
+
+    # Costco: real prices hidden behind React state, but marketing statement
+    # has pattern like "$$199.99 After $90 OFF" → sale=$199.99, original=$289.99
+    if not list_price and not sale_price:
+        costco_promo = re.search(
+            r'\$\$(\d+\.?\d{0,2})\s*(?:After|after)\s*\$(\d+\.?\d{0,2})\s*(?:OFF|off)',
+            html)
+        if costco_promo:
+            try:
+                _sale = float(costco_promo.group(1))
+                _discount = float(costco_promo.group(2))
+                if _sale > 2 and _discount > 0:
+                    sale_price = _sale
+                    list_price = _sale + _discount
             except Exception:
                 pass
 
@@ -279,13 +310,14 @@ def _scrape_generic(url: str) -> dict:
     # Shipping — look for "free shipping" or "$X.XX shipping"
     ship_patterns = [
         r'[Ff]ree\s+[Ss]hipping',
+        r'[Ss]hip(?:ping)?\s+[Ii]ncluded',   # Costco: "UPS 5-7 days ship included"
         r'[Ss]hipping\s*[:\s]\s*\$?([\d]+\.?\d*)',
         r'[Ff]reight\s*[:\s]\s*\$?([\d]+\.?\d*)',
     ]
     for pat in ship_patterns:
         m = re.search(pat, html, re.IGNORECASE)
         if m:
-            if "Free" in pat or "free" in pat.lower():
+            if "Free" in pat or "free" in pat.lower() or "ncluded" in pat:
                 result["shipping"] = 0.0
                 result["shipping_note"] = "Free shipping"
             elif m.lastindex and m.group(1):
@@ -308,17 +340,26 @@ def _scrape_generic(url: str) -> dict:
         og_title = re.search(r'<meta\s+content\s*=\s*"([^"]{5,300})"\s+(?:property|name)\s*=\s*"og:title"', html, re.IGNORECASE)
     if og_title and not result.get("title"):
         title = og_title.group(1).strip()
-        title = re.split(r'\s*[|\-–]\s*(Grainger|Amazon|McMaster|Fisher|Medline|Bound Tree|Henry Schein|Uline|Zoro|Staples|Waxie)', title)[0].strip()
+        title = re.split(r'\s*[|\-–]\s*(Grainger|Amazon|McMaster|Fisher|Medline|Bound Tree|Henry Schein|Uline|Zoro|Staples|Waxie|Costco|Sears)', title)[0].strip()
         result["title"] = title[:200]
 
     # JSON-LD product name (most structured/reliable)
-    jld_name = re.search(r'"@type"\s*:\s*"Product"[^}]*"name"\s*:\s*"([^"]{5,200})"', html, re.IGNORECASE | re.DOTALL)
+    # Non-greedy [^}]*? so we match the Product's own "name", not a nested brand "name"
+    jld_name = re.search(r'"@type"\s*:\s*"Product"[^}]*?"name"\s*:\s*"([^"]{5,200})"', html, re.IGNORECASE | re.DOTALL)
     if jld_name:
         result["title"] = jld_name.group(1).strip()[:200]
 
+    # JSON-LD product description (often richer than meta description)
+    jld_desc = re.search(r'"@type"\s*:\s*"Product"[^}]*?"description"\s*:\s*"([^"]{10,500})"', html, re.IGNORECASE | re.DOTALL)
+    if jld_desc:
+        result["jld_description"] = jld_desc.group(1).strip()[:400]
+        # Use JSON-LD description if meta_description is missing or shorter
+        if not result.get("meta_description") or len(jld_desc.group(1)) > len(result.get("meta_description", "")):
+            result["meta_description"] = jld_desc.group(1).strip()[:400]
+
     # Product image — extract from JSON-LD, OG, or meta
     image_patterns = [
-        r'"@type"\s*:\s*"Product"[^}]*"image"\s*:\s*"([^"]{10,500})"',
+        r'"@type"\s*:\s*"Product"[^}]*?"image"\s*:\s*"([^"]{10,500})"',
         r'<meta\s+(?:property|name)\s*=\s*"og:image"\s+content\s*=\s*"([^"]{10,500})"',
         r'<meta\s+content\s*=\s*"([^"]{10,500})"\s+(?:property|name)\s*=\s*"og:image"',
         r'"image"\s*:\s*\[\s*"([^"]{10,500})"',
@@ -369,13 +410,12 @@ def _lookup_amazon(url: str) -> dict:
         # Try direct product lookup first (most reliable for ASIN/ISBN)
         direct = lookup_amazon_product(asin)
         results = []
-        if direct and direct.get("price") and direct["price"] > 0:
+        if direct and (direct.get("price") or direct.get("title")):
             results = [direct]
         else:
-            # Fallback to search
-            results = search_amazon(f"ASIN {asin}", max_results=1)
-            if (not results or not results[0].get("price")) and _is_isbn:
-                results = search_amazon(f"ISBN {asin}", max_results=1)
+            # Fallback to search — single attempt only to stay within client timeout
+            _search_q = f"ISBN {asin}" if _is_isbn else f"ASIN {asin}"
+            results = search_amazon(_search_q, max_results=1)
         if results:
             r = results[0]
             title = r.get("title", "")
@@ -391,8 +431,9 @@ def _lookup_amazon(url: str) -> dict:
             # Price: always use list/typical price — never sale/coupon price
             _list = r.get("list_price") or r.get("typical_price")
             _sale = r.get("sale_price") or r.get("price")
-            # If search_amazon fallback ran (no list_price), do a product lookup for MSRP
-            if not _list and _sale and asin and r.get("source") != "amazon_product":
+            # If search_amazon fallback ran (no list_price), try product lookup for MSRP
+            # Skip if direct lookup already ran (avoid double SerpApi call)
+            if not _list and _sale and asin and r.get("source") != "amazon_product" and not direct:
                 try:
                     _prod = lookup_amazon_product(asin)
                     if _prod and _prod.get("list_price"):
@@ -1088,6 +1129,123 @@ def _lookup_dollartree(url: str) -> dict:
     return result
 
 
+def _lookup_sears(url: str) -> dict:
+    """Sears: Cloudflare-protected — cannot scrape HTML directly.
+    Strategy: parse item ID from URL, hit Sears search API for structured data.
+    Falls back to URL slug parsing if API fails.
+
+    URL format: sears.com/{brand}-{slug}/p-{item_id}?sid=...
+    API: /api/sal/v3/products/search?q={item_id}&startIndex=1&endIndex=5&storeId=10153
+    """
+    result = {"supplier": "Sears", "url": url}
+    path = urlparse(url).path.rstrip("/")
+
+    # Extract Sears item ID: /p-A129152885
+    item_id = ""
+    _id_match = re.search(r'/p-([A-Z0-9]+)(?:\?|$)', url)
+    if _id_match:
+        item_id = _id_match.group(1)
+        result["part_number"] = item_id
+
+    # Fallback: parse product name from URL slug
+    slug = path.rsplit("/p-", 1)[0] if "/p-" in path else path
+    slug = slug.split("/")[-1] if "/" in slug else slug
+    title_from_slug = re.sub(r'[-_]+', ' ', slug).strip()
+    title_from_slug = " ".join(w.capitalize() if len(w) > 2 else w.upper()
+                               for w in title_from_slug.split())
+    if title_from_slug:
+        result["title"] = title_from_slug
+        result["description"] = title_from_slug
+
+    # Hit Sears search API — returns full structured product data
+    if item_id and HAS_REQUESTS:
+        try:
+            api_url = (f"https://www.sears.com/api/sal/v3/products/search"
+                       f"?q={item_id}&startIndex=1&endIndex=5&storeId=10153&zipCode=90210")
+            api_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/json",
+                "Authorization": "SEARS",
+            }
+            resp = requests.get(api_url, headers=api_headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("items", [])
+                if items:
+                    p = items[0]
+                    attrs = p.get("additionalAttributes", {})
+
+                    # Title / description
+                    _name = p.get("name", "")
+                    if _name:
+                        result["title"] = _name
+                        result["description"] = _name
+
+                    # Brand / manufacturer
+                    _brand = p.get("brandName", "")
+                    if _brand:
+                        result["manufacturer"] = _brand
+
+                    # MFG part number
+                    _mfg = attrs.get("mfgPartNum", "")
+                    if _mfg:
+                        result["mfg_number"] = _mfg
+
+                    # UPC
+                    _upc = p.get("upc", "")
+                    if _upc:
+                        result["upc"] = _upc
+
+                    # Pricing from price block (most reliable)
+                    price_block = p.get("price", {})
+                    _reg = price_block.get("regularPrice")
+                    _final = price_block.get("finalPrice")
+                    _savings_pct = price_block.get("savingsPercent")
+
+                    if _reg:
+                        try:
+                            result["list_price"] = float(_reg)
+                            result["price"] = float(_reg)
+                        except (ValueError, TypeError):
+                            pass
+                    if _final:
+                        try:
+                            result["sale_price"] = float(_final)
+                            if not result.get("price"):
+                                result["price"] = float(_final)
+                        except (ValueError, TypeError):
+                            pass
+                    if result.get("list_price") and result.get("sale_price"):
+                        lp, sp = result["list_price"], result["sale_price"]
+                        if lp > sp > 0:
+                            result["discount_pct"] = round((1 - sp / lp) * 100, 1)
+
+                    # Image
+                    images = attrs.get("imageUrls", [])
+                    if images and isinstance(images, list) and images[0].get("url"):
+                        _img = images[0]["url"]
+                        if _img.startswith("//"):
+                            _img = "https:" + _img
+                        result["photo_url"] = _img
+
+                    # Shipping
+                    if attrs.get("freeShippingInd"):
+                        result["shipping"] = 0.0
+                        result["shipping_note"] = "Free shipping"
+
+                    # Canonical URL
+                    _seo = attrs.get("seoUrl", "")
+                    if _seo:
+                        result["url"] = f"https://www.sears.com{_seo}"
+            else:
+                log.debug("Sears search API returned %d for %s", resp.status_code, item_id)
+        except Exception as e:
+            log.debug("Sears API error: %s", e)
+
+    return result
+
+
 # ── Claude Semantic Match — AI product comparison ────────────────────────────
 
 def claude_semantic_match(
@@ -1278,6 +1436,8 @@ def lookup_from_url(url: str) -> dict:
             result = _lookup_target(url)
         elif "dollartree.com" in host:
             result = _lookup_dollartree(url)
+        elif "sears.com" in host:
+            result = _lookup_sears(url)
         else:
             # Generic HTML scrape for all other suppliers
             result = _scrape_generic(url)
@@ -1294,12 +1454,13 @@ def lookup_from_url(url: str) -> dict:
         result.setdefault("shipping", None)
         result.setdefault("shipping_note", "")
 
-        # Use title as description if description is empty
+        # Use the richest description available
+        # Prefer meta_description (often richer from JSON-LD or meta tags) over bare title
+        if result.get("meta_description") and len(result["meta_description"]) > len(result.get("description") or ""):
+            result["description"] = result["meta_description"]
+        # Fall back to title if still empty
         if not result["description"] and result["title"]:
             result["description"] = result["title"]
-        # If only meta_description, use it
-        if not result["description"] and result.get("meta_description"):
-            result["description"] = result["meta_description"]
 
         result["ok"] = "error" not in result
         log.info("item_link_lookup: %s → supplier=%s price=%s part=%s",

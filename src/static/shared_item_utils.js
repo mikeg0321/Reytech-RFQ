@@ -302,6 +302,18 @@ function _applyLinkData(idx, d, mode) {
     }
   }
 
+  // Persist photo_url as hidden input so autosave can write it to catalog
+  if (d.photo_url) {
+    var row = document.querySelector('tr[data-row="' + idx + '"]');
+    var _phEl = document.querySelector('[name="photo_url_' + idx + '"]');
+    if (!_phEl && row) {
+      _phEl = document.createElement('input');
+      _phEl.type = 'hidden'; _phEl.name = 'photo_url_' + idx;
+      row.querySelector('td').appendChild(_phEl);
+    }
+    if (_phEl) _phEl.value = d.photo_url;
+  }
+
   // Normalize URL field to canonical form (preserve scroll position)
   var linkEl = document.querySelector('[name="link_' + idx + '"]');
   if (linkEl && d.url && d.url !== linkEl.value) {

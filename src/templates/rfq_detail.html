@@ -264,7 +264,7 @@
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
-     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="flex:1;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)" onpaste="setTimeout(()=>handleRfqLinkInput({{loop.index0}},this),50)">
+     <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="flex:1;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)" onpaste="setTimeout(()=>handleRfqLinkInput({{loop.index0}},this),50)">{% if i.get('photo_url') %}<input type="hidden" name="photo_url_{{loop.index0}}" value="{{i.photo_url}}">{% endif %}
      <a href="{{i.get('item_link','')}}" target="_blank" id="rfq_linkopen_{{loop.index0}}" style="display:{% if i.get('item_link') %}flex{% else %}none{% endif %};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
     </div>
     <div id="rfq_link_meta_{{loop.index0}}" style="font-size:14px;margin-top:2px;min-height:14px">
@@ -1393,6 +1393,7 @@ function _getFormData(){
    description:(document.querySelector('[name=desc_'+i+']')||{}).value||'',
    item_number:((document.querySelector('[name=part_'+i+']')||{}).value||'').trim(),
    item_link:((document.querySelector('[name=link_'+i+']')||{}).value||'').trim(),
+   photo_url:((document.querySelector('[name=photo_url_'+i+']')||{}).value||'').trim()||null,
    supplier_cost:parseFloat((document.querySelector('[name=cost_'+i+']')||{}).value)||null,
    price_per_unit:parseFloat((document.querySelector('[name=price_'+i+']')||{}).value)||null,
    scprs_last_price:parseFloat((document.querySelector('[name=scprs_'+i+']')||{}).value)||null,

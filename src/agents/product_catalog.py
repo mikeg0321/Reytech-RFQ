@@ -2805,6 +2805,15 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
             if supplier_name:
                 conn.execute("UPDATE product_catalog SET best_supplier=?, updated_at=? WHERE id=? AND (best_supplier IS NULL OR best_supplier='')",
                             (supplier_name, now, pid))
+            if photo_url:
+                conn.execute("UPDATE product_catalog SET photo_url=?, updated_at=? WHERE id=? AND (photo_url IS NULL OR photo_url='')",
+                            (photo_url, now, pid))
+            if manufacturer:
+                conn.execute("UPDATE product_catalog SET manufacturer=?, updated_at=? WHERE id=? AND (manufacturer IS NULL OR manufacturer='')",
+                            (manufacturer, now, pid))
+            if mfg_number:
+                conn.execute("UPDATE product_catalog SET mfg_number=?, updated_at=? WHERE id=? AND (mfg_number IS NULL OR mfg_number='')",
+                            (mfg_number, now, pid))
             conn.execute("UPDATE product_catalog SET times_quoted=times_quoted+1, updated_at=? WHERE id=?", (now, pid))
             conn.commit()
         except Exception:
@@ -2842,6 +2851,15 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                         if sell_price > 0:
                             conn.execute("UPDATE product_catalog SET sell_price=?, updated_at=? WHERE id=? AND (sell_price IS NULL OR sell_price=0)",
                                         (sell_price, sell_price, now, pid))
+                        if photo_url:
+                            conn.execute("UPDATE product_catalog SET photo_url=?, updated_at=? WHERE id=? AND (photo_url IS NULL OR photo_url='')",
+                                        (photo_url, now, pid))
+                        if manufacturer:
+                            conn.execute("UPDATE product_catalog SET manufacturer=?, updated_at=? WHERE id=? AND (manufacturer IS NULL OR manufacturer='')",
+                                        (manufacturer, now, pid))
+                        if mfg_number:
+                            conn.execute("UPDATE product_catalog SET mfg_number=?, updated_at=? WHERE id=? AND (mfg_number IS NULL OR mfg_number='')",
+                                        (mfg_number, now, pid))
                         conn.execute("UPDATE product_catalog SET times_quoted=times_quoted+1, updated_at=? WHERE id=?", (now, pid))
                         conn.commit()
                     except Exception:
@@ -2972,6 +2990,8 @@ def save_pc_items_to_catalog(pc: dict) -> dict:
                 supplier_name=_supplier,
                 uom=(item.get("uom") or "EA"),
                 mfg_number=_mfg,
+                photo_url=item.get("photo_url", ""),
+                manufacturer=item.get("manufacturer", ""),
                 source="price_check"
             )
             if pid and _supplier and cost:

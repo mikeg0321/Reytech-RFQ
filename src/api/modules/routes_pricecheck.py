@@ -791,7 +791,7 @@ def _pricecheck_detail_inner(pcid):
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}"{_disc_attr}>
          <td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_{idx}" {bid_checked} style="display:none"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="display:none"><input type="text" name="linenum_{idx}" value="{line_num}" class="lockable-field" style="width:32px;text-align:center;font-weight:700;font-size:15px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px" title="Line # (unlock to edit)"><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn{' skip-active' if no_bid else ''}" onclick="toggleSkip({idx});this.closest('details').open=false">{'&#10003; Skipped' if no_bid else '&#10060; Skip Item'}</button><button type="button" class="sub-toggle-btn{' active-item' if sub_checked else ''}" onclick="toggleSubstitute({idx});this.closest('details').open=false">{'&#10003; Substitute' if sub_checked else '&#8644; Substitute'}</button><button type="button" onclick="toggleRowNotes({idx});this.closest('details').open=false">&#128221; Notes</button>{'<button type=&quot;button&quot; onclick=&quot;mergeUp('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#11014; Merge Up</button>' if idx > 0 else ''}<button type=&quot;button&quot; onclick=&quot;findBetterPricing('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#128269; Find Better Pricing</button></div></details>{'<div class=&quot;row-badge row-badge-skip&quot;>Skip</div>' if no_bid else ''}{'<div class=&quot;row-badge row-badge-sub&quot;>Sub</div>' if sub_checked else ''}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
-         <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{_qpu_badge}</td>
+         <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{'<input type="hidden" name="photo_url_'+str(idx)+'" value="'+str(item.get("photo_url",""))+'">' if item.get("photo_url") else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
          <td style="position:relative"><textarea name="desc_{idx}" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button><button type="button" class="amazon-match-btn" onclick="matchAmazon({idx})" title="Search Amazon for exact product match">🔍 Amazon</button><span id="amz_status_{idx}" style="display:none;font-size:11px;margin-left:4px"></span></td>
          <td>
@@ -1794,6 +1794,10 @@ def _do_save_prices(pcid):
                         items[idx]["qty_per_uom"] = int(float(val)) if val else 1
                     except (ValueError, TypeError):
                         items[idx]["qty_per_uom"] = 1
+                elif field_type == "photo_url":
+                    _pv = str(val).strip() if val else ""
+                    if _pv.startswith("http"):
+                        items[idx]["photo_url"] = _pv
                 elif field_type == "linkopen":
                     pass  # UI-only toggle, no server-side storage needed
         except (ValueError, IndexError):
@@ -1928,13 +1932,26 @@ def _do_save_prices(pcid):
                     if _cost > 0 and _supplier:
                         add_supplier_price(pid, _supplier, _cost, url=_url)
                     # Update URL on existing catalog entry if we have one
-                    if _url:
+                    # Enrich existing catalog entry with photo, manufacturer, mfg#
+                    _photo = _item.get("photo_url", "")
+                    _mfg_name = _item.get("manufacturer", "")
+                    _mfg_num = str(_item.get("mfg_number") or _item.get("item_number") or "")
+                    if _photo or _mfg_name or _mfg_num:
                         try:
                             from src.agents.product_catalog import _get_conn
                             conn = _get_conn()
-                            conn.execute(
-                                "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
-                                (_url, pid))
+                            if _photo:
+                                conn.execute(
+                                    "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
+                                    (_photo, pid))
+                            if _mfg_name:
+                                conn.execute(
+                                    "UPDATE product_catalog SET manufacturer=COALESCE(NULLIF(manufacturer,''),?) WHERE id=?",
+                                    (_mfg_name, pid))
+                            if _mfg_num:
+                                conn.execute(
+                                    "UPDATE product_catalog SET mfg_number=COALESCE(NULLIF(mfg_number,''),?) WHERE id=?",
+                                    (_mfg_num, pid))
                             conn.commit(); conn.close()
                         except Exception as _e:
                             log.debug("Suppressed: %s", _e)
@@ -1946,6 +1963,9 @@ def _do_save_prices(pcid):
                         sell_price=_price if _price > 0 else 0,
                         supplier_name=_supplier, uom=_uom,
                         supplier_url=_url,
+                        photo_url=_item.get("photo_url", ""),
+                        manufacturer=_item.get("manufacturer", ""),
+                        mfg_number=_mfg_num,
                         source=f"pc_{pcid}",
                     )
                     if pid and _cost > 0 and _supplier:
@@ -9408,7 +9428,9 @@ def api_item_link_lookup():
         result = lookup_from_url(url)
 
         # ── Write-back to catalog DB ──
-        if result.get("ok") and result.get("price"):
+        # Write when we have price OR when we have good description/photo data
+        _has_useful_data = result.get("price") or result.get("photo_url") or (result.get("title") and len(result.get("title", "")) > 10)
+        if result.get("ok") and _has_useful_data:
             try:
                 from src.agents.product_catalog import (
                     match_item, add_to_catalog, add_supplier_price, init_catalog_db

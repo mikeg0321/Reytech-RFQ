@@ -2865,6 +2865,11 @@ def api_rfq_bulk_scrape_urls(rid):
                 _desc = _re_mod.sub(r'\s*https?://\S+', '', _desc).strip()
             if _desc and (not item.get("description") or len(item.get("description", "")) < 10):
                 item["description"] = _desc
+            # Persist photo_url and manufacturer from scrape
+            if res.get("photo_url"):
+                item["photo_url"] = res["photo_url"]
+            if res.get("manufacturer"):
+                item["manufacturer"] = res["manufacturer"]
             if _parsed_qty > 0 and (not item.get("qty") or item.get("qty") == 1):
                 item["qty"] = _parsed_qty
             # Apply pricing if found
@@ -3407,6 +3412,9 @@ def api_rfq_autosave(rid):
                         source=f"rfq_autosave_{sol}",
                         supplier_name=item.get("item_supplier", ""),
                         supplier_url=item.get("item_link", ""),
+                        photo_url=item.get("photo_url", ""),
+                        manufacturer=item.get("manufacturer", ""),
+                        mfg_number=item.get("mfg_number", ""),
                     )
                     _cat_saved += 1
                 except Exception as _ce:
