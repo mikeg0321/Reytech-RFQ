@@ -46,6 +46,8 @@ function _productMatchScore(pcDesc, lookupTitle) {
 function _isUrl(v) {
   if (!v || typeof v !== 'string') return false;
   v = v.trim();
+  // Bare ASIN (B0XXXXXXXXX) or ISBN-10 (10 digits) or ISBN-13 (13 digits)
+  if (/^B0[A-Z0-9]{8}$/i.test(v) || /^\d{10}$/.test(v) || /^\d{13}$/.test(v)) return true;
   return /^https?:\/\//i.test(v) || /^[a-z0-9-]+\.[a-z]{2,}\//i.test(v) || /\.(com|org|net|gov|edu|io|co|us)\b/i.test(v);
 }
 
@@ -103,6 +105,13 @@ function closeBulkPaste() {
  */
 function _fireLinkLookup(idx, url, mode) {
   if (!url || !_isUrl(url)) return;
+  // Bare ASIN/ISBN → convert to Amazon URL and update the link field
+  var _bare = url.trim();
+  if (/^B0[A-Z0-9]{8}$/i.test(_bare) || /^\d{10}$/.test(_bare) || /^\d{13}$/.test(_bare)) {
+    url = 'https://www.amazon.com/dp/' + _bare;
+    var _linkEl = document.querySelector('[name="link_' + idx + '"]');
+    if (_linkEl) _linkEl.value = url;
+  }
   var metaId = (mode === 'rfq') ? 'rfq_link_meta_' + idx : 'link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
   if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026</span>';

@@ -97,11 +97,11 @@ def detect_supplier(url: str) -> str:
 
 
 def _extract_asin(url: str) -> str:
-    """Extract Amazon ASIN from URL."""
+    """Extract Amazon ASIN or ISBN from URL."""
     patterns = [
-        r"/dp/([A-Z0-9]{10})",
-        r"/gp/aw/d/([A-Z0-9]{10})",
-        r"/gp/product/([A-Z0-9]{10})",
+        r"/dp/([A-Z0-9]{10,13})",
+        r"/gp/aw/d/([A-Z0-9]{10,13})",
+        r"/gp/product/([A-Z0-9]{10,13})",
         r"ASIN=([A-Z0-9]{10})",
         r"/product/([A-Z0-9]{10})",
     ]
@@ -1391,7 +1391,17 @@ def lookup_from_url(url: str) -> dict:
     url = url.strip()
     if not url:
         return {"error": "No URL provided"}
-    if not url.startswith("http"):
+    # Bare ASIN/ISBN → construct Amazon URL
+    # ASIN: B0 + 8 alphanumeric (e.g. B09V3KXJPB)
+    # ISBN-10: 10 digits (e.g. 1644729415)
+    if re.match(r'^B0[A-Z0-9]{8}$', url):
+        url = f"https://www.amazon.com/dp/{url}"
+    elif re.match(r'^\d{10}$', url):
+        url = f"https://www.amazon.com/dp/{url}"
+    elif re.match(r'^\d{13}$', url):
+        # ISBN-13
+        url = f"https://www.amazon.com/dp/{url}"
+    elif not url.startswith("http"):
         url = "https://" + url
 
     # Login-required sites: try authenticated scraper first
