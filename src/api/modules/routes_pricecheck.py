@@ -2545,7 +2545,9 @@ def _generate_pc_pdf(pcid):
 
     # If source is an office doc (DOCX/XLSX/etc.), use the blank AMS 704 template instead.
     # Office docs are parsed for item extraction but can't be used as PDF templates.
-    # We create a clean copy with all form fields cleared so fill_ams704 writes everything.
+    # Clear both /V (value) and /AP (appearance stream) from all text fields to prevent
+    # stale rendered text from the template's previous fill overlapping with new data.
+    # Keep form field annotations intact so fill_ams704 can detect row layout and fill normally.
     _src_ext = os.path.splitext(source_pdf)[1].lower()
     _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
     if _is_docx_source:
@@ -2553,23 +2555,30 @@ def _generate_pc_pdf(pcid):
         if os.path.exists(_blank_704):
             log.info("GENERATE %s: source is office doc (%s) — using blank AMS 704 template",
                      pcid, _src_ext)
-            # Create a clean copy with all field values cleared so pre-fill detection
-            # doesn't trigger original_mode (the template may have stale data)
             try:
                 from pypdf import PdfReader as _ClnR, PdfWriter as _ClnW
-                import tempfile as _tmpmod2
+                from pypdf.generic import NameObject, TextStringObject
                 _cln_reader = _ClnR(_blank_704)
                 _cln_writer = _ClnW()
                 _cln_writer.append(_cln_reader)
-                # Clear all text/choice field values
+                # Clear /V (value) AND /AP (appearance stream) from all text/choice fields.
+                # /AP contains the rendered bitmap of the old value — must be removed or
+                # pypdf's auto_regenerate won't overwrite it, causing text overlap.
+                _cleared_count = 0
                 for _pg in _cln_writer.pages:
                     for _annot in (_pg.get("/Annots") or []):
                         try:
                             _obj = _annot.get_object()
                             _ft = str(_obj.get("/FT", ""))
                             if _ft in ("/Tx", "/Ch"):
-                                from pypdf.generic import NameObject, TextStringObject
                                 _obj[NameObject("/V")] = TextStringObject("")
+                                # Remove appearance stream so it's regenerated from new value
+                                if "/AP" in _obj:
+                                    del _obj[NameObject("/AP")]
+                                # Remove default value too
+                                if "/DV" in _obj:
+                                    del _obj[NameObject("/DV")]
+                                _cleared_count += 1
                         except Exception:
                             pass
                 _clean_path = os.path.join(DATA_DIR, f"pc_pdfs/{pcid}_clean_704.pdf")
@@ -2577,7 +2586,8 @@ def _generate_pc_pdf(pcid):
                 with open(_clean_path, "wb") as _cf:
                     _cln_writer.write(_cf)
                 source_pdf = _clean_path
-                log.info("GENERATE %s: created clean 704 template at %s", pcid, os.path.basename(_clean_path))
+                log.info("GENERATE %s: created clean 704 template — cleared %d fields (V+AP)",
+                         pcid, _cleared_count)
             except Exception as _cln_e:
                 log.warning("GENERATE %s: clean template failed, using raw blank: %s", pcid, _cln_e)
                 source_pdf = _blank_704
