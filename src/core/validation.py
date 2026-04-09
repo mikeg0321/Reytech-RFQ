@@ -148,6 +148,12 @@ def validate_rfq_item(update: dict, item: dict) -> list:
         v, _ = validate_url(update["item_link"])
         item["item_link"] = v
 
+    if "line_number" in update:
+        try:
+            item["line_number"] = int(float(update["line_number"])) if update["line_number"] else 0
+        except (ValueError, TypeError):
+            item["line_number"] = 0
+
     return warnings
 
 

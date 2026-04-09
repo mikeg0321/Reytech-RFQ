@@ -257,7 +257,7 @@
   {% endif %}
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
-   <td style="font-size:13px">{{i.line_number}}</td>
+   <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number}}" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px" title="Line #"></td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity"></td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
@@ -1384,8 +1384,10 @@ function _getFormData(){
  for(let i=0;i<_n;i++){
   var _qEl=document.querySelector('[name=qty_'+i+']');
   if(!_qEl)continue; // row deleted from DOM
+  var _lnEl=document.querySelector('[name=linenum_'+i+']');
   items.push({
    idx:i,
+   line_number:_lnEl?(_lnEl.value||''):null,
    qty:parseFloat(_qEl.value)||0,
    uom:((document.querySelector('[name=uom_'+i+']')||{}).value||'').trim().toUpperCase(),
    description:(document.querySelector('[name=desc_'+i+']')||{}).value||'',
