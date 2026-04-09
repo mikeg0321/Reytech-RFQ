@@ -888,12 +888,31 @@ def _pricecheck_detail_inner(pcid):
     crm_data = {"matched": False, "candidates": [], "is_new": True}
     institution = header.get("institution", pc.get("institution", ""))
     inst_upper = institution.upper() if institution else ""
-    if institution:
+    if institution or pc.get("requestor_email") or pc.get("ship_to"):
         # Step 1: Resolve institution via authoritative resolver FIRST
+        # Pass email + ship_to for fallback when institution is garbage (e.g., "Delivery")
         _resolved = {"canonical": "", "agency": "", "facility_code": ""}
         try:
             from src.core.institution_resolver import resolve as _resolve_inst
-            _resolved = _resolve_inst(institution) or _resolved
+            _resolved = _resolve_inst(
+                institution,
+                email=pc.get("requestor_email", ""),
+                ship_to=pc.get("ship_to", ""),
+            ) or _resolved
+            # Self-heal: if resolver found a better institution, update the PC
+            if (_resolved.get("agency") and _resolved.get("source") in ("ship_to", "email")
+                    and _resolved["canonical"] != institution):
+                pc["institution"] = _resolved["canonical"]
+                institution = _resolved["canonical"]
+                inst_upper = institution.upper()
+                header["institution"] = institution
+                try:
+                    from src.api.dashboard import _save_single_pc
+                    _save_single_pc(pc_id, pc)
+                    log.info("Self-healed institution: '%s' -> '%s' (via %s)",
+                             _resolved.get("original", ""), institution, _resolved["source"])
+                except Exception:
+                    pass
         except Exception:
             pass
         _canonical = _resolved.get("canonical", "") or institution
@@ -991,7 +1010,9 @@ def _pricecheck_detail_inner(pcid):
     # P2-E: Normalize institution name via resolver for better history matching
     try:
         from src.core.institution_resolver import resolve
-        _resolved = resolve(institution)
+        _resolved = resolve(institution,
+                            email=pc.get("requestor_email", ""),
+                            ship_to=pc.get("ship_to", ""))
         if _resolved.get("canonical"):
             institution = _resolved["canonical"]
             inst_upper = institution.upper()

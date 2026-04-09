@@ -2556,6 +2556,20 @@ def process_rfq_email(rfq_email):
                         pc_num = header.get("price_check_number", "") or ""
                         institution = header.get("institution", "")
                         due_date = header.get("due_date", "") or _email_due_date
+                        # Resolve institution with email + ship-to fallback
+                        # Fixes cases where PDF parsing grabs form labels ("Delivery")
+                        try:
+                            from src.core.institution_resolver import resolve as _inst_resolve
+                            _inst_r = _inst_resolve(
+                                institution,
+                                email=_buyer_email,
+                                ship_to=header.get("ship_to", ""),
+                            )
+                            if _inst_r.get("agency") and _inst_r["canonical"] != institution:
+                                _trace.append(f"Institution resolved: '{institution}' -> '{_inst_r['canonical']}' (via {_inst_r.get('source','')})")
+                                institution = _inst_r["canonical"]
+                        except Exception:
+                            pass
                         # PC name: prefer filename-derived name (unique per attachment),
                         # then PDF header, then email subject
                         if _filename_pc_name and len(_pc_pdf_candidates) > 1:

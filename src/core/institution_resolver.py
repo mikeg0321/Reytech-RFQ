@@ -204,8 +204,61 @@ _ADDRESS_KEYWORDS = {
     "naples": ("Veterans Home of California, Chula Vista", "calvet", "VHC-ChulaVista"),
     "alta rd": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
     "donovan": ("Richard J. Donovan Correctional Facility", "cchcs", "RJD"),
+    "chino-corona": ("California Institution for Women", "cchcs", "CIW"),
+    "chino corona": ("California Institution for Women", "cchcs", "CIW"),
+    "central avenue": ("California Institution for Men", "cchcs", "CIM"),
+    "prison road": ("California State Prison, Sacramento", "cchcs", "SAC"),
+    "peabody": ("California State Prison, Solano", "cchcs", "SOL"),
+    "california drive": ("California Medical Facility", "cchcs", "CMF"),
+    "o'byrnes ferry": ("Sierra Conservation Center", "cchcs", "SCC"),
+    "cecil ave": ("North Kern State Prison", "cchcs", "NKSP"),
+    "quebec ave": ("Substance Abuse Treatment Facility", "cchcs", "SATF"),
+    "scofield": ("Wasco State Prison", "cchcs", "WSP"),
+    "lake earl": ("Pelican Bay State Prison", "cchcs", "PBSP"),
+    "el camino real": ("DSH — Atascadero State Hospital", "dsh", "DSH-Atascadero"),
+    "bloomfield": ("DSH — Metropolitan State Hospital", "dsh", "DSH-Metropolitan"),
+    "highland ave": ("DSH — Patton State Hospital", "dsh", "DSH-Patton"),
+    "napa-vallejo": ("DSH — Napa State Hospital", "dsh", "DSH-Napa"),
     "carnoustie": ("Reytech Inc.", "", ""),  # Our own address
 }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Email Domain → Agency Mapping
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_EMAIL_DOMAINS = {
+    "cdcr.ca.gov": ("CDCR", "cchcs"),
+    "cchcs.ca.gov": ("CCHCS / CDCR", "cchcs"),
+    "calvet.ca.gov": ("CalVet", "calvet"),
+    "dsh.ca.gov": ("DSH", "dsh"),
+    "dgs.ca.gov": ("DGS", "dgs"),
+    "calpia.ca.gov": ("CALPIA", "calpia"),
+    "fire.ca.gov": ("CAL FIRE", "calfire"),
+    "cdfa.ca.gov": ("CDFA", "cdfa"),
+    "chp.ca.gov": ("CHP", "chp"),
+    "calrecycle.ca.gov": ("CalRecycle", "calrecycle"),
+    "dtsc.ca.gov": ("DTSC", "dtsc"),
+    "parks.ca.gov": ("State Parks", "parks"),
+    "dhcs.ca.gov": ("DHCS", "dhcs"),
+}
+
+# Form label words that are NOT real institution names — triggers fallback
+_GARBAGE_NAMES = {
+    "delivery", "ship", "ship to", "address", "location", "n/a", "na", "tbd",
+    "none", "unknown", "other", "see below", "see above", "same", "same as above",
+    "zip code", "delivery zip", "delivery zip code", "phone", "date",
+}
+
+
+def _match_email_domain(email: str) -> dict:
+    """Resolve institution from email domain (e.g., @cdcr.ca.gov → CDCR)."""
+    if not email or "@" not in email:
+        return None
+    domain = email.strip().lower().split("@")[-1]
+    if domain in _EMAIL_DOMAINS:
+        display, agency = _EMAIL_DOMAINS[domain]
+        return {"canonical": display, "agency": agency, "facility_code": ""}
+    return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Agency Aliases (abbreviation → canonical display name)
@@ -241,8 +294,17 @@ _AGENCY_ALIASES = {
 # Public API
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def resolve(raw_name: str) -> dict:
+def resolve(raw_name: str, email: str = "", ship_to: str = "") -> dict:
     """Resolve a raw institution/agency name to canonical form.
+
+    Uses a fallback chain: raw_name → ship_to address → email domain.
+    If raw_name is a form label (e.g., "Delivery"), falls through to
+    ship_to and email for resolution.
+
+    Args:
+        raw_name: Institution name from PDF/form.
+        email: Requestor email (optional, e.g., "jane@cdcr.ca.gov").
+        ship_to: Ship-to address (optional, e.g., "16756 Chino-Corona Rd...").
 
     Returns:
         {
@@ -250,10 +312,22 @@ def resolve(raw_name: str) -> dict:
             "agency": str,         # Agency key (calvet, cchcs, dsh, dgs, etc.)
             "facility_code": str,  # Abbreviation if known (CSP, SAC, etc.)
             "original": str,       # Input as-is
+            "source": str,         # How it was resolved (name/ship_to/email)
         }
     """
+    _empty = {"canonical": "", "agency": "", "facility_code": "",
+              "original": "", "source": ""}
     if not raw_name or not raw_name.strip():
-        return {"canonical": "", "agency": "", "facility_code": "", "original": ""}
+        # No name at all — try fallbacks directly
+        if ship_to:
+            addr_match = _match_address(ship_to)
+            if addr_match:
+                return {**addr_match, "original": "", "source": "ship_to"}
+        if email:
+            email_match = _match_email_domain(email)
+            if email_match:
+                return {**email_match, "original": "", "source": "email"}
+        return _empty
 
     original = raw_name.strip()
     text = _normalize_text(original)
@@ -261,30 +335,46 @@ def resolve(raw_name: str) -> dict:
     # 1. Try CDCR facility abbreviation match (CSP-SAC, CIM, CHCF, etc.)
     cdcr_match = _match_cdcr(text)
     if cdcr_match:
-        return {**cdcr_match, "original": original}
+        return {**cdcr_match, "original": original, "source": "name"}
 
     # 2. Try CalVet facility match
     calvet_match = _match_calvet(text)
     if calvet_match:
-        return {**calvet_match, "original": original}
+        return {**calvet_match, "original": original, "source": "name"}
 
     # 3. Try DSH facility match
     dsh_match = _match_dsh(text)
     if dsh_match:
-        return {**dsh_match, "original": original}
+        return {**dsh_match, "original": original, "source": "name"}
 
     # 4. Try agency alias
     alias_match = _match_alias(text)
     if alias_match:
-        return {**alias_match, "original": original}
+        return {**alias_match, "original": original, "source": "name"}
 
-    # 5. Try address/zip-based resolution (ship-to addresses)
+    # 5. Try address/zip-based resolution on the raw name itself
     addr_match = _match_address(text)
     if addr_match:
-        return {**addr_match, "original": original}
+        return {**addr_match, "original": original, "source": "name"}
 
-    # 6. No match — return cleaned version of original
-    return {"canonical": original, "agency": "", "facility_code": "", "original": original}
+    # 6. raw_name didn't resolve — check if it's a garbage/form label word
+    _is_garbage = text.lower().strip() in _GARBAGE_NAMES
+
+    # 7. Try ship-to address (always, but especially if name is garbage)
+    if ship_to:
+        ship_match = _match_address(ship_to)
+        if ship_match:
+            return {**ship_match, "original": original, "source": "ship_to"}
+
+    # 8. Try email domain
+    if email:
+        email_match = _match_email_domain(email)
+        if email_match:
+            return {**email_match, "original": original, "source": "email"}
+
+    # 9. No match — return cleaned version of original
+    return {"canonical": original, "agency": "", "facility_code": "",
+            "original": original, "source": ""}
 
 
 def normalize(raw_name: str) -> str:
