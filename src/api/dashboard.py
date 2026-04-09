@@ -2271,7 +2271,12 @@ def process_rfq_email(rfq_email):
     # ── Route 704 price checks to PC queue, NOT the RFQ queue ──────────────
     attachments = rfq_email.get("attachments", [])
     pdf_paths = [a["path"] for a in attachments if a.get("path") and a["path"].lower().endswith(".pdf")]
-    _trace.append(f"PDFs: {len(pdf_paths)} paths, PRICE_CHECK_AVAILABLE={PRICE_CHECK_AVAILABLE}")
+    # Include office docs (DOCX/XLSX) — the dual-path parser at line ~2468 handles them
+    _office_exts = (".docx", ".doc", ".xlsx", ".xls")
+    office_paths = [a["path"] for a in attachments if a.get("path") and a["path"].lower().endswith(_office_exts)]
+    # Combined list: PDFs + office docs for PC candidate detection
+    all_parseable_paths = pdf_paths + office_paths
+    _trace.append(f"PDFs: {len(pdf_paths)}, Office: {len(office_paths)}, PRICE_CHECK_AVAILABLE={PRICE_CHECK_AVAILABLE}")
     
     # Early PC detection flag from poller (known sender + subject patterns)
     is_early_pc = rfq_email.get("_pc_early_detect", False)
@@ -2285,7 +2290,7 @@ def process_rfq_email(rfq_email):
         or (a.get("filename", "") or a.get("name", "") or "").lower().startswith("secure")
         for a in _all_attachments
     )
-    _has_real_pdf = bool(pdf_paths)
+    _has_real_pdf = bool(pdf_paths or office_paths)
     if _has_secure_msg and not _has_real_pdf:
         import uuid as _uuid2
         _stub_id = f"rfq_{str(_uuid2.uuid4())[:8]}"
@@ -2402,20 +2407,20 @@ def process_rfq_email(rfq_email):
             log.debug("Suppressed: %s", _e)
         return False
 
-    # Identify ALL 704-type PDFs in attachments
-    _pc_pdf_candidates = [p for p in pdf_paths if _is_pc_filename(p)] if pdf_paths else []
+    # Identify ALL 704-type files in attachments (PDFs + office docs)
+    _pc_pdf_candidates = [p for p in all_parseable_paths if _is_pc_filename(p)] if all_parseable_paths else []
     _has_rfq_forms = any(
         any(x in os.path.basename(p).lower() for x in ["703b", "bid package", "bid_package"])
-        for p in pdf_paths
-    ) if pdf_paths else False
-    # Route to PC if: (a) early PC detect, or (b) all PDFs are 704s with no RFQ forms
+        for p in all_parseable_paths
+    ) if all_parseable_paths else False
+    # Route to PC if: (a) early PC detect, or (b) all files are 704s with no RFQ forms
     if is_early_pc and not _pc_pdf_candidates:
-        _pc_pdf_candidates = list(pdf_paths)  # early detect fallback: try all PDFs
+        _pc_pdf_candidates = list(all_parseable_paths)  # early detect fallback: try all files
     _is_pc_email = (is_early_pc or (_pc_pdf_candidates and not _has_rfq_forms))
 
     if _is_pc_email and _pc_pdf_candidates and PRICE_CHECK_AVAILABLE:
         try:
-            pc_checks = [f"{os.path.basename(p)}={'PC' if _is_pc_filename(p) else 'NO'}" for p in pdf_paths]
+            pc_checks = [f"{os.path.basename(p)}={'PC' if _is_pc_filename(p) else 'NO'}" for p in all_parseable_paths]
             _trace.append(f"PC checks: {pc_checks}, candidates={len(_pc_pdf_candidates)}")
 
             # ── Shared buyer info from email (applies to all PCs) ──
@@ -2502,7 +2507,7 @@ def process_rfq_email(rfq_email):
                         pcs = _load_price_checks()
                         pcs[pc_id] = {
                             "id": pc_id,
-                            "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or _pc_basename.replace(".pdf","")[:40],
+                            "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or os.path.splitext(_pc_basename)[0][:40],
                             "institution": "", "due_date": _email_due_date,
                             "requestor": _buyer_name,
                             "requestor_email": _buyer_email,
@@ -2520,16 +2525,18 @@ def process_rfq_email(rfq_email):
                         }
                         _save_single_pc(pc_id, pcs[pc_id])
                         _created_pc_ids.append(pc_id)
-                        # Persist source PDF to DB so it survives redeploys
+                        # Persist source file to DB so it survives redeploys
                         try:
                             if pc_file and os.path.exists(pc_file):
                                 with open(pc_file, "rb") as _pdf_f:
                                     _pdf_bytes = _pdf_f.read()
+                                import mimetypes as _mt
+                                _ctype = _mt.guess_type(pc_file)[0] or "application/pdf"
                                 save_rfq_file(pc_id, os.path.basename(pc_file),
-                                              "application/pdf", _pdf_bytes,
+                                              _ctype, _pdf_bytes,
                                               category="source", uploaded_by="email_poller")
                         except Exception as _db_e:
-                            log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
+                            log.debug("PC %s: DB file save failed: %s", pc_id, _db_e)
                         result = {"ok": True, "pc_id": pc_id, "parse_error": parse_error}
                     else:
                         items = parsed.get("line_items", [])
@@ -2587,7 +2594,7 @@ def process_rfq_email(rfq_email):
                                     '', _subj_raw, flags=_pcre2.IGNORECASE
                                 ).strip()
                                 _stripped = _pcre2.sub(r'\s*[-\u2013]\s*\d{2}\.\d{2}\.\d{2,4}', '', _stripped).strip()
-                                pc_num = _stripped or _pc_basename.replace(".pdf", "")[:40] or "unknown"
+                                pc_num = _stripped or os.path.splitext(_pc_basename)[0][:40] or "unknown"
                                 _trace.append(f"pc_number fallback from subject: '{pc_num}'")
 
                         # Dedup: same PC# + institution + due_date
@@ -2644,16 +2651,18 @@ def process_rfq_email(rfq_email):
                                     except (ValueError, TypeError):
                                         pass
                             _save_single_pc(pc_id, pcs[pc_id])
-                            # Persist source PDF to DB
+                            # Persist source file to DB
                             try:
                                 if pc_file and os.path.exists(pc_file):
                                     with open(pc_file, "rb") as _pdf_f:
                                         _pdf_bytes = _pdf_f.read()
+                                    import mimetypes as _mt2
+                                    _ctype2 = _mt2.guess_type(pc_file)[0] or "application/pdf"
                                     save_rfq_file(pc_id, os.path.basename(pc_file),
-                                                  "application/pdf", _pdf_bytes,
+                                                  _ctype2, _pdf_bytes,
                                                   category="source", uploaded_by="email_poller")
                             except Exception as _db_e:
-                                log.debug("PC %s: DB PDF save failed: %s", pc_id, _db_e)
+                                log.debug("PC %s: DB file save failed: %s", pc_id, _db_e)
                             result = {"ok": True, "pc_id": pc_id, "items": len(items)}
                     _trace.append(f"PC result: {result}")
                 except Exception as he:
