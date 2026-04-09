@@ -798,6 +798,8 @@
      if (!p) return;
      _qaPanelOpen = !_qaPanelOpen;
      p.style.right = _qaPanelOpen ? '0' : '-520px';
+     // Push main content left so table stays scrollable
+     document.body.style.marginRight = _qaPanelOpen ? '500px' : '';
      var btn = document.getElementById('qaToggleBtn');
      if (btn) btn.style.borderColor = _qaPanelOpen ? '#58a6ff' : '#30363d';
     }
