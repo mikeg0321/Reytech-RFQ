@@ -2723,6 +2723,23 @@ def _generate_pc_pdf(pcid):
         except Exception as _qe:
             log.debug("GENERATE %s: Form QA skipped: %s", pcid, _qe)
 
+        # Run Visual QA — vision-based rendering check (V4)
+        try:
+            from src.forms.pdf_visual_qa import inspect_pdf
+            _vqa = inspect_pdf(output_path, company_name="Reytech Inc.")
+            if not _vqa.passed:
+                for _vi in _vqa.errors:
+                    log.warning("GENERATE %s: Visual QA ERROR — %s", pcid, _vi.description)
+                _qa_warnings.extend([f"[Visual] {i.description}" for i in _vqa.warnings])
+            elif _vqa.warnings:
+                _qa_warnings.extend([f"[Visual] {i.description}" for i in _vqa.warnings])
+            if _vqa.pages_inspected > 0:
+                log.info("GENERATE %s: Visual QA %s (%d pages, %d issues)",
+                         pcid, "PASSED" if _vqa.passed else "FAILED",
+                         _vqa.pages_inspected, len(_vqa.issues))
+        except Exception as _vqe:
+            log.debug("GENERATE %s: Visual QA skipped: %s", pcid, _vqe)
+
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
 
@@ -2922,6 +2939,23 @@ def _do_generate_original(pcid):
             _qa_warnings = _qa.get("warnings", [])
         except Exception as _qe:
             log.debug("GENERATE-ORIGINAL %s: Form QA skipped: %s", pcid, _qe)
+
+        # Run Visual QA — vision-based rendering check (V4)
+        try:
+            from src.forms.pdf_visual_qa import inspect_pdf
+            _vqa = inspect_pdf(output_path, company_name="Reytech Inc.")
+            if not _vqa.passed:
+                for _vi in _vqa.errors:
+                    log.warning("GENERATE-ORIGINAL %s: Visual QA ERROR — %s", pcid, _vi.description)
+                _qa_warnings.extend([f"[Visual] {i.description}" for i in _vqa.warnings])
+            elif _vqa.warnings:
+                _qa_warnings.extend([f"[Visual] {i.description}" for i in _vqa.warnings])
+            if _vqa.pages_inspected > 0:
+                log.info("GENERATE-ORIGINAL %s: Visual QA %s (%d pages, %d issues)",
+                         pcid, "PASSED" if _vqa.passed else "FAILED",
+                         _vqa.pages_inspected, len(_vqa.issues))
+        except Exception as _vqe:
+            log.debug("GENERATE-ORIGINAL %s: Visual QA skipped: %s", pcid, _vqe)
 
         resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
         if _qa_warnings:
