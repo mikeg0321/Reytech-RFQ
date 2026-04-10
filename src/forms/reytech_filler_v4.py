@@ -776,6 +776,7 @@ def fill_704b(input_path, rfq_data, config, output_path):
 
     # ── Template introspection via TemplateProfile (single source of truth) ──
     from src.forms.template_registry import get_profile
+    from src.forms.ams704_helpers import normalize_line_item, build_row_field_name
     _profile = get_profile(input_path)
 
     def _row_field(slot):
@@ -783,7 +784,6 @@ def fill_704b(input_path, rfq_data, config, output_path):
         r = _profile.row_field_suffix(slot)
         if r is not None:
             return r
-        # Fallback for slots beyond detected capacity
         p2_slot = slot - _profile.pg1_row_count
         return f"Row{p2_slot}_2"
 
@@ -801,7 +801,7 @@ def fill_704b(input_path, rfq_data, config, output_path):
     seq = 0
     for _raw_item in line_items:
         seq += 1
-        item = _normalize_item(_raw_item)
+        item = normalize_line_item(_raw_item)
         price = item["price_per_unit"]
         qty = item["qty"]
         subtotal = round(price * qty, 2)
@@ -809,33 +809,27 @@ def fill_704b(input_path, rfq_data, config, output_path):
 
         if _is_prefilled:
             # Agency pre-filled: ONLY write price + subtotal to the correct row
-            # Match by line_number → form row
             item_num = item.get("line_number") or seq
             if item_num in _prefilled_item_rows:
                 r = _prefilled_item_rows[item_num]
-                values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-                values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
             else:
-                # Try sequential fallback
                 r = _row_field(seq)
-                values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-                values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
+            values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+            values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
         else:
-            # Fresh template: write everything (original behavior)
-            uom = item["uom"]
-            desc = item["description"]
+            # Fresh template: write everything
             r = _row_field(seq)
             values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
             values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
             values[f"ITEM NUMBER{r}"] = item["part_number"]
             values[f"QTY{r}"] = str(qty) if qty else ""
-            values[f"UOM{r}"] = uom
-            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = desc
+            values[f"UOM{r}"] = item["uom"]
+            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = item["description"]
             values[f"#{r}"] = str(seq)
             sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
             if item.get("is_substitute"):
                 mfg = item.get("mfg_number", "")
-                values[sub_field] = f"{desc} (MFG# {mfg})" if mfg else desc
+                values[sub_field] = f"{item['description']} (MFG# {mfg})" if mfg else item["description"]
             else:
                 values[sub_field] = ""
 

@@ -204,16 +204,8 @@ REYTECH_INFO = _build_reytech_info()
 # ─── AMS 704 Field Name Patterns ────────────────────────────────────────────
 
 # Row fields follow pattern: "FIELD NAMERow{N}" where N = 1-8 per page
-ROW_FIELDS = {
-    "item_number": "ITEM Row{n}",
-    "qty": "QTYRow{n}",
-    "uom": "UNIT OF MEASURE UOMRow{n}",
-    "qty_per_uom": "QTY PER UOMRow{n}",
-    "description": "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow{n}",
-    "substituted": "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{n}",
-    "unit_price": "PRICE PER UNITRow{n}",
-    "extension": "EXTENSIONRow{n}",
-}
+# Canonical source: ams704_helpers.ROW_FIELD_TEMPLATES_704A
+from src.forms.ams704_helpers import ROW_FIELD_TEMPLATES_704A as ROW_FIELDS
 
 HEADER_FIELDS = {
     "price_check_number": "Text1",
