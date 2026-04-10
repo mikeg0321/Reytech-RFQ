@@ -283,7 +283,7 @@ def _check_shipping(pc: dict) -> list:
                         "category": CAT_SHIPPING,
                         "message": "Ship-to address is empty — required for 704 form"})
 
-    delivery = (pc.get("delivery") or pc.get("delivery_time") or "").strip()
+    delivery = (pc.get("delivery_option") or pc.get("delivery") or pc.get("delivery_time") or "").strip()
     if not delivery:
         issues.append({"severity": WARNING, "item_index": -1, "field": "delivery",
                         "category": CAT_SHIPPING,
@@ -342,12 +342,9 @@ def _check_agency(pc: dict, items: list) -> list:
         except Exception:
             pass
 
-    # Quote number
-    quote_num = (pc.get("reytech_quote_number") or "").strip()
-    if not quote_num:
-        issues.append({"severity": INFO, "item_index": -1, "field": "quote_number",
-                        "category": CAT_AGENCY,
-                        "message": "No Reytech quote number assigned yet"})
+    # Quote number — PCs are buyer documents, not Reytech quotes.
+    # Quote numbers are assigned later when generating a formal response.
+    # For RFQs, the solicitation number from the email contract is used.
 
     # All items accounted for — check bid count vs total
     active = [it for it in items if not it.get("no_bid")]
