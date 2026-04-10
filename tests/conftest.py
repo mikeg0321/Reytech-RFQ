@@ -52,6 +52,10 @@ def temp_data_dir(tmp_path, monkeypatch):
     _module_map = {
         "src.knowledge.won_quotes_db": "won_quotes_db",
         "src.agents.product_research": "product_research",
+        "src.agents.product_validator": "product_validator",
+        "src.agents.item_identifier": "item_identifier",
+        "src.agents.web_price_research": "web_price_research",
+        "src.agents.tax_agent": "tax_agent",
         "src.forms.quote_generator": "quote_generator",
         "src.forms.price_check": "price_check",
         "src.auto.auto_processor": "auto_processor",
@@ -71,8 +75,11 @@ def temp_data_dir(tmp_path, monkeypatch):
             monkeypatch.setattr(mod, "WON_QUOTES_FILE",
                                 os.path.join(data, "won_quotes.json"))
         if hasattr(mod, "CACHE_FILE"):
+            # Each module's cache gets its own isolated file in test tmp dir
+            _cache_name = getattr(mod, "CACHE_FILE", "")
+            _cache_basename = os.path.basename(_cache_name) if _cache_name else "cache.json"
             monkeypatch.setattr(mod, "CACHE_FILE",
-                                os.path.join(data, "product_research_cache.json"))
+                                os.path.join(data, _cache_basename))
         if hasattr(mod, "QUOTES_LOG_FILE"):
             monkeypatch.setattr(mod, "QUOTES_LOG_FILE",
                                 os.path.join(data, "quotes_log.json"))
@@ -393,6 +400,23 @@ def sample_stryker_quote():
              "unit_price": 69.12},
         ],
     }
+
+
+# ── Block real API calls in tests ─────────────────────────────────────────────
+@pytest.fixture(autouse=True)
+def mock_api_keys(monkeypatch):
+    """Set fake API keys so modules import cleanly, but block real HTTP calls."""
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-fake-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-fake-key")
+    # Patch module-level vars that were read at import time
+    for mod_path in ("src.agents.item_identifier", "src.agents.product_research",
+                     "src.agents.product_validator"):
+        try:
+            mod = __import__(mod_path, fromlist=[mod_path.split(".")[-1]])
+            if hasattr(mod, "XAI_API_KEY"):
+                monkeypatch.setattr(mod, "XAI_API_KEY", "xai-test-fake-key")
+        except ImportError:
+            pass
 
 
 # ── Disable rate limiting in tests ────────────────────────────────────────────
