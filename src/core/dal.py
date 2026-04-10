@@ -1744,6 +1744,143 @@ def get_lifecycle_events(entity_type, entity_id, limit=100):
         return []
 
 
+def get_qa_effectiveness_metrics(days=90):
+    """Aggregate QA effectiveness metrics from lifecycle_events.
+
+    Returns: form QA pass rates, PC QA scores, outcome correlation
+    (clean vs dirty win rates), regeneration patterns, weekly trend.
+    """
+    from datetime import timedelta
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with get_db() as conn:
+            # 1. Form QA stats
+            qa_rows = conn.execute(
+                "SELECT detail_json FROM lifecycle_events "
+                "WHERE event_type = 'form_qa_completed' AND occurred_at >= ? "
+                "ORDER BY occurred_at DESC", (cutoff,)
+            ).fetchall()
+
+            total_qa_runs = len(qa_rows)
+            qa_passed = 0
+            category_counts = {}
+            total_critical = 0
+            total_warnings = 0
+            for row in qa_rows:
+                try:
+                    d = json.loads(row[0]) if row[0] else {}
+                except Exception:
+                    continue
+                if d.get("passed"):
+                    qa_passed += 1
+                total_critical += d.get("critical_count", 0)
+                total_warnings += d.get("warning_count", 0)
+                for cat, cnt in d.get("categories", {}).items():
+                    if cnt > 0:
+                        category_counts[cat] = category_counts.get(cat, 0) + cnt
+
+            # 2. Outcome correlations
+            corr_rows = conn.execute(
+                "SELECT detail_json FROM lifecycle_events "
+                "WHERE event_type = 'outcome_qa_correlation' AND occurred_at >= ?",
+                (cutoff,)
+            ).fetchall()
+
+            clean_won = clean_lost = dirty_won = dirty_lost = 0
+            regen_counts = []
+            for row in corr_rows:
+                try:
+                    d = json.loads(row[0]) if row[0] else {}
+                except Exception:
+                    continue
+                qa_clean = d.get("last_qa_passed", True)
+                outcome = d.get("outcome", "")
+                if qa_clean and outcome == "won":
+                    clean_won += 1
+                elif qa_clean and outcome == "lost":
+                    clean_lost += 1
+                elif not qa_clean and outcome == "won":
+                    dirty_won += 1
+                elif not qa_clean and outcome == "lost":
+                    dirty_lost += 1
+                regen_counts.append(d.get("generation_count", 1))
+
+            clean_total = clean_won + clean_lost
+            dirty_total = dirty_won + dirty_lost
+            clean_win_rate = round(clean_won / clean_total * 100, 1) if clean_total else None
+            dirty_win_rate = round(dirty_won / dirty_total * 100, 1) if dirty_total else None
+            avg_regens = round(sum(regen_counts) / len(regen_counts), 1) if regen_counts else 0
+            multi_gen = sum(1 for g in regen_counts if g > 1)
+
+            # 3. PC QA stats
+            pc_rows = conn.execute(
+                "SELECT detail_json FROM lifecycle_events "
+                "WHERE event_type = 'pc_qa_completed' AND occurred_at >= ?",
+                (cutoff,)
+            ).fetchall()
+            pc_total = len(pc_rows)
+            pc_passed = 0
+            pc_scores = []
+            for row in pc_rows:
+                try:
+                    d = json.loads(row[0]) if row[0] else {}
+                except Exception:
+                    continue
+                if d.get("passed"):
+                    pc_passed += 1
+                if d.get("score") is not None:
+                    pc_scores.append(d["score"])
+
+            # 4. Weekly trend
+            weekly_rows = conn.execute(
+                "SELECT strftime('%%Y-W%%W', occurred_at) as week, "
+                "SUM(CASE WHEN json_extract(detail_json, '$.passed') = 1 THEN 1 ELSE 0 END) as passed, "
+                "COUNT(*) as total "
+                "FROM lifecycle_events "
+                "WHERE event_type = 'form_qa_completed' AND occurred_at >= ? "
+                "GROUP BY week ORDER BY week", (cutoff,)
+            ).fetchall()
+            weekly_trend = [{"week": r[0], "passed": r[1], "total": r[2],
+                             "rate": round(r[1] / r[2] * 100, 1) if r[2] else 0}
+                            for r in weekly_rows]
+
+        return {
+            "ok": True,
+            "period_days": days,
+            "form_qa": {
+                "total_runs": total_qa_runs,
+                "passed": qa_passed,
+                "failed": total_qa_runs - qa_passed,
+                "pass_rate": round(qa_passed / total_qa_runs * 100, 1) if total_qa_runs else None,
+                "total_critical_issues": total_critical,
+                "total_warnings": total_warnings,
+                "top_categories": sorted(category_counts.items(), key=lambda x: -x[1])[:6],
+            },
+            "pc_qa": {
+                "total_runs": pc_total,
+                "passed": pc_passed,
+                "pass_rate": round(pc_passed / pc_total * 100, 1) if pc_total else None,
+                "avg_score": round(sum(pc_scores) / len(pc_scores), 1) if pc_scores else None,
+            },
+            "outcome_correlation": {
+                "clean_won": clean_won, "clean_lost": clean_lost,
+                "dirty_won": dirty_won, "dirty_lost": dirty_lost,
+                "clean_win_rate": clean_win_rate,
+                "dirty_win_rate": dirty_win_rate,
+                "sample_size": clean_total + dirty_total,
+            },
+            "regeneration": {
+                "avg_generations": avg_regens,
+                "multi_gen_pct": round(multi_gen / len(regen_counts) * 100, 1) if regen_counts else 0,
+                "total_with_outcome": len(regen_counts),
+            },
+            "weekly_trend": weekly_trend,
+        }
+    except Exception as e:
+        log.error("get_qa_effectiveness_metrics failed: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
 def save_buyer_preference(buyer_email, preference_key, preference_value,
                           buyer_name="", agency_key="", source="manual", notes=""):
     """Save or update a buyer preference."""

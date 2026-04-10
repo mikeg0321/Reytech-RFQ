@@ -8588,6 +8588,27 @@ def api_pc_qa(pcid):
     try:
         from src.agents.pc_qa_agent import run_qa
         report = run_qa(_copy.deepcopy(pc), use_llm=use_llm)
+        # Log structured QA lifecycle event for effectiveness tracking
+        try:
+            from src.core.dal import log_lifecycle_event as _lle_pcqa
+            _pc_cats = {}
+            for _iss in report.get("issues", []):
+                _c = _iss.get("category", "unknown")
+                _pc_cats[_c] = _pc_cats.get(_c, 0) + 1
+            _lle_pcqa("pricecheck", pcid, "pc_qa_completed",
+                      f"PC QA {'PASSED' if report.get('pass') else 'FAILED'}: "
+                      f"score {report.get('score', 0)}/100",
+                      actor="user", detail={
+                          "passed": report.get("pass", False),
+                          "score": report.get("score", 0),
+                          "blocker_count": len([i for i in report.get("issues", []) if i.get("severity") == "blocker"]),
+                          "warning_count": len([i for i in report.get("issues", []) if i.get("severity") == "warning"]),
+                          "info_count": len([i for i in report.get("issues", []) if i.get("severity") == "info"]),
+                          "categories": _pc_cats,
+                          "used_llm": use_llm,
+                      })
+        except Exception:
+            pass
         return jsonify(report)
     except Exception as e:
         log.error("QA error for %s: %s", pcid, e, exc_info=True)

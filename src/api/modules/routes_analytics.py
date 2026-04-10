@@ -464,6 +464,14 @@ def analytics_dashboard():
     except Exception:
         campaign_perf = {}
 
+    # QA Effectiveness metrics
+    qa_eff = {}
+    try:
+        from src.core.dal import get_qa_effectiveness_metrics
+        qa_eff = get_qa_effectiveness_metrics(days=90)
+    except Exception:
+        pass
+
     return render_page("analytics.html",
         active_page="Pipeline",
         funnel=funnel,
@@ -477,6 +485,7 @@ def analytics_dashboard():
         growth_kpis=growth_kpis,
         campaign_perf=campaign_perf,
         growth_top=growth_top,
+        qa_eff=qa_eff,
     )
 
 
@@ -502,6 +511,20 @@ def analytics_data():
         "total_pcs": len(pcs),
         "daily": dict(daily),
     })
+
+
+@bp.route("/api/analytics/qa-effectiveness")
+@auth_required
+@safe_route
+def api_qa_effectiveness():
+    """QA effectiveness metrics — pass rates, outcome correlation, trends."""
+    try:
+        days = min(max(int(request.args.get("days", 90)), 7), 365)
+        from src.core.dal import get_qa_effectiveness_metrics
+        return jsonify(get_qa_effectiveness_metrics(days=days))
+    except Exception as e:
+        log.error("QA effectiveness API error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -4458,6 +4481,43 @@ def api_dashboard_morning_brief():
     outreach = brief["sections"].get("outreach", {})
     if outreach.get("follow_ups_due", 0) > 0:
         actions.append(f"{outreach['follow_ups_due']} outreach follow-ups due")
+
+    # QA effectiveness review — surface when enough data exists
+    try:
+        from src.core.dal import get_qa_effectiveness_metrics
+        _qa = get_qa_effectiveness_metrics(days=90)
+        if _qa.get("ok"):
+            _sample = _qa.get("outcome_correlation", {}).get("sample_size", 0)
+            _runs = _qa.get("form_qa", {}).get("total_runs", 0)
+            _clean_wr = _qa.get("outcome_correlation", {}).get("clean_win_rate")
+            _dirty_wr = _qa.get("outcome_correlation", {}).get("dirty_win_rate")
+            brief["sections"]["qa_effectiveness"] = {
+                "qa_runs": _runs,
+                "outcomes_tracked": _sample,
+                "clean_win_rate": _clean_wr,
+                "dirty_win_rate": _dirty_wr,
+                "pass_rate": _qa.get("form_qa", {}).get("pass_rate"),
+            }
+            # 30-day review reminder (tracking started 2026-04-10)
+            _review_date = "2026-05-10"
+            if today >= _review_date and _runs >= 5:
+                actions.append(
+                    f"QA 30-day review due: {_runs} QA runs, {_sample} outcomes. "
+                    f"Clean win rate: {_clean_wr or '--'}%, Dirty: {_dirty_wr or '--'}%. "
+                    f"Open /analytics to decide: keep, simplify, or remove QA checks")
+            # Actionable alerts
+            if _runs >= 10 and _sample >= 5:
+                if _clean_wr is not None and _dirty_wr is not None:
+                    if abs(_clean_wr - _dirty_wr) < 10:
+                        actions.append(f"QA Review: clean ({_clean_wr}%) vs dirty ({_dirty_wr}%) win rates are similar — QA checks may not be predictive. Review /analytics")
+                    elif _dirty_wr > _clean_wr:
+                        actions.append(f"QA Review: dirty quotes ({_dirty_wr}%) win MORE than clean ({_clean_wr}%) — QA may be flagging non-issues. Review /analytics")
+                elif _sample >= 5 and _clean_wr is None and _dirty_wr is not None:
+                    actions.append("QA Review: all resolved quotes had QA issues — no clean baseline yet")
+            elif _runs >= 10 and _sample < 3:
+                actions.append(f"QA tracking: {_runs} QA runs but only {_sample} outcomes marked. Mark quotes won/lost to build QA feedback loop")
+    except Exception:
+        pass
 
     brief["actions_needed"] = actions
     brief["action_count"] = len(actions)

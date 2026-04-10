@@ -750,6 +750,39 @@ def api_rfq_mark_won(rid):
     except Exception:
         pass
 
+    # QA correlation — snapshot QA state at outcome time
+    try:
+        from src.core.dal import get_lifecycle_events as _gle_won, log_lifecycle_event as _lle_won
+        _all_ev = _gle_won("rfq", rid, limit=200)
+        _qa_ev = [e for e in _all_ev if e.get("event_type") == "form_qa_completed"]
+        _gen_ev = [e for e in _all_ev if e.get("event_type") in ("form_qa_completed",)]
+        _pc_ev = [e for e in _all_ev if e.get("event_type") == "pc_qa_completed"]
+        _last_qa = _qa_ev[0].get("detail", {}) if _qa_ev else {}
+        _last_pc = _pc_ev[0].get("detail", {}) if _pc_ev else {}
+        _cats = set()
+        for _qe in _qa_ev:
+            for _c, _n in _qe.get("detail", {}).get("categories", {}).items():
+                if _n > 0:
+                    _cats.add(_c)
+        _lle_won("rfq", rid, "outcome_qa_correlation",
+                 f"Won — QA {'clean' if _last_qa.get('passed', True) else 'dirty'}, "
+                 f"{len(_qa_ev)} QA runs",
+                 actor="system", detail={
+                     "outcome": "won",
+                     "last_qa_passed": _last_qa.get("passed", True),
+                     "generation_count": len(_qa_ev),
+                     "qa_run_count": len(_qa_ev),
+                     "last_pc_qa_score": _last_pc.get("score"),
+                     "had_blockers": _last_qa.get("critical_count", 0) > 0,
+                     "total_critical_issues": sum(e.get("detail", {}).get("critical_count", 0) for e in _qa_ev),
+                     "total_warnings": sum(e.get("detail", {}).get("warning_count", 0) for e in _qa_ev),
+                     "categories_flagged": list(_cats),
+                     "quote_total": float(r.get("total", 0) or 0),
+                     "po_number": po_number,
+                 })
+    except Exception:
+        pass
+
     log.info("RFQ %s marked WON (PO: %s)", rid, po_number)
     return jsonify({"ok": True, "status": "won", "po_number": po_number})
 
@@ -836,6 +869,41 @@ def api_rfq_mark_lost(rid):
               "lost_manual", f"Lost to {data.get('competitor', 'unknown')}"))
         _aconn.commit()
         _aconn.close()
+    except Exception:
+        pass
+
+    # QA correlation — snapshot QA state at outcome time
+    try:
+        from src.core.dal import get_lifecycle_events as _gle_lost, log_lifecycle_event as _lle_lost
+        _all_ev = _gle_lost("rfq", rid, limit=200)
+        _qa_ev = [e for e in _all_ev if e.get("event_type") == "form_qa_completed"]
+        _pc_ev = [e for e in _all_ev if e.get("event_type") == "pc_qa_completed"]
+        _last_qa = _qa_ev[0].get("detail", {}) if _qa_ev else {}
+        _last_pc = _pc_ev[0].get("detail", {}) if _pc_ev else {}
+        _cats = set()
+        for _qe in _qa_ev:
+            for _c, _n in _qe.get("detail", {}).get("categories", {}).items():
+                if _n > 0:
+                    _cats.add(_c)
+        _our_tot = locals().get("_our_total", 0) or 0
+        _comp_pr = locals().get("_comp_price", 0) or 0
+        _lle_lost("rfq", rid, "outcome_qa_correlation",
+                  f"Lost — QA {'clean' if _last_qa.get('passed', True) else 'dirty'}, "
+                  f"{len(_qa_ev)} QA runs",
+                  actor="system", detail={
+                      "outcome": "lost",
+                      "last_qa_passed": _last_qa.get("passed", True),
+                      "generation_count": len(_qa_ev),
+                      "qa_run_count": len(_qa_ev),
+                      "last_pc_qa_score": _last_pc.get("score"),
+                      "had_blockers": _last_qa.get("critical_count", 0) > 0,
+                      "total_critical_issues": sum(e.get("detail", {}).get("critical_count", 0) for e in _qa_ev),
+                      "total_warnings": sum(e.get("detail", {}).get("warning_count", 0) for e in _qa_ev),
+                      "categories_flagged": list(_cats),
+                      "quote_total": float(_our_tot),
+                      "competitor_name": data.get("competitor", ""),
+                      "competitor_price": float(_comp_pr),
+                  })
     except Exception:
         pass
 
@@ -5167,6 +5235,38 @@ def generate_rfq_package(rid):
                 t.warn("Form QA found issues", detail=_qa_report)
             else:
                 t.step(f"Form QA PASSED: {_qa_report['forms_checked']} forms, {_qa_report['duration_ms']}ms")
+            # Log structured QA lifecycle event for effectiveness tracking
+            try:
+                _qa_cats = {}
+                _qa_form_pf = {}
+                for _qfid, _qfr in _qa_report.get("form_results", {}).items():
+                    _qa_form_pf[_qfid] = _qfr.get("passed", True)
+                    for _qk in ("fields", "signatures", "computations", "buyer_fields", "value_ranges"):
+                        if _qfr.get(_qk) and not _qfr[_qk].get("passed", True):
+                            _qa_cats[_qk] = _qa_cats.get(_qk, 0) + 1
+                if not _qa_report.get("package_check", {}).get("passed", True):
+                    _qa_cats["package"] = _qa_cats.get("package", 0) + 1
+                from src.core.dal import get_lifecycle_events as _gle_qa
+                _gen_seq = sum(1 for e in _gle_qa("rfq", rid, limit=50)
+                               if e.get("event_type") == "form_qa_completed") + 1
+                _lle("rfq", rid, "form_qa_completed",
+                     f"Form QA {'PASSED' if _qa_report.get('passed') else 'FAILED'}: "
+                     f"{_qa_report.get('forms_checked', 0)} forms, "
+                     f"{len(_qa_report.get('critical_issues', []))} critical",
+                     actor="system", detail={
+                         "passed": _qa_report.get("passed", True),
+                         "forms_checked": _qa_report.get("forms_checked", 0),
+                         "critical_count": len(_qa_report.get("critical_issues", [])),
+                         "warning_count": sum(len(_qfr.get("fields", {}).get("warnings", []))
+                                              for _qfr in _qa_report.get("form_results", {}).values()),
+                         "duration_ms": _qa_report.get("duration_ms", 0),
+                         "critical_issues": _qa_report.get("critical_issues", [])[:5],
+                         "categories": _qa_cats,
+                         "form_pass_fail": _qa_form_pf,
+                         "generation_sequence": _gen_seq,
+                     })
+            except Exception:
+                pass
         except Exception as _fa_e:
             log.warning("Form QA error: %s", _fa_e)
             # Fallback to shallow audit

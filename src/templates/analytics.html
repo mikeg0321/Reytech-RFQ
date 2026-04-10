@@ -11,6 +11,70 @@
  <div style="padding:10px 0;color:var(--tx2);font-size:14px">{{total_rfqs}} RFQs · {{total_pcs}} PCs</div>
 </div>
 
+<!-- QA Effectiveness -->
+{% if qa_eff and qa_eff.ok %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
+ <div class="card" style="margin-bottom:0">
+  <div class="card-t">QA Effectiveness ({{qa_eff.period_days}}d)</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:20px;font-weight:700;color:{% if qa_eff.form_qa.pass_rate is not none and qa_eff.form_qa.pass_rate >= 80 %}#3fb950{% elif qa_eff.form_qa.pass_rate is not none %}#d29922{% else %}var(--tx2,#8b949e){% endif %};font-family:monospace">{{qa_eff.form_qa.pass_rate|default('--')}}{% if qa_eff.form_qa.pass_rate is not none %}%{% endif %}</div>
+    <div style="font-size:12px;color:var(--tx2,#8b949e)">Form QA Pass</div>
+   </div>
+   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:20px;font-weight:700;color:#58a6ff;font-family:monospace">{{qa_eff.form_qa.total_runs|default(0)}}</div>
+    <div style="font-size:12px;color:var(--tx2,#8b949e)">QA Runs</div>
+   </div>
+   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:20px;font-weight:700;color:#f85149;font-family:monospace">{{qa_eff.form_qa.total_critical_issues|default(0)}}</div>
+    <div style="font-size:12px;color:var(--tx2,#8b949e)">Critical Issues</div>
+   </div>
+   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:20px;font-weight:700;color:#d29922;font-family:monospace">{{qa_eff.regeneration.avg_generations|default(0)}}x</div>
+    <div style="font-size:12px;color:var(--tx2,#8b949e)">Avg Generations</div>
+   </div>
+  </div>
+  {% if qa_eff.form_qa.top_categories %}
+  <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd,#30363d)">
+   <div style="font-size:13px;color:var(--tx2,#8b949e);margin-bottom:6px">Top Issue Categories</div>
+   <div style="display:flex;flex-wrap:wrap;gap:6px">
+    {% for cat, cnt in qa_eff.form_qa.top_categories %}
+    <span style="padding:3px 10px;border-radius:12px;background:var(--sf2,#161b22);font-size:13px"><span style="font-weight:700;color:#f0883e">{{cnt}}</span> <span style="color:var(--tx2,#8b949e)">{{cat|replace('_',' ')|title}}</span></span>
+    {% endfor %}
+   </div>
+  </div>
+  {% endif %}
+  {% if qa_eff.pc_qa.total_runs > 0 %}
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);display:flex;gap:16px;font-size:13px;color:var(--tx2,#8b949e)">
+   <span>PC QA: <strong style="color:#58a6ff">{{qa_eff.pc_qa.total_runs}}</strong> runs</span>
+   {% if qa_eff.pc_qa.avg_score is not none %}<span>Avg Score: <strong style="color:{% if qa_eff.pc_qa.avg_score >= 80 %}#3fb950{% else %}#d29922{% endif %}">{{qa_eff.pc_qa.avg_score}}</strong>/100</span>{% endif %}
+  </div>
+  {% endif %}
+ </div>
+ <div class="card" style="margin-bottom:0">
+  <div class="card-t">QA vs Outcomes</div>
+  {% set corr = qa_eff.outcome_correlation %}
+  {% if corr.sample_size > 0 %}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+   <div style="text-align:center;padding:14px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:24px;font-weight:700;color:#3fb950;font-family:monospace">{{corr.clean_win_rate|default('--')}}{% if corr.clean_win_rate is not none %}%{% endif %}</div>
+    <div style="font-size:13px;color:var(--tx2,#8b949e)">QA-Clean Win Rate</div>
+    <div style="font-size:12px;color:var(--tx3,#484f58)">{{corr.clean_won + corr.clean_lost}} quotes</div>
+   </div>
+   <div style="text-align:center;padding:14px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:24px;font-weight:700;color:{% if corr.dirty_win_rate is not none and corr.clean_win_rate is not none and corr.dirty_win_rate < corr.clean_win_rate %}#f85149{% else %}#d29922{% endif %};font-family:monospace">{{corr.dirty_win_rate|default('--')}}{% if corr.dirty_win_rate is not none %}%{% endif %}</div>
+    <div style="font-size:13px;color:var(--tx2,#8b949e)">QA-Dirty Win Rate</div>
+    <div style="font-size:12px;color:var(--tx3,#484f58)">{{corr.dirty_won + corr.dirty_lost}} quotes</div>
+   </div>
+  </div>
+  <div style="margin-top:10px;text-align:center;font-size:13px;color:var(--tx2,#8b949e)">{{corr.sample_size}} quotes with outcomes · {{qa_eff.regeneration.multi_gen_pct|default(0)}}% required regeneration</div>
+  {% else %}
+  <div style="color:var(--tx2,#8b949e);font-size:14px;padding:30px;text-align:center">No outcome data yet. Mark quotes as won/lost to see QA correlation.</div>
+  {% endif %}
+ </div>
+</div>
+{% endif %}
+
 <!-- Conversion Funnel -->
 <div class="card">
  <div class="card-t">Conversion Funnel</div>
