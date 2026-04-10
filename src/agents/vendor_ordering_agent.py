@@ -367,13 +367,13 @@ def grainger_place_order(items: list, po_number: str, ship_to: dict = None) -> d
 def amazon_search_catalog(query: str, max_results: int = 10) -> list:
     """
     Search Amazon catalog via SP-API CatalogItems endpoint.
-    Falls back to SerpApi (existing product_research.py) if SP-API not configured.
+    Falls back to Grok-powered search (product_research.py) if SP-API not configured.
     """
     # Try SP-API first
     if AMZN_ACCESS_KEY and AMZN_SECRET_KEY and AMZN_REFRESH_TOKEN:
         return _amazon_spapi_search(query, max_results)
     
-    # Fall back to existing SerpApi integration
+    # Fall back to Grok-powered product search
     try:
         from src.agents.product_research import search_amazon
         results = search_amazon(query, max_results)

@@ -1820,7 +1820,7 @@ def _check_vendor_ordering() -> list:
                            "message": "Amazon Business SP-API: configured"})
         else:
             results.append({"check": "vendor_ordering", "status": "warn",
-                           "message": "Amazon SP-API: not configured (SerpApi search still works)",
+                           "message": "Amazon SP-API: not configured (Grok product search still works)",
                            "action": "Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN from sellercentral.amazon.com"})
         results.append({"check": "vendor_ordering", "status": "info",
                        "message": f"Orders in DB: {len(recent)} | needs setup: {vs.get('vendors_setup_needed', [])[:3]}"})

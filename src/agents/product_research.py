@@ -1,21 +1,20 @@
-
-
-
 """
 product_research.py — Product Research Agent for Reytech RFQ Automation
-Phase 6 | Version: 6.1.1
+Phase 6 | Version: 7.0.0
 
-Searches Amazon via SerpApi to find product prices for items that SCPRS
-doesn't have. Results feed into the Pricing Oracle as supplier_cost data.
+Searches for product prices using Grok (xAI) with built-in web search.
+Results feed into the Pricing Oracle as supplier_cost data.
 
 Architecture:
   1. Check local cache (7-day TTL)
-  2. Search Amazon via SerpApi → extract price, ASIN, product title
+  2. Search via Grok → extract price, ASIN, product title
   3. Cache result
   4. Feed into pricing_oracle.recommend_price() as supplier_cost
 
 Dependencies: requests (already in requirements.txt)
-Requires: SERPAPI_KEY environment variable set in Railway
+Requires: XAI_API_KEY environment variable set in Railway
+
+History: Replaced SerpApi ($50/mo subscription) with Grok (pay-per-use, ~$0.001/call).
 """
 
 import json
@@ -26,7 +25,6 @@ import logging
 import hashlib
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from urllib.parse import urlencode
 
 try:
     import requests
@@ -46,26 +44,10 @@ CACHE_FILE = os.path.join(DATA_DIR, "product_research_cache.json")
 CACHE_TTL_DAYS = 7
 MAX_CACHE_ENTRIES = 5000
 
-SERPAPI_BASE = "https://serpapi.com/search.json"
-SERPAPI_KEY = os.environ.get("SERPAPI_KEY", "")
-
-# Fallback: read key from volume file (bypasses Railway env var issues)
-_KEY_FILE = os.path.join(DATA_DIR, ".serpapi_key")
-
-def _get_api_key() -> str:
-    """Get SerpApi key from env var or volume file."""
-    key = SERPAPI_KEY or os.environ.get("SERPAPI_KEY", "")
-    if key:
-        return key
-    try:
-        if os.path.exists(_KEY_FILE):
-            with open(_KEY_FILE) as f:
-                key = f.read().strip()
-                if key:
-                    return key
-    except Exception:
-        pass
-    return ""
+# Grok API config
+XAI_API_URL = "https://api.x.ai/v1/chat/completions"
+XAI_MODEL = "grok-3-mini"
+XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 
 RESEARCH_STATUS = {
     "running": False, "progress": "", "items_done": 0, "items_total": 0,
@@ -139,104 +121,19 @@ def _cache_store(query: str, result: dict):
     _save_cache(cache)
 
 
-# ─── SerpApi Amazon Search ──────────────────────────────────────────────────
-
-def _extract_price(item: dict) -> Optional[float]:
-    """Extract price from a SerpApi organic result item."""
-    # Try extracted_price first (numeric)
-    ep = item.get("extracted_price")
-    if ep is not None and isinstance(ep, (int, float)) and ep > 0:
-        return float(ep)
-
-    # Try price dict (SerpApi sometimes nests it)
-    price_obj = item.get("price")
-    if isinstance(price_obj, dict):
-        val = price_obj.get("extracted_price") or price_obj.get("raw") or price_obj.get("current")
-        if val:
-            try:
-                cleaned = str(val).replace("$", "").replace(",", "").strip()
-                return float(cleaned)
-            except (ValueError, TypeError):
-                pass
-    elif isinstance(price_obj, (int, float)) and price_obj > 0:
-        return float(price_obj)
-    elif isinstance(price_obj, str) and price_obj:
-        try:
-            cleaned = price_obj.replace("$", "").replace(",", "").strip()
-            if cleaned:
-                return float(cleaned)
-        except (ValueError, TypeError):
-            pass
-
-    # Try price_raw or price_string
-    for field in ("price_raw", "price_string"):
-        price_str = item.get(field, "")
-        if price_str:
-            m = re.search(r'\$?([\d,]+\.?\d{0,2})', str(price_str).replace(',', ''))
-            if m:
-                try:
-                    return float(m.group(1))
-                except (ValueError, TypeError):
-                    pass
-
-    # Try list_price / typical_price (SerpApi organic results)
-    for field in ("list_price", "typical_price"):
-        lp = item.get(field)
-        if isinstance(lp, dict):
-            val = lp.get("value") or lp.get("raw") or lp.get("extracted_price")
-            if val:
-                try:
-                    return float(str(val).replace("$", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    pass
-        elif isinstance(lp, (int, float)) and lp > 0:
-            return float(lp)
-        elif isinstance(lp, str) and lp:
-            try:
-                return float(lp.replace("$", "").replace(",", ""))
-            except (ValueError, TypeError):
-                pass
-
-    return None
-
-
-def _extract_list_price(item: dict) -> Optional[float]:
-    """Extract list/typical/old price (MSRP) from a SerpApi result.
-    This is the non-discounted price — separate from the current sale price."""
-    for field in ("old_price", "typical_price", "list_price", "before_price",
-                  "price_strikethrough", "rrp", "extracted_old_price"):
-        val = item.get(field)
-        if isinstance(val, dict):
-            v = val.get("value") or val.get("raw") or val.get("extracted_price")
-            if v:
-                try:
-                    return float(str(v).replace("$", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    pass
-        elif isinstance(val, (int, float)) and val > 0:
-            return float(val)
-        elif isinstance(val, str) and val:
-            try:
-                return float(val.replace("$", "").replace(",", ""))
-            except (ValueError, TypeError):
-                pass
-    return None
-
+# ─── MFG Info Extraction ────────────────────────────────────────────────────
 
 def _extract_mfg_info(title: str, asin: str = "") -> dict:
-    """Extract manufacturer name and part/model number from Amazon title.
-    
-    Amazon titles typically follow: 'Brand ModelXYZ - Description...'
+    """Extract manufacturer name and part/model number from product title.
+
     Returns: {"manufacturer": str, "mfg_number": str, "item_number": str}
     """
     mfg = {"manufacturer": "", "mfg_number": "", "item_number": asin}
     if not title:
         return mfg
-    
-    # Common patterns: "Brand Model# - desc" or "Brand - Model# desc"
+
     parts = title.split(",")[0].split(" - ")[0].strip()
-    
-    # Extract potential part/model numbers (alphanumeric with dashes, 4+ chars)
+
     model_patterns = re.findall(
         r'\b([A-Z]{1,5}[-]?\d{2,}[A-Z0-9-]*)\b'
         r'|'
@@ -246,30 +143,122 @@ def _extract_mfg_info(title: str, asin: str = "") -> dict:
         title
     )
     models = [m for groups in model_patterns for m in groups if m and len(m) >= 4]
-    
+
     if models:
         mfg["mfg_number"] = models[0]
-    
-    # Brand = first word(s) of title
+
     brand_match = re.match(r'^([A-Za-z][A-Za-z\s&.]{1,25}?)(?:\s+[-–]|\s+[A-Z0-9]{2,}\d|\s*,)', title)
     if brand_match:
         mfg["manufacturer"] = brand_match.group(1).strip()
     elif parts:
         words = parts.split()[:2]
         mfg["manufacturer"] = " ".join(words)
-    
+
     # NEVER use ASIN as a part/MFG number — procurement requires real MFG#
     if mfg["mfg_number"]:
         mfg["item_number"] = mfg["mfg_number"]
     else:
-        mfg["item_number"] = ""  # blank — not ASIN
+        mfg["item_number"] = ""
 
     return mfg
 
 
+# ─── Grok-Powered Product Search ────────────────────────────────────────────
+
+def _grok_search(query: str) -> Optional[dict]:
+    """Search for a product using Grok with built-in web search.
+
+    Returns dict with: product_name, price, url, asin, supplier, confidence
+    or None on failure.
+    """
+    api_key = XAI_API_KEY or os.environ.get("XAI_API_KEY", "")
+    if not api_key or not HAS_REQUESTS:
+        return None
+
+    prompt = f"""Find this product on Amazon or any online retailer. Return the current retail price.
+
+Product: {query}
+
+Search for this exact product. I need:
+1. The exact product name/title as listed
+2. The price (USD)
+3. The product URL (prefer Amazon.com)
+4. The ASIN if it's on Amazon (10-character code starting with B0)
+5. The supplier/retailer name
+
+Respond in this exact JSON format only, no other text:
+{{"product_name": "exact title", "price": 12.99, "url": "https://...", "asin": "B0XXXXXXXX", "supplier": "Amazon", "confidence": 0.85}}
+If you cannot find the product, respond: {{"product_name": "", "price": 0, "url": "", "asin": "", "supplier": "", "confidence": 0}}"""
+
+    try:
+        resp = requests.post(
+            XAI_API_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": XAI_MODEL,
+                "messages": [
+                    {"role": "system", "content": "You are a product research assistant. Always respond with valid JSON only. No markdown formatting."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 500,
+            },
+            timeout=20,
+        )
+        if resp.status_code == 429:
+            log.warning("Grok rate limited in product research")
+            return None
+        if resp.status_code != 200:
+            log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
+            return None
+
+        data = resp.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+        # Strip markdown code blocks
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1]
+            if text.endswith("```"):
+                text = text[:-3]
+            text = text.strip()
+
+        try:
+            result = json.loads(text)
+        except json.JSONDecodeError:
+            json_match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+            else:
+                log.warning("Grok response not JSON: %s", text[:200])
+                return None
+
+        # Normalize
+        result["price"] = float(result.get("price") or 0)
+        result["confidence"] = float(result.get("confidence") or 0)
+        result.setdefault("product_name", "")
+        result.setdefault("url", "")
+        result.setdefault("asin", "")
+        result.setdefault("supplier", "")
+
+        # Extract ASIN from URL if not provided
+        if not result["asin"] and "amazon.com" in result.get("url", ""):
+            asin_m = re.search(r'/dp/([A-Z0-9]{10})', result["url"])
+            if asin_m:
+                result["asin"] = asin_m.group(1)
+
+        return result
+
+    except Exception as e:
+        log.error("Grok product search error: %s", e)
+        return None
+
+
 def search_amazon(query: str, max_results: int = 5) -> list:
     """
-    Search Amazon via SerpApi and extract product prices.
+    Search for products by query. Uses Grok with web search.
 
     Returns list of dicts:
         [{"title": str, "price": float, "asin": str, "url": str, "source": "amazon"}, ...]
@@ -278,250 +267,99 @@ def search_amazon(query: str, max_results: int = 5) -> list:
         log.warning("requests not available")
         return []
 
-    api_key = _get_api_key()
-    if not api_key:
-        log.error("SERPAPI_KEY not set")
+    # Check cache first
+    cached = _cache_lookup(query)
+    if cached and cached.get("found"):
+        r = cached
+        return [{
+            "title": r.get("title", ""),
+            "price": r.get("price", 0),
+            "asin": r.get("asin", ""),
+            "url": r.get("url", ""),
+            "source": "amazon",
+            "manufacturer": r.get("manufacturer", ""),
+            "mfg_number": r.get("mfg_number", ""),
+            "item_number": r.get("item_number", ""),
+        }]
+
+    log.info("Product search: '%s'", query)
+    result = _grok_search(query)
+
+    if not result or result.get("price", 0) <= 0:
         return []
 
-    params = {
-        "engine": "amazon",
-        "k": query,
-        "amazon_domain": "amazon.com",
-        "api_key": api_key,
-        "output": "json",
-    }
+    title = result.get("product_name", "")[:200]
+    asin = result.get("asin", "")
+    url = result.get("url", "")
+    if not url and asin:
+        url = f"https://www.amazon.com/dp/{asin}"
 
-    results = []
-    try:
-        url = f"{SERPAPI_BASE}?{urlencode(params)}"
-        log.info(f"SerpApi Amazon search: '{query}'")
-        resp = requests.get(url, timeout=5)
+    mfg_info = _extract_mfg_info(title, asin)
 
-        if resp.status_code != 200:
-            log.warning(f"SerpApi returned {resp.status_code}: {resp.text[:200]}")
-            return []
+    items = [{
+        "title": title,
+        "price": result["price"],
+        "asin": asin,
+        "url": url,
+        "source": "amazon",
+        "manufacturer": mfg_info.get("manufacturer", ""),
+        "mfg_number": mfg_info.get("mfg_number", ""),
+        "item_number": mfg_info.get("item_number", asin),
+        "photo_url": "",
+    }]
 
-        data = resp.json()
+    # Cache the result
+    _cache_store(query, {
+        "found": True,
+        "price": result["price"],
+        "title": title,
+        "source": "amazon",
+        "url": url,
+        "asin": asin,
+        "manufacturer": mfg_info.get("manufacturer", ""),
+        "mfg_number": mfg_info.get("mfg_number", ""),
+        "item_number": mfg_info.get("item_number", ""),
+    })
 
-        if "error" in data:
-            log.warning(f"SerpApi error: {data['error']}")
-            return []
-
-        # Parse organic_results
-        organic = data.get("organic_results", [])
-        log.info(f"SerpApi: {len(organic)} organic results for '{query}'")
-
-        for item in organic[:max_results * 2]:
-            asin = item.get("asin", "")
-            title = item.get("title", "")
-            if not title:
-                continue
-
-            price = _extract_price(item)
-            if price is None or price <= 0 or price > 100000:
-                log.debug("SerpApi: skipping '%s' — price=%s (keys: %s)",
-                          title[:40], price,
-                          [k for k in item.keys() if 'price' in k.lower()])
-                continue
-
-            link = item.get("link", "")
-            if not link and asin:
-                link = f"https://www.amazon.com/dp/{asin}"
-
-            mfg_info = _extract_mfg_info(title, asin)
-            _thumb = item.get("thumbnail", "") or item.get("image", "")
-            _list_p = _extract_list_price(item)
-            _result = {
-                "title": title[:200],
-                "price": price,
-                "asin": asin,
-                "url": link,
-                "source": "amazon",
-                "rating": item.get("rating"),
-                "reviews": item.get("reviews"),
-                "manufacturer": mfg_info.get("manufacturer", ""),
-                "mfg_number": mfg_info.get("mfg_number", ""),
-                "item_number": mfg_info.get("item_number", asin),
-                "photo_url": _thumb if isinstance(_thumb, str) and _thumb.startswith("http") else "",
-            }
-            if _list_p and _list_p > price:
-                _result["list_price"] = _list_p
-                _result["sale_price"] = price
-            results.append(_result)
-
-            if len(results) >= max_results:
-                break
-
-    except requests.exceptions.Timeout:
-        log.warning("SerpApi request timed out")
-    except Exception as e:
-        log.error(f"SerpApi search error: {e}", exc_info=True)
-
-    return results
+    return items[:max_results]
 
 
 def lookup_amazon_product(asin: str) -> Optional[dict]:
-    """Direct ASIN/ISBN product lookup via SerpApi amazon_product engine.
+    """Look up a product by ASIN. Uses Grok with web search.
     Returns dict with title, price, asin, url, etc. or None."""
-    if not HAS_REQUESTS:
-        return None
-    api_key = _get_api_key()
-    if not api_key:
+    if not asin:
         return None
 
-    params = {
-        "engine": "amazon_product",
+    # Check cache
+    cached = _cache_lookup(f"asin:{asin}")
+    if cached and cached.get("found"):
+        return cached
+
+    result = _grok_search(f"Amazon ASIN {asin}")
+    if not result or result.get("price", 0) <= 0:
+        return None
+
+    title = result.get("product_name", "")[:200]
+    price = result["price"]
+    url = result.get("url", "") or f"https://www.amazon.com/dp/{asin}"
+
+    mfg_info = _extract_mfg_info(title, asin)
+    output = {
+        "title": title,
+        "price": price,
+        "list_price": price,  # Grok returns retail price
+        "sale_price": None,
         "asin": asin,
-        "product_id": asin,
-        "amazon_domain": "amazon.com",
-        "api_key": api_key,
-        "output": "json",
+        "url": url,
+        "source": "amazon_product",
+        "manufacturer": mfg_info.get("manufacturer", ""),
+        "mfg_number": mfg_info.get("mfg_number", ""),
+        "found": True,
     }
-    try:
-        url = f"{SERPAPI_BASE}?{urlencode(params)}"
-        log.info(f"SerpApi product lookup: ASIN/ISBN {asin}")
-        resp = requests.get(url, timeout=5)
-        if resp.status_code != 200:
-            log.warning(f"SerpApi product lookup {resp.status_code}: {resp.text[:200]}")
-            return None
-        data = resp.json()
-        if "error" in data:
-            log.warning(f"SerpApi product error: {data['error']}")
-            return None
 
-        product = data.get("product_results", {})
-        if not product:
-            return None
-        title = product.get("title", "")
-        # Extract price from buybox or price field
-        price = None
-        buybox = data.get("buybox", [])
-        if buybox and isinstance(buybox, list):
-            for bb in buybox:
-                bp = bb.get("price", {})
-                if isinstance(bp, dict):
-                    val = bp.get("value") or bp.get("raw", "")
-                    if val:
-                        try:
-                            price = float(str(val).replace("$", "").replace(",", ""))
-                        except (ValueError, TypeError):
-                            pass
-                elif isinstance(bp, (int, float)):
-                    price = float(bp)
-                if price and price > 0:
-                    break
-        if not price:
-            pp = product.get("price")
-            if isinstance(pp, dict):
-                val = pp.get("value") or pp.get("raw", "")
-                if val:
-                    try:
-                        price = float(str(val).replace("$", "").replace(",", ""))
-                    except (ValueError, TypeError):
-                        pass
-            elif isinstance(pp, (int, float)):
-                price = float(pp)
-            elif isinstance(pp, str):
-                try:
-                    price = float(pp.replace("$", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    pass
-
-        # Extract typical/list price (MSRP) — use as cost basis instead of sale price
-        # SerpApi uses different field names across API versions:
-        #   typical_price, list_price, before_price (product_results level)
-        #   price_strikethrough (buybox level — the crossed-out "was" price)
-        #   rrp (recommended retail price)
-        typical = None
-        for _tp_field in ("typical_price", "list_price", "before_price", "old_price", "rrp"):
-            _tp = product.get(_tp_field)
-            if isinstance(_tp, dict):
-                _tv = _tp.get("value") or _tp.get("raw", "") or _tp.get("extracted_price")
-                if _tv:
-                    try:
-                        typical = float(str(_tv).replace("$", "").replace(",", ""))
-                    except (ValueError, TypeError):
-                        pass
-            elif isinstance(_tp, (int, float)) and _tp > 0:
-                typical = float(_tp)
-            elif isinstance(_tp, str) and _tp:
-                try:
-                    typical = float(_tp.replace("$", "").replace(",", ""))
-                except (ValueError, TypeError):
-                    pass
-            if typical and typical > 0:
-                break
-        # Also check buybox for strikethrough/list price
-        if not typical and buybox and isinstance(buybox, list):
-            for bb in buybox:
-                for _stk_field in ("price_strikethrough", "rrp", "list_price", "was_price"):
-                    _stk = bb.get(_stk_field)
-                    if isinstance(_stk, dict):
-                        _sv = _stk.get("value") or _stk.get("raw", "") or _stk.get("extracted_price")
-                        if _sv:
-                            try:
-                                typical = float(str(_sv).replace("$", "").replace(",", ""))
-                            except (ValueError, TypeError):
-                                pass
-                    elif isinstance(_stk, (int, float)) and _stk > 0:
-                        typical = float(_stk)
-                    elif isinstance(_stk, str) and _stk:
-                        try:
-                            typical = float(_stk.replace("$", "").replace(",", ""))
-                        except (ValueError, TypeError):
-                            pass
-                    if typical and typical > 0:
-                        break
-                if typical and typical > 0:
-                    break
-        # Check extracted_old_price (numeric version SerpApi provides alongside old_price)
-        if not typical:
-            _eop = product.get("extracted_old_price")
-            if isinstance(_eop, (int, float)) and _eop > 0:
-                typical = float(_eop)
-        # Last resort: check top-level pricing_info or savings
-        if not typical and price:
-            _savings = product.get("savings")
-            if isinstance(_savings, dict):
-                _sv = _savings.get("amount") or _savings.get("value")
-                if _sv:
-                    try:
-                        typical = price + float(str(_sv).replace("$", "").replace(",", ""))
-                    except (ValueError, TypeError):
-                        pass
-        if typical and typical > 0:
-            log.info("SerpApi product %s: list/MSRP $%.2f, sale $%.2f", asin, typical, price or 0)
-
-        mfg_info = _extract_mfg_info(title, asin)
-        result = {
-            "title": title[:200],
-            "price": typical or price,  # MSRP first, sale price fallback
-            "list_price": typical,
-            "sale_price": price if typical and price and price < typical else None,
-            "asin": asin,
-            "url": f"https://www.amazon.com/dp/{asin}",
-            "source": "amazon_product",
-            "manufacturer": mfg_info.get("manufacturer", ""),
-            "mfg_number": mfg_info.get("mfg_number", ""),
-        }
-        # Extract product image
-        _img = product.get("main_image") or ""
-        if not _img:
-            _images = product.get("images", [])
-            if _images and isinstance(_images, list):
-                _first = _images[0]
-                _img = _first.get("link") or _first if isinstance(_first, str) else ""
-        if not _img:
-            _img = product.get("thumbnail", "")
-        if _img and isinstance(_img, str) and _img.startswith("http"):
-            result["photo_url"] = _img
-        if typical and price and price < typical:
-            result["discount_pct"] = round((1 - price / typical) * 100, 1)
-        log.info(f"SerpApi product lookup: {asin} → ${price} '{title[:50]}'")
-        return result
-    except Exception as e:
-        log.error(f"SerpApi product lookup error: {e}", exc_info=True)
-        return None
+    _cache_store(f"asin:{asin}", output)
+    log.info("Product lookup: %s → $%.2f '%s'", asin, price, title[:50])
+    return output
 
 
 # ─── Product Research (main entry point) ─────────────────────────────────────
@@ -532,7 +370,7 @@ def research_product(
     use_cache: bool = True,
 ) -> dict:
     """
-    Research a single product. Checks cache first, then searches via SerpApi.
+    Research a single product. Checks cache first, then searches via Grok.
 
     Returns:
         {
@@ -555,11 +393,11 @@ def research_product(
     if use_cache:
         cached = _cache_lookup(query)
         if cached and cached.get("found"):
-            log.info(f"Cache hit for: {query}")
+            log.info("Cache hit for: %s", query)
             cached["source"] = "cache"
             return cached
 
-    # 2. Search Amazon via SerpApi
+    # 2. Search via Grok
     results = search_amazon(query, max_results=5)
 
     if results:
@@ -574,8 +412,6 @@ def research_product(
             "manufacturer": best.get("manufacturer", ""),
             "mfg_number": best.get("mfg_number", ""),
             "item_number": best.get("item_number", best.get("asin", "")),
-            "rating": best.get("rating"),
-            "reviews": best.get("reviews"),
             "alternatives": results[1:] if len(results) > 1 else [],
             "searched": query,
         }
@@ -609,7 +445,7 @@ def research_product(
         "found": False, "price": None, "source": None,
         "title": "", "url": "", "asin": "",
         "alternatives": [], "searched": query,
-        "note": "No Amazon results. Manual cost entry required.",
+        "note": "No results found. Manual cost entry required.",
     }
     not_found["cached_at"] = (datetime.now(timezone.utc) - timedelta(days=CACHE_TTL_DAYS - 1)).isoformat()
     _cache_store(query, not_found)
@@ -661,10 +497,7 @@ def _simplify_query(query: str) -> str:
 # ─── Bulk Research for RFQ ───────────────────────────────────────────────────
 
 def research_rfq_items(rfq_data: dict) -> dict:
-    """
-    Research prices for all line items in an RFQ.
-    Runs sequentially with delays to respect SerpApi rate limits.
-    """
+    """Research prices for all line items in an RFQ."""
     line_items = rfq_data.get("line_items", [])
     results = []
     found = 0
@@ -706,7 +539,6 @@ def research_rfq_items(rfq_data: dict) -> dict:
                 item["supplier_cost"] = result["price"]
                 item["supplier_source"] = result["source"]
                 item["supplier_url"] = result.get("url", "")
-                # Also write to field names the RFQ page reads
                 item["item_link"] = result.get("url", "")
                 item["item_supplier"] = result.get("source", "")
                 RESEARCH_STATUS["prices_found"] = found
@@ -714,7 +546,7 @@ def research_rfq_items(rfq_data: dict) -> dict:
                 not_found += 1
 
         except Exception as e:
-            log.error(f"Research error item {idx}: {e}")
+            log.error("Research error item %d: %s", idx, e)
             RESEARCH_STATUS["errors"].append(str(e))
             results.append({
                 "line_number": item.get("line_number"),
@@ -722,10 +554,8 @@ def research_rfq_items(rfq_data: dict) -> dict:
             })
             not_found += 1
 
-        # SerpApi basic plan: ~1 req/sec. Use 1.5s to be safe.
-        # Cached hits don't count toward limit.
         if idx < len(line_items) - 1:
-            time.sleep(1.5)
+            time.sleep(0.5)
 
     RESEARCH_STATUS.update({
         "running": False, "progress": "complete",
@@ -748,7 +578,7 @@ def research_rfq_items(rfq_data: dict) -> dict:
 # ─── Single Item Lookup (for dashboard) ──────────────────────────────────────
 
 def quick_lookup(query: str) -> dict:
-    """Simple search: pass any text, get back Amazon results."""
+    """Simple search: pass any text, get back product results."""
     cached = _cache_lookup(query)
     if cached and cached.get("found"):
         cached["source"] = "cache"
@@ -792,30 +622,20 @@ def get_research_cache_stats() -> dict:
 # ─── Test ────────────────────────────────────────────────────────────────────
 
 def test_amazon_search(query: str = "nitrile exam gloves") -> dict:
-    """Test SerpApi Amazon search connectivity and parsing."""
+    """Test product search connectivity."""
     try:
-        api_key = _get_api_key()
-
-        # Debug: find any env vars with SERP or API_KEY in the name
-        env_keys = [k for k in os.environ.keys() if "SERP" in k.upper() or "API_KEY" in k.upper()]
-
+        api_key = XAI_API_KEY or os.environ.get("XAI_API_KEY", "")
         results = search_amazon(query, max_results=3)
-
-        debug = {
-            "has_api_key": bool(api_key),
-            "api_key_preview": f"{api_key[:8]}..." if api_key else "NOT SET",
-            "key_source": "env" if os.environ.get("SERPAPI_KEY") else ("file" if api_key else "none"),
-            "engine": "serpapi_amazon",
-            "env_keys_matching": env_keys,
-            "total_env_vars": len(os.environ),
-        }
 
         return {
             "query": query,
             "results_count": len(results),
             "results": results,
             "status": "ok" if results else "no_results",
-            "debug": debug,
+            "debug": {
+                "has_api_key": bool(api_key),
+                "engine": "grok_web_search",
+            },
         }
     except Exception as e:
         import traceback

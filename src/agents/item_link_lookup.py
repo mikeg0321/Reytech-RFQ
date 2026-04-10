@@ -9,7 +9,7 @@ Paste any supplier URL → get back:
   - supplier name
 
 Supported suppliers (with structured parsing):
-  amazon.com       → ASIN-based lookup via SerpApi
+  amazon.com       → ASIN-based lookup via Grok
   grainger.com     → SKU from URL path
   mcmaster.com     → Part number from URL
   fishersci.com    → catalog number
@@ -397,7 +397,7 @@ def _scrape_generic(url: str) -> dict:
 # ─── Supplier-specific handlers ───────────────────────────────────────────────
 
 def _lookup_amazon(url: str) -> dict:
-    """Amazon: extract ASIN, use SerpApi product lookup.
+    """Amazon: extract ASIN, use Grok-powered product lookup.
     Time budget: 12s total to stay within client's 15s timeout."""
     import time as _time
     _t0 = _time.monotonic()
@@ -440,37 +440,6 @@ def _lookup_amazon(url: str) -> dict:
             # Price: always use list/typical price — never sale/coupon price
             _list = r.get("list_price") or r.get("typical_price")
             _sale = r.get("sale_price") or r.get("price")
-
-            # If search returned sale price but no list price, and product lookup
-            # timed out — try a quick 3s product lookup just for the list price
-            if not _list and _sale and asin and not _over_budget():
-                _remaining = _BUDGET - (_time.monotonic() - _t0)
-                if _remaining > 3.0 and not (direct and direct.get("list_price")):
-                    try:
-                        import requests as _req
-                        _api_key = __import__('os').environ.get("SERPAPI_KEY", "")
-                        if _api_key:
-                            from urllib.parse import urlencode as _ue
-                            _params = {"engine": "amazon_product", "asin": asin,
-                                       "product_id": asin, "amazon_domain": "amazon.com",
-                                       "api_key": _api_key, "output": "json"}
-                            _resp = _req.get(f"https://serpapi.com/search?{_ue(_params)}", timeout=3)
-                            if _resp.status_code == 200:
-                                _pd = _resp.json().get("product_results", {})
-                                for _f in ("typical_price", "list_price", "before_price"):
-                                    _tv = _pd.get(_f)
-                                    if isinstance(_tv, dict):
-                                        _tv = _tv.get("value") or _tv.get("raw")
-                                    if _tv:
-                                        try:
-                                            _list = float(str(_tv).replace("$", "").replace(",", ""))
-                                            if _list > 0:
-                                                log.info("Amazon ASIN %s: list $%.2f from quick retry", asin, _list)
-                                                break
-                                        except (ValueError, TypeError):
-                                            pass
-                    except Exception:
-                        pass  # budget-safe — 3s max
 
             _use_price = _list or _sale
             log.info("Amazon ASIN %s: list=$%s sale=$%s use=$%s (%.1fs)",

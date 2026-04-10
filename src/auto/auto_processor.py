@@ -435,7 +435,7 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
                     amazon_found += 1
             except Exception as e:
                 log.error(f"Amazon error: {e}")
-            time.sleep(1.5)  # SerpApi rate limit
+            time.sleep(0.5)  # rate limit between lookups
     result["steps"].append({"step": "amazon", "found": amazon_found, "total": len(items)})
     result["timing"]["amazon"] = round(time.time() - t0, 2)
 
@@ -693,12 +693,11 @@ def system_health_check() -> dict:
         "status": "ok" if HAS_PRICE_CHECK else "missing",
     }
 
-    # Check SerpApi key
-    serpapi_key_file = os.path.join(DATA_DIR, ".serpapi_key")
-    has_serpapi = os.path.exists(serpapi_key_file)
-    health["components"]["serpapi"] = {
-        "available": has_serpapi,
-        "status": "ok" if has_serpapi else "no key configured",
+    # Check Grok (xAI) key for product research
+    has_xai = bool(os.environ.get("XAI_API_KEY", ""))
+    health["components"]["product_search"] = {
+        "available": has_xai,
+        "status": "ok" if has_xai else "XAI_API_KEY not configured",
     }
 
     # Check data directory
@@ -744,7 +743,7 @@ def system_health_check() -> dict:
         if not health["components"].get(c, {}).get("available"):
             health["status"] = "degraded"
     
-    if not has_serpapi:
+    if not has_xai:
         health["status"] = "degraded"
 
     return health

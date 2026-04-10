@@ -6990,7 +6990,7 @@ def api_pricecheck_auto_price(pcid):
 @auth_required
 @safe_route
 def api_pricecheck_price_sweep(pcid):
-    """Multi-supplier price sweep using Google Shopping via SerpApi."""
+    """Multi-supplier price sweep using Grok web search."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
@@ -6999,14 +6999,9 @@ def api_pricecheck_price_sweep(pcid):
         from src.agents.product_catalog import (
             match_item, add_supplier_price, init_catalog_db
         )
-        from src.agents.product_research import _get_api_key, SERPAPI_BASE
-        import requests as _req
+        from src.agents.product_research import search_amazon
 
         init_catalog_db()
-        api_key = _get_api_key()
-        if not api_key:
-            return jsonify({"ok": False, "error": "SERPAPI_KEY not configured"})
-
         items = pc.get("items", [])
         results = []
         found_count = 0
@@ -7031,60 +7026,34 @@ def api_pricecheck_price_sweep(pcid):
                 continue
 
             try:
-                resp = _req.get(SERPAPI_BASE, params={
-                    "engine": "google_shopping",
-                    "q": query,
-                    "api_key": api_key,
-                    "num": 5,
-                }, timeout=15)
-                data = resp.json()
-                shopping = data.get("shopping_results", [])[:5]
-
-                if not shopping:
+                search_results = search_amazon(query, max_results=1)
+                if not search_results:
                     results.append({"idx": i, "found": False, "query": query})
                     continue
 
-                options = []
-                for sr in shopping:
-                    price_str = sr.get("extracted_price") or sr.get("price", "")
-                    price_val = 0
-                    if isinstance(price_str, (int, float)):
-                        price_val = float(price_str)
-                    elif isinstance(price_str, str):
-                        import re as _re
-                        m = _re.search(r"[\d,]+\.?\d*", price_str.replace(",", ""))
-                        if m:
-                            price_val = float(m.group())
-
-                    options.append({
-                        "title": (sr.get("title") or "")[:80],
-                        "price": round(price_val, 2),
-                        "source": sr.get("source", ""),
-                        "link": sr.get("link", ""),
-                        "thumbnail": sr.get("thumbnail", ""),
-                        "shipping": sr.get("delivery", ""),
-                    })
-
-                options = sorted([o for o in options if o["price"] > 0], key=lambda x: x["price"])
-                best = options[0] if options else None
-
-                if best and best["price"] > 0:
+                best = search_results[0]
+                if best.get("price", 0) > 0:
                     cat_matches = match_item(desc, pn, top_n=1)
                     if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.55:
                         pid = cat_matches[0]["id"]
                         add_supplier_price(
-                            pid, best["source"], best["price"],
-                            url=best.get("link", "")
+                            pid, best.get("source", "Amazon"), best["price"],
+                            url=best.get("url", "")
                         )
 
                 results.append({
                     "idx": i, "found": True,
                     "query": query,
-                    "best_price": best["price"] if best else 0,
-                    "best_source": best["source"] if best else "",
-                    "options": options[:5],
+                    "best_price": best["price"],
+                    "best_source": best.get("source", "Amazon"),
+                    "options": [{"title": best.get("title", "")[:80],
+                                 "price": best["price"],
+                                 "source": best.get("source", "Amazon"),
+                                 "link": best.get("url", "")}],
                 })
                 found_count += 1
+                import time as _t
+                _t.sleep(0.5)
 
             except Exception as se:
                 log.debug("sweep item %d error: %s", i, se)
@@ -7094,17 +7063,6 @@ def api_pricecheck_price_sweep(pcid):
             "ok": True, "results": results,
             "found": found_count, "total": len(items)
         })
-    except ImportError as e:
-        # Fallback to Claude web search when SerpApi deps missing
-        try:
-            from src.agents.web_price_research import web_search_for_pc
-            result = web_search_for_pc(pcid)
-            if result.get("ok"):
-                result["source"] = "claude_web_fallback"
-                return jsonify(result)
-        except Exception as _e:
-            log.debug("Suppressed: %s", _e)
-        return jsonify({"ok": False, "error": f"Missing dependency: {e}. Set ANTHROPIC_API_KEY for Claude web search fallback."})
     except Exception as e:
         log.exception("price-sweep error")
         return jsonify({"ok": False, "error": str(e)})

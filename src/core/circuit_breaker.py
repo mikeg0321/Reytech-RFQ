@@ -171,7 +171,7 @@ _DEFAULTS = {
     "amazon":      {"failure_threshold": 5, "recovery_timeout": 60,  "success_threshold": 2},
     "quickbooks":  {"failure_threshold": 3, "recovery_timeout": 300, "success_threshold": 1},
     "web_search":  {"failure_threshold": 5, "recovery_timeout": 60,  "success_threshold": 2},
-    "serpapi":     {"failure_threshold": 3, "recovery_timeout": 120, "success_threshold": 1},
+    "grok":        {"failure_threshold": 3, "recovery_timeout": 120, "success_threshold": 1},
     "gmail":       {"failure_threshold": 3, "recovery_timeout": 300, "success_threshold": 1},
 }
 

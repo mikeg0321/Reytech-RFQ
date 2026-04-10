@@ -10,7 +10,7 @@ Railway env vars:
   AGENT_ITEM_ID_KEY      — Item Identifier agent (Claude Haiku)
   AGENT_LEADGEN_KEY      — Lead Gen agent (Claude Haiku)
   AGENT_PRICING_KEY      — Pricing agent (Claude Haiku)
-  SERPAPI_KEY             — Amazon product research
+  (SERPAPI_KEY removed — replaced by Grok/xAI)
   GMAIL_ADDRESS           — Outbound email sender
   GMAIL_PASSWORD           — Gmail app password
   QB_CLIENT_ID            — QuickBooks OAuth2 client
@@ -62,12 +62,7 @@ _REGISTRY = {
         "agents": ["pricing"],
     },
     # External services
-    "serpapi": {
-        "env": "SERPAPI_KEY",
-        "required": False,
-        "desc": "SerpApi — Amazon product research",
-        "agents": ["product_research"],
-    },
+    # serpapi removed — replaced by Grok (xAI) for product research
     "xai": {
         "env": "XAI_API_KEY",
         "required": False,
@@ -217,7 +212,7 @@ def get_agent_key(agent_name: str) -> str:
         "item_identifier": "agent_item_id",
         "lead_gen": "agent_leadgen",
         "pricing": "agent_pricing",
-        "product_research": "serpapi",
+        "product_research": "xai",
     }
     reg_name = agent_map.get(agent_name, "anthropic_shared")
     return get_key(reg_name)

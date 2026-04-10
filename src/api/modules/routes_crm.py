@@ -776,45 +776,16 @@ def api_research_cache_stats():
 @auth_required
 @safe_route
 def api_debug_env_check():
-    """Check if SERPAPI_KEY is visible to the app."""
+    """Check if API keys are visible to the app."""
     import os
-    serp_val = os.environ.get("SERPAPI_KEY", "")
-    all_keys = sorted(os.environ.keys())
-    serp_matches = [k for k in all_keys if "SERP" in k.upper()]
+    xai_val = os.environ.get("XAI_API_KEY", "")
+    anthropic_val = os.environ.get("ANTHROPIC_API_KEY", "")
     return jsonify({
-        "SERPAPI_KEY_set": bool(serp_val),
-        "SERPAPI_KEY_preview": f"{serp_val[:8]}..." if serp_val else "EMPTY",
-        "serp_matching_keys": serp_matches,
-        "all_env_keys": all_keys,
+        "XAI_API_KEY_set": bool(xai_val),
+        "XAI_API_KEY_preview": f"{xai_val[:8]}..." if xai_val else "EMPTY",
+        "ANTHROPIC_API_KEY_set": bool(anthropic_val),
+        "ANTHROPIC_API_KEY_preview": f"{anthropic_val[:8]}..." if anthropic_val else "EMPTY",
     })
-
-
-@bp.route("/api/config/set-serpapi-key", methods=["POST"])
-@auth_required
-@safe_route
-def api_set_serpapi_key():
-    """Store SerpApi key on persistent volume (POST only — credentials must not appear in URLs/logs)."""
-    data = request.get_json(force=True, silent=True) or {}
-    key = data.get("key", "")
-    if not key:
-        return jsonify({"ok": False, "error": "Send JSON body: {\"key\": \"YOUR_KEY\"}"}), 400
-    key_file = os.path.join(DATA_DIR, ".serpapi_key")
-    with open(key_file, "w") as f:
-        f.write(key.strip())
-    return jsonify({"ok": True, "message": "SerpApi key saved to volume", "preview": f"{key[:8]}..."})
-
-
-@bp.route("/api/config/check-serpapi-key")
-@auth_required
-@safe_route
-def api_check_serpapi_key():
-    """Check if SerpApi key is stored on volume."""
-    key_file = os.path.join(DATA_DIR, ".serpapi_key")
-    if os.path.exists(key_file):
-        with open(key_file) as f:
-            key = f.read().strip()
-        return jsonify({"stored": True, "preview": f"{key[:8]}..." if key else "EMPTY"})
-    return jsonify({"stored": False})
 
 
 # ═══════════════════════════════════════════════════════════════════════
