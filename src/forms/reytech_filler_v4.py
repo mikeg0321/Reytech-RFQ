@@ -401,6 +401,22 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
     clean_values = {k: (_sanitize_for_pdf(v) if isinstance(v, str) else v)
                      for k, v in field_values.items() if v is not None}
 
+    # ── Pre-fill validation: catch field mismatches BEFORE writing ──
+    # Uses TemplateProfile to compare intended fields against actual template fields.
+    # This turns silent failures into explicit warnings.
+    try:
+        from src.forms.template_registry import get_profile
+        _pre_profile = get_profile(input_path)
+        _pre_unmatched = _pre_profile.validate_mapping(clean_values)
+        if _pre_unmatched:
+            import logging as _pflog
+            _pflog.getLogger("reytech.forms").warning(
+                "fill_and_sign_pdf PRE-FILL: %d/%d field names not in template %s: %s",
+                len(_pre_unmatched), len(clean_values),
+                _os.path.basename(input_path), _pre_unmatched[:15])
+    except Exception:
+        pass  # TemplateProfile is best-effort — never block filling
+
     # Convert bool checkbox values to PDF format and track unchecked fields
     _original_clean = dict(clean_values)
     for k, v in list(clean_values.items()):
@@ -758,85 +774,25 @@ def fill_704b(input_path, rfq_data, config, output_path):
     line_items = rfq_data.get("line_items", [])
     merchandise_subtotal = 0.0
 
-    # ── Detect page 0 row capacity from template ────────────────────────
-    # Page 0 uses RowN (no suffix). Page 1 uses RowN_2 for collision rows,
-    # and plain RowN for rows with numbers unique to page 1 (e.g. Row17+).
-    import re as _re704
-    _p0_rows, _p1_rows_2, _p1_rows_plain = [], [], []
-    try:
-        from pypdf import PdfReader as _PR704
-        _r704 = _PR704(input_path)
-        _seen_p0, _seen_p1_2, _seen_p1_plain = set(), set(), set()
-        for _a in (_r704.pages[0].get("/Annots", []) or []):
-            _o = _a.get_object() if hasattr(_a, "get_object") else _a
-            _m = _re704.match(r"QTYRow(\d+)$", str(_o.get("/T", "")))
-            if _m: _seen_p0.add(int(_m.group(1)))
-        if len(_r704.pages) > 1:
-            for _a in (_r704.pages[1].get("/Annots", []) or []):
-                _o = _a.get_object() if hasattr(_a, "get_object") else _a
-                _fn = str(_o.get("/T", ""))
-                _m2 = _re704.match(r"QTYRow(\d+)_2$", _fn)
-                _m1 = _re704.match(r"QTYRow(\d+)$", _fn)
-                if _m2: _seen_p1_2.add(int(_m2.group(1)))
-                elif _m1: _seen_p1_plain.add(int(_m1.group(1)))
-        _p0_rows = sorted(_seen_p0)
-        _p1_rows_2 = sorted(_seen_p1_2)
-        _p1_rows_plain = sorted(_seen_p1_plain)
-        print(f"  704B layout: pg0={len(_p0_rows)} rows, pg1={len(_p1_rows_2)}_2+{len(_p1_rows_plain)} plain")
-    except Exception as _scan_err:
-        print(f"  \u26a0 704B layout scan failed ({_scan_err}) — using default 15-row page 0")
-        _p0_rows = list(range(1, 16))
+    # ── Template introspection via TemplateProfile (single source of truth) ──
+    from src.forms.template_registry import get_profile
+    _profile = get_profile(input_path)
 
     def _row_field(slot):
         """Return the Row field-name suffix for a 1-based sequential slot."""
-        if slot <= len(_p0_rows):
-            return f"Row{_p0_rows[slot - 1]}"
-        p1 = slot - len(_p0_rows)
-        if p1 <= len(_p1_rows_2):
-            return f"Row{_p1_rows_2[p1 - 1]}_2"
-        p1p = p1 - len(_p1_rows_2)
-        if p1p <= len(_p1_rows_plain):
-            return f"Row{_p1_rows_plain[p1p - 1]}"
-        return f"Row{p1}_2"  # fallback
+        r = _profile.row_field_suffix(slot)
+        if r is not None:
+            return r
+        # Fallback for slots beyond detected capacity
+        p2_slot = slot - _profile.pg1_row_count
+        return f"Row{p2_slot}_2"
 
-    # ── Detect if template is agency pre-filled (has QTY values) ──────────
-    # Agency 704B: descriptions span multiple rows, QTY/UOM already filled.
-    # We should ONLY write PRICE PER UNIT and SUBTOTAL to rows that have a #.
-    # Fresh 704B (Cal Vet/generic): we fill everything from scratch.
-    _is_prefilled = False
-    _prefilled_item_rows = {}  # {line_number_value: form_row_suffix}
-    try:
-        from pypdf import PdfReader as _PR704b
-        _tmpl = _PR704b(input_path)
-        _tmpl_fields = _tmpl.get_fields() or {}
-        # Check if any QTY rows have values
-        for row_n in range(1, 25):
-            for sfx in [f"Row{row_n}", f"Row{row_n}_2"]:
-                qty_field = _tmpl_fields.get(f"QTY{sfx}", {})
-                qty_val = str(qty_field.get("/V", "")).strip() if isinstance(qty_field, dict) else ""
-                if qty_val and qty_val not in ("", "0", "/Off"):
-                    _is_prefilled = True
-                    # Find the # (line item number) for this row
-                    hash_field = _tmpl_fields.get(f"#{sfx}", {}) or _tmpl_fields.get(f"Row{row_n}", {})
-                    hash_val = ""
-                    # Try the explicit # field
-                    for hash_name in [f"#{sfx}", f"Row{row_n}"]:
-                        hf = _tmpl_fields.get(hash_name, {})
-                        hv = str(hf.get("/V", "")).strip() if isinstance(hf, dict) else ""
-                        if hv and hv.isdigit():
-                            hash_val = hv
-                            break
-                    if hash_val:
-                        _prefilled_item_rows[int(hash_val)] = sfx
-                    else:
-                        # No explicit # field — infer line number by counting
-                        # rows that have QTY values
-                        inferred_num = len(_prefilled_item_rows) + 1
-                        _prefilled_item_rows[inferred_num] = sfx
-        if _is_prefilled:
-            print(f"  704B: agency pre-filled detected ({len(_prefilled_item_rows)} item rows: {_prefilled_item_rows})")
-    except Exception as _pf_err:
-        print(f"  ⚠ 704B pre-fill detection failed: {_pf_err}")
+    _is_prefilled = _profile.is_prefilled
+    _prefilled_item_rows = dict(_profile.prefilled_item_rows)
+    print(f"  704B layout (TemplateProfile): pg0={_profile.pg1_row_count} rows, "
+          f"pg1={len(_profile.pg2_rows_suffixed)}_2+{len(_profile.pg2_rows_plain)} plain")
+    if _is_prefilled:
+        print(f"  704B: agency pre-filled detected ({len(_prefilled_item_rows)} item rows: {_prefilled_item_rows})")
 
     # Fix duplicate line numbers at generation time only (does not save back)
     for _i, _item in enumerate(line_items, start=1):
@@ -899,14 +855,13 @@ def fill_704b(input_path, rfq_data, config, output_path):
         values[f"SIGNATURE DATE{sfx}"] = sign_date
         values[f"Signature Date{sfx}"] = sign_date
 
-    # Log all field names in this template for diagnostics
-    try:
-        from pypdf import PdfReader as _PR704
-        _r704 = _PR704(input_path)
-        _all_fields = list((_r704.get_fields() or {}).keys())
-        print(f"  704B template fields ({len(_all_fields)}): {_all_fields[:20]}")
-    except Exception:
-        pass
+    # Log all field names in this template for diagnostics (via TemplateProfile)
+    print(f"  704B template fields ({len(_profile.field_names)}): {sorted(_profile.field_names)[:20]}")
+
+    # Pre-fill validation: warn about field names we're about to write that don't exist
+    _unmatched = _profile.validate_mapping(values)
+    if _unmatched:
+        print(f"  \u26a0 704B: {len(_unmatched)} field names not in template (will be ignored): {_unmatched[:10]}")
 
     # Leading space pushes text past the printed "$"
     values["fill_154"] = f" {merchandise_subtotal:.2f}"
@@ -918,26 +873,12 @@ def fill_704b(input_path, rfq_data, config, output_path):
     fill_and_sign_pdf(input_path, values, tmp_path, sign_date=sign_date)
 
     # Some CCHCS combined templates embed the 703B form as page 0 of the 704B file.
-    # Detect this: if page 0 has 703B-specific fields or "BIDDER INFORMATION" text, skip it.
-    # Otherwise (standalone 704B), keep all pages.
+    # Detection is cached in TemplateProfile — no need to re-scan the filled PDF.
     try:
         from pypdf import PdfReader as _PR, PdfWriter as _PW
         _reader = _PR(tmp_path)
-        _page0_is_703b = False
-        if len(_reader.pages) > 1:
-            _p0_annots = _reader.pages[0].get("/Annots", []) or []
-            for _a in _p0_annots:
-                _obj = _a.get_object() if hasattr(_a, "get_object") else _a
-                _fn = str(_obj.get("/T", ""))
-                if _fn.startswith("703B_") or "Business Name" in _fn:
-                    _page0_is_703b = True
-                    break
-            if not _page0_is_703b:
-                _p0_text = (_reader.pages[0].extract_text() or "").upper()
-                if "BIDDER INFORMATION" in _p0_text and "REQUEST FOR QUOTATION" in _p0_text:
-                    _page0_is_703b = True
 
-        if _page0_is_703b:
+        if _profile.has_embedded_703b:
             _writer = _PW()
             for _pg in _reader.pages[1:]:
                 _writer.add_page(_pg)

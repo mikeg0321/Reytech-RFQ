@@ -2471,29 +2471,24 @@ def fill_ams704(
         else:
             log.info("fill_ams704: Ship to already has value '%s' — not overwriting", _existing_ship[:40])
 
-    # Read PDF fields early for FOB detection + multi-page detection later
-    try:
-        _pdf_fields = PdfReader(source_pdf).get_fields() or {}
-    except Exception:
-        _pdf_fields = {}
-    if _pdf_fields:
-        log.info("fill_ams704: %d PDF fields found. Checkbox fields: %s",
-                 len(_pdf_fields),
-                 [fn for fn in sorted(_pdf_fields.keys())
+    # ── Template introspection via TemplateProfile (single read, cached) ──
+    from src.forms.template_registry import get_profile
+    _profile = get_profile(source_pdf)
+    _pdf_fields = {fn: None for fn in _profile.field_names}  # compat dict for legacy refs
+    if _profile.field_names:
+        log.info("fill_ams704: %d PDF fields found (via TemplateProfile). Checkbox fields: %s",
+                 len(_profile.field_names),
+                 [fn for fn in sorted(_profile.field_names)
                   if any(k in fn.lower() for k in ("check", "fob", "box", "dest", "freight"))][:10])
 
-    # FOB Destination, Freight Prepaid checkbox — ONLY this specific checkbox.
-    # Do NOT check FOB Destination (PP/ADD) or FOB Origin Freight Collect.
-    _fob_names_to_check = {"Check Box4", "FOB Destination Freight Prepaid",
-                           "FOB Destination  Freight Prepaid",
-                           "CheckBox4", "fob_prepaid", "FOBDestinationFreightPrepaid"}
-    # Dynamic scan: find the FOB Destination Freight Prepaid field specifically
-    # Must match "destination" AND "prepaid" (not just "destination" alone)
-    for _fn in _pdf_fields:
-        _fn_lower = _fn.lower().replace(" ", "")
-        if "fobdestination" in _fn_lower and "prepaid" in _fn_lower:
-            _fob_names_to_check.add(_fn)
-            log.info("fill_ams704: Found FOB Prepaid checkbox field: '%s'", _fn)
+    # FOB Destination, Freight Prepaid checkbox — from TemplateProfile detection
+    _fob_names_to_check = set(_profile.fob_prepaid_fields)
+    # Also add static fallbacks that may not match the dynamic pattern
+    for _static_fob in ("FOB Destination Freight Prepaid",
+                        "FOB Destination  Freight Prepaid",
+                        "FOBDestinationFreightPrepaid"):
+        if _profile.has_field(_static_fob):
+            _fob_names_to_check.add(_static_fob)
     for _fob_name in _fob_names_to_check:
         field_values.append({
             "field_id": _fob_name,
@@ -2505,21 +2500,16 @@ def fill_ams704(
     subtotal = 0.0
     items_priced = 0
 
-    # ── Detect if template is pre-filled by buyer ──
-    _form_is_prefilled = False
-    try:
-        from pypdf import PdfReader as _PrePR
-        _pre_check = _PrePR(source_pdf)
-        _pre_fields = _pre_check.get_fields() or {}
+    # ── Detect if template is pre-filled by buyer (via TemplateProfile) ──
+    _form_is_prefilled = _profile.is_prefilled
+    # Also check legacy field names that TemplateProfile's QTYRow scan may miss
+    if not _form_is_prefilled:
         for _check_field in ["Qty_1", "QTY_1", "qty_1", "fill_5"]:
-            _pv = str((_pre_fields.get(_check_field) or {}).get("/V", "")).strip()
-            if _pv and _pv not in ("", "0"):
+            _pv = _profile.get_field_value(_check_field)
+            if _pv and _pv not in ("0", "/Off"):
                 _form_is_prefilled = True
+                log.info("fill_ams704: pre-filled detected via legacy field '%s'", _check_field)
                 break
-        if _form_is_prefilled:
-            log.info("fill_ams704: template is pre-filled — switching to pricing-only mode")
-    except Exception:
-        pass
 
     if _form_is_prefilled and not original_mode:
         original_mode = True
@@ -2569,13 +2559,13 @@ def fill_ams704(
             occupied_rows.add(_r)
     overflow_rows = set()  # Track rows used for description overflow
 
-    # _pdf_fields already read above (before FOB check)
-    _has_suffix_fields = any("_2" in fname for fname in _pdf_fields)
-
-    # Detect page layout from actual PDF field positions
-    _pg1_rows, _pg2_rows, _pg2_extra = _detect_page_layout(_pdf_fields, source_pdf=source_pdf)
-    _form_capacity = _pg1_rows + _pg2_rows + _pg2_extra  # Total items fillable via form fields
-    log.info("fill_ams704: layout pg1=%d, pg2_suffix=%d, pg2_extra=%d, capacity=%d, has_suffix=%s",
+    # Layout detection via TemplateProfile (replaces inline _detect_page_layout)
+    _has_suffix_fields = _profile.has_suffix_fields
+    _pg1_rows = _profile.pg1_row_count
+    _pg2_rows = len(_profile.pg2_rows_suffixed)
+    _pg2_extra = len(_profile.pg2_rows_plain)
+    _form_capacity = _profile.row_capacity
+    log.info("fill_ams704: layout pg1=%d, pg2_suffix=%d, pg2_extra=%d, capacity=%d, has_suffix=%s (via TemplateProfile)",
              _pg1_rows, _pg2_rows, _pg2_extra, _form_capacity, _has_suffix_fields)
 
     for item_idx, item in enumerate(items):
@@ -2933,7 +2923,7 @@ def fill_ams704(
         # Pages 3+: overflow items beyond form capacity
         _overflow = _max_item_row - _form_capacity
         _pages_with_items = 2 + ((_overflow - 1) // _pg2_rows) + 1
-    _pdf_total_pages = len(PdfReader(source_pdf).pages) if source_pdf else 1
+    _pdf_total_pages = _profile.page_count or 1
 
     # When keep_all_pages=True (DOCX-converted sources), treat all source pages as having content.
     # The converted PDF preserves the buyer's layout — don't trim any pages.
