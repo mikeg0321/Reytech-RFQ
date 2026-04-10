@@ -4205,7 +4205,16 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
             pages_with_items.add(pg_idx)
         check_row += rows_on_page
 
-    if not keep_all_pages and len(pages_with_items) < len(writer.pages):
+    # For DOCX sources (keep_all_pages), still remove blank transition pages
+    # (pages where detection was active but found 0 items — e.g. "TOTAL PRICE $" only)
+    if keep_all_pages:
+        for pg_idx in range(num_pages):
+            if pg_idx == 0:
+                pages_with_items.add(pg_idx)  # always keep page 1
+            elif _using_detected and pg_idx < len(detected) and detected[pg_idx]:
+                pages_with_items.add(pg_idx)  # keep pages with detected items
+            # Skip pages with no detection and no items (blank transition pages)
+    if len(pages_with_items) < len(writer.pages):
         trimmed_writer = PdfWriter()
         for pg_idx in range(len(writer.pages)):
             if pg_idx in pages_with_items:
