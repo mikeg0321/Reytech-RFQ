@@ -2492,7 +2492,8 @@ def fill_ams704(
     subtotal = 0.0
     items_priced = 0
 
-    # ── Detect if template is pre-filled by buyer (via TemplateProfile) ──
+    # ── Fill strategy via FillStrategy enum (replaces original_mode boolean) ──
+    from src.forms.ams704_helpers import FillStrategy
     _form_is_prefilled = _profile.is_prefilled
     # Also check legacy field names that TemplateProfile's QTYRow scan may miss
     if not _form_is_prefilled:
@@ -2503,9 +2504,16 @@ def fill_ams704(
                 log.info("fill_ams704: pre-filled detected via legacy field '%s'", _check_field)
                 break
 
+    _strategy = FillStrategy.for_pc(
+        is_prefilled=_form_is_prefilled,
+        is_docx_source=keep_all_pages,
+    )
+    # Backward compat: sync original_mode with strategy for downstream code
     if _form_is_prefilled and not original_mode:
         original_mode = True
         log.info("fill_ams704: auto-switched to original_mode (pre-filled template detected)")
+    log.info("fill_ams704: strategy=%s (original_mode=%s, keep_all_pages=%s)",
+             _strategy.value, original_mode, keep_all_pages)
 
     # ── Fill buyer header fields when template is blank (not pre-filled) ──
     # DOCX-sourced PCs use the blank template, so we must write requestor/institution/etc.

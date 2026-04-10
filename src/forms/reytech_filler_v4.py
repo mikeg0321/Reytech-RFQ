@@ -774,9 +774,9 @@ def fill_704b(input_path, rfq_data, config, output_path):
     line_items = rfq_data.get("line_items", [])
     merchandise_subtotal = 0.0
 
-    # ── Template introspection via TemplateProfile (single source of truth) ──
+    # ── Template introspection + fill strategy ──
     from src.forms.template_registry import get_profile
-    from src.forms.ams704_helpers import normalize_line_item, build_row_field_name
+    from src.forms.ams704_helpers import LineItem, FillStrategy
     _profile = get_profile(input_path)
 
     def _row_field(slot):
@@ -787,12 +787,13 @@ def fill_704b(input_path, rfq_data, config, output_path):
         p2_slot = slot - _profile.pg1_row_count
         return f"Row{p2_slot}_2"
 
-    _is_prefilled = _profile.is_prefilled
+    _strategy = FillStrategy.for_rfq(is_prefilled=_profile.is_prefilled)
     _prefilled_item_rows = dict(_profile.prefilled_item_rows)
     print(f"  704B layout (TemplateProfile): pg0={_profile.pg1_row_count} rows, "
           f"pg1={len(_profile.pg2_rows_suffixed)}_2+{len(_profile.pg2_rows_plain)} plain")
-    if _is_prefilled:
-        print(f"  704B: agency pre-filled detected ({len(_prefilled_item_rows)} item rows: {_prefilled_item_rows})")
+    print(f"  704B strategy: {_strategy.value}")
+    if _strategy == FillStrategy.RFQ_PREFILLED:
+        print(f"  704B: agency pre-filled ({len(_prefilled_item_rows)} item rows: {_prefilled_item_rows})")
 
     # Fix duplicate line numbers at generation time only (does not save back)
     for _i, _item in enumerate(line_items, start=1):
@@ -801,35 +802,37 @@ def fill_704b(input_path, rfq_data, config, output_path):
     seq = 0
     for _raw_item in line_items:
         seq += 1
-        item = normalize_line_item(_raw_item)
-        price = item["price_per_unit"]
-        qty = item["qty"]
+        li = LineItem.from_dict(_raw_item)
+        price = li.unit_price
+        qty = li.qty
         subtotal = round(price * qty, 2)
         merchandise_subtotal += subtotal
 
-        if _is_prefilled:
-            # Agency pre-filled: ONLY write price + subtotal to the correct row
-            item_num = item.get("line_number") or seq
+        # Determine row field suffix
+        if _strategy == FillStrategy.RFQ_PREFILLED:
+            item_num = li.line_number or seq
             if item_num in _prefilled_item_rows:
                 r = _prefilled_item_rows[item_num]
             else:
                 r = _row_field(seq)
-            values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-            values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
         else:
-            # Fresh template: write everything
             r = _row_field(seq)
-            values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-            values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
-            values[f"ITEM NUMBER{r}"] = item["part_number"]
+
+        # Pricing — all strategies write these
+        values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
+        values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
+
+        # Item details — only when strategy allows
+        if _strategy.writes_descriptions:
+            values[f"ITEM NUMBER{r}"] = li.part_number
             values[f"QTY{r}"] = str(qty) if qty else ""
-            values[f"UOM{r}"] = item["uom"]
-            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = item["description"]
+            values[f"UOM{r}"] = li.uom
+            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = li.description
             values[f"#{r}"] = str(seq)
             sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
-            if item.get("is_substitute"):
-                mfg = item.get("mfg_number", "")
-                values[sub_field] = f"{item['description']} (MFG# {mfg})" if mfg else item["description"]
+            if li.is_substitute:
+                mfg = li.mfg_number
+                values[sub_field] = f"{li.description} (MFG# {mfg})" if mfg else li.description
             else:
                 values[sub_field] = ""
 
