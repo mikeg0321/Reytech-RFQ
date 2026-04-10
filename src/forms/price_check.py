@@ -3646,12 +3646,14 @@ def _detect_ams704_overlay_positions(source_pdf):
                 grouped_h[-1] = y  # keep the lower line of the pair
 
         # ── Find item numbers in the leftmost column ──
+        # Only accept numbers below the column headers (ext_header bottom + margin)
+        _item_y_min = ext_header["bottom"] + 3
         item_positions = []  # [(item_num, pdfplumber_y_top), ...]
         for w in words:
             t = w["text"].strip()
             if (t.isdigit() and 1 <= int(t) <= 50
-                    and w["x0"] < pw * 0.09
-                    and w["top"] > ph * 0.15):  # skip page header area
+                    and w["x0"] < pw * 0.07
+                    and w["top"] > _item_y_min):  # must be below column headers
                 item_positions.append((int(t), w["top"]))
         item_positions.sort(key=lambda x: x[1])  # sort by Y position
 
@@ -3680,7 +3682,11 @@ def _detect_ams704_overlay_positions(source_pdf):
         else:
             table_bottom = last_item_y + 50
 
-        # Build item row boundaries
+        # Build item row boundaries — use only the PRICE sub-row (lower half)
+        # Each item cell has upper (description) and lower (price) sub-rows
+        # separated by an h-line. We return only the price sub-row so that
+        # prices are vertically centered in the correct ~22pt band, not the
+        # full ~44pt cell.
         for i in range(len(item_cell_tops)):
             cell_top_pl = item_cell_tops[i]
             if i + 1 < len(item_cell_tops):
@@ -3688,7 +3694,17 @@ def _detect_ams704_overlay_positions(source_pdf):
             else:
                 cell_bot_pl = table_bottom
 
-            rl_y_top = _to_rl_y(cell_top_pl) - 1
+            # Find h-line sub-divider(s) within this cell
+            sub_dividers = [h for h in grouped_h
+                            if cell_top_pl + 5 < h < cell_bot_pl - 5]
+            if sub_dividers:
+                # Last sub-divider = top of price sub-row
+                price_top_pl = max(sub_dividers)
+            else:
+                # No sub-divider found — use bottom half as fallback
+                price_top_pl = (cell_top_pl + cell_bot_pl) / 2
+
+            rl_y_top = _to_rl_y(price_top_pl) - 1
             rl_y_bot = _to_rl_y(cell_bot_pl) + 1
             if rl_y_top > rl_y_bot:
                 info["item_rows"].append((rl_y_bot, rl_y_top))
@@ -4219,7 +4235,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     writer = PdfWriter()
     writer.append(reader)
 
-    from pypdf.generic import NameObject, TextStringObject, ArrayObject, DictionaryObject
+    from pypdf.generic import NameObject, TextStringObject, ArrayObject, DictionaryObject, NumberObject
 
     has_acroform = "/AcroForm" in writer._root_object
 
@@ -4355,6 +4371,9 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
                     font_size = calc_font_size(val, width)
                     da_str = f"/Helv {font_size:.1f} Tf 0 g"
                     annot[NameObject("/DA")] = TextStringObject(da_str)
+                    # Right-align price, extension, and total fields
+                    if any(k in name for k in ("PRICE PER UNIT", "EXTENSION", "fill_7")):
+                        annot[NameObject("/Q")] = NumberObject(2)
             except Exception:
                 pass
 
