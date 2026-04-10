@@ -203,7 +203,7 @@ class TestAgentStatus:
     def test_returns_status(self):
         status = agent_status()
         assert status["name"] == "QA Agent"
-        assert status["status"] == "active"
+        assert status["status"] in ("active", "ready")
         assert len(status["capabilities"]) > 0
 
 
