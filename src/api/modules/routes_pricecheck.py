@@ -4751,8 +4751,11 @@ def api_scprs_raw():
 @auth_required
 @safe_route
 def api_status():
+    # Filter POLL_STATUS to only JSON-serializable values
+    safe_poll = {k: v for k, v in POLL_STATUS.items()
+                 if isinstance(v, (str, int, float, bool, list, dict, type(None)))}
     return jsonify({
-        "poll": POLL_STATUS,
+        "poll": safe_poll,
         "scprs_db": get_price_db_stats(),
         "rfqs": len(load_rfqs()),
     })
@@ -5301,21 +5304,47 @@ def api_reset_processed():
 @auth_required
 @safe_route
 def api_pricing_recommend():
-    """Get three-tier pricing recommendation for an RFQ's line items."""
-    if not PRICING_ORACLE_AVAILABLE:
-        return jsonify({"error": "Pricing oracle not available — check won_quotes_db.py and pricing_oracle.py are in repo"}), 503
-
+    """Get pricing recommendations for an RFQ's line items (V2 oracle)."""
     data = request.get_json(force=True, silent=True) or {}
     rid = data.get("rfq_id")
 
+    source = data
     if rid:
         rfqs = load_rfqs()
         rfq = rfqs.get(rid)
         if not rfq:
             return jsonify({"error": f"RFQ {rid} not found"}), 404
-        result = recommend_prices_for_rfq(rfq, config_overrides=data.get("config"))
+        source = rfq
+
+    # Feature-flagged: V2 oracle (default ON), V1 fallback
+    from src.core.feature_flags import get_flag
+    if get_flag("pricing_v2", default=True):
+        from src.core.pricing_oracle_v2 import get_pricing
+        items_data = source.get("line_items", [])
+        agency = source.get("agency", data.get("agency", "CCHCS"))
+        priced = []
+        for item in items_data:
+            r = get_pricing(
+                description=item.get("description", ""),
+                quantity=item.get("qty", 1) or 1,
+                cost=item.get("supplier_cost") or item.get("price_per_unit"),
+                item_number=item.get("item_number", ""),
+                department=agency,
+            )
+            priced.append(r)
+        result = {
+            "rfq_id": source.get("solicitation_number", rid or ""),
+            "agency": agency,
+            "items": priced,
+            "summary": {
+                "total_items": len(priced),
+                "priced": sum(1 for p in priced if (p.get("recommendation") or {}).get("quote_price")),
+            }
+        }
     else:
-        result = recommend_prices_for_rfq(data, config_overrides=data.get("config"))
+        if not PRICING_ORACLE_AVAILABLE:
+            return jsonify({"error": "Pricing oracle not available"}), 503
+        result = recommend_prices_for_rfq(source, config_overrides=data.get("config"))
 
     return jsonify(result)
 

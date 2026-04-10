@@ -87,8 +87,11 @@ def verify_database(db_path: str) -> dict:
     try:
         with open(db_path, "rb") as f:
             header = f.read(16)
-        _check("sqlite_header", header[:6] == b"SQLite",
+        is_sqlite = header[:6] == b"SQLite"
+        _check("sqlite_header", is_sqlite,
                f"Header: {header[:16]}")
+        if not is_sqlite:
+            return result
     except Exception as e:
         _check("sqlite_header", False, str(e))
         return result

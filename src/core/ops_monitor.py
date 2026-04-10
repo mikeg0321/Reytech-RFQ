@@ -761,9 +761,15 @@ _monitor_started = False
 
 
 def start_ops_monitor():
-    """Start background monitoring threads. Call once from app startup."""
+    """Start background monitoring threads. Call once from app startup.
+
+    Does NOT start in testing environments to avoid DB locks during pytest.
+    """
     global _monitor_started
     if _monitor_started:
+        return
+    if os.environ.get("FLASK_ENV") in ("testing", "test"):
+        log.debug("Ops monitor disabled in testing environment")
         return
     _monitor_started = True
 

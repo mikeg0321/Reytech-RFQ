@@ -1290,6 +1290,49 @@ CREATE TABLE IF NOT EXISTS supplier_profiles (
     created_at              TEXT DEFAULT (datetime('now')),
     updated_at              TEXT DEFAULT (datetime('now'))
 );
+
+-- PRICING ORACLE V2 TABLES (moved from runtime creation to schema)
+
+CREATE TABLE IF NOT EXISTS oracle_calibration (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    agency TEXT DEFAULT '',
+    sample_size INTEGER DEFAULT 0,
+    win_count INTEGER DEFAULT 0,
+    loss_on_price INTEGER DEFAULT 0,
+    loss_on_other INTEGER DEFAULT 0,
+    avg_winning_margin REAL DEFAULT 25,
+    avg_losing_delta REAL DEFAULT 0,
+    recommended_max_markup REAL DEFAULT 30,
+    competitor_floor REAL DEFAULT 0,
+    last_updated TEXT,
+    UNIQUE(category, agency)
+);
+
+CREATE TABLE IF NOT EXISTS winning_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,
+    quote_number TEXT,
+    po_number TEXT,
+    order_id TEXT,
+    agency TEXT,
+    institution TEXT,
+    description TEXT NOT NULL,
+    part_number TEXT,
+    sku TEXT,
+    qty REAL DEFAULT 1,
+    sell_price REAL NOT NULL,
+    cost REAL DEFAULT 0,
+    margin_pct REAL DEFAULT 0,
+    supplier TEXT,
+    category TEXT,
+    catalog_product_id INTEGER,
+    fingerprint TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wp_fingerprint ON winning_prices(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_wp_part ON winning_prices(part_number);
+CREATE INDEX IF NOT EXISTS idx_wp_institution ON winning_prices(institution);
+CREATE INDEX IF NOT EXISTS idx_wp_recorded ON winning_prices(recorded_at);
 """
 
 def init_db():

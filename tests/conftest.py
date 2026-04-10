@@ -112,25 +112,15 @@ def temp_data_dir(tmp_path, monkeypatch):
             monkeypatch.setattr(_paths_mod, "DATA_DIR", data)
         except ImportError:
             pass
-        # Create minimal schema in both test DBs so counter and settings work
-        _MINIMAL_TABLES = [
-            """CREATE TABLE IF NOT EXISTS app_settings (
-                key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system')""",
-            """CREATE TABLE IF NOT EXISTS quotes (
-                quote_number TEXT PRIMARY KEY, status TEXT, total REAL, agency TEXT,
-                institution TEXT, po_number TEXT, contact_name TEXT, contact_email TEXT,
-                subtotal REAL, tax REAL, created_at TEXT, updated_at TEXT, is_test INTEGER DEFAULT 0,
-                source TEXT, sent_at TEXT, line_items TEXT, ship_to_name TEXT, ship_to_address TEXT,
-                pdf_path TEXT, source_pc_id TEXT, source_rfq_id TEXT, status_notes TEXT,
-                requestor TEXT, notes TEXT, status_history TEXT, expires_at TEXT,
-                closed_by_agent TEXT, close_reason TEXT, revision_count INTEGER DEFAULT 0,
-                win_probability REAL, last_follow_up TEXT, follow_up_count INTEGER DEFAULT 0,
-                received_at TEXT, first_opened_at TEXT, priced_at TEXT, generated_at TEXT,
-                time_to_price_mins REAL, time_to_send_mins REAL)""",
-        ]
+        # Use the REAL schema from db.py so test DB always matches production.
+        # Never maintain a separate copy — that's how columns go missing.
         _conn = sqlite3.connect(_db_path)
-        for _sql in _MINIMAL_TABLES:
-            _conn.execute(_sql)
+        try:
+            from src.core.db import SCHEMA
+            _conn.executescript(SCHEMA)
+        except Exception:
+            _conn.execute("""CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY, value TEXT, updated_at TEXT, updated_by TEXT DEFAULT 'system')""")
         # Seed counter so _load_counter() and _next_quote_number() agree on initial value
         import datetime as _dt
         _now = _dt.datetime.now().isoformat()
@@ -142,8 +132,7 @@ def temp_data_dir(tmp_path, monkeypatch):
                 (_key, _val, _now))
         _conn.commit()
         _conn.close()
-        # Run full init_db() to create all tables (email_outbox, price_checks, etc.)
-        # Tests like test_manager_agent need these tables to exist.
+        # Run full init_db() to create remaining tables + run column migrations
         try:
             _db_mod.init_db()
         except Exception:
