@@ -4581,32 +4581,35 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
         buf = io.BytesIO()
         c = rl_canvas.Canvas(buf, pagesize=(page_width, page_height))
 
-        # ── Clip + white-mask the signature cell ──
-        # clipPath prevents ANY drawing from touching cell borders.
-        # White fill clears baked-in "Signature and Date" label text.
+        # ── Clip + white-mask ONLY the bottom portion of the signature cell ──
+        # Preserve the "Signature and Date" label at the top of the cell.
+        # Only mask and draw in the lower 60% where the actual signature goes.
         _SP = 4  # inset from cell edge to preserve border lines
+        _sig_area_top = fb + fh * 0.55  # top of signature drawing area (bottom 55%)
         c.saveState()
         clip = c.beginPath()
-        clip.rect(fl + _SP, fb + _SP, fw - _SP * 2, fh - _SP * 2)
+        clip.rect(fl + _SP, fb + _SP, fw - _SP * 2, _sig_area_top - fb - _SP)
         c.clipPath(clip, stroke=0)
         c.setFillColorRGB(1, 1, 1)
-        c.rect(fl + _SP, fb + _SP, fw - _SP * 2, fh - _SP * 2, fill=1, stroke=0)
+        c.rect(fl + _SP, fb + _SP, fw - _SP * 2, _sig_area_top - fb - _SP, fill=1, stroke=0)
 
-        # ── Draw signature image (left portion of cell) ──
+        # ── Draw signature image (left portion, within bottom area) ──
+        _sig_draw_h = _sig_area_top - fb - _SP * 2
         if sig_path:
             try:
                 img = ImageReader(sig_path)
-                c.drawImage(img, fl + _SP + 1, fb + _SP + 1, width=sig_w, height=sig_h,
+                c.drawImage(img, fl + _SP + 1, fb + _SP + 1, width=sig_w, height=_sig_draw_h,
                            mask='auto', preserveAspectRatio=True, anchor='sw')
             except Exception as e:
                 log.warning("Could not draw signature image: %s", e)
 
-        # ── Draw date (right portion of cell) ──
+        # ── Draw date (right portion, vertically centered in bottom area) ──
         today = f"{_pst_now().month}/{_pst_now().day}/{_pst_now().year}"
-        date_fs = min(9, (fh - _SP * 2) * 0.6)
+        date_fs = min(9, _sig_draw_h * 0.6)
+        _date_y = fb + _SP + (_sig_draw_h - date_fs) / 2
         c.setFont("Helvetica", date_fs)
         c.setFillColorRGB(0, 0, 0)
-        c.drawString(date_x, date_y, today)
+        c.drawString(date_x, _date_y, today)
         c.restoreState()
 
         c.save()
