@@ -4751,8 +4751,11 @@ def api_scprs_raw():
 @auth_required
 @safe_route
 def api_status():
+    # Filter POLL_STATUS to only JSON-serializable values
+    safe_poll = {k: v for k, v in POLL_STATUS.items()
+                 if isinstance(v, (str, int, float, bool, list, dict, type(None)))}
     return jsonify({
-        "poll": POLL_STATUS,
+        "poll": safe_poll,
         "scprs_db": get_price_db_stats(),
         "rfqs": len(load_rfqs()),
     })
