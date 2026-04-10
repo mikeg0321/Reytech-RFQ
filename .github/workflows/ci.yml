@@ -150,6 +150,8 @@ jobs:
           DASH_USER: test
           DASH_PASS: test
           FLASK_ENV: testing
+          ENABLE_BACKGROUND_AGENTS: "false"
+          ENABLE_EMAIL_POLLING: "false"
         run: |
           python -m pytest tests/ \
             --ignore=tests/test_award_intelligence.py \
