@@ -4203,7 +4203,20 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
                  len(writer.pages), len(trimmed_writer.pages), sorted(pages_with_items))
         writer = trimmed_writer
 
-    _add_signature_to_pdf(writer, source_pdf_path=source_pdf)
+    # Pass detected sig position for DOCX layouts (Row 2 middle cell = Signature and Date)
+    _detected_sig = None
+    if _using_detected and detected and detected[0]:
+        _d0 = detected[0]
+        # The "Address" cell is Row 2 left. "Discount Offered" is Row 2 right.
+        # Signature is in between — use Address right edge to Discount left edge,
+        # at the same Y range as Address.
+        _addr = _d0.get("supplier_cells", {}).get("Address")
+        _disc = _d0.get("supplier_cells", {}).get("Discount Offered")
+        if _addr and _disc:
+            _detected_sig = (_addr[2] + 2, _addr[1], _disc[0] - 2, _addr[3])
+            log.info("OVERLAY: detected sig rect from supplier cells: (%.0f, %.0f, %.0f, %.0f)",
+                     *_detected_sig)
+    _add_signature_to_pdf(writer, source_pdf_path=source_pdf, sig_rect_override=_detected_sig)
     with open(output_pdf, "wb") as f:
         writer.write(f)
     log.info("Filled AMS 704 (OVERLAY) to %s — %d pages", output_pdf, len(writer.pages))
@@ -4491,7 +4504,7 @@ def _detect_sig_field_rect(source_pdf_or_writer):
     return None
 
 
-def _add_signature_to_pdf(writer, source_pdf_path=None):
+def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
     """Overlay signature image and date onto the Signature field.
 
     Uses dynamic field detection when possible, falls back to reference
@@ -4502,7 +4515,9 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
     import io
 
     # ── Detect actual field boundaries ──
-    sig_rect = _detect_sig_field_rect(writer)
+    sig_rect = sig_rect_override  # From detected DOCX supplier cells
+    if not sig_rect:
+        sig_rect = _detect_sig_field_rect(writer)
     if not sig_rect and source_pdf_path:
         try:
             sig_rect = _detect_sig_field_rect(PdfReader(source_pdf_path))
@@ -4530,11 +4545,14 @@ def _add_signature_to_pdf(writer, source_pdf_path=None):
     sx = page_width / 792.0
     sy = page_height / 612.0
 
-    # Apply scaling to field rect
-    fl = field_left * sx
-    fb = field_bot * sy
-    fr = field_right * sx
-    ft = field_top * sy
+    # Apply scaling to field rect (skip if override provided — already absolute)
+    if sig_rect_override:
+        fl, fb, fr, ft = field_left, field_bot, field_right, field_top
+    else:
+        fl = field_left * sx
+        fb = field_bot * sy
+        fr = field_right * sx
+        ft = field_top * sy
     fw = fr - fl
     fh = ft - fb
 
