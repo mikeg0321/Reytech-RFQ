@@ -2605,22 +2605,36 @@ def _generate_pc_pdf(pcid):
     # detects row positions via pdfplumber and draws supplier info + pricing.
     _src_ext = os.path.splitext(source_pdf)[1].lower()
     _is_docx_source = _src_ext in (".docx", ".doc", ".xlsx", ".xls")
-    # Also detect DOCX files that were converted to PDF during upload (e.g. "file.docx.pdf")
     _src_basename = os.path.basename(source_pdf).lower()
     _is_converted_docx = (not _is_docx_source and _src_ext == ".pdf"
                           and any(x in _src_basename for x in (".docx.", ".doc.", ".xlsx.", ".xls.")))
-    # For DOCX/office sources: ALWAYS use the blank AMS 704 template.
-    # LibreOffice-converted DOCXs produce flat PDFs with different layouts than the
-    # standard 704 template — overlay coordinates don't match, causing misaligned
-    # supplier info and pricing. The DOCX is for parsing only; output uses Reytech's
-    # standard form with proper form fields.
-    if _is_docx_source or _is_converted_docx:
-        _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
-        if os.path.exists(_blank_704):
-            log.info("GENERATE %s: DOCX source — using blank 704 template (form fields)", pcid)
-            source_pdf = _blank_704
-        else:
-            return {"ok": False, "error": "Source is a DOCX and blank 704 template not found. Upload a PDF source instead."}
+    # For DOCX/office sources: convert to PDF via LibreOffice to preserve the buyer's
+    # form layout. The overlay path uses pdfplumber to detect row positions dynamically.
+    if _is_docx_source:
+        try:
+            from src.forms.doc_converter import convert_to_pdf, can_convert_to_pdf
+            if can_convert_to_pdf():
+                _convert_dir = os.path.join(DATA_DIR, "pc_pdfs")
+                os.makedirs(_convert_dir, exist_ok=True)
+                _converted = convert_to_pdf(source_pdf, _convert_dir)
+                source_pdf = _converted
+                log.info("GENERATE %s: converted %s → PDF (%s)", pcid, _src_ext, os.path.basename(_converted))
+            else:
+                # Fallback: use blank AMS 704 template when LibreOffice unavailable
+                _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
+                if os.path.exists(_blank_704):
+                    log.warning("GENERATE %s: LibreOffice unavailable — using blank 704 template", pcid)
+                    source_pdf = _blank_704
+                else:
+                    return {"ok": False, "error": f"Source is an office document ({_src_ext}) and LibreOffice is not available."}
+        except Exception as _conv_e:
+            log.error("GENERATE %s: DOCX→PDF conversion failed: %s", pcid, _conv_e)
+            _blank_704 = os.path.join(DATA_DIR, "templates", "ams_704_blank.pdf")
+            if os.path.exists(_blank_704):
+                log.warning("GENERATE %s: falling back to blank 704 template", pcid)
+                source_pdf = _blank_704
+            else:
+                return {"ok": False, "error": f"DOCX→PDF conversion failed: {_conv_e}"}
 
     # Detailed logging: what exactly will fill_ams704 receive?
     _fill_items = parsed.get("line_items", [])
@@ -2693,7 +2707,7 @@ def _generate_pc_pdf(pcid):
         tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
-        keep_all_pages=False,  # blank template handles pagination via form fields
+        keep_all_pages=_is_docx_source or _is_converted_docx,
     )
 
     # Log result
