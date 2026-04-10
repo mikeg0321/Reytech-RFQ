@@ -4558,7 +4558,7 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
 
     # Layout: signature image takes left 60%, date in right 20%
     sig_w = min(fw * 0.60, 220)
-    sig_h = fh + 4  # slightly taller than cell for visual weight
+    sig_h = fh - 6  # fit WITHIN cell (leave 3pt padding top + bottom)
     date_x = fr - fw * 0.22  # right quarter
     date_y = fb + (fh - 9) / 2  # vertically centered for ~9pt font
 
@@ -4596,7 +4596,7 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
         if sig_path:
             try:
                 img = ImageReader(sig_path)
-                c.drawImage(img, fl + _SP + 1, fb + _SP, width=sig_w, height=sig_h - _SP,
+                c.drawImage(img, fl + _SP + 1, fb + _SP + 1, width=sig_w, height=sig_h,
                            mask='auto', preserveAspectRatio=True, anchor='sw')
             except Exception as e:
                 log.warning("Could not draw signature image: %s", e)
