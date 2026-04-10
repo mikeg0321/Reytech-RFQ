@@ -2870,7 +2870,8 @@ def fill_ams704(
         json.dump(field_values, f, indent=2)
 
     # Trim source template to needed pages for form fill (max 2 — pages 3+ added by overflow)
-    _fill_pages = min(_pages_with_items, 2)  # Form fields only on pages 1-2
+    # Skip trimming when keep_all_pages=True (DOCX sources need all pages preserved)
+    _fill_pages = _pdf_total_pages if keep_all_pages else min(_pages_with_items, 2)
     _fill_source = source_pdf
     _trimmed_tmp = None
     if _fill_pages < _pdf_total_pages:
@@ -2893,7 +2894,7 @@ def fill_ams704(
 
     # Fill the PDF (form fields handle pages 1-2)
     try:
-        _fill_pdf_fields(_fill_source, field_values, output_pdf)
+        _fill_pdf_fields(_fill_source, field_values, output_pdf, keep_all_pages=keep_all_pages)
     except Exception as e:
         return {"ok": False, "error": f"PDF fill error: {e}"}
     finally:
@@ -3810,7 +3811,7 @@ def _detect_ams704_overlay_positions(source_pdf):
     return pages
 
 
-def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str):
+def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str, keep_all_pages: bool = False):
     """
     Fallback for flat/DocuSign PDFs with no fillable form fields.
     Uses pdfplumber to auto-detect item table positions when possible.
@@ -3982,8 +3983,16 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             rows = pg_detected["item_rows"]
             price_x = pg_detected["price_x"]
             ext_x = pg_detected["ext_x"]
+        elif _using_detected:
+            # Detection is active but this page failed (e.g. DOCX transition page
+            # with no items). Skip entirely — don't use hardcoded fallback which
+            # would misalign and consume row slots needed by later pages.
+            rows = []
+            price_x = (0, 0)
+            ext_x = (0, 0)
+            log.info("OVERLAY pg%d: detection active but page failed — skip (no hardcoded fallback)", pg_idx)
         else:
-            # Hardcoded fallback with scaling
+            # Hardcoded fallback with scaling (non-detected PDFs only)
             _sx = pw / 792.0
             _sy = ph / 612.0
             rows = [(_sy * yb, _sy * yt) for yb, yt in (_HC_PG1_ROWS if is_pg1 else _HC_PG2_ROWS)]
@@ -4181,6 +4190,8 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     for pg_idx in range(num_pages):
         if _using_detected and pg_idx < len(detected) and detected[pg_idx]:
             rows_on_page = len(detected[pg_idx]["item_rows"])
+        elif _using_detected:
+            rows_on_page = 0  # detection active but page failed — 0 rows (same as overlay)
         else:
             rows_on_page = len(_HC_PG1_ROWS) if pg_idx == 0 else len(_HC_PG2_ROWS)
         page_first = check_row
@@ -4194,7 +4205,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             pages_with_items.add(pg_idx)
         check_row += rows_on_page
 
-    if len(pages_with_items) < len(writer.pages):
+    if not keep_all_pages and len(pages_with_items) < len(writer.pages):
         trimmed_writer = PdfWriter()
         for pg_idx in range(len(writer.pages)):
             if pg_idx in pages_with_items:
@@ -4222,7 +4233,7 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
     log.info("Filled AMS 704 (OVERLAY) to %s — %d pages", output_pdf, len(writer.pages))
 
 
-def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
+def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_all_pages: bool = False):
     """
     Fill PDF form fields with auto-fit font sizing.
 
@@ -4277,7 +4288,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     if not has_acroform:
         log.warning("_fill_pdf_fields: No /AcroForm and no Widget annotations — using text overlay for %s",
                      os.path.basename(source_pdf))
-        _fill_pdf_text_overlay(source_pdf, field_values, output_pdf)
+        _fill_pdf_text_overlay(source_pdf, field_values, output_pdf, keep_all_pages=keep_all_pages)
         return
 
     # ── Check if AcroForm has any writable text fields ──
@@ -4306,7 +4317,7 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str):
     if _writable_text_fields == 0:
         log.info("_fill_pdf_fields: AcroForm has 0 writable text fields (DocuSign/flat) — forcing overlay for %s",
                   os.path.basename(source_pdf))
-        _fill_pdf_text_overlay(source_pdf, field_values, output_pdf)
+        _fill_pdf_text_overlay(source_pdf, field_values, output_pdf, keep_all_pages=keep_all_pages)
         return
 
     # ── Native form-field fill path ──
