@@ -174,6 +174,8 @@ def download_form(form_id, form_info, force=False):
                     }
                     log.warning("FORM FIELD CHANGE: %s added=%s removed=%s",
                                form_id, list(added)[:3], list(removed)[:3])
+                    _on_field_change(form_id, list(added), list(removed),
+                                    target_path)
         except Exception:
             pass
 
@@ -190,6 +192,29 @@ def download_form(form_id, form_info, force=False):
         if os.path.exists(tmp):
             os.remove(tmp)
         return result
+
+
+def _on_field_change(form_id, added_fields, removed_fields, template_path):
+    """Called when DGS publishes a new version of a form with field changes.
+
+    Invalidates cached TemplateProfile and records the change in the
+    template learning DB so the pipeline can re-evaluate strategies.
+    """
+    # 1. Invalidate TemplateProfile cache for this template
+    try:
+        from src.forms.template_registry import invalidate_cache
+        invalidate_cache(template_path)
+    except Exception as e:
+        log.debug("_on_field_change: cache invalidation failed: %s", e)
+
+    # 2. Record change in template learning DB
+    try:
+        from src.forms.template_learning import record_template_change
+        record_template_change(form_id, added_fields, removed_fields)
+    except Exception as e:
+        log.debug("_on_field_change: learning record failed: %s", e)
+
+    log.info("FORM UPDATE: %s changed — cache invalidated, change recorded", form_id)
 
 
 def update_all_forms(force=False):
