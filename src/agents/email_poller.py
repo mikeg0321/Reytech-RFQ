@@ -1688,9 +1688,9 @@ class EmailPoller:
             if self._use_gmail_api and self._gmail_service:
                 # Gmail API: search with query string
                 since_date = (datetime.now() - timedelta(days=30)).strftime("%Y/%m/%d")
-                query = (f"in:inbox category:primary after:{since_date} "
+                query = (f"in:inbox after:{since_date} "
                          f"-from:noreply -from:no-reply -from:mailer-daemon "
-                         f"-label:promotions -label:social -label:updates -label:forums")
+                         f"-from:notifications@ -from:newsletter@ -from:marketing@")
                 try:
                     from src.core.gmail_api import list_message_ids
                     all_ids = list_message_ids(self._gmail_service, query, max_results=500)
@@ -2146,20 +2146,11 @@ class EmailPoller:
                                 except Exception:
                                     pass
                                 
-                                # Trigger vendor ordering pipeline
-                                try:
-                                    from src.agents.vendor_ordering_agent import process_won_quote_ordering
-                                    if po_items:
-                                        process_won_quote_ordering(
-                                            quote_number=matched_quote,
-                                            items=po_items,
-                                            agency=po_agency,
-                                            po_number=po_number or "",
-                                            run_async=True,
-                                        )
-                                        log.info("Vendor ordering triggered for %s", matched_quote)
-                                except Exception as _voe:
-                                    log.debug("Vendor ordering trigger: %s", _voe)
+                                # AUTO VENDOR ORDERING DISABLED — was sending POs to
+                                # vendors automatically without human review, causing
+                                # duplicate/unwanted emails (2026-04-09 incident).
+                                # Vendor POs must be sent manually from the order detail page.
+                                log.info("Vendor ordering SKIPPED for %s (auto-ordering disabled — use order detail page)", matched_quote)
                                 
                                 # Log revenue
                                 try:
