@@ -526,7 +526,7 @@ def _parse_704_structured_text(text: str) -> list:
             "description": final_desc,
             "part_number": part_number,
             "item_link": "",
-            "row_index": len(items),
+            "row_index": len(items) + 1,  # 1-based for form field mapping (Row1, Row2, ...)
         })
 
     if items:
@@ -598,7 +598,7 @@ def parse_items_from_text(text: str) -> list:
                 "description": current_desc,
                 "part_number": current_part or current_asin,
                 "item_link": "",
-                "row_index": len(items),
+                "row_index": len(items) + 1,  # 1-based for form field mapping
             })
         current_desc = ""
         current_qty = 1
