@@ -2699,38 +2699,44 @@ def _generate_pc_pdf(pcid):
         _rv = float(_sr)
         _gen_tax = _rv / 100.0 if _rv > 1.0 else _rv
 
-    result = fill_ams704(
-        source_pdf=source_pdf,
-        parsed_pc=parsed,
+    # ── Self-Healing Pipeline: generate → verify → repair → gate ──
+    from src.forms.document_pipeline import DocumentPipeline
+
+    pipeline = DocumentPipeline(
+        source_file=source_pdf,
+        parsed_data=parsed,
         output_pdf=output_path,
         tax_rate=_gen_tax,
         custom_notes=pc.get("custom_notes", ""),
         delivery_option=pc.get("delivery_option", ""),
         keep_all_pages=_is_docx_source or _is_converted_docx,
+        pc_id=pcid,
+        buyer_agency=pc.get("agency", ""),
     )
+    pipe_result = pipeline.execute()
 
-    # Log result
-    log.info("GENERATE %s: fill_ams704 result: ok=%s, items_priced=%s, subtotal=%s",
-             pcid, result.get("ok"), result.get("summary", {}).get("items_priced"),
-             result.get("summary", {}).get("subtotal"))
-    if not result.get("ok"):
-        log.error("GENERATE %s FAILED: %s", pcid, result.get("error"))
+    log.info("GENERATE %s: pipeline result: ok=%s, score=%d, strategy=%s, attempts=%d",
+             pcid, pipe_result.ok, pipe_result.verification_score,
+             pipe_result.strategy_used, len(pipe_result.attempts))
 
-    if result.get("ok"):
-        pc["output_pdf"] = output_path
+    if pipe_result.ok:
+        pc["output_pdf"] = pipe_result.output_path
+        pc["verification_score"] = pipe_result.verification_score
+        pc["generation_strategy"] = pipe_result.strategy_used
+        pc["generation_attempts"] = len(pipe_result.attempts)
         # Don't downgrade: if already sent/won, keep that status (this is a revision)
         if pc.get("status") not in ("sent", "pending_award", "won", "lost", "no_response"):
-            _transition_status(pc, "draft", actor="system", notes="704 PDF filled")
+            _transition_status(pc, "draft", actor="system", notes="704 PDF filled (verified 100%)")
         else:
-            _transition_status(pc, pc["status"], actor="system", notes="704 PDF revised (status preserved)")
-        pc["summary"] = result.get("summary", {})
+            _transition_status(pc, pc["status"], actor="system", notes="704 PDF revised (verified 100%)")
+        pc["summary"] = pipe_result.summary
         _save_single_pc(pcid, pc)
 
-        # Run Form QA on generated 704
+        # Run Form QA on generated 704 (additional check on top of pipeline)
         _qa_warnings = []
         try:
             from src.forms.form_qa import verify_single_form
-            _qa = verify_single_form(output_path, "704b", pc, CONFIG)
+            _qa = verify_single_form(pipe_result.output_path, "704b", pc, CONFIG)
             if not _qa["passed"]:
                 log.warning("GENERATE %s: Form QA FAIL — %s", pcid, "; ".join(_qa["issues"]))
             _qa_warnings = _qa.get("warnings", [])
@@ -2740,7 +2746,7 @@ def _generate_pc_pdf(pcid):
         # Run Visual QA — vision-based rendering check (V4)
         try:
             from src.forms.pdf_visual_qa import inspect_pdf
-            _vqa = inspect_pdf(output_path, company_name="Reytech Inc.")
+            _vqa = inspect_pdf(pipe_result.output_path, company_name="Reytech Inc.")
             if not _vqa.passed:
                 for _vi in _vqa.errors:
                     log.warning("GENERATE %s: Visual QA ERROR — %s", pcid, _vi.description)
@@ -2760,11 +2766,27 @@ def _generate_pc_pdf(pcid):
         # Catalog all line items for future matching
         _enrich_catalog_from_pc(pc)
 
-        gen_result = {"ok": True, "output_path": output_path, "summary": result.get("summary", {})}
+        gen_result = {
+            "ok": True,
+            "output_path": pipe_result.output_path,
+            "summary": pipe_result.summary,
+            "verification_score": pipe_result.verification_score,
+            "strategy_used": pipe_result.strategy_used,
+            "strategies_tried": len(pipe_result.attempts),
+        }
         if _qa_warnings:
             gen_result["qa_warnings"] = _qa_warnings
         return gen_result
-    return {"ok": False, "error": result.get("error", "Unknown error")}
+
+    # Pipeline BLOCKED — all strategies failed
+    log.error("GENERATE %s: PIPELINE BLOCKED — score=%d, strategies tried=%d",
+              pcid, pipe_result.verification_score, len(pipe_result.attempts))
+    return {
+        "ok": False,
+        "error": pipe_result.error,
+        "verification_score": pipe_result.verification_score,
+        "attempts": pipe_result.attempt_summaries,
+    }
 
 
 def _do_generate(pcid):
@@ -8904,6 +8926,38 @@ def api_find_better_pricing(pcid, idx):
         quantity=qty, uom=uom,
     )
     return jsonify(result)
+
+
+@bp.route("/api/pc/health-check", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_health_check():
+    """Batch health check: validate all existing PC output PDFs."""
+    try:
+        from src.forms.batch_health import run_health_check
+        body = request.get_json(silent=True) or {}
+        auto_regen = body.get("auto_regenerate", False)
+        max_items = body.get("max", 50)
+        report = run_health_check(
+            auto_regenerate=auto_regen,
+            max_items=max_items,
+        )
+        return jsonify({"ok": True, "report": report})
+    except Exception as e:
+        log.error("health-check error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pc/health-summary")
+@auth_required
+@safe_route
+def api_pc_health_summary():
+    """Quick health summary without full re-verification."""
+    try:
+        from src.forms.batch_health import get_health_summary
+        return jsonify({"ok": True, "summary": get_health_summary()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/oracle/health")

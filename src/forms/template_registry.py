@@ -53,6 +53,21 @@ def get_profile(pdf_path: str) -> "TemplateProfile":
     return _profile_cache[key]
 
 
+def invalidate_cache(pdf_path: str):
+    """Remove all cached profiles for a specific template path.
+
+    Called when form_updater detects a DGS form template has changed,
+    so the next get_profile() call will re-introspect the updated file.
+    """
+    abs_path = os.path.abspath(pdf_path)
+    keys_to_remove = [k for k in _profile_cache if k[0] == abs_path]
+    for k in keys_to_remove:
+        del _profile_cache[k]
+    if keys_to_remove:
+        log.info("invalidate_cache: removed %d cached profiles for %s",
+                 len(keys_to_remove), os.path.basename(pdf_path))
+
+
 class TemplateProfile:
     """Introspect a PDF template and expose its structure.
 
@@ -101,8 +116,14 @@ class TemplateProfile:
         # 703B embedded as page 0 of a 704B
         self.has_embedded_703b: bool = False
 
+        # Pipeline risk assessment (set by _assess_risk after introspection)
+        self.fill_recommendation: str = "form_fields"
+        self.risk_level: str = "low"       # "low" | "medium" | "high"
+        self.risk_reasons: list[str] = []
+
         # Run all detection
         self._introspect()
+        self._assess_risk()
 
     # ── Derived properties ─────────────────────────────────────────────
 
@@ -429,6 +450,50 @@ class TemplateProfile:
         if self.is_prefilled:
             log.info("TemplateProfile: pre-filled detected (%d item rows: %s)",
                      len(self.prefilled_item_rows), self.prefilled_item_rows)
+
+    # ── Risk assessment (for pipeline strategy selection) ────────────
+
+    def _assess_risk(self):
+        """Set risk_level and fill_recommendation based on introspection.
+
+        Called once after _introspect(). Helps DocumentPipeline choose the
+        initial fill strategy and skip known-failing approaches.
+        """
+        self.risk_reasons = []
+        self.risk_level = "low"
+        self.fill_recommendation = "form_fields"
+
+        if self.is_flattened:
+            self.fill_recommendation = "overlay"
+            self.risk_level = "medium"
+            self.risk_reasons.append("Flattened PDF — no form fields")
+
+        if self.field_names and len(self.field_names) < 10 and not self.is_flattened:
+            self.risk_level = "medium"
+            self.risk_reasons.append(
+                f"Only {len(self.field_names)} fields (expected 30+)")
+
+        if self.pg1_row_count == 0 and not self.is_flattened:
+            self.risk_level = "high"
+            self.risk_reasons.append("No QTY row fields detected")
+            self.fill_recommendation = "overlay"
+
+        # DocuSign artifacts: has /AcroForm but only sig fields, no text fields
+        docusign_only = (
+            self.field_names
+            and all(
+                any(k in fn.lower() for k in ("sig", "docusign", "initial"))
+                for fn in self.field_names
+            )
+        )
+        if docusign_only:
+            self.fill_recommendation = "overlay"
+            self.risk_level = "high"
+            self.risk_reasons.append("DocuSign-only fields (no text fields)")
+
+        if self.risk_reasons:
+            log.info("TemplateProfile risk: level=%s recommendation=%s reasons=%s",
+                     self.risk_level, self.fill_recommendation, self.risk_reasons)
 
     # ── String representation ──────────────────────────────────────────
 

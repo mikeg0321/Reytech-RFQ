@@ -1333,6 +1333,21 @@ CREATE INDEX IF NOT EXISTS idx_wp_fingerprint ON winning_prices(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_wp_part ON winning_prices(part_number);
 CREATE INDEX IF NOT EXISTS idx_wp_institution ON winning_prices(institution);
 CREATE INDEX IF NOT EXISTS idx_wp_recorded ON winning_prices(recorded_at);
+
+CREATE TABLE IF NOT EXISTS template_strategies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    score INTEGER NOT NULL,
+    source_type TEXT DEFAULT '',
+    pc_id TEXT DEFAULT '',
+    buyer_agency TEXT DEFAULT '',
+    event_type TEXT DEFAULT 'generation',
+    detail TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ts_fingerprint ON template_strategies(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_ts_strategy ON template_strategies(strategy);
 """
 
 def init_db():
