@@ -399,5 +399,82 @@ class TestUploadRoute:
         assert pc.get("status") == "parsed"
 
 
+@pytest.mark.skipif(not has_non_food, reason="Non-food DOCX not available")
+class TestReparseRoute:
+    """Test the reparse route with DOCX files — verifies regex fallback works."""
+
+    def _seed_pc_with_source(self, temp_data_dir, pc_id, docx_path):
+        """Create a PC with source_pdf pointing to the DOCX file."""
+        import json
+        import shutil
+        # Copy DOCX to the temp data dir (simulating uploaded file)
+        upload_dir = os.path.join(temp_data_dir, "pc_pdfs")
+        os.makedirs(upload_dir, exist_ok=True)
+        dest = os.path.join(upload_dir, f"{pc_id}_source.docx")
+        shutil.copy2(docx_path, dest)
+
+        pcs = {pc_id: {
+            "id": pc_id,
+            "pc_number": "TEST-REPARSE",
+            "institution": "CIW",
+            "status": "new",
+            "items": [{"description": "GARBAGE ITEM", "qty": 1}] * 34,
+            "parsed": {},
+            "source_pdf": dest,
+        }}
+        pc_path = os.path.join(temp_data_dir, "price_checks.json")
+        with open(pc_path, "w") as f:
+            json.dump(pcs, f)
+
+    def _load_pc(self, temp_data_dir, pc_id):
+        import json
+        import sqlite3
+        db_path = os.path.join(temp_data_dir, "reytech.db")
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT * FROM price_checks WHERE id=?", (pc_id,)
+            ).fetchone()
+            conn.close()
+            if row:
+                pc = dict(row)
+                if pc.get("data_json"):
+                    return json.loads(pc["data_json"])
+                if pc.get("items") and isinstance(pc["items"], str):
+                    pc["items"] = json.loads(pc["items"])
+                return pc
+        pc_path = os.path.join(temp_data_dir, "price_checks.json")
+        if os.path.exists(pc_path):
+            with open(pc_path) as f:
+                return json.load(f).get(pc_id, {})
+        return {}
+
+    def test_reparse_nonfood_produces_3_items(self, client, temp_data_dir):
+        """Reparse a DOCX-based PC — should go from 34 garbage items to 3 real ones."""
+        pc_id = "test-reparse-nonfood"
+        self._seed_pc_with_source(temp_data_dir, pc_id, NON_FOOD_DOCX)
+
+        resp = client.post(f"/pricecheck/{pc_id}/reparse")
+
+        data = resp.get_json() if hasattr(resp, 'get_json') else {}
+        assert resp.status_code == 200, f"Reparse failed: {resp.status_code} {data}"
+        assert data.get("ok"), f"Reparse error: {data}"
+        assert data.get("items") == 3, f"Expected 3 items, got {data}"
+
+    @pytest.mark.skipif(not has_food, reason="Food DOCX not available")
+    def test_reparse_food_produces_5_items(self, client, temp_data_dir):
+        """Reparse a multi-page DOCX — should produce 5 items."""
+        pc_id = "test-reparse-food"
+        self._seed_pc_with_source(temp_data_dir, pc_id, FOOD_DOCX)
+
+        resp = client.post(f"/pricecheck/{pc_id}/reparse")
+
+        data = resp.get_json() if hasattr(resp, 'get_json') else {}
+        assert resp.status_code == 200, f"Reparse failed: {resp.status_code} {data}"
+        assert data.get("ok"), f"Reparse error: {data}"
+        assert data.get("items") == 5, f"Expected 5 items, got {data}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])

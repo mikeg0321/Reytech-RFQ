@@ -2265,10 +2265,25 @@ def pricecheck_reparse(pcid):
         try:
             from src.forms.doc_converter import extract_text as _extr_text
             from src.forms.vision_parser import parse_from_text, is_available as _vis_avail
-            if not _vis_avail():
-                return jsonify({"ok": False, "error": "AI parsing unavailable for office docs"})
             doc_text = _extr_text(source_pdf)
-            fresh = parse_from_text(doc_text, source_path=source_pdf) or {}
+            fresh = None
+            # Try AI extraction first
+            if _vis_avail():
+                fresh = parse_from_text(doc_text, source_path=source_pdf)
+                if not fresh or not fresh.get("line_items"):
+                    log.warning("REPARSE %s: AI returned no items, trying regex fallback", pcid)
+                    fresh = None
+            else:
+                log.warning("REPARSE %s: AI unavailable, trying regex fallback", pcid)
+            # Regex fallback (handles structured 704 DOCX text directly)
+            if not fresh:
+                from src.forms.doc_converter import parse_items_from_text
+                fallback_items = parse_items_from_text(doc_text)
+                if fallback_items:
+                    fresh = {"line_items": fallback_items, "header": {},
+                             "parse_method": "regex_fallback", "source_pdf": source_pdf}
+                else:
+                    fresh = {}
         except Exception as e:
             return jsonify({"ok": False, "error": f"Office doc re-parse failed: {e}"})
     else:
