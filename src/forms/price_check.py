@@ -3719,12 +3719,25 @@ def _detect_ams704_overlay_positions(source_pdf):
                         rl_center = _to_rl_y(_cy)
                         info["totals_cells"][total_ids[ti]] = (
                             _left_x, rl_center - _val_h / 2, _right_x, rl_center + _val_h / 2)
-                    # Extrapolate remaining rows if fewer than 4 $ signs
+                    # Extrapolate remaining rows using h-lines as boundaries
                     if len(_dollar_signs) < 4:
-                        _gap = (_dollar_signs[-1]["top"] - _dollar_signs[0]["top"]) / max(len(_dollar_signs) - 1, 1)
+                        _last_ds_bot = _dollar_signs[-1]["bottom"]
+                        # Find h-lines below last $ to use as row dividers
+                        _remaining_h = sorted([h for h in grouped_h if h > _last_ds_bot + 3])
+                        # Add page footer boundary
+                        _remaining_h.append(ph - 20)
+                        _prev_y = _last_ds_bot + 5  # start just below last $
+                        _extra_idx = 0
                         for ti in range(len(_dollar_signs), 4):
-                            _extra_y = _dollar_signs[-1]["top"] + _gap * (ti - len(_dollar_signs) + 1)
-                            rl_center = _to_rl_y(_extra_y)
+                            if _extra_idx < len(_remaining_h):
+                                _next_y = _remaining_h[_extra_idx]
+                                _row_mid = (_prev_y + _next_y) / 2
+                                rl_center = _to_rl_y(_row_mid)
+                                _prev_y = _next_y  # next row starts at this h-line
+                                _extra_idx += 1
+                            else:
+                                rl_center = _to_rl_y(_prev_y + 10)
+                                _prev_y += 20
                             info["totals_cells"][total_ids[ti]] = (
                                 _left_x, rl_center - _val_h / 2, _right_x, rl_center + _val_h / 2)
                     log.info("OVERLAY detect pg%d: totals from %d $ signs: %s",
