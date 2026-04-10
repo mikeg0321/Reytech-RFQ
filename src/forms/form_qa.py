@@ -581,6 +581,82 @@ def verify_package_completeness(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Requirements Validation (Email = Contract)
+# ═══════════════════════════════════════════════════════════════════════
+
+def validate_against_requirements(
+    generated_files: list,
+    requirements_json: str,
+    rfq_data: dict = None,
+) -> dict:
+    """Check that generated package satisfies email-extracted requirements.
+
+    Args:
+        generated_files: List of generated PDF filenames.
+        requirements_json: JSON string of RFQRequirements.to_dict().
+        rfq_data: Full RFQ dict (for due_date, etc.).
+
+    Returns:
+        {"gaps": [{"type": str, "form_id": str, "msg": str, "severity": str}],
+         "confirmed": [str],
+         "confidence": float}
+    """
+    import json as _json
+    result = {"gaps": [], "confirmed": [], "confidence": 0.0}
+
+    if not requirements_json or requirements_json == "{}":
+        return result
+
+    try:
+        reqs = _json.loads(requirements_json) if isinstance(requirements_json, str) else requirements_json
+    except (ValueError, TypeError):
+        return result
+
+    confidence = reqs.get("confidence", 0.0)
+    result["confidence"] = confidence
+    forms_required = reqs.get("forms_required", [])
+    gen_lower = [fn.lower() for fn in generated_files]
+
+    # Check each required form
+    for form_id in forms_required:
+        # See if any generated file matches this form
+        found = any(form_id.replace("_", "") in fn.replace("_", "") for fn in gen_lower)
+        if found:
+            result["confirmed"].append(form_id)
+        else:
+            result["gaps"].append({
+                "type": "missing_form",
+                "form_id": form_id,
+                "msg": f"Email requires {form_id.upper()} but none generated",
+                "severity": "warning",
+            })
+
+    # Check food items → OBS-1600
+    if reqs.get("food_items_present") and "obs_1600" not in forms_required:
+        if not any("obs" in fn or "1600" in fn for fn in gen_lower):
+            result["gaps"].append({
+                "type": "missing_form",
+                "form_id": "obs_1600",
+                "msg": "Email mentions food items — OBS 1600 certification may be required",
+                "severity": "warning",
+            })
+
+    # Check due date
+    rfq_data = rfq_data or {}
+    req_due = reqs.get("due_date", "")
+    rfq_due = rfq_data.get("due_date", "")
+    if req_due and rfq_due in ("TBD", "", None):
+        result["gaps"].append({
+            "type": "due_date_missing",
+            "form_id": "",
+            "msg": f"Email due date is {req_due} but RFQ due date not set",
+            "severity": "warning",
+        })
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Computed Field & Value Range Validation
 # ═══════════════════════════════════════════════════════════════════════
 

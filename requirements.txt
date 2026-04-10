@@ -17,3 +17,8 @@ google-auth-oauthlib>=1.0,<2.0
 pdf2image>=1.16,<2.0
 # playwright removed — now runs in separate scraper service (services/scprs-scraper/)
 # Set SCRAPER_SERVICE_URL env var to use the remote scraper
+
+# Testing
+pytest>=7.0
+pytest-cov>=4.0
+requests-mock>=1.11

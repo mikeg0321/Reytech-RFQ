@@ -116,7 +116,8 @@ def get_db():
 
 def db_retry(fn, max_retries=3, delay=1.0):
     """Retry a DB operation that may hit 'database is locked'.
-    fn should be a callable that performs the DB work (using get_db() inside)."""
+    fn should be a callable that performs the DB work (using get_db() inside).
+    Fires Slack alert if all retries exhausted."""
     import time as _time
     last_err = None
     for attempt in range(max_retries):
@@ -125,8 +126,20 @@ def db_retry(fn, max_retries=3, delay=1.0):
         except Exception as e:
             if "database is locked" in str(e) and attempt < max_retries - 1:
                 last_err = e
+                log.warning("DB locked (attempt %d/%d): %s", attempt + 1, max_retries, e)
                 _time.sleep(delay * (attempt + 1))
             else:
+                # Final failure — alert
+                if "database is locked" in str(e):
+                    try:
+                        from src.core.webhooks import fire_event
+                        fire_event("db_lock_timeout", {
+                            "function": getattr(fn, "__name__", "unknown"),
+                            "attempts": max_retries,
+                            "error": str(e)[:200],
+                        })
+                    except Exception:
+                        pass
                 raise
     raise last_err
 
@@ -1477,6 +1490,9 @@ def _migrate_columns():
         # ── UPC identifier matching ──
         ("won_quotes", "upc", "TEXT DEFAULT ''"),
         ("product_catalog", "upc", "TEXT DEFAULT ''"),
+        # ── Email requirements extraction ──
+        ("rfqs", "requirements_json", "TEXT DEFAULT '{}'"),
+        ("price_checks", "requirements_json", "TEXT DEFAULT '{}'"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

@@ -38,6 +38,10 @@ EVENT_TYPES = {
     "follow_up_due": "Follow-up is overdue",
     "scprs_complete": "SCPRS data pull completed",
     "intel_complete": "Buyer intelligence scan completed",
+    "server_error": "Server 500 error",
+    "db_lock_timeout": "Database lock timeout",
+    "enrichment_failed": "Enrichment pipeline failed",
+    "deploy_complete": "Deployment completed",
 }
 
 
@@ -173,9 +177,11 @@ def fire_event(event_type: str, payload: dict):
                     webhook["last_error"] = str(e)[:200]
                     log.debug("Webhook %s error: %s", webhook["name"], e)
 
-            # Also fire to env-var Slack webhook for key events
-            slack_url = os.environ.get("SLACK_WEBHOOK_URL", "")
-            if slack_url and event_type in ("new_rfq", "quote_won", "order_created"):
+            # Also fire to env-var webhook for key events (any JSON-accepting endpoint)
+            slack_url = os.environ.get("SLACK_WEBHOOK_URL", "") or os.environ.get("ALERT_WEBHOOK_URL", "")
+            if slack_url and event_type in ("new_rfq", "quote_won", "order_created",
+                                             "server_error", "db_lock_timeout",
+                                             "enrichment_failed", "deploy_complete"):
                 try:
                     text = f"🔔 *{EVENT_TYPES.get(event_type, event_type)}*\n"
                     for k, v in payload.items():

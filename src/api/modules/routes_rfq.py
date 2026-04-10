@@ -2001,6 +2001,15 @@ def detail(rid):
     except Exception:
         pass
 
+    # Parse extracted requirements for display
+    _requirements = {}
+    try:
+        import json as _rj
+        _req_raw = r.get("requirements_json", "{}")
+        _requirements = _rj.loads(_req_raw) if _req_raw and _req_raw != "{}" else {}
+    except Exception:
+        pass
+
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid,
                        agency_required_forms=_agency_req,
                        agency_key=_agency_key,
@@ -2009,7 +2018,8 @@ def detail(rid):
                        sibling_rfqs=_sibling_rfqs,
                        sibling_pcs_unconverted=_sibling_pcs_unconverted,
                        due_date_iso=_due_date_iso,
-                       landed_summary=_landed_summary)
+                       landed_summary=_landed_summary,
+                       requirements=_requirements)
 
 
 @bp.route("/rfq/<rid>/review-package")
@@ -7503,10 +7513,28 @@ def api_rfq_qa_check(rid):
         if pc_diff.get("qty_changed"):
             diff_notes.append(f"{len(pc_diff['qty_changed'])} qty changes from PC")
 
+    # Requirements validation (email = contract)
+    req_gaps = []
+    try:
+        _req_json = r.get("requirements_json", "{}")
+        if _req_json and _req_json != "{}":
+            from src.forms.form_qa import validate_against_requirements
+            _gen_files = r.get("output_files", [])
+            _vr = validate_against_requirements(_gen_files, _req_json, r)
+            req_gaps = _vr.get("gaps", [])
+            # Count requirement warnings
+            for _gap in req_gaps:
+                warnings += 1
+                if overall == "pass":
+                    overall = "warn"
+    except Exception:
+        pass
+
     return jsonify({"ok": True, "overall": overall, "failures": failures,
                     "warnings": warnings, "total": len(items), "items": results,
                     "linked_pc": r.get("linked_pc_number", ""),
-                    "diff_notes": diff_notes})
+                    "diff_notes": diff_notes,
+                    "requirement_gaps": req_gaps})
 
 
 @bp.route("/form-filler")
@@ -9208,4 +9236,51 @@ def api_bookkeeper_csv(rid):
         )
     except Exception as e:
         log.error("Bookkeeper CSV download error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/rfq/<rid>/re-extract-requirements", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_re_extract_requirements(rid):
+    """Re-run email requirement extraction on demand.
+
+    Used when: user manually uploads new email, forwards changed, or wants
+    to refresh extraction after body edits.
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    body_text = r.get("body_text", "") or r.get("body_preview", "") or ""
+    subject = r.get("email_subject", "")
+    attachments = [{"filename": f} for f in r.get("attachments_raw", [])]
+
+    if not body_text and not subject:
+        return jsonify({"ok": False, "error": "No email body or subject to extract from"})
+
+    try:
+        import json as _j
+        from src.agents.requirement_extractor import extract_requirements
+        req = extract_requirements(body_text, subject, attachments)
+        if req and req.has_requirements:
+            r["requirements_json"] = _j.dumps(req.to_dict(), default=str)
+            # Supplement due date if missing
+            if r.get("due_date") in ("TBD", "", None) and req.due_date:
+                r["due_date"] = req.due_date
+            rfqs[rid] = r
+            _save_single_rfq(rid, r)
+            return jsonify({
+                "ok": True,
+                "method": req.extraction_method,
+                "confidence": req.confidence,
+                "forms_found": len(req.forms_required),
+                "requirements": req.to_dict(),
+            })
+        else:
+            return jsonify({"ok": True, "method": "none", "forms_found": 0,
+                           "message": "No requirements detected"})
+    except Exception as e:
+        log.error("Re-extract requirements error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500

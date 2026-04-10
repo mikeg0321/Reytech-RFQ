@@ -1,0 +1,67 @@
+[
+  {
+    "item_number": "1",
+    "qty": 22,
+    "uom": "EA",
+    "description": "Engraved two line name tag, black/white",
+    "no_bid": false,
+    "supplier_cost": 12.58,
+    "unit_price": 15.72,
+    "pricing": {
+      "amazon_price": 12.58,
+      "amazon_title": "Custom Engraved Name Tag",
+      "amazon_url": "https://amazon.com/dp/B07TEST123",
+      "amazon_asin": "B07TEST123",
+      "recommended_price": 15.72,
+      "price_source": "amazon"
+    }
+  },
+  {
+    "item_number": "2",
+    "qty": 5,
+    "uom": "BOX",
+    "description": "Copy paper, 8.5x11, 20lb, white, 10 reams",
+    "no_bid": false,
+    "supplier_cost": 42.99,
+    "unit_price": 53.74,
+    "pricing": {
+      "amazon_price": 42.99,
+      "amazon_title": "Amazon Basics Copy Paper",
+      "amazon_url": "https://amazon.com/dp/B00TEST456",
+      "amazon_asin": "B00TEST456",
+      "recommended_price": 53.74,
+      "price_source": "amazon"
+    }
+  },
+  {
+    "item_number": "3",
+    "qty": 10,
+    "uom": "EA",
+    "description": "Nitrile exam gloves, large, powder-free, box of 100",
+    "no_bid": false,
+    "supplier_cost": 8.49,
+    "unit_price": 10.61,
+    "pricing": {
+      "amazon_price": 8.49,
+      "amazon_title": "Nitrile Exam Gloves Large 100ct",
+      "amazon_url": "https://amazon.com/dp/B09TEST789",
+      "amazon_asin": "B09TEST789",
+      "recommended_price": 10.61,
+      "price_source": "amazon"
+    }
+  },
+  {
+    "item_number": "4",
+    "qty": 1,
+    "uom": "EA",
+    "description": "Stryker X-Restraint Package, OEM# 6500-001-430",
+    "no_bid": false,
+    "supplier_cost": 350.00,
+    "unit_price": 454.40,
+    "pricing": {
+      "scprs_price": 475.00,
+      "recommended_price": 454.40,
+      "price_source": "scprs"
+    }
+  }
+]

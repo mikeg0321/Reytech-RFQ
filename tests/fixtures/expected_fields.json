@@ -1,0 +1,37 @@
+{
+  "_comment": "Expected PDF form field names per template type. Used by assert_pdf_fields() to verify fill operations.",
+  "ams_704": {
+    "header": [
+      "SUPPLIER NAME",
+      "Page",
+      "of",
+      "TELEPHONE NO",
+      "DATE",
+      "EXPIRATION DATE"
+    ],
+    "row_fields_per_item": [
+      "Qty",
+      "Unit",
+      "Description",
+      "Price"
+    ],
+    "page1_row_prefix": "Row",
+    "page1_row_range": [1, 11],
+    "page2_row_suffix": "_2",
+    "page2_row_range": [1, 8],
+    "total_form_capacity": 19
+  },
+  "std_703b": {
+    "header": [
+      "703B_SupplierName",
+      "703B_Date",
+      "703B_SolicitationNumber"
+    ]
+  },
+  "std_704b": {
+    "header": [
+      "704B_SupplierName",
+      "704B_Date"
+    ]
+  }
+}

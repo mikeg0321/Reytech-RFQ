@@ -2430,6 +2430,25 @@ def process_rfq_email(rfq_email):
             _buyer_name = (rfq_email.get("sender", "").split("<")[0].strip()
                           .replace('"','').strip() or _buyer_email)
 
+            # ── Extract structured requirements from email body ──
+            _requirements_json = "{}"
+            try:
+                from src.agents.requirement_extractor import extract_requirements as _extract_req
+                _req = _extract_req(
+                    _body_text,
+                    rfq_email.get("subject", ""),
+                    rfq_email.get("attachments", []),
+                )
+                if _req and _req.has_requirements:
+                    _requirements_json = json.dumps(_req.to_dict(), default=str)
+                    _trace.append(f"REQUIREMENTS: {len(_req.forms_required)} forms, "
+                                  f"due={_req.due_date}, conf={_req.confidence:.2f}")
+                    # Supplement missing fields from requirements
+                    if not _email_due_date and _req.due_date:
+                        _email_due_date = _req.due_date
+            except Exception as _req_e:
+                log.debug("Requirement extraction: %s", _req_e)
+
             # ── Bundle if multiple 704 PDFs ──
             import uuid as _uuid
             _bundle_id = f"bnd_{_uuid.uuid4().hex[:8]}" if len(_pc_pdf_candidates) > 1 else ""
@@ -2522,6 +2541,7 @@ def process_rfq_email(rfq_email):
                             "bundle_id": _bundle_id,
                             "bundle_total_pcs": len(_pc_pdf_candidates) if _bundle_id else 0,
                             "source": "email_auto",
+                            "requirements_json": _requirements_json,
                         }
                         _save_single_pc(pc_id, pcs[pc_id])
                         _created_pc_ids.append(pc_id)
@@ -2636,6 +2656,7 @@ def process_rfq_email(rfq_email):
                                 "linked_quote_number": "",
                                 "bundle_id": _bundle_id,
                                 "bundle_total_pcs": len(_pc_pdf_candidates) if _bundle_id else 0,
+                                "requirements_json": _requirements_json,
                             }
                             if len(items) > 8:
                                 pcs[pc_id]["_split_hint"] = {
@@ -2996,7 +3017,38 @@ def process_rfq_email(rfq_email):
                            else f"{_gen_agency_name} — No 704B, PDF text parse found 0 items — manual entry needed"),
             "body_text": rfq_email.get("body_text", rfq_email.get("body_preview", ""))[:3000],
         }
-        
+
+        # ── Extract structured requirements from email body ──────────
+        try:
+            from src.agents.requirement_extractor import extract_requirements as _extract_req
+            _rfq_body = rfq_email.get("body_text", rfq_email.get("body_preview", ""))
+            _req = _extract_req(
+                _rfq_body or "",
+                rfq_email.get("subject", ""),
+                rfq_email.get("attachments", []),
+            )
+            if _req and _req.has_requirements:
+                rfq_data["requirements_json"] = json.dumps(_req.to_dict(), default=str)
+                _trace.append(f"RFQ REQUIREMENTS: {len(_req.forms_required)} forms, "
+                              f"due={_req.due_date}, conf={_req.confidence:.2f}")
+                if rfq_data.get("due_date") in ("TBD", "", None) and _req.due_date:
+                    rfq_data["due_date"] = _req.due_date
+            # Auto-download linked templates from trusted domains
+            if _req and _req.template_urls:
+                try:
+                    from src.agents.template_downloader import download_templates
+                    _dl_results = download_templates(
+                        _req.template_urls, rfq_data["id"], OUTPUT_DIR)
+                    for _dl in _dl_results:
+                        _ft = _dl.get("form_type", "unknown")
+                        if _ft != "unknown" and _ft not in rfq_data.get("templates", {}):
+                            rfq_data.setdefault("templates", {})[_ft] = _dl["local_path"]
+                            _trace.append(f"AUTO-DOWNLOADED: {_dl['filename']} → {_ft}")
+                except Exception as _dl_e:
+                    log.debug("Template auto-download: %s", _dl_e)
+        except Exception as _req_e:
+            log.debug("RFQ requirement extraction: %s", _req_e)
+
         # ── Supplement contact info from email body/signature ──────────
         # For forwarded emails, the original sender's signature has the real contact
         _body = rfq_email.get("body_text", rfq_email.get("body_preview", ""))

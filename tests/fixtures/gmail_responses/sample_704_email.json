@@ -1,0 +1,33 @@
+{
+  "_comment": "Mock Gmail API message response for a 704 Price Check email",
+  "id": "msg_test_001",
+  "threadId": "thread_test_001",
+  "labelIds": ["INBOX", "UNREAD"],
+  "snippet": "Please provide pricing for the attached items",
+  "payload": {
+    "mimeType": "multipart/mixed",
+    "headers": [
+      {"name": "From", "value": "buyer@cdcr.ca.gov"},
+      {"name": "To", "value": "sales@reytechinc.com"},
+      {"name": "Subject", "value": "OS - FSP - Apr Price Check"},
+      {"name": "Date", "value": "Thu, 10 Apr 2026 10:30:00 -0700"}
+    ],
+    "parts": [
+      {
+        "mimeType": "text/plain",
+        "body": {
+          "data": "UGxlYXNlIHByb3ZpZGUgcHJpY2luZyBmb3IgdGhlIGF0dGFjaGVkIGl0ZW1zLiBEdWUgYnkgNC8xNS8yMDI2Lg=="
+        }
+      },
+      {
+        "mimeType": "application/pdf",
+        "filename": "704_FSP_Apr2026.pdf",
+        "body": {
+          "attachmentId": "att_test_001",
+          "size": 45678
+        }
+      }
+    ]
+  },
+  "internalDate": "1744303800000"
+}

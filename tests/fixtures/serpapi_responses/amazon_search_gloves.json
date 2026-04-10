@@ -1,0 +1,35 @@
+{
+  "search_metadata": {
+    "id": "test_search_001",
+    "status": "Success",
+    "json_endpoint": "https://serpapi.com/searches/test/results.json",
+    "total_time_taken": 1.23
+  },
+  "search_parameters": {
+    "engine": "google_shopping",
+    "q": "nitrile exam gloves large"
+  },
+  "shopping_results": [
+    {
+      "position": 1,
+      "title": "Nitrile Exam Gloves, Large, Powder-Free, Box of 100",
+      "link": "https://amazon.com/dp/B09TEST789",
+      "source": "Amazon.com",
+      "price": "$8.49",
+      "extracted_price": 8.49,
+      "rating": 4.5,
+      "reviews": 12345,
+      "thumbnail": "https://example.com/thumb.jpg"
+    },
+    {
+      "position": 2,
+      "title": "Kimberly-Clark Nitrile Gloves Large 100/Box",
+      "link": "https://amazon.com/dp/B07FALLBACK",
+      "source": "Amazon.com",
+      "price": "$9.99",
+      "extracted_price": 9.99,
+      "rating": 4.3,
+      "reviews": 8765
+    }
+  ]
+}

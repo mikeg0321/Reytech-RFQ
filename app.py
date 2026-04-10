@@ -226,7 +226,8 @@ def create_app():
         ) else ("<h1>404 — Page Not Found</h1><p><a href='/'>Go home</a></p>", 404)
 
     def _send_error_alert(error, route_info):
-        """Fire email alert for server errors via notify_agent (non-blocking)."""
+        """Fire alerts for server errors via notify_agent (non-blocking).
+        Routes to email + SMS + dashboard bell based on notify_agent config."""
         try:
             from src.agents.notify_agent import send_alert
             send_alert(
@@ -239,6 +240,15 @@ def create_app():
             )
         except Exception:
             pass  # Alert infra failure must never block error response
+        # Also fire webhook (routes to any configured webhook URL)
+        try:
+            from src.core.webhooks import fire_event
+            fire_event("server_error", {
+                "route": route_info,
+                "error": f"{type(error).__name__}: {str(error)[:200]}",
+            })
+        except Exception:
+            pass
 
     @app.errorhandler(500)
     def _server_error(e):

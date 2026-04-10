@@ -3,17 +3,29 @@ Shared pytest fixtures for Reytech RFQ test suite.
 
 IMPORTANT: Stub modules (rfq_parser, reytech_filler_v4, email_poller) are
 injected into sys.path BEFORE the project root, so dashboard.py can import them.
+
+Provides:
+  - Per-test temp data isolation (autouse)
+  - Flask test client with auth bypass
+  - PDF assertion helpers (assert_pdf_fields, extract_pdf_text)
+  - External API mocking (Gmail, Claude, SerpApi, SCPRS, Twilio)
+  - Database seed functions (seed_db_quote, seed_db_contact, seed_db_price_history)
+  - Sample data factories (sample_pc, sample_rfq, sample_stryker_quote)
 """
 import json
 import os
 import sys
 import base64
+import sqlite3
 import tempfile
+from datetime import datetime, timedelta
+from unittest.mock import MagicMock, patch
 import pytest
 
-# ── Inject stubs FIRST so dashboard can import rfq_parser etc. ────────────────
+# ── Paths ────────────────────────────────────────────────────────────────────
 _STUBS_DIR = os.path.join(os.path.dirname(__file__), "stubs")
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+_FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 
 # stubs must precede project root
 if _STUBS_DIR not in sys.path:
@@ -438,3 +450,392 @@ def disable_rate_limit(monkeypatch):
                             lambda u, p: bool(u and p))
     except Exception:
         pass
+
+
+# ── Fixture paths ────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def fixtures_dir():
+    """Return path to tests/fixtures/ directory."""
+    return _FIXTURES_DIR
+
+
+@pytest.fixture
+def blank_704_path():
+    """Path to the blank AMS 704 template in fixtures."""
+    p = os.path.join(_FIXTURES_DIR, "ams_704_blank.pdf")
+    if not os.path.exists(p):
+        # Fallback to data/templates/
+        p = os.path.join(_PROJECT_ROOT, "data", "templates", "ams_704_blank.pdf")
+    return p
+
+
+# ── PDF assertion helpers ────────────────────────────────────────────────────
+
+def assert_pdf_fields(pdf_path, expected_values, msg=""):
+    """Assert that a filled PDF contains the expected field values.
+
+    Args:
+        pdf_path: Path to the PDF file to check.
+        expected_values: Dict of {field_name: expected_value}.
+        msg: Optional message prefix for assertion errors.
+    """
+    from pypdf import PdfReader
+    reader = PdfReader(pdf_path)
+    fields = reader.get_fields() or {}
+    # Also check annotations on each page for filled values
+    all_values = {}
+    for field_name, field_obj in fields.items():
+        val = field_obj.get("/V", "")
+        if hasattr(val, "replace"):
+            all_values[field_name] = val
+        else:
+            all_values[field_name] = str(val) if val else ""
+
+    for key, expected in expected_values.items():
+        actual = all_values.get(key, "")
+        prefix = f"{msg}: " if msg else ""
+        assert str(actual) == str(expected), (
+            f"{prefix}PDF field '{key}' expected '{expected}', got '{actual}'. "
+            f"Available fields: {sorted(all_values.keys())[:20]}..."
+        )
+
+
+def extract_pdf_text(pdf_path, page_num=None):
+    """Extract text from a PDF file using pdfplumber.
+
+    Args:
+        pdf_path: Path to the PDF.
+        page_num: Specific page (0-indexed) or None for all pages.
+
+    Returns:
+        str: Extracted text.
+    """
+    import pdfplumber
+    texts = []
+    with pdfplumber.open(pdf_path) as pdf:
+        pages = [pdf.pages[page_num]] if page_num is not None else pdf.pages
+        for page in pages:
+            text = page.extract_text() or ""
+            texts.append(text)
+    return "\n".join(texts)
+
+
+def get_pdf_field_names(pdf_path):
+    """Return sorted list of all form field names in a PDF."""
+    from pypdf import PdfReader
+    reader = PdfReader(pdf_path)
+    fields = reader.get_fields() or {}
+    return sorted(fields.keys())
+
+
+def get_pdf_page_count(pdf_path):
+    """Return number of pages in a PDF."""
+    from pypdf import PdfReader
+    return len(PdfReader(pdf_path).pages)
+
+
+# ── External API mocking fixtures ────────────────────────────────────────────
+
+@pytest.fixture
+def mock_gmail(monkeypatch):
+    """Mock Gmail API — prevents real API calls, returns fixture data.
+
+    Usage:
+        def test_email(mock_gmail):
+            mock_gmail.set_messages([{...}])
+            # code under test calls gmail_api functions
+    """
+    class GmailMock:
+        def __init__(self):
+            self._messages = []
+            self._service = MagicMock()
+            self._configured = True
+
+        def set_messages(self, messages):
+            self._messages = messages
+
+        def set_configured(self, val):
+            self._configured = val
+
+    mock = GmailMock()
+
+    try:
+        import src.core.gmail_api as gmail_mod
+        monkeypatch.setattr(gmail_mod, "is_configured", lambda: mock._configured)
+        monkeypatch.setattr(gmail_mod, "get_service", lambda *a, **kw: mock._service)
+        monkeypatch.setattr(gmail_mod, "list_message_ids",
+                            lambda *a, **kw: [m.get("id", f"msg_{i}") for i, m in enumerate(mock._messages)])
+        monkeypatch.setattr(gmail_mod, "get_message_metadata",
+                            lambda svc, msg_id: next(
+                                (m for m in mock._messages if m.get("id") == msg_id),
+                                {}))
+    except ImportError:
+        pass
+
+    return mock
+
+
+@pytest.fixture
+def mock_vision_parser(monkeypatch):
+    """Mock Claude vision parser — returns canned parse results.
+
+    Usage:
+        def test_parse(mock_vision_parser):
+            mock_vision_parser.set_result({"line_items": [...]})
+            # code under test calls parse_with_vision()
+    """
+    class VisionMock:
+        def __init__(self):
+            self._result = None
+            self._available = True
+
+        def set_result(self, result):
+            self._result = result
+
+        def set_available(self, val):
+            self._available = val
+
+    mock = VisionMock()
+
+    try:
+        import src.forms.vision_parser as vp_mod
+        monkeypatch.setattr(vp_mod, "is_available", lambda: mock._available)
+        monkeypatch.setattr(vp_mod, "parse_with_vision",
+                            lambda *a, **kw: mock._result)
+        monkeypatch.setattr(vp_mod, "parse_from_text",
+                            lambda *a, **kw: mock._result)
+    except ImportError:
+        pass
+
+    return mock
+
+
+@pytest.fixture
+def mock_product_research(monkeypatch):
+    """Mock product research (SerpApi/Amazon/Grok) — no real HTTP calls.
+
+    Usage:
+        def test_research(mock_product_research):
+            mock_product_research.set_search_results([{...}])
+    """
+    class ResearchMock:
+        def __init__(self):
+            self._search_results = []
+            self._product = None
+            self._cache = {}
+
+        def set_search_results(self, results):
+            self._search_results = results
+
+        def set_product(self, product):
+            self._product = product
+
+    mock = ResearchMock()
+
+    try:
+        import src.agents.product_research as pr_mod
+        monkeypatch.setattr(pr_mod, "search_amazon",
+                            lambda *a, **kw: mock._search_results)
+        monkeypatch.setattr(pr_mod, "lookup_amazon_product",
+                            lambda *a, **kw: mock._product)
+        monkeypatch.setattr(pr_mod, "research_product",
+                            lambda *a, **kw: mock._product or {})
+    except ImportError:
+        pass
+
+    return mock
+
+
+@pytest.fixture
+def mock_scprs(monkeypatch):
+    """Mock SCPRS/FI$Cal scraper — no real web scraping.
+
+    Usage:
+        def test_scprs(mock_scprs):
+            mock_scprs.set_price({"unit_price": 475.00, "vendor": "Stryker"})
+    """
+    class ScprsMock:
+        def __init__(self):
+            self._price = None
+            self._bulk = {}
+
+        def set_price(self, price):
+            self._price = price
+
+        def set_bulk(self, results):
+            self._bulk = results
+
+    mock = ScprsMock()
+
+    try:
+        import src.agents.scprs_lookup as scprs_mod
+        monkeypatch.setattr(scprs_mod, "lookup_price",
+                            lambda *a, **kw: mock._price)
+        monkeypatch.setattr(scprs_mod, "bulk_lookup",
+                            lambda items: mock._bulk)
+        monkeypatch.setattr(scprs_mod, "test_connection",
+                            lambda: {"ok": True, "message": "mocked"})
+    except ImportError:
+        pass
+
+    return mock
+
+
+@pytest.fixture
+def mock_twilio(monkeypatch):
+    """Mock Twilio SMS — captures sent messages without real API calls.
+
+    Usage:
+        def test_sms(mock_twilio):
+            # code under test sends SMS
+            assert mock_twilio.sent[0]["to"] == "+15551234567"
+    """
+    class TwilioMock:
+        def __init__(self):
+            self.sent = []
+
+    mock = TwilioMock()
+
+    try:
+        import src.core.notify as notify_mod
+        original_send = getattr(notify_mod, "send_sms", None)
+        if original_send:
+            def fake_send(to, body, **kwargs):
+                mock.sent.append({"to": to, "body": body, **kwargs})
+                return {"ok": True, "sid": "SM_test_mock"}
+            monkeypatch.setattr(notify_mod, "send_sms", fake_send)
+    except ImportError:
+        pass
+
+    return mock
+
+
+# ── Database seed helpers ────────────────────────────────────────────────────
+
+@pytest.fixture
+def seed_db_quote(temp_data_dir):
+    """Insert a quote into the test database.
+
+    Usage:
+        def test_quote(seed_db_quote):
+            qn = seed_db_quote("R26Q099", agency="CDCR", total=1234.56)
+    """
+    def _seed(quote_number, agency="CDCR", institution="CSP-Sacramento",
+              status="generated", total=0.0, subtotal=0.0, tax=0.0,
+              source_pc_id=None, source_rfq_id=None, line_items=None):
+        db_path = os.path.join(temp_data_dir, "reytech.db")
+        conn = sqlite3.connect(db_path)
+        now = datetime.now().isoformat()
+        conn.execute(
+            """INSERT OR REPLACE INTO quotes
+               (quote_number, agency, institution, status, total, subtotal, tax,
+                created_at, updated_at, source_pc_id, source_rfq_id, line_items)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (quote_number, agency, institution, status, total, subtotal, tax,
+             now, now, source_pc_id, source_rfq_id,
+             json.dumps(line_items or [])))
+        conn.commit()
+        conn.close()
+        return quote_number
+    return _seed
+
+
+@pytest.fixture
+def seed_db_contact(temp_data_dir):
+    """Insert a contact into the test database.
+
+    Usage:
+        def test_contact(seed_db_contact):
+            cid = seed_db_contact("buyer1", "Jane Smith", "jane@cdcr.ca.gov")
+    """
+    def _seed(contact_id, buyer_name, buyer_email, agency="CDCR",
+              department="", total_spend=0.0, po_count=0):
+        db_path = os.path.join(temp_data_dir, "reytech.db")
+        conn = sqlite3.connect(db_path)
+        now = datetime.now().isoformat()
+        conn.execute(
+            """INSERT OR REPLACE INTO contacts
+               (id, created_at, buyer_name, buyer_email, agency, department,
+                total_spend, po_count)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (contact_id, now, buyer_name, buyer_email, agency, department,
+             total_spend, po_count))
+        conn.commit()
+        conn.close()
+        return contact_id
+    return _seed
+
+
+@pytest.fixture
+def seed_db_price_history(temp_data_dir):
+    """Insert price history records into the test database.
+
+    Usage:
+        def test_prices(seed_db_price_history):
+            seed_db_price_history("Nitrile Gloves", 8.49, source="amazon", asin="B09TEST")
+    """
+    def _seed(description, unit_price, source="amazon", part_number="",
+              manufacturer="", quantity=1, source_url="", source_id="",
+              agency="", quote_number=""):
+        db_path = os.path.join(temp_data_dir, "reytech.db")
+        conn = sqlite3.connect(db_path)
+        now = datetime.now().isoformat()
+        conn.execute(
+            """INSERT INTO price_history
+               (found_at, description, part_number, manufacturer, quantity,
+                unit_price, source, source_url, source_id, agency, quote_number)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (now, description, part_number, manufacturer, quantity,
+             unit_price, source, source_url, source_id, agency, quote_number))
+        conn.commit()
+        conn.close()
+    return _seed
+
+
+@pytest.fixture
+def seed_db_price_check(temp_data_dir):
+    """Insert a price check into the test database.
+
+    Usage:
+        def test_pc(seed_db_price_check):
+            seed_db_price_check("pc-001", items=[...])
+    """
+    def _seed(pc_id, pc_number="OS - Test - Apr", agency="CDCR",
+              institution="CSP-Sacramento", status="parsed", items=None,
+              requestor="buyer@cdcr.ca.gov"):
+        db_path = os.path.join(temp_data_dir, "reytech.db")
+        conn = sqlite3.connect(db_path)
+        now = datetime.now().isoformat()
+        conn.execute(
+            """INSERT OR REPLACE INTO price_checks
+               (id, created_at, requestor, agency, institution, items,
+                pc_number, status, total_items)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (pc_id, now, requestor, agency, institution,
+             json.dumps(items or []), pc_number, status,
+             len(items or [])))
+        conn.commit()
+        conn.close()
+        return pc_id
+    return _seed
+
+
+# ── Test data loading helpers ────────────────────────────────────────────────
+
+def load_fixture_json(filename):
+    """Load a JSON file from tests/fixtures/."""
+    path = os.path.join(_FIXTURES_DIR, filename)
+    with open(path) as f:
+        return json.load(f)
+
+
+@pytest.fixture
+def fixture_json():
+    """Fixture that returns a loader function for JSON fixtures.
+
+    Usage:
+        def test_something(fixture_json):
+            data = fixture_json("serpapi_responses/amazon_search_gloves.json")
+    """
+    return load_fixture_json

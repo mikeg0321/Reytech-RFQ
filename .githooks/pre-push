@@ -1,0 +1,26 @@
+#!/bin/bash
+# Pre-push hook: runs pytest before allowing push to main.
+# Install: git config core.hooksPath .githooks
+#
+# This prevents pushing broken code to main, which auto-deploys to production.
+
+echo "Running pre-push tests..."
+
+# Run the critical test files (fast subset — full suite under 30s)
+python -m pytest tests/test_ams704_helpers.py \
+                 tests/test_template_registry.py \
+                 tests/test_pc_generation.py \
+                 tests/test_rfq_generation.py \
+                 -x -q --tb=short 2>&1
+
+RESULT=$?
+
+if [ $RESULT -ne 0 ]; then
+    echo ""
+    echo "PUSH BLOCKED: Tests failed. Fix before pushing to production."
+    echo "Run 'python -m pytest tests/ -v' to see full output."
+    exit 1
+fi
+
+echo "All pre-push tests passed."
+exit 0

@@ -152,9 +152,71 @@ Before pushing any change:
    For each unintended file: read the diff, verify it's safe, or revert it.
    Incident 2026-04-10: 7 agent files committed alongside a DOCX fix — one had
    Haiku+thinking (unsupported = 400 errors on every call) that shipped to production.
-7. **Build and run pytest tests for the feature BEFORE pushing.** Compile-check is the
-   floor, not the ceiling. Write tests against real input files. Show the user green
-   test results before pushing. There is NO sandbox — main auto-deploys to production.
+7. **Run the test sandbox BEFORE pushing.** The pre-push hook blocks pushes with
+   failing tests, but run them proactively so you fix issues before committing.
+
+## Test Sandbox (MANDATORY — Built 2026-04-10)
+
+A pytest-based test sandbox exists. Push to `main` auto-deploys to production.
+The pre-push git hook (`.githooks/pre-push`) blocks pushes when tests fail.
+
+### Running Tests
+```bash
+# Full sandbox suite (82 tests, ~37 seconds):
+python -m pytest tests/test_ams704_helpers.py tests/test_template_registry.py tests/test_pc_generation.py tests/test_rfq_generation.py tests/test_multipage_704.py -v --tb=short
+
+# By area — run the relevant subset:
+# Price Check / 704 fill:
+python -m pytest tests/test_ams704_helpers.py tests/test_pc_generation.py tests/test_multipage_704.py -v
+# Template / PDF introspection:
+python -m pytest tests/test_template_registry.py -v
+# RFQ routes:
+python -m pytest tests/test_rfq_generation.py -v
+```
+
+### Writing New Tests — Available Fixtures
+All fixtures auto-isolate per test (temp DB, temp dirs, no cross-contamination).
+
+**DB seeding** (creates real rows in isolated test DB):
+- `seed_db_quote(quote_number, agency=, total=, ...)` — insert a quote
+- `seed_db_contact(id, name, email, agency=, ...)` — insert a contact
+- `seed_db_price_history(description, price, source=, ...)` — insert price record
+- `seed_db_price_check(id, items=, ...)` — insert a price check
+
+**External API mocks** (no real HTTP calls, prevent accidental prod hits):
+- `mock_gmail` — `.set_messages([...])`, `.set_configured(bool)`
+- `mock_vision_parser` — `.set_result({...})`, `.set_available(bool)`
+- `mock_product_research` — `.set_search_results([...])`, `.set_product({...})`
+- `mock_scprs` — `.set_price({...})`, `.set_bulk({...})`
+- `mock_twilio` — `.sent` list captures all outbound SMS
+
+**PDF assertion helpers** (imported from `tests.conftest`):
+- `assert_pdf_fields(pdf_path, {"SUPPLIER NAME": "Reytech Inc."})` — verify field values
+- `extract_pdf_text(pdf_path, page_num=)` — pdfplumber text extraction
+- `get_pdf_field_names(pdf_path)` — list all form fields
+- `get_pdf_page_count(pdf_path)` — page count
+
+**Flask test clients** (auth auto-injected):
+- `client` / `auth_client` — authenticated (Basic Auth on every request)
+- `anon_client` — unauthenticated (for testing auth gates)
+
+**Sample data factories:**
+- `sample_pc`, `sample_pc_items`, `sample_rfq`, `sample_stryker_quote`
+- `seed_pc`, `seed_rfq` — write samples to JSON files in temp data dir
+- `blank_704_path` — path to blank AMS 704 template in fixtures
+- `fixture_json(filename)` — load any JSON from `tests/fixtures/`
+
+### Rules for Test Sandbox
+1. **Every session must start with a green baseline.** Run the suite before coding.
+2. **Every push must pass tests.** The pre-push hook enforces this automatically.
+3. **New features MUST have tests.** If you touch `fill_ams704()`, add/update tests
+   in `test_pc_generation.py`. If you add a route, add a test in the relevant file.
+4. **Mock ALL external APIs.** Tests must work offline. Never call Gmail, Claude,
+   SerpApi, SCPRS, or Twilio in tests. Use the mock fixtures.
+5. **Test boundary cases for PDF generation:** 1, 8, 9, 16, 19, 20+ items.
+   These are the page boundaries where bugs hide.
+6. **Never skip the sandbox.** "It's just a small change" is how production breaks.
+   The 2026-04-03 incident was "just" a constant change that caused 11 failed commits.
 
 ## Form Filling Guard Rails (CRITICAL — Production Incidents 2026-03-26)
 

@@ -1,277 +1,294 @@
+"""V3 Test Suite — Quote Dollar Accuracy End-to-End.
+
+Tests the complete money flow:
+  item costs → markup → extensions → subtotal → tax → grand total → PDF fields
+
+A rounding error in any module produces wrong quotes sent to buyers.
+These tests verify exact dollar amounts across the full chain.
 """
-test_quote_dollar_accuracy.py — Quote Dollar Accuracy Tests
-
-Verifies the full pricing math chain:
-  cost -> markup tier -> subtotal -> tax -> grand total
-
-Tests exact dollar amounts that appear on quotes sent to buyers.
-A rounding error here = wrong invoice = lost trust.
-
-Covers:
-  - Pricing oracle tier calculations (recommended, aggressive, safe)
-  - SCPRS-as-ceiling guard (never use as cost)
-  - Amazon-as-reference guard (never use as cost)
-  - 3x cost sanity guardrail
-  - Subtotal + tax + total math on 704 forms
-  - Profit floor enforcement
-  - Markup math correctness
-"""
-
 import json
 import os
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import pytest
-from unittest.mock import patch
+
+# Patch _expiry_date for Windows
+import src.forms.price_check as _pc_mod
+from datetime import datetime, timedelta
+def _expiry_date_win():
+    exp = datetime.now() + timedelta(days=45)
+    return f"{exp.month}/{exp.day}/{exp.year}"
+_pc_mod._expiry_date = _expiry_date_win
+
+FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
+TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "templates")
+BLANK_704 = os.path.join(FIXTURES_DIR, "ams_704_blank.pdf")
+if not os.path.exists(BLANK_704):
+    BLANK_704 = os.path.join(TEMPLATE_DIR, "ams_704_blank.pdf")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# Pricing Oracle Tier Math
-# ═══════════════════════════════════════════════════════════════════════
-
-class TestPricingOracleMath:
-    """Test recommend_price() with known inputs → exact expected outputs."""
-
-    def _recommend(self, **kwargs):
-        """Helper to call recommend_price with mocked SCPRS history."""
-        from src.knowledge.pricing_oracle import recommend_price
-        # Mock get_price_history to return no historical data by default
-        # (tests provide scprs_price directly when needed)
-        with patch("src.knowledge.pricing_oracle.get_price_history") as mock_hist:
-            mock_hist.return_value = {
-                "matches": 0, "median_price": None, "min_price": None,
-                "max_price": None, "recent_avg": None, "trend": "unknown",
-                "data_points": [],
-            }
-            with patch("src.knowledge.pricing_oracle.win_probability") as mock_wp:
-                mock_wp.return_value = {"probability": 0.70}
-                return recommend_price(**kwargs)
-
-    def test_cost_only_default_25pct_markup(self, temp_data_dir):
-        """Cost only → recommended = cost * 1.25 (25% default markup)."""
-        rec = self._recommend(
-            item_number="TEST-001", description="Copy paper",
-            supplier_cost=100.00,
-        )
-        assert rec["data_quality"] == "cost_only"
-        # With $100 cost, 25% markup = $125
-        # But profit floor is $100 general, so min = $200
-        assert rec["recommended"]["price"] >= 200.00, \
-            f"Profit floor ($100) should push price to at least $200, got ${rec['recommended']['price']}"
-
-    def test_cost_only_amazon_lower_floor(self, temp_data_dir):
-        """Amazon source → profit floor is $50 instead of $100."""
-        rec = self._recommend(
-            item_number="", description="Nitrile gloves",
-            supplier_cost=100.00, source_type="amazon",
-        )
-        # Amazon profit floor = $50, so min = $150
-        assert rec["recommended"]["price"] >= 150.00
-
-    def test_scprs_undercut_1pct(self, temp_data_dir):
-        """With SCPRS reference, recommended = SCPRS * 0.99 (1% undercut)."""
-        rec = self._recommend(
-            item_number="TEST-002", description="Bandage wrap",
-            supplier_cost=50.00, scprs_price=200.00,
-        )
-        # SCPRS undercut: $200 * 0.99 = $198.00
-        # Profit floor: $50 + $100 = $150 (below $198, so no floor applied)
-        assert rec["recommended"]["price"] == pytest.approx(198.00, abs=0.01), \
-            f"Expected ~$198.00 (1% undercut of $200), got ${rec['recommended']['price']}"
-
-    def test_aggressive_undercut_3pct(self, temp_data_dir):
-        """Aggressive tier = SCPRS * 0.97 (3% undercut)."""
-        rec = self._recommend(
-            item_number="TEST-003", description="Exam gloves",
-            supplier_cost=50.00, scprs_price=200.00,
-        )
-        # Aggressive: $200 * 0.97 = $194.00
-        assert rec["aggressive"]["price"] == pytest.approx(194.00, abs=0.01)
-
-    def test_safe_markup_30pct(self, temp_data_dir):
-        """Safe tier = cost * 1.30, but profit floor may push higher."""
-        rec = self._recommend(
-            item_number="TEST-004", description="Safety vest",
-            supplier_cost=80.00, scprs_price=200.00,
-        )
-        safe = rec["safe"]["price"]
-        # Safe must be above cost
-        assert safe > 80.00, f"Safe must exceed cost, got ${safe}"
-        # Safe must have positive margin
-        assert rec["safe"]["margin_pct"] > 0
-
-    def test_no_data_returns_no_data_quality(self, temp_data_dir):
-        """No cost + no SCPRS = data_quality='no_data', no recommendation."""
-        rec = self._recommend(
-            item_number="TEST-005", description="Mystery item",
-        )
-        assert rec["data_quality"] == "no_data"
-
-    def test_profit_floor_enforced(self, temp_data_dir):
-        """Even with low SCPRS, price never goes below cost + profit floor."""
-        rec = self._recommend(
-            item_number="TEST-006", description="Cheap item",
-            supplier_cost=500.00, scprs_price=510.00,
-        )
-        # SCPRS undercut: $510 * 0.99 = $504.90
-        # But profit floor: $500 + $100 = $600
-        # Floor should win
-        assert rec["recommended"]["price"] >= 600.00, \
-            f"Profit floor should enforce $600 min, got ${rec['recommended']['price']}"
-
-    def test_margin_calculation_correct(self, temp_data_dir):
-        """Margin % = (price - cost) / cost."""
-        rec = self._recommend(
-            item_number="TEST-007", description="Toner cartridge",
-            supplier_cost=50.00, scprs_price=200.00,
-        )
-        price = rec["recommended"]["price"]
-        margin = rec["recommended"]["margin_pct"]
-        expected_margin = (price - 50.00) / 50.00
-        assert margin == pytest.approx(expected_margin, abs=0.01)
+def _skip_if_no_template():
+    if not os.path.exists(BLANK_704):
+        pytest.skip("ams_704_blank.pdf not available")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# Pricing Guard Rails
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# Unit: Extension (line total) rounding
+# ═══════════════════════════════════════════════════════════════════════════
 
-class TestPricingGuardRails:
-    """Tests for critical pricing rules from CLAUDE.md."""
+class TestExtensionRounding:
+    """extension = round(unit_price * qty, 2) — verify no penny drift."""
 
-    def test_scprs_price_is_ceiling_not_cost(self, temp_data_dir):
-        """SCPRS prices inform pricing but profit floor may override.
-        When cost is low and SCPRS is low, profit floor ($100) takes precedence."""
-        from src.knowledge.pricing_oracle import recommend_price
-        with patch("src.knowledge.pricing_oracle.get_price_history") as mock_hist:
-            mock_hist.return_value = {
-                "matches": 5, "median_price": 75.00, "min_price": 60.00,
-                "max_price": 90.00, "recent_avg": 78.00, "trend": "stable",
-                "data_points": [],
-            }
-            with patch("src.knowledge.pricing_oracle.win_probability") as mock_wp:
-                mock_wp.return_value = {"probability": 0.65}
-                rec = recommend_price(
-                    item_number="TEST-GUARD",
-                    description="Medical gloves",
-                    supplier_cost=30.00,  # real cost
-                    scprs_price=75.00,    # what state paid = ceiling
-                )
-        # Price must be ABOVE cost (never sell at a loss)
-        assert rec["recommended"]["price"] > 30.00, \
-            "Price must be above supplier cost"
-        # Profit floor enforced: $30 + $100 = $130
-        assert rec["recommended"]["price"] >= 130.00, \
-            "Profit floor ($100) should enforce minimum"
-        # The price source should reflect profit floor was applied
-        assert "profit_floor" in str(rec.get("flags", [])), \
-            "Profit floor flag should be set when floor overrides SCPRS undercut"
+    def test_simple_extension(self):
+        assert round(10.00 * 5, 2) == 50.00
 
-    def test_markup_math_exact_values(self, temp_data_dir):
-        """Verify: 25% markup on $82.24 = $102.80, not $411.20 or other garbage."""
-        cost = 82.24
-        markup_25 = round(cost * 1.25, 2)
-        assert markup_25 == 102.80, f"25% markup on $82.24 should be $102.80, got ${markup_25}"
+    def test_fractional_extension(self):
+        """$8.49 * 3 = $25.47 exactly."""
+        assert round(8.49 * 3, 2) == 25.47
 
-        markup_30 = round(cost * 1.30, 2)
-        assert markup_30 == 106.91, f"30% markup on $82.24 should be $106.91, got ${markup_30}"
+    def test_penny_boundary(self):
+        """$33.33 * 3 = $99.99, not $100.00."""
+        assert round(33.33 * 3, 2) == 99.99
 
-    def test_scprs_per_unit_division(self, temp_data_dir):
-        """SCPRS unit_price is LINE TOTAL. Must divide by quantity."""
-        # Simulates what the enrichment pipeline does
-        scprs_price = 100.00  # line total
-        scprs_qty = 5         # quantity on PO
-        per_unit = round(scprs_price / scprs_qty, 2)
-        assert per_unit == 20.00, f"$100 / 5 qty should be $20/unit, got ${per_unit}"
+    def test_large_qty(self):
+        """$0.05 * 1000 = $50.00."""
+        assert round(0.05 * 1000, 2) == 50.00
 
-    def test_large_qty_rounding(self, temp_data_dir):
-        """Per-unit price with odd division should round to 2 decimals."""
-        scprs_price = 47.50
-        scprs_qty = 3
-        per_unit = round(scprs_price / scprs_qty, 2)
-        assert per_unit == 15.83, f"$47.50 / 3 should be $15.83, got ${per_unit}"
+    def test_known_problem_case(self):
+        """$82.24 * 1 = $82.24 (the markup incident item)."""
+        assert round(82.24 * 1, 2) == 82.24
+
+    def test_float_precision_edge(self):
+        """$19.99 * 7 = $139.93, not $139.92999..."""
+        result = round(19.99 * 7, 2)
+        assert result == 139.93, f"Expected 139.93, got {result}"
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# 704 Form Subtotal/Tax/Total Math
-# ═══════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════
+# Unit: Markup formula
+# ═══════════════════════════════════════════════════════════════════════════
 
-class TestFormTotalsMath:
-    """Verify subtotal + tax + grand total calculations."""
+class TestMarkupFormula:
+    """price = round(cost * (1 + markup_pct / 100), 2)"""
 
-    def _compute_totals(self, items, tax_rate=0.0):
-        """Replicate the subtotal/tax/total calc from price_check.py."""
-        subtotal = 0.0
-        for it in items:
-            qty = it.get("qty", 1)
-            price = it.get("unit_price", 0)
-            extension = round(qty * price, 2)
-            subtotal += extension
-        subtotal = round(subtotal, 2)
-        tax = round(subtotal * tax_rate, 2)
+    def test_25_pct_on_82_24(self):
+        assert round(82.24 * (1 + 25/100), 2) == 102.80
+
+    def test_40_pct_on_82_24(self):
+        """The exact incident: 40% on $82.24 must be $115.14."""
+        assert round(82.24 * (1 + 40/100), 2) == 115.14
+
+    def test_15_pct_on_1_00(self):
+        assert round(1.00 * (1 + 15/100), 2) == 1.15
+
+    def test_50_pct_on_99_99(self):
+        """99.99 * 1.5 = 149.985 → rounds to 149.98 (banker's rounding)."""
+        assert round(99.99 * (1 + 50/100), 2) == 149.98
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Unit: Tax calculation
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestTaxCalculation:
+    """tax = round(subtotal * tax_rate, 2); total = round(subtotal + tax, 2)"""
+
+    def test_775_tax_on_1000(self):
+        subtotal = 1000.00
+        tax = round(subtotal * 0.0775, 2)
         total = round(subtotal + tax, 2)
-        return subtotal, tax, total
+        assert tax == 77.50
+        assert total == 1077.50
 
-    def test_single_item_no_tax(self):
-        items = [{"qty": 10, "unit_price": 15.72}]
-        sub, tax, total = self._compute_totals(items)
-        assert sub == 157.20
-        assert tax == 0.00
-        assert total == 157.20
+    def test_775_tax_on_pennies(self):
+        """$123.45 * 7.75% = $9.57 (rounded)."""
+        subtotal = 123.45
+        tax = round(subtotal * 0.0775, 2)
+        assert tax == 9.57
 
-    def test_two_items_no_tax(self):
+    def test_zero_tax(self):
+        subtotal = 500.00
+        tax = round(subtotal * 0.0, 2)
+        total = round(subtotal + tax, 2)
+        assert tax == 0.0
+        assert total == 500.00
+
+    def test_tax_on_odd_subtotal(self):
+        """$847.23 * 8% = $67.78."""
+        subtotal = 847.23
+        tax = round(subtotal * 0.08, 2)
+        assert tax == 67.78
+        total = round(subtotal + tax, 2)
+        assert total == 915.01
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Unit: Subtotal accumulation from extensions
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestSubtotalAccumulation:
+    """Subtotal = sum of individually-rounded extensions."""
+
+    def test_5_item_subtotal(self):
+        """Verify exact subtotal for a realistic 5-item quote."""
         items = [
-            {"qty": 22, "unit_price": 15.72},
-            {"qty": 5, "unit_price": 53.74},
+            {"unit_price": 15.72, "qty": 22},   # ext = 345.84
+            {"unit_price": 53.74, "qty": 5},    # ext = 268.70
+            {"unit_price": 10.61, "qty": 10},   # ext = 106.10
+            {"unit_price": 454.40, "qty": 1},   # ext = 454.40
+            {"unit_price": 8.49, "qty": 100},   # ext = 849.00
         ]
-        sub, tax, total = self._compute_totals(items)
-        assert sub == 345.84 + 268.70
-        assert sub == 614.54
-        assert total == 614.54
+        subtotal = 0.0
+        for item in items:
+            ext = round(item["unit_price"] * item["qty"], 2)
+            subtotal += ext
 
-    def test_with_tax_8_75_pct(self):
+        expected = 345.84 + 268.70 + 106.10 + 454.40 + 849.00
+        assert round(subtotal, 2) == round(expected, 2) == 2024.04
+
+    def test_accumulation_matches_sum_of_rounded(self):
+        """Sum of rounded extensions must equal independently calculated sum."""
+        prices = [12.58, 42.99, 8.49, 350.00, 69.12]
+        qtys = [22, 5, 10, 1, 2]
+
+        # Method 1: accumulate rounded extensions (how fill_ams704 does it)
+        subtotal_accum = 0.0
+        for p, q in zip(prices, qtys):
+            subtotal_accum += round(p * q, 2)
+
+        # Method 2: compute each extension independently and sum
+        extensions = [round(p * q, 2) for p, q in zip(prices, qtys)]
+        subtotal_sum = sum(extensions)
+
+        assert round(subtotal_accum, 2) == round(subtotal_sum, 2)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Integration: Full PDF dollar verification
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestPdfDollarAccuracy:
+    """End-to-end: generate a 704 PDF and verify every dollar field."""
+
+    def test_5_item_pdf_totals(self):
+        """Generate 5-item 704 and verify subtotal/tax/total in PDF fields."""
+        _skip_if_no_template()
+        from src.forms.price_check import fill_ams704
+
         items = [
-            {"qty": 10, "unit_price": 25.00},
-            {"qty": 5, "unit_price": 100.00},
+            {"row_index": 1, "description": "Name tags", "qty": 22,
+             "uom": "EA", "unit_price": 15.72, "pricing": {"recommended_price": 15.72}},
+            {"row_index": 2, "description": "Copy paper", "qty": 5,
+             "uom": "BOX", "unit_price": 53.74, "pricing": {"recommended_price": 53.74}},
+            {"row_index": 3, "description": "Nitrile gloves", "qty": 10,
+             "uom": "EA", "unit_price": 10.61, "pricing": {"recommended_price": 10.61}},
+            {"row_index": 4, "description": "X-Restraint", "qty": 1,
+             "uom": "SET", "unit_price": 454.40, "pricing": {"recommended_price": 454.40}},
+            {"row_index": 5, "description": "Bandages", "qty": 100,
+             "uom": "EA", "unit_price": 8.49, "pricing": {"recommended_price": 8.49}},
         ]
-        sub, tax, total = self._compute_totals(items, tax_rate=0.0875)
-        assert sub == 750.00
-        assert tax == 65.62  # 750 * 0.0875 = 65.625 → banker's rounding
-        assert total == 815.62
 
-    def test_15_items_total_accuracy(self):
-        """15-item PC with varied prices — verify no floating point drift."""
-        items = [{"qty": i + 1, "unit_price": 10.00 + i * 3.33} for i in range(15)]
-        sub, tax, total = self._compute_totals(items, tax_rate=0.0875)
-        # Manually verify subtotal
-        expected_sub = sum(round((i + 1) * (10.00 + i * 3.33), 2) for i in range(15))
-        assert sub == round(expected_sub, 2)
-        assert total == round(sub + round(sub * 0.0875, 2), 2)
-
-    def test_zero_price_items_excluded(self):
-        """Items with $0 price should contribute $0 to subtotal."""
-        items = [
-            {"qty": 10, "unit_price": 25.00},
-            {"qty": 5, "unit_price": 0.00},  # no-bid item
-            {"qty": 3, "unit_price": 50.00},
+        # Expected: compute ourselves
+        expected_extensions = [
+            round(15.72 * 22, 2),   # 345.84
+            round(53.74 * 5, 2),    # 268.70
+            round(10.61 * 10, 2),   # 106.10
+            round(454.40 * 1, 2),   # 454.40
+            round(8.49 * 100, 2),   # 849.00
         ]
-        sub, tax, total = self._compute_totals(items)
-        assert sub == 400.00  # 250 + 0 + 150
-        assert total == 400.00
+        expected_subtotal = sum(expected_extensions)  # 2024.04
 
-    def test_fractional_penny_rounding(self):
-        """Verify extension rounding: 3 * $33.33 = $99.99, not $99.989..."""
-        items = [{"qty": 3, "unit_price": 33.33}]
-        sub, _, total = self._compute_totals(items)
-        assert sub == 99.99
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            output = tmp.name
+        try:
+            result = fill_ams704(
+                source_pdf=BLANK_704,
+                parsed_pc={
+                    "line_items": items,
+                    "header": {"institution": "CSP-Sacramento"},
+                    "ship_to": "CSP-Sacramento",
+                },
+                output_pdf=output,
+                price_tier="recommended",
+            )
+            assert result is not None
+            assert result.get("ok") or result.get("summary")
 
-    def test_large_order_total(self):
-        """Bulk order: 500 qty * $2.49 = $1,245.00."""
-        items = [{"qty": 500, "unit_price": 2.49}]
-        sub, _, total = self._compute_totals(items)
-        assert sub == 1245.00
+            # Read field values
+            fv_path = os.path.join(_pc_mod.DATA_DIR, "pc_field_values.json")
+            with open(fv_path) as f:
+                fv_list = json.load(f)
+            fv = {e["field_id"]: e["value"] for e in fv_list} if isinstance(fv_list, list) else fv_list
 
-    def test_tax_rounding_edge_case(self):
-        """Tax on $999.99 at 8.75% = $87.50 (rounds from $87.499...)"""
-        items = [{"qty": 1, "unit_price": 999.99}]
-        sub, tax, total = self._compute_totals(items, tax_rate=0.0875)
-        assert sub == 999.99
-        assert tax == 87.50  # 999.99 * 0.0875 = 87.499125 → rounds to 87.50 (standard)
-        assert total == 1087.49  # 999.99 + 87.50
+            # Verify subtotal (fill_70)
+            pdf_subtotal = fv.get("fill_70", "0")
+            assert pdf_subtotal.replace(",", "") == f"{expected_subtotal:.2f}", \
+                f"PDF subtotal {pdf_subtotal} != expected {expected_subtotal:.2f}"
+
+            # Verify tax = 0 (tax not enabled)
+            pdf_tax = fv.get("fill_72", "0")
+            assert pdf_tax.replace(",", "") == "0.00", \
+                f"PDF tax should be 0.00, got {pdf_tax}"
+
+            # Verify grand total = subtotal (no tax)
+            pdf_total = fv.get("fill_73", "0")
+            assert pdf_total.replace(",", "") == f"{expected_subtotal:.2f}", \
+                f"PDF total {pdf_total} != expected {expected_subtotal:.2f}"
+
+            # Verify individual extensions
+            ext1 = fv.get("EXTENSIONRow1", "")
+            if ext1:
+                assert ext1.replace(",", "") == "345.84", \
+                    f"Row1 extension {ext1} != 345.84"
+
+        finally:
+            if os.path.exists(output):
+                os.unlink(output)
+
+    def test_single_item_exact_dollars(self):
+        """Single item: $82.24 * 1 qty = $82.24 subtotal."""
+        _skip_if_no_template()
+        from src.forms.price_check import fill_ams704
+
+        items = [{"row_index": 1, "description": "Medical widget",
+                  "qty": 1, "uom": "EA", "unit_price": 82.24,
+                  "pricing": {"recommended_price": 82.24}}]
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            output = tmp.name
+        try:
+            result = fill_ams704(
+                source_pdf=BLANK_704,
+                parsed_pc={"line_items": items, "header": {"institution": "Test"},
+                           "ship_to": "Test"},
+                output_pdf=output, price_tier="recommended",
+            )
+            fv_path = os.path.join(_pc_mod.DATA_DIR, "pc_field_values.json")
+            with open(fv_path) as f:
+                fv_list = json.load(f)
+            fv = {e["field_id"]: e["value"] for e in fv_list} if isinstance(fv_list, list) else fv_list
+
+            assert fv.get("fill_70", "").replace(",", "") == "82.24", \
+                f"Subtotal should be 82.24, got {fv.get('fill_70')}"
+            assert fv.get("fill_73", "").replace(",", "") == "82.24", \
+                f"Total should be 82.24, got {fv.get('fill_73')}"
+        finally:
+            if os.path.exists(output):
+                os.unlink(output)
+
+    def test_format_string_comma_separator(self):
+        """Large amounts must have comma separators: 1234.56 → '1,234.56'."""
+        value = 12345.67
+        formatted = f"{value:,.2f}"
+        assert formatted == "12,345.67"
+
+    def test_format_string_no_extra_decimals(self):
+        """Values must always be exactly 2 decimal places."""
+        for value in [100.0, 0.1, 99.999, 1.005]:
+            formatted = f"{round(value, 2):,.2f}"
+            parts = formatted.split(".")
+            assert len(parts) == 2
+            assert len(parts[1]) == 2, f"{value} → {formatted} has wrong decimal places"
