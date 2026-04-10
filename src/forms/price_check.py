@@ -3704,7 +3704,7 @@ def _detect_ams704_overlay_positions(source_pdf):
                     key=lambda w: w["top"])
                 if _dollar_signs:
                     # Value column: right of "$" to rightmost vertical line
-                    _left_x = max(d["x1"] for d in _dollar_signs) + 2
+                    _left_x = max(d["x1"] for d in _dollar_signs) + 6  # clear gap after "$"
                     _v_right = sorted([v for v in set(
                         round(e["x0"], 0) for e in edges
                         if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
