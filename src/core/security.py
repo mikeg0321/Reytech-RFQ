@@ -206,15 +206,21 @@ def add_security_headers(response):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: https:; "
-        "connect-src 'self'; "
-        "font-src 'self'; "
-        "frame-src 'self'"
-    )
+    # Skip CSP for file downloads — it blocks Chrome from saving attachments
+    _ct = response.content_type or ""
+    _is_download = ("attachment" in (response.headers.get("Content-Disposition") or "")
+                    or _ct.startswith("application/pdf")
+                    or _ct.startswith("application/octet"))
+    if not _is_download:
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "frame-src 'self'"
+        )
     if not response.headers.get("Cache-Control"):
         response.headers["Cache-Control"] = "no-store"
     return response
