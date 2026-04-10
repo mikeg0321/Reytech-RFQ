@@ -147,6 +147,14 @@ Before pushing any change:
 3. If route changed: verify `@auth_required` decorator is present
 4. If data structure changed: check all templates that consume it for type assumptions
 5. `git diff --stat` to verify only intended files are modified
+6. **AUDIT EVERY FILE IN THE COMMIT.** `git add` sweeps in dirty working tree files.
+   Run `git show --stat HEAD` AFTER committing to verify no unintended files snuck in.
+   For each unintended file: read the diff, verify it's safe, or revert it.
+   Incident 2026-04-10: 7 agent files committed alongside a DOCX fix — one had
+   Haiku+thinking (unsupported = 400 errors on every call) that shipped to production.
+7. **Build and run pytest tests for the feature BEFORE pushing.** Compile-check is the
+   floor, not the ceiling. Write tests against real input files. Show the user green
+   test results before pushing. There is NO sandbox — main auto-deploys to production.
 
 ## Form Filling Guard Rails (CRITICAL — Production Incidents 2026-03-26)
 
