@@ -3704,35 +3704,32 @@ def _detect_ams704_overlay_positions(source_pdf):
                     key=lambda w: w["top"])
                 if _dollar_signs:
                     # Value column: right of "$" to rightmost vertical line
-                    _left_x = max(d["x1"] for d in _dollar_signs) + 6  # clear gap after "$"
+                    _left_x = max(d["x1"] for d in _dollar_signs) + 6
                     _v_right = sorted([v for v in set(
                         round(e["x0"], 0) for e in edges
                         if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
                     ) if v > pw * 0.9], reverse=True)
                     _right_x = _v_right[0] - 2 if _v_right else pw - 35
-                    # Use h-lines to bound the totals area, then divide by 4
-                    # The totals area spans from the last thin-row-skip to the last h-line
-                    _totals_area_h = sorted([h for h in grouped_h if h > ph * 0.8])
-                    if len(_totals_area_h) >= 2:
-                        # Skip thin leading border, use the wider span
-                        while len(_totals_area_h) >= 2 and (_totals_area_h[1] - _totals_area_h[0]) < 12:
-                            _totals_area_h.pop(0)
-                        _area_top = _totals_area_h[0] if _totals_area_h else _dollar_signs[0]["top"] - 5
-                        _area_bot = _totals_area_h[-1] if _totals_area_h else _dollar_signs[0]["top"] + 55
-                    else:
-                        _area_top = _dollar_signs[0]["top"] - 5
-                        _area_bot = _area_top + 55
-                    _row_h = (_area_bot - _area_top) / 4
+                    # Place each value centered on its "$" sign Y position.
+                    # Each "$" marks exactly where that total value belongs.
+                    _val_h = 14
                     total_ids = ["fill_70", "fill_71", "fill_72", "fill_73"]
-                    for ti in range(4):
-                        _row_y = _area_top + (ti * _row_h)
-                        rl_top = _to_rl_y(_row_y) + 1
-                        rl_bot = _to_rl_y(_row_y + _row_h) + 1
+                    for ti, ds in enumerate(_dollar_signs[:4]):
+                        _cy = (ds["top"] + ds["bottom"]) / 2
+                        rl_center = _to_rl_y(_cy)
                         info["totals_cells"][total_ids[ti]] = (
-                            _left_x, rl_bot, _right_x, rl_top)
-                    log.info("OVERLAY detect pg%d: totals: area=%.1f-%.1f row_h=%.1f cells=%s",
-                             pg_idx, _area_top, _area_bot, _row_h,
-                             [(f"{v[1]:.0f}-{v[3]:.0f}") for v in info["totals_cells"].values()])
+                            _left_x, rl_center - _val_h / 2, _right_x, rl_center + _val_h / 2)
+                    # Extrapolate remaining rows if fewer than 4 $ signs
+                    if len(_dollar_signs) < 4:
+                        _gap = (_dollar_signs[-1]["top"] - _dollar_signs[0]["top"]) / max(len(_dollar_signs) - 1, 1)
+                        for ti in range(len(_dollar_signs), 4):
+                            _extra_y = _dollar_signs[-1]["top"] + _gap * (ti - len(_dollar_signs) + 1)
+                            rl_center = _to_rl_y(_extra_y)
+                            info["totals_cells"][total_ids[ti]] = (
+                                _left_x, rl_center - _val_h / 2, _right_x, rl_center + _val_h / 2)
+                    log.info("OVERLAY detect pg%d: totals from %d $ signs: %s",
+                             pg_idx, len(_dollar_signs),
+                             [(f"{k}:y={v[1]:.0f}-{v[3]:.0f}") for k, v in info["totals_cells"].items()])
 
             # FOB checkbox — find the checkbox character (\uf06f) or small rect
             # near the first "FOB" text in the footer area
