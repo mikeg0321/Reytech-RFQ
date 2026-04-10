@@ -6,10 +6,16 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs for the same branch/PR
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  check:
+  # ── Job 1: Static Analysis (fast, no deps needed) ─────────────────────────
+  static-checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
 
     steps:
       - uses: actions/checkout@v4
@@ -18,10 +24,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install dependencies
-        run: |
-          pip install --quiet flask pypdf reportlab jinja2 pdfplumber openpyxl Pillow requests beautifulsoup4 pdfminer.six pytest
 
       - name: Syntax check (all Python files)
         run: |
@@ -37,12 +39,56 @@ jobs:
                           ast.parse(open(path, encoding='utf-8').read())
                       except SyntaxError as e:
                           errors.append(f'{path}: {e}')
+          for f in ['app.py']:
+              try:
+                  ast.parse(open(f, encoding='utf-8').read())
+              except SyntaxError as e:
+                  errors.append(f'{f}: {e}')
           if errors:
               for e in errors:
                   print(f'FAIL: {e}')
               sys.exit(1)
           print(f'OK: all Python files compile clean')
           "
+
+      - name: Duplicate endpoint check
+        run: |
+          python -c "
+          import os, re, sys
+          from collections import defaultdict
+          funcs = defaultdict(list)
+          modules_dir = 'src/api/modules'
+          for fname in sorted(os.listdir(modules_dir)):
+              if not fname.endswith('.py'): continue
+              with open(os.path.join(modules_dir, fname), encoding='utf-8') as f:
+                  for i, line in enumerate(f, 1):
+                      m = re.match(r'^def (\w+)\(', line)
+                      if m: funcs[m.group(1)].append(f'{fname}:{i}')
+          dupes = {k: v for k, v in funcs.items() if len(v) > 1}
+          if dupes:
+              for name, locs in sorted(dupes.items()):
+                  print(f'DUPLICATE: def {name}() in: {\", \".join(locs)}')
+              sys.exit(1)
+          print('OK: no duplicate endpoints')
+          "
+
+  # ── Job 2: Import & Template Checks (needs deps) ──────────────────────────
+  build-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet flask pypdf reportlab jinja2 pdfplumber openpyxl Pillow requests beautifulsoup4 pdfminer.six pytest
 
       - name: Import check (core modules)
         env:
@@ -80,32 +126,63 @@ jobs:
           print(f'OK: all templates compile')
           "
 
-      - name: Duplicate endpoint check
-        run: |
-          python -c "
-          import os, re, sys
-          from collections import defaultdict
-          funcs = defaultdict(list)
-          modules_dir = 'src/api/modules'
-          for fname in sorted(os.listdir(modules_dir)):
-              if not fname.endswith('.py'): continue
-              with open(os.path.join(modules_dir, fname), encoding='utf-8') as f:
-                  for i, line in enumerate(f, 1):
-                      m = re.match(r'^def (\w+)\(', line)
-                      if m: funcs[m.group(1)].append(f'{fname}:{i}')
-          dupes = {k: v for k, v in funcs.items() if len(v) > 1}
-          if dupes:
-              for name, locs in sorted(dupes.items()):
-                  print(f'DUPLICATE: def {name}() in: {\", \".join(locs)}')
-              sys.exit(1)
-          print('OK: no duplicate endpoints')
-          "
+  # ── Job 3: Full Test Suite (THE REAL GATE) ─────────────────────────────────
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
 
-      - name: Run tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet flask pypdf reportlab jinja2 pdfplumber openpyxl Pillow requests beautifulsoup4 pdfminer.six pytest
+
+      - name: Run full test suite
         env:
           SECRET_KEY: test-secret-key-for-ci
           DASH_USER: test
           DASH_PASS: test
           FLASK_ENV: testing
         run: |
-          python -m pytest tests/ -x -q --ignore=tests/test_award_intelligence.py --ignore=tests/smoke_test.py 2>&1 || true
+          python -m pytest tests/ \
+            --ignore=tests/test_award_intelligence.py \
+            --ignore=tests/smoke_test.py \
+            -x -q --tb=short
+
+  # ── Job 4: Pre-deploy safety checks (main only) ───────────────────────────
+  pre-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [static-checks, build-checks, tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet flask pypdf reportlab jinja2 pdfplumber openpyxl Pillow requests beautifulsoup4 pdfminer.six
+
+      - name: Run pre-deploy validation
+        env:
+          SECRET_KEY: test
+          FLASK_ENV: testing
+        run: |
+          python tests/pre_deploy_check.py
+
+      - name: Deploy gate passed
+        run: |
+          echo "All CI gates passed. Railway auto-deploy proceeding."

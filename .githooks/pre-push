@@ -1,26 +1,69 @@
 #!/bin/bash
-# Pre-push hook: runs pytest before allowing push to main.
+# Pre-push hook: runs critical tests before allowing push.
 # Install: git config core.hooksPath .githooks
 #
-# This prevents pushing broken code to main, which auto-deploys to production.
+# This prevents pushing broken code. Pushes to main auto-deploy to production.
+# Feature branches also get tested to catch issues before PR.
 
-echo "Running pre-push tests..."
+BRANCH=$(git branch --show-current)
 
-# Run the critical test files (fast subset — full suite under 30s)
-python -m pytest tests/test_ams704_helpers.py \
-                 tests/test_template_registry.py \
-                 tests/test_pc_generation.py \
-                 tests/test_rfq_generation.py \
-                 -x -q --tb=short 2>&1
+echo "Pre-push gate: testing before push to '$BRANCH'..."
+echo ""
+
+# ── Critical tests (always run, all branches) ───────────────────────────────
+# These are the core business logic tests that must NEVER break.
+
+echo "Running critical test suite..."
+SECRET_KEY=test DASH_USER=test DASH_PASS=test FLASK_ENV=testing \
+python -m pytest \
+    tests/test_ams704_helpers.py \
+    tests/test_template_registry.py \
+    tests/test_pc_generation.py \
+    tests/test_rfq_generation.py \
+    tests/test_multipage_704.py \
+    tests/test_compile_safety.py \
+    tests/test_api_contracts.py \
+    tests/test_pricing_math.py \
+    -x -q --tb=short 2>&1
 
 RESULT=$?
 
 if [ $RESULT -ne 0 ]; then
     echo ""
-    echo "PUSH BLOCKED: Tests failed. Fix before pushing to production."
-    echo "Run 'python -m pytest tests/ -v' to see full output."
+    echo "PUSH BLOCKED: Critical tests failed."
+    echo ""
+    echo "Fix the failures above, then try again."
+    echo "Run full suite for details: make test-full"
     exit 1
 fi
 
-echo "All pre-push tests passed."
+# ── Extended checks for main branch only ─────────────────────────────────────
+# Main = production. Run additional safety checks.
+
+if [ "$BRANCH" = "main" ]; then
+    echo ""
+    echo "Pushing to MAIN (production). Running extended checks..."
+
+    # Pre-deploy validation (security, routes, templates)
+    SECRET_KEY=test FLASK_ENV=testing python tests/pre_deploy_check.py 2>&1
+    PREDEPLOY=$?
+
+    if [ $PREDEPLOY -ne 0 ]; then
+        echo ""
+        echo "PUSH BLOCKED: Pre-deploy checks failed."
+        echo "This push would auto-deploy broken code to production."
+        echo ""
+        echo "Recommended: use a feature branch instead."
+        echo "  git checkout -b hotfix/fix-description"
+        echo "  make ship"
+        exit 1
+    fi
+
+    echo ""
+    echo "WARNING: Pushing directly to main. Railway will auto-deploy."
+    echo "Prefer feature branches: make branch name=feat/description"
+fi
+
+echo ""
+echo "All pre-push checks passed."
 exit 0

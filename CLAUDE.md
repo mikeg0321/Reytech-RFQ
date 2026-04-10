@@ -1,12 +1,50 @@
 # CLAUDE.md — Reytech RFQ Project Rules
 
+## Multi-Window Development Protocol (MANDATORY)
+
+Multiple Claude Code sessions run in parallel. Follow this protocol to avoid conflicts.
+
+### Before Starting Any Work
+1. **Read `.claude/WORKSTREAMS.md`** — check what branches are active and what files they touch
+2. **Never work directly on `main`.** Always create a feature branch: `make branch name=feat/description`
+3. If your work overlaps with an active branch in WORKSTREAMS.md, coordinate — don't create a parallel branch that touches the same files
+
+### Branch Naming
+- `feat/description` — new feature
+- `fix/description` — bug fix
+- `refactor/description` — code improvement
+- `hotfix/description` — urgent production fix
+
+### The Ship Cycle
+```
+make branch name=feat/my-feature   # 1. Create branch from latest main
+# <do work, commit normally>
+make ship                          # 2. Run tests + push + create PR
+# <CI runs automatically>
+make promote                       # 3. Merge PR + smoke test production
+```
+
+### Rules
+- **`make ship` is the ONLY way to push code.** It enforces test + check gates.
+- **Never `git push origin main` directly.** Branch protection blocks this.
+- **Update `.claude/WORKSTREAMS.md`** when you create, merge, or abandon a branch.
+- **Check `make status`** to see active PRs and recent CI runs.
+- **Conflict zones** (files edited by many windows): see WORKSTREAMS.md. If two windows need the same file, one finishes first.
+
+### Emergency: Production Is Broken
+```
+git checkout main && git pull
+make rollback                      # Reverts last commit, pushes, redeploys
+make smoke                         # Verify production recovered
+```
+
 ## System Context
 
 **What this is:** End-to-end RFQ automation + business intelligence for Reytech Inc., a California SB/DVBE government reseller. 90K+ lines, 955 routes, 50 templates, deployed on Railway.
 
 **Stack:** Python 3.12 / Flask / SQLite (WAL mode) / Jinja2 / Gunicorn. No frontend framework — all server-rendered HTML with inline JS.
 
-**Deploy:** Push to `main` → Railway auto-deploys. Persistent volume at `/data`. Domain: `web-production-dcee9.up.railway.app`.
+**Deploy:** Feature branch → PR → CI passes → merge to `main` → Railway auto-deploys → smoke test. Persistent volume at `/data`. Domain: `web-production-dcee9.up.railway.app`. Use `make ship` / `make promote` — never push main directly.
 
 **Module loading:** Route modules in `src/api/modules/` are loaded via `exec()` into `dashboard.py` namespace. This means all modules share globals. Be aware of name collisions.
 
