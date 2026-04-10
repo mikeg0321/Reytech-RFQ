@@ -133,7 +133,11 @@ Respond in this exact JSON format:
 
         body = {
             "model": "claude-haiku-4-5-20251001",
-            "max_tokens": 2048,
+            "max_tokens": 16000,
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 4000,  # deeper sourcing analysis
+            },
             "tools": [{
                 "type": "web_search_20250305",
                 "name": "web_search",
@@ -144,7 +148,7 @@ Respond in this exact JSON format:
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
-            "anthropic-beta": "web-search-2025-03-05",
+            "anthropic-beta": "web-search-2025-03-05,interleaved-thinking-2025-05-14",
             "content-type": "application/json",
         }
 

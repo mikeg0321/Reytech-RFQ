@@ -294,6 +294,7 @@ def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
                 ],
                 "temperature": 0.1,
                 "max_tokens": 300,
+                "response_format": {"type": "json_object"},
             },
             timeout=20,
         )

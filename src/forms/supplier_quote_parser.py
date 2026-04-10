@@ -112,20 +112,41 @@ def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
     except ImportError:
         return None
 
-    page_images = _pdf_pages_to_base64(pdf_path, dpi=200, max_pages=5)
-    if not page_images:
-        return None
-
-    # Override the system prompt for supplier quotes
     import requests as _req
     from src.forms.vision_parser import ANTHROPIC_API_KEY
+    import base64 as _b64
 
+    # Try native PDF input first (smaller payload, better text extraction)
+    # Falls back to PNG conversion if PDF is too large
     content = []
-    for pg in page_images:
-        content.append({
-            "type": "image",
-            "source": {"type": "base64", "media_type": "image/png", "data": pg["base64"]}
-        })
+    _used_native_pdf = False
+    try:
+        _pdf_size = os.path.getsize(pdf_path)
+        if _pdf_size < 5_000_000:  # Claude PDF limit ~5MB
+            with open(pdf_path, "rb") as _f:
+                _pdf_bytes = _f.read()
+            content.append({
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": _b64.standard_b64encode(_pdf_bytes).decode("ascii"),
+                },
+            })
+            _used_native_pdf = True
+            log.info("Supplier quote: using native PDF input (%dKB)", _pdf_size // 1024)
+    except Exception as _e:
+        log.debug("Native PDF input failed, falling back to images: %s", _e)
+
+    if not _used_native_pdf:
+        page_images = _pdf_pages_to_base64(pdf_path, dpi=200, max_pages=5)
+        if not page_images:
+            return None
+        for pg in page_images:
+            content.append({
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": pg["base64"]}
+            })
     content.append({
         "type": "text",
         "text": ("Extract ALL line items from this supplier quote. "
@@ -152,7 +173,7 @@ def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 4096,
-                "system": "You are a precise data extractor. Return ONLY valid JSON arrays. No explanation.",
+                "system": [{"type": "text", "text": "You are a precise data extractor. Return ONLY valid JSON arrays. No explanation.", "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": content}],
             },
             timeout=60,

@@ -171,37 +171,33 @@ def search_product_price(
     if part_number and description:
         search_query = f"{part_number} {description}"
     
-    prompt = f"""Find the current retail/wholesale price for this product. Search Google Shopping, Amazon, and medical supply sites.
-
-Product: {description}
+    prompt = f"""Product: {description}
 {f'Part/Item Number: {part_number}' if part_number else ''}
 {f'Quantity needed: {qty} {uom}' if qty > 1 else ''}
-{f'Context: {context}' if context else ''}
+{f'Context: {context}' if context else ''}"""
 
-Search for this exact product or the closest match. I need:
-1. The unit price (per {uom})
-2. The retailer/supplier name
-3. The product URL
-4. The MFG part number, SKU, or item number from the product page
-5. How confident you are this is the right product (0-100%)
-
-If you find multiple sources, list them all sorted by price (lowest first).
-
-IMPORTANT: Respond in this exact JSON format only, no other text:
-{{
-  "found": true,
-  "results": [
-    {{"price": 12.99, "source": "Amazon", "url": "https://...", "title": "Product Name", "part_number": "ABC-123", "confidence": 85}}
-  ]
-}}
-If you can't find the product, respond: {{"found": false, "reason": "..."}}"""
+    # Static system prompt — cached across calls (saves ~60% on repeat calls)
+    _SYS_PROMPT = (
+        "Find the current retail/wholesale price for the product the user describes. "
+        "Search Google Shopping, Amazon, and medical supply sites.\n\n"
+        "For each product found, return:\n"
+        "1. The unit price\n2. The retailer/supplier name\n3. The product URL\n"
+        "4. The MFG part number, SKU, or item number\n5. Confidence (0-100%)\n\n"
+        "If you find multiple sources, list all sorted by price (lowest first).\n\n"
+        "Respond in this exact JSON format only, no other text:\n"
+        '{"found": true, "results": [{"price": 12.99, "source": "Amazon", '
+        '"url": "https://...", "title": "Product Name", "part_number": "ABC-123", '
+        '"confidence": 85}]}\n'
+        'If not found: {"found": false, "reason": "..."}'
+    )
 
     try:
         _wait_for_rate_limit()
-        
+
         _request_body = {
             "model": "claude-haiku-4-5-20251001",
             "max_tokens": 1024,
+            "system": [{"type": "text", "text": _SYS_PROMPT, "cache_control": {"type": "ephemeral"}}],
             "tools": [{
                 "type": "web_search_20250305",
                 "name": "web_search",

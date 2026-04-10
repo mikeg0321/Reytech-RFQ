@@ -454,7 +454,10 @@ def create_app():
         )
 
     elapsed = time.time() - t0
-    print(f"[BOOT] create_app() complete ✅ ({elapsed:.1f}s)", flush=True)
+    try:
+        print(f"[BOOT] create_app() complete \u2705 ({elapsed:.1f}s)", flush=True)
+    except UnicodeEncodeError:
+        print(f"[BOOT] create_app() complete OK ({elapsed:.1f}s)", flush=True)
 
     # ── Run startup health checks (background, non-blocking) ──
     try:
@@ -489,7 +492,10 @@ _signal.signal(_signal.SIGTERM, _handle_sigterm)
 # For gunicorn: gunicorn app:app
 print("[BOOT] Creating app at module level...", flush=True)
 app = create_app()
-print("[BOOT] Module ready ✅", flush=True)
+try:
+    print("[BOOT] Module ready \u2705", flush=True)
+except UnicodeEncodeError:
+    print("[BOOT] Module ready OK", flush=True)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

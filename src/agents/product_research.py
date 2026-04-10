@@ -205,6 +205,7 @@ If you cannot find the product, respond: {{"product_name": "", "price": 0, "url"
                 ],
                 "temperature": 0.1,
                 "max_tokens": 500,
+                "response_format": {"type": "json_object"},
             },
             timeout=20,
         )

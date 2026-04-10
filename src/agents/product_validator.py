@@ -194,8 +194,9 @@ Respond in this exact JSON format (no markdown, no code blocks):
             {"role": "system", "content": "You are a product research assistant. Always respond with valid JSON only. No markdown formatting."},
             {"role": "user", "content": prompt},
         ],
-        "temperature": 0.1,  # low temperature for factual accuracy
+        "temperature": 0.1,
         "max_tokens": 500,
+        "response_format": {"type": "json_object"},
     }
 
     for attempt in range(_MAX_RETRIES):
