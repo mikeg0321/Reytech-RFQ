@@ -2907,14 +2907,15 @@ def fill_ams704(
     _max_item_row = max((it.get("row_index") or (i + 1) for i, it in enumerate(items)), default=0)
     if _max_item_row <= 0:
         _pages_with_items = 1
-    elif _max_item_row <= _pg1_rows:
+    elif _pg1_rows > 0 and _max_item_row <= _pg1_rows:
         _pages_with_items = 1
-    elif _max_item_row <= _form_capacity:
+    elif _form_capacity > 0 and _max_item_row <= _form_capacity:
         _pages_with_items = 2  # pg2 suffix rows + pg2 extra unsuffixed all fit on page 2
     else:
         # Pages 3+: overflow items beyond form capacity
         _overflow = _max_item_row - _form_capacity
-        _pages_with_items = 2 + ((_overflow - 1) // _pg2_rows) + 1
+        _rows_per_overflow_page = _pg2_rows if _pg2_rows > 0 else 8  # safe default
+        _pages_with_items = 2 + ((_overflow - 1) // _rows_per_overflow_page) + 1
     _pdf_total_pages = _profile.page_count or 1
 
     # When keep_all_pages=True (DOCX-converted sources), treat all source pages as having content.
