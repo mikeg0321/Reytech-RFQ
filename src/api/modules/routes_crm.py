@@ -914,7 +914,12 @@ def api_pricecheck_download(filename):
         candidate = os.path.join(d, safe)
         if os.path.exists(candidate):
             mimetype = "application/pdf" if safe.lower().endswith(".pdf") else None
-            return send_file(candidate, as_attachment=not inline, download_name=safe, mimetype=mimetype)
+            resp = send_file(candidate, as_attachment=not inline, download_name=safe, mimetype=mimetype)
+            # Prevent 304 caching — Chrome serves stale filename from cache
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            resp.headers.pop("ETag", None)
+            resp.headers.pop("Last-Modified", None)
+            return resp
     # Fallback: check DB
     try:
         from src.core.db import get_db
