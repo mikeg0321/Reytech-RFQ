@@ -482,3 +482,95 @@ def api_sync_scprs():
     result["orphan_lines"] = no_master
     result["coverage_pct"] = round(wq / max(eligible, 1) * 100, 1)
     return jsonify({"ok": True, **result})
+
+
+# ── Operations Monitor (P1.3, P2.1-P2.5) ────────────────────────────────────
+
+@bp.route("/api/system/ops")
+@auth_required
+@safe_route
+def api_system_ops():
+    """Full operations dashboard: request timing, DB health, disk, backups, SLA."""
+    from src.core.ops_monitor import get_ops_status
+    return jsonify({"ok": True, **get_ops_status()})
+
+
+@bp.route("/api/system/ops/timing")
+@auth_required
+@safe_route
+def api_system_ops_timing():
+    """Request timing stats: p50/p95/p99 per route."""
+    from src.core.ops_monitor import get_request_stats
+    route = request.args.get("route")
+    return jsonify({"ok": True, **get_request_stats(route)})
+
+
+@bp.route("/api/system/ops/backup-now", methods=["POST"])
+@auth_required
+@safe_route
+def api_system_ops_backup_now():
+    """Trigger an immediate hourly backup."""
+    from src.core.ops_monitor import run_hourly_backup
+    result = run_hourly_backup()
+    return jsonify(result)
+
+
+@bp.route("/api/system/ops/verify-backup", methods=["POST"])
+@auth_required
+@safe_route
+def api_system_ops_verify_backup():
+    """Run full backup verification."""
+    from src.core.ops_monitor import run_nightly_verification
+    result = run_nightly_verification()
+    return jsonify(result)
+
+
+@bp.route("/api/system/ops/db-health")
+@auth_required
+@safe_route
+def api_system_ops_db_health():
+    """Database health: WAL size, integrity, table stats."""
+    from src.core.ops_monitor import check_db_health
+    return jsonify({"ok": True, **check_db_health()})
+
+
+@bp.route("/api/system/ops/disk")
+@auth_required
+@safe_route
+def api_system_ops_disk():
+    """Volume disk usage with largest files."""
+    from src.core.ops_monitor import check_disk_usage
+    return jsonify({"ok": True, **check_disk_usage()})
+
+
+@bp.route("/api/system/ops/uptime")
+@auth_required
+@safe_route
+def api_system_ops_uptime():
+    """Synthetic uptime test history."""
+    from src.core.ops_monitor import get_synthetic_history
+    history = get_synthetic_history()
+    return jsonify({
+        "ok": True,
+        "total_checks": len(history),
+        "latest": history[-1] if history else None,
+        "recent_failures": [h for h in history[-24:] if not h.get("ok")],
+    })
+
+
+@bp.route("/api/system/ops/sla")
+@auth_required
+@safe_route
+def api_system_ops_sla():
+    """Pipeline SLA tracking: RFQ received to quote timing."""
+    from src.core.ops_monitor import get_pipeline_sla_stats
+    return jsonify({"ok": True, **get_pipeline_sla_stats()})
+
+
+@bp.route("/api/system/ops/errors")
+@auth_required
+@safe_route
+def api_system_ops_errors():
+    """Error tracking: grouped issues, rate trending, deploy correlation."""
+    from src.core.ops_monitor import get_error_stats
+    return jsonify({"ok": True, **get_error_stats()})

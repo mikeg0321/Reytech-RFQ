@@ -44,8 +44,13 @@ data/qa_intelligence.db
 data/rfq.db
 data/scprs_harvest.log
 data/reminded_ids.json
-.claude/
-.github/
+# ── Claude Code (ignore settings, keep shared coordination files) ───────────
+.claude/*
+!.claude/WORKSTREAMS.md
+
+# ── GitHub (ignore IDE config, keep workflows) ─────────────────────────────
+.github/*
+!.github/workflows
 -e 
 data/backups/
 data/Quote_*.pdf

@@ -1,0 +1,128 @@
+name: PR — Validate & Report
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for diff analysis
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --quiet flask pypdf reportlab jinja2 pdfplumber openpyxl Pillow requests beautifulsoup4 pdfminer.six pytest
+
+      - name: Analyze changed files
+        id: changes
+        run: |
+          # What files changed in this PR?
+          CHANGED=$(git diff --name-only origin/main...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED"
+          echo ""
+
+          # Categorize changes
+          HAS_ROUTES=$(echo "$CHANGED" | grep -c 'src/api/' || true)
+          HAS_FORMS=$(echo "$CHANGED" | grep -c 'src/forms/' || true)
+          HAS_AGENTS=$(echo "$CHANGED" | grep -c 'src/agents/' || true)
+          HAS_CORE=$(echo "$CHANGED" | grep -c 'src/core/' || true)
+          HAS_TEMPLATES=$(echo "$CHANGED" | grep -c 'src/templates/' || true)
+          HAS_TESTS=$(echo "$CHANGED" | grep -c 'tests/' || true)
+
+          echo "has_routes=$HAS_ROUTES" >> $GITHUB_OUTPUT
+          echo "has_forms=$HAS_FORMS" >> $GITHUB_OUTPUT
+          echo "has_agents=$HAS_AGENTS" >> $GITHUB_OUTPUT
+          echo "has_core=$HAS_CORE" >> $GITHUB_OUTPUT
+          echo "has_templates=$HAS_TEMPLATES" >> $GITHUB_OUTPUT
+          echo "has_tests=$HAS_TESTS" >> $GITHUB_OUTPUT
+
+          FILE_COUNT=$(echo "$CHANGED" | wc -l)
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Run full test suite
+        env:
+          SECRET_KEY: test-secret-key-for-ci
+          DASH_USER: test
+          DASH_PASS: test
+          FLASK_ENV: testing
+        run: |
+          python -m pytest tests/ \
+            --ignore=tests/test_award_intelligence.py \
+            --ignore=tests/smoke_test.py \
+            -x -q --tb=short 2>&1 | tee test-output.txt
+          echo "TEST_EXIT=${PIPESTATUS[0]}" >> $GITHUB_ENV
+
+      - name: Run pre-deploy checks
+        env:
+          SECRET_KEY: test
+          FLASK_ENV: testing
+        run: |
+          python tests/pre_deploy_check.py 2>&1 | tee predeploy-output.txt
+
+      - name: Check for risky patterns
+        run: |
+          echo "Scanning for risky patterns in changed files..."
+          ISSUES=""
+
+          # Check for bare except clauses in changed files
+          BARE=$(git diff origin/main...HEAD -- '*.py' | grep -c '^\+.*except:' || true)
+          if [ "$BARE" -gt 0 ]; then
+            ISSUES="$ISSUES\n- bare except: clauses found ($BARE instances)"
+          fi
+
+          # Check for missing auth decorators on new routes
+          NEW_ROUTES=$(git diff origin/main...HEAD -- 'src/api/*.py' 'src/api/modules/*.py' | grep -c '^\+.*@bp.route' || true)
+          NEW_AUTH=$(git diff origin/main...HEAD -- 'src/api/*.py' 'src/api/modules/*.py' | grep -c '^\+.*@auth_required' || true)
+          if [ "$NEW_ROUTES" -gt "$NEW_AUTH" ]; then
+            ISSUES="$ISSUES\n- New routes without @auth_required ($NEW_ROUTES routes, $NEW_AUTH auth decorators)"
+          fi
+
+          # Check for f-string SQL
+          FSQL=$(git diff origin/main...HEAD -- '*.py' | grep -cP '^\+.*f["\x27].*(?:SELECT|INSERT|UPDATE|DELETE|DROP)' || true)
+          if [ "$FSQL" -gt 0 ]; then
+            ISSUES="$ISSUES\n- Possible f-string SQL ($FSQL instances) — verify parameterized"
+          fi
+
+          if [ -n "$ISSUES" ]; then
+            echo ""
+            echo "WARNINGS:"
+            echo -e "$ISSUES"
+            echo ""
+            echo "These are warnings, not blockers. Review before merging."
+          else
+            echo "No risky patterns detected."
+          fi
+
+      - name: PR Summary
+        if: always()
+        run: |
+          echo ""
+          echo "============================================"
+          echo "  PR VALIDATION SUMMARY"
+          echo "============================================"
+          echo "  Files changed: ${{ steps.changes.outputs.file_count }}"
+          echo "  Routes:    ${{ steps.changes.outputs.has_routes }} files"
+          echo "  Forms:     ${{ steps.changes.outputs.has_forms }} files"
+          echo "  Agents:    ${{ steps.changes.outputs.has_agents }} files"
+          echo "  Core:      ${{ steps.changes.outputs.has_core }} files"
+          echo "  Templates: ${{ steps.changes.outputs.has_templates }} files"
+          echo "  Tests:     ${{ steps.changes.outputs.has_tests }} files"
+          echo "============================================"

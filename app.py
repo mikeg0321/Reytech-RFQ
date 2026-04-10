@@ -196,6 +196,13 @@ def create_app():
     except Exception as e:
         logging.getLogger("reytech").warning("Security init: %s", e)
 
+    # ── Request timing middleware (P2.1) ──
+    try:
+        from src.core.ops_monitor import install_request_timing
+        install_request_timing(app)
+    except Exception as e:
+        logging.getLogger("reytech").debug("Request timing init: %s", e)
+
     # ── Secrets validation ──
     try:
         from src.core.secrets import startup_check
@@ -255,6 +262,11 @@ def create_app():
         _route = f"{request.method} {request.path}"
         logging.getLogger("reytech").error("500 error: %s | %s", e, _route)
         _send_error_alert(e, _route)
+        try:
+            from src.core.ops_monitor import record_error
+            record_error(e, request.path, request.method)
+        except Exception:
+            pass
         if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
             return {"ok": False, "error": "Internal server error"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
@@ -266,6 +278,11 @@ def create_app():
         logging.getLogger("reytech").error("Unhandled: %s → %s: %s",
             _route, type(e).__name__, str(e)[:200])
         _send_error_alert(e, _route)
+        try:
+            from src.core.ops_monitor import record_error
+            record_error(e, request.path, request.method)
+        except Exception:
+            pass
         if request.path.startswith("/api/") or request.path.startswith("/pricecheck/"):
             return {"ok": False, "error": "Internal server error"}, 500
         return "<h1>500 — Server Error</h1><p>Something went wrong. <a href='/'>Go home</a></p>", 500
@@ -427,6 +444,13 @@ def create_app():
         except Exception:
             pass
 
+        # Ops monitor — hourly backups, health checks, synthetic tests (P1.3, P2.2-P2.5)
+        try:
+            from src.core.ops_monitor import start_ops_monitor
+            start_ops_monitor()
+        except Exception as _ops_e:
+            logging.getLogger("reytech").warning("Ops monitor init: %s", _ops_e)
+
         logging.getLogger("reytech").info("Deferred init complete")
 
         # Pre-warm expensive caches so first user request is fast
@@ -490,14 +514,43 @@ def create_app():
 import signal as _signal
 
 def _handle_sigterm(signum, frame):
+    _log = logging.getLogger("reytech")
+    _log.info("SIGTERM received — starting graceful shutdown")
+
+    # 1. Stop all background threads
     try:
         from src.core.scheduler import request_shutdown
         request_shutdown()
     except Exception:
         pass
-    logging.getLogger("reytech").info("SIGTERM received — requesting graceful shutdown")
+
+    # 2. WAL checkpoint — flush pending writes to main DB file
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        if os.path.exists(DB_PATH):
+            _wal_conn = sqlite3.connect(DB_PATH, timeout=5)
+            _wal_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            _wal_conn.close()
+            _log.info("WAL checkpoint complete — database is consistent")
+    except Exception as _wal_err:
+        _log.error("WAL checkpoint failed during shutdown: %s", _wal_err)
+
+    # 3. Close all thread-local DB connections
+    try:
+        from src.core.db import close_thread_db
+        close_thread_db()
+    except Exception:
+        pass
+
+    _log.info("Graceful shutdown complete — safe to terminate")
 
 _signal.signal(_signal.SIGTERM, _handle_sigterm)
+# Also catch SIGINT (Ctrl+C) for local development
+try:
+    _signal.signal(_signal.SIGINT, _handle_sigterm)
+except (OSError, ValueError):
+    pass  # SIGINT can't be set in some contexts (e.g., non-main thread)
 
 # For gunicorn: gunicorn app:app
 print("[BOOT] Creating app at module level...", flush=True)

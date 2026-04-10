@@ -4,6 +4,9 @@ scprs_scraper_client.py — HTTP client for the SCPRS Scraper microservice.
 Replaces direct Playwright imports. Falls back to local Playwright if
 the scraper service is not configured (SCRAPER_SERVICE_URL not set).
 
+Circuit breaker protection: after 3 consecutive failures, the client
+stops trying the remote service for 120s and falls back immediately.
+
 Usage:
     from src.agents.scprs_scraper_client import scrape_details, scrape_po_detail, search_public
 
@@ -18,7 +21,20 @@ log = logging.getLogger("reytech.scprs_client")
 
 SCRAPER_URL = os.environ.get("SCRAPER_SERVICE_URL", "")
 SCRAPER_SECRET = os.environ.get("SCRAPER_SECRET", "")
-_TIMEOUT = 300  # 5 min — scraping is slow
+
+# Timeouts: connect fast (5s), read slow (scraping is genuinely slow)
+# But cap at 120s — if it takes longer than Gunicorn's 120s timeout, the
+# request dies anyway. Better to fail fast and fall back.
+_CONNECT_TIMEOUT = 5
+_READ_TIMEOUT = 120
+
+try:
+    from src.core.circuit_breaker import get_breaker, CircuitOpenError
+    _scraper_breaker = get_breaker("scraper_service")
+except ImportError:
+    _scraper_breaker = None
+    class CircuitOpenError(Exception):
+        pass
 
 
 def _headers():
@@ -33,7 +49,10 @@ def _call_scraper(endpoint: str, payload: dict) -> dict:
     if not SCRAPER_URL:
         raise ConnectionError("SCRAPER_SERVICE_URL not configured")
     url = f"{SCRAPER_URL.rstrip('/')}/{endpoint.lstrip('/')}"
-    resp = requests.post(url, json=payload, headers=_headers(), timeout=_TIMEOUT)
+    resp = requests.post(
+        url, json=payload, headers=_headers(),
+        timeout=(_CONNECT_TIMEOUT, _READ_TIMEOUT),
+    )
     resp.raise_for_status()
     data = resp.json()
     if not data.get("ok"):
@@ -41,9 +60,16 @@ def _call_scraper(endpoint: str, payload: dict) -> dict:
     return data.get("data", {})
 
 
+def _call_with_breaker(endpoint: str, payload: dict) -> dict:
+    """Call scraper through circuit breaker. Raises CircuitOpenError if breaker is open."""
+    if _scraper_breaker:
+        return _scraper_breaker.call(_call_scraper, endpoint, payload)
+    return _call_scraper(endpoint, payload)
+
+
 def _fallback_local(fn_name, *args, **kwargs):
     """Try local Playwright import as fallback."""
-    log.info("Scraper service unavailable — falling back to local Playwright for %s", fn_name)
+    log.info("Falling back to local Playwright for %s", fn_name)
     if fn_name == "scrape_details":
         from src.agents.scprs_browser import scrape_details
         return scrape_details(*args, **kwargs)
@@ -64,11 +90,16 @@ def _fallback_local(fn_name, *args, **kwargs):
 def scrape_details(supplier_name="reytech", from_date="", max_rows=200):
     """Scrape FI$Cal SCPRS detail pages for a supplier."""
     try:
-        return _call_scraper("/scrape/details", {
+        return _call_with_breaker("/scrape/details", {
             "supplier_name": supplier_name,
             "from_date": from_date,
             "max_rows": max_rows,
         })
+    except CircuitOpenError:
+        log.debug("Scraper circuit open — immediate fallback")
+        return _fallback_local("scrape_details",
+                               supplier_name=supplier_name,
+                               from_date=from_date, max_rows=max_rows)
     except (ConnectionError, requests.RequestException) as e:
         log.warning("Scraper service error: %s", e)
         return _fallback_local("scrape_details",
@@ -79,7 +110,10 @@ def scrape_details(supplier_name="reytech", from_date="", max_rows=200):
 def scrape_po_detail(po_number):
     """Scrape a single PO detail from FI$Cal."""
     try:
-        return _call_scraper("/scrape/po", {"po_number": po_number})
+        return _call_with_breaker("/scrape/po", {"po_number": po_number})
+    except CircuitOpenError:
+        log.debug("Scraper circuit open — immediate fallback")
+        return _fallback_local("scrape_po_detail", po_number)
     except (ConnectionError, requests.RequestException) as e:
         log.warning("Scraper service error: %s", e)
         return _fallback_local("scrape_po_detail", po_number)
@@ -88,11 +122,16 @@ def scrape_po_detail(po_number):
 def search_scprs_public(keyword="", department_code="", max_results=50):
     """Search the public CaleProcure SCPRS site."""
     try:
-        return _call_scraper("/scrape/public-search", {
+        return _call_with_breaker("/scrape/public-search", {
             "keyword": keyword,
             "department_code": department_code,
             "max_results": max_results,
         })
+    except CircuitOpenError:
+        log.debug("Scraper circuit open — immediate fallback")
+        return _fallback_local("search_scprs_public",
+                               keyword=keyword, department_code=department_code,
+                               max_results=max_results)
     except (ConnectionError, requests.RequestException) as e:
         log.warning("Scraper service error: %s", e)
         return _fallback_local("search_scprs_public",
@@ -103,10 +142,14 @@ def search_scprs_public(keyword="", department_code="", max_results=50):
 def search_scprs_intercept(keyword="", department_code="3860"):
     """Search SCPRS via network interception."""
     try:
-        return _call_scraper("/scrape/intercept", {
+        return _call_with_breaker("/scrape/intercept", {
             "keyword": keyword,
             "department_code": department_code,
         })
+    except CircuitOpenError:
+        log.debug("Scraper circuit open — immediate fallback")
+        return _fallback_local("search_scprs_intercept",
+                               keyword=keyword, department_code=department_code)
     except (ConnectionError, requests.RequestException) as e:
         log.warning("Scraper service error: %s", e)
         return _fallback_local("search_scprs_intercept",
