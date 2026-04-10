@@ -2738,7 +2738,7 @@ def _generate_pc_pdf(pcid):
                          pcid, "PASSED" if _vqa.passed else "FAILED",
                          _vqa.pages_inspected, len(_vqa.issues))
         except Exception as _vqe:
-            log.debug("GENERATE %s: Visual QA skipped: %s", pcid, _vqe)
+            log.info("GENERATE %s: Visual QA skipped: %s", pcid, _vqe)
 
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
@@ -2955,7 +2955,7 @@ def _do_generate_original(pcid):
                          pcid, "PASSED" if _vqa.passed else "FAILED",
                          _vqa.pages_inspected, len(_vqa.issues))
         except Exception as _vqe:
-            log.debug("GENERATE-ORIGINAL %s: Visual QA skipped: %s", pcid, _vqe)
+            log.info("GENERATE-ORIGINAL %s: Visual QA skipped: %s", pcid, _vqe)
 
         resp = {"ok": True, "download": f"/api/pricecheck/download/{os.path.basename(output_path)}"}
         if _qa_warnings:
