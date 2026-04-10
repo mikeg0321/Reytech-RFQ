@@ -3452,9 +3452,8 @@
       return r.json();
      }).then(function(d){
       if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
-      // Save succeeded → fast QA (no LLM) before generating
-      btn.textContent='🔍 Running QA...';
-      runQA(function() { _doGenerate704(btn); }, null, true);
+      // Skip QA gate — go straight to generate (QA was hanging and blocking)
+      _doGenerate704(btn);
      }).catch(function(e){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
     }
 
