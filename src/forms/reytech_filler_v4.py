@@ -81,47 +81,7 @@ CONFIG_PATH = os.path.join(SCRIPT_DIR, "reytech_config.json")
 SIGNATURE_PATH = os.path.join(SCRIPT_DIR, "signature_transparent.png")
 
 
-def _normalize_item(item):
-    """Normalize item field names for PDF generation.
-    Handles both PC format and RFQ format items."""
-    n = dict(item)
-    n["description"] = (item.get("description")
-                        or item.get("desc")
-                        or item.get("item_description")
-                        or "").strip()
-    qty = item.get("qty") or item.get("quantity") or item.get("QTY") or 0
-    try:
-        n["qty"] = float(str(qty).replace(",", ""))
-    except (ValueError, TypeError):
-        n["qty"] = 0
-    price = (item.get("price_per_unit")
-             or item.get("bid_price")
-             or item.get("unit_price")
-             or item.get("sell_price") or 0)
-    try:
-        n["price_per_unit"] = float(str(price).replace("$", "").replace(",", ""))
-    except (ValueError, TypeError):
-        n["price_per_unit"] = 0
-    cost = (item.get("supplier_cost")
-            or item.get("cost")
-            or item.get("unit_cost") or 0)
-    try:
-        n["supplier_cost"] = float(str(cost).replace("$", "").replace(",", ""))
-    except (ValueError, TypeError):
-        n["supplier_cost"] = 0
-    n["part_number"] = str(
-        item.get("part_number")
-        or item.get("item_number")
-        or item.get("catalog_number")
-        or item.get("mfg_number")
-        or "")
-    n["uom"] = str(
-        item.get("uom")
-        or item.get("UOM")
-        or item.get("unit_of_measure")
-        or "EA")
-    n["line_number"] = item.get("line_number") or item.get("#") or 0
-    return n
+# _normalize_item() removed — use src.forms.ams704_helpers.normalize_line_item() instead
 
 # ── Signature whitelist ──────────────────────────────────────────────
 # Only these /Sig fields get the signature image. Everything else stays blank.
@@ -1247,9 +1207,9 @@ def fill_std204(input_path, rfq_data, config, output_path):
 
     values = {
         # Section 1 — Payee Information
-        " Must match the payee\u2019s federal tax return)": "R. Michael Guadan",
+        "NAME (This is required. Do not leave this line blank. Must match the payee\u2019s federal tax return)": "R. Michael Guadan",
         "BUSINESS NAME, DBA NAME or DISREGARDED SINGLE MEMBER LLC NAME (If different from above)": company["name"],
-        ") (See instructions on Page 2)": "30 Carnoustie Way",
+        "MAILING ADDRESS (number, street, apt. or suite no.) (See instructions on Page 2)": "30 Carnoustie Way",
         "CITY STATE ZIP CODE": "Trabuco Canyon CA 92679",
         "EMAIL ADDRESS": "sales@reytechinc.com",
         # Section 2 — Entity Type: ALL OTHERS
@@ -1823,7 +1783,6 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
         # Certification fields are for listing OTHER certifications/subcontractors —
         # NOT for Reytech's own DVBE cert number. Leave blank.
         "Certification": "",
-        "Certification #": "",
         "Certification 2": "",
         "Certification 3": "",
         "Product list": "Medical supplies, office supplies, and related products as specified in the solicitation. "
@@ -2658,7 +2617,6 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         "Purchasing Agent": " ",
         "Phone": " ",
         "Email": " ",
-        "E-mail": " ",  # alternate field name
         "PO": " ",
         "State Agency": " ",
     }

@@ -32,25 +32,7 @@ from reportlab.pdfgen import canvas
 
 log = logging.getLogger("quote_gen")
 
-try:
-    from src.forms.reytech_filler_v4 import _normalize_item
-except ImportError:
-    def _normalize_item(item):
-        """Fallback normalizer."""
-        n = dict(item)
-        n["description"] = (item.get("description") or item.get("desc") or "").strip()
-        qty = item.get("qty") or item.get("quantity") or 0
-        try: n["qty"] = float(str(qty).replace(",", ""))
-        except (ValueError, TypeError): n["qty"] = 0
-        price = item.get("price_per_unit") or item.get("bid_price") or item.get("unit_price") or 0
-        try: n["price_per_unit"] = float(str(price).replace("$", "").replace(",", ""))
-        except (ValueError, TypeError): n["price_per_unit"] = 0
-        cost = item.get("supplier_cost") or item.get("cost") or 0
-        try: n["supplier_cost"] = float(str(cost).replace("$", "").replace(",", ""))
-        except (ValueError, TypeError): n["supplier_cost"] = 0
-        n["part_number"] = str(item.get("part_number") or item.get("item_number") or "")
-        n["uom"] = str(item.get("uom") or item.get("UOM") or "EA")
-        return n
+from src.forms.ams704_helpers import normalize_line_item as _normalize_item
 
 try:
     from src.core.paths import DATA_DIR

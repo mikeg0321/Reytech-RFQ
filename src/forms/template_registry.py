@@ -187,15 +187,30 @@ class TemplateProfile:
 
         Call this BEFORE filling to catch mismatches. A non-empty return
         means those fields will be silently ignored by pypdf.
+
+        Handles XFA-style long field names: if a field_value key like
+        'SolicitationNumber[0]' doesn't match directly, checks if any
+        template field ENDS with that key (e.g. 'form1[0].#subform[0].SolicitationNumber[0]').
+        This matches pypdf's own partial matching behavior.
         """
         if not self.field_names:
-            # If we couldn't read field names (e.g. flattened PDF), skip validation
             return []
-        return sorted(k for k in field_values if k not in self.field_names)
+        unmatched = []
+        for k in field_values:
+            if k in self.field_names:
+                continue
+            # XFA partial match: check if any template field ends with this key
+            if any(fn.endswith(k) for fn in self.field_names):
+                continue
+            unmatched.append(k)
+        return sorted(unmatched)
 
     def has_field(self, field_name: str) -> bool:
-        """Check if a specific field name exists in the template."""
-        return field_name in self.field_names
+        """Check if a specific field name exists in the template.
+        Also matches XFA-style partial names (suffix matching)."""
+        if field_name in self.field_names:
+            return True
+        return any(fn.endswith(field_name) for fn in self.field_names)
 
     def get_field_value(self, field_name: str) -> Optional[str]:
         """Get the current value of a field, or None if not present."""
