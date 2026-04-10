@@ -163,6 +163,34 @@ _REGISTRY = {
         "agents": ["dashboard"],
         "sensitive": True,
     },
+    # Gmail API (OAuth2 — replaces IMAP when configured)
+    "gmail_oauth_client_id": {
+        "env": "GMAIL_OAUTH_CLIENT_ID",
+        "required": False,
+        "desc": "Gmail API OAuth2 client ID",
+        "agents": ["email_poller"],
+    },
+    "gmail_oauth_client_secret": {
+        "env": "GMAIL_OAUTH_CLIENT_SECRET",
+        "required": False,
+        "desc": "Gmail API OAuth2 client secret",
+        "agents": ["email_poller"],
+        "sensitive": True,
+    },
+    "gmail_oauth_refresh_token": {
+        "env": "GMAIL_OAUTH_REFRESH_TOKEN",
+        "required": False,
+        "desc": "Gmail API OAuth2 refresh token (sales@ inbox)",
+        "agents": ["email_poller"],
+        "sensitive": True,
+    },
+    "gmail_oauth_refresh_token_2": {
+        "env": "GMAIL_OAUTH_REFRESH_TOKEN_2",
+        "required": False,
+        "desc": "Gmail API OAuth2 refresh token (mike@ inbox)",
+        "agents": ["email_poller"],
+        "sensitive": True,
+    },
 }
 
 

@@ -1297,6 +1297,18 @@ class EmailPoller:
         self._processed = self._load_processed()
         self.mail = None
         self._connected = False
+        # Gmail API backend (preferred over IMAP when configured)
+        self._use_gmail_api = False
+        self._gmail_service = None
+        self._drive_service = None
+        if not config.get("force_imap"):
+            try:
+                from src.core.gmail_api import is_configured
+                if is_configured():
+                    self._use_gmail_api = True
+                    log.info("Gmail API backend enabled for %s", self.email_addr)
+            except ImportError:
+                pass
 
     def _load_processed(self):
         """Load processed UIDs from both JSON file and SQLite for durability."""
@@ -1350,10 +1362,53 @@ class EmailPoller:
             log.debug("SQLite processed_emails save: %s", e)
 
     def connect(self):
-        """Connect to IMAP server. Returns True on success.
-        Protected by gmail circuit breaker — stops hammering Gmail if connection
+        """Connect to email backend. Returns True on success.
+        Uses Gmail API if configured, otherwise falls back to IMAP.
+        Protected by circuit breaker — stops hammering Gmail if connection
         fails repeatedly (3 failures → 5min cooldown).
         """
+        # ── Gmail API backend ──
+        if self._use_gmail_api:
+            try:
+                if self._gmail_service and self._connected:
+                    return True
+                # Check circuit breaker
+                try:
+                    from src.core.circuit_breaker import get_breaker
+                    breaker = get_breaker("gmail")
+                    if breaker.state == "open":
+                        log.warning("Gmail circuit breaker OPEN — skipping connect")
+                        return False
+                except ImportError:
+                    pass
+
+                from src.core.gmail_api import get_service, get_drive_service
+                self._gmail_service = get_service(self._inbox_name)
+                try:
+                    self._drive_service = get_drive_service(self._inbox_name)
+                except Exception as _de:
+                    log.warning("Drive API service failed (Drive links won't be downloaded): %s", _de)
+                    self._drive_service = None
+                self._connected = True
+                log.info("Connected via Gmail API as %s (inbox=%s)", self.email_addr, self._inbox_name)
+                try:
+                    from src.core.circuit_breaker import get_breaker
+                    get_breaker("gmail")._on_success()
+                except Exception:
+                    pass
+                return True
+            except Exception as e:
+                log.error("Gmail API connect failed: %s", e)
+                self._connected = False
+                self._gmail_service = None
+                try:
+                    from src.core.circuit_breaker import get_breaker
+                    get_breaker("gmail")._on_failure(e)
+                except Exception:
+                    pass
+                return False
+
+        # ── IMAP backend (fallback) ──
         try:
             if self.mail and self._connected:
                 try:
@@ -1406,28 +1461,46 @@ class EmailPoller:
     def check_for_rfqs(self, save_dir="uploads"):
         """Check inbox for new RFQ emails. Returns list of parsed RFQ dicts.
         Uses UID tracking + date search so Gmail read status doesn't matter.
-        Uses BODY.PEEK[] to avoid marking emails as read.
+        Supports Gmail API (preferred) and IMAP (fallback) backends.
         """
         results = []
-        
-        try:
-            # Search last 30 days by date — doesn't matter if read or unread
-            # Extended from 7 to 30 days: some RFQs take weeks to process
-            since_date = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
-            status, messages = self.mail.uid("search", None, f"(SINCE {since_date})")
-            if status != "OK":
-                log.warning(f"IMAP UID search failed: {status}")
-                return results
 
-            uids = messages[0].split() if messages[0] else []
-            new_uids = [u for u in uids if u.decode() not in self._processed]
-            if uids:
-                log.info(f"Found {len(uids)} emails from last 30 days, {len(new_uids)} new to process")
-            
+        try:
+            # ── Fetch message IDs: Gmail API or IMAP ──
+            if self._use_gmail_api and self._gmail_service:
+                # Gmail API: search with query string
+                since_date = (datetime.now() - timedelta(days=30)).strftime("%Y/%m/%d")
+                query = f"in:inbox after:{since_date}"
+                try:
+                    from src.core.gmail_api import list_message_ids
+                    all_ids = list_message_ids(self._gmail_service, query, max_results=500)
+                except Exception as _ge:
+                    log.error("Gmail API list_message_ids failed: %s", _ge)
+                    return results
+                new_ids = [mid for mid in all_ids if mid not in self._processed]
+                if all_ids:
+                    log.info("Found %d emails from last 30 days, %d new to process",
+                             len(all_ids), len(new_ids))
+                _backend = "gmail_api"
+            else:
+                # IMAP: UID search
+                since_date = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
+                status, messages = self.mail.uid("search", None, f"(SINCE {since_date})")
+                if status != "OK":
+                    log.warning(f"IMAP UID search failed: {status}")
+                    return results
+                uids = messages[0].split() if messages[0] else []
+                new_ids = [u.decode() for u in uids if u.decode() not in self._processed]
+                all_ids = [u.decode() for u in uids]
+                if all_ids:
+                    log.info(f"Found {len(all_ids)} emails from last 30 days, {len(new_ids)} new to process")
+                _backend = "imap"
+
             # Diagnostic counters
             self._diag = {
-                "total_uids": len(uids),
-                "new_uids": len(new_uids),
+                "total_uids": len(all_ids),
+                "new_uids": len(new_ids),
+                "backend": _backend,
                 "recalled": 0,
                 "followup": 0,
                 "not_rfq": 0,
@@ -1448,16 +1521,24 @@ class EmailPoller:
             except Exception:
                 pass
 
-            for uid_bytes in new_uids:
-                uid = uid_bytes.decode()
+            for uid in new_ids:
 
                 try:
-                    # BODY.PEEK[] = fetch without marking as read
-                    status, data = self.mail.uid("fetch", uid_bytes, "(BODY.PEEK[])")
-                    if status != "OK":
-                        continue
-
-                    msg = email.message_from_bytes(data[0][1])
+                    # ── Fetch raw message: Gmail API or IMAP ──
+                    if self._use_gmail_api and self._gmail_service:
+                        try:
+                            from src.core.gmail_api import get_raw_message
+                            raw_bytes = get_raw_message(self._gmail_service, uid)
+                        except Exception as _gfe:
+                            log.warning("Gmail API fetch failed for %s: %s", uid, _gfe)
+                            continue
+                        msg = email.message_from_bytes(raw_bytes)
+                    else:
+                        # IMAP: BODY.PEEK[] = fetch without marking as read
+                        status, data = self.mail.uid("fetch", uid.encode(), "(BODY.PEEK[])")
+                        if status != "OK":
+                            continue
+                        msg = email.message_from_bytes(data[0][1])
                     
                     subject = self._decode_header(msg["Subject"]) or ""
                     sender = self._decode_header(msg["From"]) or ""
@@ -2117,7 +2198,18 @@ class EmailPoller:
                         os.makedirs(pc_rfq_dir, exist_ok=True)
                         pc_attachments = self._save_attachments(msg, pc_rfq_dir)
                         pc_attachments.extend(self._extract_forwarded_attachments(msg, pc_rfq_dir))
-                        
+                        # Download Google Drive-linked files
+                        if self._drive_service:
+                            try:
+                                from src.core.drive_link_detector import detect_and_download_drive_attachments
+                                _drive_pcs = detect_and_download_drive_attachments(
+                                    msg, pc_rfq_dir, self._drive_service)
+                                if _drive_pcs:
+                                    pc_attachments.extend(_drive_pcs)
+                                    log.info("Downloaded %d Drive-linked PC file(s)", len(_drive_pcs))
+                            except Exception as _dle:
+                                log.debug("Drive link detection (PC): %s", _dle)
+
                         # Forward detection — extract original buyer sender
                         _pc_orig_sender, _pc_clean_subj, _pc_clean_body, _pc_was_fwd = \
                             _extract_forwarded_original(subject, body or "", sender_email_raw)
@@ -2275,11 +2367,24 @@ class EmailPoller:
                     rfq_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:6]
                     rfq_dir = os.path.join(save_dir, rfq_id)
                     os.makedirs(rfq_dir, exist_ok=True)
-                    
+
                     attachments = self._save_attachments(msg, rfq_dir)
                     fwd_attachments = self._extract_forwarded_attachments(msg, rfq_dir)
                     attachments.extend(fwd_attachments)
-                    
+
+                    # ── Google Drive link detection — download linked files ──
+                    if self._drive_service:
+                        try:
+                            from src.core.drive_link_detector import detect_and_download_drive_attachments
+                            drive_files = detect_and_download_drive_attachments(
+                                msg, rfq_dir, self._drive_service)
+                            if drive_files:
+                                attachments.extend(drive_files)
+                                log.info("Downloaded %d Drive-linked file(s) for %s",
+                                         len(drive_files), subject[:50])
+                        except Exception as _dle:
+                            log.debug("Drive link detection: %s", _dle)
+
                     if attachments:
                         sol_num = extract_solicitation_number(
                             subject, body, 
@@ -2376,9 +2481,13 @@ class EmailPoller:
         except imaplib.IMAP4.abort:
             log.warning("IMAP connection aborted — will reconnect next cycle")
             self._connected = False
+            if self._use_gmail_api:
+                self._gmail_service = None
         except Exception as e:
             log.error(f"Error checking emails: {e}")
             self._connected = False
+            if self._use_gmail_api:
+                self._gmail_service = None
         
         return results
 
@@ -2608,9 +2717,59 @@ class EmailPoller:
 
     def audit_missed_emails(self, days=7):
         """Find buyer/forward emails processed but never created a PC or RFQ."""
+        missed = []
+
+        created_uids = set()
+        try:
+            from src.api.dashboard import _load_price_checks, load_rfqs
+            for pc in _load_price_checks().values():
+                u = pc.get("email_uid", "")
+                if u:
+                    created_uids.add(str(u))
+            for r in load_rfqs().values():
+                u = r.get("email_uid", "")
+                if u:
+                    created_uids.add(str(u))
+        except Exception:
+            pass
+
+        buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire", "chp", "dgs"]
+        our_domains = ["reytechinc.com", "reytech.com"]
+
+        # ── Gmail API path ──
+        if self._use_gmail_api and self._gmail_service:
+            try:
+                from src.core.gmail_api import list_message_ids, get_message_metadata
+                since_date = (datetime.now() - timedelta(days=days)).strftime("%Y/%m/%d")
+                all_ids = list_message_ids(self._gmail_service,
+                                           f"in:inbox after:{since_date}", max_results=200)
+                for mid in all_ids:
+                    if mid in created_uids:
+                        continue
+                    try:
+                        meta = get_message_metadata(self._gmail_service, mid)
+                        sender_email = self._extract_email(meta.get("from", "")).lower()
+                        subj = meta.get("subject", "")
+                        is_buyer = any(d in sender_email for d in buyer_domains)
+                        is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
+                        was_processed = mid in self._processed
+                        if (is_buyer or is_self) and was_processed:
+                            missed.append({
+                                "uid": mid,
+                                "sender_email": sender_email,
+                                "subject": subj[:120],
+                                "is_forward": is_self,
+                                "is_buyer": is_buyer,
+                            })
+                    except Exception:
+                        continue
+            except Exception as e:
+                log.warning("Gmail API missed email audit: %s", e)
+            return missed
+
+        # ── IMAP path (fallback) ──
         import imaplib
         import email as email_mod
-        missed = []
         since = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
         try:
             imap = imaplib.IMAP4_SSL("imap.gmail.com")
@@ -2618,23 +2777,6 @@ class EmailPoller:
             imap.select("INBOX", readonly=True)
             _, data = imap.uid("search", None, f"(SINCE {since})")
             uids = data[0].split() if data[0] else []
-
-            created_uids = set()
-            try:
-                from src.api.dashboard import _load_price_checks, load_rfqs
-                for pc in _load_price_checks().values():
-                    u = pc.get("email_uid", "")
-                    if u:
-                        created_uids.add(str(u))
-                for r in load_rfqs().values():
-                    u = r.get("email_uid", "")
-                    if u:
-                        created_uids.add(str(u))
-            except Exception:
-                pass
-
-            buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire", "chp", "dgs"]
-            our_domains = ["reytechinc.com", "reytech.com"]
 
             for uid_bytes in uids[-200:]:
                 uid_str = uid_bytes.decode()
@@ -2668,11 +2810,15 @@ class EmailPoller:
         return missed
 
     def disconnect(self):
-        try:
-            if self.mail:
-                self.mail.logout()
-        except Exception:
-            pass
+        if self._use_gmail_api:
+            self._gmail_service = None
+            self._drive_service = None
+        else:
+            try:
+                if self.mail:
+                    self.mail.logout()
+            except Exception:
+                pass
         self._connected = False
 
 

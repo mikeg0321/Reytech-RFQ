@@ -3567,8 +3567,10 @@ def do_poll_check():
         connected = _shared_poller.connect()
         POLL_STATUS["_diag"]["imap_connected"] = connected
         POLL_STATUS["last_check"] = _pst_now_iso()  # mark attempt regardless of outcome
+        POLL_STATUS["_diag"]["backend"] = "gmail_api" if getattr(_shared_poller, '_use_gmail_api', False) else "imap"
         if connected:
-            log.info("IMAP connected, checking for RFQs...")
+            _backend_label = POLL_STATUS["_diag"]["backend"]
+            log.info("%s connected, checking for RFQs...", _backend_label.upper())
             rfq_emails = _shared_poller.check_for_rfqs(save_dir=_UPLOAD_DIR)
             POLL_STATUS["error"] = None
             POLL_STATUS["_diag"]["rfqs_returned"] = len(rfq_emails)
