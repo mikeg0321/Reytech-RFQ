@@ -100,15 +100,7 @@ except ImportError:
     except ImportError:
         HAS_RESEARCH = False
 
-try:
-    from src.knowledge.pricing_oracle import recommend_price
-    HAS_ORACLE = True
-except ImportError:
-    try:
-        from src.knowledge.pricing_oracle import recommend_price
-        HAS_ORACLE = True
-    except ImportError:
-        HAS_ORACLE = False
+# V1 pricing oracle retired — V2 (core.pricing_oracle_v2) used inline at call site
 
 try:
     from src.knowledge.won_quotes_db import find_similar_items
@@ -2245,19 +2237,22 @@ def lookup_prices(parsed_pc: dict) -> dict:
             except Exception as e:
                 log.error(f"SCPRS lookup error for '{desc[:50]}': {e}")
 
-        # 3. Run Pricing Oracle
+        # 3. Run Pricing Oracle V2
         supplier_cost = pricing["amazon_price"]
-        if HAS_ORACLE and supplier_cost:
+        if supplier_cost:
             try:
-                rec = recommend_price(
-                    supplier_cost=supplier_cost,
-                    scprs_matches=[{"unit_price": pricing["scprs_price"]}] if pricing["scprs_price"] else [],
-                    item_category="general",
+                from src.core.pricing_oracle_v2 import get_pricing
+                oracle = get_pricing(
+                    description=desc,
+                    quantity=item.get("qty", 1) or 1,
+                    cost=supplier_cost if supplier_cost > 0 else None,
+                    item_number=item.get("item_number", ""),
                 )
-                if rec and rec.get("recommended"):
-                    pricing["recommended_price"] = rec["recommended"]["price"]
+                rec_price = (oracle.get("recommendation") or {}).get("quote_price")
+                if rec_price:
+                    pricing["recommended_price"] = rec_price
             except Exception as e:
-                log.error(f"Oracle error for '{desc[:50]}': {e}")
+                log.error(f"Oracle V2 error for '{desc[:50]}': {e}")
 
         # Fallback: if oracle didn't run, use cost + 25% markup
         if not pricing["recommended_price"] and supplier_cost:
