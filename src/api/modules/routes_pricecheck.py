@@ -3954,6 +3954,72 @@ def api_email_debug():
     })
 
 
+@bp.route("/api/email-rejections")
+@auth_required
+@safe_route
+def api_email_rejections():
+    """Audit log: show emails that were blocked/skipped by the filtering pipeline.
+
+    Use this to tune filters — see what's being caught and what's slipping through.
+    Query params:
+      ?reason=blocklist|marketing|low_score  (filter by rejection reason)
+      ?limit=50  (max results, default 50)
+      ?since=2026-04-01  (filter by date)
+    """
+    from flask import request as req
+    reason_filter = req.args.get("reason", "")
+    limit = min(int(req.args.get("limit", 50)), 500)
+    since = req.args.get("since", "")
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS email_rejections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_uid TEXT, sender TEXT, subject TEXT,
+                reason TEXT, details TEXT, rejected_at TEXT
+            )""")
+
+            query = "SELECT email_uid, sender, subject, reason, details, rejected_at FROM email_rejections"
+            params = []
+            clauses = []
+
+            if reason_filter:
+                clauses.append("reason = ?")
+                params.append(reason_filter)
+            if since:
+                clauses.append("rejected_at >= ?")
+                params.append(since)
+
+            if clauses:
+                query += " WHERE " + " AND ".join(clauses)
+            query += " ORDER BY rejected_at DESC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+
+            # Also get summary counts by reason
+            summary = conn.execute(
+                "SELECT reason, COUNT(*) as cnt FROM email_rejections "
+                "GROUP BY reason ORDER BY cnt DESC"
+            ).fetchall()
+
+        rejections = [{
+            "uid": r[0], "sender": r[1], "subject": r[2],
+            "reason": r[3], "details": r[4], "rejected_at": r[5],
+        } for r in rows]
+
+        return jsonify({
+            "ok": True,
+            "count": len(rejections),
+            "rejections": rejections,
+            "summary": {r[0]: r[1] for r in summary},
+        })
+    except Exception as e:
+        log.error("Email rejections endpoint error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/force-reprocess", methods=["GET", "POST"])
 @auth_required
 @safe_route

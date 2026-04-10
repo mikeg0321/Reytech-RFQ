@@ -42,6 +42,68 @@ except ImportError:
     os.makedirs(DATA_DIR, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Email Rejection Audit Log — tracks every blocked/skipped email for tuning
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _log_email_rejection(email_uid, sender, subject, reason, details=""):
+    """Log a rejected/skipped email to SQLite for audit and filter tuning.
+
+    Creates email_rejections table if needed. Keeps last 5000 entries.
+    """
+    try:
+        from src.core.db import get_db
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.execute("""CREATE TABLE IF NOT EXISTS email_rejections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email_uid TEXT,
+                sender TEXT,
+                subject TEXT,
+                reason TEXT,
+                details TEXT,
+                rejected_at TEXT
+            )""")
+            conn.execute(
+                "INSERT INTO email_rejections (email_uid, sender, subject, reason, details, rejected_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (email_uid, (sender or "")[:200], (subject or "")[:200],
+                 reason, (details or "")[:500], now)
+            )
+            # Prune old entries (keep last 5000)
+            conn.execute(
+                "DELETE FROM email_rejections WHERE id NOT IN "
+                "(SELECT id FROM email_rejections ORDER BY id DESC LIMIT 5000)"
+            )
+    except Exception as e:
+        log.debug("Rejection log error: %s", e)
+
+
+def _is_real_procurement_pdf(filepath):
+    """Check if a saved PDF is likely a real procurement form, not junk.
+
+    Filters out:
+    - Tiny files (<5KB) — logos, email signature images saved as PDF
+    - Oversized files (>50MB) — not a government form
+    - Empty/corrupt files
+
+    Returns True if the file looks like a real procurement document.
+    """
+    try:
+        size = os.path.getsize(filepath)
+        if size < 5000:  # < 5KB = probably a logo or blank page
+            log.debug("PDF too small (%d bytes), likely not procurement: %s",
+                      size, os.path.basename(filepath))
+            return False
+        if size > 50_000_000:  # > 50MB = not a government form
+            log.debug("PDF too large (%d bytes), likely not procurement: %s",
+                      size, os.path.basename(filepath))
+            return False
+        return True
+    except OSError:
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Forward Detection — extract original sender/subject/body from forwarded emails
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -148,29 +210,132 @@ RFQ_STRONG = [
 # Senders/domains that should NEVER create PCs or RFQs
 # (invoices, payment processors, newsletters, internal tools)
 BLOCKED_SENDERS = [
+    # Payment processors
     "payments-noreply@google.com", "noreply@google.com",
     "no-reply@accounts.google.com", "googlecommerce-",
     "@paypal.com", "service@paypal.com",
     "@intuit.com", "quickbooks@notification.intuit.com",
     "@square.com", "@stripe.com", "@bill.com",
+    # Generic noreply / system
     "noreply@", "no-reply@", "donotreply@", "do-not-reply@",
-    "mailer-daemon@", "postmaster@",
-    "@linkedin.com", "@facebook.com", "@twitter.com",
-    "@mailchimp.com", "@constantcontact.com",
-    "newsletter@", "marketing@", "promotions@",
+    "mailer-daemon@", "postmaster@", "bounce@", "bounced-",
+    "auto-confirm@", "notifications@", "notification@",
+    # Social / marketing platforms
+    "@linkedin.com", "@facebook.com", "@twitter.com", "@instagram.com",
+    "@mailchimp.com", "@constantcontact.com", "@hubspot.com",
+    "@sendgrid.net", "@mailgun.org", "@campaignmonitor.com",
+    "newsletter@", "marketing@", "promotions@", "info@",
+    # Google Workspace
+    "calendar-notification@google.com", "drive-shares-dm-noreply@google.com",
+    "comments-noreply@docs.google.com", "@google.com",
+    # Microsoft / Office 365
+    "@microsoft.com", "@office365.com", "@teams.microsoft.com",
+    "noreply@email.teams.microsoft.com",
+    # Shipping carriers (handled by shipping detector, not RFQ pipeline)
+    "@ups.com", "auto-notify@ups.com",
+    "@fedex.com", "TrackingUpdates@fedex.com",
+    "@usps.com", "USPSInformeddelivery@",
+    "ship-confirm@", "order-update@", "tracking-updates@",
+    # Amazon (commerce, not procurement)
+    "auto-confirm@amazon.com", "shipment-tracking@amazon.com",
+    "order-update@amazon.com", "@amazon.com",
+    # Developer / DevOps tools
     "@railway.app", "@github.com", "@sentry.io",
+    "@slack.com", "@zoom.us", "@atlassian.com", "@jira.com",
+    "@dropbox.com", "@box.com", "@notion.so",
+    # Banks / Insurance / Finance
+    "@bankofamerica.com", "@chase.com", "@wellsfargo.com",
+    "@capitalone.com", "@citi.com", "alerts@",
+    # DocuSign system (admin notices, not doc completions from buyers)
+    "dse_na@docusign.net",
+    # Government non-procurement (automated notices)
+    "@edd.ca.gov", "@ftb.ca.gov", "@dmv.ca.gov",
+    "@calpers.ca.gov", "@sos.ca.gov",
 ]
 
 # Subject patterns that indicate non-procurement emails (invoices, receipts, etc.)
 BLOCKED_SUBJECTS = [
+    # Financial / transactional
     r"(?:invoice|receipt|payment|billing|subscription)\s*(?:#|number|confirmation)",
     r"^your\s+(?:order|receipt|invoice|payment|subscription)",
     r"(?:monthly|weekly|daily)\s+(?:statement|summary|report|digest)",
+    # Authentication / security
     r"password\s+reset",
     r"verify\s+your\s+(?:email|account)",
     r"sign[\s-]?in\s+(?:alert|notification)",
     r"two[\s-]?(?:factor|step)\s+(?:authentication|verification)",
+    r"security\s+alert", r"suspicious\s+(?:sign[\s-]?in|activity|login)",
+    r"new\s+sign[\s-]?in\s+(?:from|on)",
+    # Shipping / delivery (handled by shipping detector, not RFQ pipeline)
+    r"(?:your\s+)?(?:order|package|shipment)\s+(?:has\s+)?(?:shipped|delivered|been\s+delivered)",
+    r"(?:delivery|shipping)\s+(?:notification|confirmation|update|status)",
+    r"tracking\s+(?:number|update|information|details)",
+    r"out\s+for\s+delivery", r"package\s+arrived",
+    # Calendar / meetings
+    r"(?:meeting|event)\s+(?:invitation|cancelled|updated|reminder)",
+    r"calendar\s+(?:event|reminder|notification)",
+    r"invitation\s*:\s*", r"accepted\s*:\s*", r"declined\s*:\s*",
+    # Auto-replies / OOO
+    r"out\s+of\s+(?:the\s+)?office", r"auto[\s-]?(?:reply|response|matic\s+reply)",
+    r"automatic\s+reply", r"on\s+(?:vacation|leave|holiday)",
+    # Mail delivery failures
+    r"undeliverable", r"delivery\s+(?:status|failure|has\s+failed)",
+    r"mail\s+delivery\s+(?:failed|subsystem)", r"returned\s+mail",
+    r"message\s+not\s+delivered",
+    # Google Drive / file sharing (not procurement)
+    r"invitation\s+to\s+(?:edit|comment|view)",
+    r"shared\s+.+\s+with\s+you",
+    r"(?:document|file|folder)\s+shared",
+    # Newsletters / digests
+    r"weekly\s+(?:update|digest|roundup|newsletter)",
+    r"monthly\s+(?:update|digest|newsletter|recap)",
 ]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Marketing / Newsletter Detection — catches mass emails that slip past blocklists
+# ═══════════════════════════════════════════════════════════════════════════════
+
+NEWSLETTER_BODY_SIGNALS = [
+    r"unsubscribe",
+    r"manage\s+(?:your\s+)?(?:preferences|subscription|email)",
+    r"(?:view|read)\s+(?:in|this\s+email\s+in)\s+(?:your\s+)?browser",
+    r"email\s+preferences",
+    r"opt[\s-]?out",
+    r"you(?:'re| are)\s+receiving\s+this\s+(?:because|email|message)",
+    r"update\s+(?:your\s+)?(?:email\s+)?preferences",
+    r"no\s+longer\s+wish\s+to\s+receive",
+    r"sent\s+(?:to|by)\s+.+\s+(?:because|as\s+a\s+(?:subscriber|member))",
+    r"add\s+us\s+to\s+your\s+(?:address\s+book|contacts|safe\s+senders?)",
+    r"\u00a9\s*\d{4}",  # Copyright symbol + year in footer
+]
+
+NEWSLETTER_SIGNALS_COMPILED = [re.compile(p, re.I) for p in NEWSLETTER_BODY_SIGNALS]
+
+
+def is_marketing_email(msg, body):
+    """Detect newsletters/marketing blasts that are NOT procurement emails.
+
+    Uses two signals:
+    1. List-Unsubscribe header (definitive — RFC 2369, only mass mailers set this)
+    2. Body patterns (unsubscribe links, preference management, etc.)
+
+    Returns True if this is a marketing/newsletter email.
+    """
+    # Signal 1: List-Unsubscribe header — strongest signal, RFC standard
+    if msg and msg.get("List-Unsubscribe"):
+        return True
+    # Signal 1b: Precedence: bulk or list
+    precedence = (msg.get("Precedence") or "").lower() if msg else ""
+    if precedence in ("bulk", "list", "junk"):
+        return True
+
+    # Signal 2: Body pattern matching — need 2+ hits to confirm
+    body_lower = (body or "").lower()
+    if len(body_lower) < 50:
+        return False  # Too short to be a newsletter
+    hits = sum(1 for pat in NEWSLETTER_SIGNALS_COMPILED if pat.search(body_lower))
+    return hits >= 2
+
 
 PC_KNOWN_SENDERS = [
     "demidenko", "valentina.demidenko",   # Valentina Demidenko — CSP-Sacramento
@@ -1183,63 +1348,116 @@ def is_price_check_email(subject, body, sender, pdf_names):
 
 def is_rfq_email(subject, body, attachments, sender_email=""):
     """
-    Determine if an email is an RFQ. Uses tiered detection:
-    1. Known agency sender domain → definitely RFQ
-    2. Strong keyword match in subject/body → definitely RFQ
-    3. PDF attachments with RFQ-like filenames → likely RFQ
-    4. Any email with 2+ PDF attachments → probable RFQ (dedicated inbox)
-    5. Forwarded email with PDF → probable RFQ
-    6. Single PDF in dedicated inbox → still probably RFQ
+    Determine if an email is an RFQ. Uses tiered detection with negative gates.
+
+    Negative gates (checked first):
+      - Recall emails
+      - Price Check subject patterns
+      - Newsletter / marketing body signals
+
+    Positive tiers:
+      0. Known procurement agency sender domain → definitely RFQ
+      1. Strong keyword match in subject/body → definitely RFQ
+      2. PDF attachments with RFQ-like filenames → likely RFQ
+      3. 2+ PDFs where at least one matches RFQ patterns or from .gov → probable RFQ
+      4. Forwarded email with RFQ-pattern PDF or procurement hints → probable RFQ
+
+    REMOVED (caused mass false positives after Gmail API switch):
+      - Old Tier 3: any 2+ PDFs = RFQ (newsletters with PDF + logo matched)
+      - Old Tier 5: single PDF = RFQ (every email with a PDF matched)
     """
     combined = f"{subject} {body}".lower()
-    
-    # Guard: recall emails are NOT RFQs even if they contain keywords like "cdcr"
+
+    # ── Negative Gate: recall ──
     if subject.lower().startswith("recall:") or "would like to recall" in combined:
         return False
-    
-    # Guard: Price Check subjects are NOT RFQs — they should be routed to PC queue
+
+    # ── Negative Gate: Price Check subjects ──
     _subj_low = (subject or "").strip().lower()
     for _pc_pat in PC_SUBJECT_PATTERNS:
         if re.match(_pc_pat, _subj_low):
             log.debug("is_rfq_email: subject matches PC pattern (%s) → not an RFQ", _pc_pat)
             return False
-    
-    # Tier 0: Known agency sender domains → always RFQ
-    _agency_domains = ["calvet.ca.gov", "fire.ca.gov", "dgs.ca.gov",
-                       "cchcs.ca.gov", "cdcr.ca.gov", "dsh.ca.gov"]
-    if sender_email and any(d in sender_email.lower() for d in _agency_domains):
-        log.info("RFQ detected (agency sender domain): %s from %s", subject[:60], sender_email)
-        return True
-    
-    # Tier 1: Strong keyword match
+
+    # ── Negative Gate: Newsletter / marketing signals in body ──
+    _body_low = (body or "").lower()
+    _newsletter_hits = 0
+    for _np in NEWSLETTER_SIGNALS_COMPILED:
+        if _np.search(_body_low):
+            _newsletter_hits += 1
+            if _newsletter_hits >= 2:
+                log.debug("is_rfq_email: newsletter signals (%d hits) → not an RFQ: %s",
+                          _newsletter_hits, subject[:50])
+                return False
+
+    # ── Tier 0: Known procurement agency sender domains ──
+    _procurement_domains = [
+        "cchcs.ca.gov", "cdcr.ca.gov", "dsh.ca.gov",
+        "calvet.ca.gov", "fire.ca.gov", "dgs.ca.gov",
+        "cdph.ca.gov",
+    ]
+    _excluded_gov = [
+        "edd.ca.gov", "ftb.ca.gov", "dmv.ca.gov", "calpers.ca.gov",
+        "sos.ca.gov", "oag.ca.gov", "boe.ca.gov", "hcd.ca.gov",
+        "parks.ca.gov", "water.ca.gov",
+    ]
+    _sender_low = (sender_email or "").lower()
+    if _sender_low:
+        if not any(d in _sender_low for d in _excluded_gov):
+            if any(d in _sender_low for d in _procurement_domains):
+                log.info("RFQ detected (procurement agency domain): %s from %s", subject[:60], sender_email)
+                return True
+
+    # ── Tier 1: Strong keyword match ──
     if any(kw in combined for kw in RFQ_STRONG):
-        log.info(f"RFQ detected (keyword match): {subject[:60]}")
+        log.info("RFQ detected (keyword match): %s", subject[:60])
         return True
-    
-    # Tier 2: PDF filenames look like RFQ forms
+
+    # ── Tier 2: PDF filenames look like RFQ forms ──
     pdf_names = [a.lower().replace(" ", ".").replace("-", ".") for a in attachments]
     for name in pdf_names:
         if any(re.search(p, name) for p in RFQ_PDF_PATTERNS):
-            log.info(f"RFQ detected (PDF filename match): {subject[:60]}")
+            log.info("RFQ detected (PDF filename match): %s", subject[:60])
             return True
-    
-    # Tier 3: Multiple PDFs = likely RFQ (this is a dedicated RFQ inbox)
+
+    # ── Tier 3: Multiple PDFs where at least one matches RFQ patterns ──
     if len(attachments) >= 2:
-        log.info(f"RFQ detected (multiple PDFs in dedicated inbox): {subject[:60]}")
-        return True
-    
-    # Tier 4: Forwarded email with any PDF attachment
+        _has_rfq_pdf = any(
+            any(re.search(p, name) for p in RFQ_PDF_PATTERNS)
+            for name in pdf_names
+        )
+        _is_gov_sender = any(d in _sender_low for d in [".ca.gov", ".gov"])
+        if _has_rfq_pdf or _is_gov_sender:
+            log.info("RFQ detected (multi-PDF + pattern/gov): %s (%d PDFs)", subject[:60], len(attachments))
+            return True
+        else:
+            log.debug("Multi-PDF but no RFQ pattern or .gov sender, skipping: %s", subject[:60])
+
+    # ── Tier 4: Forwarded email with RFQ evidence ──
     fwd_indicators = ["fwd:", "fw:", "forwarded", "---------- forwarded"]
     if any(ind in combined for ind in fwd_indicators) and len(attachments) >= 1:
-        log.info(f"RFQ detected (forwarded with PDF): {subject[:60]}")
-        return True
-    
-    # Tier 5: Single PDF in dedicated inbox — still probably an RFQ
+        _has_rfq_pdf = any(
+            any(re.search(p, name) for p in RFQ_PDF_PATTERNS)
+            for name in pdf_names
+        )
+        _is_gov_sender = any(d in _sender_low for d in [".ca.gov", ".gov"])
+        _has_procurement_hint = any(kw in combined for kw in [
+            "quote", "pricing", "bid", "rfq", "704", "703",
+            "solicitation", "procurement", "acquisition",
+        ])
+        if _has_rfq_pdf or _is_gov_sender or _has_procurement_hint:
+            log.info("RFQ detected (forwarded + evidence): %s", subject[:60])
+            return True
+        else:
+            log.debug("Forwarded with PDF but no RFQ evidence, skipping: %s", subject[:60])
+
+    # ── NO Tier 5 — "single PDF = RFQ" REMOVED ──
+    # This was the #1 source of false positives after Gmail API switch.
     if len(attachments) >= 1:
-        log.info(f"RFQ detected (PDF in dedicated inbox): {subject[:60]}")
-        return True
-    
-    log.debug(f"Skipped (no PDFs, no keywords): {subject[:60]}")
+        log.debug("Has %d PDF(s) but no RFQ signals — NOT classifying as RFQ: %s",
+                  len(attachments), subject[:60])
+
+    log.debug("Skipped (no sufficient RFQ evidence): %s", subject[:60])
     return False
 
 
@@ -1470,7 +1688,9 @@ class EmailPoller:
             if self._use_gmail_api and self._gmail_service:
                 # Gmail API: search with query string
                 since_date = (datetime.now() - timedelta(days=30)).strftime("%Y/%m/%d")
-                query = f"in:inbox after:{since_date}"
+                query = (f"in:inbox category:primary after:{since_date} "
+                         f"-from:noreply -from:no-reply -from:mailer-daemon "
+                         f"-label:promotions -label:social -label:updates -label:forums")
                 try:
                     from src.core.gmail_api import list_message_ids
                     all_ids = list_message_ids(self._gmail_service, query, max_results=500)
@@ -1655,9 +1875,49 @@ class EmailPoller:
                         log.info("BLOCKED: %s — %s (non-procurement)", sender_email_raw, subject[:50])
                         self._diag.setdefault("blocked", 0)
                         self._diag["blocked"] = self._diag.get("blocked", 0) + 1
+                        _log_email_rejection(uid, sender_email_raw, subject, "blocklist",
+                                             "Matched sender or subject blocklist pattern")
                         self._processed.add(uid)
                         continue
                     # ── END BLOCKLIST ──────────────────────────────────────────
+
+                    # ── MARKETING / NEWSLETTER GATE ────────────────────────
+                    # Catches mass emails that slip past sender/subject blocklists.
+                    # Uses List-Unsubscribe header + body signals (unsubscribe, etc.)
+                    if is_marketing_email(msg, body):
+                        log.info("MARKETING: %s — %s (newsletter/mass email)", sender_email_raw, subject[:50])
+                        self._diag.setdefault("marketing", 0)
+                        self._diag["marketing"] = self._diag.get("marketing", 0) + 1
+                        _log_email_rejection(uid, sender_email_raw, subject, "marketing",
+                                             "List-Unsubscribe header or body newsletter signals")
+                        self._processed.add(uid)
+                        continue
+                    # ── END MARKETING GATE ─────────────────────────────────
+
+                    # ── CLASSIFIER PRE-GATE ────────────────────────────────
+                    # Score email across 5 dimensions. If score is too low AND
+                    # no PDF attachments, skip — it's noise that slipped through.
+                    try:
+                        from src.agents.email_classifier import classify_email, log_classification
+                        _classify_result = classify_email(
+                            subject, body, sender_email_raw, pdf_names)
+                        log_classification(_classify_result, uid, subject, sender_email_raw)
+                        # Skip emails with very low scores and no PDF evidence
+                        if _classify_result["top_score"] < 0.2 and not pdf_names:
+                            log.info("LOW_SCORE skip (%.2f %s): %s — %s",
+                                     _classify_result["top_score"],
+                                     _classify_result["classification"],
+                                     sender_email_raw, subject[:50])
+                            self._diag.setdefault("low_score", 0)
+                            self._diag["low_score"] = self._diag.get("low_score", 0) + 1
+                            _log_email_rejection(uid, sender_email_raw, subject, "low_score",
+                                                 f"score={_classify_result['top_score']:.2f} "
+                                                 f"class={_classify_result['classification']}")
+                            self._processed.add(uid)
+                            continue
+                    except Exception as _ce:
+                        log.debug("Classifier pre-gate error (non-blocking): %s", _ce)
+                    # ── END CLASSIFIER PRE-GATE ────────────────────────────
 
                     # ── RECALL DETECTION — fires FIRST ─────────────────────
                     # Outlook/Exchange recall requests delete the original PC
@@ -2552,6 +2812,15 @@ class EmailPoller:
                 if payload:
                     with open(filepath, "wb") as f:
                         f.write(payload)
+                    # Filter out tiny logos/images and oversized non-form files
+                    if not _is_real_procurement_pdf(filepath):
+                        log.info("Skipping non-procurement PDF (size filter): %s (%d bytes)",
+                                 safe_name, len(payload))
+                        try:
+                            os.remove(filepath)
+                        except OSError:
+                            pass
+                        continue
                     form_type = self._identify_form(safe_name)
                     saved.append({"path": filepath, "filename": safe_name, "type": form_type})
 

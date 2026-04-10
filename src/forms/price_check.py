@@ -3528,6 +3528,7 @@ def _detect_ams704_overlay_positions(source_pdf):
         info = {
             "item_rows": [],      # (y_bot, y_top) for price sub-row only
             "desc_tops": [],      # rl y_top of full cell (for QTY/UOM positioning)
+            "orig_values": [],    # buyer's original {qty, uom, qpu} per row
             "price_x": None,
             "ext_x": None,
             "supplier_cells": {},
@@ -3711,6 +3712,26 @@ def _detect_ams704_overlay_positions(source_pdf):
             if rl_y_top > rl_y_bot:
                 info["item_rows"].append((rl_y_bot, rl_y_top))
                 info["desc_tops"].append(rl_desc_top)
+
+                # Extract buyer's original QTY/UOM/QPU text from description sub-row
+                # These sit on the same Y-line as the item number (within 4pt)
+                _item_y = item_positions[i][1]
+                _orig = {}
+                for _w in words:
+                    if abs(_w["top"] - _item_y) > 4:
+                        continue
+                    _wx0 = _w["x0"]
+                    _wt = _w["text"].strip()
+                    # QTY column: numeric only, ~x 63-103
+                    if pw * 0.08 <= _wx0 < pw * 0.13 and _wt.isdigit():
+                        _orig["qty"] = _wt
+                    # UOM column: short alpha text (EA, Pck, Pkg, etc.), ~x 103-158
+                    elif pw * 0.13 <= _wx0 < pw * 0.20 and len(_wt) <= 5 and not _wt.isdigit():
+                        _orig["uom"] = _wt
+                    # QPU column: numeric only, ~x 158-214
+                    elif pw * 0.20 <= _wx0 < pw * 0.27 and _wt.replace(".", "").isdigit():
+                        _orig["qpu"] = _wt
+                info["orig_values"].append(_orig)
 
         log.info("OVERLAY detect pg%d: %d items → rows: %s",
                  pg_idx, len(info["item_rows"]),
@@ -4141,12 +4162,37 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         # For detected layouts (DOCX-converted flat PDFs), cells are empty — skip white mask
         # to avoid visible rectangle artifacts. For hardcoded (DocuSign), mask existing content.
         _need_mask = not bool(pg_detected)
+        _orig_values = pg_detected.get("orig_values", []) if pg_detected else []
+        _desc_tops = pg_detected.get("desc_tops", []) if pg_detected else []
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
-            # QTY/UOM/QPU: only draw for hardcoded (non-detected) layouts.
-            # Detected layouts are DocuSign/flat PDFs where buyer text is already
-            # baked in — overlaying QTY/UOM creates ugly double-text.
-            if not pg_detected:
+            # QTY/UOM/QPU positioning:
+            # - Hardcoded layouts: always draw (no buyer text baked in)
+            # - Detected layouts: only draw if app value DIFFERS from buyer's
+            #   original (e.g. buyer asked for an edit). Draw in the description
+            #   sub-row (y_top → desc_top) to properly cover buyer's text.
+            if pg_detected:
+                _ov = _orig_values[slot_idx] if slot_idx < len(_orig_values) else {}
+                _dt = _desc_tops[slot_idx] if slot_idx < len(_desc_tops) else y_top + (y_top - y_bot)
+                # QTY — only if app value differs from buyer's original
+                qf = ROW_FIELDS["qty"].format(n=rn)
+                qv = fv_map.get(qf, "").strip()
+                if qv and qv != _ov.get("qty", "").strip():
+                    _cell(c, qty_x[0], y_top, qty_x[1], _dt, qv, fs=9)
+                    drew = True
+                # UOM — case-insensitive compare
+                uf = ROW_FIELDS["uom"].format(n=rn)
+                uv = fv_map.get(uf, "").strip()
+                if uv and uv.upper() != _ov.get("uom", "").strip().upper():
+                    _cell(c, uom_x[0], y_top, uom_x[1], _dt, uv, fs=8)
+                    drew = True
+                # QTY PER UOM
+                qpf = ROW_FIELDS["qty_per_uom"].format(n=rn)
+                qpv = fv_map.get(qpf, "").strip()
+                if qpv and qpv != _ov.get("qpu", "").strip():
+                    _cell(c, qpu_x[0], y_top, qpu_x[1], _dt, qpv, fs=9)
+                    drew = True
+            else:
                 _row_h = y_top - y_bot
                 _qty_top = y_top + _row_h  # full row height above price line
                 # QTY
