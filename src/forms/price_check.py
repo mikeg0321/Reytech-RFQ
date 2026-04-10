@@ -2817,13 +2817,11 @@ def fill_ams704(
             "value": f"{extension:,.2f}",
         })
 
-        # Fill SUBSTITUTED ITEM column: only when quoting a replacement/substitute item
-        # (controlled by the "Sub?" checkbox on the pricecheck detail page)
+        # Fill SUBSTITUTED ITEM column
         sub_field = ROW_FIELDS["substituted"].format(n=row) + _field_suffix
         if item.get("is_substitute"):
             # Use the description of what we're actually quoting (the substitute)
             sub_text = desc_clean or item.get("description", "")
-            # Prepend MFG# if available and not already in description
             _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
                          or pricing.get("manufacturer_part") or "")
             if _sub_mfg and _sub_mfg.lower() not in sub_text.lower():
@@ -2835,9 +2833,16 @@ def fill_ams704(
                     "page": _page_num,
                     "value": sub_text,
                 })
+        elif item.get("substituted_item", "").strip():
+            # DOCX-parsed items may have a separate substituted_item field
+            # (buyer's original description from the SUBSTITUTED ITEM column)
+            field_values.append({
+                "field_id": sub_field,
+                "page": _page_num,
+                "value": item["substituted_item"].strip()[:120],
+            })
         else:
-            # Clear any pre-filled substituted text from original 704A
-            # Use space (not empty string) to force pypdf to overwrite the field
+            # Clear any pre-filled substituted text from template
             field_values.append({
                 "field_id": sub_field,
                 "page": _page_num,

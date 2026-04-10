@@ -7466,6 +7466,29 @@ def competitors_page():
     return render_page("generic.html", active_page="Compete", page_title="Competitive Intelligence", content=content)
 
 
+@bp.route("/api/admin/convert-docx/<pcid>")
+@auth_required
+@safe_route
+def api_admin_convert_docx(pcid):
+    """Convert a DOCX-sourced PC to PDF via LibreOffice and return it for measurement."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    source = pc.get("source_pdf", "")
+    if not source or not os.path.exists(source):
+        return jsonify({"ok": False, "error": f"Source not found: {source}"})
+    ext = os.path.splitext(source)[1].lower()
+    if ext not in (".docx", ".doc", ".xlsx", ".xls"):
+        return jsonify({"ok": False, "error": f"Source is {ext}, not a DOCX"})
+    from src.forms.doc_converter import convert_to_pdf, can_convert_to_pdf
+    if not can_convert_to_pdf():
+        return jsonify({"ok": False, "error": "LibreOffice not available"})
+    converted = convert_to_pdf(source, os.path.join(DATA_DIR, "pc_pdfs"))
+    return send_file(converted, mimetype="application/pdf",
+                     download_name=f"{pcid}_converted.pdf")
+
+
 @bp.route("/api/admin/cleanup", methods=["GET", "POST"])
 @auth_required
 @safe_route

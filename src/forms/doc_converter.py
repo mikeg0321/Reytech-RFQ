@@ -501,17 +501,20 @@ def _parse_704_structured_text(text: str) -> list:
         desc = cols[4].strip() if len(cols) > 4 else ""
         sub = cols[5].strip() if len(cols) > 5 else ""
 
-        # Use substituted item as primary description if it's more detailed
-        # (common in 704 DOCX: description is short, substituted has full Costco name)
-        final_desc = desc
+        # Keep description and substituted item SEPARATE for clean form output.
+        # The 704 form has two columns: ITEM DESCRIPTION and SUBSTITUTED ITEM.
+        # Combining them creates long strings that squish in the PDF cells.
+        # Use the more detailed one as primary, store the other as substituted.
         if sub and len(sub) > len(desc):
             final_desc = sub
-        elif sub:
-            final_desc = desc + " | " + sub
+            sub_item = desc  # original short name goes in SUBSTITUTED column
+        else:
+            final_desc = desc
+            sub_item = sub
 
-        # Extract Costco/supplier item number from both description columns
+        # Extract Costco/supplier item number from both columns
         part_number = ""
-        for _col_text in (desc, sub, final_desc):
+        for _col_text in (desc, sub):
             item_id_match = re.search(r'Item\s*#?\s*(\d{4,7})', _col_text)
             if item_id_match:
                 part_number = item_id_match.group(1)
@@ -524,9 +527,10 @@ def _parse_704_structured_text(text: str) -> list:
             "uom": uom.lower(),
             "qty_per_uom": qpu,
             "description": final_desc,
+            "substituted_item": sub_item,
             "part_number": part_number,
             "item_link": "",
-            "row_index": len(items) + 1,  # 1-based for form field mapping (Row1, Row2, ...)
+            "row_index": len(items) + 1,
         })
 
     if items:
