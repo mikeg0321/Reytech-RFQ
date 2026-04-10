@@ -497,6 +497,22 @@ def send_email_po(
     if not (GMAIL_ADDRESS and GMAIL_PASSWORD):
         return {"ok": False, "error": "Gmail not configured — set GMAIL_ADDRESS/GMAIL_PASSWORD"}
 
+    # ── Deduplication: check if we already sent a PO with this number to this vendor ──
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            existing = conn.execute(
+                "SELECT po_number, submitted_at FROM vendor_orders WHERE po_number=? AND vendor_key=? AND status='po_emailed'",
+                (po_number, vendor_key),
+            ).fetchone()
+            if existing:
+                log.warning("DEDUP: PO %s already sent to %s on %s — blocking duplicate",
+                            po_number, vendor_key, existing["submitted_at"] if hasattr(existing, "__getitem__") else existing[1])
+                return {"ok": False, "error": f"PO {po_number} already sent to {vendor['name']} — duplicate blocked",
+                        "duplicate": True}
+    except Exception as _de:
+        log.warning("Dedup check failed (proceeding with caution): %s", _de)
+
     # Build PO
     today = datetime.now().strftime("%B %d, %Y")
     po_date = datetime.now().strftime("%Y-%m-%d")
