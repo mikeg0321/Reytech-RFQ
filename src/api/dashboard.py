@@ -5026,16 +5026,23 @@ def api_force_repoll():
             os.remove(proc_file)
     except Exception:
         pass
-    # Clear SQLite
+    # Clear SQLite (processed UIDs + cross-inbox fingerprints)
+    fp_cleared = 0
     try:
         from src.core.db import get_db
         with get_db() as conn:
             db_count = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
             conn.execute("DELETE FROM processed_emails")
             cleared += db_count
+            try:
+                fp_cleared = conn.execute("SELECT COUNT(*) FROM email_fingerprints").fetchone()[0]
+                conn.execute("DELETE FROM email_fingerprints")
+            except Exception:
+                pass
     except Exception:
         pass
-    return jsonify({"ok": True, "cleared_uids": cleared, "next": "Hit Check Now or wait for auto-poll"})
+    return jsonify({"ok": True, "cleared_uids": cleared, "cleared_fingerprints": fp_cleared,
+                    "next": "Hit Check Now or wait for auto-poll"})
 
 
 @bp.route("/api/admin/delete-pc/<pcid>", methods=["GET", "POST"])
