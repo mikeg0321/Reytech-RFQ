@@ -214,6 +214,11 @@ def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[d
                  "Count items first, then extract that exact count. Return ONLY JSON, no markdown fences.")
     })
 
+    # Use structured system prompt with cache_control for prompt caching
+    # The system prompt is identical every call — caching saves ~60-80% on repeat calls
+    _sys = system_prompt or _VISION_SYSTEM
+    _system_blocks = [{"type": "text", "text": _sys, "cache_control": {"type": "ephemeral"}}]
+
     try:
         resp = _requests.post(
             "https://api.anthropic.com/v1/messages",
@@ -225,7 +230,7 @@ def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[d
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 4096,
-                "system": system_prompt or _VISION_SYSTEM,
+                "system": _system_blocks,
                 "messages": [{"role": "user", "content": content}],
             },
             timeout=60,
@@ -384,12 +389,22 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
             json={
                 "model": "claude-sonnet-4-20250514",
                 "max_tokens": 4096,
-                "system": _VISION_SYSTEM,
+                "system": [{"type": "text", "text": _VISION_SYSTEM, "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": [
                     {"type": "text", "text": (
                         "Extract ALL header fields and ALL line items from this document. "
                         "Count items first, then extract that exact count. Return ONLY JSON, "
                         "no markdown fences.\n\n"
+                        "IMPORTANT: Only extract ACTUAL PRODUCT line items. Do NOT create items from:\n"
+                        "- Header metadata (requestor name, institution, zip code, phone, dates)\n"
+                        "- Supplier information sections (company name, address, signature fields)\n"
+                        "- Footer/totals rows (subtotal, tax, total price, shipping terms)\n"
+                        "- Form labels or instructions\n"
+                        "- Empty rows or continuation text that belongs to a previous item\n\n"
+                        "For AMS 704 forms: items are ONLY in the table with columns ITEM#, QTY, UOM, "
+                        "QTY PER UOM, DESCRIPTION, SUBSTITUTED ITEM, PRICE, EXTENSION. "
+                        "Merge continuation rows (rows without an ITEM# that follow an item row) "
+                        "into the parent item's description.\n\n"
                         "--- DOCUMENT CONTENT ---\n" + text
                     )}
                 ]}],

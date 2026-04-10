@@ -132,7 +132,12 @@ def _extract_xls(file_path: str) -> str:
 
 
 def _extract_docx(file_path: str) -> str:
-    """Extract text from DOCX using python-docx."""
+    """Extract text from DOCX using python-docx.
+
+    Detects AMS 704 Price Check DOCX format and produces structured output
+    that clearly separates header metadata from line items, preventing the
+    AI parser from treating header fields as product items.
+    """
     try:
         import docx
     except ImportError:
@@ -142,17 +147,21 @@ def _extract_docx(file_path: str) -> str:
         )
 
     doc = docx.Document(file_path)
+
+    # Detect AMS 704 format from paragraphs
+    para_texts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    is_704 = any("PRICE CHECK" in t.upper() or "AMS 704" in t.upper()
+                 for t in para_texts)
+
+    if is_704 and doc.tables:
+        return _extract_docx_704(doc, para_texts)
+
+    # Generic extraction for non-704 DOCX files
     parts = []
-
-    # Extract paragraphs
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if text:
-            parts.append(text)
-
-    # Extract tables (common in procurement docs)
+    for text in para_texts:
+        parts.append(text)
     for table in doc.tables:
-        parts.append("")  # blank line before table
+        parts.append("")
         for row in table.rows:
             vals = [cell.text.strip() for cell in row.cells]
             parts.append("\t".join(vals))
@@ -164,6 +173,201 @@ def _extract_docx(file_path: str) -> str:
     log.info("Extracted %d chars from DOCX (%d paragraphs, %d tables)",
              len(text), len(doc.paragraphs), len(doc.tables))
     return text
+
+
+def _extract_docx_704(doc, para_texts: list) -> str:
+    """Extract structured text from an AMS 704 Price Check DOCX.
+
+    Identifies header metadata table, items tables, and footer/totals table,
+    producing clearly labeled sections so the AI parser only extracts real items.
+    """
+    header_info = {}
+    items_tables = []
+    skipped_tables = 0
+
+    for table in doc.tables:
+        first_row_text = " ".join(
+            cell.text.strip() for cell in table.rows[0].cells
+        ).upper()
+
+        # Items table: header row contains ITEM # and QTY
+        if "ITEM #" in first_row_text and "QTY" in first_row_text:
+            items_tables.append(table)
+
+        # Header metadata table: contains PRICE CHECK # or Requestor
+        elif "PRICE CHECK" in first_row_text or "DUE DATE" in first_row_text:
+            # Extract header fields from the metadata table
+            header_info.update(_parse_704_header_table(table))
+            skipped_tables += 1
+
+        # Footer/totals table: contains Subtotal or TOTAL PRICE
+        elif "SUBTOTAL" in first_row_text or "TOTAL PRICE" in first_row_text:
+            skipped_tables += 1
+
+        # Supplier info / notes table — skip
+        elif "SUPPLIER" in first_row_text and "NOTE" in first_row_text:
+            skipped_tables += 1
+
+        else:
+            skipped_tables += 1
+
+    # Build structured output
+    parts = ["=== AMS 704 PRICE CHECK WORKSHEET ===", ""]
+
+    # Header section
+    if header_info:
+        parts.append("=== HEADER (metadata — NOT line items) ===")
+        for k, v in header_info.items():
+            parts.append(f"{k}: {v}")
+        parts.append("")
+
+    # Items section — the only section the AI should extract items from
+    if items_tables:
+        parts.append("=== LINE ITEMS (extract items ONLY from this section) ===")
+        for tbl_idx, table in enumerate(items_tables):
+            merged_items = _merge_704_table_rows(table)
+            for item in merged_items:
+                parts.append(item)
+            parts.append("")  # gap between pages
+    else:
+        log.warning("704 DOCX: no items tables found in %d tables", len(doc.tables))
+
+    text = "\n".join(parts)
+    log.info("704 DOCX extracted: header=%d fields, %d items tables, %d skipped tables, %d chars",
+             len(header_info), len(items_tables), skipped_tables, len(text))
+    return text
+
+
+def _parse_704_header_table(table) -> dict:
+    """Extract header fields from the AMS 704 header metadata table.
+
+    The header table has merged cells with patterns like:
+    'Requestor\\nCarolyn Montgomery' or 'Delivery Zip Code\\n92880'
+    """
+    header = {}
+    field_map = {
+        "requestor": "Requestor",
+        "institution": "Institution",
+        "delivery zip": "Delivery Zip Code",
+        "phone": "Phone Number",
+        "date of request": "Date of Request",
+        "price check": "Price Check Number",
+        "due date": "Due Date",
+    }
+
+    for row in table.rows:
+        for cell in row.cells:
+            cell_text = cell.text.strip()
+            if not cell_text:
+                continue
+            cell_lower = cell_text.lower()
+
+            # Skip pure label rows (SUPPLIER INFORMATION, COMPANY NAME, etc.)
+            if cell_lower.startswith("s u p p l i e r"):
+                continue
+            if cell_lower in ("company name", "address", "signature and date",
+                              "discount offered", "phone number", "e-mail address",
+                              "company representative (print name)",
+                              "delivery date and time (aro)",
+                              "date price check expires",
+                              "certified sb/mb #", "certified dvbe #"):
+                continue
+
+            # Look for "Label\nValue" pattern
+            for key, label in field_map.items():
+                if key in cell_lower:
+                    lines = cell_text.split("\n")
+                    if len(lines) >= 2:
+                        value = lines[-1].strip()
+                        if value and value.lower() != key:
+                            header[label] = value
+                    break
+
+    return header
+
+
+def _merge_704_table_rows(table) -> list:
+    """Merge continuation rows in a 704 items table.
+
+    AMS 704 DOCX items span 2 rows:
+    Row N:   ITEM# | QTY | UOM | QTY_PER_UOM | Description | Substituted | Price | Extension
+    Row N+1: (empty) | ... | ... | ... | Additional detail | Costco ref | ... | ...
+
+    Returns list of formatted item strings.
+    """
+    rows = list(table.rows)
+    if not rows:
+        return []
+
+    # First row is the header — include it for context
+    header_cells = [cell.text.strip().replace("\n", " ") for cell in rows[0].cells]
+    items = ["\t".join(header_cells)]
+
+    i = 1
+    while i < len(rows):
+        cells = [cell.text.strip() for cell in rows[i].cells]
+        item_num = cells[0] if cells else ""
+
+        # Skip fully empty rows
+        if not any(c.strip() for c in cells):
+            i += 1
+            continue
+
+        # Skip footer rows (ENTER GRAND TOTAL...)
+        joined = " ".join(cells).upper()
+        if "GRAND TOTAL" in joined or "ENTER GRAND" in joined:
+            i += 1
+            continue
+
+        if item_num and item_num.isdigit():
+            # Primary item row — check if next row is a continuation
+            desc = cells[4] if len(cells) > 4 else ""
+            sub = cells[5] if len(cells) > 5 else ""
+
+            # Look ahead for continuation row(s)
+            j = i + 1
+            while j < len(rows):
+                next_cells = [cell.text.strip() for cell in rows[j].cells]
+                next_item = next_cells[0] if next_cells else ""
+                next_joined = " ".join(next_cells)
+
+                # If next row has an item number or is empty or is footer, stop
+                if next_item.isdigit():
+                    break
+                if not any(c.strip() for c in next_cells):
+                    j += 1
+                    continue
+                if "GRAND TOTAL" in next_joined.upper():
+                    j += 1
+                    continue
+
+                # Continuation row — append description and substituted item
+                cont_desc = next_cells[4] if len(next_cells) > 4 else ""
+                cont_sub = next_cells[5] if len(next_cells) > 5 else ""
+                if cont_desc:
+                    desc = desc + " | " + cont_desc if desc else cont_desc
+                if cont_sub:
+                    sub = sub + " | " + cont_sub if sub else cont_sub
+                j += 1
+
+            # Build merged item line
+            merged = [
+                item_num,
+                cells[1] if len(cells) > 1 else "",   # QTY
+                cells[2] if len(cells) > 2 else "",   # UOM
+                cells[3] if len(cells) > 3 else "",   # QTY PER UOM
+                desc,                                   # Merged description
+                sub,                                    # Merged substituted item
+                cells[6] if len(cells) > 6 else "",   # PRICE PER UNIT
+                cells[7] if len(cells) > 7 else "",   # EXTENSION
+            ]
+            items.append("\t".join(merged))
+            i = j
+        else:
+            # Orphan row without item number — skip (usually already merged)
+            i += 1
+
+    return items
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -239,6 +443,97 @@ def can_convert_to_pdf() -> bool:
 
 import re
 
+
+def _parse_704_structured_text(text: str) -> list:
+    """Parse items from AMS 704 structured text produced by _extract_docx_704.
+
+    Expects tab-separated lines in the LINE ITEMS section with columns:
+    ITEM# | QTY | UOM | QTY_PER_UOM | DESCRIPTION | SUBSTITUTED | PRICE | EXTENSION
+    """
+    items = []
+    in_items = False
+
+    for line in text.split("\n"):
+        line = line.strip()
+
+        # Enter items section
+        if line.startswith("=== LINE ITEMS"):
+            in_items = True
+            continue
+
+        # Exit items section on next section header
+        if in_items and line.startswith("==="):
+            in_items = False
+            continue
+
+        if not in_items or not line:
+            continue
+
+        # Skip table header rows
+        if "ITEM #" in line.upper() and "QTY" in line.upper():
+            continue
+
+        cols = line.split("\t")
+        if len(cols) < 5:
+            continue
+
+        item_num = cols[0].strip()
+        if not item_num or not item_num.isdigit():
+            continue
+
+        qty_str = cols[1].strip()
+        try:
+            qty = int(qty_str)
+        except (ValueError, TypeError):
+            qty = 1
+
+        uom = cols[2].strip() or "each"
+        qpu_raw = cols[3].strip()
+
+        # Parse qty_per_uom — may be "12", "38oz.", "90oz", etc.
+        qpu = 1
+        qpu_match = re.match(r'(\d+)', qpu_raw)
+        if qpu_match:
+            qpu = int(qpu_match.group(1))
+            if qpu < 1:
+                qpu = 1
+
+        desc = cols[4].strip() if len(cols) > 4 else ""
+        sub = cols[5].strip() if len(cols) > 5 else ""
+
+        # Use substituted item as primary description if it's more detailed
+        # (common in 704 DOCX: description is short, substituted has full Costco name)
+        final_desc = desc
+        if sub and len(sub) > len(desc):
+            final_desc = sub
+        elif sub:
+            final_desc = desc + " | " + sub
+
+        # Extract Costco/supplier item number from both description columns
+        part_number = ""
+        for _col_text in (desc, sub, final_desc):
+            item_id_match = re.search(r'Item\s*#?\s*(\d{4,7})', _col_text)
+            if item_id_match:
+                part_number = item_id_match.group(1)
+                break
+
+        items.append({
+            "line_number": len(items) + 1,
+            "item_number": item_num,
+            "qty": qty,
+            "uom": uom.lower(),
+            "qty_per_uom": qpu,
+            "description": final_desc,
+            "part_number": part_number,
+            "item_link": "",
+            "row_index": len(items),
+        })
+
+    if items:
+        log.info("704 structured text parsed %d items", len(items))
+    return items
+
+
 def parse_items_from_text(text: str) -> list:
     """Parse item descriptions + quantities from plain text (regex fallback).
 
@@ -254,6 +549,10 @@ def parse_items_from_text(text: str) -> list:
     """
     if not text or len(text.strip()) < 10:
         return []
+
+    # Detect AMS 704 structured text (from _extract_docx_704)
+    if "=== LINE ITEMS" in text:
+        return _parse_704_structured_text(text)
 
     lines = [l.strip() for l in text.split("\n")]
     items = []
