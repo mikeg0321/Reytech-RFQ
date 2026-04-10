@@ -734,67 +734,20 @@ def fill_704b(input_path, rfq_data, config, output_path):
     line_items = rfq_data.get("line_items", [])
     merchandise_subtotal = 0.0
 
-    # ── Template introspection + fill strategy ──
+    # ── Template introspection + unified item field builder ──
     from src.forms.template_registry import get_profile
-    from src.forms.ams704_helpers import LineItem, FillStrategy
+    from src.forms.ams704_helpers import FillStrategy, build_704_item_fields
     _profile = get_profile(input_path)
 
-    def _row_field(slot):
-        """Return the Row field-name suffix for a 1-based sequential slot."""
-        r = _profile.row_field_suffix(slot)
-        if r is not None:
-            return r
-        p2_slot = slot - _profile.pg1_row_count
-        return f"Row{p2_slot}_2"
-
     _strategy = FillStrategy.for_rfq(is_prefilled=_profile.is_prefilled)
-    _prefilled_item_rows = dict(_profile.prefilled_item_rows)
     print(f"  704B layout (TemplateProfile): pg0={_profile.pg1_row_count} rows, "
           f"pg1={len(_profile.pg2_rows_suffixed)}_2+{len(_profile.pg2_rows_plain)} plain")
     print(f"  704B strategy: {_strategy.value}")
-    if _strategy == FillStrategy.RFQ_PREFILLED:
-        print(f"  704B: agency pre-filled ({len(_prefilled_item_rows)} item rows: {_prefilled_item_rows})")
 
-    # Fix duplicate line numbers at generation time only (does not save back)
-    for _i, _item in enumerate(line_items, start=1):
-        _item["line_number"] = _i
-
-    seq = 0
-    for _raw_item in line_items:
-        seq += 1
-        li = LineItem.from_dict(_raw_item)
-        price = li.unit_price
-        qty = li.qty
-        subtotal = round(price * qty, 2)
-        merchandise_subtotal += subtotal
-
-        # Determine row field suffix
-        if _strategy == FillStrategy.RFQ_PREFILLED:
-            item_num = li.line_number or seq
-            if item_num in _prefilled_item_rows:
-                r = _prefilled_item_rows[item_num]
-            else:
-                r = _row_field(seq)
-        else:
-            r = _row_field(seq)
-
-        # Pricing — all strategies write these
-        values[f"PRICE PER UNIT{r}"] = f"{price:.2f}" if price else ""
-        values[f"SUBTOTAL{r}"] = f"{subtotal:.2f}" if subtotal else ""
-
-        # Item details — only when strategy allows
-        if _strategy.writes_descriptions:
-            values[f"ITEM NUMBER{r}"] = li.part_number
-            values[f"QTY{r}"] = str(qty) if qty else ""
-            values[f"UOM{r}"] = li.uom
-            values[f"ITEM DESCRIPTION PRODUCT SPECIFICATION{r}"] = li.description
-            values[f"#{r}"] = str(seq)
-            sub_field = f"SUBSTITUTED ITEM Include manufacturer part number andor reference number{r}"
-            if li.is_substitute:
-                mfg = li.mfg_number
-                values[sub_field] = f"{li.description} (MFG# {mfg})" if mfg else li.description
-            else:
-                values[sub_field] = ""
+    # Unified item field builder (V2) — single loop for all 704 forms
+    _result = build_704_item_fields(_profile, line_items, _strategy, convention="704b")
+    values.update(_result.field_values)
+    merchandise_subtotal = _result.merchandise_subtotal
 
     # ═══ VENDOR FIELDS ONLY — buyer header fields are NEVER overwritten ═══
     # Buyer fills: DEPARTMENT, PHONEEMAIL, SOLICITATION#, REQUESTOR, DATE

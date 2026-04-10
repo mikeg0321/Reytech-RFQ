@@ -499,3 +499,185 @@ def compute_line_totals(
         items_priced=items_priced,
         items_total=len(items),
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UNIFIED 704 ITEM FIELD BUILDER (V2)
+# ═══════════════════════════════════════════════════════════════════════════
+# Single loop that builds field values for any 704 form, driven by
+# FillStrategy and convention. No PDF I/O — returns a dict of field values.
+
+@dataclass
+class Fill704Result:
+    """Result of build_704_item_fields()."""
+    field_values: dict              # {field_name: value_str} for all items
+    merchandise_subtotal: float
+    items_priced: int
+    items_total: int
+    overflow_items: list            # LineItems beyond form capacity (need overflow pages)
+
+
+def build_704_item_fields(
+    profile,  # TemplateProfile
+    raw_items: list[dict],
+    strategy: FillStrategy,
+    convention: str = "704a",
+) -> Fill704Result:
+    """Build field-name → value dict for all line items on a 704 form.
+
+    This is the single item loop for both PC and RFQ 704 generation.
+    It does NOT do PDF I/O — the caller passes the result to the
+    appropriate PDF fill function.
+
+    Args:
+        profile: TemplateProfile for the template being filled.
+        raw_items: List of raw item dicts (PC or RFQ format).
+        strategy: FillStrategy controlling which fields to write.
+        convention: "704a" for Price Check, "704b" for RFQ response.
+
+    Returns:
+        Fill704Result with field_values dict, subtotals, and overflow items.
+    """
+    values = {}
+    merchandise_subtotal = 0.0
+    items_priced = 0
+    overflow_items = []
+    prefilled_rows = dict(profile.prefilled_item_rows) if profile.is_prefilled else {}
+
+    # Assign sequential line numbers
+    for i, item in enumerate(raw_items, start=1):
+        item.setdefault("line_number", i)
+
+    seq = 0
+    for raw_item in raw_items:
+        seq += 1
+        li = LineItem.from_dict(raw_item)
+
+        # Determine row field suffix
+        if strategy in (FillStrategy.PC_ORIGINAL, FillStrategy.RFQ_PREFILLED) and prefilled_rows:
+            item_num = li.line_number or seq
+            if item_num in prefilled_rows:
+                row_suffix = prefilled_rows[item_num]
+            else:
+                row_suffix = profile.row_field_suffix(seq)
+        else:
+            row_suffix = profile.row_field_suffix(seq)
+
+        # Beyond form capacity → overflow (pages 3+)
+        if row_suffix is None:
+            overflow_items.append(li)
+            continue
+
+        page = profile.row_page_number(seq) if row_suffix == profile.row_field_suffix(seq) else (2 if "_2" in row_suffix else 1)
+
+        # Helper to build field name from key
+        def _fname(key):
+            if convention == "704a":
+                import re
+                m = re.match(r"Row(\d+)(_2)?$", row_suffix)
+                if not m:
+                    return None
+                n = int(m.group(1))
+                sfx = m.group(2) or ""
+                tmpl = ROW_FIELD_TEMPLATES_704A.get(key)
+                return tmpl.format(n=n) + sfx if tmpl else None
+            else:
+                tmpl = ROW_FIELD_TEMPLATES_704B.get(key)
+                return tmpl.format(suffix=row_suffix) if tmpl else None
+
+        # ── Pricing (all strategies write these) ──
+        price = li.unit_price
+        qty = li.qty
+        extension = round(price * qty, 2)
+        merchandise_subtotal += extension
+
+        if price > 0:
+            items_priced += 1
+            price_field = _fname("unit_price")
+            if price_field:
+                values[price_field] = f"{price:,.2f}" if convention == "704a" else f"{price:.2f}"
+
+            ext_key = "extension" if convention == "704a" else "subtotal"
+            ext_field = _fname(ext_key)
+            if ext_field:
+                values[ext_field] = f"{extension:,.2f}" if convention == "704a" else f"{extension:.2f}"
+
+        # ── QTY/UOM (strategies that allow it) ──
+        if strategy.writes_qty_uom:
+            qty_field = _fname("qty")
+            if qty_field:
+                values[qty_field] = str(int(qty)) if qty == int(qty) else str(qty)
+            uom_field = _fname("uom")
+            if uom_field:
+                values[uom_field] = li.uom.upper()
+            # QTY per UOM (704A only)
+            if convention == "704a" and li.qty_per_uom > 1:
+                qpu_field = _fname("qty_per_uom")
+                if qpu_field:
+                    values[qpu_field] = str(li.qty_per_uom)
+
+        # ── Descriptions + item details (strategies that allow it) ──
+        if strategy.writes_descriptions:
+            desc_field = _fname("description")
+            if desc_field:
+                desc_text = li.description
+                # Description overflow (split at 140 chars)
+                part1, part2 = split_description(desc_text)
+                values[desc_field] = part1
+                # Overflow part2 → next row (if available and convention supports it)
+                if part2 and convention == "704a":
+                    next_suffix = profile.row_field_suffix(seq + 1)
+                    if next_suffix:
+                        next_desc = _fname_for_suffix("description", next_suffix, convention)
+                        if next_desc:
+                            values[next_desc] = part2
+
+            # Item number
+            if strategy.writes_item_numbers:
+                if convention == "704b":
+                    hash_field = _fname("hash")
+                    if hash_field:
+                        values[hash_field] = str(seq)
+                    inum_field = _fname("item_number")
+                    if inum_field:
+                        values[inum_field] = li.part_number
+                else:
+                    inum_field = _fname("item_number")
+                    if inum_field:
+                        values[inum_field] = str(seq)
+
+            # Substituted item
+            sub_field = _fname("substituted")
+            if sub_field:
+                if li.is_substitute:
+                    mfg = li.mfg_number
+                    if convention == "704b":
+                        values[sub_field] = f"{li.description} (MFG# {mfg})" if mfg else li.description
+                    else:
+                        values[sub_field] = f"MFG#: {mfg}\n{li.description}" if mfg else li.description
+                else:
+                    values[sub_field] = "" if convention == "704b" else " "
+
+    return Fill704Result(
+        field_values=values,
+        merchandise_subtotal=round(merchandise_subtotal, 2),
+        items_priced=items_priced,
+        items_total=len(raw_items),
+        overflow_items=overflow_items,
+    )
+
+
+def _fname_for_suffix(key: str, row_suffix: str, convention: str) -> Optional[str]:
+    """Build a field name for a specific row suffix (used for overflow)."""
+    import re
+    if convention == "704a":
+        m = re.match(r"Row(\d+)(_2)?$", row_suffix)
+        if not m:
+            return None
+        n = int(m.group(1))
+        sfx = m.group(2) or ""
+        tmpl = ROW_FIELD_TEMPLATES_704A.get(key)
+        return tmpl.format(n=n) + sfx if tmpl else None
+    else:
+        tmpl = ROW_FIELD_TEMPLATES_704B.get(key)
+        return tmpl.format(suffix=row_suffix) if tmpl else None
