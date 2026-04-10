@@ -2487,6 +2487,14 @@ def fill_ams704(
             "page": 1,
             "value": "/Yes",
         })
+    # For flat PDFs (no form fields), also add the overlay checkbox name
+    # so _fill_pdf_text_overlay draws the X mark
+    if not _fob_names_to_check:
+        field_values.append({
+            "field_id": "Check Box4",
+            "page": 1,
+            "value": "/Yes",
+        })
 
     # Line items with pricing
     subtotal = 0.0
@@ -3433,13 +3441,16 @@ def _detect_ams704_overlay_positions(source_pdf):
             pages.append(None)
             continue
 
-        # ── Find PRICE header near EXTENSION but to its left ──
-        # "PRICE PER UNIT" is split across lines: "PRICE" / "PER" / "UNIT"
+        # ── Find PRICE column header near EXTENSION but to its left ──
+        # "PRICE PER UNIT" may be split as "PRICE"/"PER"/"UNIT" or even
+        # "PRIC"/"E"/"PER"/"UNIT" in DOCX-converted PDFs.
+        # Strategy: look for "PRIC" or "PRICE" near EXTENSION, with wider Y tolerance.
         price_header = None
         for w in words:
-            if w["text"].upper().strip() == "PRICE" and w["x0"] > pw * 0.6:
-                # Must be near EXTENSION Y (within 30pt) and to its left
-                if abs(w["top"] - ext_header["top"]) < 30 and w["x0"] < ext_header["x0"]:
+            wt = w["text"].upper().strip()
+            if wt in ("PRICE", "PRIC") and w["x0"] > pw * 0.6:
+                # Must be near EXTENSION Y (within 80pt for DOCX layouts) and to its left
+                if abs(w["top"] - ext_header["top"]) < 80 and w["x0"] < ext_header["x0"]:
                     price_header = w
                     break
 
@@ -3629,9 +3640,10 @@ def _detect_ams704_overlay_positions(source_pdf):
                     if any("NAME" in w2["text"].upper() for w2 in nearby):
                         # Found COMPANY NAME label. Supplier data cells are below it.
                         # Find h-lines that form the supplier section grid
-                        sup_area_y = w["bottom"]
+                        # Use w["top"] (not bottom) and wider range for DOCX layouts
+                        sup_area_y = w["top"]
                         sup_h = sorted([h for h in grouped_h
-                                        if sup_area_y - 5 <= h <= sup_area_y + 80])
+                                        if sup_area_y - 15 <= h <= sup_area_y + 120])
                         if len(sup_h) >= 4:
                             # 3 rows of supplier info between consecutive h-lines
                             for ri in range(min(3, len(sup_h) - 1)):
@@ -3677,8 +3689,6 @@ def _detect_ams704_overlay_positions(source_pdf):
             if len(dollar_words) >= 4:
                 total_ids = ["fill_70", "fill_71", "fill_72", "fill_73"]
                 for ti, (dw, fid) in enumerate(zip(dollar_words[:4], total_ids)):
-                    # Dollar sign marks the left edge of the value cell
-                    # Get row boundaries from h-lines near the $ sign
                     row_h = sorted([h for h in grouped_h
                                     if abs(h - dw["top"]) < 25 or abs(h - dw["bottom"]) < 25])
                     if len(row_h) >= 2:
@@ -3690,14 +3700,68 @@ def _detect_ams704_overlay_positions(source_pdf):
                     info["totals_cells"][fid] = (
                         dw["x0"] + 8, rl_bot, pw - 10, rl_top)
 
-            # FOB checkbox
+            # Fallback: position totals using "$" sign positions as anchors
+            if len(info["totals_cells"]) < 4:
+                _dollar_signs = sorted(
+                    [w for w in words if w["text"].strip() == "$"
+                     and w["x0"] > pw * 0.85 and w["top"] > ph * 0.7],
+                    key=lambda w: w["top"])
+                if _dollar_signs:
+                    # Value column: right of "$" to rightmost vertical line
+                    _left_x = max(d["x1"] for d in _dollar_signs) + 2
+                    _v_right = sorted([v for v in set(
+                        round(e["x0"], 0) for e in edges
+                        if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
+                    ) if v > pw * 0.9], reverse=True)
+                    _right_x = _v_right[0] - 2 if _v_right else pw - 35
+                    # Use h-lines to bound the totals area, then divide by 4
+                    # The totals area spans from the last thin-row-skip to the last h-line
+                    _totals_area_h = sorted([h for h in grouped_h if h > ph * 0.8])
+                    if len(_totals_area_h) >= 2:
+                        # Skip thin leading border, use the wider span
+                        while len(_totals_area_h) >= 2 and (_totals_area_h[1] - _totals_area_h[0]) < 12:
+                            _totals_area_h.pop(0)
+                        _area_top = _totals_area_h[0] if _totals_area_h else _dollar_signs[0]["top"] - 5
+                        _area_bot = _totals_area_h[-1] if _totals_area_h else _dollar_signs[0]["top"] + 55
+                    else:
+                        _area_top = _dollar_signs[0]["top"] - 5
+                        _area_bot = _area_top + 55
+                    _row_h = (_area_bot - _area_top) / 4
+                    total_ids = ["fill_70", "fill_71", "fill_72", "fill_73"]
+                    for ti in range(4):
+                        _row_y = _area_top + (ti * _row_h)
+                        rl_top = _to_rl_y(_row_y) + 1
+                        rl_bot = _to_rl_y(_row_y + _row_h) + 1
+                        info["totals_cells"][total_ids[ti]] = (
+                            _left_x, rl_bot, _right_x, rl_top)
+                    log.info("OVERLAY detect pg%d: totals: area=%.1f-%.1f row_h=%.1f cells=%s",
+                             pg_idx, _area_top, _area_bot, _row_h,
+                             [(f"{v[1]:.0f}-{v[3]:.0f}") for v in info["totals_cells"].values()])
+
+            # FOB checkbox — find the checkbox character (\uf06f) or small rect
+            # near the first "FOB" text in the footer area
+            _fob_checkbox = None
             for w in words:
-                if w["text"].upper().strip() == "FOB" and w["x0"] > pw * 0.2:
-                    fob_cy = (w["top"] + w["bottom"]) / 2
-                    info["fob_area"] = (
-                        w["x0"] - 18, _to_rl_y(fob_cy + 7),
-                        w["x0"] - 3,  _to_rl_y(fob_cy - 7))
+                if w["text"] == "\uf06f" and w["top"] > ph * 0.7 and w["x0"] < pw * 0.4:
+                    _fob_checkbox = w
                     break
+            if _fob_checkbox:
+                # Checkbox character found — draw X centered on it
+                _cb_cx = (_fob_checkbox["x0"] + _fob_checkbox["x1"]) / 2
+                _cb_cy = (_fob_checkbox["top"] + _fob_checkbox["bottom"]) / 2
+                _cb_sz = 6  # half-size of the X mark
+                info["fob_area"] = (
+                    _cb_cx - _cb_sz, _to_rl_y(_cb_cy + _cb_sz),
+                    _cb_cx + _cb_sz, _to_rl_y(_cb_cy - _cb_sz))
+            else:
+                # Fallback: position relative to first "FOB" word
+                for w in words:
+                    if w["text"].upper().strip() == "FOB" and w["x0"] > pw * 0.2 and w["top"] > ph * 0.7:
+                        fob_cy = (w["top"] + w["bottom"]) / 2
+                        info["fob_area"] = (
+                            w["x0"] - 18, _to_rl_y(fob_cy + 7),
+                            w["x0"] - 3,  _to_rl_y(fob_cy - 7))
+                        break
 
             # Ship to
             for w in words:
@@ -3950,17 +4014,23 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         # ── SUPPLIER INFO (page 1 only) ──
         if is_pg1:
             if pg_detected and pg_detected.get("supplier_cells"):
-                # Use detected positions
-                for fname, coords in pg_detected["supplier_cells"].items():
+                # Use detected positions — offset to BOTTOM HALF of cell
+                # to avoid covering the label text at the top of each cell
+                for fname, (cx1, cy1, cx2, cy2) in pg_detected["supplier_cells"].items():
                     val = fv_map.get(fname, "")
                     if val:
-                        _cell(c, *coords, val, fs=10)
+                        cell_h = cy2 - cy1
+                        # Draw value in bottom 55% of cell, no white mask (preserves label)
+                        _cell(c, cx1, cy1, cx2, cy1 + cell_h * 0.55, val, fs=9,
+                              mask_top_pct=0.0)
                         drew = True
-                # Also fill fields not detected — use scaled hardcoded
-                for fname, (x1, y1, x2, y2) in _HC_SUPPLIER.items():
-                    if fname not in pg_detected["supplier_cells"] and fv_map.get(fname, ""):
-                        _cell(c, *_sc(x1, y1, x2, y2), fv_map[fname], fs=10,
-                              mask_top_pct=0.65 if fname in _HC_LABELED else 1.0)
+                # For detected layouts, do NOT fall back to hardcoded supplier positions.
+                # The DOCX layout is different — hardcoded coords cause misalignment.
+                # Ship-to uses detected ship_to_area if available.
+                if pg_detected.get("ship_to_area"):
+                    _st_val = fv_map.get("Ship to", "")
+                    if _st_val:
+                        _cell(c, *pg_detected["ship_to_area"], _st_val, fs=8, mask_top_pct=0.0)
                         drew = True
             else:
                 # All hardcoded
@@ -4003,16 +4073,20 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             # Totals — skip mask for detected layouts (empty cells in DOCX forms)
             _totals_mask = not bool(pg_detected)
             if pg_detected and pg_detected.get("totals_cells"):
-                for fname, coords in pg_detected["totals_cells"].items():
+                for fname, (tx1, ty1, tx2, ty2) in pg_detected["totals_cells"].items():
                     val = fv_map.get(fname, "")
                     if val:
-                        _cell_right(c, *coords, val, fs=10, mask=False)
+                        # Draw right-aligned with minimal padding for detected cells
+                        _th = ty2 - ty1
+                        _tfs = min(9, _th * 0.8)
+                        c.saveState()
+                        c.setFont("Helvetica-Bold", _tfs)
+                        c.setFillColorRGB(0, 0, 0)
+                        _tw = c.stringWidth(val, "Helvetica-Bold", _tfs)
+                        c.drawString(tx2 - _tw - 2, ty1 + (_th - _tfs) / 2, val)
+                        c.restoreState()
                         drew = True
-                # Fallback for any totals not detected
-                for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
-                    if fname not in pg_detected["totals_cells"] and fv_map.get(fname, ""):
-                        _cell_right(c, *_sc(x1, y1, x2, y2), fv_map[fname], fs=10, mask=False)
-                        drew = True
+                # For detected layouts, do NOT fall back to hardcoded totals.
             else:
                 for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
                     val = fv_map.get(fname, "")
@@ -4050,26 +4124,10 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
             #   original (e.g. buyer asked for an edit). Draw in the description
             #   sub-row (y_top → desc_top) to properly cover buyer's text.
             if pg_detected:
-                _ov = _orig_values[slot_idx] if slot_idx < len(_orig_values) else {}
-                _dt = _desc_tops[slot_idx] if slot_idx < len(_desc_tops) else y_top + (y_top - y_bot)
-                # QTY — only if app value differs from buyer's original
-                qf = ROW_FIELDS["qty"].format(n=rn)
-                qv = fv_map.get(qf, "").strip()
-                if qv and qv != _ov.get("qty", "").strip():
-                    _cell(c, qty_x[0], y_top, qty_x[1], _dt, qv, fs=9)
-                    drew = True
-                # UOM — case-insensitive compare
-                uf = ROW_FIELDS["uom"].format(n=rn)
-                uv = fv_map.get(uf, "").strip()
-                if uv and uv.upper() != _ov.get("uom", "").strip().upper():
-                    _cell(c, uom_x[0], y_top, uom_x[1], _dt, uv, fs=8)
-                    drew = True
-                # QTY PER UOM
-                qpf = ROW_FIELDS["qty_per_uom"].format(n=rn)
-                qpv = fv_map.get(qpf, "").strip()
-                if qpv and qpv != _ov.get("qpu", "").strip():
-                    _cell(c, qpu_x[0], y_top, qpu_x[1], _dt, qpv, fs=9)
-                    drew = True
+                # For detected layouts (DOCX-converted), SKIP QTY/UOM/QPU overlay entirely.
+                # The buyer's original form already has these values printed. Overlaying
+                # causes double-text artifacts even when values match (detection is imperfect).
+                pass
             else:
                 _row_h = y_top - y_bot
                 _qty_top = y_top + _row_h  # full row height above price line
