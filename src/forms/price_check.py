@@ -2609,21 +2609,14 @@ def fill_ams704(
         except (ValueError, TypeError):
             qty = 1
 
+        # ── Resolve price via strategy (V3 shared helper) ──
+        from src.forms.ams704_helpers import resolve_pc_price, enrich_pc_description, build_pc_substitute_text, split_description
+        unit_price = resolve_pc_price(item, _strategy)
+
         # ── ORIGINAL MODE: only fill pricing fields, leave buyer fields untouched ──
         if original_mode:
-            # ONLY use prices the user explicitly set — never auto-fill from
-            # enrichment/Oracle/Amazon. Those are reference data, not bid prices.
-            unit_price = item.get("unit_price") or item.get("final_price") or pricing.get("final_price") or pricing.get("bid_price")
-            if unit_price:
-                try:
-                    unit_price = float(unit_price)
-                except (ValueError, TypeError):
-                    unit_price = 0
             if unit_price and unit_price > 0:
-                try:
-                    extension = round(float(unit_price) * int(qty), 2)
-                except (ValueError, TypeError):
-                    extension = 0
+                extension = round(unit_price * qty, 2)
                 if extension > 0:
                     subtotal += extension
                     items_priced += 1
@@ -2635,12 +2628,10 @@ def fill_ams704(
                              row, item_idx, unit_price, qty, extension)
                 else:
                     _skipped_no_price += 1
-                    log.warning("fill_ams704 ORIGINAL row=%d idx=%d: extension=0 (price=%.2f qty=%s)",
-                                row, item_idx, unit_price, item.get("qty"))
             else:
                 _skipped_no_price += 1
 
-            # Always write qty/uom — user may have edited these (e.g. 2 Pkg 150 → 150 EA)
+            # Always write qty/uom — user may have edited these
             qty_field = ROW_FIELDS["qty"].format(n=row) + _field_suffix
             field_values.append({"field_id": qty_field, "page": _page_num, "value": str(qty)})
             uom_val = str(item.get("uom") or "EA").strip().upper()
@@ -2658,196 +2649,87 @@ def fill_ams704(
 
         # ── NORMAL MODE: write all fields ──
 
-        # ── ALWAYS WRITE: Item#, Qty, Description, UOM ──
-        # These fields appear on every 704 regardless of pricing status
-
-        # ITEM NUMBER field: sequential line numbers (1, 2, 3...)
+        # Item number (sequential)
         item_num_field = ROW_FIELDS["item_number"].format(n=row) + _field_suffix
-        field_values.append({
-            "field_id": item_num_field,
-            "page": _page_num,
-            "value": str(seq),
-        })
+        field_values.append({"field_id": item_num_field, "page": _page_num, "value": str(seq)})
 
-        # QTY field
+        # QTY
         qty_field = ROW_FIELDS["qty"].format(n=row) + _field_suffix
-        field_values.append({
-            "field_id": qty_field,
-            "page": _page_num,
-            "value": str(qty),
-        })
+        field_values.append({"field_id": qty_field, "page": _page_num, "value": str(qty)})
 
-        # DESCRIPTION field: always write to PDF
-        # Priority: user-edited description > original parsed text
-        desc_user = (item.get("description") or "").strip()
-        desc_raw = (item.get("description_raw") or "").strip()
-        desc_source = desc_user or desc_raw
-        desc_clean = clean_description(desc_source) if desc_source else ""
-        desc_final = desc_clean or desc_source
+        # Description (enriched via V3 helper)
+        desc_final = enrich_pc_description(item, clean_fn=clean_description)
         if desc_final:
             desc_field = ROW_FIELDS["description"].format(n=row) + _field_suffix
-            # Always append MFG# to PDF description so purchasing sees the part number
-            mfg_num = (item.get("mfg_number") or pricing.get("mfg_number") 
-                       or pricing.get("manufacturer_part") or "")
-            if mfg_num and mfg_num.lower() not in desc_final.lower():
-                desc_final = f"{desc_final}\nMFG#: {mfg_num}"
-            # For substitutes, also add ASIN if no MFG#
-            if item.get("is_substitute") and not mfg_num:
-                asin = pricing.get("amazon_asin", "")
-                if asin and asin not in desc_final:
-                    desc_final = f"{desc_final}\nASIN: {asin}"
-            # Append pack size if qty_per_uom > 1
-            _qpu = item.get("qty_per_uom", 1)
-            try:
-                _qpu = int(float(_qpu))
-            except (ValueError, TypeError):
-                _qpu = 1
-            if _qpu > 1:
-                _UOM_LABELS = {"PK":"pack","BX":"box","BOX":"box","CS":"case","EA":"each","CT":"carton","DZ":"dozen","RL":"roll","ST":"set","PR":"pair","BG":"bag","BT":"bottle","GL":"gallon","LB":"lb"}
-                _uom_raw = (item.get("uom") or "EA").upper().strip()
-                _uom_label = _UOM_LABELS.get(_uom_raw, _uom_raw.lower())
-                desc_final = f"{desc_final}\nPack: {_qpu}/{_uom_label}"
-            item_notes = (item.get("notes") or "").strip()
-            if item_notes:
-                desc_final = f"{desc_final}\nNote: {item_notes}"
             # Description overflow into next empty row
-            DESC_CHAR_LIMIT = 140
-            if len(desc_final) > DESC_CHAR_LIMIT:
-                # Compute the global next_row for overflow check
+            part1, part2 = split_description(desc_final)
+            if part2:
                 _global_row = (row + _pg1_rows) if _field_suffix == "_2" else row
                 _global_next = _global_row + 1
                 if _global_next <= max_row and _global_next not in occupied_rows and _global_next not in overflow_rows:
-                    split_at = DESC_CHAR_LIMIT
-                    for break_char in ['\n', ', ', ' ']:
-                        pos = desc_final.rfind(break_char, 0, split_at + 10)
-                        if pos > split_at - 40:
-                            split_at = pos + len(break_char)
-                            break
-                    part1 = desc_final[:split_at].rstrip()
-                    part2 = desc_final[split_at:].lstrip()
-                    if part2:
-                        # Determine overflow field name respecting page boundaries
-                        _ovf_suffix = _field_suffix
-                        _ovf_row = row + 1
-                        _ovf_page = _page_num
-                        if _field_suffix == "" and _ovf_row > _pg1_rows and _has_suffix_fields:
-                            # Crossed from page 1 to page 2
-                            _ovf_suffix = "_2"
-                            _ovf_row = 1
-                            _ovf_page = 2
-                        elif _field_suffix == "_2" and _ovf_row > _pg2_rows:
-                            # Beyond page 2 — can't overflow via form fields
-                            _ovf_suffix = None
-                        if _ovf_suffix is not None:
-                            overflow_field = ROW_FIELDS["description"].format(n=_ovf_row) + _ovf_suffix
-                            field_values.append({
-                                "field_id": overflow_field,
-                                "page": _ovf_page,
-                                "value": part2,
-                            })
-                            overflow_rows.add(_global_next)
-                            desc_final = part1
-                            log.info("fill_ams704 row=%d: desc overflow into global row %d (%d chars)",
-                                     _global_row, _global_next, len(part2))
-            field_values.append({
-                "field_id": desc_field,
-                "page": _page_num,
-                "value": desc_final,
-            })
+                    _ovf_suffix = _field_suffix
+                    _ovf_row = row + 1
+                    _ovf_page = _page_num
+                    if _field_suffix == "" and _ovf_row > _pg1_rows and _has_suffix_fields:
+                        _ovf_suffix = "_2"
+                        _ovf_row = 1
+                        _ovf_page = 2
+                    elif _field_suffix == "_2" and _ovf_row > _pg2_rows:
+                        _ovf_suffix = None
+                    if _ovf_suffix is not None:
+                        overflow_field = ROW_FIELDS["description"].format(n=_ovf_row) + _ovf_suffix
+                        field_values.append({"field_id": overflow_field, "page": _ovf_page, "value": part2})
+                        overflow_rows.add(_global_next)
+                        desc_final = part1
+                        log.info("fill_ams704 row=%d: desc overflow into global row %d (%d chars)",
+                                 _global_row, _global_next, len(part2))
+                else:
+                    desc_final = part1  # Can't overflow, truncate
+            field_values.append({"field_id": desc_field, "page": _page_num, "value": desc_final})
 
-        # UOM (uppercase)
+        # UOM
         uom_val = (item.get("uom") or "EA").upper()
         uom_field = ROW_FIELDS["uom"].format(n=row) + _field_suffix
-        field_values.append({
-            "field_id": uom_field,
-            "page": _page_num,
-            "value": uom_val,
-        })
+        field_values.append({"field_id": uom_field, "page": _page_num, "value": uom_val})
 
-        # ── CONDITIONALLY WRITE: Price and Extension (only if we have a price) ──
-        unit_price = item.get("unit_price") or pricing.get("recommended_price")
-        if not unit_price:
-            unit_price = pricing.get("amazon_price")
+        # ── Price and Extension (only if we have a price) ──
         if not unit_price:
             _skipped_no_price += 1
             log.info("fill_ams704 row=%d: desc WRITTEN, but NO PRICE (desc='%s')",
                      row, (desc_final or "")[:40])
-            # Still write substituted item if applicable, but skip price fields
+            # Still write substituted item
             sub_field = ROW_FIELDS["substituted"].format(n=row) + _field_suffix
-            if item.get("is_substitute"):
-                sub_text = desc_clean or item.get("description", "")
-                _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
-                             or pricing.get("manufacturer_part") or "")
-                if _sub_mfg:
-                    sub_text = f"{_sub_mfg} — {sub_text}" if sub_text else _sub_mfg
-                field_values.append({"field_id": sub_field, "page": _page_num, "value": sub_text[:120]})
-            continue  # Skip price/extension fields
+            sub_text = build_pc_substitute_text(item, clean_description(item.get("description", "")))
+            if sub_text:
+                field_values.append({"field_id": sub_field, "page": _page_num, "value": sub_text})
+            continue
 
-        qty_per_uom = item.get("qty_per_uom", 1)
-        # Write QTY PER UOM to PDF (e.g. "case of 24" → 24)
+        _qpu = item.get("qty_per_uom", 1)
         try:
-            qty_per_uom = int(float(qty_per_uom)) if qty_per_uom else 1
+            _qpu = int(float(_qpu)) if _qpu else 1
         except (ValueError, TypeError):
-            qty_per_uom = 1
-        if qty_per_uom > 1:
+            _qpu = 1
+        if _qpu > 1:
             qpu_field = ROW_FIELDS["qty_per_uom"].format(n=row) + _field_suffix
-            field_values.append({
-                "field_id": qpu_field,
-                "page": _page_num,
-                "value": str(qty_per_uom),
-            })
+            field_values.append({"field_id": qpu_field, "page": _page_num, "value": str(_qpu)})
         extension = round(unit_price * qty, 2)
         subtotal += extension
         items_priced += 1
         log.info("fill_ams704 WRITE row=%d: desc='%s' price=%.2f qty=%d ext=%.2f",
                  row, (desc_final or "")[:40], unit_price, qty, extension)
 
-        # Fill price and extension
         price_field = ROW_FIELDS["unit_price"].format(n=row) + _field_suffix
         ext_field = ROW_FIELDS["extension"].format(n=row) + _field_suffix
+        field_values.append({"field_id": price_field, "page": _page_num, "value": f"{unit_price:,.2f}"})
+        field_values.append({"field_id": ext_field, "page": _page_num, "value": f"{extension:,.2f}"})
 
-        field_values.append({
-            "field_id": price_field,
-            "page": _page_num,
-            "value": f"{unit_price:,.2f}",
-        })
-        field_values.append({
-            "field_id": ext_field,
-            "page": _page_num,
-            "value": f"{extension:,.2f}",
-        })
-
-        # Fill SUBSTITUTED ITEM column
+        # Substituted item (via V3 helper)
         sub_field = ROW_FIELDS["substituted"].format(n=row) + _field_suffix
-        if item.get("is_substitute"):
-            # Use the description of what we're actually quoting (the substitute)
-            sub_text = desc_clean or item.get("description", "")
-            _sub_mfg = (item.get("mfg_number") or pricing.get("mfg_number")
-                         or pricing.get("manufacturer_part") or "")
-            if _sub_mfg and _sub_mfg.lower() not in sub_text.lower():
-                sub_text = f"MFG#: {_sub_mfg}\n{sub_text}"
-            sub_text = sub_text.strip()[:120]
-            if sub_text:
-                field_values.append({
-                    "field_id": sub_field,
-                    "page": _page_num,
-                    "value": sub_text,
-                })
-        elif item.get("substituted_item", "").strip():
-            # DOCX-parsed items may have a separate substituted_item field
-            # (buyer's original description from the SUBSTITUTED ITEM column)
-            field_values.append({
-                "field_id": sub_field,
-                "page": _page_num,
-                "value": item["substituted_item"].strip()[:120],
-            })
-        else:
-            # Clear any pre-filled substituted text from template
-            field_values.append({
-                "field_id": sub_field,
-                "page": _page_num,
-                "value": " ",
-            })
+        sub_text = build_pc_substitute_text(item, clean_description(item.get("description", "")))
+        if sub_text:
+            field_values.append({"field_id": sub_field, "page": _page_num, "value": sub_text})
+        elif not item.get("is_substitute"):
+            field_values.append({"field_id": sub_field, "page": _page_num, "value": " "})
 
     # Clear unused rows to prevent ghost data from previous fills
     # Only clear rows that actually exist as form fields:

@@ -502,6 +502,136 @@ def compute_line_totals(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PC-SPECIFIC ENRICHMENT (V3)
+# ═══════════════════════════════════════════════════════════════════════════
+# Pure functions that transform PC items before field generation.
+# These encapsulate logic previously inline in fill_ams704()'s loop.
+
+_UOM_LABELS = {
+    "PK": "pack", "BX": "box", "BOX": "box", "CS": "case", "EA": "each",
+    "CT": "carton", "DZ": "dozen", "RL": "roll", "ST": "set", "PR": "pair",
+    "BG": "bag", "BT": "bottle", "GL": "gallon", "LB": "lb",
+}
+
+
+def enrich_pc_description(item: dict, clean_fn=None) -> str:
+    """Build the final PDF description for a PC item.
+
+    Applies PC-specific enrichment:
+    1. User-edited description > original parsed text
+    2. Optional clean_description() to strip procurement noise
+    3. Append MFG# if present and not already in text
+    4. Append ASIN for substitutes if no MFG#
+    5. Append pack size if qty_per_uom > 1
+    6. Append user notes if present
+
+    Args:
+        item: Raw PC item dict with description, pricing, mfg_number, etc.
+        clean_fn: Optional clean_description() function (from price_check.py).
+                  If None, uses description as-is.
+
+    Returns:
+        Enriched description string ready for PDF.
+    """
+    desc_user = (item.get("description") or "").strip()
+    desc_raw = (item.get("description_raw") or "").strip()
+    desc_source = desc_user or desc_raw
+    if not desc_source:
+        return ""
+
+    desc_clean = clean_fn(desc_source) if clean_fn else desc_source
+    desc_final = desc_clean or desc_source
+
+    pricing = item.get("pricing") or {}
+
+    # MFG#
+    mfg_num = (item.get("mfg_number") or pricing.get("mfg_number")
+               or pricing.get("manufacturer_part") or "")
+    if mfg_num and mfg_num.lower() not in desc_final.lower():
+        desc_final = f"{desc_final}\nMFG#: {mfg_num}"
+
+    # ASIN for substitutes without MFG#
+    if item.get("is_substitute") and not mfg_num:
+        asin = pricing.get("amazon_asin", "")
+        if asin and asin not in desc_final:
+            desc_final = f"{desc_final}\nASIN: {asin}"
+
+    # Pack size
+    qpu = item.get("qty_per_uom", 1)
+    try:
+        qpu = int(float(qpu)) if qpu else 1
+    except (ValueError, TypeError):
+        qpu = 1
+    if qpu > 1:
+        uom_raw = (item.get("uom") or "EA").upper().strip()
+        uom_label = _UOM_LABELS.get(uom_raw, uom_raw.lower())
+        desc_final = f"{desc_final}\nPack: {qpu}/{uom_label}"
+
+    # User notes
+    notes = (item.get("notes") or "").strip()
+    if notes:
+        desc_final = f"{desc_final}\nNote: {notes}"
+
+    return desc_final
+
+
+def resolve_pc_price(item: dict, strategy: "FillStrategy") -> float:
+    """Resolve the unit price for a PC item based on fill strategy.
+
+    ORIGINAL mode (PC_ORIGINAL): Only user-set prices. Never enrichment/Oracle/Amazon.
+    NORMAL mode (PC_FULL): Falls back to enrichment data.
+
+    Args:
+        item: Raw PC item dict with pricing sub-dict.
+        strategy: FillStrategy controlling price source.
+
+    Returns:
+        Unit price as float (0 if no price found).
+    """
+    pricing = item.get("pricing") or {}
+
+    if strategy == FillStrategy.PC_ORIGINAL:
+        # User-set prices ONLY
+        raw = (item.get("unit_price") or item.get("final_price")
+               or pricing.get("final_price") or pricing.get("bid_price"))
+    else:
+        # Normal mode — fall back to enrichment
+        raw = (item.get("unit_price") or pricing.get("recommended_price")
+               or pricing.get("amazon_price"))
+
+    if not raw:
+        return 0
+    try:
+        return float(raw)
+    except (ValueError, TypeError):
+        return 0
+
+
+def build_pc_substitute_text(item: dict, clean_desc: str = "") -> str:
+    """Build the SUBSTITUTED ITEM field text for a PC item.
+
+    Args:
+        item: Raw PC item dict.
+        clean_desc: Pre-cleaned description (from clean_description).
+
+    Returns:
+        Substitute text (max 120 chars) or empty string.
+    """
+    if not item.get("is_substitute"):
+        # Check for DOCX-parsed substituted_item field
+        sub_raw = (item.get("substituted_item") or "").strip()
+        return sub_raw[:120] if sub_raw else ""
+
+    pricing = item.get("pricing") or {}
+    sub_text = clean_desc or (item.get("description") or "")
+    mfg = (item.get("mfg_number") or pricing.get("mfg_number")
+           or pricing.get("manufacturer_part") or "")
+    if mfg and mfg.lower() not in sub_text.lower():
+        sub_text = f"MFG#: {mfg}\n{sub_text}"
+    return sub_text.strip()[:120]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # UNIFIED 704 ITEM FIELD BUILDER (V2)
 # ═══════════════════════════════════════════════════════════════════════════
 # Single loop that builds field values for any 704 form, driven by
