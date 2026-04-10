@@ -13,14 +13,14 @@ terms, detects product categories, and suggests sourcing strategies.
 Modes:
   RULE-BASED (no API key): Cleans descriptions, strips noise words,
     detects categories from keyword patterns. Works offline.
-  LLM-ENHANCED (with ANTHROPIC_API_KEY): Uses Claude Haiku to interpret
+  LLM-ENHANCED (with XAI_API_KEY): Uses Claude Haiku to interpret
     ambiguous items, generate multiple search strategies, and match products
     to the right category. ~$0.01/item.
 
 Pipeline position:
   Parse → IDENTIFY → SCPRS Lookup → Amazon Lookup → Price → Fill 704
 
-Dependencies: requests (for LLM calls). anthropic SDK optional but preferred.
+Dependencies: requests (for LLM calls via xAI Grok API).
 """
 
 import json
@@ -46,21 +46,10 @@ CACHE_FILE = os.path.join(DATA_DIR, "item_id_cache.json")
 CACHE_TTL_DAYS = 30  # Item IDs are stable — cache aggressively
 MAX_CACHE_ENTRIES = 10000
 
-# API config — use centralized secret registry
-try:
-    from src.core.secrets import get_agent_key
-    ANTHROPIC_API_KEY = get_agent_key("item_identifier")
-except ImportError:
-    ANTHROPIC_API_KEY = os.environ.get("AGENT_ITEM_ID_KEY",
-                       os.environ.get("ANTHROPIC_API_KEY", ""))
-ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"  # Cheapest, fastest — $0.25/$1.25 per M tokens
-
-# Try anthropic SDK, fall back to requests
-try:
-    import anthropic
-    HAS_SDK = True
-except ImportError:
-    HAS_SDK = False
+# API config — Grok (xAI) for item identification (replaced Claude Haiku — same quality, 10x cheaper)
+XAI_API_URL = "https://api.x.ai/v1/chat/completions"
+XAI_MODEL = "grok-3-mini"
+XAI_API_KEY = os.environ.get("XAI_API_KEY", "")
 
 try:
     import requests as _requests
@@ -279,8 +268,11 @@ Respond in JSON only. No markdown, no explanation. Example:
 
 
 def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
-    """Call Claude Haiku for smart item identification."""
-    if not ANTHROPIC_API_KEY:
+    """Call Grok for smart item identification (replaced Claude Haiku — same quality, 10x cheaper)."""
+    if not XAI_API_KEY:
+        return None
+    if not HAS_REQUESTS:
+        log.warning("No HTTP client available for LLM call")
         return None
 
     prompt = f"Item description from AMS 704 form: \"{description}\""
@@ -288,43 +280,39 @@ def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
         prompt += f"\nQuantity: {qty} {uom}"
 
     try:
-        if HAS_SDK:
-            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            response = client.messages.create(
-                model=ANTHROPIC_MODEL,
-                max_tokens=300,
-                system=_LLM_SYSTEM,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = response.content[0].text
-        elif HAS_REQUESTS:
-            resp = _requests.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": ANTHROPIC_MODEL,
-                    "max_tokens": 300,
-                    "system": _LLM_SYSTEM,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            text = data["content"][0]["text"]
-        else:
-            log.warning("No HTTP client available for LLM call")
+        resp = _requests.post(
+            XAI_API_URL,
+            headers={
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": XAI_MODEL,
+                "messages": [
+                    {"role": "system", "content": _LLM_SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 300,
+            },
+            timeout=20,
+        )
+        if resp.status_code == 429:
+            log.warning("Grok rate limited in item identifier")
+            return None
+        if resp.status_code != 200:
+            log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
             return None
 
-        # Parse JSON response
-        text = text.strip()
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"].strip()
+
+        # Strip markdown code blocks
         if text.startswith("```"):
             text = re.sub(r'^```\w*\n?', '', text)
             text = re.sub(r'\n?```$', '', text)
+            text = text.strip()
+
         return json.loads(text)
 
     except json.JSONDecodeError as e:
@@ -337,7 +325,7 @@ def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
 
 def _identify_llm_enhanced(description: str, qty: int = 0,
                            uom: str = "") -> dict:
-    """LLM-enhanced item identification. Requires ANTHROPIC_API_KEY."""
+    """LLM-enhanced item identification. Requires XAI_API_KEY."""
     # Get rule-based as baseline
     base = _identify_rule_based(description, qty, uom)
 
@@ -401,7 +389,7 @@ def identify_item(description: str, qty: int = 0, uom: str = "",
         return cached
 
     # Try LLM if key available
-    if ANTHROPIC_API_KEY or force_llm:
+    if XAI_API_KEY or force_llm:
         result = _identify_llm_enhanced(description, qty, uom)
     else:
         result = _identify_rule_based(description, qty, uom)
@@ -453,9 +441,9 @@ def get_agent_status() -> dict:
     return {
         "agent": "item_identifier",
         "version": "1.0.0",
-        "mode": "llm_enhanced" if ANTHROPIC_API_KEY else "rule_based",
-        "api_key_set": bool(ANTHROPIC_API_KEY),
-        "model": ANTHROPIC_MODEL if ANTHROPIC_API_KEY else None,
+        "mode": "llm_enhanced" if XAI_API_KEY else "rule_based",
+        "api_key_set": bool(XAI_API_KEY),
+        "model": XAI_MODEL if XAI_API_KEY else None,
         "cache_entries": len(cache),
         "cache_file": CACHE_FILE,
         "categories": list(CATEGORIES.keys()),
