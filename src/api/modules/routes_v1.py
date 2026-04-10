@@ -4455,6 +4455,38 @@ def api_v1_email_reprocess(uid):
             cleared.append("sqlite")
         except Exception:
             pass
+        # Also clear cross-inbox fingerprint (uses subject+sender hash, not UID)
+        # Fetch the email header to compute the fingerprint
+        try:
+            import imaplib, email as _em
+            _addr = os.environ.get("GMAIL_ADDRESS", "")
+            _pwd = os.environ.get("GMAIL_PASSWORD", "")
+            if _addr and _pwd:
+                _imap = imaplib.IMAP4_SSL("imap.gmail.com")
+                _imap.login(_addr, _pwd)
+                _imap.select("INBOX", readonly=True)
+                _, _data = _imap.uid("fetch", uid.encode(), "(BODY.PEEK[HEADER])")
+                if _data and _data[0]:
+                    _msg = _em.message_from_bytes(_data[0][1])
+                    _subj = _msg.get("Subject", "")
+                    _sender = ""
+                    _from = _msg.get("From", "")
+                    import re as _re
+                    _m = _re.search(r'[\w.+-]+@[\w.-]+', _from)
+                    if _m:
+                        _sender = _m.group(0)
+                    _date = _msg.get("Date", "")
+                    import hashlib
+                    _raw = f"{_subj.strip().lower()}|{_sender.strip().lower()}|{_date[:16]}"
+                    _fp = hashlib.sha256(_raw.encode()).hexdigest()[:32]
+                    from src.core.db import get_db
+                    with get_db() as conn:
+                        _del = conn.execute("DELETE FROM email_fingerprints WHERE fingerprint=?", (_fp,)).rowcount
+                        if _del:
+                            cleared.append(f"fingerprint")
+                _imap.logout()
+        except Exception:
+            pass
         return api_response({"ok": True, "uid": uid, "cleared_from": cleared})
     except Exception as e:
         return api_response(error=str(e), status=500)
