@@ -201,12 +201,13 @@ def _run_pipeline(pc_id: str, force: bool):
         log.warning("ENRICH %s: identifier extraction error: %s", pc_id, e)
     _mark_step_done(pc_id,"identifiers")
 
-    # ── Step 1.5: Resolve UPCs via Amazon product lookup ───────────────
+    # ── Step 1.5: Resolve UPCs via Grok product validation ─────────────
+    # Replaced SerpApi ($50/mo subscription) with Grok (pay-per-use, ~$0.001/call)
     _update_status(pc_id, "upc_resolution", "resolving barcodes")
     _upc_lookups = 0
-    _UPC_LIMIT = 3  # max Amazon lookups per PC to preserve SerpApi credits
+    _UPC_LIMIT = 3  # max lookups per PC
     try:
-        from src.agents.product_research import search_amazon, lookup_amazon_product
+        from src.agents.product_validator import validate_product
         for i, it in enumerate(items):
             if _upc_lookups >= _UPC_LIMIT:
                 break
@@ -216,43 +217,32 @@ def _run_pipeline(pc_id: str, force: bool):
             if it["pricing"].get("amazon_asin") and it["pricing"].get("amazon_price"):
                 continue  # already resolved
             try:
-                results = search_amazon(_upc, max_results=1)
-                if results and results[0].get("price", 0) > 0:
-                    r = results[0]
-                    _amz_asin = r.get("asin", "")
-                    it["pricing"]["amazon_price"] = r["price"]
-                    it["pricing"]["amazon_asin"] = _amz_asin
-                    it["pricing"]["amazon_url"] = r.get("url", "")
-                    it["pricing"]["amazon_title"] = r.get("title", "")[:200]
-                    # Capture product image
-                    _photo = r.get("photo_url", "")
-                    if _photo:
-                        it["pricing"]["photo_url"] = _photo
-                    if not it.get("item_link"):
-                        it["item_link"] = r.get("url", "")
-                        it["item_supplier"] = "Amazon"
-                    # ASIN product lookup for list/sale price split + higher-res image
-                    if _amz_asin:
-                        try:
-                            _prod = lookup_amazon_product(_amz_asin)
-                            if _prod:
-                                if _prod.get("photo_url") and not _photo:
-                                    it["pricing"]["photo_url"] = _prod["photo_url"]
-                                if _prod.get("list_price"):
-                                    it["pricing"]["list_price"] = _prod["list_price"]
-                                    it["list_price"] = _prod["list_price"]
-                                if _prod.get("sale_price"):
-                                    it["pricing"]["sale_price"] = _prod["sale_price"]
-                                    it["sale_price"] = _prod["sale_price"]
-                        except Exception:
-                            pass
+                result = validate_product(
+                    description=it.get("description", ""),
+                    upc=_upc,
+                    mfg_number=it.get("mfg_number", ""),
+                    qty=it.get("qty", 1),
+                    uom=it.get("uom", "EA"),
+                    qty_per_uom=it.get("qty_per_uom", 1),
+                )
+                if result.get("ok") and result.get("price", 0) > 0 and result.get("confidence", 0) >= 0.60:
+                    _price = result["price"]
+                    _asin = result.get("asin", "")
+                    _url = result.get("url", "")
+                    _title = result.get("product_name", "")[:200]
+                    it["pricing"]["amazon_price"] = _price
+                    if _asin:
+                        it["pricing"]["amazon_asin"] = _asin
+                    it["pricing"]["amazon_url"] = _url
+                    it["pricing"]["amazon_title"] = _title
+                    if not it.get("item_link") and _url:
+                        it["item_link"] = _url
+                        it["item_supplier"] = result.get("supplier", "Amazon")
                     counters.setdefault("upc_resolved", 0)
                     counters["upc_resolved"] += 1
                     log.info("ENRICH %s: UPC %s → %s $%.2f (ASIN: %s)",
-                             pc_id, _upc, r.get("title", "")[:30], r["price"], _amz_asin)
+                             pc_id, _upc, _title[:30], _price, _asin)
                     # ── Catalog flywheel: write back UPC/ASIN/photo to catalog ──
-                    # catalog_product_id may not be set yet (catalog match is Step 3)
-                    # so also try matching by UPC/description to find the catalog entry
                     _cat_pid = it.get("pricing", {}).get("catalog_product_id")
                     if not _cat_pid:
                         try:
@@ -270,13 +260,13 @@ def _run_pipeline(pc_id: str, force: bool):
                                 _cat_pid,
                                 upc=_upc,
                                 photo_url=it["pricing"].get("photo_url", ""),
-                                best_cost=r["price"],
-                                supplier_name="Amazon",
-                                supplier_sku=_amz_asin,
-                                supplier_url=r.get("url", ""),
-                                supplier_price=r["price"],
-                                amazon_price=r["price"],
-                                asin=_amz_asin,
+                                best_cost=_price,
+                                supplier_name=result.get("supplier", "Amazon"),
+                                supplier_sku=_asin,
+                                supplier_url=_url,
+                                supplier_price=_price,
+                                amazon_price=_price if _asin else 0,
+                                asin=_asin,
                             )
                         except Exception:
                             pass
@@ -387,43 +377,39 @@ def _run_pipeline(pc_id: str, force: bool):
                 except Exception as e:
                     log.debug("ENRICH %s: S&S direct lookup error item %d: %s", pc_id, i+1, e)
 
-            # Step C: Amazon fallback only if S&S direct failed
+            # Step C: Grok fallback only if S&S direct failed
             if not _priced and _desc and len(_desc) >= 8:
                 try:
-                    from src.agents.product_research import search_amazon, lookup_amazon_product
-                    results = search_amazon(_desc[:100], max_results=1)
-                    if results and results[0].get("price", 0) > 0:
-                        r = results[0]
-                        _amz_asin = r.get("asin", "")
-                        it["pricing"]["amazon_price"] = r["price"]
-                        it["pricing"]["amazon_asin"] = _amz_asin
-                        it["pricing"]["amazon_url"] = r.get("url", "")
-                        it["pricing"]["amazon_title"] = r.get("title", "")[:200]
+                    from src.agents.product_validator import validate_product as _vp_ssww
+                    _vr = _vp_ssww(
+                        description=_desc[:100],
+                        upc=it.get("upc", ""),
+                        mfg_number=_mfg,
+                        qty=it.get("qty", 1),
+                        uom=it.get("uom", "EA"),
+                        qty_per_uom=it.get("qty_per_uom", 1),
+                    )
+                    if _vr.get("ok") and _vr.get("price", 0) > 0 and _vr.get("confidence", 0) >= 0.60:
+                        _amz_asin = _vr.get("asin", "")
+                        _vr_price = _vr["price"]
+                        it["pricing"]["amazon_price"] = _vr_price
+                        if _amz_asin:
+                            it["pricing"]["amazon_asin"] = _amz_asin
+                        it["pricing"]["amazon_url"] = _vr.get("url", "")
+                        it["pricing"]["amazon_title"] = _vr.get("product_name", "")[:200]
                         # Keep S&S URL if set, Amazon as reference only
                         if not it.get("item_link"):
-                            it["item_link"] = r.get("url", "")
-                            it["item_supplier"] = "Amazon"
+                            it["item_link"] = _vr.get("url", "")
+                            it["item_supplier"] = _vr.get("supplier", "Amazon")
                         if _ssww_sku:
                             it["pricing"]["ssww_sku"] = _ssww_sku
                             it["pricing"]["source_note"] = f"S&S #{_ssww_sku} → Amazon ref"
-                        # ASIN lookup for list/sale split
-                        if _amz_asin:
-                            try:
-                                _prod = lookup_amazon_product(_amz_asin)
-                                if _prod and _prod.get("list_price"):
-                                    it["pricing"]["list_price"] = _prod["list_price"]
-                                    it["list_price"] = _prod["list_price"]
-                                if _prod and _prod.get("sale_price"):
-                                    it["pricing"]["sale_price"] = _prod["sale_price"]
-                                    it["sale_price"] = _prod["sale_price"]
-                            except Exception:
-                                pass
                         counters.setdefault("ssww_amazon_resolved", 0)
                         counters["ssww_amazon_resolved"] += 1
-                        log.info("ENRICH %s: S&S item %d → Amazon %s $%.2f",
-                                 pc_id, i+1, _amz_asin, r["price"])
+                        log.info("ENRICH %s: S&S item %d → Grok %s $%.2f",
+                                 pc_id, i+1, _amz_asin, _vr_price)
                 except Exception as e:
-                    log.debug("ENRICH %s: S&S→Amazon error item %d: %s", pc_id, i+1, e)
+                    log.debug("ENRICH %s: S&S→Grok error item %d: %s", pc_id, i+1, e)
 
             if _priced or it.get("item_link"):
                 _ssww_lookups += 1
@@ -565,10 +551,9 @@ def _run_pipeline(pc_id: str, force: bool):
     # This is BEFORE web search — Grok with web search is faster and smarter
     # than blind URL scraping for unidentified products.
     _update_status(pc_id, "llm_first_pass", "identifying unknowns via AI")
-    _LLM_FIRST_LIMIT = 5
+    _LLM_FIRST_LIMIT = 8  # consolidated from two separate 5-call steps
     try:
         from src.agents.product_validator import validate_product
-        from src.agents.product_research import lookup_amazon_product
         from src.agents.product_catalog import (
             add_to_catalog, enrich_catalog_product, add_supplier_price, match_item as _cat_match
         )
@@ -577,15 +562,23 @@ def _run_pipeline(pc_id: str, force: bool):
             if _fp_calls >= _LLM_FIRST_LIMIT:
                 break
             p = it.get("pricing", {})
-            # Only for TRUE unknowns: no cost, no catalog match, no SCPRS match
-            if p.get("unit_cost") or p.get("catalog_match") or p.get("scprs_price"):
+            _has_cost = bool(p.get("unit_cost") and float(p.get("unit_cost", 0)) > 0)
+            _cat_conf = float(p.get("catalog_confidence", 0))
+            _scprs_conf = float(p.get("scprs_confidence", 0))
+            _best_conf = max(_cat_conf, _scprs_conf)
+            # Skip well-matched items (high confidence + has cost)
+            if _has_cost and _best_conf >= 0.75:
                 continue
-            if p.get("amazon_price"):
-                continue  # already found via UPC/S&S resolution
+            if p.get("amazon_price") and _best_conf >= 0.60:
+                continue  # already found via UPC/S&S resolution with decent match
             desc = it.get("description", "")
             if not desc or len(desc) < 5:
                 continue
             try:
+                # Pass best match info for context (merged from old Step 5c)
+                _bm_title = p.get("catalog_match") or p.get("amazon_title") or ""
+                _bm_price = float(p.get("unit_cost") or p.get("catalog_cost") or p.get("amazon_price") or 0)
+                _bm_source = p.get("price_source") or ("catalog" if _cat_conf else "none")
                 result = validate_product(
                     description=desc,
                     upc=it.get("upc", ""),
@@ -593,18 +586,24 @@ def _run_pipeline(pc_id: str, force: bool):
                     qty=it.get("qty", 1),
                     uom=it.get("uom", "EA"),
                     qty_per_uom=it.get("qty_per_uom", 1),
+                    best_match_title=_bm_title,
+                    best_match_price=_bm_price,
+                    best_match_confidence=_best_conf,
+                    best_match_source=_bm_source,
                 )
-                if result.get("ok") and result.get("price", 0) > 0 and result.get("confidence", 0) >= 0.70:
+                _grok_conf = result.get("confidence", 0)
+                if result.get("ok") and result.get("price", 0) > 0 and _grok_conf >= 0.70:
                     _price = result["price"]
                     _asin = result.get("asin", "")
                     _url = result.get("url", "")
                     _prod_name = result.get("product_name", "")[:200]
-                    # Apply to item
-                    p["unit_cost"] = _price
-                    it["vendor_cost"] = _price
-                    p["price_source"] = "llm_grok_first"
+                    # Apply to item (set cost if not already set or Grok is more confident)
+                    if not _has_cost or _grok_conf > _best_conf:
+                        p["unit_cost"] = _price
+                        it["vendor_cost"] = _price
+                    p["price_source"] = "llm_grok"
                     p["llm_validated"] = True
-                    p["llm_confidence"] = result["confidence"]
+                    p["llm_confidence"] = _grok_conf
                     p["llm_reasoning"] = result.get("reasoning", "")[:200]
                     p["llm_product_name"] = _prod_name
                     if _asin:
@@ -612,22 +611,9 @@ def _run_pipeline(pc_id: str, force: bool):
                         p["amazon_price"] = _price
                         p["amazon_url"] = _url
                         p["amazon_title"] = _prod_name
-                    if _url and not it.get("item_link"):
+                    if _url and (not it.get("item_link") or _grok_conf > _best_conf):
                         it["item_link"] = _url
                         it["item_supplier"] = result.get("supplier", "Amazon")
-                    # ASIN lookup for list/sale split + image
-                    if _asin:
-                        try:
-                            _prod = lookup_amazon_product(_asin)
-                            if _prod:
-                                if _prod.get("list_price"):
-                                    p["list_price"] = _prod["list_price"]
-                                    it["list_price"] = _prod["list_price"]
-                                if _prod.get("sale_price"):
-                                    p["sale_price"] = _prod["sale_price"]
-                                    it["sale_price"] = _prod["sale_price"]
-                        except Exception:
-                            pass
                     # Catalog write-back (flywheel)
                     try:
                         _pn = it.get("mfg_number", "")
@@ -655,14 +641,22 @@ def _run_pipeline(pc_id: str, force: bool):
                             p["catalog_product_id"] = _pid
                     except Exception:
                         pass
-                    counters.setdefault("llm_first_pass", 0)
-                    counters["llm_first_pass"] += 1
-                    log.info("ENRICH %s: Grok first-pass item %d → %s $%.2f",
-                             pc_id, i+1, _prod_name[:40], _price)
+                    counters.setdefault("llm_validated", 0)
+                    counters["llm_validated"] += 1
+                    log.info("ENRICH %s: Grok item %d → %s $%.2f (conf=%.0f%%)",
+                             pc_id, i+1, _prod_name[:40], _price, _grok_conf * 100)
+                elif result.get("ok") and result.get("price", 0) > 0:
+                    # Low confidence — store as suggestion, let Claude web search try
+                    p["llm_suggestion"] = result.get("product_name", "")[:200]
+                    p["llm_suggestion_price"] = result["price"]
+                    p["llm_suggestion_url"] = result.get("url", "")
+                    p["llm_suggestion_confidence"] = _grok_conf
+                    p["_needs_web_search"] = True  # flag for Step 5b
                 _fp_calls += 1
+                _update_status(pc_id, "llm_first_pass", f"{_fp_calls}/{_LLM_FIRST_LIMIT} validated")
                 time.sleep(0.5)
             except Exception as e:
-                log.debug("ENRICH %s: Grok first-pass error item %d: %s", pc_id, i+1, e)
+                log.debug("ENRICH %s: Grok error item %d: %s", pc_id, i+1, e)
     except ImportError:
         log.debug("product_validator not available — skipping Grok first pass")
     except Exception as e:
@@ -719,7 +713,9 @@ def _run_pipeline(pc_id: str, force: bool):
         log.warning("ENRICH %s: web lookup error: %s", pc_id, e)
     _mark_step_done(pc_id,"web_lookup")
 
-    # ── Step 5b: Claude web search for unpriced items (max 5) ────────────
+    # ── Step 5b: Claude web search — fallback for Grok low-conf / unpriced ─
+    # Only fires for items Grok couldn't handle (conf < 0.70) or missed entirely.
+    # Cap reduced: Grok handles most items now, this is last resort.
     _update_status(pc_id, "web_search", "searching web for unpriced items")
     try:
         from src.agents.web_price_research import search_product_price
@@ -727,8 +723,8 @@ def _run_pipeline(pc_id: str, force: bool):
         _api_breaker = _gb2("web_search")
         ws_count = 0
         for it in items:
-            if ws_count >= 5:
-                break  # Limit API calls
+            if ws_count >= 3:
+                break  # Reduced cap — Grok handles most items now
             # Skip items that already have pricing data
             if it.get("unit_price") and it["unit_price"] > 0:
                 continue
@@ -793,143 +789,7 @@ def _run_pipeline(pc_id: str, force: bool):
         log.debug("ENRICH %s: web search error: %s", pc_id, e)
     _mark_step_done(pc_id,"web_search")
 
-    # ── Step 5c: LLM product validator for low-confidence items ──────────
-    # Uses Grok (xAI) with web search to validate/correct matches.
-    # Only fires for items that are unpriced OR have low-confidence matches.
-    _update_status(pc_id, "llm_validation", "validating products via AI")
-    _LLM_LIMIT = 5  # max Grok calls per PC
-    try:
-        from src.agents.product_validator import validate_product
-        from src.agents.product_research import lookup_amazon_product
-        _llm_calls = 0
-        for i, it in enumerate(items):
-            if _llm_calls >= _LLM_LIMIT:
-                break
-            p = it.get("pricing", {})
-            _has_cost = bool(p.get("unit_cost") and float(p.get("unit_cost", 0)) > 0)
-            _cat_conf = float(p.get("catalog_confidence", 0))
-            _scprs_conf = float(p.get("scprs_confidence", 0))
-            _best_conf = max(_cat_conf, _scprs_conf)
-            # Skip items already well-matched
-            if _has_cost and _best_conf >= 0.75:
-                continue
-            # Skip items with no description
-            desc = it.get("description", "")
-            if not desc or len(desc) < 5:
-                continue
-            # Build best match info for context
-            _bm_title = p.get("catalog_match") or p.get("amazon_title") or ""
-            _bm_price = float(p.get("unit_cost") or p.get("catalog_cost") or p.get("amazon_price") or 0)
-            _bm_source = p.get("price_source") or ("catalog" if _cat_conf else "none")
-            try:
-                result = validate_product(
-                    description=desc,
-                    upc=it.get("upc", ""),
-                    mfg_number=it.get("mfg_number", ""),
-                    qty=it.get("qty", 1),
-                    uom=it.get("uom", "EA"),
-                    qty_per_uom=it.get("qty_per_uom", 1),
-                    best_match_title=_bm_title,
-                    best_match_price=_bm_price,
-                    best_match_confidence=_best_conf,
-                    best_match_source=_bm_source,
-                )
-                if result.get("ok") and result.get("price", 0) > 0:
-                    _conf = result.get("confidence", 0)
-                    # Apply LLM result if confidence is reasonable
-                    if _conf >= 0.70:
-                        _price = result["price"]
-                        _asin = result.get("asin", "")
-                        _url = result.get("url", "")
-                        # Set cost if not already set or LLM is more confident
-                        if not _has_cost or _conf > _best_conf:
-                            p["unit_cost"] = _price
-                            it["vendor_cost"] = _price
-                            p["price_source"] = "llm_grok"
-                        # Set Amazon data if found
-                        if _asin:
-                            p["amazon_asin"] = _asin
-                            p["amazon_price"] = _price
-                            p["amazon_url"] = _url
-                            p["amazon_title"] = result.get("product_name", "")[:200]
-                        # Set item link if empty or LLM found better
-                        if _url and (not it.get("item_link") or _conf > _best_conf):
-                            it["item_link"] = _url
-                            it["item_supplier"] = result.get("supplier", "Amazon")
-                        # ASIN product lookup for list/sale price split
-                        if _asin and not p.get("list_price"):
-                            try:
-                                _prod = lookup_amazon_product(_asin)
-                                if _prod and _prod.get("list_price"):
-                                    p["list_price"] = _prod["list_price"]
-                                    it["list_price"] = _prod["list_price"]
-                                if _prod and _prod.get("sale_price"):
-                                    p["sale_price"] = _prod["sale_price"]
-                                    it["sale_price"] = _prod["sale_price"]
-                            except Exception:
-                                pass
-                        # Store LLM metadata
-                        p["llm_validated"] = True
-                        p["llm_confidence"] = _conf
-                        p["llm_reasoning"] = result.get("reasoning", "")[:200]
-                        p["llm_product_name"] = result.get("product_name", "")[:200]
-                        counters.setdefault("llm_validated", 0)
-                        counters["llm_validated"] += 1
-                        # ── CATALOG WRITE-BACK: enrich catalog from Grok result ──
-                        # Every Grok validation is an investment in future automation
-                        try:
-                            from src.agents.product_catalog import (
-                                add_to_catalog, enrich_catalog_product, add_supplier_price, match_item
-                            )
-                            _prod_name = result.get("product_name", desc)[:200]
-                            _pn = it.get("mfg_number", "")
-                            _upc_wb = it.get("upc", "")
-                            # Find or create catalog entry
-                            _existing = match_item(_prod_name, _pn, top_n=1, upc=_upc_wb)
-                            if _existing and _existing[0].get("match_confidence", 0) >= 0.80:
-                                _pid = _existing[0]["id"]
-                            else:
-                                _pid = add_to_catalog(
-                                    description=_prod_name, part_number=_pn,
-                                    cost=_price, supplier_url=_url,
-                                    supplier_name=result.get("supplier", ""),
-                                    mfg_number=_pn, source="grok_validation"
-                                )
-                            if _pid:
-                                enrich_catalog_product(
-                                    _pid,
-                                    upc=_upc_wb,
-                                    asin=_asin,
-                                    mfg_number=_pn,
-                                    manufacturer=it.get("pricing", {}).get("manufacturer", ""),
-                                    best_cost=_price,
-                                    photo_url=p.get("photo_url", ""),
-                                    supplier_name=result.get("supplier", "Amazon"),
-                                    supplier_sku=_asin or _pn,
-                                    supplier_url=_url,
-                                    supplier_price=_price,
-                                    amazon_price=_price if _asin else 0,
-                                )
-                                p["catalog_product_id"] = _pid
-                                log.info("ENRICH %s: Grok → catalog #%s enriched (%s)",
-                                         pc_id, _pid, _prod_name[:40])
-                        except Exception as _wb_e:
-                            log.debug("ENRICH %s: catalog write-back error: %s", pc_id, _wb_e)
-                    else:
-                        # Low LLM confidence — store as reference only
-                        p["llm_suggestion"] = result.get("product_name", "")[:200]
-                        p["llm_suggestion_price"] = result["price"]
-                        p["llm_suggestion_url"] = result.get("url", "")
-                _llm_calls += 1
-                _update_status(pc_id, "llm_validation", f"{_llm_calls}/{_LLM_LIMIT} validated")
-                time.sleep(0.5)  # rate limit
-            except Exception as e:
-                log.debug("ENRICH %s: LLM validation error item %d: %s", pc_id, i+1, e)
-    except ImportError:
-        log.debug("product_validator not available — skipping LLM step")
-    except Exception as e:
-        log.debug("ENRICH %s: LLM validation error: %s", pc_id, e)
-    _mark_step_done(pc_id, "llm_validation")
+    # Step 5c removed — consolidated into Step 4b (single Grok pass with cap=8)
 
     # ── Step 6: Pricing oracle recommendations (with per-item timeout) ───
     _update_status(pc_id, "pricing_oracle", f"0/{total} items")

@@ -14,6 +14,8 @@ import os
 import json
 import logging
 import time
+import hashlib
+from datetime import datetime, timezone, timedelta
 
 log = logging.getLogger("product_validator")
 
@@ -27,6 +29,71 @@ try:
     HAS_REQUESTS = True
 except ImportError:
     HAS_REQUESTS = False
+
+# ── Cache Configuration ─────────────────────────────────────────────────────
+try:
+    from src.core.paths import DATA_DIR
+except ImportError:
+    DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))), "data")
+
+CACHE_FILE = os.path.join(DATA_DIR, "grok_validation_cache.json")
+CACHE_TTL_DAYS = 14
+MAX_CACHE_ENTRIES = 3000
+
+
+def _load_cache() -> dict:
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
+def _save_cache(cache: dict):
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=CACHE_TTL_DAYS)).isoformat()
+        cache = {k: v for k, v in cache.items()
+                 if v.get("cached_at", "") > cutoff}
+        if len(cache) > MAX_CACHE_ENTRIES:
+            items = sorted(cache.items(), key=lambda x: x[1].get("cached_at", ""))
+            cache = dict(items[-MAX_CACHE_ENTRIES:])
+        with open(CACHE_FILE, "w") as f:
+            json.dump(cache, f, indent=1)
+    except Exception as e:
+        log.debug("Grok cache save error: %s", e)
+
+
+def _cache_key(description: str, upc: str = "", mfg_number: str = "") -> str:
+    raw = f"{description.lower().strip()}|{upc.strip()}|{mfg_number.lower().strip()}"
+    return hashlib.md5(raw.encode()).hexdigest()[:16]
+
+
+def _cache_lookup(description: str, upc: str = "", mfg_number: str = "") -> dict | None:
+    cache = _load_cache()
+    key = _cache_key(description, upc, mfg_number)
+    entry = cache.get(key)
+    if not entry:
+        return None
+    try:
+        cached_at = datetime.fromisoformat(entry["cached_at"])
+        if datetime.now(timezone.utc) - cached_at > timedelta(days=CACHE_TTL_DAYS):
+            return None
+    except (ValueError, TypeError):
+        return None
+    entry["from_cache"] = True
+    return entry
+
+
+def _cache_store(description: str, upc: str, mfg_number: str, result: dict):
+    cache = _load_cache()
+    key = _cache_key(description, upc, mfg_number)
+    result["cached_at"] = datetime.now(timezone.utc).isoformat()
+    cache[key] = result
+    _save_cache(cache)
 
 
 def _get_api_key() -> str:
@@ -65,6 +132,12 @@ def validate_product(
     """
     if not HAS_REQUESTS:
         return {"ok": False, "error": "requests not available"}
+
+    # Check cache first
+    cached = _cache_lookup(description, upc, mfg_number)
+    if cached:
+        log.debug("Grok cache hit: '%s'", description[:40])
+        return cached
 
     api_key = _get_api_key()
     if not api_key:
@@ -190,6 +263,10 @@ Respond in this exact JSON format (no markdown, no code blocks):
                      result["confidence"] * 100,
                      result["price"],
                      tokens)
+
+            # Cache successful results with price > 0
+            if result.get("price", 0) > 0 and result.get("confidence", 0) >= 0.50:
+                _cache_store(description, upc, mfg_number, result)
 
             return result
 
