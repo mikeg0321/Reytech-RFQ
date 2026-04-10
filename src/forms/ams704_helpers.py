@@ -9,10 +9,201 @@ Phase 2 of the PDF architecture overhaul (Phase 1 = TemplateProfile).
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 log = logging.getLogger("reytech.ams704_helpers")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CANONICAL LINE ITEM (Phase 3)
+# ═══════════════════════════════════════════════════════════════════════════
+# Normalize once at the boundary. Every fill function consumes LineItem,
+# never raw dicts with ambiguous field names.
+
+@dataclass
+class LineItem:
+    """Canonical line item for 704 form filling.
+
+    All fill functions should consume LineItem objects, not raw dicts.
+    Use from_dict() to normalize from either PC or RFQ data formats.
+    """
+    line_number: int = 0
+    description: str = ""
+    qty: float = 0
+    uom: str = "EA"
+    unit_price: float = 0       # sell price to buyer
+    supplier_cost: float = 0    # our cost
+    part_number: str = ""
+    mfg_number: str = ""
+    is_substitute: bool = False
+    no_bid: bool = False
+    qty_per_uom: int = 1
+    notes: str = ""
+    # Enrichment metadata (read-only, not written to PDF)
+    pricing: dict = field(default_factory=dict)
+    row_index: int = 0          # original row position from parsed PDF
+
+    @property
+    def extension(self) -> float:
+        """Line total: qty * unit_price."""
+        return round(self.qty * self.unit_price, 2)
+
+    @property
+    def has_price(self) -> bool:
+        return self.unit_price > 0
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "LineItem":
+        """Normalize from any raw item dict (PC or RFQ format).
+
+        Handles all field name aliases:
+          qty/quantity/QTY → qty
+          price_per_unit/bid_price/unit_price/sell_price/final_price → unit_price
+          supplier_cost/cost/unit_cost → supplier_cost
+          part_number/item_number/catalog_number/mfg_number → part_number
+          uom/UOM/unit_of_measure → uom
+        """
+        def _float(val, strip_dollar=False):
+            if not val:
+                return 0
+            s = str(val)
+            if strip_dollar:
+                s = s.replace("$", "")
+            s = s.replace(",", "")
+            try:
+                return float(s)
+            except (ValueError, TypeError):
+                return 0
+
+        qty = raw.get("qty") or raw.get("quantity") or raw.get("QTY") or 0
+        price = (raw.get("price_per_unit") or raw.get("bid_price")
+                 or raw.get("unit_price") or raw.get("sell_price")
+                 or raw.get("final_price") or 0)
+        cost = (raw.get("supplier_cost") or raw.get("cost")
+                or raw.get("unit_cost") or 0)
+        qpu = raw.get("qty_per_uom", 1)
+        try:
+            qpu = int(float(qpu)) if qpu else 1
+        except (ValueError, TypeError):
+            qpu = 1
+
+        return cls(
+            line_number=raw.get("line_number") or raw.get("#") or 0,
+            description=(raw.get("description") or raw.get("desc")
+                         or raw.get("item_description") or "").strip(),
+            qty=_float(qty),
+            uom=str(raw.get("uom") or raw.get("UOM")
+                     or raw.get("unit_of_measure") or "EA"),
+            unit_price=_float(price, strip_dollar=True),
+            supplier_cost=_float(cost, strip_dollar=True),
+            part_number=str(raw.get("part_number") or raw.get("item_number")
+                           or raw.get("catalog_number") or raw.get("mfg_number") or ""),
+            mfg_number=str(raw.get("mfg_number") or raw.get("manufacturer_part") or ""),
+            is_substitute=bool(raw.get("is_substitute", False)),
+            no_bid=bool(raw.get("no_bid", False)),
+            qty_per_uom=qpu,
+            notes=str(raw.get("notes") or "").strip(),
+            pricing=raw.get("pricing") or {},
+            row_index=raw.get("row_index") or 0,
+        )
+
+    def to_dict(self) -> dict:
+        """Convert back to dict for backward compatibility with existing code."""
+        return {
+            "line_number": self.line_number,
+            "description": self.description,
+            "qty": self.qty,
+            "uom": self.uom,
+            "price_per_unit": self.unit_price,
+            "unit_price": self.unit_price,
+            "supplier_cost": self.supplier_cost,
+            "part_number": self.part_number,
+            "mfg_number": self.mfg_number,
+            "is_substitute": self.is_substitute,
+            "no_bid": self.no_bid,
+            "qty_per_uom": self.qty_per_uom,
+            "notes": self.notes,
+            "pricing": self.pricing,
+            "row_index": self.row_index,
+        }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FILL STRATEGY (Phase 4)
+# ═══════════════════════════════════════════════════════════════════════════
+# Replaces boolean flags (original_mode, pricing_only, keep_all_pages)
+# with explicit strategies. Each strategy defines what to write.
+
+class FillStrategy(Enum):
+    """How to fill a 704 form. Replaces boolean flag combinations."""
+
+    PC_FULL = "pc_full"
+    """PC on blank template — write ALL fields (description, qty, uom, pricing, vendor info).
+    Used when source is DOCX-converted or blank 704 template."""
+
+    PC_ORIGINAL = "pc_original"
+    """PC on buyer's original template — only write pricing + vendor info.
+    Buyer's descriptions, qty, uom are untouched. Was: original_mode=True."""
+
+    RFQ_FULL = "rfq_full"
+    """RFQ response on fresh 704B — write all item fields + vendor info.
+    Used for Cal Vet and generic 704B templates."""
+
+    RFQ_PREFILLED = "rfq_prefilled"
+    """RFQ response on agency pre-filled 704B — only write PRICE PER UNIT + SUBTOTAL.
+    Buyer already filled descriptions, qty, uom. Was: _is_prefilled branch in fill_704b."""
+
+    @property
+    def writes_descriptions(self) -> bool:
+        """Whether this strategy writes item descriptions to form fields."""
+        return self in (FillStrategy.PC_FULL, FillStrategy.RFQ_FULL)
+
+    @property
+    def writes_qty_uom(self) -> bool:
+        """Whether this strategy writes qty/uom fields."""
+        return self in (FillStrategy.PC_FULL, FillStrategy.PC_ORIGINAL, FillStrategy.RFQ_FULL)
+
+    @property
+    def writes_pricing(self) -> bool:
+        """Whether this strategy writes price/extension/subtotal fields."""
+        return True  # All strategies write pricing
+
+    @property
+    def writes_vendor_info(self) -> bool:
+        """Whether this strategy writes vendor/company fields."""
+        return True  # All strategies write vendor info
+
+    @property
+    def writes_item_numbers(self) -> bool:
+        """Whether this strategy writes item # / line number fields."""
+        return self in (FillStrategy.PC_FULL, FillStrategy.RFQ_FULL)
+
+    @classmethod
+    def for_pc(cls, is_prefilled: bool, is_docx_source: bool = False) -> "FillStrategy":
+        """Determine the correct strategy for a Price Check.
+
+        Args:
+            is_prefilled: Template has buyer-filled QTY values.
+            is_docx_source: Source was DOCX (needs blank template, full fill).
+        """
+        if is_docx_source:
+            return cls.PC_FULL
+        if is_prefilled:
+            return cls.PC_ORIGINAL
+        return cls.PC_FULL
+
+    @classmethod
+    def for_rfq(cls, is_prefilled: bool) -> "FillStrategy":
+        """Determine the correct strategy for an RFQ response.
+
+        Args:
+            is_prefilled: Template has buyer-filled descriptions/qty.
+        """
+        if is_prefilled:
+            return cls.RFQ_PREFILLED
+        return cls.RFQ_FULL
 
 
 # ═══════════════════════════════════════════════════════════════════════════
