@@ -1872,11 +1872,56 @@ class EmailPoller:
                                 _is_blocked = True
                                 break
                     if _is_blocked:
-                        log.info("BLOCKED: %s — %s (non-procurement)", sender_email_raw, subject[:50])
+                        _block_reason = "blocklist"
+                        _block_detail = "Matched sender or subject blocklist pattern"
+
+                        # ── TUNE 1: Vendor PO acknowledgment detection ─────────
+                        # Auto-replies that reference our quote/PO numbers are
+                        # vendor acks — log the acknowledgment before blocking.
+                        _subj_check = subject or ""
+                        _po_ack_match = re.search(r'R\d{2}Q\d+|PO[\s#-]*\d{5,}', _subj_check)
+                        if _po_ack_match and re.search(r'(?:auto(?:matic)?[\s-]*reply|out\s+of\s+(?:the\s+)?office)', _subj_check, re.I):
+                            _ack_ref = _po_ack_match.group(0)
+                            log.info("VENDOR ACK (auto-reply): %s from %s — ref %s",
+                                     subject[:60], sender_email_raw, _ack_ref)
+                            _block_reason = "vendor_auto_reply"
+                            _block_detail = f"Vendor auto-reply acknowledging {_ack_ref}"
+                            # Record the acknowledgment for quote lifecycle tracking
+                            try:
+                                from src.core.db import get_db
+                                with get_db() as _ack_conn:
+                                    _ack_conn.execute("""CREATE TABLE IF NOT EXISTS po_acknowledgments (
+                                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                        quote_ref TEXT, sender TEXT, subject TEXT,
+                                        detected_at TEXT)""")
+                                    _ack_conn.execute(
+                                        "INSERT INTO po_acknowledgments (quote_ref, sender, subject, detected_at) "
+                                        "VALUES (?,?,?,?)",
+                                        (_ack_ref, sender_email_raw, subject[:200],
+                                         datetime.now().isoformat()))
+                            except Exception:
+                                pass
+
+                        # ── TUNE 2: Procurement agency auto-reply tagging ──────
+                        # DGS, CDCR, CCHCS etc. send auto-replies (OOO, receipt
+                        # confirmations). Still block, but tag distinctly so we
+                        # know the agency is responding — their real RFQs will
+                        # pass through on a separate email without auto-reply prefix.
+                        _procurement_auto = [
+                            "dgs.ca.gov", "cchcs.ca.gov", "cdcr.ca.gov",
+                            "calvet.ca.gov", "dsh.ca.gov", "fire.ca.gov", "cdph.ca.gov",
+                        ]
+                        if any(d in sender_email_raw for d in _procurement_auto):
+                            if _block_reason == "blocklist":  # Don't override vendor_auto_reply
+                                _block_reason = "agency_auto_reply"
+                                _block_detail = f"Auto-reply from procurement agency ({sender_email_raw})"
+                            log.info("AGENCY AUTO-REPLY: %s — %s (blocked, real RFQs pass separately)",
+                                     sender_email_raw, subject[:50])
+
+                        log.info("BLOCKED (%s): %s — %s", _block_reason, sender_email_raw, subject[:50])
                         self._diag.setdefault("blocked", 0)
                         self._diag["blocked"] = self._diag.get("blocked", 0) + 1
-                        _log_email_rejection(uid, sender_email_raw, subject, "blocklist",
-                                             "Matched sender or subject blocklist pattern")
+                        _log_email_rejection(uid, sender_email_raw, subject, _block_reason, _block_detail)
                         self._processed.add(uid)
                         continue
                     # ── END BLOCKLIST ──────────────────────────────────────────
