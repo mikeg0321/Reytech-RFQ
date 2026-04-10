@@ -3526,7 +3526,8 @@ def _detect_ams704_overlay_positions(source_pdf):
             return ph - plumber_y
 
         info = {
-            "item_rows": [],
+            "item_rows": [],      # (y_bot, y_top) for price sub-row only
+            "desc_tops": [],      # rl y_top of full cell (for QTY/UOM positioning)
             "price_x": None,
             "ext_x": None,
             "supplier_cells": {},
@@ -3706,8 +3707,10 @@ def _detect_ams704_overlay_positions(source_pdf):
 
             rl_y_top = _to_rl_y(price_top_pl) - 1
             rl_y_bot = _to_rl_y(cell_bot_pl) + 1
+            rl_desc_top = _to_rl_y(cell_top_pl) - 1  # full cell top for QTY
             if rl_y_top > rl_y_bot:
                 info["item_rows"].append((rl_y_bot, rl_y_top))
+                info["desc_tops"].append(rl_desc_top)
 
         log.info("OVERLAY detect pg%d: %d items → rows: %s",
                  pg_idx, len(info["item_rows"]),
@@ -4140,29 +4143,30 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str)
         _need_mask = not bool(pg_detected)
         for slot_idx, (y_bot, y_top) in enumerate(rows):
             rn = current_row + slot_idx
-            # QTY/UOM/QPU: buyer text sits at the TOP of the full row (description line),
-            # while (y_bot, y_top) tracks the price line at the BOTTOM. Extend the mask
-            # upward to cover the original buyer text (~25pt above y_top).
-            _row_h = y_top - y_bot
-            _qty_top = y_top + _row_h  # full row height above price line
-            # QTY — overwrite if user edited
-            qf = ROW_FIELDS["qty"].format(n=rn)
-            qv = fv_map.get(qf, "")
-            if qv and qv.strip():
-                _cell(c, qty_x[0], y_top, qty_x[1], _qty_top, qv, fs=9)
-                drew = True
-            # UOM
-            uf = ROW_FIELDS["uom"].format(n=rn)
-            uv = fv_map.get(uf, "")
-            if uv and uv.strip():
-                _cell(c, uom_x[0], y_top, uom_x[1], _qty_top, uv, fs=8)
-                drew = True
-            # QTY PER UOM
-            qpf = ROW_FIELDS["qty_per_uom"].format(n=rn)
-            qpv = fv_map.get(qpf, "")
-            if qpv and qpv.strip():
-                _cell(c, qpu_x[0], y_top, qpu_x[1], _qty_top, qpv, fs=9)
-                drew = True
+            # QTY/UOM/QPU: only draw for hardcoded (non-detected) layouts.
+            # Detected layouts are DocuSign/flat PDFs where buyer text is already
+            # baked in — overlaying QTY/UOM creates ugly double-text.
+            if not pg_detected:
+                _row_h = y_top - y_bot
+                _qty_top = y_top + _row_h  # full row height above price line
+                # QTY
+                qf = ROW_FIELDS["qty"].format(n=rn)
+                qv = fv_map.get(qf, "")
+                if qv and qv.strip():
+                    _cell(c, qty_x[0], y_top, qty_x[1], _qty_top, qv, fs=9)
+                    drew = True
+                # UOM
+                uf = ROW_FIELDS["uom"].format(n=rn)
+                uv = fv_map.get(uf, "")
+                if uv and uv.strip():
+                    _cell(c, uom_x[0], y_top, uom_x[1], _qty_top, uv, fs=8)
+                    drew = True
+                # QTY PER UOM
+                qpf = ROW_FIELDS["qty_per_uom"].format(n=rn)
+                qpv = fv_map.get(qpf, "")
+                if qpv and qpv.strip():
+                    _cell(c, qpu_x[0], y_top, qpu_x[1], _qty_top, qpv, fs=9)
+                    drew = True
             # Price
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
