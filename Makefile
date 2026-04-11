@@ -204,18 +204,44 @@ routes:  ## List all API routes
 
 # ── Status & Info ───────────────────────────────────────────────────────────
 
-status:  ## Show current branch, PR status, and pipeline state
-	@echo "Branch:  $(BRANCH)"
-	@echo "Commit:  $(COMMIT)"
+status:  ## Pipeline dashboard — one glance at what's pending/in-flight/deployed
 	@echo ""
-	@echo "--- Git Status ---"
-	@git status -s
+	@echo "═══ PIPELINE STATUS ═══"
 	@echo ""
-	@echo "--- Open PRs ---"
-	@gh pr list --limit 5 2>/dev/null || echo "(gh CLI not available)"
+	@echo "You are on: $(BRANCH)  ($(COMMIT))"
 	@echo ""
-	@echo "--- Recent CI Runs ---"
-	@gh run list --limit 3 2>/dev/null || echo "(gh CLI not available)"
+	@# 1. Uncommitted work
+	@dirty=$$(git status --porcelain -- '*.py' '*.html' '*.yml' '*.toml' 'Makefile' | wc -l | tr -d ' '); \
+	 if [ "$$dirty" -gt 0 ]; then \
+	   echo "⬜ UNCOMMITTED  $$dirty file(s) not committed yet"; \
+	   git status --porcelain -- '*.py' '*.html' '*.yml' '*.toml' 'Makefile' | head -5; \
+	 else \
+	   echo "✅ UNCOMMITTED  nothing pending"; \
+	 fi
+	@echo ""
+	@# 2. Unpushed commits
+	@if [ "$(BRANCH)" != "main" ]; then \
+	   ahead=$$(git log --oneline origin/$(BRANCH)..$(BRANCH) 2>/dev/null | wc -l | tr -d ' '); \
+	   if [ "$$ahead" -gt 0 ]; then \
+	     echo "⬜ UNPUSHED     $$ahead commit(s) not pushed — run: make ship"; \
+	     git log --oneline origin/$(BRANCH)..$(BRANCH) 2>/dev/null | head -5; \
+	   else \
+	     echo "✅ UNPUSHED     branch is up to date with remote"; \
+	   fi; \
+	 else \
+	   echo "⚠️  ON MAIN      switch to a feature branch before working"; \
+	 fi
+	@echo ""
+	@# 3. Open PRs (waiting for CI or merge)
+	@echo "── Open PRs ──"
+	@gh pr list --limit 10 --json number,title,headRefName,statusCheckRollup \
+	   --jq '.[] | "  PR #\(.number) [\(.headRefName)] \(.title)\n    checks: \([ .statusCheckRollup[]? | .conclusion // .status ] | join(", "))"' \
+	   2>/dev/null || echo "  (none)"
+	@echo ""
+	@# 4. Latest deploy on main
+	@echo "── Last Deploy ──"
+	@echo "  $$(git log origin/main -1 --format='%h %s (%ar)')"
+	@echo ""
 
 # ── Legacy Deploy (direct push, before branch protection) ──────────────────
 
