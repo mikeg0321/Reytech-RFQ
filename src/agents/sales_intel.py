@@ -46,6 +46,11 @@ except ImportError:
     def get_contact_by_agency(a): return []
     def get_best_price(d): return None
 
+try:
+    from src.core.workflow_tracker import tracker as _wf_tracker
+except Exception:
+    _wf_tracker = None
+
 
 
 try:
@@ -163,6 +168,9 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
             "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
         })
 
+    if _wf_tracker:
+        _wf_tracker.start("deep_pull", "deep_pull")
+
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
@@ -276,6 +284,9 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
         # ── Phase 1: Pull Reytech's own win history (marks our customers) ──
         with _status_lock:
             DEEP_PULL_STATUS["phase"] = "reytech_history"
+        if _wf_tracker:
+            _wf_tracker.update("deep_pull", phase="reytech_history",
+                               progress="Phase 1: Pulling Reytech PO history...")
         for rt_idx, rt_name in enumerate(REYTECH_NAMES):
             with _status_lock:
                 DEEP_PULL_STATUS["progress"] = f"[Phase 1] Pulling Reytech PO history: '{rt_name}'..."
@@ -297,6 +308,9 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
         # ── Phase 2: Search all product categories (finds competitor buyers) ──
         with _status_lock:
             DEEP_PULL_STATUS["phase"] = "category_scan"
+        if _wf_tracker:
+            _wf_tracker.update("deep_pull", phase="category_scan",
+                               progress=f"Phase 2: Scanning {len(queries)} categories...")
         for q_idx, query in enumerate(queries):
             with _status_lock:
                 DEEP_PULL_STATUS.update({
@@ -347,6 +361,9 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
                 "finished_at": datetime.now().isoformat(),
             })
 
+        if _wf_tracker:
+            _wf_tracker.finish("deep_pull", results_count=DEEP_PULL_STATUS["total_pos"])
+
         return {
             "ok": True,
             "buyers": len(buyer_list),
@@ -372,6 +389,9 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
                 "errors": DEEP_PULL_STATUS.get("errors", []) + [err_msg],
                 "finished_at": datetime.now().isoformat(),
             })
+        if _wf_tracker:
+            _wf_tracker.error("deep_pull", err_msg)
+            _wf_tracker.finish("deep_pull", status="failed")
         return {"ok": False, "error": err_msg}
 
 

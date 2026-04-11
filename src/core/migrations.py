@@ -571,6 +571,26 @@ MIGRATIONS = [
         INSERT OR IGNORE INTO api_quotas (service, daily_limit_dollars, monthly_limit_dollars, per_pc_limit)
         VALUES ('claude', 0.50, 10.00, 4);
     """),
+
+    (19, "workflow_runs_table", """
+        CREATE TABLE IF NOT EXISTS workflow_runs (
+            id TEXT PRIMARY KEY,
+            task_type TEXT NOT NULL,
+            status TEXT DEFAULT 'running',
+            phase TEXT DEFAULT '',
+            progress TEXT DEFAULT '',
+            running INTEGER DEFAULT 1,
+            items_done INTEGER DEFAULT 0,
+            items_total INTEGER DEFAULT 0,
+            results_count INTEGER DEFAULT 0,
+            errors_json TEXT DEFAULT '[]',
+            started_at TEXT DEFAULT (datetime('now')),
+            finished_at TEXT DEFAULT '',
+            last_updated TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_wf_type ON workflow_runs(task_type);
+        CREATE INDEX IF NOT EXISTS idx_wf_running ON workflow_runs(running);
+    """),
 ]
 
 
