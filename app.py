@@ -359,6 +359,25 @@ def create_app():
             _dedup_price_checks_on_boot()
         except Exception:
             pass
+        # Boot disk cleanup — prune old backups and stale files
+        try:
+            from src.core.paths import DATA_DIR as _data
+            import glob as _glob
+            # Delete corrupt DB files
+            for _cf in _glob.glob(os.path.join(_data, "reytech.db.corrupt.*")):
+                try:
+                    os.remove(_cf)
+                    logging.getLogger("reytech").info("CLEANUP: removed corrupt DB: %s", os.path.basename(_cf))
+                except OSError:
+                    pass
+            # Force rotation on hourly backups (in case old 24-keep left extras)
+            _hourly = os.path.join(_data, "backups", "hourly")
+            if os.path.isdir(_hourly):
+                from src.core.ops_monitor import _rotate_files
+                _rotate_files(_hourly, prefix="reytech_", suffix=".db", keep=6)
+        except Exception as e:
+            logging.getLogger("reytech").warning("Boot disk cleanup: %s", e)
+
         # Reconciliation tasks — moved off critical startup path (not needed for first request)
         try:
             from src.core.db import _reconcile_quotes_json, _boot_sync_quotes, _boot_sync_pcs

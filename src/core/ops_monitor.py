@@ -33,7 +33,7 @@ log = logging.getLogger("reytech.ops")
 def run_hourly_backup(data_dir: str = None) -> dict:
     """Create a SQLite backup using .backup API.
 
-    Rotation: keep 24 hourly + 7 daily snapshots.
+    Rotation: keep 6 hourly snapshots (~7.2GB at 1.2GB DB).
     Verifies integrity after each backup.
     """
     try:
@@ -75,8 +75,8 @@ def run_hourly_backup(data_dir: str = None) -> dict:
         # Quick integrity check on the backup
         integrity_ok = verify_backup_integrity(backup_path)
 
-        # Rotate: keep 24 hourly
-        _rotate_files(backup_dir, prefix="reytech_", suffix=".db", keep=24)
+        # Rotate: keep 6 hourly (DB is ~1.2GB, 6 × 1.2 = ~7.2GB max)
+        _rotate_files(backup_dir, prefix="reytech_", suffix=".db", keep=6)
 
         log.info("Hourly backup: %s (%s, integrity=%s)",
                  filename, _fmt_size(size), "OK" if integrity_ok else "FAILED")
