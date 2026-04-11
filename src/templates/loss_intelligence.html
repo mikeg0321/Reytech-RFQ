@@ -3,15 +3,10 @@
 {% block content %}
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
 
-<!-- Top Nav (matches analytics pages) -->
-<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
- <a href="/analytics" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Pipeline</a>
- <a href="/business-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Business Intel</a>
- <a href="/win-loss" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Win/Loss</a>
- <a href="/loss-intelligence" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">Loss Intel</a>
- <a href="/competitor-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Competitors</a>
- <div style="flex:1"></div>
- <select id="daysFilter" onchange="loadAll()" style="padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px;margin:6px 0">
+{% from "partials/_analytics_tabs.html" import analytics_tabs %}
+{{ analytics_tabs('loss_intel') }}
+<div style="display:flex;justify-content:flex-end;margin-top:-12px;margin-bottom:8px">
+ <select id="daysFilter" onchange="loadAll()" style="padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
   <option value="30">30 days</option>
   <option value="90" selected>90 days</option>
   <option value="180">180 days</option>

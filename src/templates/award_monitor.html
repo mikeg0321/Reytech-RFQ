@@ -3,15 +3,8 @@
 {% block content %}
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
 
-<!-- Top Nav (matches analytics pages) -->
-<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
- <a href="/analytics" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Pipeline</a>
- <a href="/business-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Business Intel</a>
- <a href="/win-loss" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Win/Loss</a>
- <a href="/loss-intelligence" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Loss Intel</a>
- <a href="/competitor-intel" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">Competitors</a>
- <a href="/award-monitor" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">Awards</a>
-</div>
+{% from "partials/_analytics_tabs.html" import analytics_tabs %}
+{{ analytics_tabs('pipeline') }}
 
 <!-- Header -->
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
