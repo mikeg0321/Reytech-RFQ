@@ -42,6 +42,38 @@ def _evict_stale_entries():
         log.debug("Evicted %d stale enrichment status entries", len(stale))
 
 
+def recover_stuck_enrichments() -> int:
+    """Reset PCs stuck in 'enriching' state (interrupted by deploy/restart).
+
+    Called from app.py deferred_init on startup. Resets to 'failed' so
+    the user sees the PC needs attention and can re-trigger manually.
+
+    Returns count of PCs recovered.
+    """
+    try:
+        from src.api.dashboard import _load_price_checks, _save_single_pc
+        pcs = _load_price_checks()
+    except Exception as e:
+        log.warning("recover_stuck_enrichments: could not load PCs: %s", e)
+        return 0
+
+    recovered = 0
+    for pc_id, pc in pcs.items():
+        if pc.get("enrichment_status") == "enriching":
+            pc["enrichment_status"] = "failed"
+            pc["enrichment_error"] = "interrupted by deploy/restart"
+            try:
+                _save_single_pc(pc_id, pc)
+                recovered += 1
+                log.warning("RECOVERY: PC %s was stuck in 'enriching' — reset to 'failed'", pc_id)
+            except Exception as e:
+                log.error("RECOVERY: failed to save PC %s: %s", pc_id, e)
+
+    if recovered:
+        log.info("RECOVERY: Reset %d stuck enrichments on boot", recovered)
+    return recovered
+
+
 def enrich_pc(pc_id: str, force: bool = False):
     """Unified PC auto-enrichment pipeline.
 
@@ -79,10 +111,28 @@ def enrich_pc(pc_id: str, force: bool = False):
             "_ts": time.time(),
         }
 
+    # Structured lifecycle logging
+    try:
+        from src.core.structured_log import log_event
+        log_event(log, "info", "enrichment_start", pc_id=pc_id, force=force)
+    except ImportError:
+        pass
+
     try:
         _run_pipeline(pc_id, force)
+        try:
+            from src.core.structured_log import log_event
+            log_event(log, "info", "enrichment_complete", pc_id=pc_id)
+        except ImportError:
+            pass
     except Exception as e:
         log.error("ENRICH %s FAILED: %s", pc_id, e, exc_info=True)
+        try:
+            from src.core.structured_log import log_event
+            log_event(log, "error", "enrichment_failed",
+                      pc_id=pc_id, error=str(e)[:200])
+        except ImportError:
+            pass
         with _LOCK:
             if pc_id in ENRICHMENT_STATUS:
                 ENRICHMENT_STATUS[pc_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
@@ -947,12 +997,34 @@ def enrich_pc_background(pc_id: str, force: bool = False):
     threading.Thread(target=enrich_pc, args=(pc_id, force), daemon=True).start()
 
 
+_last_persist = {}  # pc_id → timestamp, for debouncing DB writes
+
+
+def _persist_enrichment_phase(pc_id: str, phase: str, progress: str):
+    """Write enrichment phase to PC record in DB, debounced to avoid thrashing."""
+    now = time.time()
+    if now - _last_persist.get(pc_id, 0) < 5.0:
+        return
+    _last_persist[pc_id] = now
+    try:
+        from src.api.dashboard import _load_price_checks, _save_single_pc
+        pcs = _load_price_checks()
+        pc = pcs.get(pc_id)
+        if pc:
+            pc["enrichment_phase"] = phase
+            pc["enrichment_progress"] = progress
+            _save_single_pc(pc_id, pc)
+    except Exception as e:
+        log.debug("Failed to persist enrichment phase for %s: %s", pc_id, e)
+
+
 def _update_status(pc_id: str, phase: str, progress: str):
-    """Update the live polling status dict (lock-protected)."""
+    """Update the live polling status dict AND persist to DB (debounced)."""
     with _LOCK:
         if pc_id in ENRICHMENT_STATUS:
             ENRICHMENT_STATUS[pc_id]["phase"] = phase
             ENRICHMENT_STATUS[pc_id]["progress"] = progress
+    _persist_enrichment_phase(pc_id, phase, progress)
 
 
 def _mark_step_done(pc_id: str, step: str):

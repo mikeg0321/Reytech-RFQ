@@ -218,6 +218,13 @@ def restart_dead_jobs():
                 restarted.append(name)
                 log.warning("RESTARTED dead job: %s (attempt %d/%d, silent for %.0fs)",
                             name, job.restart_count, job.max_restarts, elapsed)
+                try:
+                    from src.core.structured_log import log_event
+                    log_event(log, "warning", "job_restart",
+                              job=name, attempt=job.restart_count,
+                              max_restarts=job.max_restarts, silent_secs=int(elapsed))
+                except ImportError:
+                    pass
             except Exception as e:
                 job.restart_count += 1
                 log.error("Failed to restart job %s (attempt %d/%d): %s",
@@ -227,6 +234,12 @@ def restart_dead_jobs():
     for name in exhausted:
         log.critical("Job %s EXHAUSTED all %d restart attempts — requires manual intervention",
                      name, _jobs[name].max_restarts)
+        try:
+            from src.core.structured_log import log_event
+            log_event(log, "critical", "job_exhausted",
+                      job=name, max_restarts=_jobs[name].max_restarts)
+        except ImportError:
+            pass
 
     return restarted, exhausted
 
