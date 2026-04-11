@@ -64,6 +64,16 @@
   {% else %}
   <div style="color:var(--tx2,#8b949e);font-size:14px;padding:30px;text-align:center">No outcome data yet. Mark quotes as won/lost to see QA correlation.</div>
   {% endif %}
+  {# V5: Actionable QA recommendation based on pass rate #}
+  {% if qa_eff.form_qa.pass_rate is not none %}
+  <div style="margin-top:10px;padding:8px 12px;border-radius:6px;font-size:13px;
+    {% if qa_eff.form_qa.pass_rate >= 80 %}background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);color:#3fb950{% elif qa_eff.form_qa.pass_rate >= 50 %}background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);color:#d29922{% else %}background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.2);color:#f85149{% endif %}">
+    {% if qa_eff.form_qa.pass_rate >= 80 %}QA gate is effective ({{qa_eff.form_qa.pass_rate}}% pass) — consider re-enabling as a soft gate to catch regressions.
+    {% elif qa_eff.form_qa.pass_rate >= 50 %}QA checks need tuning — {{100 - qa_eff.form_qa.pass_rate}}% failure rate suggests false positives. Review top issue categories.
+    {% else %}QA checks unreliable ({{qa_eff.form_qa.pass_rate}}% pass) — keep gate disabled until top issue categories are addressed.
+    {% endif %}
+  </div>
+  {% endif %}
  </div>
 </div>
 {% endif %}

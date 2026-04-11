@@ -4384,8 +4384,20 @@
        // Fallback: if SSE fails, try legacy endpoint
        console.warn('SSE bulk scrape failed, falling back:',e);
        if(lbl)lbl.textContent='Retrying with legacy mode...';
+       // Poll progress while legacy scrape runs
+       var _pollIntv=setInterval(function(){
+         fetch('/api/pricecheck/'+_pcid+'/bulk-scrape-status',{credentials:'same-origin'})
+         .then(function(r){return r.json()}).then(function(s){
+           if(!s.running&&s.completed>0){clearInterval(_pollIntv);return;}
+           var done=s.completed||0;var tot=s.total||count;
+           if(bar)bar.style.width=Math.round(done/tot*100)+'%';
+           if(lbl)lbl.textContent=s.current_item||('Processing '+done+'/'+tot);
+           if(pct)pct.textContent=Math.round(done/tot*100)+'%';
+         }).catch(function(){});
+       },2000);
        fetch('/api/pricecheck/'+_pcid+'/bulk-scrape-urls',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin'})
        .then(function(r){return r.json()}).then(function(d){
+        clearInterval(_pollIntv);
         btn.disabled=false;btn.textContent='Scrape & Apply Prices';if(prog)prog.style.display='none';
         if(!d.ok){alert(d.error||'Failed');return;}
         if(res)res.innerHTML='';

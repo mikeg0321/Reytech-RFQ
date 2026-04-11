@@ -11359,6 +11359,22 @@ def api_pc_auto_price(pcid):
                     "catalog_matched": len(catalog_urls)})
 
 
+# ── Bulk scrape progress tracking (V5 UX) ──
+import threading as _bs_threading
+BULK_SCRAPE_STATUS = {}
+_BULK_SCRAPE_LOCK = _bs_threading.Lock()
+
+
+@bp.route("/api/pricecheck/<pcid>/bulk-scrape-status")
+@auth_required
+@safe_route
+def api_bulk_scrape_status(pcid):
+    """Poll bulk scrape progress."""
+    with _BULK_SCRAPE_LOCK:
+        status = BULK_SCRAPE_STATUS.get(pcid, {})
+    return jsonify({"ok": True, **status})
+
+
 @bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls", methods=["POST"])
 @auth_required
 @safe_route
@@ -11410,10 +11426,22 @@ def api_bulk_scrape_urls(pcid):
     if _mfg_fixes:
         log.info("Bulk scrape auto-reconcile: %d MFG# fixes for %s", len(_mfg_fixes), pcid)
 
+    # Initialize progress tracking
+    with _BULK_SCRAPE_LOCK:
+        BULK_SCRAPE_STATUS[pcid] = {
+            "running": True, "total": len(urls), "completed": 0,
+            "applied": 0, "current_item": "", "results": [],
+        }
+
     for i, raw_line in enumerate(urls):
         raw_line = (raw_line or "").strip()
         raw_line = _re_bulk.sub(r'^\d+[\.\)]\s*', '', raw_line)
         _display_line = _line_labels.get(i, i + 1)
+        # Update progress
+        with _BULK_SCRAPE_LOCK:
+            if pcid in BULK_SCRAPE_STATUS:
+                BULK_SCRAPE_STATUS[pcid]["completed"] = i
+                BULK_SCRAPE_STATUS[pcid]["current_item"] = f"Item {_display_line}: looking up..."
         if not raw_line or i >= len(items):
             results.append({"line": _display_line, "url": raw_line[:60], "status": "skipped"})
             continue
@@ -11562,6 +11590,14 @@ def api_bulk_scrape_urls(pcid):
                      cat_result.get("added", 0), cat_result.get("existing", 0), cat_result.get("skipped", 0))
         except Exception as e:
             log.error("Bulk-scrape catalog sync error: %s", e, exc_info=True)
+    # Finalize progress tracking
+    with _BULK_SCRAPE_LOCK:
+        if pcid in BULK_SCRAPE_STATUS:
+            BULK_SCRAPE_STATUS[pcid].update({
+                "running": False, "completed": len(urls),
+                "applied": applied, "current_item": "Done",
+                "results": results[:20],
+            })
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 

@@ -375,7 +375,7 @@ def home():
                 or v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced")
                 or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown", "RFQ")}
     # Split: active queue vs sent/completed
-    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated"}
+    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
     sent_pcs = dict(sorted(sent_pcs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
