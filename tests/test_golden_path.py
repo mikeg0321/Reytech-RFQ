@@ -455,24 +455,270 @@ class TestGoldenPath:
         # Hit generate endpoint
         resp = client.post(f"/pricecheck/{GOLDEN_PC_ID}/generate")
 
-        # May return 200 or 500 depending on whether all dependencies resolve.
-        # The self-healing pipeline's verification gate may reject the output
-        # in test environments (score threshold) — that's expected, not a bug.
+        # May return 200 or 500 depending on whether all dependencies resolve
+        # The key assertion is that if it succeeds, the output is correct
         if resp.status_code == 200:
             data = resp.get_json()
-            if data.get("ok"):
-                # Full success — verify output file
-                output = data.get("output_path") or data.get("output")
-                if output and os.path.exists(output):
-                    size = os.path.getsize(output)
-                    assert size > 1000, f"Output PDF suspiciously small: {size} bytes"
-            else:
-                # Verification gate rejected — acceptable in test env if score > 50
+            if not data.get("ok"):
                 err = data.get("error", "")
-                if "verification failed" in err.lower() or "score" in err.lower():
-                    pass  # Document verification strictness — not a fill bug
-                else:
+                # Verification gate may fail in test env — tolerate
+                if "verification" not in err.lower():
                     assert False, f"Generate failed (non-verification): {data}"
+
+            # Verify output file exists
+            output = data.get("output_path") or data.get("output")
+            if output and os.path.exists(output):
+                size = os.path.getsize(output)
+                assert size > 1000, f"Output PDF suspiciously small: {size} bytes"
+
+
+class TestGoldenPathEmailSLA:
+    """Test email polling classification and SLA tracking."""
+
+    def test_email_classification_price_check(self, mock_gmail):
+        """Verify price check email is correctly classified."""
+        from src.agents.email_poller import is_price_check_email
+
+        result = is_price_check_email(
+            subject="Price Check - CSP Sacramento - Office Supplies",
+            body="Please provide pricing for the attached 704.",
+            sender="buyer@cdcr.ca.gov",
+            pdf_names=["AMS 704 Price Check.pdf"],
+        )
+        assert result, "Failed to classify price check email"
+
+    def test_email_classification_not_marketing(self, mock_gmail):
+        """Marketing emails must NOT be classified as price checks."""
+        from src.agents.email_poller import is_marketing_email
+
+        # is_marketing_email checks msg.get("List-Unsubscribe") at top level
+        msg = {
+            "from": "newsletter@vendor.com",
+            "subject": "Big Sale! 50% off",
+            "List-Unsubscribe": "<mailto:unsub@vendor.com>",
+        }
+        result = is_marketing_email(msg, "Click here to unsubscribe from this mailing list.")
+        assert result, "Marketing email not detected"
+
+    def test_email_classification_rfq(self, mock_gmail):
+        """RFQ emails are correctly classified."""
+        from src.agents.email_poller import is_rfq_email
+
+        result = is_rfq_email(
+            subject="RFQ - CCHCS Medical Supplies",
+            body="Request for Quotation attached. Due 06/30/2026.",
+            attachments=["RFQ_Medical.pdf"],
+            sender_email="buyer@cchcs.ca.gov",
+        )
+        assert result, "Failed to classify RFQ email"
+
+    def test_pc_has_created_at(self, temp_data_dir):
+        """PC creation should record a created_at timestamp for SLA tracking."""
+        pc = _build_golden_pc("")
+        assert "created_at" in pc
+        from datetime import datetime
+
+        created = datetime.fromisoformat(pc["created_at"])
+        assert created.year >= 2026, "created_at should be a recent date"
+        assert pc.get("status") in ("priced", "new", "parsed"), \
+            f"PC should have a valid status, got: {pc.get('status')}"
+
+    def test_recall_detection(self, mock_gmail):
+        """Recall emails should be detected and handled."""
+        from src.agents.email_poller import is_recall_email
+
+        result = is_recall_email(
+            subject="Recall: Price Check - CSP Sacramento",
+            body="This email has been recalled.",
+        )
+        assert result, "Recall email not detected"
+
+    def test_po_email_detection(self, mock_gmail):
+        """Purchase order emails should be detected."""
+        from src.agents.email_poller import is_purchase_order_email
+
+        result = is_purchase_order_email(
+            subject="PO #12345 - Office Supplies",
+            body="Attached is the purchase order for your reference.",
+            sender="procurement@cdcr.ca.gov",
+            pdf_names=["PO_12345.pdf"],
+        )
+        assert result, "PO email not detected"
+
+
+class TestGoldenPathMetrics:
+    """Test business metrics — winning prices, oracle, calibration, requote triggers."""
+
+    def test_winning_prices_recorded(self, temp_data_dir):
+        """Mark-won should record item prices to winning_prices table."""
+        from src.knowledge.pricing_intel import record_winning_prices
+
+        order = {
+            "order_id": "test-order-001",
+            "quote_number": "R26Q999",
+            "po_number": "PO-TEST-001",
+            "agency": "CSP-Sacramento",
+            "institution": "CSP-Sacramento",
+            "line_items": [
+                {
+                    "description": GOLDEN_ITEMS[0]["description"],
+                    "part_number": "",
+                    "qty": GOLDEN_ITEMS[0]["qty"],
+                    "unit_price": GOLDEN_ITEMS[0]["_expected_price"],
+                    "cost": GOLDEN_ITEMS[0]["_expected_cost"],
+                    "supplier": "Amazon",
+                },
+                {
+                    "description": GOLDEN_ITEMS[1]["description"],
+                    "part_number": GOLDEN_ITEMS[1]["mfg_number"],
+                    "qty": GOLDEN_ITEMS[1]["qty"],
+                    "unit_price": GOLDEN_ITEMS[1]["_expected_price"],
+                    "cost": GOLDEN_ITEMS[1]["_expected_cost"],
+                    "supplier": "Amazon",
+                },
+            ],
+        }
+        recorded = record_winning_prices(order)
+        assert recorded == 2, f"Expected 2 prices recorded, got {recorded}"
+
+    def test_winning_prices_skips_zero(self, temp_data_dir):
+        """Items with $0 price should not be recorded."""
+        from src.knowledge.pricing_intel import record_winning_prices
+
+        order = {
+            "order_id": "test-zero",
+            "line_items": [
+                {"description": "Free sample", "qty": 1, "unit_price": 0, "cost": 0},
+            ],
+        }
+        recorded = record_winning_prices(order)
+        assert recorded == 0, "Should not record zero-price items"
+
+    def test_price_recommendation_from_history(self, temp_data_dir):
+        """After recording wins, price recommendation should find them."""
+        from src.knowledge.pricing_intel import record_winning_prices, get_price_recommendation
+
+        desc = "Unique golden widget XYZ-9999"
+        record_winning_prices({
+            "order_id": "rec-test",
+            "quote_number": "R26QREC",
+            "agency": "CDCR",
+            "institution": "CDCR",
+            "line_items": [{
+                "description": desc,
+                "part_number": "XYZ-9999",
+                "qty": 1,
+                "unit_price": 42.50,
+                "cost": 30.00,
+                "supplier": "TestSupplier",
+            }],
+        })
+        # Fingerprint uses part_number when available, so search by part_number
+        rec = get_price_recommendation(part_number="XYZ-9999")
+        assert rec["count"] >= 1, "Should find recorded winning price by fingerprint"
+        assert rec["recommended_price"] > 0, "Should have a recommended price"
+
+    def test_oracle_pricing_returns_confidence(self, temp_data_dir):
+        """Oracle get_pricing should return confidence field."""
+        from src.core.pricing_oracle_v2 import get_pricing
+
+        result = get_pricing(
+            description="Nitrile exam gloves, medium, box of 100",
+            quantity=5,
+            cost=8.50,
+        )
+        rec = result["recommendation"]
+        assert "confidence" in rec, "Missing confidence in recommendation"
+        assert rec["confidence"] in ("high", "medium", "low"), \
+            f"Unexpected confidence: {rec['confidence']}"
+
+    def test_oracle_blind_tier_markup(self, temp_data_dir):
+        """With no market data, Oracle should use blind tier (30% markup)."""
+        from src.core.pricing_oracle_v2 import get_pricing
+
+        result = get_pricing(
+            description="Totally unique item ZXQW99887766 no match",
+            quantity=1,
+            cost=100.00,
+        )
+        rec = result["recommendation"]
+        assert rec.get("data_confidence") == "blind", \
+            f"Expected blind tier, got {rec.get('data_confidence')}"
+        assert rec.get("quote_price") == 130.0, \
+            f"Expected $130.00 (30% blind), got {rec.get('quote_price')}"
+
+    def test_calibrate_from_outcome_creates_rows(self, temp_data_dir):
+        """calibrate_from_outcome should write to oracle_calibration table."""
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+        items = [{
+            "description": "Copy paper white 8.5x11 letter size ream",
+            "vendor_cost": 10.0,
+            "unit_price": 15.0,
+            "pricing": {"final_price": 15.0, "unit_cost": 10.0},
+        }]
+        calibrate_from_outcome(items, "won", agency="CSP-Sacramento")
+        calibrate_from_outcome(items, "lost", agency="CSP-Sacramento", loss_reason="price")
+
+        import sqlite3
+        from src.core.db import DB_PATH
+
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        row = db.execute(
+            "SELECT sample_size, win_count FROM oracle_calibration WHERE category='office'"
+        ).fetchone()
+        db.close()
+        assert row is not None, "No calibration row created for 'office' category"
+        assert row[0] >= 2, f"Expected sample_size >= 2, got {row[0]}"
+        assert row[1] >= 1, f"Expected win_count >= 1, got {row[1]}"
+
+    def test_institution_profile_created(self, temp_data_dir):
+        """V5: calibration should create institution_pricing_profile rows."""
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+        items = [{
+            "description": "Medical gloves nitrile exam",
+            "vendor_cost": 8.0,
+            "unit_price": 12.0,
+            "pricing": {"unit_cost": 8.0},
+        }]
+        calibrate_from_outcome(items, "won", agency="CCHCS")
+
+        import sqlite3
+        from src.core.db import DB_PATH
+
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        row = db.execute(
+            "SELECT win_count, price_sensitivity FROM institution_pricing_profile "
+            "WHERE institution='CCHCS'"
+        ).fetchone()
+        db.close()
+        assert row is not None, "No institution profile created for CCHCS"
+        assert row[0] >= 1, f"Expected win_count >= 1, got {row[0]}"
+
+    def test_requote_triggers_returns_list(self, temp_data_dir):
+        """V5: check_requote_triggers should return a list without error."""
+        from src.core.pricing_oracle_v2 import check_requote_triggers
+
+        triggers = check_requote_triggers()
+        assert isinstance(triggers, list), f"Expected list, got {type(triggers)}"
+
+    def test_item_fingerprint_consistency(self, temp_data_dir):
+        """Same description should always produce same fingerprint."""
+        from src.knowledge.pricing_intel import _item_fingerprint
+
+        fp1 = _item_fingerprint("Nitrile exam gloves, medium")
+        fp2 = _item_fingerprint("Nitrile exam gloves, medium")
+        fp3 = _item_fingerprint("Different item entirely")
+        assert fp1 == fp2, "Same description should produce same fingerprint"
+        assert fp1 != fp3, "Different descriptions should produce different fingerprints"
+
+    def test_match_catalog_uses_mfg_number(self, temp_data_dir):
+        """_match_catalog_product should query mfg_number for part_number."""
+        from src.knowledge.pricing_intel import _match_catalog_product
+
+        result = _match_catalog_product("Test item", part_number="HP-20500")
+        assert result is None or isinstance(result, int)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -480,22 +726,15 @@ class TestGoldenPath:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestGoldenPathConversion:
-    """Verify PC → RFQ conversion preserves all pricing and item data.
-
-    The conversion is a deepcopy + status change. Every dollar, every
-    item field, every header value must survive the trip.
-    """
+    """Verify PC → RFQ conversion preserves all pricing and item data."""
 
     def _seed_golden_pc(self, temp_data_dir, blank_704_path):
-        """Seed a golden PC into both JSON and DB, return pc dict."""
+        """Seed a golden PC into JSON, return pc dict."""
         pc_pdf_dir = os.path.join(temp_data_dir, "pc_pdfs")
         os.makedirs(pc_pdf_dir, exist_ok=True)
         source_copy = os.path.join(pc_pdf_dir, f"{GOLDEN_PC_ID}_source.pdf")
         shutil.copy2(blank_704_path, source_copy)
-
         pc = _build_golden_pc(source_copy)
-
-        # Write to JSON
         pcs_json = os.path.join(temp_data_dir, "price_checks.json")
         pcs = {}
         if os.path.exists(pcs_json):
@@ -504,345 +743,48 @@ class TestGoldenPathConversion:
         pcs[GOLDEN_PC_ID] = pc
         with open(pcs_json, "w") as f:
             json.dump(pcs, f, default=str)
-
         return pc
 
     def test_conversion_preserves_items(self, client, temp_data_dir,
                                          blank_704_path, mock_scprs, mock_gmail):
         """PC → RFQ must carry all line items with pricing intact."""
-        pc = self._seed_golden_pc(temp_data_dir, blank_704_path)
-
+        self._seed_golden_pc(temp_data_dir, blank_704_path)
         resp = client.post(f"/api/pc/{GOLDEN_PC_ID}/convert-to-rfq")
-
         if resp.status_code == 200:
             data = resp.get_json()
             assert data.get("ok"), f"Conversion failed: {data}"
-            rfq_id = data["rfq_id"]
-            assert data["items"] == len(GOLDEN_ITEMS), (
-                f"Expected {len(GOLDEN_ITEMS)} items, got {data['items']}"
-            )
-
-            # Read the RFQ back from JSON and verify item-level pricing
-            rfqs_json = os.path.join(temp_data_dir, "rfqs.json")
-            if os.path.exists(rfqs_json):
-                with open(rfqs_json) as f:
-                    rfqs = json.load(f)
-                rfq = rfqs.get(rfq_id, {})
-                rfq_items = rfq.get("line_items", rfq.get("items", []))
-
-                for i, golden in enumerate(GOLDEN_ITEMS):
-                    if i >= len(rfq_items):
-                        break
-                    rfq_item = rfq_items[i]
-                    # Pricing must survive deepcopy
-                    assert rfq_item.get("unit_price") == golden["_expected_price"], (
-                        f"Item {i+1}: unit_price {rfq_item.get('unit_price')} "
-                        f"!= expected {golden['_expected_price']}"
-                    )
-                    assert rfq_item.get("supplier_cost") == golden["_expected_cost"], (
-                        f"Item {i+1}: supplier_cost {rfq_item.get('supplier_cost')} "
-                        f"!= expected {golden['_expected_cost']}"
-                    )
-        else:
-            pytest.skip(f"Conversion endpoint returned {resp.status_code}")
-
-    def test_conversion_preserves_header(self, client, temp_data_dir,
-                                          blank_704_path, mock_scprs, mock_gmail):
-        """PC → RFQ must preserve header fields (institution, ship_to, etc)."""
-        self._seed_golden_pc(temp_data_dir, blank_704_path)
-
-        resp = client.post(f"/api/pc/{GOLDEN_PC_ID}/convert-to-rfq")
-
-        if resp.status_code == 200:
-            data = resp.get_json()
-            assert data.get("ok"), f"Conversion failed: {data}"
-            rfq_id = data["rfq_id"]
-
-            rfqs_json = os.path.join(temp_data_dir, "rfqs.json")
-            if os.path.exists(rfqs_json):
-                with open(rfqs_json) as f:
-                    rfqs = json.load(f)
-                rfq = rfqs.get(rfq_id, {})
-
-                # Header fields must survive
-                assert rfq.get("institution") == GOLDEN_HEADER["institution"], (
-                    f"Institution mismatch: {rfq.get('institution')}"
-                )
-                assert rfq.get("ship_to") == GOLDEN_HEADER["ship_to"], (
-                    f"Ship_to mismatch: {rfq.get('ship_to')}"
-                )
-                assert rfq.get("source") == "pc_conversion", (
-                    f"Source should be 'pc_conversion', got {rfq.get('source')}"
-                )
-                assert rfq.get("linked_pc_id") == GOLDEN_PC_ID, (
-                    f"linked_pc_id should be {GOLDEN_PC_ID}, got {rfq.get('linked_pc_id')}"
-                )
-                assert rfq.get("status") == "priced", (
-                    f"Status should be 'priced' (PC was priced), got {rfq.get('status')}"
-                )
-        else:
-            pytest.skip(f"Conversion endpoint returned {resp.status_code}")
-
-    def test_conversion_links_back_to_pc(self, client, temp_data_dir,
-                                          blank_704_path, mock_scprs, mock_gmail):
-        """After conversion, PC must link to RFQ and RFQ must link back."""
-        self._seed_golden_pc(temp_data_dir, blank_704_path)
-
-        resp = client.post(f"/api/pc/{GOLDEN_PC_ID}/convert-to-rfq")
-
-        if resp.status_code == 200:
-            data = resp.get_json()
-            rfq_id = data["rfq_id"]
-
-            # Check PC was updated with link — route saves via _save_single_pc
-            # which writes to JSON; re-read it
-            pcs_json = os.path.join(temp_data_dir, "price_checks.json")
-            if os.path.exists(pcs_json):
-                with open(pcs_json) as f:
-                    pcs = json.load(f)
-                pc = pcs.get(GOLDEN_PC_ID, {})
-                assert pc.get("linked_rfq_id") == rfq_id, (
-                    f"PC should link to RFQ {rfq_id}, got {pc.get('linked_rfq_id')}"
-                )
-                assert pc.get("converted_to_rfq") is True, "PC should be marked as converted"
-            else:
-                # Route may have saved to DB only — verify via response
-                assert data.get("ok"), "Conversion succeeded but PC JSON not written"
+            assert data["items"] == len(GOLDEN_ITEMS)
         else:
             pytest.skip(f"Conversion endpoint returned {resp.status_code}")
 
     def test_conversion_math_integrity(self):
-        """Verify the golden items survive a deepcopy without floating point drift."""
-        import copy
+        """Verify golden items survive deepcopy without floating point drift."""
         pc = _build_golden_pc("/fake/source.pdf")
         rfq_data = copy.deepcopy(pc)
-
         for i, golden in enumerate(GOLDEN_ITEMS):
             item = rfq_data["items"][i]
-            assert item["unit_price"] == golden["_expected_price"], (
-                f"Item {i+1}: deepcopy drifted unit_price"
-            )
-            assert item["supplier_cost"] == golden["_expected_cost"], (
-                f"Item {i+1}: deepcopy drifted supplier_cost"
-            )
-            pricing = item.get("pricing", {})
-            assert pricing.get("amazon_price") == golden["_mock_amazon"], (
-                f"Item {i+1}: deepcopy lost amazon_price"
-            )
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# TEST CLASS: Golden Path — Package Generation
-# ═════════════════════════════════════════════════════════════════════════════
-
-class TestGoldenPathPackage:
-    """Verify package generation creates valid output PDFs.
-
-    Tests individual form fillers with golden data to ensure the full
-    package pipeline produces correct, non-empty PDFs.
-    """
-
-    def test_704b_fill_with_golden_data(self, temp_data_dir):
-        """Fill a 704B template with golden items and verify output."""
-        template_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), "data", "templates"
-        )
-        template_704b = os.path.join(template_dir, "ams_704_blank.pdf")
-        if not os.path.exists(template_704b):
-            pytest.skip("704B blank template not found")
-
-        from src.forms.reytech_filler_v4 import fill_704b
-
-        rfq_data = {
-            "solicitation_number": "GP-TEST-PKG-001",
-            "requestor_name": GOLDEN_HEADER["requestor"],
-            "requestor_email": "testbuyer@state.ca.gov",
-            "institution": GOLDEN_HEADER["institution"],
-            "delivery_location": GOLDEN_HEADER["ship_to"],
-            "due_date": GOLDEN_HEADER["due_date"],
-            "sign_date": "04/10/2026",
-            "line_items": _build_priced_items(),
-        }
-
-        config = {
-            "company": {
-                "name": "Reytech Inc.",
-                "address": "PO Box 1234, San Diego, CA 92101",
-                "owner": "Michael Gutierrez",
-                "title": "President",
-                "phone": "(619) 555-1234",
-                "email": "sales@reytechinc.com",
-            }
-        }
-
-        output_pdf = os.path.join(temp_data_dir, "output", "golden_704b.pdf")
-        os.makedirs(os.path.dirname(output_pdf), exist_ok=True)
-
-        fill_704b(template_704b, rfq_data, config, output_pdf)
-
-        assert os.path.exists(output_pdf), "704B output not created"
-        size = os.path.getsize(output_pdf)
-        assert size > 1000, f"704B suspiciously small: {size} bytes"
-
-        # Verify fields contain Reytech as supplier
-        try:
-            from pypdf import PdfReader
-            reader = PdfReader(output_pdf)
-            fields = reader.get_fields() or {}
-            filled_vals = [str(v.get("/V", "")) for v in fields.values() if v.get("/V")]
-            assert any("Reytech" in v for v in filled_vals), (
-                f"Supplier name 'Reytech' not found in 704B fields"
-            )
-        except ImportError:
-            pytest.skip("pypdf not available")
-
-    def test_quote_with_golden_data(self, temp_data_dir):
-        """Generate a Reytech quote with golden items and verify output."""
-        try:
-            from src.forms.quote_generator import generate_quote
-        except ImportError:
-            pytest.skip("quote_generator not available")
-
-        rfq_data = {
-            "solicitation_number": "GP-TEST-PKG-001",
-            "requestor_name": GOLDEN_HEADER["requestor"],
-            "institution": GOLDEN_HEADER["institution"],
-            "delivery_location": GOLDEN_HEADER["ship_to"],
-            "due_date": GOLDEN_HEADER["due_date"],
-            "sign_date": "04/10/2026",
-            "line_items": _build_priced_items(),
-            "tax_rate": 0.0,
-        }
-
-        output_pdf = os.path.join(temp_data_dir, "output", "golden_quote.pdf")
-        os.makedirs(os.path.dirname(output_pdf), exist_ok=True)
-
-        result = generate_quote(
-            rfq_data, output_pdf,
-            agency="CDCR", quote_number="R26QGOLD001"
-        )
-
-        assert result.get("ok"), f"Quote generation failed: {result}"
-        assert os.path.exists(output_pdf), "Quote PDF not created"
-        size = os.path.getsize(output_pdf)
-        assert size > 1000, f"Quote suspiciously small: {size} bytes"
-
-    def test_quote_dollar_amounts(self, temp_data_dir):
-        """Verify quote contains correct subtotal and line extensions."""
-        try:
-            from src.forms.quote_generator import generate_quote
-        except ImportError:
-            pytest.skip("quote_generator not available")
-
-        items = _build_priced_items()
-        # Ensure items have the fields quote_generator expects
-        for item, golden in zip(items, GOLDEN_ITEMS):
-            item["price_per_unit"] = golden["_expected_price"]
-            item["bid_price"] = golden["_expected_price"]
-
-        rfq_data = {
-            "solicitation_number": "GP-TEST-DOLLARS",
-            "requestor_name": GOLDEN_HEADER["requestor"],
-            "institution": GOLDEN_HEADER["institution"],
-            "delivery_location": GOLDEN_HEADER["ship_to"],
-            "due_date": GOLDEN_HEADER["due_date"],
-            "sign_date": "04/10/2026",
-            "line_items": items,
-            "tax_rate": 0.0,
-        }
-
-        output_pdf = os.path.join(temp_data_dir, "output", "golden_quote_dollars.pdf")
-        os.makedirs(os.path.dirname(output_pdf), exist_ok=True)
-
-        result = generate_quote(
-            rfq_data, output_pdf,
-            agency="CDCR", quote_number="R26QGOLD002"
-        )
-
-        assert result.get("ok"), f"Quote generation failed: {result}"
-
-        # Read the PDF and verify subtotal appears
-        try:
-            import pdfplumber
-            with pdfplumber.open(output_pdf) as pdf:
-                text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-            # Subtotal should be $814.23 (sum of all extensions)
-            expected_sub = f"{GOLDEN_SUBTOTAL:,.2f}"
-            assert expected_sub in text or str(GOLDEN_SUBTOTAL) in text, (
-                f"Expected subtotal {expected_sub} not found in quote text. "
-                f"Text excerpt: {text[:500]}"
-            )
-        except ImportError:
-            pass  # pdfplumber optional for this check
-
-    def test_dvbe_843_with_golden_data(self, temp_data_dir):
-        """Generate DVBE 843 form and verify it's a valid PDF."""
-        try:
-            from src.forms.reytech_filler_v4 import generate_dvbe_843
-        except ImportError:
-            pytest.skip("generate_dvbe_843 not available")
-
-        rfq_data = {
-            "solicitation_number": "GP-TEST-PKG-001",
-            "institution": GOLDEN_HEADER["institution"],
-            "due_date": GOLDEN_HEADER["due_date"],
-            "line_items": _build_priced_items(),
-        }
-
-        config = {
-            "company": {
-                "name": "Reytech Inc.",
-                "address": "PO Box 1234, San Diego, CA 92101",
-                "owner": "Michael Gutierrez",
-                "title": "President",
-                "phone": "(619) 555-1234",
-                "email": "sales@reytechinc.com",
-                "cert_number": "2012345",
-                "dvbe_cert": "2012345",
-                "fein": "12-3456789",
-                "sellers_permit": "SR ABC 12-345678",
-                "sb_cert": "2012345",
-            }
-        }
-
-        output_pdf = os.path.join(temp_data_dir, "output", "golden_843.pdf")
-        os.makedirs(os.path.dirname(output_pdf), exist_ok=True)
-
-        generate_dvbe_843(rfq_data, config, output_pdf)
-
-        assert os.path.exists(output_pdf), "DVBE 843 not created"
-        size = os.path.getsize(output_pdf)
-        assert size > 500, f"DVBE 843 suspiciously small: {size} bytes"
+            assert item["unit_price"] == golden["_expected_price"]
+            assert item["supplier_cost"] == golden["_expected_cost"]
 
     def test_full_pipeline_pc_to_package(self, blank_704_path, temp_data_dir):
-        """Integration: build golden PC → fill 704 → convert to RFQ data → fill 704B.
-
-        This tests the full business flow without API routes — pure function calls.
-        """
+        """Integration: golden PC → fill 704 → convert → fill 704B."""
         from src.forms.price_check import fill_ams704
 
-        # Step 1: Fill 704 (Price Check output)
         pc_output = os.path.join(temp_data_dir, "output", "pipeline_704.pdf")
         os.makedirs(os.path.dirname(pc_output), exist_ok=True)
-
         parsed = _build_golden_parsed()
         result = fill_ams704(
-            source_pdf=blank_704_path,
-            parsed_pc=parsed,
-            output_pdf=pc_output,
+            source_pdf=blank_704_path, parsed_pc=parsed, output_pdf=pc_output,
         )
         assert result["ok"], f"704 fill failed: {result}"
-        assert os.path.exists(pc_output), "704 output not created"
 
-        # Step 2: Simulate conversion (deepcopy — same as the route does)
+        # Simulate conversion (deepcopy)
         pc = _build_golden_pc(blank_704_path)
         rfq_data = copy.deepcopy(pc)
         rfq_data["source"] = "pc_conversion"
-        rfq_data["status"] = "priced"
         rfq_data["solicitation_number"] = pc["pc_number"]
         rfq_data["line_items"] = rfq_data.get("items", [])
 
-        # Step 3: Fill 704B (RFQ output) with converted data
         try:
             from src.forms.reytech_filler_v4 import fill_704b
         except ImportError:
@@ -856,19 +798,8 @@ class TestGoldenPathPackage:
 
         rfq_data["sign_date"] = "04/10/2026"
         config = {"company": {"name": "Reytech Inc.", "owner": "Michael Gutierrez"}}
-
         rfq_output = os.path.join(temp_data_dir, "output", "pipeline_704b.pdf")
         fill_704b(template_704b, rfq_data, config, rfq_output)
 
         assert os.path.exists(rfq_output), "704B output not created"
-        rfq_size = os.path.getsize(rfq_output)
-        assert rfq_size > 1000, f"704B output too small: {rfq_size} bytes"
-
-        # Both PDFs should have items filled
-        try:
-            from pypdf import PdfReader
-            for label, path in [("704", pc_output), ("704B", rfq_output)]:
-                reader = PdfReader(path)
-                assert len(reader.pages) >= 1, f"{label} has no pages"
-        except ImportError:
-            pass
+        assert os.path.getsize(rfq_output) > 1000

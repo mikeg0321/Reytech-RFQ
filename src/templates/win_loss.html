@@ -1,17 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Win/Loss Analysis — Reytech{% endblock %}
+{% from "partials/_analytics_tabs.html" import analytics_tabs %}
 {% block content %}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
- <div>
-  <h2 style="margin:0;font-size:22px;font-weight:700">📊 Win/Loss Analysis</h2>
-  <div style="font-size:14px;color:var(--tx2);margin-top:4px">Understand patterns in won and lost quotes to improve pricing and targeting</div>
- </div>
- <div style="display:flex;gap:8px">
-  <a href="/analytics" class="btn btn-s" style="font-size:13px">← Analytics</a>
-  <a href="/loss-intelligence" class="btn btn-s" style="font-size:13px;background:rgba(248,113,113,.15);color:#f87171;border-color:rgba(248,113,113,.3)">Loss Intel</a>
-  <a href="/pipeline" class="btn btn-s" style="font-size:13px">Pipeline</a>
-  <a href="/growth" class="btn btn-s" style="font-size:13px">Growth</a>
- </div>
+{{ analytics_tabs('win_loss') }}
+<div style="margin-bottom:16px">
+ <h2 style="margin:0;font-size:22px;font-weight:700">📊 Win/Loss Analysis</h2>
+ <div style="font-size:14px;color:var(--tx2);margin-top:4px">Understand patterns in won and lost quotes to improve pricing and targeting</div>
 </div>
 
 <!-- KPI Cards -->

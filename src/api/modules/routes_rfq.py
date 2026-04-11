@@ -375,7 +375,7 @@ def home():
                 or v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced")
                 or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown", "RFQ")}
     # Split: active queue vs sent/completed
-    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated"}
+    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
     sent_pcs = dict(sorted(sent_pcs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
@@ -564,13 +564,24 @@ def home():
 
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
+    # Feature flags for intelligence layer UI
+    _nl_q = False
+    _doc_intake = False
+    try:
+        from src.core.feature_flags import get_flag
+        _nl_q = get_flag("nl_query_enabled", default=False)
+        _doc_intake = get_flag("docling_intake", default=False)
+    except Exception:
+        pass
+
     return render_page("home.html", active_page="Home",
                        rfqs=active_rfqs, price_checks=sorted_pcs,
                        sent_rfqs=sent_rfqs, sent_pcs=sent_pcs,
                        norm_pcs=norm_pcs, norm_sent_pcs=norm_sent_pcs,
                        norm_rfqs=norm_rfqs, norm_sent_rfqs=norm_sent_rfqs,
                        pc_bulk_actions=pc_bulk_actions, rfq_bulk_actions=rfq_bulk_actions,
-                       action_items=action_items)
+                       action_items=action_items,
+                       nl_query_enabled=_nl_q, docling_intake=_doc_intake)
 
 @bp.route("/growth")
 @auth_required
@@ -2112,6 +2123,13 @@ def review_package(rid):
             _bidpkg_internal = {"dvbe843", "sellers_permit", "calrecycle74", "darfur_act",
                                 "bidder_decl", "std21", "genai_708"}
 
+    _cm_enabled = False
+    try:
+        from src.core.feature_flags import get_flag
+        _cm_enabled = get_flag("compliance_matrix", default=False)
+    except Exception:
+        pass
+
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
         manifest=manifest,
@@ -2119,6 +2137,7 @@ def review_package(rid):
         buyer_prefs=buyer_prefs,
         timeline=timeline,
         bidpkg_internal=_bidpkg_internal,
+        compliance_matrix_enabled=_cm_enabled,
         active_page="Home")
 
 

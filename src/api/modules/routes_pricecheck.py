@@ -787,13 +787,30 @@ def _pricecheck_detail_inner(pcid):
         else:
             _qpu_badge = ""
 
+        # UNSPSC + Country of Origin badge
+        _unspsc = item.get("unspsc_code", "")
+        _unspsc_desc = item.get("unspsc_description", "")
+        _coo = item.get("country_of_origin", "")
+        _taa = item.get("taa_compliant", -1)
+        _intel_badges = ""
+        if _unspsc or _coo:
+            _parts = []
+            if _unspsc:
+                _tip = f' title="{_unspsc_desc}"' if _unspsc_desc else ""
+                _parts.append(f'<span style="padding:1px 5px;border-radius:3px;background:rgba(139,148,158,.12);font-size:11px;color:#8b949e"{_tip}>{_unspsc}</span>')
+            if _coo:
+                _taa_color = "#3fb950" if _taa == 1 else ("#f87171" if _taa == 0 else "#8b949e")
+                _taa_label = "TAA" if _taa == 1 else ("TAA Risk" if _taa == 0 else "")
+                _parts.append(f'<span style="padding:1px 5px;border-radius:3px;background:rgba(139,148,158,.12);font-size:11px;color:{_taa_color}">{_coo}{" · " + _taa_label if _taa_label else ""}</span>')
+            _intel_badges = f'<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:2px">{"".join(_parts)}</div>'
+
         _disc_attr = f' data-discount-cost="{discount_cost:.2f}"' if discount_cost > 0 else ''
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}"{_disc_attr}>
          <td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_{idx}" {bid_checked} style="display:none"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="display:none"><input type="text" name="linenum_{idx}" value="{line_num}" class="lockable-field" style="width:32px;text-align:center;font-weight:700;font-size:15px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px" title="Line # (unlock to edit)"><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn{' skip-active' if no_bid else ''}" onclick="toggleSkip({idx});this.closest('details').open=false">{'&#10003; Skipped' if no_bid else '&#10060; Skip Item'}</button><button type="button" class="sub-toggle-btn{' active-item' if sub_checked else ''}" onclick="toggleSubstitute({idx});this.closest('details').open=false">{'&#10003; Substitute' if sub_checked else '&#8644; Substitute'}</button><button type="button" onclick="toggleRowNotes({idx});this.closest('details').open=false">&#128221; Notes</button>{'<button type=&quot;button&quot; onclick=&quot;mergeUp('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#11014; Merge Up</button>' if idx > 0 else ''}<button type=&quot;button&quot; onclick=&quot;findBetterPricing('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#128269; Find Better Pricing</button></div></details>{'<div class=&quot;row-badge row-badge-skip&quot;>Skip</div>' if no_bid else ''}{'<div class=&quot;row-badge row-badge-sub&quot;>Sub</div>' if sub_checked else ''}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{'<input type="hidden" name="photo_url_'+str(idx)+'" value="'+str(item.get("photo_url",""))+'">' if item.get("photo_url") else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
-         <td style="position:relative"><textarea name="desc_{idx}" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button><button type="button" class="amazon-match-btn" onclick="matchAmazon({idx})" title="Search Amazon for exact product match">🔍 Amazon</button><span id="amz_status_{idx}" style="display:none;font-size:11px;margin-left:4px"></span></td>
+         <td style="position:relative"><textarea name="desc_{idx}" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" title="{raw_desc.replace('"','&quot;').replace('<','&lt;')}" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl({idx},this)" placeholder="Enter description or paste URL">{display_desc.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button><button type="button" class="amazon-match-btn" onclick="matchAmazon({idx})" title="Search Amazon for exact product match">🔍 Amazon</button><span id="amz_status_{idx}" style="display:none;font-size:11px;margin-left:4px"></span>{_intel_badges}</td>
          <td>
           <div style="display:flex;flex-direction:column;gap:3px">
            <div style="display:flex;gap:2px;align-items:center">
@@ -11359,6 +11376,22 @@ def api_pc_auto_price(pcid):
                     "catalog_matched": len(catalog_urls)})
 
 
+# ── Bulk scrape progress tracking (V5 UX) ──
+import threading as _bs_threading
+BULK_SCRAPE_STATUS = {}
+_BULK_SCRAPE_LOCK = _bs_threading.Lock()
+
+
+@bp.route("/api/pricecheck/<pcid>/bulk-scrape-status")
+@auth_required
+@safe_route
+def api_bulk_scrape_status(pcid):
+    """Poll bulk scrape progress."""
+    with _BULK_SCRAPE_LOCK:
+        status = BULK_SCRAPE_STATUS.get(pcid, {})
+    return jsonify({"ok": True, **status})
+
+
 @bp.route("/api/pricecheck/<pcid>/bulk-scrape-urls", methods=["POST"])
 @auth_required
 @safe_route
@@ -11410,10 +11443,22 @@ def api_bulk_scrape_urls(pcid):
     if _mfg_fixes:
         log.info("Bulk scrape auto-reconcile: %d MFG# fixes for %s", len(_mfg_fixes), pcid)
 
+    # Initialize progress tracking
+    with _BULK_SCRAPE_LOCK:
+        BULK_SCRAPE_STATUS[pcid] = {
+            "running": True, "total": len(urls), "completed": 0,
+            "applied": 0, "current_item": "", "results": [],
+        }
+
     for i, raw_line in enumerate(urls):
         raw_line = (raw_line or "").strip()
         raw_line = _re_bulk.sub(r'^\d+[\.\)]\s*', '', raw_line)
         _display_line = _line_labels.get(i, i + 1)
+        # Update progress
+        with _BULK_SCRAPE_LOCK:
+            if pcid in BULK_SCRAPE_STATUS:
+                BULK_SCRAPE_STATUS[pcid]["completed"] = i
+                BULK_SCRAPE_STATUS[pcid]["current_item"] = f"Item {_display_line}: looking up..."
         if not raw_line or i >= len(items):
             results.append({"line": _display_line, "url": raw_line[:60], "status": "skipped"})
             continue
@@ -11562,6 +11607,14 @@ def api_bulk_scrape_urls(pcid):
                      cat_result.get("added", 0), cat_result.get("existing", 0), cat_result.get("skipped", 0))
         except Exception as e:
             log.error("Bulk-scrape catalog sync error: %s", e, exc_info=True)
+    # Finalize progress tracking
+    with _BULK_SCRAPE_LOCK:
+        if pcid in BULK_SCRAPE_STATUS:
+            BULK_SCRAPE_STATUS[pcid].update({
+                "running": False, "completed": len(urls),
+                "applied": applied, "current_item": "Done",
+                "results": results[:20],
+            })
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(urls)})
 
 
