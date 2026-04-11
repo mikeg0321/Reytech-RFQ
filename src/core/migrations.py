@@ -464,6 +464,79 @@ MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS idx_act_agency ON agency_compliance_templates(agency_key);
     """),
+
+    (16, "performance_indexes_and_cleanup", """
+        -- Performance indexes on high-query tables
+        CREATE INDEX IF NOT EXISTS idx_quotes_quote_number ON quotes(quote_number);
+        CREATE INDEX IF NOT EXISTS idx_quotes_agency ON quotes(agency);
+        CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes(status);
+        CREATE INDEX IF NOT EXISTS idx_quotes_created ON quotes(created_at);
+        CREATE INDEX IF NOT EXISTS idx_pc_status ON price_checks(status);
+        CREATE INDEX IF NOT EXISTS idx_pc_agency ON price_checks(agency);
+        CREATE INDEX IF NOT EXISTS idx_rfqs_status ON rfqs(status);
+        CREATE INDEX IF NOT EXISTS idx_rfqs_received ON rfqs(received_at);
+        CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
+        CREATE INDEX IF NOT EXISTS idx_orders_po ON orders(po_number);
+        CREATE INDEX IF NOT EXISTS idx_scprs_po_lines_desc ON scprs_po_lines(description);
+        CREATE INDEX IF NOT EXISTS idx_scprs_po_lines_po ON scprs_po_lines(po_number);
+        CREATE INDEX IF NOT EXISTS idx_supplier_costs_supplier ON supplier_costs(supplier);
+        CREATE INDEX IF NOT EXISTS idx_supplier_costs_desc ON supplier_costs(description);
+        CREATE INDEX IF NOT EXISTS idx_won_quotes_desc ON won_quotes(description);
+        CREATE INDEX IF NOT EXISTS idx_email_sent_log_sent ON email_sent_log(sent_at);
+        CREATE INDEX IF NOT EXISTS idx_parse_gaps_rfq ON parse_gaps(rfq_id);
+
+        -- Drop unused tables
+        DROP TABLE IF EXISTS contract_violations;
+        DROP TABLE IF EXISTS sent_quote_tracker;
+        DROP TABLE IF EXISTS intel_pulls;
+        DROP TABLE IF EXISTS rfq_store;
+    """),
+
+    (17, "fk_validation_triggers", """
+        -- Referential integrity triggers (SQLite cannot add FKs via ALTER TABLE)
+
+        -- order_audit_log.order_id must reference orders.id
+        CREATE TRIGGER IF NOT EXISTS fk_order_audit_log_order
+        BEFORE INSERT ON order_audit_log FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'FK violation: order_audit_log.order_id not in orders')
+          WHERE NEW.order_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM orders WHERE id = NEW.order_id);
+        END;
+
+        -- competitor_intel: pc_id should reference price_checks.id
+        CREATE TRIGGER IF NOT EXISTS fk_competitor_intel_pc
+        BEFORE INSERT ON competitor_intel FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'FK violation: competitor_intel.pc_id not in price_checks')
+          WHERE NEW.pc_id IS NOT NULL AND NEW.pc_id != '' AND NOT EXISTS (SELECT 1 FROM price_checks WHERE id = NEW.pc_id);
+        END;
+
+        -- match_feedback: pc_id should reference price_checks.id
+        CREATE TRIGGER IF NOT EXISTS fk_match_feedback_pc
+        BEFORE INSERT ON match_feedback FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'FK violation: match_feedback.pc_id not in price_checks')
+          WHERE NEW.pc_id IS NOT NULL AND NEW.pc_id != '' AND NOT EXISTS (SELECT 1 FROM price_checks WHERE id = NEW.pc_id);
+        END;
+
+        -- sent_documents: pc_id should reference price_checks.id
+        CREATE TRIGGER IF NOT EXISTS fk_sent_documents_pc
+        BEFORE INSERT ON sent_documents FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'FK violation: sent_documents.pc_id not in price_checks')
+          WHERE NEW.pc_id IS NOT NULL AND NEW.pc_id != '' AND NOT EXISTS (SELECT 1 FROM price_checks WHERE id = NEW.pc_id);
+        END;
+
+        -- recommendation_audit: pc_id should reference price_checks.id
+        CREATE TRIGGER IF NOT EXISTS fk_recommendation_audit_pc
+        BEFORE INSERT ON recommendation_audit FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'FK violation: recommendation_audit.pc_id not in price_checks')
+          WHERE NEW.pc_id IS NOT NULL AND NEW.pc_id != '' AND NOT EXISTS (SELECT 1 FROM price_checks WHERE id = NEW.pc_id);
+        END;
+
+        -- vendor_orders: quote_number should reference quotes.quote_number
+        CREATE TRIGGER IF NOT EXISTS fk_vendor_orders_quote
+        BEFORE INSERT ON vendor_orders FOR EACH ROW BEGIN
+          SELECT RAISE(ABORT, 'FK violation: vendor_orders.quote_number not in quotes')
+          WHERE NEW.quote_number IS NOT NULL AND NEW.quote_number != '' AND NOT EXISTS (SELECT 1 FROM quotes WHERE quote_number = NEW.quote_number);
+        END;
+    """),
 ]
 
 

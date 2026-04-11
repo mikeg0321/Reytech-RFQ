@@ -33,8 +33,8 @@
 function toggleBriefBody(){
  var body=document.getElementById('brief-body');var tog=document.getElementById('brief-toggle');
  if(!body)return;
- if(body.style.display==='none'){body.style.display='';tog.innerHTML='\u25BC';}
- else{body.style.display='none';tog.innerHTML='\u25B6';}
+ if(body.style.display==='none'){body.style.display='';if(tog)tog.innerHTML='\u25BC';}
+ else{body.style.display='none';if(tog)tog.innerHTML='\u25B6';}
 }
 function loadBrief(force){
  var btn=document.getElementById('brief-refresh-btn');

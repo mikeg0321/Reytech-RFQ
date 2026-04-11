@@ -159,7 +159,7 @@
       <span id="pcNumEdit" style="display:none;align-items:center;gap:4px">
        <input type="text" id="pcNumInput" value="{{ pc.get('pc_number','') }}" style="background:#0d1117;border:1px solid #58a6ff;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-size:16px;font-weight:700;width:200px;font-family:inherit">
        <button onclick="renamePc()" style="background:#238636;color:#fff;border:none;padding:4px 10px;border-radius:4px;font-size:14px;cursor:pointer" aria-label="Save">Save</button>
-       <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:14px;cursor:pointer">✕</button>
+       <button onclick="document.getElementById('pcNumEdit').style.display='none';document.getElementById('pcNumDisplay').style.display='inline'" style="background:none;border:1px solid #30363d;color:#8b949e;padding:4px 8px;border-radius:4px;font-size:14px;cursor:pointer" aria-label="Cancel rename">✕</button>
       </span>
       <span class="status status-{{ pc.get('status','parsed') }}">{{ pc.get('status','parsed').upper() }}</span>
       {% if pc.get('reytech_quote_number') %}<span style='margin-left:12px;font-family:JetBrains Mono,monospace;font-size:16px;color:#58a6ff;font-weight:700'>{{ pc.get('reytech_quote_number','') }}</span>{% endif %}
@@ -462,8 +462,8 @@
 
     <!-- ═══ PRICING ACTION BAR ═══ -->
     <div style="display:flex;gap:8px;align-items:center;margin:12px 0">
-     <button onclick="retryAutoPrice(this)" class="btn" style="padding:10px 24px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">⚡ Auto-Price All</button>
-     <button onclick="openBulkPaste()" class="btn" style="padding:10px 20px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:6px;font-size:14px;font-weight:600;cursor:pointer">📋 Bulk Paste URLs</button>
+     <button onclick="retryAutoPrice(this)" class="btn" style="padding:10px 24px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Auto-price all items">⚡ Auto-Price All</button>
+     <button onclick="openBulkPaste()" class="btn" style="padding:10px 20px;background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.3);border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Bulk paste product URLs">📋 Bulk Paste URLs</button>
      <div style="position:relative;display:inline-block" id="pricingToolsWrap">
       <button onclick="var d=document.getElementById('pricingToolsMenu');d.style.display=d.style.display==='block'?'none':'block'" class="btn" style="padding:10px 16px;background:#21262d;color:#8b949e;border:1px solid #30363d;border-radius:6px;font-size:13px;cursor:pointer">More Pricing Tools ▾</button>
       <div id="pricingToolsMenu" style="display:none;position:absolute;top:40px;left:0;background:#161b22;border:1px solid #30363d;border-radius:8px;padding:6px 0;min-width:220px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4)">
@@ -550,7 +550,7 @@
      </h3>
      <!-- Lock Toggle -->
      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer">🔒 Line# + MFG# + URLs Locked</button>
+      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Toggle field editing lock">🔒 Line# + MFG# + URLs Locked</button>
      </div>
      <!-- ═══ STICKY MARGIN STRIP ═══ -->
      <div id="pc-margin-summary" style="display:flex;padding:10px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:15;min-height:40px">
@@ -645,7 +645,7 @@
       <!-- Send -->
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px">
        <span id="compose-status" style="font-size:13px;color:#8b949e;align-self:center"></span>
-       <button id="compose-send-btn" onclick="composeSend()" style="padding:10px 28px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" disabled>📨 Send Quote</button>
+       <button id="compose-send-btn" onclick="composeSend()" style="padding:10px 28px;background:#238636;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer" disabled aria-label="Send quote via email">📨 Send Quote</button>
       </div>
      </div>
     </div>
@@ -663,7 +663,7 @@
      <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:520px;max-width:90vw;max-height:85vh;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,0.4);display:flex;flex-direction:column">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
        <h3 style="margin:0;color:#e6edf3">📋 Bulk Paste URLs</h3>
-       <button onclick="closeBulkPaste()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+       <button onclick="closeBulkPaste()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer" aria-label="Close bulk paste dialog">✕</button>
       </div>
       <div style="font-size:13px;color:#8b949e;margin-bottom:8px">Paste one URL per line. Line 1 → Item 1, Line 2 → Item 2, etc.</div>
       <textarea id="bulkUrlsInput" style="width:100%;min-height:120px;max-height:40vh;flex:1 1 180px;background:#0d1117;border:1px solid #30363d;border-radius:8px;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;padding:10px;resize:vertical" placeholder="https://www.amazon.com/dp/B00IGU9BRY&#10;https://www.amazon.com/dp/B078PJCVSQ&#10;..."></textarea>
@@ -696,7 +696,7 @@
          <span id="qa-score-label" style="font-size:12px;color:#8b949e"></span>
         </div>
        </div>
-       <button onclick="toggleQAPanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;padding:4px">✕</button>
+       <button onclick="toggleQAPanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer;padding:4px" aria-label="Close QA panel">✕</button>
       </div>
       <div id="qa-action-bar" style="margin-top:10px;display:none"></div>
      </div>
@@ -712,7 +712,7 @@
     <div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:#0d1117;border-left:2px solid #30363d;z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h3 style="margin:0;color:#e6edf3">📧 Source Material</h3>
-      <button onclick="toggleSourcePanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+      <button onclick="toggleSourcePanel()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer" aria-label="Close source panel">✕</button>
      </div>
      <div id="source-content" style="color:#8b949e">Click "Source" to load</div>
     </div>
@@ -4521,7 +4521,7 @@
       <div style="display:flex;align-items:center;gap:10px">
         <a id="pcPdfOpenTab" href="#" target="_blank" style="background:rgba(79,140,255,.1);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none">↗ Open in Tab</a>
         <a id="pcPdfPreviewDownload" href="#" download style="display:none;background:#238636;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;text-decoration:none;align-items:center;gap:6px">📥 Download</a>
-        <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none';document.getElementById('pcPdfPreviewFrame').src=''" style="background:rgba(139,148,158,.15);border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer">✕ Close</button>
+        <button onclick="document.getElementById('pcPdfPreviewModal').style.display='none';document.getElementById('pcPdfPreviewFrame').src=''" style="background:rgba(139,148,158,.15);border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer" aria-label="Close PDF preview">✕ Close</button>
       </div>
     </div>
     <iframe id="pcPdfPreviewFrame" style="flex:1;border:none;background:#fff" allow="fullscreen" title="AMS 704 PDF Preview"></iframe>

@@ -9,6 +9,7 @@ from src.core.paths import DATA_DIR
 from src.core.db import get_db
 from src.api.render import render_page
 
+from src.core.security import rate_limit
 import re
 from datetime import datetime
 # ─────────────────────────────────────────────────────────────────────────────
@@ -795,6 +796,7 @@ def api_debug_env_check():
 @bp.route("/api/pricecheck/parse", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_pricecheck_parse():
     """Parse an uploaded AMS 704 PDF. Upload as multipart file."""
     if not PRICE_CHECK_AVAILABLE:
@@ -820,6 +822,7 @@ def api_pricecheck_parse():
 @bp.route("/api/pricecheck/process", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_pricecheck_process():
     """Full pipeline: parse → lookup → price → fill PDF."""
     if not PRICE_CHECK_AVAILABLE:
@@ -1370,6 +1373,7 @@ def api_audit_stats():
 @bp.route("/api/auto-process/pc", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_auto_process_pc():
     """Full autonomous pipeline for a Price Check PDF."""
     if not AUTO_PROCESSOR_AVAILABLE:
@@ -1389,6 +1393,7 @@ def api_auto_process_pc():
 @bp.route("/api/detect-type", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_detect_type():
     """Detect if a PDF is an RFQ or Price Check."""
     if not AUTO_PROCESSOR_AVAILABLE:
@@ -1610,6 +1615,7 @@ def start_polling(app=None):
 @bp.route("/settings/upload-logo", methods=["POST"])
 @auth_required
 @safe_page
+@rate_limit("heavy")
 def upload_logo():
     """Upload Reytech logo for quote PDFs."""
     if "logo" not in request.files:

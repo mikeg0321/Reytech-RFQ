@@ -117,17 +117,6 @@ def log_blocked_save(record_type, record_id, violations, caller=""):
     _blocked_saves.append(entry)
     if len(_blocked_saves) > 200:
         _blocked_saves.pop(0)
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            conn.execute("""
-                INSERT INTO contract_violations
-                (record_type, record_id, violations, caller, created_at)
-                VALUES (?,?,?,?,datetime('now'))
-            """, (record_type, str(record_id)[:50],
-                  json.dumps(violations), caller))
-    except Exception:
-        pass
     log.warning("BLOCKED SAVE: %s %s — %s", record_type, str(record_id)[:30], violations)
 
 

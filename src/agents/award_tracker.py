@@ -136,22 +136,20 @@ def run_award_check(force: bool = False) -> dict:
           )
     """, (cutoff_date, cutoff_date)).fetchall()
 
-    # ── Also find eligible RFQs via sent_quote_tracker ───────────────────
+    # ── Also find eligible RFQs (sent_quote_tracker removed in migration 16) ──
     sent_rfqs = []
     try:
         sent_rfqs = conn.execute("""
             SELECT r.id, r.rfq_number as quote_number, r.agency, r.institution,
-                   s.total_value as total, r.items as line_items,
-                   '' as items_text, s.sent_at, r.received_at as created_at,
+                   r.total as total, r.items as line_items,
+                   '' as items_text, r.sent_at, r.received_at as created_at,
                    r.requestor_email as contact_email,
                    r.requestor_name as contact_name,
                    '' as source_pc_id, 'rfq' as record_type
             FROM rfqs r
-            JOIN sent_quote_tracker s ON s.id = r.id
-            WHERE s.status = 'sent'
-              AND r.status IN ('sent', 'pending_award', 'generated')
-              AND s.total_value > 0
-              AND s.sent_at <= ?
+            WHERE r.status IN ('sent', 'pending_award', 'generated')
+              AND COALESCE(r.total, 0) > 0
+              AND (r.sent_at IS NOT NULL AND r.sent_at != '' AND r.sent_at <= ?)
         """, (cutoff_date,)).fetchall()
         if sent_rfqs:
             log.info("SCHEDULE: Found %d sent RFQs to monitor (in addition to %d quotes)",

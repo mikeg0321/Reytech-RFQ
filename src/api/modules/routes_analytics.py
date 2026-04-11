@@ -12,6 +12,7 @@ import logging
 log = logging.getLogger("reytech")
 from src.core.paths import DATA_DIR
 from src.api.render import render_page
+from src.core.security import rate_limit
 
 import time as _time
 import threading as _threading
@@ -2463,7 +2464,7 @@ def rfq_relink_pc(rid):
                     if priced == 0:
                         # Try SCPRS
                         try:
-                            from src.knowledge.pricing_oracle import find_similar_items
+                            from src.knowledge.won_quotes_db import find_similar_items
                             for item in pc_items:
                                 if (item.get("pricing") or {}).get("recommended_price"): continue
                                 desc = item.get("description", "")
@@ -3019,6 +3020,7 @@ def api_rfq_import_from_catalog(rid):
 @bp.route("/api/rfq/<rid>/upload-pc", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_rfq_upload_pc(rid):
     """Upload a filled PC PDF → parse → verify/save to catalog → populate RFQ.
     

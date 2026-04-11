@@ -11,6 +11,7 @@ from src.api.shared import bp, auth_required
 import logging
 import os
 import re
+from src.core.security import rate_limit
 log = logging.getLogger("reytech")
 from flask import redirect, flash
 from src.core.paths import DATA_DIR
@@ -663,23 +664,29 @@ def catalog_product_detail(pid):
 @bp.route("/api/catalog/import", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_catalog_import():
     """Import QB products CSV."""
-    if not CATALOG_AVAILABLE:
-        return jsonify({"ok": False, "error": "Catalog not available"})
-    f = request.files.get("file")
-    if not f:
-        return jsonify({"ok": False, "error": "No file"})
-    safe = re.sub(r'[^\w.\-]', '_', f.filename or 'import.csv')
-    path = os.path.join(DATA_DIR, f"catalog_import_{safe}")
-    f.save(path)
-    result = import_qb_csv(path)
-    return jsonify({"ok": True, **result})
+    try:
+        if not CATALOG_AVAILABLE:
+            return jsonify({"ok": False, "error": "Catalog not available"})
+        f = request.files.get("file")
+        if not f:
+            return jsonify({"ok": False, "error": "No file"})
+        safe = re.sub(r'[^\w.\-]', '_', f.filename or 'import.csv')
+        path = os.path.join(DATA_DIR, f"catalog_import_{safe}")
+        f.save(path)
+        result = import_qb_csv(path)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.error("api_catalog_import error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/catalog/reimport", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_catalog_reimport():
     """Re-import QB CSV with improved name/manufacturer extraction."""
     if not CATALOG_AVAILABLE:
@@ -730,6 +737,7 @@ def api_catalog_dedup():
 @bp.route("/api/catalog/import-quotewerks", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_catalog_import_quotewerks():
     """Import QuoteWerks exported CSV/TSV into the product catalog.
 
@@ -872,11 +880,15 @@ def api_catalog_pricing(pid):
 @safe_route
 def api_catalog_update(pid):
     """Update product pricing/metadata."""
-    if not CATALOG_AVAILABLE:
-        return jsonify({"ok": False, "error": "Catalog not available"})
-    data = request.get_json() or {}
-    ok = update_product_pricing(pid, **data)
-    return jsonify({"ok": ok})
+    try:
+        if not CATALOG_AVAILABLE:
+            return jsonify({"ok": False, "error": "Catalog not available"})
+        data = request.get_json() or {}
+        ok = update_product_pricing(pid, **data)
+        return jsonify({"ok": ok})
+    except Exception as e:
+        log.error("api_catalog_update error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/catalog/opportunities")
@@ -898,35 +910,39 @@ def api_catalog_match():
     POST {description: "...", part_number: "..."}
     Returns best catalog matches for a line item.
     """
-    if not CATALOG_AVAILABLE:
-        return jsonify({"ok": False, "error": "Catalog not available"})
-    data = request.get_json(silent=True) or {}
-    desc = (data.get("description") or "").strip()
-    part = (data.get("part_number") or "").strip()
-    if not desc and not part:
-        return jsonify({"ok": True, "matches": []})
-    matches = match_item(desc, part, top_n=3)
-    clean = []
-    for m in matches:
-        clean.append({
-            "id": m["id"], "name": m.get("name", ""),
-            "description": (m.get("description") or "")[:120],
-            "category": m.get("category", ""), "uom": m.get("uom", "EA"),
-            "sell_price": m.get("sell_price"), "cost": m.get("cost"),
-            "margin_pct": m.get("margin_pct", 0),
-            "best_cost": m.get("best_cost"), "best_supplier": m.get("best_supplier", ""),
-            "mfg_number": m.get("mfg_number", ""),
-            "sku": m.get("sku", ""),
-            "part_number": m.get("mfg_number") or m.get("sku") or m.get("name", ""),
-            "manufacturer": m.get("manufacturer", ""),
-            "recommended_price": m.get("recommended_price"),
-            "win_rate": m.get("win_rate", 0),
-            "confidence": m.get("match_confidence", 0),
-            "reason": m.get("match_reason", ""),
-            "times_quoted": m.get("times_quoted", 0),
-            "times_won": m.get("times_won", 0),
-        })
-    return jsonify({"ok": True, "matches": clean})
+    try:
+        if not CATALOG_AVAILABLE:
+            return jsonify({"ok": False, "error": "Catalog not available"})
+        data = request.get_json(silent=True) or {}
+        desc = (data.get("description") or "").strip()
+        part = (data.get("part_number") or "").strip()
+        if not desc and not part:
+            return jsonify({"ok": True, "matches": []})
+        matches = match_item(desc, part, top_n=3)
+        clean = []
+        for m in matches:
+            clean.append({
+                "id": m["id"], "name": m.get("name", ""),
+                "description": (m.get("description") or "")[:120],
+                "category": m.get("category", ""), "uom": m.get("uom", "EA"),
+                "sell_price": m.get("sell_price"), "cost": m.get("cost"),
+                "margin_pct": m.get("margin_pct", 0),
+                "best_cost": m.get("best_cost"), "best_supplier": m.get("best_supplier", ""),
+                "mfg_number": m.get("mfg_number", ""),
+                "sku": m.get("sku", ""),
+                "part_number": m.get("mfg_number") or m.get("sku") or m.get("name", ""),
+                "manufacturer": m.get("manufacturer", ""),
+                "recommended_price": m.get("recommended_price"),
+                "win_rate": m.get("win_rate", 0),
+                "confidence": m.get("match_confidence", 0),
+                "reason": m.get("match_reason", ""),
+                "times_quoted": m.get("times_quoted", 0),
+                "times_won": m.get("times_won", 0),
+            })
+        return jsonify({"ok": True, "matches": clean})
+    except Exception as e:
+        log.error("api_catalog_match error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/catalog/match-batch", methods=["POST"])
@@ -970,20 +986,24 @@ def api_catalog_product_suppliers(pid):
 @safe_route
 def api_catalog_add_supplier(pid):
     """POST {supplier_name, price, url, sku, shipping, in_stock}"""
-    if not CATALOG_AVAILABLE:
-        return jsonify({"ok": False, "error": "Catalog not available"})
-    data = request.get_json(silent=True) or {}
-    supplier = (data.get("supplier_name") or "").strip()
-    price = float(data.get("price") or 0)
-    if not supplier or price <= 0:
-        return jsonify({"ok": False, "error": "supplier_name and price required"})
-    add_supplier_price(
-        pid, supplier, price,
-        url=data.get("url", ""), sku=data.get("sku", ""),
-        shipping=float(data.get("shipping") or 0),
-        in_stock=data.get("in_stock", True),
-    )
-    return jsonify({"ok": True, "msg": f"Supplier {supplier} price ${price:.2f} recorded"})
+    try:
+        if not CATALOG_AVAILABLE:
+            return jsonify({"ok": False, "error": "Catalog not available"})
+        data = request.get_json(silent=True) or {}
+        supplier = (data.get("supplier_name") or "").strip()
+        price = float(data.get("price") or 0)
+        if not supplier or price <= 0:
+            return jsonify({"ok": False, "error": "supplier_name and price required"})
+        add_supplier_price(
+            pid, supplier, price,
+            url=data.get("url", ""), sku=data.get("sku", ""),
+            shipping=float(data.get("shipping") or 0),
+            in_stock=data.get("in_stock", True),
+        )
+        return jsonify({"ok": True, "msg": f"Supplier {supplier} price ${price:.2f} recorded"})
+    except Exception as e:
+        log.error("api_catalog_add_supplier error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/catalog/check-price", methods=["POST"])
@@ -1128,10 +1148,14 @@ def api_catalog_bulk_check_status():
 @safe_route
 def api_catalog_rebuild_tokens():
     """Rebuild search tokens for all products (migration utility)."""
-    if not CATALOG_AVAILABLE:
-        return jsonify({"ok": False, "error": "Catalog not available"})
-    count = rebuild_search_tokens()
-    return jsonify({"ok": True, "updated": count})
+    try:
+        if not CATALOG_AVAILABLE:
+            return jsonify({"ok": False, "error": "Catalog not available"})
+        count = rebuild_search_tokens()
+        return jsonify({"ok": True, "updated": count})
+    except Exception as e:
+        log.error("api_catalog_rebuild_tokens error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ── Catalog Match Audit ──────────────────────────────────────────────────────
@@ -1520,35 +1544,39 @@ def api_order_margins():
 @safe_route
 def api_order_payment(oid):
     """Record payment received. POST: {amount, date, method, reference}"""
-    orders = _load_orders()
-    order = orders.get(oid)
-    if not order:
-        return jsonify({"ok": False, "error": "Order not found"})
-    
-    data = request.get_json(silent=True) or {}
-    payment = {
-        "amount": float(data.get("amount", 0)),
-        "date": data.get("date", datetime.now().strftime("%Y-%m-%d")),
-        "method": data.get("method", "check"),
-        "reference": data.get("reference", ""),
-        "recorded_at": datetime.now().isoformat(),
-    }
-    
-    if "payments" not in order:
-        order["payments"] = []
-    order["payments"].append(payment)
-    order["total_paid"] = sum(p["amount"] for p in order["payments"])
-    order["payment_status"] = "paid" if order["total_paid"] >= order.get("total", 0) else "partial"
-    order["updated_at"] = datetime.now().isoformat()
-    
-    orders[oid] = order
-    _save_orders(orders)
-    
-    _log_crm_activity(order.get("quote_number", ""), "payment_received",
-                      f"Payment ${payment['amount']:,.2f} on order {oid} via {payment['method']}",
-                      actor="user", metadata={"order_id": oid, "payment": payment})
-    
-    return jsonify({"ok": True, "total_paid": order["total_paid"], "payment_status": order["payment_status"]})
+    try:
+        orders = _load_orders()
+        order = orders.get(oid)
+        if not order:
+            return jsonify({"ok": False, "error": "Order not found"})
+
+        data = request.get_json(silent=True) or {}
+        payment = {
+            "amount": float(data.get("amount", 0)),
+            "date": data.get("date", datetime.now().strftime("%Y-%m-%d")),
+            "method": data.get("method", "check"),
+            "reference": data.get("reference", ""),
+            "recorded_at": datetime.now().isoformat(),
+        }
+
+        if "payments" not in order:
+            order["payments"] = []
+        order["payments"].append(payment)
+        order["total_paid"] = sum(p["amount"] for p in order["payments"])
+        order["payment_status"] = "paid" if order["total_paid"] >= order.get("total", 0) else "partial"
+        order["updated_at"] = datetime.now().isoformat()
+
+        orders[oid] = order
+        _save_orders(orders)
+
+        _log_crm_activity(order.get("quote_number", ""), "payment_received",
+                          f"Payment ${payment['amount']:,.2f} on order {oid} via {payment['method']}",
+                          actor="user", metadata={"order_id": oid, "payment": payment})
+
+        return jsonify({"ok": True, "total_paid": order["total_paid"], "payment_status": order["payment_status"]})
+    except Exception as e:
+        log.error("api_order_payment error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/orders/aging")
@@ -3174,79 +3202,83 @@ def catalog_price_alerts():
 @safe_route
 def api_catalog_enrich_from_url(pid):
     """Scrape supplier URL and fill missing catalog fields (title, description, MFG#, manufacturer)."""
-    if not CATALOG_AVAILABLE:
-        return jsonify({"ok": False, "error": "Catalog not available"})
-
-    data = request.get_json(force=True, silent=True) or {}
-    url = (data.get("url") or "").strip()
-    if not url:
-        return jsonify({"ok": False, "error": "No URL provided"})
-
     try:
-        from src.agents.item_link_lookup import lookup_from_url
-    except ImportError:
-        return jsonify({"ok": False, "error": "Link lookup module not available"})
+        if not CATALOG_AVAILABLE:
+            return jsonify({"ok": False, "error": "Catalog not available"})
 
-    result = lookup_from_url(url)
-    if not result.get("ok"):
-        return jsonify({"ok": False, "error": result.get("error", "Scrape failed")})
+        data = request.get_json(force=True, silent=True) or {}
+        url = (data.get("url") or "").strip()
+        if not url:
+            return jsonify({"ok": False, "error": "No URL provided"})
 
-    # Update product catalog with enriched data (only fill gaps, don't overwrite)
-    from src.agents.product_catalog import _get_conn as _cat_conn
-    from datetime import datetime, timezone
-    conn = _cat_conn()
-    now = datetime.now(timezone.utc).isoformat()
+        try:
+            from src.agents.item_link_lookup import lookup_from_url
+        except ImportError:
+            return jsonify({"ok": False, "error": "Link lookup module not available"})
 
-    fields_updated = []
-    updates = []
-    params = []
+        result = lookup_from_url(url)
+        if not result.get("ok"):
+            return jsonify({"ok": False, "error": result.get("error", "Scrape failed")})
 
-    scraped_desc = (result.get("description") or result.get("title") or "").strip()
-    scraped_mfg = (result.get("mfg_number") or result.get("part_number") or "").strip()
-    scraped_manufacturer = (result.get("manufacturer") or "").strip()
+        # Update product catalog with enriched data (only fill gaps, don't overwrite)
+        from src.agents.product_catalog import _get_conn as _cat_conn
+        from datetime import datetime, timezone
+        conn = _cat_conn()
+        now = datetime.now(timezone.utc).isoformat()
 
-    if scraped_desc:
-        updates.append("description = CASE WHEN description IS NULL OR description = '' OR LENGTH(description) < 10 THEN ? ELSE description END")
-        params.append(scraped_desc[:500])
-        fields_updated.append("description")
-    if scraped_mfg:
-        updates.append("mfg_number = COALESCE(NULLIF(mfg_number, ''), ?)")
-        params.append(scraped_mfg)
-        fields_updated.append("mfg_number")
-    if scraped_manufacturer:
-        updates.append("manufacturer = COALESCE(NULLIF(manufacturer, ''), ?)")
-        params.append(scraped_manufacturer)
-        fields_updated.append("manufacturer")
-    if result.get("price"):
-        new_price = float(result["price"])
-        updates.append("best_cost = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END")
-        params.extend([new_price, new_price, new_price])
-        updates.append("best_supplier = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_supplier END")
-        supplier_name = result.get("supplier", "Web")
-        params.extend([new_price, new_price, supplier_name])
+        fields_updated = []
+        updates = []
+        params = []
 
-    if updates:
-        updates.append("updated_at = ?")
-        params.append(now)
-        params.append(pid)
-        sql = f"UPDATE product_catalog SET {', '.join(updates)} WHERE id = ?"
-        conn.execute(sql, params)
-        conn.commit()
+        scraped_desc = (result.get("description") or result.get("title") or "").strip()
+        scraped_mfg = (result.get("mfg_number") or result.get("part_number") or "").strip()
+        scraped_manufacturer = (result.get("manufacturer") or "").strip()
 
-    conn.close()
+        if scraped_desc:
+            updates.append("description = CASE WHEN description IS NULL OR description = '' OR LENGTH(description) < 10 THEN ? ELSE description END")
+            params.append(scraped_desc[:500])
+            fields_updated.append("description")
+        if scraped_mfg:
+            updates.append("mfg_number = COALESCE(NULLIF(mfg_number, ''), ?)")
+            params.append(scraped_mfg)
+            fields_updated.append("mfg_number")
+        if scraped_manufacturer:
+            updates.append("manufacturer = COALESCE(NULLIF(manufacturer, ''), ?)")
+            params.append(scraped_manufacturer)
+            fields_updated.append("manufacturer")
+        if result.get("price"):
+            new_price = float(result["price"])
+            updates.append("best_cost = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_cost END")
+            params.extend([new_price, new_price, new_price])
+            updates.append("best_supplier = CASE WHEN ? > 0 AND (best_cost IS NULL OR ? < best_cost) THEN ? ELSE best_supplier END")
+            supplier_name = result.get("supplier", "Web")
+            params.extend([new_price, new_price, supplier_name])
 
-    return jsonify({
-        "ok": True,
-        "fields_updated": fields_updated,
-        "scraped": {
-            "title": result.get("title", ""),
-            "description": scraped_desc[:100],
-            "mfg_number": scraped_mfg,
-            "manufacturer": scraped_manufacturer,
-            "price": result.get("price"),
-            "supplier": result.get("supplier", ""),
-        }
-    })
+        if updates:
+            updates.append("updated_at = ?")
+            params.append(now)
+            params.append(pid)
+            sql = f"UPDATE product_catalog SET {', '.join(updates)} WHERE id = ?"
+            conn.execute(sql, params)
+            conn.commit()
+
+        conn.close()
+
+        return jsonify({
+            "ok": True,
+            "fields_updated": fields_updated,
+            "scraped": {
+                "title": result.get("title", ""),
+                "description": scraped_desc[:100],
+                "mfg_number": scraped_mfg,
+                "manufacturer": scraped_manufacturer,
+                "price": result.get("price"),
+                "supplier": result.get("supplier", ""),
+            }
+        })
+    except Exception as e:
+        log.error("api_catalog_enrich_from_url error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -3359,18 +3391,22 @@ def _price_check_scheduler():
 @safe_route
 def api_catalog_schedule_price_check():
     """Manually trigger a scheduled price check, or update the schedule interval."""
-    data = request.get_json(force=True, silent=True) or {}
-    if data.get("run_now"):
-        import threading
-        t = threading.Thread(target=_run_scheduled_price_check, daemon=True, name="manual-price-check")
-        t.start()
-        return jsonify({"ok": True, "msg": "Price check started in background"})
+    try:
+        data = request.get_json(force=True, silent=True) or {}
+        if data.get("run_now"):
+            import threading
+            t = threading.Thread(target=_run_scheduled_price_check, daemon=True, name="manual-price-check")
+            t.start()
+            return jsonify({"ok": True, "msg": "Price check started in background"})
 
-    if data.get("interval_hours"):
-        _PRICE_CHECK_SCHEDULE["interval_hours"] = int(data["interval_hours"])
-        return jsonify({"ok": True, "interval_hours": _PRICE_CHECK_SCHEDULE["interval_hours"]})
+        if data.get("interval_hours"):
+            _PRICE_CHECK_SCHEDULE["interval_hours"] = int(data["interval_hours"])
+            return jsonify({"ok": True, "interval_hours": _PRICE_CHECK_SCHEDULE["interval_hours"]})
 
-    return jsonify({"ok": True, "schedule": _PRICE_CHECK_SCHEDULE})
+        return jsonify({"ok": True, "schedule": _PRICE_CHECK_SCHEDULE})
+    except Exception as e:
+        log.error("api_catalog_schedule_price_check error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 # Start the scheduler thread on app boot (skip in tests)

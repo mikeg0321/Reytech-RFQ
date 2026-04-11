@@ -450,7 +450,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     # Test address parsing
-    print("=== Address Parsing Tests ===")
+    log.info("=== Address Parsing Tests ===")
     tests = [
         (["5100 O'Byrnes Ferry Road", "Jamestown, CA 95327", "United States"],
          {"zip": "95327", "city": "Jamestown"}),
@@ -465,16 +465,17 @@ if __name__ == "__main__":
         z = extract_zip(addr); ci = extract_city(addr)
         st = extract_street(addr)
         ok = z == expected["zip"] and ci == expected["city"]
-        print(f"  {'✓' if ok else '✗'} {addr[0][:30]:30s} → zip={z} city={ci} street={st}")
+        log.info("  %s %s → zip=%s city=%s street=%s", '✓' if ok else '✗', addr[0][:30], z, ci, st)
 
     # Test API call (will work on Railway, may fail in sandbox)
-    print("\n=== CDTFA API Test ===")
+    log.info("=== CDTFA API Test ===")
     r = get_tax_rate(
         ship_to_name="SCC - Sierra Conservation Center",
         ship_to_address=["5100 O'Byrnes Ferry Road", "Jamestown, CA 95327", "United States"]
     )
-    print(f"  Rate: {r.get('rate')} ({r.get('rate_pct','')})")
-    print(f"  Jurisdiction: {r.get('jurisdiction','')}")
-    print(f"  Source: {r.get('source','')}")
-    print(f"  Confidence: {r.get('confidence','')}")
-    if r.get("note"): print(f"  Note: {r['note']}")
+    log.info("  Rate: %s (%s)", r.get('rate'), r.get('rate_pct', ''))
+    log.info("  Jurisdiction: %s", r.get('jurisdiction', ''))
+    log.info("  Source: %s", r.get('source', ''))
+    log.info("  Confidence: %s", r.get('confidence', ''))
+    if r.get("note"):
+        log.info("  Note: %s", r['note'])

@@ -10,6 +10,7 @@ import logging
 log = logging.getLogger("reytech")
 from flask import redirect, flash
 from src.api.render import render_page
+from markupsafe import escape as esc
 
 @bp.route("/intelligence")
 @auth_required
@@ -576,25 +577,29 @@ CalTrans,m.jones@dot.ca.gov,Mary Jones,916-654-2000,Office,45000,</pre>
 @safe_route
 def api_voice_call():
     """Place an outbound call. POST JSON: {"phone": "+19165550100", "script": "lead_intro", "variables": {...}}"""
-    if not VOICE_AVAILABLE:
-        return jsonify({"ok": False, "error": "Voice agent not available"})
-    data = request.get_json(silent=True) or {}
-    phone = data.get("phone", "")
-    if not phone:
-        return jsonify({"ok": False, "error": "Provide phone number in E.164 format"})
-    # Inject server URL for Vapi function calling webhook
-    variables = data.get("variables", {})
-    variables["server_url"] = request.url_root.rstrip("/").replace("http://", "https://") + "/api/voice/webhook"
-    result = place_call(phone, script_key=data.get("script", "lead_intro"),
-                        variables=variables)
-    # CRM: log call
-    ref_id = data.get("variables", {}).get("quote_number", "") or data.get("variables", {}).get("po_number", "")
-    _log_crm_activity(ref_id or "outbound", "voice_call",
-                      f"Outbound call to {phone} ({data.get('script','lead_intro')})" +
-                      (" — " + result.get("call_sid", "") if result.get("ok") else " — FAILED"),
-                      actor="user", metadata={"phone": phone, "script": data.get("script",""),
-                                               "institution": data.get("variables",{}).get("institution","")})
-    return jsonify(result)
+    try:
+        if not VOICE_AVAILABLE:
+            return jsonify({"ok": False, "error": "Voice agent not available"})
+        data = request.get_json(silent=True) or {}
+        phone = data.get("phone", "")
+        if not phone:
+            return jsonify({"ok": False, "error": "Provide phone number in E.164 format"})
+        # Inject server URL for Vapi function calling webhook
+        variables = data.get("variables", {})
+        variables["server_url"] = request.url_root.rstrip("/").replace("http://", "https://") + "/api/voice/webhook"
+        result = place_call(phone, script_key=data.get("script", "lead_intro"),
+                            variables=variables)
+        # CRM: log call
+        ref_id = data.get("variables", {}).get("quote_number", "") or data.get("variables", {}).get("po_number", "")
+        _log_crm_activity(ref_id or "outbound", "voice_call",
+                          f"Outbound call to {phone} ({data.get('script','lead_intro')})" +
+                          (" — " + result.get("call_sid", "") if result.get("ok") else " — FAILED"),
+                          actor="user", metadata={"phone": phone, "script": data.get("script",""),
+                                                   "institution": data.get("variables",{}).get("institution","")})
+        return jsonify(result)
+    except Exception as e:
+        log.error("api_voice_call error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/voice/log")
@@ -643,59 +648,67 @@ def api_voice_verify():
 @safe_route
 def api_voice_import_twilio():
     """Import Twilio phone number into Vapi for Reytech caller ID."""
-    if not VOICE_AVAILABLE:
-        return jsonify({"ok": False, "error": "Voice agent not available"})
-    return jsonify(import_twilio_to_vapi())
+    try:
+        if not VOICE_AVAILABLE:
+            return jsonify({"ok": False, "error": "Voice agent not available"})
+        return jsonify(import_twilio_to_vapi())
+    except Exception as e:
+        log.error("api_voice_import_twilio error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/voice/webhook", methods=["POST"])
 def api_voice_vapi_webhook():
     """Vapi server URL webhook — handles function calls during live conversations.
     Auth via shared secret header (VAPI_WEBHOOK_SECRET). Rejects if not configured."""
-    webhook_secret = os.environ.get("VAPI_WEBHOOK_SECRET", "")
-    if not webhook_secret:
-        return jsonify({"error": "Webhook not configured"}), 503
-    auth_header = request.headers.get("X-Vapi-Secret", "")
-    if auth_header != webhook_secret:
-        return jsonify({"error": "Unauthorized"}), 401
+    try:
+        webhook_secret = os.environ.get("VAPI_WEBHOOK_SECRET", "")
+        if not webhook_secret:
+            return jsonify({"error": "Webhook not configured"}), 503
+        auth_header = request.headers.get("X-Vapi-Secret", "")
+        if auth_header != webhook_secret:
+            return jsonify({"error": "Unauthorized"}), 401
 
-    data = request.get_json(silent=True) or {}
-    msg_type = data.get("message", {}).get("type", "")
+        data = request.get_json(silent=True) or {}
+        msg_type = data.get("message", {}).get("type", "")
 
-    if msg_type == "function-call":
-        fn = data.get("message", {}).get("functionCall", {})
-        fn_name = fn.get("name", "")
-        fn_params = fn.get("parameters", {})
+        if msg_type == "function-call":
+            fn = data.get("message", {}).get("functionCall", {})
+            fn_name = fn.get("name", "")
+            fn_params = fn.get("parameters", {})
 
-        try:
-            from src.agents.voice_knowledge import handle_tool_call
-            result = handle_tool_call(fn_name, fn_params)
-            return jsonify({"results": [{"result": result}]})
-        except Exception as e:
-            log.error("Vapi webhook tool call failed: %s", e)
-            return jsonify({"results": [{"result": "I couldn't look that up right now."}]})
+            try:
+                from src.agents.voice_knowledge import handle_tool_call
+                result = handle_tool_call(fn_name, fn_params)
+                return jsonify({"results": [{"result": result}]})
+            except Exception as e:
+                log.error("Vapi webhook tool call failed: %s", e)
+                return jsonify({"results": [{"result": "I couldn't look that up right now."}]})
 
-    elif msg_type == "end-of-call-report":
-        # Log transcript to CRM
-        call = data.get("message", {}).get("call", {})
-        transcript = data.get("message", {}).get("transcript", "")
-        summary = data.get("message", {}).get("summary", "")
-        call_id = call.get("id", "")
-        phone = call.get("customer", {}).get("number", "")
+        elif msg_type == "end-of-call-report":
+            # Log transcript to CRM
+            call = data.get("message", {}).get("call", {})
+            transcript = data.get("message", {}).get("transcript", "")
+            summary = data.get("message", {}).get("summary", "")
+            call_id = call.get("id", "")
+            phone = call.get("customer", {}).get("number", "")
 
-        if call_id:
-            _log_crm_activity(call_id, "voice_call_completed",
-                              f"Call to {phone} completed" + (f" — {summary[:200]}" if summary else ""),
-                              actor="system", metadata={
-                                  "call_id": call_id,
-                                  "phone": phone,
-                                  "transcript": transcript[:2000] if transcript else "",
-                                  "summary": summary[:500] if summary else "",
-                                  "duration": data.get("message", {}).get("durationSeconds", 0),
-                              })
+            if call_id:
+                _log_crm_activity(call_id, "voice_call_completed",
+                                  f"Call to {phone} completed" + (f" — {summary[:200]}" if summary else ""),
+                                  actor="system", metadata={
+                                      "call_id": call_id,
+                                      "phone": phone,
+                                      "transcript": transcript[:2000] if transcript else "",
+                                      "summary": summary[:500] if summary else "",
+                                      "duration": data.get("message", {}).get("durationSeconds", 0),
+                                  })
+            return jsonify({"ok": True})
+
         return jsonify({"ok": True})
-
-    return jsonify({"ok": True})
+    except Exception as e:
+        log.error("api_voice_vapi_webhook error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/voice/vapi-calls")
@@ -833,7 +846,7 @@ def campaigns_page():
     script_options = ""
     for key, sc in scripts:
         cat = sc.get("category", "other")
-        script_options += f'<option value="{key}">[{cat}] {sc["name"]}</option>'
+        script_options += f'<option value="{esc(key)}">[{esc(cat)}] {esc(sc["name"])}</option>'
 
     # Source options
     source_options = """
@@ -855,9 +868,9 @@ def campaigns_page():
         reached = c["stats"]["reached"]
         pct = round(called / total * 100) if total > 0 else 0
         camp_rows += f"""<tr>
-         <td><a href="/campaign/{c['id']}" style="color:var(--ac);text-decoration:none;font-weight:600">{c['name']}</a></td>
-         <td style="color:{st_color.get(st,'var(--tx2)')};font-weight:600">{st}</td>
-         <td>{c.get('script_key','?')}</td>
+         <td><a href="/campaign/{esc(c['id'])}" style="color:var(--ac);text-decoration:none;font-weight:600">{esc(c['name'])}</a></td>
+         <td style="color:{st_color.get(st,'var(--tx2)')};font-weight:600">{esc(st)}</td>
+         <td>{esc(c.get('script_key','?'))}</td>
          <td style="text-align:center">{total}</td>
          <td style="text-align:center">{called}/{total} ({pct}%)</td>
          <td style="text-align:center">{reached}</td>
@@ -897,10 +910,10 @@ def campaign_detail(cid):
         outcome_btn = f'<select onchange="logOutcome(\'{phone}\',this.value)" style="font-size:13px;padding:2px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:var(--tx)"><option value="">Log outcome...</option><option value="reached">✅ Reached</option><option value="voicemail">📱 Voicemail</option><option value="no_answer">❌ No Answer</option><option value="callback">📞 Callback</option><option value="interested">🎯 Interested</option><option value="not_interested">👎 Not Interested</option><option value="gatekeeper">🚪 Gatekeeper</option></select>' if c["status"] == "pending" or (c["status"] == "called" and not outcome) else ""
 
         contact_rows += f"""<tr>
-         <td style="font-weight:500">{c.get('name','?')}</td>
-         <td class="mono" style="font-size:14px">{phone or '<span style=\"color:var(--rd)\">no phone</span>'}</td>
-         <td style="font-size:14px">{c.get('institution','')}</td>
-         <td style="font-size:14px">{c.get('script', camp.get('script_key',''))}</td>
+         <td style="font-weight:500">{esc(c.get('name','?'))}</td>
+         <td class="mono" style="font-size:14px">{esc(phone) or '<span style=\"color:var(--rd)\">no phone</span>'}</td>
+         <td style="font-size:14px">{esc(c.get('institution',''))}</td>
+         <td style="font-size:14px">{esc(c.get('script', camp.get('script_key','')))}</td>
          <td style="text-align:center"><span style="color:{outcome_color};font-weight:600;font-size:14px">{outcome or c.get('status','')}</span></td>
          <td style="text-align:center;white-space:nowrap">{dial_btn} {outcome_btn}</td>
         </tr>"""
@@ -915,18 +928,22 @@ def campaign_detail(cid):
 @safe_route
 def api_campaigns():
     """List or create campaigns."""
-    if not CAMPAIGNS_AVAILABLE:
-        return jsonify({"ok": False, "error": "Campaigns not available"})
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        result = create_campaign(
-            name=data.get("name", "Untitled"),
-            script_key=data.get("script_key", "lead_intro"),
-            target_type=data.get("target_type", "manual"),
-            filters=data.get("filters", {}),
-        )
-        return jsonify({"ok": True, **result})
-    return jsonify({"ok": True, "campaigns": get_campaigns()})
+    try:
+        if not CAMPAIGNS_AVAILABLE:
+            return jsonify({"ok": False, "error": "Campaigns not available"})
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            result = create_campaign(
+                name=data.get("name", "Untitled"),
+                script_key=data.get("script_key", "lead_intro"),
+                target_type=data.get("target_type", "manual"),
+                filters=data.get("filters", {}),
+            )
+            return jsonify({"ok": True, **result})
+        return jsonify({"ok": True, "campaigns": get_campaigns()})
+    except Exception as e:
+        log.error("api_campaigns error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/campaigns/<cid>/call", methods=["POST"])
@@ -934,12 +951,16 @@ def api_campaigns():
 @safe_route
 def api_campaign_call(cid):
     """Execute next call in campaign."""
-    if not CAMPAIGNS_AVAILABLE or not VOICE_AVAILABLE:
-        return jsonify({"ok": False, "error": "Voice/campaigns not available"})
-    data = request.get_json(silent=True) or {}
-    target_index = data.get("target_index")
-    result = execute_campaign_call(cid, target_index=target_index)
-    return jsonify(result)
+    try:
+        if not CAMPAIGNS_AVAILABLE or not VOICE_AVAILABLE:
+            return jsonify({"ok": False, "error": "Voice/campaigns not available"})
+        data = request.get_json(silent=True) or {}
+        target_index = data.get("target_index")
+        result = execute_campaign_call(cid, target_index=target_index)
+        return jsonify(result)
+    except Exception as e:
+        log.error("api_campaign_call error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/campaigns/<cid>/outcome", methods=["POST"])
@@ -947,11 +968,15 @@ def api_campaign_call(cid):
 @safe_route
 def api_campaign_outcome(cid):
     """Log call outcome for a campaign contact."""
-    if not CAMPAIGNS_AVAILABLE:
-        return jsonify({"ok": False, "error": "Campaigns not available"})
-    data = request.get_json(silent=True) or {}
-    result = update_call_outcome(cid, phone=data.get("phone", ""), outcome=data.get("outcome", ""))
-    return jsonify(result)
+    try:
+        if not CAMPAIGNS_AVAILABLE:
+            return jsonify({"ok": False, "error": "Campaigns not available"})
+        data = request.get_json(silent=True) or {}
+        result = update_call_outcome(cid, phone=data.get("phone", ""), outcome=data.get("outcome", ""))
+        return jsonify(result)
+    except Exception as e:
+        log.error("api_campaign_outcome error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/campaigns/<cid>")

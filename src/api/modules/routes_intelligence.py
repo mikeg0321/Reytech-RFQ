@@ -20,6 +20,7 @@ log = logging.getLogger("reytech.routes_intelligence")
 
 @bp.route("/api/documents/upload", methods=["POST"])
 @auth_required
+@rate_limit("heavy")
 def api_document_upload():
     """Upload and parse a document (PDF, DOCX, XLSX)."""
     try:
@@ -201,6 +202,7 @@ def api_nl_query_history():
 
 @bp.route("/api/rfq/<rfq_id>/compliance/extract", methods=["POST"])
 @auth_required
+@rate_limit("heavy")
 def api_compliance_extract(rfq_id):
     """Extract compliance matrix from an uploaded solicitation PDF."""
     try:

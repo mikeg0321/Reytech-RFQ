@@ -1,0 +1,1275 @@
+# routes_pricecheck_pricing.py — Pricing Oracle API, PC Lifecycle, Award Monitor, Competitors
+# Split from routes_pricecheck.py
+
+from flask import request, jsonify, Response
+from src.api.shared import bp, auth_required
+import logging
+log = logging.getLogger("reytech")
+from src.core.error_handler import safe_route, safe_page
+from src.core.security import rate_limit
+from flask import redirect, flash, send_file, session
+from src.core.paths import DATA_DIR, OUTPUT_DIR, UPLOAD_DIR
+from src.core.db import get_db
+from src.api.render import render_page
+import os
+import json
+from datetime import datetime, timedelta, timezone
+
+# ═══════════════════════════════════════════════════════════════════════
+# Pricing Oracle API (v6.0)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pricing/recommend", methods=["POST"])
+@auth_required
+@safe_route
+def api_pricing_recommend():
+    """Get pricing recommendations for an RFQ's line items (V2 oracle)."""
+    data = request.get_json(force=True, silent=True) or {}
+    rid = data.get("rfq_id")
+
+    source = data
+    if rid:
+        rfqs = load_rfqs()
+        rfq = rfqs.get(rid)
+        if not rfq:
+            return jsonify({"error": f"RFQ {rid} not found"}), 404
+        source = rfq
+
+    # Feature-flagged: V2 oracle (default ON), V1 fallback
+    from src.core.feature_flags import get_flag
+    if get_flag("pricing_v2", default=True):
+        from src.core.pricing_oracle_v2 import get_pricing
+        items_data = source.get("line_items", [])
+        agency = source.get("agency", data.get("agency", "CCHCS"))
+        priced = []
+        for item in items_data:
+            r = get_pricing(
+                description=item.get("description", ""),
+                quantity=item.get("qty", 1) or 1,
+                cost=item.get("supplier_cost") or item.get("price_per_unit"),
+                item_number=item.get("item_number", ""),
+                department=agency,
+            )
+            priced.append(r)
+        result = {
+            "rfq_id": source.get("solicitation_number", rid or ""),
+            "agency": agency,
+            "items": priced,
+            "summary": {
+                "total_items": len(priced),
+                "priced": sum(1 for p in priced if (p.get("recommendation") or {}).get("quote_price")),
+            }
+        }
+    else:
+        if not PRICING_ORACLE_AVAILABLE:
+            return jsonify({"error": "Pricing oracle not available"}), 503
+        result = recommend_prices_for_rfq(source, config_overrides=data.get("config"))
+
+    return jsonify(result)
+
+
+@bp.route("/api/won-quotes/search")
+@auth_required
+@safe_route
+def api_won_quotes_search():
+    """Search the Won Quotes Knowledge Base."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+
+    query = request.args.get("q", "")
+    item_number = request.args.get("item", "")
+    max_results = int(request.args.get("max", 10))
+
+    if not query and not item_number:
+        return jsonify({"error": "Provide ?q=description or ?item=number"}), 400
+
+    results = find_similar_items(
+        item_number=item_number,
+        description=query,
+        max_results=max_results,
+    )
+    return jsonify({"query": query, "item_number": item_number, "results": results})
+
+
+@bp.route("/api/won-quotes/stats")
+@auth_required
+@safe_route
+def api_won_quotes_stats():
+    """Get Won Quotes KB statistics and pricing health check."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+
+    stats = get_kb_stats()
+    health = pricing_health_check()
+    return jsonify({"stats": stats, "health": health})
+
+
+@bp.route("/api/won-quotes/dump")
+@auth_required
+@safe_route
+def api_won_quotes_dump():
+    """Debug: show first 10 raw KB records to verify what's stored."""
+    if not PRICING_ORACLE_AVAILABLE:
+        return jsonify({"error": "Won Quotes DB not available"}), 503
+    from src.knowledge.won_quotes_db import load_won_quotes
+    quotes = load_won_quotes()
+    return jsonify({"total": len(quotes), "first_10": quotes[:10]})
+
+
+@bp.route("/api/debug/paths")
+@auth_required
+@safe_route
+def api_debug_paths():
+    """Debug: show actual filesystem paths and what exists."""
+    try:
+        from src.knowledge import won_quotes_db
+    except ImportError:
+        import won_quotes_db
+    results = {
+        "dashboard_BASE_DIR": BASE_DIR,
+        "dashboard_DATA_DIR": DATA_DIR,
+        "won_quotes_DATA_DIR": won_quotes_db.DATA_DIR,
+        "won_quotes_FILE": won_quotes_db.WON_QUOTES_FILE,
+        "cwd": os.getcwd(),
+        "app_file_location": os.path.abspath(__file__),
+    }
+    # Check what exists
+    for path_name, path_val in list(results.items()):
+        if path_val and os.path.exists(path_val):
+            if os.path.isdir(path_val):
+                try:
+                    results[f"{path_name}_contents"] = os.listdir(path_val)
+                except Exception as e:
+                    log.debug("Suppressed: %s", e)
+                    results[f"{path_name}_contents"] = "permission denied"
+            else:
+                results[f"{path_name}_exists"] = True
+                results[f"{path_name}_size"] = os.path.getsize(path_val)
+        else:
+            results[f"{path_name}_exists"] = False
+    # Check /app/data specifically
+    for check_path in ["/app/data", "/app", DATA_DIR]:
+        key = check_path.replace("/", "_")
+        results[f"check{key}_exists"] = os.path.exists(check_path)
+        if os.path.exists(check_path) and os.path.isdir(check_path):
+            try:
+                results[f"check{key}_contents"] = os.listdir(check_path)
+            except Exception as e:
+                log.debug("Suppressed: %s", e)
+                results[f"check{key}_contents"] = "permission denied"
+    return jsonify(results)
+
+
+@bp.route("/api/debug/pcs")
+@auth_required
+@safe_route
+def api_debug_pcs():
+    """Debug: show price_checks.json state for persistence troubleshooting."""
+    pc_path = os.path.join(DATA_DIR, "price_checks.json")
+    result = {
+        "data_dir": DATA_DIR,
+        "pc_path": pc_path,
+        "pc_file_exists": os.path.exists(pc_path),
+    }
+    if os.path.exists(pc_path):
+        result["pc_file_size"] = os.path.getsize(pc_path)
+        result["pc_file_mtime"] = os.path.getmtime(pc_path)
+        try:
+            pcs = _load_price_checks()
+            result["pc_count"] = len(pcs)
+            result["pc_ids"] = list(pcs.keys())[:20]
+            result["pc_statuses"] = {pid: pc.get("status", "?") for pid, pc in list(pcs.items())[:20]}
+            # Check user-facing filter
+            from src.api.dashboard import _is_user_facing_pc
+            user_facing = {pid: pc for pid, pc in pcs.items() if _is_user_facing_pc(pc)}
+            result["user_facing_count"] = len(user_facing)
+            result["filtered_out"] = len(pcs) - len(user_facing)
+            if result["filtered_out"] > 0:
+                filtered = {pid: {"status": pc.get("status"), "source": pc.get("source"), 
+                                  "is_auto_draft": pc.get("is_auto_draft"), "rfq_id": pc.get("rfq_id")}
+                            for pid, pc in pcs.items() if not _is_user_facing_pc(pc)}
+                result["filtered_details"] = filtered
+        except Exception as e:
+            result["error"] = str(e)
+    else:
+        result["pc_count"] = 0
+        result["note"] = "price_checks.json does not exist!"
+    # Also check volume status
+    try:
+        from src.core.paths import _USING_VOLUME
+        result["using_volume"] = _USING_VOLUME
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
+    return jsonify(result)
+
+
+@bp.route("/api/won-quotes/migrate")
+@auth_required
+@safe_route
+def api_won_quotes_migrate():
+    """One-time migration: import existing scprs_prices.json into Won Quotes KB."""
+    try:
+        from src.agents.scprs_lookup import migrate_local_db_to_won_quotes
+        result = migrate_local_db_to_won_quotes()
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/won-quotes/seed")
+@auth_required
+@safe_route
+def api_won_quotes_seed():
+    """Start bulk SCPRS seed: searches ~20 common categories, drills into PO details,
+    ingests unit prices into Won Quotes KB. Runs in background thread (~3-5 min)."""
+    try:
+        from src.agents.scprs_lookup import bulk_seed_won_quotes, SEED_STATUS
+        if SEED_STATUS.get("running"):
+            return jsonify({"ok": False, "message": "Seed already running", "status": SEED_STATUS})
+        t = threading.Thread(target=bulk_seed_won_quotes, daemon=True)
+        t.start()
+        return jsonify({"ok": True, "message": "Seed started in background. Check progress at /api/won-quotes/seed-status"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/won-quotes/seed-status")
+@auth_required
+@safe_route
+def api_won_quotes_seed_status():
+    """Check progress of bulk SCPRS seed job."""
+    try:
+        from src.agents.scprs_lookup import SEED_STATUS
+        return jsonify(SEED_STATUS)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+@bp.route("/api/pricecheck/<pcid>/dismiss", methods=["POST"])
+@auth_required
+@safe_route
+def api_pricecheck_dismiss(pcid):
+    """Dismiss a PC from the active queue with a reason.
+    Keeps data for SCPRS intelligence. reason=delete does hard delete.
+    Valid reasons: dismissed, archived, duplicate, no_response, delete"""
+    from datetime import datetime
+
+    data = request.get_json(force=True) if request.data else {}
+    reason = data.get("reason", "other")
+    
+    # Hard delete path
+    if reason == "delete":
+        return api_pricecheck_delete(pcid)
+    
+    pcs = _load_price_checks()
+
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    pc = pcs[pcid]
+    # Use the reason as the status directly for known actions
+    valid_statuses = {"not_responding", "dismissed", "archived", "duplicate", "no_response", "won", "lost"}
+    # Map UI reasons to appropriate statuses
+    _reason_map = {"cs_question": "dismissed", "other": "dismissed"}
+    new_status = _reason_map.get(reason, reason) if reason not in valid_statuses else reason
+    if new_status not in valid_statuses:
+        new_status = "dismissed"
+    pc["status"] = new_status
+    pc["dismiss_reason"] = reason
+    pc["dismissed_at"] = datetime.now().isoformat()
+    pcs[pcid] = pc
+
+    _save_single_pc(pcid, pc)
+
+    log.info("PC %s dismissed: reason=%s pc_number=%s", pcid, reason, pc.get("pc_number","?"))
+    
+    # Queue SCPRS price intelligence pull on the items (async)
+    scprs_queued = False
+    items = pc.get("items", [])
+    if items:
+        try:
+            from src.agents.scprs_lookup import queue_background_lookup
+            for item in items[:20]:
+                desc = item.get("description", "")
+                if desc and len(desc) > 3:
+                    queue_background_lookup(desc, source=f"dismissed_pc_{pcid}")
+            scprs_queued = True
+        except Exception as e:
+            log.debug("SCPRS queue for dismissed PC: %s", e)
+    
+    return jsonify({
+        "ok": True,
+        "dismissed": pcid,
+        "reason": reason,
+        "scprs_queued": scprs_queued,
+    })
+
+
+@bp.route("/api/pricecheck/<pcid>/delete", methods=["GET", "POST"])
+@auth_required
+@safe_route
+def api_pricecheck_delete(pcid):
+    """Delete a price check by ID. Also removes linked quote draft and recalculates counter."""
+    pcs = _load_price_checks()
+
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    pc = pcs[pcid]
+    pc_num = pc.get("pc_number", pcid)
+    linked_qn = pc.get("reytech_quote_number", "") or pc.get("linked_quote_number", "")
+
+    # Mark dismissed (Law 22: never truly delete)
+    pcs[pcid]["status"] = "dismissed"
+    _save_single_pc(pcid, pc)
+
+    # Also remove from SQLite
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DELETE FROM price_checks WHERE id=?", (pcid,))
+    except Exception as e:
+        log.debug("SQLite PC delete: %s", e)
+
+    # Remove the linked draft quote from quotes_log.json so the number is freed
+    quote_removed = False
+    if linked_qn:
+        try:
+            from src.forms.quote_generator import get_all_quotes, _save_all_quotes
+            all_quotes = get_all_quotes()
+            before = len(all_quotes)
+            all_quotes = [q for q in all_quotes
+                          if not (q.get("quote_number") == linked_qn
+                                  and q.get("status") in ("draft", "pending"))]
+            if len(all_quotes) < before:
+                _save_all_quotes(all_quotes)
+                quote_removed = True
+                log.info("Removed draft quote %s (linked to deleted PC %s)", linked_qn, pcid)
+
+                # Also remove from SQLite quotes table
+                try:
+                    with get_db() as conn:
+                        conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
+                except Exception as _e:
+                    log.debug("Suppressed: %s", _e)
+        except Exception as e:
+            log.debug("Quote cleanup: %s", e)
+
+    # Recalculate counter — set to highest remaining quote number
+    counter_reset = None
+    if quote_removed:
+        try:
+            import re as _re
+            from src.forms.quote_generator import get_all_quotes, _load_counter, _save_counter
+            all_quotes = get_all_quotes()
+            max_seq = 0
+            for q in all_quotes:
+                qn = q.get("quote_number", "")
+                m = _re.search(r'R\d{2}Q(\d+)', qn)
+                if m and not q.get("is_test"):
+                    max_seq = max(max_seq, int(m.group(1)))
+            # Also check remaining PCs
+            remaining_pcs = _load_price_checks()
+            for rpc in remaining_pcs.values():
+                qn = rpc.get("reytech_quote_number", "") or ""
+                m = _re.search(r'R\d{2}Q(\d+)', qn)
+                if m:
+                    max_seq = max(max_seq, int(m.group(1)))
+            old_counter = _load_counter()
+            if max_seq < old_counter.get("seq", 0):
+                _save_counter({"year": old_counter.get("year", 2026), "seq": max_seq})
+                counter_reset = f"Q{old_counter['seq']} → Q{max_seq} (next will be Q{max_seq + 1})"
+                log.info("Quote counter reset: %s", counter_reset)
+        except Exception as e:
+            log.debug("Counter recalc: %s", e)
+
+    log.info("DELETED PC %s (%s)%s", pcid, pc_num,
+             f" + quote {linked_qn}" if quote_removed else "")
+    return jsonify({
+        "ok": True, "deleted": pcid,
+        "quote_removed": linked_qn if quote_removed else None,
+        "counter_reset": counter_reset,
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PC Lifecycle Endpoints + Award Monitor + Competitors
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PC_STATUS_LABELS = {
+    "new":            ("New",             "#4f8cff"),
+    "parsed":         ("New",             "#4f8cff"),
+    "parse_error":    ("New",             "#4f8cff"),
+    "draft":          ("Draft",           "#fbbf24"),
+    "priced":         ("Draft",           "#fbbf24"),
+    "ready":          ("Draft",           "#fbbf24"),
+    "auto_drafted":   ("Draft",           "#fbbf24"),
+    "quoted":         ("Draft",           "#fbbf24"),
+    "generated":      ("Draft",           "#fbbf24"),
+    "completed":      ("Draft",           "#fbbf24"),
+    "converted":      ("Draft",           "#fbbf24"),
+    "pending_award":  ("Sent",            "#3fb950"),
+    "sent":           ("Sent",            "#3fb950"),
+    "won":            ("Sent",            "#3fb950"),
+    "lost":           ("Not Responding",  "#f85149"),
+    "expired":        ("Not Responding",  "#f85149"),
+    "no_response":    ("Not Responding",  "#f85149"),
+    "dismissed":      ("Not Responding",  "#f85149"),
+    "archived":       ("Not Responding",  "#f85149"),
+    "duplicate":      ("Not Responding",  "#f85149"),
+}
+
+
+@bp.route("/pricecheck")
+@auth_required
+@safe_page
+def pricecheck_redirect():
+    """Redirect /pricecheck → /pricechecks (common typo/nav issue)"""
+    return redirect("/pricechecks")
+
+
+@bp.route("/pricechecks/today")
+@auth_required
+@safe_page
+def pricechecks_today():
+    """Today's price checks — batch review dashboard."""
+    from src.api.render import render_page
+    pcs = _load_price_checks()
+
+    # Get PCs from last 48h, sorted by creation time
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(hours=48)).isoformat()
+    recent = []
+    for pcid, pc in pcs.items():
+        created = pc.get("created_at", "")
+        if created >= cutoff or pc.get("status") in ("new", "parsed"):
+            # Compute readiness
+            items = pc.get("items", [])
+            active = [it for it in items if not it.get("no_bid")]
+            total = len(active)
+            costed = sum(1 for it in active if (it.get("vendor_cost") or it.get("pricing", {}).get("unit_cost") or 0) > 0)
+            priced = sum(1 for it in active if (it.get("unit_price") or it.get("pricing", {}).get("recommended_price") or 0) > 0)
+
+            recent.append({
+                "id": pcid,
+                "pc_number": pc.get("pc_number", pcid),
+                "institution": pc.get("institution", ""),
+                "requestor": pc.get("requestor", ""),
+                "status": pc.get("status", "new"),
+                "created_at": created[:16] if created else "",
+                "due_date": pc.get("due_date", ""),
+                "total_items": total,
+                "costed": costed,
+                "priced": priced,
+                "pct": round(priced / total * 100) if total > 0 else 0,
+                "enrichment_status": pc.get("enrichment_status", ""),
+            })
+
+    # Sort: needs attention first (lowest pct), then by creation time
+    recent.sort(key=lambda x: (x["pct"], x["created_at"]))
+
+    return render_page("pc_batch.html", active_page="Today", pcs=recent)
+
+
+@bp.route("/pricechecks")
+@auth_required
+@safe_page
+def pricechecks_archive():
+    """PC Archive — searchable, filterable list of all price checks."""
+    pcs = _load_price_checks()
+    pc_list = []
+    for pcid, pc in pcs.items():
+        pc_list.append({
+            "id": pcid, "pc_number": pc.get("pc_number", "?"),
+            "institution": pc.get("institution", ""), "requestor": pc.get("requestor", ""),
+            "status": pc.get("status", "new"), "items_count": len(pc.get("items", [])),
+            "quote_number": pc.get("reytech_quote_number", ""),
+            "created_at": pc.get("created_at", ""), "sent_at": pc.get("sent_at", ""),
+            "due_date": pc.get("due_date", "") or pc.get("parsed", {}).get("header", {}).get("due_date", ""),
+            "source": pc.get("source", ""),
+            "competitor_name": pc.get("competitor_name", ""),
+            "competitor_price": pc.get("competitor_price", 0),
+            "revision_of": pc.get("revision_of", ""),
+            "total": sum((it.get("unit_price") or it.get("pricing", {}).get("recommended_price", 0) or 0) * it.get("qty", 1)
+                        for it in pc.get("items", [])),
+        })
+    pc_list.sort(key=lambda x: (
+        # Overdue items first (0 = overdue, 1 = not)
+        0 if x.get("due_date") and x["due_date"][:10] < datetime.now().strftime("%Y-%m-%d") else 1,
+        # Then by due date ascending (soonest first)
+        x.get("due_date", "9999") or "9999",
+        # Then by created_at descending
+        "" if not x.get("created_at") else x["created_at"],
+    ))
+    # Reverse created_at within non-due items
+    total = len(pc_list)
+
+    # Map internal statuses → 4 display statuses
+    DISPLAY_STATUS = {
+        "new": "new", "parsed": "new", "parse_error": "new",
+        "draft": "draft", "priced": "draft", "ready": "draft", "auto_drafted": "draft",
+        "quoted": "draft", "generated": "draft", "completed": "draft", "converted": "draft",
+        "sent": "sent", "pending_award": "sent", "won": "sent",
+        "lost": "not_responding", "expired": "not_responding", "no_response": "not_responding",
+        "dismissed": "not_responding", "archived": "not_responding", "duplicate": "not_responding",
+    }
+    # Add display_status to each PC for filtering
+    for p in pc_list:
+        p["display_status"] = DISPLAY_STATUS.get(p["status"], "new")
+
+    by_display = {}
+    for p in pc_list:
+        ds = p["display_status"]
+        by_display[ds] = by_display.get(ds, 0) + 1
+    total_sent = by_display.get("sent", 0)
+    total_not_responding = by_display.get("not_responding", 0)
+    total_draft = by_display.get("draft", 0)
+    total_new = by_display.get("new", 0)
+
+    status_options = ""
+    if total_new: status_options += f'<option value="new">🆕 New ({total_new})</option>'
+    if total_draft: status_options += f'<option value="draft">📝 Draft ({total_draft})</option>'
+    if total_sent: status_options += f'<option value="sent">📨 Sent ({total_sent})</option>'
+    if total_not_responding: status_options += f'<option value="not_responding">📭 Not Responding ({total_not_responding})</option>'
+
+    # Status badge styling — 4 clean statuses
+    STATUS_BADGE = {
+        "new":            ("🆕 New",            "rgba(79,140,255,.15)",  "#4f8cff"),
+        "parsed":         ("🆕 New",            "rgba(79,140,255,.15)",  "#4f8cff"),
+        "parse_error":    ("🆕 New",            "rgba(79,140,255,.15)",  "#4f8cff"),
+        "draft":          ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "priced":         ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "ready":          ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "auto_drafted":   ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "quoted":         ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "generated":      ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "completed":      ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "converted":      ("📝 Draft",          "rgba(251,191,36,.15)",  "#fbbf24"),
+        "pending_award":  ("📨 Sent",           "rgba(63,185,80,.2)",    "#3fb950"),
+        "sent":           ("📨 Sent",           "rgba(63,185,80,.2)",    "#3fb950"),
+        "won":            ("📨 Sent",           "rgba(63,185,80,.2)",    "#3fb950"),
+        "lost":           ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "expired":        ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "no_response":    ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "dismissed":      ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "archived":       ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+        "duplicate":      ("📭 Not Responding", "rgba(248,81,73,.15)",   "#f85149"),
+    }
+
+    rows = ""
+    for p in pc_list:
+        st = p["status"]
+        badge_label, badge_bg, badge_color = STATUS_BADGE.get(st, (st, "rgba(139,144,160,.15)", "#8b90a0"))
+        date_str = p["created_at"][:10] if p["created_at"] else "—"
+        due_str = p.get("due_date", "")[:10] if p.get("due_date") else "—"
+        total_str = f"${p['total']:,.2f}" if p["total"] else "—"
+        qn = p.get("quote_number", "")
+        src_icon = "📧" if p.get("source") == "email_auto" else "📄" if p.get("source") == "manual_upload" else ""
+        sent_elapsed = ""
+        if p.get("sent_at"):
+            try:
+                from datetime import datetime as _dt
+                _sd = _dt.fromisoformat(p["sent_at"][:19])
+                _dd = (_dt.now() - _sd).days
+                if _dd == 0: sent_elapsed = "today"
+                elif _dd == 1: sent_elapsed = "1d ago"
+                elif _dd < 30: sent_elapsed = f"{_dd}d ago"
+                elif _dd < 60: sent_elapsed = "1mo ago"
+                else: sent_elapsed = f"{_dd // 30}mo ago"
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
+        # Build rich search index with all visible fields
+        search_index = f"{p['pc_number'].lower()} {p['institution'].lower()} {p['requestor'].lower()} {qn.lower()} {p['display_status']} {badge_label.lower()} {due_str} {date_str}"
+        # Overdue detection
+        is_overdue = False
+        try:
+            if p.get("due_date") and p["due_date"][:10] < datetime.now().strftime("%Y-%m-%d") and st not in ('sent','won','lost','archived','no_response','duplicate','dismissed'):
+                is_overdue = True
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
+        overdue_style = "border-left:3px solid #f85149;" if is_overdue else ""
+        due_color = "#f85149;font-weight:700" if is_overdue else "var(--tx2)"
+        rows += f'''<tr data-status="{p['display_status']}" data-search="{search_index}" data-id="{p['id']}" style="cursor:pointer;{overdue_style}" onclick="if(!event.target.closest('input,button'))location.href='/pricecheck/{p['id']}'">
+         <td style="padding:8px 6px;text-align:center" onclick="event.stopPropagation()"><input type="checkbox" class="pc-bulk-check" value="{p['id']}" onchange="updateBulkBar()" style="width:16px;height:16px;cursor:pointer"></td>
+         <td style="padding:14px 12px"><a href="/pricecheck/{p['id']}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:15px">#{p['pc_number']}</a></td>
+         <td style="padding:14px 12px;font-size:15px;font-weight:500">{p['institution']}</td>
+         <td style="padding:14px 12px;font-size:15px">{p['requestor'][:30]}</td>
+         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:{due_color}">{due_str}{' 🔴' if is_overdue else ''}</td>
+         <td style="padding:14px 12px;font-size:15px;font-family:'JetBrains Mono',monospace;color:var(--tx2)">{date_str}</td>
+         <td style="padding:14px 12px;text-align:center;font-size:16px;font-weight:700">{p['items_count']}</td>
+         <td style="padding:14px 12px;text-align:right;font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace">{total_str}</td>
+         <td style="padding:14px 12px;text-align:center">{f'<span style="color:#58a6ff;font-family:JetBrains Mono,monospace;font-weight:700;font-size:14px">{qn}</span>' if qn else chr(8212)}</td>
+         <td style="padding:14px 12px;text-align:center"><span style="display:inline-block;padding:4px 12px;border-radius:14px;font-size:14px;font-weight:600;background:{badge_bg};color:{badge_color};white-space:nowrap">{badge_label}</span> {src_icon}</td>
+         <td style="padding:14px 12px;text-align:center;font-size:14px;color:#8b949e">{sent_elapsed}</td>
+         <td style="padding:6px 8px;text-align:center" onclick="event.stopPropagation()"><button onclick="quickDismiss('{p['id']}','archived')" title="Archive" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:4px">🗄️</button><button onclick="quickDismiss('{p['id']}','duplicate')" title="Duplicate" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:4px">📋</button><button onclick="quickDismiss('{p['id']}','delete')" title="Delete" style="background:none;border:none;color:#f85149;cursor:pointer;font-size:16px;padding:4px">🗑</button></td></tr>'''
+
+    content = f'''
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+      <h2 style="margin:0;font-size:26px;font-weight:700">📋 Price Check Archive</h2>
+      <div style="display:flex;gap:10px;align-items:center">
+        <form method="POST" action="/upload" enctype="multipart/form-data" style="display:inline-flex;gap:6px;align-items:center">
+          <input type="file" name="files" accept=".pdf" id="pc-upload-file" style="display:none" onchange="this.form.submit()">
+          <button type="button" onclick="document.getElementById('pc-upload-file').click()" class="btn btn-g" style="font-size:15px;font-weight:600;padding:10px 20px">📄 Upload 704 PDF</button>
+        </form>
+        <a href="/competitors" class="btn btn-p" style="font-size:15px;font-weight:600;padding:10px 20px;text-decoration:none">📊 Competitors</a>
+      </div>
+    </div>
+    <div style="display:flex;gap:14px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Total</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#4f8cff">{total_new}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">New</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{total_draft}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Draft</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{total_sent}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Sent</div></div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px 28px;text-align:center;min-width:100px">
+        <div style="font-size:32px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#f85149">{total_not_responding}</div><div style="font-size:14px;color:var(--tx2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px">Not Responding</div></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-bottom:14px;align-items:center">
+      <input id="pc-search" placeholder="🔍 Search PC#, institution, requestor, status..." oninput="filterPCs()" style="flex:1;padding:10px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:16px">
+      <select id="pc-status" onchange="filterPCs()" style="padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:15px">
+        <option value="">All Statuses</option>{status_options}</select>
+      <span id="pc-count" style="font-size:15px;color:var(--tx2);white-space:nowrap">{total} PCs</span>
+    </div>
+    <div id="bulk-bar" style="display:none;align-items:center;gap:12px;padding:8px 16px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);border-radius:8px;margin-bottom:8px">
+      <span id="bulk-count" style="font-size:14px;font-weight:600;color:#58a6ff">0 selected</span>
+      <button onclick="bulkAction('archived')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">🗄️ Archive</button>
+      <button onclick="bulkAction('duplicate')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#8b949e;font-size:13px;cursor:pointer">📋 Duplicate</button>
+      <button onclick="bulkAction('delete')" style="padding:4px 12px;background:#21262d;border:1px solid #30363d;border-radius:6px;color:#f85149;font-size:13px;cursor:pointer">🗑 Delete</button>
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:15px">
+        <thead><tr style="border-bottom:2px solid var(--bd);text-transform:uppercase;font-size:14px;color:var(--tx2);letter-spacing:.5px">
+          <th style="padding:8px 6px;text-align:center;width:30px"><input type="checkbox" onchange="toggleAllPCs(this)" style="width:16px;height:16px;cursor:pointer" title="Select all"></th>
+          <th style="padding:14px 12px;text-align:left;font-weight:600">PC #</th><th style="padding:14px 12px;text-align:left;font-weight:600">Institution</th>
+          <th style="padding:14px 12px;text-align:left;font-weight:600">Requestor</th><th style="padding:14px 12px;text-align:left;font-weight:600">Due</th><th style="padding:14px 12px;text-align:left;font-weight:600">Created</th>
+          <th style="padding:14px 12px;text-align:center;font-weight:600">Items</th><th style="padding:14px 12px;text-align:right;font-weight:600">Total</th>
+          <th style="padding:14px 12px;text-align:center;font-weight:600">Quote</th><th style="padding:14px 12px;text-align:center;font-weight:600">Status</th><th style="padding:14px 12px;text-align:center;font-weight:600">Sent</th><th style="padding:6px 8px;text-align:center;font-weight:600"></th>
+        </tr></thead>
+        <tbody id="pc-tbody">{rows}</tbody>
+      </table>
+    </div>
+    <script>
+    function filterPCs(){{var q=document.getElementById('pc-search').value.toLowerCase();var st=document.getElementById('pc-status').value;var rows=document.querySelectorAll('#pc-tbody tr');var v=0;rows.forEach(function(r){{var ok=(!q||r.dataset.search.includes(q))&&(!st||r.dataset.status===st);r.style.display=ok?'':'none';if(ok)v++;}});document.getElementById('pc-count').textContent=v+' PCs';}}
+    function quickDismiss(pcid, action){{
+      var labels={{'archived':'Archive','duplicate':'Mark Duplicate','delete':'Delete'}};
+      if(!confirm(labels[action]+' this PC?'))return;
+      fetch('/api/pricecheck/'+pcid+'/dismiss',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:action}})}})
+      .then(function(r){{return r.json()}}).then(function(d){{
+        if(d.ok){{location.reload()}}else{{alert('Error: '+(d.error||'unknown'))}}
+      }});
+    }}
+    function toggleAllPCs(master){{
+      document.querySelectorAll('.pc-bulk-check').forEach(function(cb){{
+        if(cb.closest('tr').style.display!=='none') cb.checked=master.checked;
+      }});
+      updateBulkBar();
+    }}
+    function updateBulkBar(){{
+      var checked=document.querySelectorAll('.pc-bulk-check:checked');
+      var bar=document.getElementById('bulk-bar');
+      if(checked.length>0){{
+        bar.style.display='flex';
+        document.getElementById('bulk-count').textContent=checked.length+' selected';
+      }}else{{
+        bar.style.display='none';
+      }}
+    }}
+    function bulkAction(action){{
+      var ids=Array.from(document.querySelectorAll('.pc-bulk-check:checked')).map(function(cb){{return cb.value}});
+      if(!ids.length) return;
+      var labels={{'archived':'Archive','duplicate':'Mark Duplicate','delete':'Delete'}};
+      if(!confirm(labels[action]+' '+ids.length+' Price Check'+(ids.length>1?'s':'')+'?')) return;
+      var done=0;var total=ids.length;
+      ids.forEach(function(id){{
+        fetch('/api/pricecheck/'+id+'/dismiss',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{reason:action}})}})
+        .then(function(r){{return r.json()}}).then(function(){{done++;if(done>=total)location.reload()}});
+      }});
+    }}
+    </script>'''
+
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="PCs", page_title="Price Checks", content=content)
+
+
+@bp.route("/api/pricechecks")
+@auth_required
+@safe_route
+def api_pricechecks_list():
+    """API: List all PCs with optional status filter. Add ?debug=1 for filter diagnostics."""
+    pcs = _load_price_checks()
+    status_filter = request.args.get("status", "")
+    debug = request.args.get("debug", "")
+    from src.api.dashboard import _is_user_facing_pc
+    result = []
+    for pcid, pc in pcs.items():
+        if status_filter and pc.get("status", "new") != status_filter:
+            continue
+        entry = {"id": pcid, "pc_number": pc.get("pc_number", "?"),
+            "institution": pc.get("institution", ""), "status": pc.get("status", "new"),
+            "items_count": len(pc.get("items", [])), "quote_number": pc.get("reytech_quote_number", ""),
+            "created_at": pc.get("created_at", ""), "competitor_name": pc.get("competitor_name", "")}
+        if debug:
+            entry["_source"] = pc.get("source", "")
+            entry["_is_auto_draft"] = pc.get("is_auto_draft", False)
+            entry["_rfq_id"] = pc.get("rfq_id", "")
+            entry["_user_facing"] = _is_user_facing_pc(pc)
+        result.append(entry)
+    result.sort(key=lambda x: x["created_at"], reverse=True)
+    return jsonify({"ok": True, "pcs": result, "count": len(result)})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-sent", methods=["POST"])
+@auth_required
+@safe_route
+def api_pricecheck_mark_sent(pcid):
+    """Mark PC as sent — creates versioned document record in DB."""
+    pcs = _load_price_checks()
+    if pcid not in pcs: return jsonify({"ok": False, "error": "PC not found"})
+    pc = pcs[pcid]
+    data = request.get_json(force=True, silent=True) or {}
+    
+    now = datetime.now().isoformat()
+    _transition_status(pc, "sent", actor="user", 
+                      notes=data.get("notes", "704 sent to requestor"))
+    pc["sent_at"] = now
+    pc["award_status"] = "pending"
+    pc["sent_to"] = data.get("sent_to", pc.get("requestor", ""))
+    pc["sent_method"] = data.get("method", "email")
+    
+    # Create versioned document record
+    doc_id = 0
+    output_pdf = pc.get("output_pdf", "")
+    if output_pdf and os.path.exists(output_pdf):
+        import shutil
+        # Copy to versioned filename: PC_BLS_IT_{pcid}_v1_sent_20260224.pdf
+        pc_num = pc.get("pc_number", "") or ""
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+        safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
+        date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Get next version
+        try:
+            from src.core.db import get_sent_documents
+            existing = get_sent_documents(pcid)
+            ver = len(existing) + 1
+        except Exception:
+            ver = 1
+        
+        versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
+        versioned_path = os.path.join(DATA_DIR, versioned_name)
+        shutil.copy2(output_pdf, versioned_path)
+        
+        # Store in DB with full item snapshot
+        try:
+            from src.core.db import create_sent_document
+            doc_id = create_sent_document(
+                pc_id=pcid, filepath=versioned_path,
+                items=pc.get("items", []),
+                header=pc.get("parsed", {}).get("header", {}),
+                notes=data.get("notes", "Initial send"),
+                created_by="user"
+            )
+            pc["current_doc_id"] = doc_id
+        except Exception as e:
+            log.warning("sent_document DB write failed: %s", e)
+    
+    _save_single_pc(pcid, pc)
+
+    try:
+        from src.core.dal import save_pc as _dal_save_pc
+        _dal_save_pc(pc)
+    except Exception as _e:
+        log.debug("DAL save_pc: %s", _e)
+    
+    _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
+        f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
+    
+    log.info("PC %s marked SENT: pc#=%s institution=%s doc_id=%s", 
+             pcid, pc.get("pc_number"), pc.get("institution"), doc_id)
+    return jsonify({"ok": True, "status": "sent", "sent_at": now, 
+                    "doc_id": doc_id,
+                    "doc_url": f"/pricecheck/{pcid}/document/{doc_id}" if doc_id else ""})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PC Follow-Up Scanner (PRD-v32 F3)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pricecheck/follow-up-scan")
+@auth_required
+@safe_route
+def api_pc_follow_up_scan():
+    """Scan PCs in 'sent' status that need follow-up.
+    Returns PCs where sent_at is 3+ days ago with no response.
+    ?days=3 (default) — minimum days since sent
+    ?days=5 — 5 day threshold
+    """
+    from datetime import datetime as _dt, timedelta
+    days_threshold = int(request.args.get("days", 3))
+    cutoff = _dt.now() - timedelta(days=days_threshold)
+
+    pcs = _load_price_checks()
+    follow_ups = []
+    for pcid, pc in pcs.items():
+        status = pc.get("status", "")
+        # Only look at "sent" or "pending_award" PCs
+        if status not in ("sent", "pending_award"):
+            continue
+
+        sent_at = pc.get("sent_at", "")
+        if not sent_at:
+            continue
+
+        try:
+            sent_dt = _dt.fromisoformat(sent_at[:19])
+        except (ValueError, TypeError):
+            continue
+
+        if sent_dt > cutoff:
+            continue  # Not old enough
+
+        days_since = (_dt.now() - sent_dt).days
+        institution = pc.get("institution", "") or "Unknown"
+        requestor = pc.get("requestor", "") or ""
+        requestor_email = ""
+        # Try to extract email from requestor field or contact info
+        if "@" in requestor:
+            requestor_email = requestor
+        elif pc.get("contact_email"):
+            requestor_email = pc["contact_email"]
+        elif pc.get("parsed", {}).get("header", {}).get("buyer_email"):
+            requestor_email = pc["parsed"]["header"]["buyer_email"]
+
+        total = sum(
+            (it.get("unit_price") or it.get("pricing", {}).get("recommended_price", 0) or 0)
+            * it.get("qty", 1)
+            for it in pc.get("items", [])
+        )
+
+        urgency = "normal"
+        if days_since >= 10:
+            urgency = "stale"
+        elif days_since >= 7:
+            urgency = "overdue"
+        elif days_since >= 5:
+            urgency = "due"
+
+        follow_ups.append({
+            "pc_id": pcid,
+            "pc_number": pc.get("pc_number", ""),
+            "institution": institution,
+            "requestor": requestor,
+            "requestor_email": requestor_email,
+            "sent_at": sent_at,
+            "days_since_sent": days_since,
+            "total": round(total, 2),
+            "items_count": len(pc.get("items", [])),
+            "due_date": pc.get("due_date", ""),
+            "urgency": urgency,
+            "follow_up_count": pc.get("follow_up_count", 0),
+            "last_follow_up": pc.get("last_follow_up_at", ""),
+        })
+
+    follow_ups.sort(key=lambda x: x["days_since_sent"], reverse=True)
+
+    return jsonify({
+        "ok": True,
+        "total": len(follow_ups),
+        "threshold_days": days_threshold,
+        "follow_ups": follow_ups,
+        "summary": {
+            "stale": sum(1 for f in follow_ups if f["urgency"] == "stale"),
+            "overdue": sum(1 for f in follow_ups if f["urgency"] == "overdue"),
+            "due": sum(1 for f in follow_ups if f["urgency"] == "due"),
+            "normal": sum(1 for f in follow_ups if f["urgency"] == "normal"),
+            "total_value": round(sum(f["total"] for f in follow_ups), 2),
+        },
+    })
+
+
+@bp.route("/api/pricecheck/<pcid>/log-follow-up", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_log_follow_up(pcid):
+    """Log that a follow-up was done on a sent PC."""
+    from datetime import datetime as _dt
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    data = request.get_json(force=True, silent=True) or {}
+    method = data.get("method", "email")  # email, phone, in_person
+    notes = data.get("notes", "")
+    now = _dt.now().isoformat()
+
+    pc["follow_up_count"] = pc.get("follow_up_count", 0) + 1
+    pc["last_follow_up_at"] = now
+
+    # Add to history
+    if "follow_up_history" not in pc:
+        pc["follow_up_history"] = []
+    pc["follow_up_history"].append({
+        "timestamp": now,
+        "method": method,
+        "notes": notes,
+        "follow_up_number": pc["follow_up_count"],
+    })
+
+    _save_single_pc(pcid, pc)
+
+    _log_crm_activity(pc.get("reytech_quote_number", pcid), "pc_follow_up",
+        f"Follow-up #{pc['follow_up_count']} ({method}) on PC #{pc.get('pc_number','')} — {pc.get('institution','')}",
+        actor="user")
+
+    return jsonify({"ok": True, "follow_up_count": pc["follow_up_count"]})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-no-response", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_mark_no_response(pcid):
+    """Mark a PC as not responding after follow-up attempts."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+
+    _transition_status(pc, "not_responding", actor="user",
+                       notes=f"No response after {pc.get('follow_up_count', 0)} follow-ups")
+    _save_single_pc(pcid, pc)
+    return jsonify({"ok": True, "status": "not_responding"})
+
+
+@bp.route("/pricecheck/<pcid>/documents")
+@auth_required
+@safe_page
+def pricecheck_documents(pcid):
+    """List all sent document versions for a PC."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return redirect("/pricechecks")
+    from src.core.db import get_sent_documents
+    docs = get_sent_documents(pcid)
+    
+    rows = ""
+    for d in docs:
+        status_badge = {"current": ("Current", "#3fb950"), "superseded": ("Superseded", "#8b949e")}.get(
+            d.get("status", ""), ("?", "#8b949e"))
+        rows += f'''<tr style="cursor:pointer" onclick="location.href='/pricecheck/{pcid}/document/{d['id']}'">
+         <td style="font-family:monospace;font-weight:600;color:#58a6ff">v{d['version']}</td>
+         <td>{d['created_at'][:19].replace('T',' ')}</td>
+         <td>{d.get('notes','')[:40]}</td>
+         <td>{d.get('change_summary','')[:60]}</td>
+         <td><span style="background:{status_badge[1]};color:#0d1117;padding:2px 8px;border-radius:4px;font-size:14px;font-weight:600">{status_badge[0]}</span></td>
+         <td style="text-align:right;font-family:monospace">{d.get('file_size',0)//1024}KB</td>
+         <td><a href="/api/pricecheck/document/{d['id']}/pdf" style="color:#58a6ff">📥 Download</a></td>
+        </tr>'''
+    
+    content = f'''
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="margin:0">📄 Sent Documents — PC #{pc.get("pc_number","?")}</h2>
+      <a href="/pricecheck/{pcid}" style="color:#58a6ff;text-decoration:none;font-size:13px">← Back to PC Detail</a>
+    </div>
+    <div style="font-size:13px;color:var(--tx2);margin-bottom:16px">{pc.get("institution","")} · {len(docs)} version(s)</div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+     <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:1px solid var(--bd);font-size:14px;color:var(--tx2);text-transform:uppercase">
+       <th style="padding:10px;text-align:left">Ver</th><th style="padding:10px">Date</th>
+       <th style="padding:10px">Notes</th><th style="padding:10px">Changes</th>
+       <th style="padding:10px">Status</th><th style="padding:10px;text-align:right">Size</th>
+       <th style="padding:10px"></th>
+      </tr></thead>
+      <tbody>{rows if rows else '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--tx2)">No documents yet — mark PC as Sent to create the first version</td></tr>'}</tbody>
+     </table>
+    </div>'''
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="PCs", page_title=f"Documents — PC #{pc.get('pc_number','?')}", content=content)
+
+
+@bp.route("/api/pricecheck/document/<int:doc_id>/pdf")
+@auth_required
+@safe_route
+def serve_sent_document_pdf(doc_id):
+    """Serve a specific document version's PDF."""
+    from src.core.db import get_sent_document
+    doc = get_sent_document(doc_id)
+    if not doc or not doc.get("filepath"):
+        return jsonify({"ok": False, "error": "Document not found"}), 404
+    fp = doc["filepath"]
+    if not os.path.exists(fp):
+        return jsonify({"ok": False, "error": "PDF file not found on disk"}), 404
+    return send_file(fp, mimetype="application/pdf")
+
+
+@bp.route("/pricecheck/<pcid>/document/<int:doc_id>")
+@auth_required
+@safe_page
+def pricecheck_document_editor(pcid, doc_id):
+    """Inline PDF viewer + editor for a sent document version."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return redirect("/pricechecks")
+    
+    from src.core.db import get_sent_document, get_sent_documents
+    doc = get_sent_document(doc_id)
+    if not doc:
+        return redirect(f"/pricecheck/{pcid}/documents")
+    
+    all_docs = get_sent_documents(pcid)
+    items = doc.get("items", []) or pc.get("items", [])
+    header = doc.get("header", {}) or pc.get("parsed", {}).get("header", {})
+    
+    # Build version selector
+    ver_options = "".join(
+        f'<option value="{d["id"]}" {"selected" if d["id"]==doc_id else ""}>'
+        f'v{d["version"]} — {d["created_at"][:16].replace("T"," ")}'
+        f'{" (current)" if d.get("status")=="current" else ""}</option>'
+        for d in all_docs
+    )
+    
+    # Build editable item rows
+    item_rows = ""
+    for i, item in enumerate(items):
+        desc = (item.get("description") or "").replace('"', '&quot;')
+        mfg = (item.get("mfg_number") or "").replace('"', '&quot;')
+        qty = item.get("qty", 1)
+        uom = (item.get("uom") or "EA").upper()
+        price = item.get("unit_price") or item.get("pricing", {}).get("recommended_price") or 0
+        cost = item.get("vendor_cost") or item.get("pricing", {}).get("unit_cost") or 0
+        ext = round(float(price) * int(qty), 2) if price else 0
+        item_rows += f'''<tr>
+         <td style="text-align:center;padding:8px;font-weight:600">{i+1}</td>
+         <td style="padding:4px"><input name="ed_qty_{i}" value="{qty}" type="number" min="1" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center" onchange="recalcDoc()"></td>
+         <td style="padding:4px"><input name="ed_uom_{i}" value="{uom}" style="width:60px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:center"></td>
+         <td style="padding:4px"><textarea name="ed_desc_{i}" rows="2" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:vertical">{desc}</textarea></td>
+         <td style="padding:4px"><input name="ed_mfg_{i}" value="{mfg}" style="width:120px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;font-family:monospace"></td>
+         <td style="padding:4px"><input name="ed_price_{i}" value="{float(price):.2f}" type="number" step="0.01" min="0" style="width:90px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:13px;text-align:right" onchange="recalcDoc()"></td>
+         <td style="padding:8px;text-align:right;font-weight:600;font-family:monospace" class="doc-ext">${ext:,.2f}</td>
+        </tr>'''
+    
+    change_log = ""
+    if doc.get("change_summary"):
+        change_log = f'<div style="font-size:14px;color:#d29922;margin-top:4px">Changes: {doc["change_summary"]}</div>'
+    
+    content = f'''
+    <style>
+     .doc-split {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; height:calc(100vh - 180px); }}
+     .doc-pdf {{ border:1px solid var(--bd); border-radius:8px; overflow:hidden; background:#1e1e1e; }}
+     .doc-editor {{ overflow-y:auto; }}
+     @media(max-width:1100px) {{ .doc-split {{ grid-template-columns:1fr; height:auto; }} .doc-pdf {{ height:600px; }} }}
+    </style>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+     <div>
+      <h2 style="margin:0;font-size:18px">📄 PC #{pc.get("pc_number","")} — {pc.get("institution","")}</h2>
+      <div style="font-size:14px;color:var(--tx2);margin-top:2px">
+       Version {doc.get("version",1)} · {doc.get("created_at","")[:19].replace("T"," ")}
+       · <span style="color:{("#3fb950" if doc.get("status")=="current" else "#8b949e")}">{doc.get("status","").title()}</span>
+       {change_log}
+      </div>
+     </div>
+     <div style="display:flex;gap:8px;align-items:center">
+      <select id="verSelect" onchange="location.href='/pricecheck/{pcid}/document/'+this.value" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:6px 10px;color:var(--tx);font-size:14px">{ver_options}</select>
+      <a href="/pricecheck/{pcid}/documents" style="color:#58a6ff;font-size:14px;text-decoration:none">📋 All Versions</a>
+      <a href="/pricecheck/{pcid}" style="color:#58a6ff;font-size:14px;text-decoration:none">← PC Detail</a>
+     </div>
+    </div>
+    <div class="doc-split">
+     <div class="doc-pdf">
+      <iframe src="/api/pricecheck/document/{doc_id}/pdf" style="width:100%;height:100%;border:none"></iframe>
+     </div>
+     <div class="doc-editor" style="background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+       <span style="font-size:14px;font-weight:700;color:var(--tx)">✏️ Edit Line Items</span>
+       <div style="display:flex;gap:8px">
+        <button onclick="saveDocument(this)" class="btn btn-sm" style="background:#238636;color:#fff;font-size:13px;padding:6px 16px;border-radius:6px;border:none;cursor:pointer;font-weight:600">💾 Save & Regenerate</button>
+        <a href="/api/pricecheck/document/{doc_id}/pdf" download class="btn btn-sm" style="background:#21262d;color:#58a6ff;font-size:14px;padding:6px 12px;border-radius:6px;border:1px solid #30363d;text-decoration:none">📥 Download</a>
+       </div>
+      </div>
+      <div id="docMsg" style="display:none;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:10px"></div>
+      <textarea id="ed_notes" placeholder="Revision notes (optional)" style="width:100%;background:var(--sf);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);font-size:14px;resize:none;margin-bottom:10px;height:32px">{doc.get("notes","")}</textarea>
+      <div style="overflow-x:auto">
+       <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2);text-transform:uppercase">
+         <th style="padding:8px;width:30px">#</th><th style="padding:8px;width:60px">Qty</th><th style="padding:8px;width:60px">UOM</th>
+         <th style="padding:8px">Description</th><th style="padding:8px;width:120px">MFG#</th>
+         <th style="padding:8px;width:90px;text-align:right">Price</th><th style="padding:8px;width:90px;text-align:right">Extension</th>
+        </tr></thead>
+        <tbody>{item_rows}</tbody>
+        <tfoot>
+         <tr style="border-top:2px solid var(--bd)">
+          <td colspan="6" style="text-align:right;padding:10px;font-weight:700;font-size:14px">Subtotal:</td>
+          <td style="text-align:right;padding:10px;font-weight:700;font-size:14px;font-family:monospace" id="docSubtotal">—</td>
+         </tr>
+        </tfoot>
+       </table>
+      </div>
+     </div>
+    </div>
+    <script>
+    var ITEM_COUNT={len(items)};
+    function recalcDoc(){{
+     var sub=0;
+     for(var i=0;i<ITEM_COUNT;i++){{
+      var q=parseInt(document.querySelector('[name=ed_qty_'+i+']').value)||1;
+      var p=parseFloat(document.querySelector('[name=ed_price_'+i+']').value)||0;
+      var ext=Math.round(q*p*100)/100;
+      sub+=ext;
+      var cells=document.querySelectorAll('.doc-ext');
+      if(cells[i]) cells[i].textContent='$'+ext.toFixed(2);
+     }}
+     document.getElementById('docSubtotal').textContent='$'+sub.toFixed(2);
+    }}
+    recalcDoc();
+    function saveDocument(btn){{
+     btn.disabled=true;btn.textContent='⏳ Saving...';
+     var items=[];
+     for(var i=0;i<ITEM_COUNT;i++){{
+      items.push({{
+       qty:parseInt(document.querySelector('[name=ed_qty_'+i+']').value)||1,
+       uom:document.querySelector('[name=ed_uom_'+i+']').value||'EA',
+       description:document.querySelector('[name=ed_desc_'+i+']').value||'',
+       mfg_number:document.querySelector('[name=ed_mfg_'+i+']').value||'',
+       unit_price:parseFloat(document.querySelector('[name=ed_price_'+i+']').value)||0,
+      }});
+     }}
+     var notes=document.getElementById('ed_notes').value;
+     fetch('/pricecheck/{pcid}/document/save',{{
+      method:'POST',headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{items:items,notes:notes,from_doc_id:{doc_id}}})
+     }}).then(r=>r.json()).then(d=>{{
+      btn.disabled=false;
+      if(d.ok){{
+       var msg=document.getElementById('docMsg');
+       msg.style.display='block';msg.style.background='rgba(52,211,153,.1)';
+       msg.style.border='1px solid rgba(52,211,153,.3)';msg.style.color='#3fb950';
+       msg.textContent='✅ Saved as v'+d.version+'. Reloading...';
+       setTimeout(()=>location.href='/pricecheck/{pcid}/document/'+d.doc_id,1500);
+      }}else{{
+       btn.textContent='💾 Save & Regenerate';
+       var msg=document.getElementById('docMsg');
+       msg.style.display='block';msg.style.background='rgba(248,81,73,.1)';
+       msg.style.border='1px solid rgba(248,81,73,.3)';msg.style.color='#f85149';
+       msg.textContent='❌ '+(d.error||'Save failed');
+      }}
+     }}).catch(e=>{{btn.disabled=false;btn.textContent='💾 Save & Regenerate';alert('Error: '+e.message)}});
+    }}
+    </script>'''
+    
+    from src.api.render import render_page
+    return render_page("generic.html", active_page="PCs", 
+                      page_title=f"Document Editor — PC #{pc.get('pc_number','?')}",
+                      content=content)
+
+
+@bp.route("/pricecheck/<pcid>/document/save", methods=["POST"])
+@auth_required
+@safe_page
+def pricecheck_document_save(pcid):
+    """Save edits from document editor → re-generates PDF → creates new version."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    
+    data = request.get_json(force=True, silent=True) or {}
+    edited_items = data.get("items", [])
+    notes = data.get("notes", "")
+    
+    if not edited_items:
+        return jsonify({"ok": False, "error": "No items provided"})
+    
+    # Merge edits into PC items (preserve pricing/catalog data, update user-editable fields)
+    items = pc.get("items", [])
+    for i, edit in enumerate(edited_items):
+        if i < len(items):
+            items[i]["qty"] = edit.get("qty", items[i].get("qty", 1))
+            items[i]["uom"] = edit.get("uom", items[i].get("uom", "EA"))
+            items[i]["description"] = edit.get("description", items[i].get("description", ""))
+            items[i]["mfg_number"] = edit.get("mfg_number", items[i].get("mfg_number", ""))
+            items[i]["unit_price"] = edit.get("unit_price", 0)
+            if not items[i].get("pricing"):
+                items[i]["pricing"] = {}
+            items[i]["pricing"]["recommended_price"] = edit.get("unit_price", 0)
+    
+    # Sync to parsed
+    if "parsed" not in pc:
+        pc["parsed"] = {"header": {}, "line_items": items}
+    else:
+        pc["parsed"]["line_items"] = items
+    _save_single_pc(pcid, pc)
+    
+    # Re-generate the PDF
+    from src.forms.price_check import fill_ams704
+    source_pdf = pc.get("source_pdf", "")
+    if not source_pdf or not os.path.exists(source_pdf):
+        return jsonify({"ok": False, "error": "Source PDF not found"})
+    
+    pc_num = pc.get("pc_number", "") or ""
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip()) if pc_num.strip() else ""
+    safe_name = f"{safe_name}_{pcid}" if safe_name else pcid
+
+    # Get next version number
+    from src.core.db import get_sent_documents, create_sent_document
+    existing = get_sent_documents(pcid)
+    ver = len(existing) + 1
+    
+    date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    versioned_name = f"PC_{safe_name}_v{ver}_sent_{date_str}.pdf"
+    output_path = os.path.join(DATA_DIR, versioned_name)
+    
+    _regen_tax = 0.0
+    if pc.get("tax_enabled", False):
+        _rsr = pc.get("tax_rate", 0)
+        if _rsr and float(_rsr) > 0:
+            _rrv = float(_rsr)
+            _regen_tax = _rrv / 100.0 if _rrv > 1.0 else _rrv
+
+    result = fill_ams704(
+        source_pdf=source_pdf,
+        parsed_pc=pc.get("parsed", {}),
+        output_pdf=output_path,
+        tax_rate=_regen_tax,
+        custom_notes=pc.get("custom_notes", ""),
+        delivery_option=pc.get("delivery_option", ""),
+    )
+    
+    if not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("error", "PDF generation failed")})
+    
+    # Update the main output_pdf to this latest version
+    pc["output_pdf"] = output_path
+    _save_single_pc(pcid, pc)
+    
+    # Create document version record
+    doc_id = create_sent_document(
+        pc_id=pcid, filepath=output_path,
+        items=items,
+        header=pc.get("parsed", {}).get("header", {}),
+        notes=notes or "Edited from document viewer",
+        created_by="user"
+    )
+    
+    log.info("DOCUMENT SAVE pc=%s v%d doc_id=%d: %d items, file=%s",
+             pcid, ver, doc_id, len(items), versioned_name)
+    
+    return jsonify({"ok": True, "doc_id": doc_id, "version": ver, "filename": versioned_name})
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-auto-priced", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_mark_auto_priced(pcid):
+    """Mark a PC as auto-priced so the on-load auto-pricing doesn't re-run."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"})
+    pc["auto_priced"] = True
+    _save_single_pc(pcid, pc)
+    return jsonify({"ok": True})
+

@@ -23,6 +23,7 @@ import re
 import time
 import logging
 import hashlib
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
@@ -53,6 +54,7 @@ RESEARCH_STATUS = {
     "running": False, "progress": "", "items_done": 0, "items_total": 0,
     "prices_found": 0, "errors": [], "started_at": None, "finished_at": None,
 }
+_status_lock = threading.Lock()
 
 
 # ─── Cache Layer ─────────────────────────────────────────────────────────────
@@ -505,16 +507,18 @@ def research_rfq_items(rfq_data: dict) -> dict:
     cached = 0
     not_found = 0
 
-    RESEARCH_STATUS.update({
-        "running": True, "progress": "starting",
-        "items_done": 0, "items_total": len(line_items),
-        "prices_found": 0, "errors": [],
-        "started_at": datetime.now().isoformat(), "finished_at": None,
-    })
+    with _status_lock:
+        RESEARCH_STATUS.update({
+            "running": True, "progress": "starting",
+            "items_done": 0, "items_total": len(line_items),
+            "prices_found": 0, "errors": [],
+            "started_at": datetime.now().isoformat(), "finished_at": None,
+        })
 
     for idx, item in enumerate(line_items):
-        RESEARCH_STATUS["items_done"] = idx
-        RESEARCH_STATUS["progress"] = f"Researching: {item.get('description', '')[:50]}"
+        with _status_lock:
+            RESEARCH_STATUS["items_done"] = idx
+            RESEARCH_STATUS["progress"] = f"Researching: {item.get('description', '')[:50]}"
 
         if item.get("supplier_cost") and item["supplier_cost"] > 0:
             results.append({
@@ -542,13 +546,15 @@ def research_rfq_items(rfq_data: dict) -> dict:
                 item["supplier_url"] = result.get("url", "")
                 item["item_link"] = result.get("url", "")
                 item["item_supplier"] = result.get("source", "")
-                RESEARCH_STATUS["prices_found"] = found
+                with _status_lock:
+                    RESEARCH_STATUS["prices_found"] = found
             else:
                 not_found += 1
 
         except Exception as e:
             log.error("Research error item %d: %s", idx, e)
-            RESEARCH_STATUS["errors"].append(str(e))
+            with _status_lock:
+                RESEARCH_STATUS["errors"].append(str(e))
             results.append({
                 "line_number": item.get("line_number"),
                 "found": False, "error": str(e),
@@ -558,11 +564,12 @@ def research_rfq_items(rfq_data: dict) -> dict:
         if idx < len(line_items) - 1:
             time.sleep(0.5)
 
-    RESEARCH_STATUS.update({
-        "running": False, "progress": "complete",
-        "items_done": len(line_items), "prices_found": found,
-        "finished_at": datetime.now().isoformat(),
-    })
+    with _status_lock:
+        RESEARCH_STATUS.update({
+            "running": False, "progress": "complete",
+            "items_done": len(line_items), "prices_found": found,
+            "finished_at": datetime.now().isoformat(),
+        })
 
     return {
         "rfq_id": rfq_data.get("solicitation_number", "") or "RFQ",

@@ -4,6 +4,7 @@ Stable contract: these routes will not change shape without version bump.
 """
 from flask import request, jsonify
 from src.api.shared import bp, auth_required, api_response
+from src.core.security import rate_limit
 import logging
 import time as _time
 
@@ -4071,6 +4072,7 @@ def api_v1_system_templates():
 @bp.route("/api/v1/system/templates/upload", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_v1_system_templates_upload():
     """Upload form templates. Supports:
     - Single PDF: saved as-is (or with save_as name)

@@ -294,7 +294,7 @@
    <td style="min-width:220px">
     <div style="display:flex;align-items:center;gap:4px">
      <input type="text" name="link_{{loop.index0}}" value="{{i.get('item_link','')}}" placeholder="Paste supplier URL..." class="text-in" style="flex:1;font-size:13px;padding:6px 8px;color:#58a6ff" oninput="handleRfqLinkInput({{loop.index0}}, this)" onpaste="setTimeout(()=>handleRfqLinkInput({{loop.index0}},this),50)">{% if i.get('photo_url') %}<input type="hidden" name="photo_url_{{loop.index0}}" value="{{i.photo_url}}">{% endif %}
-     <a href="{{i.get('item_link','')}}" target="_blank" id="rfq_linkopen_{{loop.index0}}" style="display:{% if i.get('item_link') %}flex{% else %}none{% endif %};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">↗</a>
+     <a href="{{i.get('item_link','')}}" target="_blank" id="rfq_linkopen_{{loop.index0}}" style="display:{% if i.get('item_link') %}flex{% else %}none{% endif %};align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">↗</a>
     </div>
     <div id="rfq_link_meta_{{loop.index0}}" style="font-size:14px;margin-top:2px;min-height:14px">
      {% if i.get('item_supplier') %}<span style="color:#8b949e">{{i.item_supplier}}</span>{% endif %}
@@ -447,12 +447,12 @@
 
  <!-- ── Primary Actions ── -->
  <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700">✅ Finalize Pricing</button>
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:12px 20px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote" title="Opens generated PDF if available, otherwise shows HTML preview">👁 Preview</button>
   <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
-  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()">📧 Send Quote</button>
-  <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification">🌾 Food Cert</button>
-  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package">📋 Fill All Forms</button>
+  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
+  <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification" aria-label="Generate food certification form">🌾 Food Cert</button>
+  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
  </div>
 
  <!-- ── Quote Management ── -->
@@ -465,8 +465,8 @@
    {% if r.get('quote_revised_at') %}<span style="font-size:12px;color:#8b949e">{{ r.quote_revised_at[:10] }}</span>{% endif %}
   </div>
   <div style="width:1px;height:24px;background:rgba(63,185,80,.2)"></div>
-  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing">✏️ Revise Quote</button>
-  <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Download current quote PDF">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
+  <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing" aria-label="Revise quote PDF">✏️ Revise Quote</button>
+  <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Download current quote PDF" aria-label="Download quote PDF">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
   {% if r.get('quote_revision') %}<a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;font-size:13px;margin-left:auto">📋 History</a>{% endif %}
  </div>
  {% if r.get('quote_revision') %}
@@ -481,7 +481,7 @@
  <div style="background:#161b22;border:1px solid #30363d;border-radius:12px;width:680px;max-width:95vw;max-height:85vh;padding:24px;box-shadow:0 16px 48px rgba(0,0,0,0.4);display:flex;flex-direction:column">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
    <h3 style="margin:0;color:#e6edf3">📋 Bulk Paste</h3>
-   <button onclick="closeBulkPaste()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer">✕</button>
+   <button onclick="closeBulkPaste()" style="background:none;border:none;color:#8b949e;font-size:20px;cursor:pointer" aria-label="Close bulk paste dialog">✕</button>
   </div>
   <!-- Mode tabs -->
   <div style="display:flex;gap:4px;margin-bottom:10px">
@@ -551,7 +551,7 @@
  <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
   <div style="display:flex;gap:8px;align-items:center">
    <input type="file" name="templates" multiple accept=".pdf" style="font-size:14px">
-   <button type="submit" class="btn btn-sm btn-p">📎 Add Documents</button>
+   <button type="submit" class="btn btn-sm btn-p" aria-label="Add supporting documents">📎 Add Documents</button>
   </div>
   <div style="font-size:14px;color:var(--tx2);margin-top:4px">Upload additional PDFs to include in the response package (e.g. Cal Vet RFQ form)</div>
  </form>
@@ -578,7 +578,7 @@
  <form method="POST" action="/rfq/{{rid}}/upload-templates" enctype="multipart/form-data">
   <div style="display:flex;gap:8px;align-items:center">
    <input type="file" name="templates" data-testid="rfq-upload-templates" multiple accept=".pdf" style="font-size:13px">
-   <button type="submit" class="btn btn-sm btn-p" data-testid="rfq-upload-templates-btn">📎 Upload Templates</button>
+   <button type="submit" class="btn btn-sm btn-p" data-testid="rfq-upload-templates-btn" aria-label="Upload form templates">📎 Upload Templates</button>
   </div>
   <div style="font-size:14px;color:var(--tx2);margin-top:4px">Upload the 703B, 704B, and/or Bid Package PDFs from the RFQ email</div>
  </form>
@@ -671,9 +671,9 @@
   <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--sf);border-radius:10px 10px 0 0">
    <span id="pdfPreviewTitle" style="font-size:14px;font-weight:600;color:var(--tx)">PDF Preview</span>
    <div>
-    <a id="pdfPreviewDownload" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">⬇️ Download</a>
-    <a id="pdfPreviewNewTab" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px">↗️ Open</a>
-    <button class="btn btn-sm" style="background:none;border:none;color:var(--tx);font-size:22px;cursor:pointer" onclick="closePdfPreview()">✕</button>
+    <a id="pdfPreviewDownload" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px" aria-label="Download PDF">⬇️ Download</a>
+    <a id="pdfPreviewNewTab" href="#" target="_blank" class="btn btn-sm btn-s" style="margin-right:8px" aria-label="Open PDF in new tab">↗️ Open</a>
+    <button class="btn btn-sm" style="background:none;border:none;color:var(--tx);font-size:22px;cursor:pointer" onclick="closePdfPreview()" aria-label="Close PDF preview">✕</button>
    </div>
   </div>
   <div id="pdfPreviewLoading" style="flex:1;display:flex;align-items:center;justify-content:center;background:#fff;border-radius:0 0 10px 10px;color:#666">Loading PDF...</div>
@@ -735,7 +735,7 @@
   <input type="hidden" name="attach_files" id="attachFilesInput" value="">
   
   <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center">
-   <button type="button" id="rfqSendBtn" class="btn" style="font-size:14px;padding:10px 28px;background:#238636;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="rfqComposeSend()">📨 Send Quote</button>
+   <button type="button" id="rfqSendBtn" class="btn" style="font-size:14px;padding:10px 28px;background:#238636;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer" onclick="rfqComposeSend()" aria-label="Send quote via email">📨 Send Quote</button>
    <span id="emailStatus" style="font-size:14px;color:var(--tx2)"></span>
   </div>
  </form>
@@ -799,18 +799,18 @@
  <!-- Action buttons based on current status -->
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
   {% if r.status in ('new', 'ready') %}
-   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px">📦 Mark Generated</button>
+   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px" aria-label="Mark as generated">📦 Mark Generated</button>
   {% endif %}
   {% if r.status in ('generated', 'ready', 'ready_to_send') %}
-   <button onclick="updateRfqStatus('sent')" class="btn" style="font-size:15px;padding:10px 22px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)">📨 Mark Sent</button>
+   <button onclick="updateRfqStatus('sent')" class="btn" style="font-size:15px;padding:10px 22px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)" aria-label="Mark as sent">📨 Mark Sent</button>
   {% endif %}
   {% if r.status in ('sent', 'generated', 'ready_to_send') %}
-   <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px">🏆 Won</button>
-   <button onclick="recordRfqOutcome('lost')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:6px">❌ Lost</button>
-   <button onclick="recordRfqOutcome('no_response')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3);border-radius:6px">⏰ No Response</button>
+   <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px" aria-label="Mark as won">🏆 Won</button>
+   <button onclick="recordRfqOutcome('lost')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:6px" aria-label="Mark as lost">❌ Lost</button>
+   <button onclick="recordRfqOutcome('no_response')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3);border-radius:6px" aria-label="Mark as no response">⏰ No Response</button>
   {% endif %}
   {% if r.status in ('won', 'lost', 'no_bid', 'cancelled') %}
-   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px">↩ Reopen</button>
+   <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px" aria-label="Reopen RFQ for editing">↩ Reopen</button>
   {% endif %}
  </div>
 
@@ -829,7 +829,7 @@
 <div id="source-panel" style="position:fixed;top:0;right:-500px;width:480px;height:100vh;background:var(--bg,#0d1117);border-left:2px solid var(--bd,#30363d);z-index:10000;transition:right 0.3s ease;overflow-y:auto;padding:20px;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
   <h3 style="margin:0;color:var(--tx)">📧 Source Material</h3>
-  <button onclick="toggleSourcePanel()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+  <button onclick="toggleSourcePanel()" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer" aria-label="Close source panel">✕</button>
  </div>
  <div id="source-content" style="color:var(--tx2)">Click "Source" to load</div>
 </div>

@@ -539,10 +539,11 @@ function showResult(d,title){
   try{_actionLog.push({title:title,time:new Date().toLocaleTimeString(),dur:dur,ok:!(d&&d.ok===false)});
   updateRecentBar();}catch(e){}
 }
-function closeResult(){R.style.display='none';var bk=document.getElementById('result-backdrop');if(bk)bk.classList.remove('show');}
+function closeResult(){if(R)R.style.display='none';var bk=document.getElementById('result-backdrop');if(bk)bk.classList.remove('show');}
 
 function toast(m,t){
-  var c=document.getElementById('toasts'),d=document.createElement('div');
+  var c=document.getElementById('toasts');if(!c)return;
+  var d=document.createElement('div');
   d.className='toast t-'+(t||'info');d.textContent=m;d.onclick=function(){d.remove();};
   c.appendChild(d);setTimeout(function(){if(d.parentNode)d.remove();},5000);
 }
@@ -569,7 +570,7 @@ function _hr(r){
 
 function apiGet(u,title){
   _reqStart=Date.now();
-  try{RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';}catch(e){}
+  try{if(RC)RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;if(R)R.style.display='block';}catch(e){}
   var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   console.log('[TRACE] GET',u,'at',new Date().toLocaleTimeString());
   traceLog('GET',u,'pending');
@@ -592,7 +593,7 @@ function apiGet(u,title){
 
 function apiPost(u,b,title){
   _reqStart=Date.now();
-  try{RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;R.style.display='block';}catch(e){}
+  try{if(RC)RC.textContent='⏳ Loading...';if(RT)RT.textContent=title||u;if(R)R.style.display='block';}catch(e){}
   var bk=document.getElementById('result-backdrop');if(bk)bk.classList.add('show');
   console.log('[TRACE] POST',u,b,'at',new Date().toLocaleTimeString());
   traceLog('POST',u,'pending');
@@ -731,7 +732,7 @@ fetch('/api/qa/workflow/latest',{credentials:'same-origin'}).then(_hr).then(func
 }).catch(function(){var b=document.getElementById('wf-badge');if(b){b.textContent='unavailable';b.style.color='var(--tx2)';}});
 }catch(e){console.error('[INIT] Workflow tester load failed:',e);}
 
-function runWorkflowTests(){var btn=document.getElementById('wf-run-btn');if(btn){btn.disabled=true;btn.querySelector('.label').textContent='⏳ Running…';btn.classList.add('ld');}fetch('/api/qa/workflow',{method:'POST',credentials:'same-origin'}).then(_hr).then(function(d){var sc=d.score||0,col=sc>=90?'#34d399':sc>=70?'#fbbf24':'#f87171',bg=sc>=90?'rgba(52,211,153,.15)':sc>=70?'rgba(251,191,36,.15)':'rgba(248,113,113,.15)',b=document.getElementById('wf-badge');if(b){b.textContent=sc+'/100 '+d.grade;b.style.background=bg;b.style.color=col;}if(btn){btn.disabled=false;btn.querySelector('.label').textContent='▶ Run Now';btn.classList.remove('ld');}toast('Tests: '+sc+'/100 '+d.grade,sc>=70?'ok':'err');location.href='/qa/workflow';}).catch(function(){if(btn){btn.disabled=false;btn.querySelector('.label').textContent='▶ Run Now';btn.classList.remove('ld');}});}
+function runWorkflowTests(){var btn=document.getElementById('wf-run-btn'),btnL=btn?btn.querySelector('.label'):null;if(btn){btn.disabled=true;if(btnL)btnL.textContent='⏳ Running…';btn.classList.add('ld');}fetch('/api/qa/workflow',{method:'POST',credentials:'same-origin'}).then(_hr).then(function(d){var sc=d.score||0,col=sc>=90?'#34d399':sc>=70?'#fbbf24':'#f87171',bg=sc>=90?'rgba(52,211,153,.15)':sc>=70?'rgba(251,191,36,.15)':'rgba(248,113,113,.15)',b=document.getElementById('wf-badge');if(b){b.textContent=sc+'/100 '+d.grade;b.style.background=bg;b.style.color=col;}if(btn){btn.disabled=false;if(btnL)btnL.textContent='▶ Run Now';btn.classList.remove('ld');}toast('Tests: '+sc+'/100 '+d.grade,sc>=70?'ok':'err');location.href='/qa/workflow';}).catch(function(){if(btn){btn.disabled=false;if(btnL)btnL.textContent='▶ Run Now';btn.classList.remove('ld');}});}
 
 // Prompt functions
 function runWorkflow(n){var i={};if(n==='pc_pipeline'){var p=prompt('Price Check ID (e.g. pc_abc123):');if(!p)return;i={pc_id:p};}else if(n==='quote_pipeline'){var p=prompt('Price Check ID for quote:');if(!p)return;i={pc_id:p};}apiPost('/api/workflow/run',{workflow:n,inputs:i});}
@@ -759,26 +760,26 @@ function exportReport(fmt){
 function loadFleet(){
   fetch('/api/agents/status',{credentials:'same-origin'}).then(_hr).then(function(data){
     var grid=document.getElementById('fleet-grid'),tag=document.getElementById('fleet-tag');
-    if(!data.ok){grid.innerHTML='<div>Failed to load</div>';return;}
-    tag.textContent=data.active+'/'+data.total+' active';tag.className='tag '+(data.active>5?'tag-ok':'tag-warn');
+    if(!data.ok){if(grid)grid.innerHTML='<div>Failed to load</div>';return;}
+    if(tag){tag.textContent=data.active+'/'+data.total+' active';tag.className='tag '+(data.active>5?'tag-ok':'tag-warn');}
     var html='';for(var name in data.agents){var info=data.agents[name],isOff=info.status==='not_available',mode=info.mode||info.status||(info.configured===false?'not configured':'ready'),dot=isOff?'⚫':(info.configured===false||info.api_key_set===false?'🟡':'🟢');html+='<div class="agent-card"><div class="name">'+dot+' '+name.replace(/_/g,' ')+'</div><div class="mode">'+mode+'</div></div>';}
-    grid.innerHTML=html;
+    if(grid)grid.innerHTML=html;
     var vt=document.getElementById('voice-tag'),voice=data.agents.voice_calls||{};
-    if(voice.vapi_configured){vt.textContent='Vapi AI';vt.className='tag tag-ok';}else if(voice.twilio_configured){vt.textContent='Twilio TTS';vt.className='tag tag-warn';}else if(voice.status!=='not_available'){vt.textContent='needs setup';vt.className='tag tag-warn';}
+    if(vt){if(voice.vapi_configured){vt.textContent='Vapi AI';vt.className='tag tag-ok';}else if(voice.twilio_configured){vt.textContent='Twilio TTS';vt.className='tag tag-warn';}else if(voice.status!=='not_available'){vt.textContent='needs setup';vt.className='tag tag-warn';}}
     var qt=document.getElementById('qb-tag'),qb=data.agents.quickbooks||{};
-    if(qb.has_valid_token){qt.textContent='connected';qt.className='tag tag-ok';}else if(qb.configured){qt.textContent='token expired';qt.className='tag tag-warn';}else if(qb.status!=='not_available'){qt.textContent='not connected';qt.className='tag tag-warn';}
+    if(qt){if(qb.has_valid_token){qt.textContent='connected';qt.className='tag tag-ok';}else if(qb.configured){qt.textContent='token expired';qt.className='tag tag-warn';}else if(qb.status!=='not_available'){qt.textContent='not connected';qt.className='tag tag-warn';}}
     var qaInfo=data.agents.qa||{},qaTag=document.getElementById('qa-tag');
-    if(qaInfo.last_grade&&qaInfo.last_grade!=='—'){var gC={'A':'tag-ok','B':'tag-ok','C':'tag-warn','D':'tag-warn','F':'tag-off'}[qaInfo.last_grade]||'tag-warn';qaTag.textContent='Grade: '+qaInfo.last_grade+' ('+qaInfo.last_score+')';qaTag.className='tag '+gC;}
+    if(qaTag&&qaInfo.last_grade&&qaInfo.last_grade!=='—'){var gC={'A':'tag-ok','B':'tag-ok','C':'tag-warn','D':'tag-warn','F':'tag-off'}[qaInfo.last_grade]||'tag-warn';qaTag.textContent='Grade: '+qaInfo.last_grade+' ('+qaInfo.last_score+')';qaTag.className='tag '+gC;}
     if(qb.has_valid_token)loadQBFinance();
-  }).catch(function(){document.getElementById('fleet-grid').innerHTML='<div>Failed to load</div>';});
+  }).catch(function(){var g=document.getElementById('fleet-grid');if(g)g.innerHTML='<div>Failed to load</div>';});
 }
 function loadQBFinance(){
   fetch('/api/qb/financial-context',{credentials:'same-origin'}).then(_hr).then(function(fc){
     if(!fc.ok)return;
     // Show finance summary cards
-    var el=document.getElementById('qb-finance');el.style.display='grid';
+    var el=document.getElementById('qb-finance');
     function mk(l,v,c){return '<div class="fin-c"><div class="fl">'+l+'</div><div class="fv" style="color:'+(c||'var(--tx)')+'">'+v+'</div></div>';}
-    el.innerHTML=mk('Receivable','$'+(fc.total_receivable||0).toLocaleString(),'var(--yl)')+mk('Overdue','$'+(fc.overdue_amount||0).toLocaleString(),'var(--rd)')+mk('Collected','$'+(fc.total_collected||0).toLocaleString(),'var(--gn)')+mk('Open Inv',fc.open_invoices||0,'var(--ac)')+mk('Customers',fc.customer_count||0,'var(--purple)')+mk('Vendors',fc.vendor_count||0,'var(--tx)');
+    if(el){el.style.display='grid';el.innerHTML=mk('Receivable','$'+(fc.total_receivable||0).toLocaleString(),'var(--yl)')+mk('Overdue','$'+(fc.overdue_amount||0).toLocaleString(),'var(--rd)')+mk('Collected','$'+(fc.total_collected||0).toLocaleString(),'var(--gn)')+mk('Open Inv',fc.open_invoices||0,'var(--ac)')+mk('Customers',fc.customer_count||0,'var(--purple)')+mk('Vendors',fc.vendor_count||0,'var(--tx)');}
     // Populate inline data cards
     var inl=document.getElementById('qb-inline-data');if(inl)inl.style.display='block';
     var ov=document.getElementById('qb-overdue-val');if(ov)ov.textContent='$'+(fc.overdue_amount||0).toLocaleString();

@@ -9,6 +9,7 @@ from flask import request, jsonify
 from src.api.shared import bp, auth_required, api_response
 from src.api.render import render_page
 from src.api.dashboard import load_rfqs
+from markupsafe import escape as esc
 
 log = logging.getLogger("reytech.search")
 
@@ -86,10 +87,10 @@ def search_page():
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span class="sr-type" style="color:{color};background:{bg}">{r["type_label"]}</span>
         {status_dot}
-        <span class="sr-title">{r["title"]}</span>
+        <span class="sr-title">{esc(r["title"])}</span>
       </div>
-      <div class="sr-detail">{r["subtitle"]}</div>
-      {f'<div style="font-size:12px;color:var(--tx2);margin-top:2px">{meta_str}</div>' if meta_str else ""}
+      <div class="sr-detail">{esc(r["subtitle"])}</div>
+      {f'<div style="font-size:12px;color:var(--tx2);margin-top:2px">{esc(meta_str)}</div>' if meta_str else ""}
     </div>
     <span style="font-size:12px;color:var(--tx2);flex-shrink:0;padding-top:4px">→</span>
   </div>
@@ -115,7 +116,7 @@ def search_page():
     if (q or status_filter) and not results:
         empty_state = f'''<div style="text-align:center;padding:40px;color:var(--tx2)">
   <div style="font-size:36px;margin-bottom:10px">🔍</div>
-  <div style="font-size:15px;font-weight:600;margin-bottom:4px">No results for "{display_q}"</div>
+  <div style="font-size:15px;font-weight:600;margin-bottom:4px">No results for "{esc(display_q)}"</div>
   <div style="font-size:13px">Try a different keyword — searches PCs, RFQs, quotes, orders, contacts, vendors, emails, leads, catalog, PO numbers, item descriptions</div>
 </div>'''
 

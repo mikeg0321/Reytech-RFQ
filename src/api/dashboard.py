@@ -5131,11 +5131,17 @@ def _load_route_module(module_name: str):
 
 _ROUTE_MODULES = [
     "routes_system",           # System health, scheduler, backups, migrations, circuits, pipeline diagnostics
-    "routes_rfq",              # Home, upload, RFQ pages, quote generation
+    "routes_rfq",              # Home, upload, RFQ pages, pricing (core)
+    "routes_rfq_gen",          # RFQ generation, screenshots, templates, send-to-buyer
+    "routes_rfq_admin",        # RFQ admin, export, settings, diagnostics, file management
     "routes_agents",           # Agent control panel, email templates
-    "routes_pricecheck",       # Price check pages + lookup
+    "routes_pricecheck",       # Price check pages + lookup (core: detail, items, revisions, generate)
+    "routes_pricecheck_gen",   # PC bundle generation, email pipeline, SCPRS, polling
+    "routes_pricecheck_pricing",  # Pricing oracle, PC lifecycle, award monitor, competitors
+    "routes_pricecheck_admin",    # Auto-enrich, match feedback, email QA, bulk scrape, diagnostics
     "routes_crm",              # CRM, pricing oracle, auto-processor
     "routes_intel",            # SCPRS, CCHCS, vendors, funnel, forecasting
+    "routes_intel_ops",        # Operations, admin, test mode, scheduler, pipeline API (split from routes_intel)
     "routes_growth_prospects",  # Growth strategy, prospect management, campaigns (split from routes_intel)
     "routes_orders_full",      # Orders, supplier lookup, quote-order link, invoice
     "routes_voice_contacts",   # Intelligence page, voice, contacts, campaigns
@@ -5143,7 +5149,6 @@ _ROUTE_MODULES = [
     "routes_prd28",           # PRD-28: Quote lifecycle, email overhaul, leads, revenue, vendor intel
     "routes_analytics",       # PRD-29: Pipeline analytics, buyer intel, margin optimizer, settings, API v1
     "routes_order_tracking",  # PRD-29: PO tracking, separate email inbox, line item lifecycle
-    "routes_orders_enhance",  # Order enhancements: timeline, margins, aging, KPI, reorder, proofs
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
     "routes_v1",              # MCP-ready /api/v1/ endpoints for external AI agents
     "routes_search",          # Universal search across all record types

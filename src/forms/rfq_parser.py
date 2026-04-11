@@ -10,6 +10,15 @@ from pypdf import PdfReader
 import re, os, json
 from datetime import datetime
 
+# Re-export generic parser functions for unified import path
+from src.forms.generic_rfq_parser import (  # noqa: F401
+    parse_generic_rfq,
+    detect_agency,
+    parse_line_items_from_text,
+    extract_pdf_text,
+    extract_solicitation_info,
+)
+
 
 def parse_703b(pdf_path):
     """Extract solicitation details + requestor info from AMS 703B."""

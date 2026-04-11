@@ -18,7 +18,7 @@ Storage:
   data/intel_revenue.json      — Revenue tracking toward goal
 """
 
-import json, os, re, logging, time, uuid
+import json, os, re, logging, time, uuid, threading
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -127,6 +127,7 @@ DEEP_PULL_STATUS = {
     "total_pos": 0, "total_buyers": 0, "total_agencies": 0,
     "errors": [], "started_at": None, "finished_at": None,
 }
+_status_lock = threading.Lock()
 
 
 def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_per_query=20):
@@ -144,8 +145,9 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
     """
     if not HAS_SCPRS:
         return {"ok": False, "error": "SCPRS not available"}
-    if DEEP_PULL_STATUS["running"]:
-        return {"ok": False, "error": "Already running", "status": DEEP_PULL_STATUS}
+    with _status_lock:
+        if DEEP_PULL_STATUS["running"]:
+            return {"ok": False, "error": "Already running", "status": DEEP_PULL_STATUS}
 
     queries = SEARCH_QUERIES[:max_queries] if max_queries else SEARCH_QUERIES
     to_date = datetime.now().strftime("%m/%d/%Y")
@@ -153,23 +155,25 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
     # Reytech supplier name variants to search our own win history
     REYTECH_NAMES = ["Reytech", "Rey Tech", "REYTECH"]
 
-    DEEP_PULL_STATUS.update({
-        "running": True, "phase": "init", "progress": "Connecting to SCPRS (suppliers.fiscal.ca.gov)...",
-        "queries_done": 0, "queries_total": len(queries) + len(REYTECH_NAMES),
-        "total_pos": 0, "total_buyers": 0, "total_agencies": 0,
-        "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
-    })
+    with _status_lock:
+        DEEP_PULL_STATUS.update({
+            "running": True, "phase": "init", "progress": "Connecting to SCPRS (suppliers.fiscal.ca.gov)...",
+            "queries_done": 0, "queries_total": len(queries) + len(REYTECH_NAMES),
+            "total_pos": 0, "total_buyers": 0, "total_agencies": 0,
+            "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
+        })
 
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
             err_msg = "SCPRS connection blocked — Railway static IP not enabled. Go to Railway → Settings → Networking → Static IP → Enable."
-            DEEP_PULL_STATUS.update({
-                "running": False, "phase": "error",
-                "progress": err_msg,
-                "errors": [err_msg],
-                "finished_at": datetime.now().isoformat(),
-            })
+            with _status_lock:
+                DEEP_PULL_STATUS.update({
+                    "running": False, "phase": "error",
+                    "progress": err_msg,
+                    "errors": [err_msg],
+                    "finished_at": datetime.now().isoformat(),
+                })
             return {"ok": False, "error": err_msg}
 
         # Master collections
@@ -179,7 +183,8 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
 
         def _process_results(results, q_idx, total_q, label):
             """Shared result processor for both Reytech and category searches."""
-            DEEP_PULL_STATUS["total_pos"] += len(results)
+            with _status_lock:
+                DEEP_PULL_STATUS["total_pos"] += len(results)
             for r_idx, r in enumerate(results):
                 po_num = r.get("po_number", "")
                 dept = r.get("dept", "").strip()
@@ -204,7 +209,8 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
                             line_items = detail.get("line_items", [])
                         time.sleep(0.2)
                     except Exception as e:
-                        DEEP_PULL_STATUS["errors"].append(f"Detail {po_num}: {e}")
+                        with _status_lock:
+                            DEEP_PULL_STATUS["errors"].append(f"Detail {po_num}: {e}")
 
                 # Build agency record
                 if dept and dept not in agencies:
@@ -268,9 +274,11 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
                     }
 
         # ── Phase 1: Pull Reytech's own win history (marks our customers) ──
-        DEEP_PULL_STATUS["phase"] = "reytech_history"
+        with _status_lock:
+            DEEP_PULL_STATUS["phase"] = "reytech_history"
         for rt_idx, rt_name in enumerate(REYTECH_NAMES):
-            DEEP_PULL_STATUS["progress"] = f"[Phase 1] Pulling Reytech PO history: '{rt_name}'..."
+            with _status_lock:
+                DEEP_PULL_STATUS["progress"] = f"[Phase 1] Pulling Reytech PO history: '{rt_name}'..."
             try:
                 results = session.search(supplier_name=rt_name, from_date=from_date, to_date=to_date)
                 log.info(f"Reytech '{rt_name}': {len(results)} POs found")
@@ -278,19 +286,23 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
                 time.sleep(0.5)
             except Exception as e:
                 log.warning(f"Reytech search '{rt_name}' failed: {e}")
-                DEEP_PULL_STATUS["errors"].append(f"Reytech:{rt_name}: {e}")
+                with _status_lock:
+                    DEEP_PULL_STATUS["errors"].append(f"Reytech:{rt_name}: {e}")
 
         reytech_agencies = [a for a in agencies.values() if a.get("is_customer")]
         log.info(f"Phase 1 done: {len(reytech_agencies)} agencies are Reytech customers")
-        DEEP_PULL_STATUS["progress"] = f"Phase 1 done — {len(reytech_agencies)} Reytech customer agencies found. Starting category scan..."
+        with _status_lock:
+            DEEP_PULL_STATUS["progress"] = f"Phase 1 done — {len(reytech_agencies)} Reytech customer agencies found. Starting category scan..."
 
         # ── Phase 2: Search all product categories (finds competitor buyers) ──
-        DEEP_PULL_STATUS["phase"] = "category_scan"
+        with _status_lock:
+            DEEP_PULL_STATUS["phase"] = "category_scan"
         for q_idx, query in enumerate(queries):
-            DEEP_PULL_STATUS.update({
-                "progress": f"[Phase 2 — {q_idx+1}/{len(queries)}] Category scan: '{query}'",
-                "queries_done": q_idx + len(REYTECH_NAMES),
-            })
+            with _status_lock:
+                DEEP_PULL_STATUS.update({
+                    "progress": f"[Phase 2 — {q_idx+1}/{len(queries)}] Category scan: '{query}'",
+                    "queries_done": q_idx + len(REYTECH_NAMES),
+                })
 
             try:
                 results = session.search(description=query, from_date=from_date, to_date=to_date)
@@ -298,10 +310,12 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
                 time.sleep(0.6)  # Be polite to SCPRS
             except Exception as e:
                 log.warning(f"Query '{query}' failed: {e}")
-                DEEP_PULL_STATUS["errors"].append(f"{query}: {e}")
+                with _status_lock:
+                    DEEP_PULL_STATUS["errors"].append(f"{query}: {e}")
 
-        DEEP_PULL_STATUS["total_buyers"] = len(buyers)
-        DEEP_PULL_STATUS["total_agencies"] = len(agencies)
+        with _status_lock:
+            DEEP_PULL_STATUS["total_buyers"] = len(buyers)
+            DEEP_PULL_STATUS["total_agencies"] = len(agencies)
 
         # Score and rank buyers
         buyer_list = _score_buyers(list(buyers.values()))
@@ -325,12 +339,13 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
             "agencies": agency_list,
         })
 
-        DEEP_PULL_STATUS.update({
-            "running": False, "phase": "complete",
-            "queries_done": len(queries),
-            "progress": f"Done: {len(buyer_list)} buyers, {len(agency_list)} agencies from {DEEP_PULL_STATUS['total_pos']} POs",
-            "finished_at": datetime.now().isoformat(),
-        })
+        with _status_lock:
+            DEEP_PULL_STATUS.update({
+                "running": False, "phase": "complete",
+                "queries_done": len(queries),
+                "progress": f"Done: {len(buyer_list)} buyers, {len(agency_list)} agencies from {DEEP_PULL_STATUS['total_pos']} POs",
+                "finished_at": datetime.now().isoformat(),
+            })
 
         return {
             "ok": True,
@@ -350,12 +365,13 @@ def deep_pull_all_buyers(from_date="01/01/2019", max_queries=None, max_detail_pe
             err_msg = f"SCPRS network blocked ({err_str[:80]}). Enable Railway static IP: Settings → Networking → Static IP."
         else:
             err_msg = err_str
-        DEEP_PULL_STATUS.update({
-            "running": False, "phase": "error",
-            "progress": err_msg,
-            "errors": DEEP_PULL_STATUS.get("errors", []) + [err_msg],
-            "finished_at": datetime.now().isoformat(),
-        })
+        with _status_lock:
+            DEEP_PULL_STATUS.update({
+                "running": False, "phase": "error",
+                "progress": err_msg,
+                "errors": DEEP_PULL_STATUS.get("errors", []) + [err_msg],
+                "finished_at": datetime.now().isoformat(),
+            })
         return {"ok": False, "error": err_msg}
 
 

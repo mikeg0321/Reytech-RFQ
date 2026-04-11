@@ -1715,10 +1715,10 @@ if __name__ == "__main__":
     
     total_c = 0
     total_w = 0
-    print("=" * 60)
-    print("QA AGENT — Source Code Scan")
-    print("=" * 60)
-    
+    log.info("=" * 60)
+    log.info("QA AGENT — Source Code Scan")
+    log.info("=" * 60)
+
     for filepath in sorted(py_files):
         result = scan_python_source(filepath)
         rel = os.path.relpath(filepath, src_dir)
@@ -1728,17 +1728,17 @@ if __name__ == "__main__":
         total_w += w
         icon = "✅" if c == 0 and w == 0 else "⚠️" if c == 0 else "🔴"
         if c > 0 or w > 0:
-            print(f"  {icon} {rel}: {c} critical, {w} warnings")
+            log.info("  %s %s: %d critical, %d warnings", icon, rel, c, w)
             for item in result["critical"] + result["warning"]:
-                print(f"     → {item['detail']}")
-    
-    print(f"\n{'=' * 60}")
-    print(f"  Source files: {len(py_files)}")
-    print(f"  Critical: {total_c}")
-    print(f"  Warnings: {total_w}")
+                log.info("     → %s", item['detail'])
+
+    log.info("=" * 60)
+    log.info("  Source files: %d", len(py_files))
+    log.info("  Critical: %d", total_c)
+    log.info("  Warnings: %d", total_w)
     grade = "A" if total_c == 0 and total_w < 5 else "B" if total_c == 0 else "F"
-    print(f"  Grade: {grade}")
-    print(f"{'=' * 60}")
+    log.info("  Grade: %s", grade)
+    log.info("=" * 60)
 
 
 def _check_notify_agent() -> list:
@@ -1931,21 +1931,9 @@ def _check_scprs_credentials() -> list:
 
 def _check_scprs_data() -> list:
     """Verify SCPRS has pulled at least one batch of live data."""
-    results = []
-    try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            pulls = conn.execute("SELECT COUNT(*) FROM intel_pulls WHERE status='success'").fetchone()[0]
-            if pulls == 0:
-                results.append({"check":"scprs_data","status":"warn",
-                                "message":"SCPRS: 0 successful pulls — set SCPRS credentials and run first pull at /api/intel/scprs/pull-now"})
-                return results
-            latest = conn.execute("SELECT finished_at, pos_scanned, buyers_found FROM intel_pulls WHERE status='success' ORDER BY finished_at DESC LIMIT 1").fetchone()
-        results.append({"check":"scprs_data","status":"pass",
-                        "message":f"SCPRS data: {pulls} pulls, last {latest[0][:10] if latest else '?'} — {(latest[1] or 0)} POs scanned, {(latest[2] or 0)} buyers"})
-    except Exception as e:
-        results.append({"check":"scprs_data","status":"warn","message":f"SCPRS data check error: {e}"})
-    return results
+    # intel_pulls table removed in migration 16 — return skip result
+    return [{"check": "scprs_data", "status": "skip",
+             "message": "SCPRS intel_pulls table removed (migration 16) — check scprs_po_lines directly"}]
 
 
 def _check_cchcs_expansion() -> list:
@@ -2439,7 +2427,6 @@ def _check_db_schema() -> list:
             "email_log": ["id", "direction", "sender", "recipient"],
             "activity_log": ["id", "contact_id", "event_type"],
             "price_history": ["id", "description", "unit_price", "source"],
-            "intel_pulls": ["id", "status", "pos_scanned"],
             "revenue_log": ["id", "amount", "source"],
         }
         missing_tables = []

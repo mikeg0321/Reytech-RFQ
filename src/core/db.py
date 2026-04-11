@@ -28,7 +28,7 @@ TABLES:
   orders         — won quotes → POs
   rfqs           — inbound email RFQs
   revenue_log    — manual + QB revenue entries toward $2M goal
-  intel_pulls    — SCPRS deep pull runs with stats
+  (intel_pulls removed — migration 16)
 """
 
 import os
@@ -306,21 +306,6 @@ CREATE TABLE IF NOT EXISTS rfqs (
     data_json       TEXT
 );
 
-CREATE TABLE IF NOT EXISTS sent_quote_tracker (
-    id              TEXT PRIMARY KEY,
-    record_type     TEXT DEFAULT 'rfq',
-    solicitation    TEXT DEFAULT '',
-    institution     TEXT DEFAULT '',
-    requestor_email TEXT DEFAULT '',
-    sent_at         TEXT DEFAULT '',
-    total_value     REAL DEFAULT 0,
-    item_count      INTEGER DEFAULT 0,
-    follow_up_schedule TEXT DEFAULT '[]',
-    follow_up_status TEXT DEFAULT 'scheduled',
-    status          TEXT DEFAULT 'sent',
-    updated_at      TEXT DEFAULT (datetime('now'))
-);
-
 CREATE TABLE IF NOT EXISTS award_check_queue (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     record_id       TEXT NOT NULL,
@@ -344,15 +329,6 @@ CREATE TABLE IF NOT EXISTS revenue_log (
     date            TEXT
 );
 
-CREATE TABLE IF NOT EXISTS contract_violations (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    record_type     TEXT NOT NULL,
-    record_id       TEXT NOT NULL,
-    violations      TEXT NOT NULL,
-    caller          TEXT DEFAULT '',
-    created_at      TEXT DEFAULT (datetime('now'))
-);
-
 CREATE TABLE IF NOT EXISTS quote_number_ledger (
     quote_number    TEXT PRIMARY KEY,
     assigned_at     TEXT NOT NULL DEFAULT (datetime('now')),
@@ -361,19 +337,6 @@ CREATE TABLE IF NOT EXISTS quote_number_ledger (
     status          TEXT DEFAULT 'active',
     voided_at       TEXT DEFAULT '',
     void_reason     TEXT DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS intel_pulls (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    started_at      TEXT NOT NULL,
-    finished_at     TEXT,
-    status          TEXT DEFAULT 'running',
-    queries_run     INTEGER DEFAULT 0,
-    pos_scanned     INTEGER DEFAULT 0,
-    buyers_found    INTEGER DEFAULT 0,
-    agencies_found  INTEGER DEFAULT 0,
-    error           TEXT,
-    notes           TEXT
 );
 
 CREATE TABLE IF NOT EXISTS price_checks (
@@ -813,23 +776,6 @@ CREATE TABLE IF NOT EXISTS intel_agencies (
     categories      TEXT,
     is_customer     INTEGER DEFAULT 0,
     opportunity_score REAL DEFAULT 0,
-    updated_at      TEXT
-);
-
-CREATE TABLE IF NOT EXISTS rfq_store (
-    id              TEXT PRIMARY KEY,
-    created_at      TEXT,
-    rfq_number      TEXT DEFAULT '',
-    institution     TEXT DEFAULT '',
-    agency          TEXT DEFAULT '',
-    requestor       TEXT DEFAULT '',
-    email           TEXT DEFAULT '',
-    phone           TEXT DEFAULT '',
-    status          TEXT DEFAULT 'pending',
-    pdf_path        TEXT DEFAULT '',
-    items           TEXT,
-    notes           TEXT DEFAULT '',
-    source          TEXT DEFAULT '',
     updated_at      TEXT
 );
 
@@ -2262,7 +2208,7 @@ def get_revenue_total(year: int = None) -> dict:
 def get_db_stats() -> dict:
     """Return row counts for all tables — used in /api/metrics."""
     tables = ["quotes", "price_history", "contacts", "activity_log",
-              "orders", "rfqs", "revenue_log", "intel_pulls", "price_checks"]
+              "orders", "rfqs", "revenue_log", "price_checks"]
     stats = {"db_path": DB_PATH, "db_size_kb": 0}
     try:
         stats["db_size_kb"] = round(os.path.getsize(DB_PATH) / 1024, 1)
@@ -3489,53 +3435,19 @@ def sync_outbox_to_json():
 
 
 
-# ── RFQs ──────────────────────────────────────────────────────────────────────
+# ── RFQs (rfq_store table removed in migration 16 — use rfqs table via data_layer) ──
+
 
 def upsert_rfq(rfq: dict) -> bool:
-    conn = _make_connection()
-    now = datetime.now(timezone.utc).isoformat()
-    rid = rfq.get('id') or f"rfq-{__import__('uuid').uuid4().hex[:12]}"
-    try:
-        conn.execute("""
-            INSERT INTO rfq_store
-              (id, created_at, rfq_number, institution, agency, requestor, email, phone,
-               status, pdf_path, items, notes, source, updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(id) DO UPDATE SET
-              status=excluded.status, items=excluded.items,
-              notes=excluded.notes, updated_at=excluded.updated_at
-        """, (rid, rfq.get('created_at', now), rfq.get('rfq_number',''),
-              rfq.get('institution',''), rfq.get('agency',''), rfq.get('requestor',''),
-              rfq.get('email',''), rfq.get('phone',''), rfq.get('status','pending'),
-              rfq.get('pdf_path',''), _jd(rfq.get('items',[])), rfq.get('notes',''),
-              rfq.get('source',''), now))
-        conn.commit()
-        return True
-    except Exception as e:
-        log.error("upsert_rfq: %s", e)
-        return False
-    finally:
-        conn.close()
+    """Deprecated: rfq_store table dropped in migration 16. No-op."""
+    log.warning("upsert_rfq called but rfq_store table is removed (migration 16)")
+    return False
 
 
 def get_all_rfqs(status: str = None) -> list:
-    conn = _make_connection()
-    conn.row_factory = sqlite3.Row
-    if status:
-        rows = conn.execute(
-            "SELECT * FROM rfq_store WHERE status=? ORDER BY created_at DESC", (status,)
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM rfq_store ORDER BY created_at DESC"
-        ).fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        d['items'] = _jl(d.get('items'), [])
-        result.append(d)
-    return result
+    """Deprecated: rfq_store table dropped in migration 16. Returns empty list."""
+    log.warning("get_all_rfqs called but rfq_store table is removed (migration 16)")
+    return []
 
 
 # ── APP SETTINGS (quote counter, etc.) ───────────────────────────────────────

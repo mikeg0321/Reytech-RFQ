@@ -139,7 +139,7 @@ def _check_table_health() -> dict:
     """Verify all expected tables exist and have reasonable row counts."""
     expected = [
         "quotes", "contacts", "orders", "rfqs", "revenue_log",
-        "price_history", "intel_pulls", "price_checks", "activity_log",
+        "price_history", "price_checks", "activity_log",
         "audit_trail",
     ]
     

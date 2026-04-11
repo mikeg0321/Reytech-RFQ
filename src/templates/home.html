@@ -710,7 +710,7 @@ function searchActive(qtype, query) {
   </div>
   <div style="display:flex;gap:6px">
    <button class="btn btn-sm btn-p" onclick="saveQuickPrices()" aria-label="Save & Close">💾 Save & Close</button>
-   <button class="btn btn-sm btn-s" onclick="closeQP()">✕</button>
+   <button class="btn btn-sm btn-s" onclick="closeQP()" aria-label="Close quick pricing panel">✕</button>
   </div>
  </div>
  <div id="qp-items" style="padding:12px"></div>
@@ -963,7 +963,7 @@ function _renderRevenue(d){
     <option value="orders">Orders</option>
     <option value="growth">Growth</option>
    </select>
-   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer">🔄</button>
+   <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer" aria-label="Refresh activity feed">🔄</button>
   </div>
  </div>
  <div id="activity-feed" style="max-height:340px;overflow-y:auto">
@@ -1313,7 +1313,7 @@ setTimeout(loadFeed,5000); // defer — not needed for initial render
  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
    <h2 style="font-size:18px;color:var(--tx);margin:0">📦 New RFQ</h2>
-   <button onclick="document.getElementById('new-rfq-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+   <button onclick="document.getElementById('new-rfq-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer" aria-label="Close new RFQ dialog">✕</button>
   </div>
   <div style="display:flex;flex-direction:column;gap:12px">
    <div style="display:flex;gap:10px">
@@ -1368,7 +1368,7 @@ setTimeout(loadFeed,5000); // defer — not needed for initial render
  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;width:95%;max-width:520px;padding:24px;box-shadow:0 8px 40px rgba(0,0,0,.4)">
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
    <h2 style="font-size:18px;color:var(--tx);margin:0">📋 New Price Check</h2>
-   <button onclick="document.getElementById('new-pc-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer">✕</button>
+   <button onclick="document.getElementById('new-pc-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);font-size:20px;cursor:pointer" aria-label="Close new price check dialog">✕</button>
   </div>
   <div style="display:flex;flex-direction:column;gap:12px">
    <div style="display:flex;gap:10px">
@@ -1494,7 +1494,7 @@ document.addEventListener('DOMContentLoaded', function() {
  <div style="background:#161b22;border:1px solid #30363d;border-radius:14px;width:680px;max-width:96vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6)">
   <div style="padding:18px 22px;border-bottom:1px solid #30363d;display:flex;justify-content:space-between;align-items:center">
    <div style="font-size:17px;font-weight:700;color:#e6edf3">📑 Multi-PC Upload</div>
-   <button onclick="closeMultiPcUpload()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer">✕</button>
+   <button onclick="closeMultiPcUpload()" style="background:none;border:none;color:#8b949e;font-size:22px;cursor:pointer" aria-label="Close multi-PC upload dialog">✕</button>
   </div>
   <!-- Tab switcher -->
   <div style="display:flex;border-bottom:1px solid #30363d">

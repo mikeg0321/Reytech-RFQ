@@ -13,6 +13,7 @@ from src.api.render import render_page
 
 import os, json, threading
 from datetime import datetime, timedelta
+from src.core.security import rate_limit
 from collections import defaultdict
 
 # ── Growth agent imports (duplicated from routes_intel.py — both exec into dashboard namespace) ──
@@ -1204,6 +1205,7 @@ def api_growth_daily_brief():
 @bp.route("/api/growth/bulk-import", methods=["POST"])
 @auth_required
 @safe_route
+@rate_limit("heavy")
 def api_growth_bulk_import():
     """Import prospects from CSV."""
     if not GROWTH_AVAILABLE:

@@ -38,7 +38,7 @@
       <div style="display:flex;gap:8px;align-items:center">
        <span id="notif-cs-count" style="font-size:14px;color:var(--yl);display:none"></span>
        <button onclick="markAllRead()" style="font-size:14px;color:var(--tx2);background:none;border:none;cursor:pointer;padding:2px 6px" aria-label="Mark all read">Mark all read</button>
-       <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1">×</button>
+       <button onclick="toggleNotifPanel()" style="font-size:16px;color:var(--tx2);background:none;border:none;cursor:pointer;line-height:1" aria-label="Close notifications panel">×</button>
       </div>
      </div>
      <div class="notif-panel-body" id="notif-list"><div class="notif-empty">Loading...</div></div>
@@ -103,7 +103,7 @@
    <a href="{{ href }}" class="hdr-btn{% if active_page == name %} hdr-active{% endif %}" style="padding:9px 18px;font-size:13px;flex:1;text-align:center;min-width:0">{{ label }}</a>
     {% endif %}
    {% endfor %}
-   <a href="/settings#nav" class="hdr-btn" style="padding:9px 12px;font-size:13px" title="Nav & Settings">⚙️</a>
+   <a href="/settings#nav" class="hdr-btn" style="padding:9px 12px;font-size:13px" title="Nav & Settings" aria-label="Navigation and Settings">⚙️</a>
    <div style="position:relative;display:inline-block" id="more-nav">
     <button class="hdr-btn" style="padding:9px 18px;font-size:13px" onclick="var m=document.getElementById('more-menu');m.style.display=m.style.display==='block'?'none':'block'" aria-label="More">⋯ More</button>
     <div id="more-menu" style="display:none;position:absolute;right:0;top:38px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;padding:4px 0;min-width:180px;z-index:9999;box-shadow:0 8px 24px rgba(0,0,0,.5)">
