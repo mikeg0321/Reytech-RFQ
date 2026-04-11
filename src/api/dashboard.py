@@ -5178,8 +5178,11 @@ def _deferred_boot_checks():
     # One-time migration from JSON → SQLite happens in load_rfqs() / _load_price_checks().
 
 import threading as _boot_thr
-_boot_thr.Thread(target=_deferred_boot_checks, daemon=True, name="boot-checks").start()
-log.info("Boot checks deferred to background (app starts immediately)")
+if os.environ.get("TESTING") != "1":
+    _boot_thr.Thread(target=_deferred_boot_checks, daemon=True, name="boot-checks").start()
+    log.info("Boot checks deferred to background (app starts immediately)")
+else:
+    log.info("Boot checks skipped (TESTING=1)")
 
 # ── Background agent schedulers (disabled in tests via ENABLE_BACKGROUND_AGENTS=false) ──
 if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "0", "off"):
@@ -5262,8 +5265,15 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     # ── Start Google Drive Backup Scheduler (nightly at 11pm PST) ────────────
     try:
         from src.agents.drive_backup import start_backup_scheduler
-        start_backup_scheduler()
-        log.info("Drive backup scheduler started (nightly at 11pm PST)")
+        from src.core.gdrive import is_configured as _gdrive_ok
+        if _gdrive_ok():
+            start_backup_scheduler()
+            log.info("Drive backup scheduler started (nightly at 11pm PST)")
+        else:
+            log.warning("⚠️  OFF-SITE BACKUP DISABLED: Set GOOGLE_DRIVE_CREDENTIALS + "
+                        "GOOGLE_DRIVE_ROOT_FOLDER_ID in Railway env vars to enable "
+                        "nightly DB backup to Google Drive. Without this, a Railway "
+                        "volume failure = total data loss.")
     except Exception as _e:
         log.warning("Drive backup scheduler failed to start: %s", _e)
 
