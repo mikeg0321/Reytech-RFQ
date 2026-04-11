@@ -161,38 +161,377 @@ def _get_dashboard_fn(name):
     return getattr(mod, name)
 
 
-# Data access functions delegated to dashboard.py
-# These will be migrated here one at a time in future PRs.
+# ═══════════════════════════════════════════════════════════════════════════════
+# DATA ACCESS — Real implementations (migrated from dashboard.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── PC cache (module-level globals) ──
+_pc_cache = None
+_pc_cache_time = 0
+
+
+def _normalize_rfq_fields(rfqs: dict) -> dict:
+    """Ensure both field name aliases exist on every RFQ dict."""
+    for rid, r in rfqs.items():
+        if not isinstance(r, dict):
+            continue
+        if "items" in r and "line_items" not in r:
+            r["line_items"] = r["items"]
+        if "line_items" in r and "items" not in r:
+            r["items"] = r["line_items"]
+        if "rfq_number" in r and "solicitation_number" not in r:
+            r["solicitation_number"] = r["rfq_number"]
+        if "solicitation_number" in r and "rfq_number" not in r:
+            r["rfq_number"] = r["solicitation_number"]
+    return rfqs
+
 
 def load_rfqs():
-    return _get_dashboard_fn("load_rfqs")()
+    """Load RFQs from SQLite (single source of truth)."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM rfqs ORDER BY received_at DESC LIMIT 10000"
+            ).fetchall()
+            if not rows:
+                json_path = rfq_db_path()
+                if os.path.exists(json_path):
+                    try:
+                        with open(json_path) as f:
+                            json_data = json.load(f)
+                        if json_data:
+                            log.info("MIGRATION: Importing %d RFQs from JSON to SQLite", len(json_data))
+                            for rid, r in json_data.items():
+                                try:
+                                    _save_single_rfq(rid, r)
+                                except Exception:
+                                    pass
+                            os.rename(json_path, json_path + ".migrated")
+                            return _normalize_rfq_fields(json_data)
+                    except Exception as e:
+                        log.warning("RFQ JSON migration failed: %s", e)
+                return _normalize_rfq_fields({})
+
+            result = {}
+            for row in rows:
+                d = dict(row)
+                rid = d.get("id", "")
+                if not rid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        for key in ("status", "updated_at", "reytech_quote_number"):
+                            if d.get(key) and d[key] != full.get(key):
+                                full[key] = d[key]
+                        result[rid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                result[rid] = d
+            return _normalize_rfq_fields(result)
+    except Exception as e:
+        log.warning("load_rfqs failed: %s", str(e)[:200])
+    return _normalize_rfq_fields({})
+
 
 def _save_single_rfq(rfq_id, r):
-    return _get_dashboard_fn("_save_single_rfq")(rfq_id, r)
+    """Save a SINGLE RFQ to SQLite."""
+    with _save_rfqs_lock:
+        p = rfq_db_path()
+        _invalidate_cache(p)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO rfqs
+                    (id, received_at, agency, institution, requestor_name, requestor_email,
+                     rfq_number, items, status, source, email_uid, notes,
+                     solicitation_number, due_date, email_subject, body_text, form_type,
+                     reytech_quote_number, shipping_option, shipping_amount, delivery_location,
+                     updated_at, data_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                """, (
+                    rfq_id, r.get("received_at", ""), r.get("agency", ""),
+                    r.get("institution", ""), r.get("requestor_name", ""),
+                    r.get("requestor_email", ""),
+                    r.get("rfq_number", "") or r.get("solicitation_number", ""),
+                    json.dumps(r.get("line_items", r.get("items", [])), default=str),
+                    r.get("status", "new"), r.get("source", ""),
+                    r.get("email_uid", ""), r.get("notes", ""),
+                    r.get("solicitation_number", "") or r.get("rfq_number", ""),
+                    r.get("due_date", ""),
+                    r.get("email_subject", ""),
+                    (r.get("body_text", "") or "")[:3000],
+                    r.get("form_type", ""),
+                    r.get("reytech_quote_number", ""),
+                    r.get("shipping_option", "included"),
+                    r.get("shipping_amount", 0),
+                    r.get("delivery_location", ""),
+                    json.dumps(r, default=str),
+                ))
+        except Exception as e:
+            log.error("DB save_single_rfq failed for %s: %s", rfq_id, e)
+
 
 def save_rfqs(rfqs):
-    return _get_dashboard_fn("save_rfqs")(rfqs)
+    """Save ALL RFQs."""
+    with _save_rfqs_lock:
+        p = rfq_db_path()
+        _invalidate_cache(p)
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for rid, r in rfqs.items():
+                    conn.execute("""
+                        INSERT OR REPLACE INTO rfqs
+                        (id, received_at, agency, institution, requestor_name, requestor_email,
+                         rfq_number, items, status, source, email_uid, notes,
+                         solicitation_number, due_date, email_subject, body_text, form_type,
+                         reytech_quote_number, shipping_option, shipping_amount, delivery_location,
+                         updated_at, data_json)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
+                    """, (
+                        rid, r.get("received_at", ""), r.get("agency", ""),
+                        r.get("institution", ""), r.get("requestor_name", ""),
+                        r.get("requestor_email", ""),
+                        r.get("rfq_number", "") or r.get("solicitation_number", ""),
+                        json.dumps(r.get("line_items", r.get("items", [])), default=str),
+                        r.get("status", "new"), r.get("source", ""),
+                        r.get("email_uid", ""), r.get("notes", ""),
+                        r.get("solicitation_number", "") or r.get("rfq_number", ""),
+                        r.get("due_date", ""),
+                        r.get("email_subject", ""),
+                        (r.get("body_text", "") or "")[:3000],
+                        r.get("form_type", ""),
+                        r.get("reytech_quote_number", ""),
+                        r.get("shipping_option", "included"),
+                        r.get("shipping_amount", 0),
+                        r.get("delivery_location", ""),
+                        json.dumps(r, default=str),
+                    ))
+        except Exception as e:
+            log.error("SQLite write failed for rfqs: %s", str(e)[:200])
 
-def _normalize_rfq_fields(rfqs):
-    return _get_dashboard_fn("_normalize_rfq_fields")(rfqs)
 
 def _load_price_checks(include_items=True):
-    return _get_dashboard_fn("_load_price_checks")(include_items)
+    """Load price checks from SQLite (single source of truth)."""
+    global _pc_cache, _pc_cache_time
+    import time as _t
+    now = _t.time()
+    if include_items and _pc_cache is not None and (now - _pc_cache_time) < 30:
+        return _pc_cache
+
+    data = {}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM price_checks ORDER BY created_at DESC LIMIT 10000"
+            ).fetchall()
+            for row in rows:
+                d = dict(row)
+                pcid = d.get("id", "")
+                if not pcid:
+                    continue
+                blob = d.pop("data_json", None)
+                if blob:
+                    try:
+                        full = json.loads(blob)
+                        for key in ("status", "quote_number"):
+                            if d.get(key) and d[key] != full.get(key):
+                                full[key] = d[key]
+                        data[pcid] = full
+                        continue
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                items_raw = d.get("items", "[]")
+                if isinstance(items_raw, str):
+                    try:
+                        d["items"] = json.loads(items_raw)
+                    except Exception:
+                        d["items"] = []
+                data[pcid] = d
+    except Exception as e:
+        log.warning("SQLite load_pcs failed: %s", str(e)[:200])
+
+    # One-time migration from JSON
+    if not data:
+        json_path = os.path.join(DATA_DIR, "price_checks.json")
+        if os.path.exists(json_path):
+            try:
+                with open(json_path) as f:
+                    json_data = json.load(f)
+                if json_data:
+                    log.info("MIGRATION: Importing %d PCs from JSON to SQLite", len(json_data))
+                    for pcid, pc in json_data.items():
+                        try:
+                            _save_single_pc(pcid, pc)
+                        except Exception:
+                            pass
+                    data = json_data
+                    os.rename(json_path, json_path + ".migrated")
+            except Exception as e:
+                log.warning("PC JSON migration failed: %s", e)
+
+    # Normalize items/line_items aliases
+    for pcid, pc in data.items():
+        if not isinstance(pc, dict):
+            continue
+        if "items" in pc and "line_items" not in pc:
+            pc["line_items"] = list(pc["items"])
+        if "line_items" in pc and "items" not in pc:
+            pc["items"] = list(pc["line_items"])
+
+    if include_items and len(data) < 500:
+        _pc_cache = data
+        _pc_cache_time = _t.time()
+    elif include_items:
+        log.warning("PC cache skipped: %d records exceeds 500 limit", len(data))
+        _pc_cache = None
+        _pc_cache_time = 0
+    return data
+
 
 def _save_single_pc(pc_id, pc):
-    return _get_dashboard_fn("_save_single_pc")(pc_id, pc)
+    """Save a SINGLE price check to SQLite."""
+    with _save_pcs_lock:
+        global _pc_cache, _pc_cache_time
+        _pc_cache = None
+        _pc_cache_time = 0
+
+        def _do():
+            from src.core.db import get_db
+            with get_db() as conn:
+                items_json = json.dumps(pc.get("items", []), default=str)
+                _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
+                pc_blob = json.dumps(_pc_clean, default=str)
+                conn.execute("""
+                    INSERT OR REPLACE INTO price_checks
+                    (id, created_at, requestor, agency, institution, items, source_file,
+                     quote_number, pc_number, total_items, status,
+                     email_uid, email_subject, due_date, pc_data, ship_to, data_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    pc_id,
+                    pc.get("created_at", ""),
+                    pc.get("requestor", ""),
+                    pc.get("institution", "") or pc.get("agency", ""),
+                    pc.get("institution", "") or pc.get("agency", ""),
+                    items_json,
+                    pc.get("source_pdf", ""),
+                    pc.get("reytech_quote_number", ""),
+                    pc.get("pc_number", ""),
+                    len(pc.get("items", [])),
+                    pc.get("status", "parsed"),
+                    pc.get("email_uid", ""),
+                    pc.get("email_subject", ""),
+                    pc.get("due_date", ""),
+                    pc_blob,
+                    pc.get("ship_to", ""),
+                    json.dumps(pc, default=str),
+                ))
+
+        try:
+            from src.core.db import db_retry
+            db_retry(_do, max_retries=5, delay=2.0)
+        except Exception as e:
+            log.error("DB save_single_pc failed for %s: %s", pc_id, e)
+
 
 def _save_price_checks(pcs):
-    return _get_dashboard_fn("_save_price_checks")(pcs)
+    """Save ALL price checks to SQLite."""
+    with _save_pcs_lock:
+        global _pc_cache, _pc_cache_time
+        _pc_cache = None
+        _pc_cache_time = 0
+        try:
+            from src.core.db import get_db
+            with get_db() as conn:
+                for pc_id, pc in pcs.items():
+                    items_json = json.dumps(pc.get("items", []), default=str)
+                    _pc_clean = {k: v for k, v in pc.items() if k != "pc_data"}
+                    pc_blob = json.dumps(_pc_clean, default=str)
+                    conn.execute("""
+                        INSERT OR REPLACE INTO price_checks
+                        (id, created_at, requestor, agency, institution, items, source_file,
+                         quote_number, pc_number, total_items, status,
+                         email_uid, email_subject, due_date, pc_data, ship_to, data_json)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        pc_id,
+                        pc.get("created_at", ""),
+                        pc.get("requestor", ""),
+                        pc.get("institution", "") or pc.get("agency", ""),
+                        pc.get("institution", "") or pc.get("agency", ""),
+                        items_json,
+                        pc.get("source_pdf", ""),
+                        pc.get("reytech_quote_number", ""),
+                        pc.get("pc_number", ""),
+                        len(pc.get("items", [])),
+                        pc.get("status", "parsed"),
+                        pc.get("email_uid", ""),
+                        pc.get("email_subject", ""),
+                        pc.get("due_date", ""),
+                        pc_blob,
+                        pc.get("ship_to", ""),
+                        json.dumps(pc, default=str),
+                    ))
+        except Exception as e:
+            log.error("DB save failed for price_checks: %s", e)
 
-def _merge_save_pc(pc_id, pc_data):
-    return _get_dashboard_fn("_merge_save_pc")(pc_id, pc_data)
 
-def _is_user_facing_pc(pc):
-    return _get_dashboard_fn("_is_user_facing_pc")(pc)
+def _merge_save_pc(pc_id: str, pc_data: dict):
+    """Atomic single-PC save."""
+    pc_data["id"] = pc_id
+    _save_price_checks({pc_id: pc_data})
+
+
+def _is_user_facing_pc(pc: dict) -> bool:
+    """Should this PC show in the PC queue on the homepage?"""
+    status = pc.get("status", "new")
+    if status in ("dismissed", "archived", "deleted", "duplicate",
+                  "no_response", "not_responding", "expired", "reclassified"):
+        return False
+    items = pc.get("items", [])
+    if isinstance(items, str):
+        try:
+            items = json.loads(items)
+        except Exception:
+            items = []
+    item_count = len(items) if isinstance(items, list) else 0
+    if item_count > 0:
+        return True
+    sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
+    if sol and sol != "unknown":
+        return True
+    return False
+
 
 def _get_pc_items(pc):
-    return _get_dashboard_fn("_get_pc_items")(pc)
+    """Get items from a PC regardless of storage format."""
+    items = pc.get("items", [])
+    if items and isinstance(items, list) and len(items) > 0:
+        return items
+    pc_data = pc.get("pc_data", {})
+    if isinstance(pc_data, str):
+        try:
+            pc_data = json.loads(pc_data)
+        except (json.JSONDecodeError, TypeError):
+            pc_data = {}
+    if isinstance(pc_data, dict):
+        items = pc_data.get("items", [])
+        if items:
+            return items
+    return pc.get("line_items", [])
 
 def _load_orders():
     """Load orders — delegates to order_dal (V2)."""

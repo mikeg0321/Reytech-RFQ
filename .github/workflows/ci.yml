@@ -129,7 +129,7 @@ jobs:
   # ── Job 3: Full Test Suite (THE REAL GATE) ─────────────────────────────────
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v4

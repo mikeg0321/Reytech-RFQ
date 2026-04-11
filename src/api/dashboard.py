@@ -259,9 +259,22 @@ def _sanitize_path(path_str: str) -> str:
 # Data Layer
 # ═══════════════════════════════════════════════════════════════════════
 
-def rfq_db_path(): return os.path.join(DATA_DIR, "rfqs.json")
-def _normalize_rfq_fields(rfqs: dict) -> dict:
-    """Ensure both field name aliases exist on every RFQ dict.
+# ── Data access functions — canonical implementations now in data_layer.py ──
+# Imported here so they remain in dashboard.py globals → injected into route modules.
+from src.api.data_layer import (  # noqa: E402
+    _normalize_rfq_fields, load_rfqs, _save_single_rfq, save_rfqs,
+    _load_price_checks, _save_single_pc, _save_price_checks,
+    _merge_save_pc, _is_user_facing_pc, _get_pc_items, rfq_db_path,
+)
+
+# NOTE: The function bodies that were here (263-1598) have been moved to
+# src/api/data_layer.py. The import above makes them available in this
+# module's globals, which _load_route_module() injects into all route modules.
+# If you need to modify these functions, edit data_layer.py.
+
+def _normalize_rfq_fields_stub(rfqs: dict) -> dict:
+    """STUB — real implementation in data_layer.py. Kept for git history reference.
+    Ensure both field name aliases exist on every RFQ dict.
 
     SQLite uses 'items' + 'rfq_number'; JSON/templates use 'line_items' + 'solicitation_number'.
     This guarantees every template works regardless of which name it references.
@@ -282,8 +295,8 @@ def _normalize_rfq_fields(rfqs: dict) -> dict:
     return rfqs
 
 
-def load_rfqs():
-    """Load RFQs from SQLite (single source of truth).
+def _load_rfqs_OLD():
+    """MOVED to data_layer.py — this copy kept for git history only.
 
     Priority: data_json blob (complete dict) > structured columns.
     One-time migration from JSON if SQLite is empty.
@@ -352,9 +365,8 @@ def load_rfqs():
 
     return _normalize_rfq_fields({})
 
-def _save_single_rfq(rfq_id, r):
-    """Save a SINGLE RFQ to SQLite without touching any other RFQs.
-    Prevents background agents from overwriting user edits on other RFQs."""
+def _save_single_rfq_OLD(rfq_id, r):
+    """MOVED to data_layer.py."""
     with _save_rfqs_lock:
         p = rfq_db_path()
         _invalidate_cache(p)
@@ -392,8 +404,8 @@ def _save_single_rfq(rfq_id, r):
             log.error("DB save_single_rfq failed for %s: %s", rfq_id, e)
 
 
-def save_rfqs(rfqs):
-    """Save ALL RFQs. WARNING: use _save_single_rfq() when modifying just one."""
+def _save_rfqs_OLD(rfqs):
+    """MOVED to data_layer.py."""
     with _save_rfqs_lock:
         import traceback
         p = rfq_db_path()
@@ -1176,12 +1188,8 @@ def log_email_sent_db(direction: str, sender: str, recipient: str, subject: str,
 _pc_cache = None
 _pc_cache_time = 0
 
-def _load_price_checks(include_items=True):
-    """Load price checks from SQLite (single source of truth).
-
-    In-memory cache (30s TTL) prevents repeated DB queries.
-    One-time migration from JSON if SQLite is empty.
-    """
+def _load_price_checks_OLD(include_items=True):
+    """MOVED to data_layer.py."""
     global _pc_cache, _pc_cache_time
     import time as _t
     now = _t.time()
@@ -1263,9 +1271,8 @@ def _load_price_checks(include_items=True):
         _pc_cache_time = 0
     return data
 
-def _save_single_pc(pc_id, pc):
-    """Save a SINGLE price check to SQLite without touching any other PCs.
-    This prevents background agents from overwriting user's edits on other PCs."""
+def _save_single_pc_OLD(pc_id, pc):
+    """MOVED to data_layer.py."""
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
         _pc_cache = None
@@ -1310,8 +1317,8 @@ def _save_single_pc(pc_id, pc):
             log.error("DB save_single_pc failed for %s: %s", pc_id, e)
 
 
-def _save_price_checks(pcs):
-    """Save price checks to SQLite (single source of truth)."""
+def _save_price_checks_OLD(pcs):
+    """MOVED to data_layer.py."""
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
         _pc_cache = None  # Invalidate cache
@@ -1371,21 +1378,14 @@ def _save_price_checks(pcs):
         # JSON backup writes removed — SQLite with data_json blob is authoritative
 
 
-def _merge_save_pc(pc_id: str, pc_data: dict):
-    """Atomic single-PC save: writes directly to SQLite.
-    DB handles concurrency via WAL mode — no file locking needed."""
+def _merge_save_pc_OLD(pc_id: str, pc_data: dict):
+    """MOVED to data_layer.py."""
     pc_data["id"] = pc_id
     _save_price_checks({pc_id: pc_data})  # Uses DB-primary _save_price_checks
 
 
-def _is_user_facing_pc(pc: dict) -> bool:
-    """Should this PC show in the PC queue on the homepage?
-
-    SHOW if: has items OR has a real solicitation/pc_number, AND not terminal.
-    HIDE if: terminal status OR empty ghost.
-    Note: PCs linked to RFQs (rfq_id set) still show — user prices PCs first,
-    then the RFQ uses those prices for the formal response.
-    """
+def _is_user_facing_pc_OLD(pc: dict) -> bool:
+    """MOVED to data_layer.py."""
     # Hide terminal statuses
     status = pc.get("status", "new")
     if status in ("dismissed", "archived", "deleted", "duplicate",
@@ -1579,8 +1579,8 @@ def _extract_signature_contact(body: str) -> dict:
     return result
 
 
-def _get_pc_items(pc):
-    """Get items from a PC regardless of storage format."""
+def _get_pc_items_OLD(pc):
+    """MOVED to data_layer.py."""
     items = pc.get("items", [])
     if items and isinstance(items, list) and len(items) > 0:
         return items
@@ -5542,6 +5542,7 @@ _ROUTE_MODULES = [
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
     "routes_v1",              # MCP-ready /api/v1/ endpoints for external AI agents
     "routes_search",          # Universal search across all record types
+    "routes_intelligence",    # Intelligence layer: documents, NL query, compliance matrix
 ]
 
 for _mod in _ROUTE_MODULES:
