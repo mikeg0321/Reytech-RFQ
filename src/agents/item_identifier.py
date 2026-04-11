@@ -57,6 +57,11 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    from src.core.api_quota import api_quota
+except ImportError:
+    api_quota = None
+
 
 # ─── Product Categories ─────────────────────────────────────────────────────
 # Maps keywords to procurement categories. Used for:
@@ -280,6 +285,11 @@ def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
         prompt += f"\nQuantity: {qty} {uom}"
 
     try:
+        # Soft quota check
+        if api_quota and not api_quota.can_call("grok"):
+            log.warning("Grok daily quota exceeded, skipping item identification")
+
+        _t0 = time.time()
         resp = _requests.post(
             XAI_API_URL,
             headers={
@@ -298,14 +308,33 @@ def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
             },
             timeout=20,
         )
+        _elapsed_ms = int((time.time() - _t0) * 1000)
+
         if resp.status_code == 429:
             log.warning("Grok rate limited in item identifier")
+            if api_quota:
+                api_quota.log_call("grok", agent="item_identifier",
+                                   error="rate_limited", response_time_ms=_elapsed_ms,
+                                   model=XAI_MODEL)
             return None
         if resp.status_code != 200:
             log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
+            if api_quota:
+                api_quota.log_call("grok", agent="item_identifier",
+                                   error=f"http_{resp.status_code}",
+                                   response_time_ms=_elapsed_ms, model=XAI_MODEL)
             return None
 
         data = resp.json()
+
+        # Log successful API call with token usage
+        _usage = data.get("usage", {})
+        if api_quota:
+            api_quota.log_call("grok", agent="item_identifier",
+                               tokens_in=_usage.get("prompt_tokens", 0),
+                               tokens_out=_usage.get("completion_tokens", 0),
+                               response_time_ms=_elapsed_ms, model=XAI_MODEL)
+
         text = data["choices"][0]["message"]["content"].strip()
 
         # Strip markdown code blocks
@@ -321,6 +350,9 @@ def _call_llm(description: str, qty: int = 0, uom: str = "") -> Optional[dict]:
         return None
     except Exception as e:
         log.warning("LLM call failed: %s", e)
+        if api_quota:
+            api_quota.log_call("grok", agent="item_identifier",
+                               error=str(e)[:100], model=XAI_MODEL)
         return None
 
 

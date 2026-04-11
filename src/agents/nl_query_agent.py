@@ -20,6 +20,11 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    from src.core.api_quota import api_quota
+except ImportError:
+    api_quota = None
+
 log = logging.getLogger("reytech.nl_query")
 
 _MODEL = "claude-haiku-4-5-20251001"
@@ -208,6 +213,10 @@ def _generate_sql(query_text: str) -> dict:
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(schema=schema)
 
     try:
+        # Soft quota check
+        if api_quota and not api_quota.can_call("claude"):
+            log.warning("Claude daily quota exceeded, skipping NL query")
+
         request_body = {
             "model": _MODEL,
             "max_tokens": 512,
@@ -221,16 +230,31 @@ def _generate_sql(query_text: str) -> dict:
             "content-type": "application/json",
         }
 
+        _t0 = time.time()
         resp = requests.post(
             "https://api.anthropic.com/v1/messages",
             headers=headers, json=request_body, timeout=_API_TIMEOUT,
         )
+        _elapsed_ms = int((time.time() - _t0) * 1000)
 
         if resp.status_code != 200:
             log.warning("NL query API error: %d", resp.status_code)
+            if api_quota:
+                api_quota.log_call("claude", agent="nl_query",
+                                   error=f"http_{resp.status_code}",
+                                   response_time_ms=_elapsed_ms, model=_MODEL)
             return {"sql": "", "explanation": f"API error {resp.status_code}"}
 
         data = resp.json()
+
+        # Log successful API call with token usage
+        _usage = data.get("usage", {})
+        if api_quota:
+            api_quota.log_call("claude", agent="nl_query",
+                               tokens_in=_usage.get("input_tokens", 0),
+                               tokens_out=_usage.get("output_tokens", 0),
+                               response_time_ms=_elapsed_ms, model=_MODEL)
+
         full_text = ""
         for block in data.get("content", []):
             if block.get("type") == "text":
@@ -252,9 +276,13 @@ def _generate_sql(query_text: str) -> dict:
 
     except requests.exceptions.Timeout:
         log.debug("NL query: API timeout")
+        if api_quota:
+            api_quota.log_call("claude", agent="nl_query", error="timeout", model=_MODEL)
         return {"sql": "", "explanation": "API timeout"}
     except Exception as e:
         log.error("NL query API error: %s", e, exc_info=True)
+        if api_quota:
+            api_quota.log_call("claude", agent="nl_query", error=str(e)[:100], model=_MODEL)
         return {"sql": "", "explanation": str(e)}
 
 

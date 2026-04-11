@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Pricing Intelligence{% endblock %}
-{% from "partials/_analytics_tabs.html" import analytics_tabs %}
 {% block content %}
-{{ analytics_tabs('pricing') }}
+<div style="margin-bottom:16px">
+  <a href="/analytics?tab=pricing" style="color:var(--ac);text-decoration:none;font-size:14px">&larr; Back to Analytics</a>
+</div>
 <div style="max-width:1200px;margin:0 auto;padding:20px">
  <h1 style="font-size:22px;margin-bottom:16px">Pricing Intelligence</h1>
 

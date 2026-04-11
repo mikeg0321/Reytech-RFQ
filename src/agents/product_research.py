@@ -33,6 +33,11 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+try:
+    from src.core.api_quota import api_quota
+except ImportError:
+    api_quota = None
+
 log = logging.getLogger("research")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -193,6 +198,11 @@ Respond in this exact JSON format only, no other text:
 If you cannot find the product, respond: {{"product_name": "", "price": 0, "url": "", "asin": "", "supplier": "", "confidence": 0}}"""
 
     try:
+        # Soft quota check — warn but don't hard-block
+        if api_quota and not api_quota.can_call("grok"):
+            log.warning("Grok daily quota exceeded, skipping product research for: %s", query[:60])
+
+        _t0 = time.time()
         resp = requests.post(
             XAI_API_URL,
             headers={
@@ -211,14 +221,32 @@ If you cannot find the product, respond: {{"product_name": "", "price": 0, "url"
             },
             timeout=20,
         )
+        _elapsed_ms = int((time.time() - _t0) * 1000)
+
         if resp.status_code == 429:
             log.warning("Grok rate limited in product research")
+            if api_quota:
+                api_quota.log_call("grok", agent="product_research",
+                                   error="rate_limited", response_time_ms=_elapsed_ms,
+                                   model=XAI_MODEL)
             return None
         if resp.status_code != 200:
             log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
+            if api_quota:
+                api_quota.log_call("grok", agent="product_research",
+                                   error=f"http_{resp.status_code}",
+                                   response_time_ms=_elapsed_ms, model=XAI_MODEL)
             return None
 
         data = resp.json()
+        # Log successful API call with token usage
+        _usage = data.get("usage", {})
+        if api_quota:
+            api_quota.log_call("grok", agent="product_research",
+                               tokens_in=_usage.get("prompt_tokens", 0),
+                               tokens_out=_usage.get("completion_tokens", 0),
+                               response_time_ms=_elapsed_ms, model=XAI_MODEL)
+
         text = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
 
         # Strip markdown code blocks

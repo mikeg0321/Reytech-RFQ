@@ -2,12 +2,12 @@
 {% macro analytics_tabs(active, total_rfqs=0, total_pcs=0) %}
 <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
  {% set tabs = [
-   ('pipeline', '/analytics', '📊 Pipeline'),
-   ('business_intel', '/business-intel', '📈 Business Intel'),
-   ('suppliers', '/suppliers/performance', '🏭 Suppliers'),
-   ('pricing', '/pricing', '💰 Pricing'),
-   ('win_loss', '/analytics/win-loss', '📉 Win/Loss'),
-   ('loss_intel', '/loss-intelligence', 'Loss Intel'),
+   ('pipeline', '/analytics?tab=pipeline', '📊 Pipeline'),
+   ('business_intel', '/analytics?tab=business_intel', '📈 Business Intel'),
+   ('suppliers', '/analytics?tab=suppliers', '🏭 Suppliers'),
+   ('pricing', '/analytics?tab=pricing', '💰 Pricing'),
+   ('win_loss', '/analytics?tab=win_loss', '📉 Win/Loss'),
+   ('loss_intel', '/analytics?tab=loss_intel', 'Loss Intel'),
  ] %}
  {% for key, url, label in tabs %}
  {% if key == active %}

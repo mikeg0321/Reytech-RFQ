@@ -702,3 +702,31 @@ def api_agents_batch_test():
         "results": results,
         "tested_at": datetime.now().isoformat()
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# API Usage / Quota Dashboard (Phase 33)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/system/api-usage")
+@auth_required
+def api_usage_dashboard():
+    """Daily API usage summary across all services."""
+    try:
+        from src.core.api_quota import api_quota
+        return jsonify(api_quota.get_daily_summary())
+    except Exception as e:
+        log.error("API usage dashboard error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/system/api-usage/monthly")
+@auth_required
+def api_usage_monthly():
+    """Monthly API usage summary across all services."""
+    try:
+        from src.core.api_quota import api_quota
+        return jsonify(api_quota.get_monthly_summary())
+    except Exception as e:
+        log.error("API usage monthly error: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
