@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Market Intel — Reytech{% endblock %}
 
+{% from "partials/_growth_tabs.html" import growth_tabs %}
 {% block content %}
+{{ growth_tabs('market') }}
 
 <style>
 .card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:0}

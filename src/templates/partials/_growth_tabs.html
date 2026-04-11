@@ -1,0 +1,17 @@
+{# Growth suite tab bar — shared across growth pages #}
+{% macro growth_tabs(active) %}
+<div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+ {% set tabs = [
+   ('discovery', '/growth-discovery', '🔍 Discovery'),
+   ('intelligence', '/growth-intel', '🧠 Intelligence'),
+   ('market', '/market-intel', '📈 Market Intel'),
+ ] %}
+ {% for key, url, label in tabs %}
+ {% if key == active %}
+ <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:600;color:#4f8cff;border-bottom:2px solid #4f8cff;text-decoration:none;margin-bottom:-2px">{{ label }}</a>
+ {% else %}
+ <a href="{{ url }}" style="padding:10px 20px;font-size:15px;font-weight:500;color:var(--tx2);text-decoration:none">{{ label }}</a>
+ {% endif %}
+ {% endfor %}
+</div>
+{% endmacro %}
