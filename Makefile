@@ -204,18 +204,8 @@ routes:  ## List all API routes
 
 # ── Status & Info ───────────────────────────────────────────────────────────
 
-status:  ## Show current branch, PR status, and pipeline state
-	@echo "Branch:  $(BRANCH)"
-	@echo "Commit:  $(COMMIT)"
-	@echo ""
-	@echo "--- Git Status ---"
-	@git status -s
-	@echo ""
-	@echo "--- Open PRs ---"
-	@gh pr list --limit 5 2>/dev/null || echo "(gh CLI not available)"
-	@echo ""
-	@echo "--- Recent CI Runs ---"
-	@gh run list --limit 3 2>/dev/null || echo "(gh CLI not available)"
+status:  ## Pipeline dashboard — where your code is in the deploy pipeline
+	@python scripts/pipeline_status.py
 
 # ── Legacy Deploy (direct push, before branch protection) ──────────────────
 

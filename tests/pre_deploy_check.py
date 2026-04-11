@@ -6,6 +6,10 @@ Exit 0 = safe to deploy, Exit 1 = broken.
 """
 import ast, sys, os, importlib, traceback
 
+# Unbuffered output — os._exit() doesn't flush buffers, so CI loses error messages
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(line_buffering=True)
+
 # Fix Windows console encoding for emoji output
 if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("cp"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -14,6 +18,19 @@ if sys.stdout.encoding and sys.stdout.encoding.lower().startswith("cp"):
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("FLASK_ENV", "testing")
 os.environ.setdefault("SECRET_KEY", "test")
+# Suppress background threads during pre-deploy validation
+os.environ["TESTING"] = "1"
+os.environ["ENABLE_BACKGROUND_AGENTS"] = "false"
+os.environ["ENABLE_EMAIL_POLLING"] = "false"
+
+# Ensure data directory and critical JSON files exist for CI
+_data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+os.makedirs(_data_dir, exist_ok=True)
+for _f in ["rfqs.json", "price_checks.json"]:
+    _fpath = os.path.join(_data_dir, _f)
+    if not os.path.exists(_fpath):
+        with open(_fpath, "w") as _fp:
+            _fp.write("{}")
 
 ERRORS = []
 
@@ -336,11 +353,15 @@ check("agency config form sets", _check_agency_configs)
 
 # Summary
 print(f"\n{'═'*40}")
+sys.stdout.flush()
+sys.stderr.flush()
 if ERRORS:
     print(f"❌ {len(ERRORS)} ISSUES FOUND — DO NOT DEPLOY")
     for label, err in ERRORS:
-        print(f"  • {label}")
+        print(f"  • {label}: {err}")
+    sys.stdout.flush()
     os._exit(1)  # Force exit — background daemon threads from app import would hang sys.exit
 else:
     print("✅ ALL CHECKS PASSED — safe to deploy")
+    sys.stdout.flush()
     os._exit(0)  # Force exit — background daemon threads from app import would hang sys.exit
