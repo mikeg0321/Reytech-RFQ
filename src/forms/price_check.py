@@ -4087,10 +4087,15 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
             # Totals — skip mask for detected layouts (empty cells in DOCX forms)
             _totals_mask = not bool(pg_detected)
             if pg_detected and pg_detected.get("totals_cells"):
+                # For detected layouts (DOCX), only draw Subtotal and Freight.
+                # Tax and Total rows are too compressed in DOCX forms and overlap.
+                # Leaving Tax blank avoids implying a tax amount on a procurement doc.
+                _draw_totals = {"fill_70", "fill_71"}  # Subtotal + Freight only
                 for fname, (tx1, ty1, tx2, ty2) in pg_detected["totals_cells"].items():
+                    if fname not in _draw_totals:
+                        continue
                     val = fv_map.get(fname, "")
                     if val:
-                        # Draw right-aligned with minimal padding for detected cells
                         _th = ty2 - ty1
                         _tfs = min(9, _th * 0.8)
                         c.saveState()
