@@ -7,6 +7,7 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Context | Status | Description | Started |
 |--------|---------|--------|-------------|---------|
+| `feat/golden-path-expansion` | — | WIP | Golden path: RFQ conversion + package gen tests + pre-push gate | 2026-04-10 |
 | `fix/quote-counter-agency-package` | — | Open PR | Quote counter + agency config fixes | 2026-04-08 |
 | `tech-debt-qa-agent` | — | WIP | QA agent + LangGraph orchestrator | 2026-04-06 |
 
