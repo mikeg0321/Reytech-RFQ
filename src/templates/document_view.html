@@ -37,7 +37,7 @@
  </div>
 
  <!-- Extracted Tables -->
- {% set tables = doc.parsed_tables_json if doc.parsed_tables_json is iterable and doc.parsed_tables_json is not string else [] %}
+ {% set tables = doc.parsed_tables_json|default([])|list %}
  {% if tables %}
  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:20px">
   <h3 style="margin:0 0 12px;color:var(--tx);font-size:16px">Extracted Tables ({{ tables|length }})</h3>
@@ -51,11 +51,11 @@
     </thead>
     {% endif %}
     <tbody>
-     {% for row in tbl.rows|default([])[:50] %}
+     {% for row in tbl.rows|default([]) %}{% if loop.index0 < 50 %}
      <tr style="border-bottom:1px solid var(--bd)">
       {% for cell in row %}<td style="padding:5px 8px">{{ cell }}</td>{% endfor %}
      </tr>
-     {% endfor %}
+     {% endif %}{% endfor %}
     </tbody>
    </table>
   </div>
