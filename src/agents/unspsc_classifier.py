@@ -326,3 +326,39 @@ def update_catalog_item(product_id: int, unspsc_code: str, unspsc_desc: str,
         log.info("Updated catalog item %d: UNSPSC=%s, COO=%s", product_id, unspsc_code, country)
     except Exception as e:
         log.error("Failed to update catalog item %d: %s", product_id, e)
+
+
+def batch_retag_catalog(limit: int = 50) -> dict:
+    """Batch retro-tag catalog items missing UNSPSC codes."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, name, description, manufacturer FROM products WHERE (unspsc_code IS NULL OR unspsc_code = '') LIMIT ?",
+                (limit,)
+            ).fetchall()
+        if not rows:
+            return {"tagged": 0, "remaining": 0, "errors": 0}
+        items = [{"description": r["name"] or r["description"] or "", "manufacturer": r["manufacturer"] or "", "_id": r["id"]} for r in rows]
+        results = classify_batch(items)
+        tagged, errors = 0, 0
+        for item, result in zip(items, results):
+            if result.get("unspsc_code"):
+                try:
+                    update_catalog_item(item["_id"], result["unspsc_code"], result.get("unspsc_description", ""), result.get("country_of_origin", ""), result.get("taa_compliant", -1))
+                    tagged += 1
+                except Exception:
+                    errors += 1
+            else:
+                errors += 1
+        remaining = 0
+        try:
+            with get_db() as conn:
+                remaining = conn.execute("SELECT COUNT(*) FROM products WHERE unspsc_code IS NULL OR unspsc_code = ''").fetchone()[0]
+        except Exception:
+            pass
+        log.info("UNSPSC batch retag: tagged=%d, errors=%d, remaining=%d", tagged, errors, remaining)
+        return {"tagged": tagged, "remaining": remaining, "errors": errors}
+    except Exception as e:
+        log.error("Batch retag error: %s", e, exc_info=True)
+        return {"tagged": 0, "remaining": -1, "errors": 1}

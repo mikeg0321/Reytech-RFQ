@@ -447,7 +447,40 @@ MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS idx_compliance_rfq ON compliance_matrices(rfq_id);
     """),
+    (15, "platform_upgrade_tables", """
+        CREATE TABLE IF NOT EXISTS bid_scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, pc_id TEXT NOT NULL,
+            catalog_coverage REAL DEFAULT 0, win_history_score REAL DEFAULT 0,
+            margin_potential REAL DEFAULT 0, complexity_score REAL DEFAULT 0,
+            total_score REAL DEFAULT 0, recommendation TEXT DEFAULT 'review',
+            scored_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_bid_scores_pc ON bid_scores(pc_id);
+        CREATE TABLE IF NOT EXISTS agency_compliance_templates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, agency_key TEXT NOT NULL,
+            requirement_text TEXT NOT NULL, category TEXT DEFAULT 'other',
+            severity TEXT DEFAULT 'required', form_id TEXT DEFAULT '',
+            active INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_act_agency ON agency_compliance_templates(agency_key);
+    """),
 ]
+
+
+def _run_migration_15(conn):
+    """Platform upgrade — quote expiry + contact address columns."""
+    def _add_col(table, col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except Exception:
+            pass
+    _add_col("quotes", "expires_at", "TEXT DEFAULT ''")
+    _add_col("quotes", "expiry_notified", "INTEGER DEFAULT 0")
+    _add_col("contacts", "address", "TEXT DEFAULT ''")
+    _add_col("contacts", "city", "TEXT DEFAULT ''")
+    _add_col("contacts", "state", "TEXT DEFAULT 'CA'")
+    _add_col("contacts", "zip", "TEXT DEFAULT ''")
+    _add_col("contacts", "ship_to_default", "TEXT DEFAULT ''")
 
 
 def _run_migration_14(conn):
@@ -549,6 +582,18 @@ def run_migrations():
                     log.info("Migration 14 applied: intelligence_layer_columns (programmatic)")
                 except Exception as e:
                     log.warning("Migration 14 partial: %s (non-fatal)", e)
+
+            if current < 15:
+                try:
+                    _run_migration_15(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (15, "platform_upgrade_columns", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 15 applied: platform_upgrade_columns (programmatic)")
+                except Exception as e:
+                    log.warning("Migration 15 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",

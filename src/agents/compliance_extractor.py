@@ -413,3 +413,115 @@ def extract_compliance_matrix(pdf_path: str, rfq_id: str,
         "matrix_id": matrix_id,
         "duration_ms": duration_ms,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# V2: AGENCY COMPLIANCE TEMPLATES
+# ═══════════════════════════════════════════════════════════════════════════
+
+_AGENCY_TEMPLATE_SEEDS = {
+    "cchcs": [
+        ("Submit 703B/703C form", "form", "required", "703b"),
+        ("Submit 704B pricing form", "form", "required", "704b"),
+        ("Include Bid Package", "form", "required", "bid_package"),
+        ("Include Reytech price quotation", "form", "required", "quote"),
+        ("Vendor must be certified Small Business (SB)", "certification", "required", ""),
+        ("Vendor must be certified DVBE", "certification", "preferred", "dvbe843"),
+        ("Deliver within 5-7 business days", "delivery", "required", ""),
+        ("FOB Destination, Freight Prepaid", "delivery", "required", ""),
+    ],
+    "calvet": [
+        ("Submit STD 204 Payee Data Record", "form", "required", "std204"),
+        ("Submit STD 205", "form", "required", "std205"),
+        ("Submit CalRecycle 74 form", "form", "required", "calrecycle74"),
+        ("Submit DVBE 843 form", "form", "required", "dvbe843"),
+        ("Submit Darfur Contracting Act certification", "form", "required", "darfur_act"),
+        ("Submit Seller's Permit", "form", "required", "sellers_permit"),
+        ("Submit STD 1000 General Terms", "form", "required", "std1000"),
+        ("Include price quotation", "form", "required", "quote"),
+    ],
+    "dgs": [
+        ("Submit STD 204 Payee Data Record", "form", "required", "std204"),
+        ("Submit W-9 taxpayer identification", "form", "required", "w9"),
+        ("Provide certificate of insurance", "certification", "preferred", "insurance_cert"),
+        ("Include price quotation", "form", "required", "quote"),
+    ],
+    "dsh": [
+        ("Submit STD 204", "form", "required", "std204"),
+        ("Submit DVBE 843 form", "form", "required", "dvbe843"),
+        ("Include price quotation", "form", "required", "quote"),
+    ],
+    "calfire": [
+        ("Submit STD 204", "form", "required", "std204"),
+        ("Include price quotation", "form", "required", "quote"),
+    ],
+}
+
+
+def seed_agency_templates() -> int:
+    """Seed default agency compliance templates. Idempotent."""
+    try:
+        from src.core.db import get_db
+        count = 0
+        with get_db() as conn:
+            for agency_key, reqs in _AGENCY_TEMPLATE_SEEDS.items():
+                for text, category, severity, form_id in reqs:
+                    existing = conn.execute(
+                        "SELECT id FROM agency_compliance_templates WHERE agency_key=? AND requirement_text=?",
+                        (agency_key, text)
+                    ).fetchone()
+                    if existing:
+                        continue
+                    conn.execute(
+                        "INSERT INTO agency_compliance_templates (agency_key, requirement_text, category, severity, form_id) VALUES (?, ?, ?, ?, ?)",
+                        (agency_key, text, category, severity, form_id)
+                    )
+                    count += 1
+        log.info("Seeded %d agency compliance templates", count)
+        return count
+    except Exception as e:
+        log.error("Failed to seed agency templates: %s", e, exc_info=True)
+        return 0
+
+
+def get_agency_template(agency_key: str) -> list:
+    """Load compliance template for an agency."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT requirement_text, category, severity, form_id FROM agency_compliance_templates WHERE agency_key = ? AND active = 1 ORDER BY category, severity",
+                (agency_key.lower(),)
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as e:
+        log.error("Failed to load agency template for %s: %s", agency_key, e)
+        return []
+
+
+def merge_template_with_extraction(template_reqs: list, extracted_reqs: list) -> list:
+    """Merge agency template with PDF-extracted requirements. Deduplicates."""
+    merged = []
+    used_texts = set()
+    for i, req in enumerate(template_reqs):
+        text = req.get("requirement_text", "") or req.get("text", "")
+        merged.append({
+            "id": f"TPL-{i + 1:03d}", "text": text,
+            "category": req.get("category", "other"),
+            "severity": req.get("severity", "required"),
+            "source": "agency_template",
+            "form_id": req.get("form_id", ""),
+            "met": False, "met_by": "", "notes": "",
+        })
+        used_texts.add(text.lower()[:60])
+    for req in extracted_reqs:
+        text = req.get("text", "")
+        text_key = text.lower()[:60]
+        if text_key in used_texts:
+            continue
+        form_id = req.get("form_id", "") or _match_form_id(text)
+        if form_id and any(m.get("form_id") == form_id for m in merged):
+            continue
+        merged.append(req)
+        used_texts.add(text_key)
+    return merged
