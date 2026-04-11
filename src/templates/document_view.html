@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title|default('Document') }}{% endblock %}
+
+{% block content %}
+<div style="max-width:1000px;margin:0 auto">
+
+ <!-- Header -->
+ <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+  <a href="/" style="color:var(--tx2);text-decoration:none;font-size:14px">&larr; Home</a>
+  <h2 style="margin:0;color:var(--tx)">{{ doc.filename|default('Document') }}</h2>
+  <span style="padding:4px 10px;background:rgba(99,102,241,.15);color:#818cf8;border-radius:6px;font-size:12px;font-weight:600">
+   {{ doc.doc_type|default('unknown')|upper }}
+  </span>
+ </div>
+
+ <!-- Metadata -->
+ <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px;font-size:13px;color:var(--tx2)">
+  {% if doc.page_count|default(0) > 0 %}
+  <span>{{ doc.page_count }} pages</span>
+  {% endif %}
+  {% if doc.parse_duration_ms|default(0) > 0 %}
+  <span>Parsed in {{ doc.parse_duration_ms }}ms</span>
+  {% endif %}
+  {% if doc.uploaded_at|default('') %}
+  <span>Uploaded: {{ doc.uploaded_at }}</span>
+  {% endif %}
+  {% set meta = doc.metadata_json if doc.metadata_json is mapping else {} %}
+  {% if meta.get('engine', '') %}
+  <span>Engine: {{ meta.engine }}</span>
+  {% endif %}
+ </div>
+
+ <!-- Parsed Content -->
+ <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:20px;margin-bottom:20px">
+  <h3 style="margin:0 0 12px;color:var(--tx);font-size:16px">Parsed Content</h3>
+  <pre style="white-space:pre-wrap;word-wrap:break-word;font-size:13px;color:var(--tx);line-height:1.6;max-height:600px;overflow:auto">{{ doc.parsed_markdown|default('No content extracted') }}</pre>
+ </div>
+
+ <!-- Extracted Tables -->
+ {% set tables = doc.parsed_tables_json if doc.parsed_tables_json is iterable and doc.parsed_tables_json is not string else [] %}
+ {% if tables %}
+ <div style="background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:20px">
+  <h3 style="margin:0 0 12px;color:var(--tx);font-size:16px">Extracted Tables ({{ tables|length }})</h3>
+  {% for tbl in tables %}
+  <div style="margin-bottom:16px;overflow-x:auto">
+   {% if tbl.caption|default('') %}<p style="font-size:13px;color:var(--tx2);margin:0 0 6px"><em>{{ tbl.caption }}</em></p>{% endif %}
+   <table style="width:100%;border-collapse:collapse;font-size:13px">
+    {% if tbl.headers|default([]) %}
+    <thead>
+     <tr>{% for h in tbl.headers %}<th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);color:var(--tx2)">{{ h }}</th>{% endfor %}</tr>
+    </thead>
+    {% endif %}
+    <tbody>
+     {% for row in tbl.rows|default([])[:50] %}
+     <tr style="border-bottom:1px solid var(--bd)">
+      {% for cell in row %}<td style="padding:5px 8px">{{ cell }}</td>{% endfor %}
+     </tr>
+     {% endfor %}
+    </tbody>
+   </table>
+  </div>
+  {% endfor %}
+ </div>
+ {% endif %}
+
+</div>
+{% endblock %}

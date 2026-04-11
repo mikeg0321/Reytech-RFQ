@@ -401,7 +401,69 @@ MIGRATIONS = [
         );
     """),
     # Migration 13: handled programmatically (ALTER TABLE doesn't support IF NOT EXISTS)
+    # Migration 14: intelligence layer tables + columns (programmatic below)
+    (14, "intelligence_layer_tables", """
+        CREATE TABLE IF NOT EXISTS parsed_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
+            original_path TEXT,
+            doc_type TEXT DEFAULT 'unknown',
+            parsed_markdown TEXT,
+            parsed_tables_json TEXT,
+            metadata_json TEXT,
+            linked_rfq_id TEXT,
+            linked_pc_id TEXT,
+            uploaded_by TEXT DEFAULT 'system',
+            uploaded_at TEXT DEFAULT (datetime('now')),
+            parse_duration_ms INTEGER,
+            page_count INTEGER,
+            status TEXT DEFAULT 'parsed'
+        );
+        CREATE INDEX IF NOT EXISTS idx_parsed_docs_rfq ON parsed_documents(linked_rfq_id);
+        CREATE INDEX IF NOT EXISTS idx_parsed_docs_type ON parsed_documents(doc_type);
+
+        CREATE TABLE IF NOT EXISTS nl_query_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query_text TEXT NOT NULL,
+            generated_sql TEXT,
+            result_count INTEGER,
+            duration_ms INTEGER,
+            success INTEGER DEFAULT 1,
+            error TEXT,
+            queried_at TEXT DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS compliance_matrices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rfq_id TEXT NOT NULL,
+            source_doc_id INTEGER,
+            requirements_json TEXT,
+            met_count INTEGER DEFAULT 0,
+            total_count INTEGER DEFAULT 0,
+            score REAL DEFAULT 0,
+            extracted_at TEXT DEFAULT (datetime('now')),
+            extraction_method TEXT DEFAULT 'claude',
+            source_pdf_path TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_compliance_rfq ON compliance_matrices(rfq_id);
+    """),
 ]
+
+
+def _run_migration_14(conn):
+    """Intelligence layer — add UNSPSC + country_of_origin columns to catalog tables."""
+    def _add_col(table, col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except Exception:
+            pass  # Column already exists
+
+    for table in ("products", "product_catalog"):
+        _add_col(table, "unspsc_code", "TEXT DEFAULT ''")
+        _add_col(table, "unspsc_description", "TEXT DEFAULT ''")
+        _add_col(table, "country_of_origin", "TEXT DEFAULT ''")
+        _add_col(table, "taa_compliant", "INTEGER DEFAULT -1")
+
 
 def _run_migration_13(conn):
     """Award intelligence enhancements — idempotent column additions."""
@@ -475,6 +537,18 @@ def run_migrations():
                     log.info("Migration 13 applied: award_intelligence_enhancements (programmatic)")
                 except Exception as e:
                     log.warning("Migration 13 partial: %s (non-fatal)", e)
+
+            if current < 14:
+                try:
+                    _run_migration_14(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (14, "intelligence_layer_columns", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 14 applied: intelligence_layer_columns (programmatic)")
+                except Exception as e:
+                    log.warning("Migration 14 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",
