@@ -30,8 +30,10 @@
    <input id="nl-query-input" type="text" placeholder="e.g. How many quotes did we send this month?" style="flex:1;padding:10px 14px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px" onkeydown="if(event.key==='Enter'){document.getElementById('nl-query-btn').click()}">
    <button id="nl-query-btn" onclick="runNlQuery()" style="padding:10px 20px;background:var(--ac);border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer;font-size:14px">Ask</button>
   </div>
+  <div id="nl-query-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
   <div id="nl-query-status" style="display:none;padding:8px;font-size:13px;color:var(--tx2)"></div>
   <div id="nl-query-results" style="max-height:400px;overflow:auto"></div>
+  <div id="nl-query-chart" style="display:none;margin-top:10px;max-height:300px"><canvas id="nl-chart-canvas"></canvas></div>
  </div>
 </div>
 <script>
@@ -63,11 +65,50 @@ function runNlQuery(){
    h+='</tr>'});
   h+='</tbody></table>';
   res.innerHTML=h;
+  tryRenderChart(d);
  })
  .catch(function(e){btn.disabled=false;btn.textContent='Ask';st.textContent='Network error';st.style.color='#f87171'});
 }
+var _nlChart=null;
+function tryRenderChart(d){
+ var cc=document.getElementById('nl-query-chart'),cv=document.getElementById('nl-chart-canvas');
+ if(!cc||!cv||!d.results||!d.results.length||!d.columns||d.columns.length<2||d.columns.length>3)return void(cc&&(cc.style.display='none'));
+ var lc=d.columns[0],vc=d.columns[1],fv=d.results[0][vc];
+ if(typeof fv!=='number'&&isNaN(parseFloat(fv))||d.results.length>20)return void(cc.style.display='none');
+ cc.style.display='block';
+ if(_nlChart)_nlChart.destroy();
+ if(typeof Chart==='undefined')return void(cc.style.display='none');
+ _nlChart=new Chart(cv,{type:'bar',data:{labels:d.results.map(function(r){return String(r[lc]).substring(0,30)}),datasets:[{label:vc,data:d.results.map(function(r){return parseFloat(r[vc])||0}),backgroundColor:'rgba(99,102,241,.6)',borderColor:'rgba(99,102,241,1)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#8b949e'}},x:{ticks:{color:'#8b949e',maxRotation:45}}}}});
+}
+(function(){
+ fetch('/api/v1/search/nl/suggestions').then(function(r){return r.json()}).then(function(d){
+  var c=document.getElementById('nl-query-chips');if(!c||!d.suggestions)return;
+  d.suggestions.forEach(function(s){
+   var b=document.createElement('button');b.textContent=s.text;
+   b.style.cssText='padding:4px 10px;border-radius:12px;border:1px solid var(--bd);background:var(--bg);color:var(--tx2);font-size:12px;cursor:pointer';
+   b.onclick=function(){var i=document.getElementById('nl-query-input');if(i){i.value=s.text;runNlQuery()}};
+   c.appendChild(b);
+  });
+ }).catch(function(){});
+})();
 </script>
 {% endif %}
+
+<!-- ═══ Expiring Quotes Alert ═══ -->
+<div id="expiry-alerts" style="display:none;margin-bottom:10px"></div>
+<script>
+setTimeout(function(){
+ fetch('/api/quotes/expiring').then(function(r){return r.json()}).then(function(d){
+  var el=document.getElementById('expiry-alerts');
+  if(!el||!d.ok||!d.expiring||!d.expiring.length)return;
+  el.style.display='block';var h='';
+  d.expiring.forEach(function(q){
+   var sev=q.severity==='critical',c=sev?'rgba(248,113,113,.12)':'rgba(210,153,34,.08)',b=sev?'rgba(248,113,113,.3)':'rgba(210,153,34,.25)',t=sev?'#f87171':'#d29922';
+   h+='<div style="padding:8px 14px;border-radius:8px;border:1px solid '+b+';background:'+c+';font-size:13px;margin-bottom:6px">'+(sev?'🔴':'🟡')+' <span style="color:'+t+'"><b>'+q.quote_number+'</b> ('+(q.agency||'?')+') expires in <b>'+q.days_remaining+'</b> day(s)</span></div>';
+  });el.innerHTML=h;
+ }).catch(function(){});
+},3000);
+</script>
 
 <!-- ═══ Document Upload Modal ═══ -->
 {% if docling_intake|default(false) %}

@@ -275,3 +275,163 @@ def api_compliance_get(rfq_id):
     except Exception as e:
         log.error("Compliance get error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUOTE EXPIRY
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/quotes/expiring", methods=["GET"])
+@auth_required
+def api_quotes_expiring():
+    """Get quotes expiring within 7 days."""
+    try:
+        from src.core.db import get_db
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        cutoff = (now + timedelta(days=7)).isoformat()
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT quote_number, agency, institution, total, expires_at, sent_at, contact_name, status
+                   FROM quotes WHERE expires_at != '' AND expires_at <= ? AND status NOT IN ('won','lost','cancelled','expired')
+                   ORDER BY expires_at ASC LIMIT 20""",
+                (cutoff,)
+            ).fetchall()
+        results = []
+        for row in rows:
+            d = dict(row)
+            try:
+                exp = datetime.fromisoformat(d["expires_at"])
+                d["days_remaining"] = max(0, (exp - now).days)
+                d["severity"] = "critical" if d["days_remaining"] <= 3 else "warning"
+            except (ValueError, TypeError):
+                d["days_remaining"] = -1
+                d["severity"] = "unknown"
+            results.append(d)
+        return jsonify({"ok": True, "expiring": results, "count": len(results)})
+    except Exception as e:
+        log.error("Expiring quotes error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# BID SCORING
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/pricecheck/<pc_id>/bid-score", methods=["POST"])
+@auth_required
+def api_bid_score(pc_id):
+    """Score a PC for bid/no-bid decision."""
+    try:
+        from src.core.feature_flags import get_flag
+        if not get_flag("bid_scoring", default=False):
+            return jsonify({"ok": False, "error": "Bid scoring not enabled"}), 403
+    except ImportError:
+        pass
+    try:
+        from src.agents.bid_decision_agent import score_pc
+        return jsonify(score_pc(pc_id))
+    except Exception as e:
+        log.error("Bid score error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pricecheck/<pc_id>/bid-score", methods=["GET"])
+@auth_required
+def api_bid_score_get(pc_id):
+    """Get saved bid score for a PC."""
+    try:
+        from src.agents.bid_decision_agent import get_bid_score
+        return jsonify(get_bid_score(pc_id))
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# SHIP-TO AUTO-FILL
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/contacts/<email>/address", methods=["GET"])
+@auth_required
+def api_contact_address(email):
+    """Lookup contact address by email for ship-to auto-fill."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT address, city, state, zip, ship_to_default, agency FROM contacts WHERE buyer_email = ?",
+                (email,)
+            ).fetchone()
+            if not row:
+                return jsonify({"ok": False, "error": "Contact not found"}), 404
+            d = dict(row)
+            d["ok"] = True
+            return jsonify(d)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# NL QUERY V2 — SUGGESTIONS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/v1/search/nl/suggestions", methods=["GET"])
+@auth_required
+def api_nl_suggestions():
+    """Get suggested NL queries."""
+    try:
+        from src.agents.nl_query_agent import SUGGESTED_QUERIES
+        return jsonify({"ok": True, "suggestions": SUGGESTED_QUERIES})
+    except Exception:
+        return jsonify({"ok": True, "suggestions": []})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# UNSPSC V2 — BATCH RETAG
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/catalog/retag-unspsc", methods=["POST"])
+@auth_required
+def api_retag_unspsc():
+    """Batch retag catalog items with UNSPSC codes."""
+    try:
+        from src.core.feature_flags import get_flag
+        if not get_flag("unspsc_enrichment", default=False):
+            return jsonify({"ok": False, "error": "UNSPSC enrichment not enabled"}), 403
+    except ImportError:
+        pass
+    try:
+        from src.agents.unspsc_classifier import batch_retag_catalog
+        data = request.get_json(silent=True) or {}
+        limit = data.get("limit", 50)
+        result = batch_retag_catalog(limit=limit)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        log.error("UNSPSC retag error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# COMPLIANCE V2 — AGENCY TEMPLATES
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/compliance/templates/<agency_key>", methods=["GET"])
+@auth_required
+def api_compliance_template(agency_key):
+    """Get compliance requirement template for an agency."""
+    try:
+        from src.agents.compliance_extractor import get_agency_template
+        return jsonify({"ok": True, "agency": agency_key, "requirements": get_agency_template(agency_key)})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/compliance/templates/seed", methods=["POST"])
+@auth_required
+def api_seed_compliance_templates():
+    """Seed default agency compliance templates."""
+    try:
+        from src.agents.compliance_extractor import seed_agency_templates
+        return jsonify({"ok": True, "seeded": seed_agency_templates()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500

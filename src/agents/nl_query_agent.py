@@ -24,6 +24,18 @@ log = logging.getLogger("reytech.nl_query")
 
 _MODEL = "claude-haiku-4-5-20251001"
 _API_TIMEOUT = 10
+
+# V2: Suggested queries for the UI
+SUGGESTED_QUERIES = [
+    {"text": "Top 5 agencies by total spend", "category": "spend"},
+    {"text": "Win rate this month", "category": "performance"},
+    {"text": "Quotes sent this week", "category": "activity"},
+    {"text": "Average markup % by agency", "category": "pricing"},
+    {"text": "Items quoted most frequently", "category": "catalog"},
+    {"text": "Quotes expiring in next 7 days", "category": "urgency"},
+    {"text": "How many PCs are priced but not sent?", "category": "pipeline"},
+    {"text": "Top 10 products by revenue", "category": "revenue"},
+]
 _QUERY_TIMEOUT = 5  # seconds for SQL execution
 _MAX_ROWS = 100
 _RATE_LIMIT = 10  # queries per minute

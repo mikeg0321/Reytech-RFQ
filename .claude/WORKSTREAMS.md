@@ -7,7 +7,7 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Context | Status | Description | Started |
 |--------|---------|--------|-------------|---------|
-| feat/intelligence-layer | Window 1 | Active | UNSPSC, COO, Docling, NL Query, Compliance Matrix | 2026-04-10 |
+| feat/platform-upgrade | Window 1 | Active | Quote expiry, Bid scorer, Ship-to, NL V2, UNSPSC V2, Compliance V2, Chart.js | 2026-04-11 |
 
 ## Coordination Rules
 
