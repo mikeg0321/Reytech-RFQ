@@ -7,8 +7,8 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Context | Status | Description | Started |
 |--------|---------|--------|-------------|---------|
-| `fix/quote-counter-agency-package` | — | Open PR | Quote counter + agency config fixes | 2026-04-08 |
-| `tech-debt-qa-agent` | — | WIP | QA agent + LangGraph orchestrator | 2026-04-06 |
+| `feat/pipeline-v2-feedback` | — | Open PR #5 | Oracle V5 + north star P1 | 2026-04-10 |
+| `feat/golden-path-expansion` | — | Open PR #4 | Golden path expansion tests | 2026-04-10 |
 
 ## Coordination Rules
 
@@ -21,6 +21,9 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Merged | Description |
 |--------|--------|-------------|
+| `feat/golden-path-test` | 2026-04-10 | Golden path E2E pricing accuracy test (PR #3) |
+| `fix/test-schema-sync` | 2026-04-10 | Test schema sync (PR #2) |
+| `fix/qa-delivery-and-quote-number` | 2026-04-10 | QA panel fixes (PR #1) |
 | `phase-14-agents` | 2026-04-09 | Extended agent fleet |
 | `phase-13-agents` | 2026-04-08 | Agent infrastructure |
 
