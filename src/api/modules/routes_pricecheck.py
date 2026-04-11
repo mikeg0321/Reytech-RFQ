@@ -3091,10 +3091,19 @@ def _ingest_pc_to_won_quotes(pc):
         items = pc.get("items", [])
         institution = pc.get("institution", "")
         pc_num = pc.get("pc_number", "")
+        ingested = 0
         for item in items:
+            if item.get("no_bid"):
+                continue
             pricing = item.get("pricing", {})
-            price = pricing.get("recommended_price")
-            if not price:
+            # Price fallback: user-entered → oracle recommended → bid price
+            price = (item.get("unit_price") or pricing.get("recommended_price")
+                     or pricing.get("bid_price") or 0)
+            try:
+                price = float(price)
+            except (ValueError, TypeError):
+                price = 0
+            if not price or price <= 0:
                 continue
             ingest_scprs_result(
                 po_number=f"PC-{pc_num}",
@@ -3106,7 +3115,8 @@ def _ingest_pc_to_won_quotes(pc):
                 award_date=datetime.now().strftime("%Y-%m-%d"),
                 source="price_check",
             )
-        log.info(f"Ingested {len(items)} items from PC #{pc_num} into Won Quotes KB")
+            ingested += 1
+        log.info("Ingested %d/%d items from PC #%s into Won Quotes KB", ingested, len(items), pc_num)
     except Exception as e:
         log.error(f"KB ingestion error: {e}")
 
@@ -6839,6 +6849,15 @@ def api_pricecheck_mark_won(pcid):
         _ingest_pc_to_won_quotes(pc)
     except Exception as e:
         log.warning("mark-won won_quotes ingest error: %s", e)
+    # ── Calibrate Oracle from win (V5: feedback loop) ──
+    try:
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+        calibrate_from_outcome(
+            pc.get("items", []), "won",
+            agency=pc.get("institution") or pc.get("agency", ""),
+        )
+    except Exception as e:
+        log.debug("mark-won calibration error: %s", e)
     # ── Feed won items to FI$Cal catalog for future intelligence ──
     try:
         from src.agents.quote_intelligence import learn_new_item
@@ -7013,6 +7032,177 @@ def api_award_monitor_status():
         return jsonify({"ok": True, **get_monitor_status()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/pricing-intel/backfill-wins", methods=["POST"])
+@auth_required
+@safe_route
+def api_backfill_wins():
+    """Backfill winning prices from all PCs marked as won."""
+    try:
+        pcs = _load_price_checks()
+        total_recorded = 0
+        total_ingested = 0
+        won_pcs = [pcid for pcid, pc in pcs.items()
+                   if pc.get("award_status") == "won"]
+
+        from src.knowledge.pricing_intel import record_winning_prices
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+        for pcid in won_pcs:
+            pc = pcs[pcid]
+            # Record winning prices
+            line_items = []
+            for it in pc.get("items", []):
+                if it.get("no_bid"):
+                    continue
+                price = (it.get("unit_price") or (it.get("pricing") or {}).get("recommended_price") or 0)
+                cost = (it.get("vendor_cost") or (it.get("pricing") or {}).get("unit_cost") or 0)
+                try:
+                    price = float(price)
+                    cost = float(cost)
+                except (ValueError, TypeError):
+                    continue
+                if not price or not it.get("description"):
+                    continue
+                line_items.append({
+                    "description": it.get("description", ""),
+                    "part_number": it.get("mfg_number", "") or it.get("part_number", ""),
+                    "sku": it.get("mfg_number", ""),
+                    "qty": it.get("qty", 1) or 1,
+                    "unit_price": price,
+                    "cost": cost,
+                    "supplier": it.get("item_supplier", "") or it.get("supplier", ""),
+                })
+            if line_items:
+                recorded = record_winning_prices({
+                    "quote_number": pc.get("reytech_quote_number", pcid),
+                    "po_number": pc.get("competitor_po", ""),
+                    "agency": pc.get("institution") or pc.get("agency", ""),
+                    "institution": pc.get("institution", ""),
+                    "line_items": line_items,
+                })
+                total_recorded += recorded
+
+            # Ingest to Won Quotes KB
+            try:
+                _ingest_pc_to_won_quotes(pc)
+                total_ingested += 1
+            except Exception:
+                pass
+
+            # Calibrate Oracle
+            try:
+                calibrate_from_outcome(
+                    pc.get("items", []), "won",
+                    agency=pc.get("institution") or pc.get("agency", ""),
+                )
+            except Exception:
+                pass
+
+        log.info("Backfill wins: %d PCs, %d prices recorded, %d ingested",
+                 len(won_pcs), total_recorded, total_ingested)
+        return jsonify({
+            "ok": True,
+            "won_pcs": len(won_pcs),
+            "prices_recorded": total_recorded,
+            "pcs_ingested": total_ingested,
+        })
+    except Exception as e:
+        log.error("Backfill wins error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pricing-intel/backfill-losses", methods=["POST"])
+@auth_required
+@safe_route
+def api_backfill_losses():
+    """Backfill competitor intel from all PCs marked as lost."""
+    try:
+        pcs = _load_price_checks()
+        total_items = 0
+        lost_pcs = [pcid for pcid, pc in pcs.items()
+                    if pc.get("award_status") == "lost"]
+
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+        for pcid in lost_pcs:
+            pc = pcs[pcid]
+            comp_name = pc.get("competitor_name", "Unknown")
+            comp_price_total = float(pc.get("competitor_price", 0) or 0)
+            items = pc.get("items", [])
+            active_items = [it for it in items if not it.get("no_bid")]
+            num_items = max(len(active_items), 1)
+
+            for it in active_items:
+                desc = it.get("description", "")
+                if not desc:
+                    continue
+                item_comp_price = comp_price_total / num_items if comp_price_total > 0 else 0
+                if item_comp_price <= 0:
+                    continue
+                qty = it.get("qty", 1) or 1
+                per_unit_comp = item_comp_price / float(qty) if qty > 1 else item_comp_price
+                try:
+                    ingest_scprs_result(
+                        po_number=f"LOST-{pc.get('pc_number', pcid)}",
+                        item_number=it.get("item_number", ""),
+                        description=desc,
+                        unit_price=per_unit_comp,
+                        supplier=comp_name,
+                        department=pc.get("institution", ""),
+                        award_date=pc.get("closed_at", datetime.now().strftime("%Y-%m-%d"))[:10],
+                        source="competitor_intel",
+                    )
+                    total_items += 1
+                except Exception:
+                    pass
+
+            # Calibrate Oracle
+            try:
+                loss_type = "price" if comp_price_total > 0 else "other"
+                calibrate_from_outcome(
+                    items, "lost",
+                    agency=pc.get("institution") or pc.get("agency", ""),
+                    loss_reason=loss_type,
+                )
+            except Exception:
+                pass
+
+        log.info("Backfill losses: %d PCs, %d competitor items ingested",
+                 len(lost_pcs), total_items)
+        return jsonify({
+            "ok": True,
+            "lost_pcs": len(lost_pcs),
+            "competitor_items_ingested": total_items,
+        })
+    except Exception as e:
+        log.error("Backfill losses error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/pricing-intel/requote-triggers")
+@auth_required
+@safe_route
+def api_requote_triggers():
+    """V5 Phase 6: Scan for PCs that need re-quoting."""
+    try:
+        from src.core.pricing_oracle_v2 import check_requote_triggers
+        triggers = check_requote_triggers()
+        # Summarize by type
+        by_type = {}
+        for t in triggers:
+            tt = t["trigger_type"]
+            by_type[tt] = by_type.get(tt, 0) + 1
+        return jsonify({
+            "ok": True,
+            "triggers": triggers,
+            "total": len(triggers),
+            "by_type": by_type,
+        })
+    except Exception as e:
+        log.error("Requote triggers error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @bp.route("/api/competitors")
@@ -9131,6 +9321,17 @@ def api_pc_oracle_auto_price(pcid):
             data_pts = market.get("data_points", 0)
             cal_data = rec.get("calibration")
 
+            # V5 Phase 3: Cost sourcing alert
+            cost_alert = None
+            if cost > 0 and comp_avg and cost > comp_avg:
+                delta_pct = round((cost - comp_avg) / comp_avg * 100, 1)
+                cost_alert = {
+                    "type": "above_market",
+                    "our_cost": round(cost, 2),
+                    "market_avg": round(comp_avg, 2),
+                    "delta_pct": delta_pct,
+                }
+
             item_recs.append({
                 "idx": idx,
                 "skip": False,
@@ -9142,7 +9343,9 @@ def api_pc_oracle_auto_price(pcid):
                 "comp_low": comp_low,
                 "calibration": cal_data,
                 "data_points": data_pts,
+                "data_confidence": rec.get("data_confidence", ""),
                 "qty": qty,
+                "cost_alert": cost_alert,
             })
 
         # ═══ Pass 2: Portfolio-level optimization ═══
@@ -9262,12 +9465,16 @@ def api_pc_oracle_auto_price(pcid):
         except Exception as e:
             log.warning("Oracle auto-price persist failed: %s", e)
 
+        # V5 Phase 3: Count cost alerts
+        cost_alerts = [r for r in item_recs if not r.get("skip") and r.get("cost_alert")]
+
         return jsonify({
             "ok": True,
             "items": [r for r in item_recs if not r.get("skip")],
             "win_probability": win_prob,
             "total_items": total,
             "items_competitive": competitive,
+            "cost_alerts_count": len(cost_alerts),
             "portfolio": {
                 "total_cost": round(total_item_cost, 2),
                 "total_revenue": round(total_revenue, 2),

@@ -1309,6 +1309,34 @@ CREATE TABLE IF NOT EXISTS oracle_calibration (
     UNIQUE(category, agency)
 );
 
+CREATE TABLE IF NOT EXISTS institution_pricing_profile (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution TEXT NOT NULL,
+    category TEXT DEFAULT 'general',
+    avg_winning_markup REAL DEFAULT 25,
+    avg_losing_markup REAL DEFAULT 0,
+    win_count INTEGER DEFAULT 0,
+    loss_count INTEGER DEFAULT 0,
+    price_sensitivity TEXT DEFAULT 'normal',
+    preferred_suppliers TEXT DEFAULT '',
+    last_updated TEXT,
+    UNIQUE(institution, category)
+);
+
+CREATE TABLE IF NOT EXISTS winning_quote_shapes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    institution TEXT DEFAULT '',
+    category_mix TEXT,
+    total_items INTEGER,
+    avg_markup REAL,
+    markup_stddev REAL,
+    markup_distribution TEXT,
+    outcome TEXT,
+    recorded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wqs_institution ON winning_quote_shapes(institution);
+CREATE INDEX IF NOT EXISTS idx_wqs_outcome ON winning_quote_shapes(outcome);
+
 CREATE TABLE IF NOT EXISTS winning_prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     recorded_at TEXT NOT NULL,

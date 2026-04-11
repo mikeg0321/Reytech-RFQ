@@ -181,6 +181,27 @@
        <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Lost">❌ Mark Lost</button>
       </div>
      </div>
+     <!-- V5 Phase 6: Requote trigger check for sent PCs -->
+     <div id="requote-trigger-banner" style="display:none;padding:8px 14px;border-radius:6px;font-size:13px;background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);color:#d29922;margin-bottom:8px;font-weight:500"></div>
+     <script>
+     (function(){
+       fetch('/api/pricing-intel/requote-triggers',{credentials:'same-origin'})
+       .then(function(r){return r.json()}).then(function(d){
+         if(!d.ok)return;
+         var mine=(d.triggers||[]).filter(function(t){return t.pc_id==='{{pcid}}'});
+         if(!mine.length)return;
+         var banner=document.getElementById('requote-trigger-banner');
+         var msgs=[];
+         mine.forEach(function(t){
+           if(t.trigger_type==='quote_expiring')msgs.push('Quote is '+t.details.days_old+' days old');
+           else if(t.trigger_type==='cost_dropped')msgs.push('Cost dropped '+Math.abs(t.details.delta_pct)+'% on "'+t.details.item+'"');
+           else if(t.trigger_type==='cost_spiked')msgs.push('Cost spiked +'+t.details.delta_pct+'% on "'+t.details.item+'"');
+         });
+         banner.textContent='⚠️ '+msgs.join(' · ');
+         banner.style.display='block';
+       }).catch(function(){});
+     })();
+     </script>
      {% elif pc.get('status') == 'won' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">🏆</span><div><b>Won</b>{% if pc.get('closed_at') %} — {{ pc.get('closed_at','')[:10] }}{% endif %} · Pricing accepted — awaiting official RFQ</div></div>
@@ -1897,6 +1918,60 @@
         }
         applied++;
       });
+      // V5: Apply row color-coding by confidence
+      (d.items||[]).forEach(function(it){
+        var row=document.querySelector('tr[data-row="'+it.idx+'"]:not(.notes-row)');
+        if(!row) return;
+        row.removeAttribute('data-confidence');
+        var conf=it.confidence||'low';
+        row.setAttribute('data-confidence', conf);
+        row.style.borderLeft = conf==='high'?'3px solid #3fb950':
+                               conf==='medium'?'3px solid #d29922':'3px solid #f85149';
+        // V5 Phase 3: Cost alert badge
+        if(it.cost_alert){
+          var costEl=document.querySelector('[name=cost_'+it.idx+']');
+          if(costEl){
+            var td=costEl.closest('td');
+            var oldBadge=td.querySelector('.cost-alert-badge');
+            if(oldBadge)oldBadge.remove();
+            var ab=document.createElement('div');
+            ab.className='cost-alert-badge';
+            ab.style.cssText='font-size:10px;color:#d29922;margin-top:2px;cursor:help';
+            ab.textContent='⚠ Cost +'+it.cost_alert.delta_pct+'% above market';
+            ab.title='Your cost $'+it.cost_alert.our_cost.toFixed(2)+' > market avg $'+it.cost_alert.market_avg.toFixed(2);
+            td.appendChild(ab);
+          }
+        }
+      });
+
+      // V5: Cost alert summary banner
+      if(d.cost_alerts_count>0){
+        var alertBanner=document.getElementById('cost-alert-banner');
+        if(!alertBanner){
+          alertBanner=document.createElement('div');
+          alertBanner.id='cost-alert-banner';
+          alertBanner.style.cssText='padding:8px 14px;background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.3);border-radius:6px;color:#d29922;font-size:13px;font-weight:600;margin-bottom:8px';
+          var table=document.getElementById('itemsTable');
+          if(table&&table.parentNode)table.parentNode.insertBefore(alertBanner,table);
+        }
+        alertBanner.textContent='⚠️ '+d.cost_alerts_count+' item'+(d.cost_alerts_count>1?'s have':' has')+' costs above market average';
+      }
+
+      // V5: Show Accept All button
+      var acceptBtn=document.getElementById('acceptAllOracleBtn');
+      if(!acceptBtn){
+        acceptBtn=document.createElement('button');
+        acceptBtn.id='acceptAllOracleBtn';
+        acceptBtn.style.cssText='background:rgba(63,185,80,.15);border:1px solid rgba(63,185,80,.4);color:#3fb950;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap;margin-left:6px';
+        acceptBtn.textContent='✅ Accept All';
+        acceptBtn.title='Accept all Oracle-recommended prices';
+        btn.parentNode.insertBefore(acceptBtn,btn.nextSibling);
+      }
+      acceptBtn.style.display='inline-block';
+      // Store recs for accept-all
+      window._oracleRecs=d.items||[];
+      acceptBtn.onclick=function(){acceptAllOraclePrices();};
+
       recalcPC();
       triggerPcAutosave();
       showMsg('⚡ Oracle priced '+applied+' items'+(skipped?' ('+skipped+' skipped — no data)':''),'ok');
@@ -1905,6 +1980,36 @@
       btn.disabled=false;btn.textContent='⚡ Oracle Price';
       showMsg('❌ Error: '+e.message,'err');
      });
+    }
+
+    function acceptAllOraclePrices(){
+      var recs=window._oracleRecs||[];
+      var count=0;
+      recs.forEach(function(it){
+        if(!it.recommended_price||it.recommended_price<=0)return;
+        var priceEl=document.querySelector('[name=price_'+it.idx+']');
+        var costEl=document.querySelector('[name=cost_'+it.idx+']');
+        var markupEl=document.querySelector('[name=markup_'+it.idx+']');
+        if(!priceEl)return;
+        // Set cost if empty
+        if(it.cost&&it.cost>0&&costEl){
+          var cur=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
+          if(cur===0)costEl.value=it.cost.toFixed(2);
+        }
+        // Set price
+        priceEl.value=it.recommended_price.toFixed(2);
+        // Reverse-calc markup
+        var c=costEl?parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0:0;
+        if(markupEl&&c>0){
+          markupEl.value=Math.round((it.recommended_price-c)/c*100);
+        }
+        count++;
+      });
+      recalcPC();
+      triggerPcAutosave();
+      showMsg('✅ Accepted '+count+' Oracle prices','ok');
+      var ab=document.getElementById('acceptAllOracleBtn');
+      if(ab)ab.style.display='none';
     }
 
     function runQuoteAnalysis() {

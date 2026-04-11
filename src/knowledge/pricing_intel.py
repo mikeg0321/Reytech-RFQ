@@ -91,9 +91,9 @@ def _match_catalog_product(desc: str, part_number: str = "", sku: str = "") -> O
             row = conn.execute("SELECT id FROM product_catalog WHERE sku=? LIMIT 1", (sku,)).fetchone()
             if row:
                 return row[0]
-        # Try by part number
+        # Try by part number (check mfg_number column, not sku)
         if part_number:
-            row = conn.execute("SELECT id FROM product_catalog WHERE sku=? LIMIT 1", (part_number,)).fetchone()
+            row = conn.execute("SELECT id FROM product_catalog WHERE mfg_number=? LIMIT 1", (part_number,)).fetchone()
             if row:
                 return row[0]
         # Try by name fuzzy match
