@@ -529,6 +529,25 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                 "category": category,
             }
 
+    # V5 Phase 2: Institution-specific pricing profile
+    inst_profile = None
+    if _db and agency:
+        inst_profile = _get_institution_profile(_db, agency, category or "general")
+        if inst_profile and inst_profile.get("total_quotes", 0) >= _CAL_MIN_SAMPLES:
+            result["institution_profile"] = {
+                "institution": agency,
+                "price_sensitivity": inst_profile["price_sensitivity"],
+                "win_rate": round(inst_profile["win_rate"] * 100),
+                "avg_winning_markup": round(inst_profile["avg_winning_markup"], 1),
+                "sample_size": inst_profile["total_quotes"],
+            }
+            # Blend institution markup with category calibration (50/50)
+            if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
+                blended = (cal["recommended_max_markup"] + inst_profile["avg_winning_markup"]) / 2
+                cal["recommended_max_markup"] = blended
+                result["calibration"]["blended_with_institution"] = True
+                result["calibration"]["recommended_max_markup"] = round(blended, 1)
+
     # If we have a strong win history, that's the best ceiling — we KNOW this
     # price wins. Use it instead of SCPRS/market estimates.
     if has_cost and win_price and win_price > cost:
@@ -559,13 +578,39 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
         return result
 
     if has_cost and has_market:
-        # V3: Use calibrated ceiling if available, otherwise fallback to V2
+        # V5 Phase 5: Confidence-weighted pricing tiers based on data density
+        dp = market.get("data_points", 0)
+        if dp >= 50:
+            data_tier = "aggressive"
+            market_mult = 0.96  # tight band, price very close to market
+        elif dp >= 10:
+            data_tier = "moderate"
+            market_mult = 0.98  # standard band
+        elif dp >= 5:
+            data_tier = "cautious"
+            market_mult = 1.0   # don't undercut — match market
+        elif dp >= 1:
+            data_tier = "sparse"
+            market_mult = 1.0
+        else:
+            data_tier = "blind"
+            market_mult = 1.0
+        result["data_confidence"] = data_tier
+
+        # V3/V5: Use calibrated ceiling if available, otherwise data-tier multiplier
         if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
             cal_ceiling = round(cost * (1 + cal["recommended_max_markup"] / 100), 2)
-            market_ceiling = round(comp_avg * 0.98, 2)
+            market_ceiling = round(comp_avg * market_mult, 2)
             ceiling = min(cal_ceiling, market_ceiling)
         else:
-            ceiling = round(comp_avg * 0.98, 2)
+            ceiling = round(comp_avg * market_mult, 2)
+
+        # For sparse data, enforce minimum markup of 25%
+        if data_tier == "sparse" and cost > 0:
+            sparse_floor = round(cost * 1.25, 2)
+            if ceiling < sparse_floor:
+                ceiling = sparse_floor
+
         ceiling_m = ((ceiling - cost) / cost * 100) if cost > 0 else 0
         competitive = round(comp_low * 0.98, 2)
         comp_m = ((competitive - cost) / cost * 100) if cost > 0 else 0
@@ -586,21 +631,27 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
             cal_note = ""
             if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
                 cal_note = f" | Win rate: {cal['win_rate']:.0%} on {cal['sample_size']} quotes"
-            result.update({"quote_price": ceiling, "markup_pct": round(ceiling_m, 1), "confidence": "high",
-                           "rationale": f"Cost ${cost:.2f} -> ${ceiling:.2f} ({ceiling_m:.0f}%). Margin ${(ceiling-cost)*qty:,.2f}{cal_note}"})
+            tier_note = f" [{data_tier}: {dp} pts]"
+            confidence = "high" if dp >= 10 else "medium"
+            result.update({"quote_price": ceiling, "markup_pct": round(ceiling_m, 1), "confidence": confidence,
+                           "rationale": f"Cost ${cost:.2f} -> ${ceiling:.2f} ({ceiling_m:.0f}%). Margin ${(ceiling-cost)*qty:,.2f}{cal_note}{tier_note}"})
         elif competitive > floor:
             result.update({"quote_price": competitive, "markup_pct": round(comp_m, 1), "confidence": "medium",
-                           "rationale": f"Tight market. ${competitive:.2f} ({comp_m:.0f}%)"})
+                           "rationale": f"Tight market. ${competitive:.2f} ({comp_m:.0f}%) [{data_tier}]"})
         else:
             result.update({"quote_price": floor, "markup_pct": 15, "confidence": "low",
-                           "rationale": f"Competitors below floor ${floor:.2f}"})
+                           "rationale": f"Competitors below floor ${floor:.2f} [{data_tier}]"})
     elif has_cost:
-        result.update({"quote_price": round(cost * 1.25, 2), "markup_pct": 25, "confidence": "low",
-                       "rationale": f"No market data. 25% on ${cost:.2f}"})
+        # V5: "blind" tier — no market data at all, conservative 30% markup
+        result["data_confidence"] = "blind"
+        result.update({"quote_price": round(cost * 1.30, 2), "markup_pct": 30, "confidence": "low",
+                       "rationale": f"No market data. 30% on ${cost:.2f} [blind]"})
     elif has_market:
+        result["data_confidence"] = "moderate" if market.get("data_points", 0) >= 10 else "sparse"
         result.update({"quote_price": round(comp_avg * 0.92, 2), "confidence": "medium",
                        "rationale": f"No cost. 8% under ${comp_avg:.2f}"})
     else:
+        result["data_confidence"] = "blind"
         result["rationale"] = "No data. Manual research needed."
     return result
 
@@ -897,6 +948,115 @@ def get_expiring_costs(days=7):
     return [{"description": r[0], "cost": r[1], "supplier": r[2], "source": r[3], "expires": r[4]} for r in rows]
 
 
+# ── V5 Phase 6: Auto-Requote Triggers ──────────────────────────
+
+def check_requote_triggers():
+    """Scan pending/sent PCs for requote triggers.
+
+    Returns list of {pc_id, pc_number, trigger_type, details} dicts.
+    Triggers:
+      - cost_dropped: supplier has lower cost → better margin
+      - cost_spiked: supplier has higher cost → margin eroded
+      - quote_expiring: sent > 35 days ago with no award
+    """
+    import sqlite3
+    from src.core.db import DB_PATH
+
+    triggers = []
+    db = sqlite3.connect(DB_PATH, timeout=10)
+    db.row_factory = sqlite3.Row
+
+    # Get sent PCs awaiting decision
+    try:
+        rows = db.execute("""
+            SELECT id, pc_data FROM price_checks
+            WHERE status IN ('sent', 'submitted')
+            AND (award_status IS NULL OR award_status = 'pending' OR award_status = '')
+            ORDER BY sent_at DESC LIMIT 100
+        """).fetchall()
+    except Exception:
+        rows = []
+
+    for row in rows:
+        pcid = row["id"]
+        try:
+            pc_data = json.loads(row["pc_data"] or "{}") if row["pc_data"] else {}
+        except Exception:
+            continue
+
+        pc_number = pc_data.get("pc_number", pcid)
+        institution = pc_data.get("institution", "")
+        items = pc_data.get("items", [])
+        sent_at = pc_data.get("sent_at") or pc_data.get("generated_at") or ""
+
+        # Trigger: quote expiring (sent > 35 days ago)
+        if sent_at:
+            try:
+                sent_dt = datetime.fromisoformat(sent_at.replace("Z", "+00:00").split("+")[0])
+                age_days = (datetime.now() - sent_dt).days
+                if age_days >= 35:
+                    triggers.append({
+                        "pc_id": pcid, "pc_number": pc_number,
+                        "trigger_type": "quote_expiring",
+                        "institution": institution,
+                        "details": {
+                            "days_old": age_days,
+                            "sent_at": sent_at[:10],
+                            "item_count": len(items),
+                        },
+                    })
+            except Exception:
+                pass
+
+        # Trigger: cost changes since quote was sent
+        for it in items:
+            desc = (it.get("description") or "")[:200]
+            if not desc:
+                continue
+            quoted_cost = float(it.get("vendor_cost") or (it.get("pricing") or {}).get("unit_cost") or 0)
+            if quoted_cost <= 0:
+                continue
+            try:
+                sc = db.execute("""
+                    SELECT cost, confirmed_at FROM supplier_costs
+                    WHERE description = ? AND confirmed_at > ?
+                    ORDER BY confirmed_at DESC LIMIT 1
+                """, (desc[:500], sent_at[:19] if sent_at else "2000-01-01")).fetchone()
+                if sc:
+                    new_cost = sc["cost"]
+                    delta_pct = ((new_cost - quoted_cost) / quoted_cost) * 100
+                    if delta_pct <= -10:  # cost dropped 10%+
+                        triggers.append({
+                            "pc_id": pcid, "pc_number": pc_number,
+                            "trigger_type": "cost_dropped",
+                            "institution": institution,
+                            "details": {
+                                "item": desc[:80],
+                                "old_cost": round(quoted_cost, 2),
+                                "new_cost": round(new_cost, 2),
+                                "delta_pct": round(delta_pct, 1),
+                            },
+                        })
+                    elif delta_pct >= 10:  # cost spiked 10%+
+                        triggers.append({
+                            "pc_id": pcid, "pc_number": pc_number,
+                            "trigger_type": "cost_spiked",
+                            "institution": institution,
+                            "details": {
+                                "item": desc[:80],
+                                "old_cost": round(quoted_cost, 2),
+                                "new_cost": round(new_cost, 2),
+                                "delta_pct": round(delta_pct, 1),
+                            },
+                        })
+            except Exception:
+                pass
+
+    db.close()
+    log.info("Requote triggers: %d found", len(triggers))
+    return triggers
+
+
 # ── Quote Speed Clock ───────────────────────────────────────────
 
 def record_speed_event(record_type, record_id, event):
@@ -1089,6 +1249,40 @@ def _get_calibration(db, category, agency=""):
     return None
 
 
+def _get_institution_profile(db, institution, category="general"):
+    """V5 Phase 2: Read institution pricing profile for buyer-specific pricing."""
+    try:
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS institution_pricing_profile (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                institution TEXT NOT NULL, category TEXT DEFAULT 'general',
+                avg_winning_markup REAL DEFAULT 25, avg_losing_markup REAL DEFAULT 0,
+                win_count INTEGER DEFAULT 0, loss_count INTEGER DEFAULT 0,
+                price_sensitivity TEXT DEFAULT 'normal', preferred_suppliers TEXT DEFAULT '',
+                last_updated TEXT, UNIQUE(institution, category)
+            )
+        """)
+        row = db.execute(
+            "SELECT * FROM institution_pricing_profile WHERE institution=? AND category=?",
+            (institution, category)
+        ).fetchone()
+        if not row:
+            row = db.execute(
+                "SELECT * FROM institution_pricing_profile WHERE institution=? AND category='general'",
+                (institution,)
+            ).fetchone()
+        if row:
+            cols = [d[0] for d in db.execute(
+                "SELECT * FROM institution_pricing_profile LIMIT 0").description]
+            d = dict(zip(cols, row))
+            d["total_quotes"] = d["win_count"] + d["loss_count"]
+            d["win_rate"] = d["win_count"] / d["total_quotes"] if d["total_quotes"] > 0 else 0
+            return d
+    except Exception as e:
+        log.debug("Institution profile read error: %s", e)
+    return None
+
+
 def _classify_item_category(description):
     """Lightweight category detection from description text."""
     desc = (description or "").lower()
@@ -1231,11 +1425,117 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
                   round(cal["avg_winning_margin"], 2), round(cal["avg_losing_delta"], 2),
                   round(cal["recommended_max_markup"], 2), cal["competitor_floor"], now))
 
+        # ── V5 Phase 2: Institution pricing profile ──
+        if agency:
+            for cat, cat_items in category_items.items():
+                try:
+                    row = db.execute(
+                        "SELECT * FROM institution_pricing_profile WHERE institution=? AND category=?",
+                        (agency, cat)
+                    ).fetchone()
+                    if row:
+                        cols = [d[0] for d in db.execute(
+                            "SELECT * FROM institution_pricing_profile LIMIT 0").description]
+                        ip = dict(zip(cols, row))
+                    else:
+                        ip = {"institution": agency, "category": cat,
+                              "avg_winning_markup": 25.0, "avg_losing_markup": 0.0,
+                              "win_count": 0, "loss_count": 0,
+                              "price_sensitivity": "normal", "preferred_suppliers": ""}
+
+                    if outcome == "won":
+                        ip["win_count"] += 1
+                        margins = []
+                        for it in cat_items:
+                            p = it.get("pricing") or {}
+                            cost = float(it.get("vendor_cost") or p.get("unit_cost") or 0)
+                            price = float(it.get("unit_price") or p.get("final_price") or p.get("bid_price") or 0)
+                            if cost > 0 and price > cost:
+                                margins.append(((price - cost) / cost) * 100)
+                        if margins:
+                            avg_m = sum(margins) / len(margins)
+                            ip["avg_winning_markup"] = (
+                                _CAL_ALPHA * avg_m + (1 - _CAL_ALPHA) * ip["avg_winning_markup"]
+                            )
+                    elif outcome == "lost":
+                        ip["loss_count"] += 1
+                        margins = []
+                        for it in cat_items:
+                            p = it.get("pricing") or {}
+                            cost = float(it.get("vendor_cost") or p.get("unit_cost") or 0)
+                            price = float(it.get("unit_price") or p.get("final_price") or p.get("bid_price") or 0)
+                            if cost > 0 and price > cost:
+                                margins.append(((price - cost) / cost) * 100)
+                        if margins:
+                            avg_m = sum(margins) / len(margins)
+                            ip["avg_losing_markup"] = (
+                                _CAL_ALPHA * avg_m + (1 - _CAL_ALPHA) * ip["avg_losing_markup"]
+                            )
+
+                    # Derive price sensitivity from win rate
+                    total = ip["win_count"] + ip["loss_count"]
+                    if total >= 3:
+                        wr = ip["win_count"] / total
+                        ip["price_sensitivity"] = "tight" if wr < 0.4 else ("loose" if wr > 0.6 else "normal")
+
+                    db.execute("""
+                        INSERT INTO institution_pricing_profile
+                            (institution, category, avg_winning_markup, avg_losing_markup,
+                             win_count, loss_count, price_sensitivity, preferred_suppliers, last_updated)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        ON CONFLICT(institution, category) DO UPDATE SET
+                            avg_winning_markup=excluded.avg_winning_markup,
+                            avg_losing_markup=excluded.avg_losing_markup,
+                            win_count=excluded.win_count, loss_count=excluded.loss_count,
+                            price_sensitivity=excluded.price_sensitivity,
+                            last_updated=excluded.last_updated
+                    """, (agency, cat, round(ip["avg_winning_markup"], 2),
+                          round(ip["avg_losing_markup"], 2),
+                          ip["win_count"], ip["loss_count"],
+                          ip["price_sensitivity"], ip.get("preferred_suppliers", ""), now))
+                except Exception as e:
+                    log.debug("Institution profile update error: %s", e)
+
+        # ── V5 Phase 4: Record quote shape ──
+        try:
+            all_markups = []
+            cat_counts = {}
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                p = it.get("pricing") or {}
+                cost = float(it.get("vendor_cost") or p.get("unit_cost") or 0)
+                price = float(it.get("unit_price") or p.get("final_price") or p.get("bid_price") or 0)
+                if cost > 0 and price > cost:
+                    markup = ((price - cost) / cost) * 100
+                    all_markups.append(round(markup, 1))
+                cat = _classify_item_category(it.get("description", ""))
+                cat_counts[cat] = cat_counts.get(cat, 0) + 1
+            if all_markups:
+                avg_mu = sum(all_markups) / len(all_markups)
+                stddev = (sum((m - avg_mu) ** 2 for m in all_markups) / len(all_markups)) ** 0.5
+                # Bucket markups into 5% bands
+                buckets = {}
+                for m in all_markups:
+                    band = int(m / 5) * 5
+                    buckets[band] = buckets.get(band, 0) + 1
+                dist = [{"pct": k, "count": v} for k, v in sorted(buckets.items())]
+                db.execute("""
+                    INSERT INTO winning_quote_shapes
+                        (institution, category_mix, total_items, avg_markup,
+                         markup_stddev, markup_distribution, outcome, recorded_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (agency, json.dumps(cat_counts), len(items),
+                      round(avg_mu, 2), round(stddev, 2),
+                      json.dumps(dist), outcome, now))
+        except Exception as e:
+            log.debug("Quote shape recording error: %s", e)
+
         db.commit()
-        log.info("Oracle V3 calibration updated: %s outcome=%s agency=%s categories=%s",
+        log.info("Oracle V5 calibration updated: %s outcome=%s agency=%s categories=%s",
                  len(items), outcome, agency, list(category_items.keys()))
     except Exception as e:
-        log.error("Oracle V3 calibration error: %s", e, exc_info=True)
+        log.error("Oracle V5 calibration error: %s", e, exc_info=True)
     finally:
         try:
             db.close()

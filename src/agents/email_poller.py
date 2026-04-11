@@ -2440,6 +2440,20 @@ class EmailPoller:
                             sig = analysis.get("signal", "neutral")
                             conf = analysis.get("confidence", 0)
 
+                            if sig == "correction" and conf >= 0.3:
+                                try:
+                                    from src.forms.template_learning import record_buyer_feedback
+                                    _pc_id = analysis.get("quote_ref", "") or ""
+                                    _detail = "; ".join(analysis.get("triggers", [])[:5])
+                                    record_buyer_feedback(
+                                        pc_id=_pc_id,
+                                        feedback_type="resubmit_requested",
+                                        detail=f"Buyer: {sender}. {_detail}. Subject: {subject[:100]}",
+                                    )
+                                    log.info("Template learning: buyer correction from %s", sender)
+                                except Exception as _tl_e:
+                                    log.debug("Template learning bridge error: %s", _tl_e)
+
                             if sig in ("win", "loss", "question") and conf >= 0.5:
                                 # Try to match to a quote
                                 qref = analysis.get("quote_ref", "")

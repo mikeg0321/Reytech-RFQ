@@ -75,6 +75,64 @@
 </div>
 {% endif %}
 
+<!-- Document Pipeline Health -->
+{% if strategy_stats|default({}) %}
+<div class="card" style="margin-bottom:16px">
+ <div class="card-t">Document Pipeline Health (90d)</div>
+ <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px">
+  {% for strat, info in strategy_stats|default({})|dictsort %}
+  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+   <div style="font-size:18px;font-weight:700;color:{% if info.avg_score|default(0) >= 90 %}#3fb950{% elif info.avg_score|default(0) >= 70 %}#d29922{% else %}#f85149{% endif %};font-family:monospace">{{info.avg_score|default(0)|round(0)|int}}%</div>
+   <div style="font-size:13px;font-weight:600;color:var(--tx)">{{strat}}</div>
+   <div style="font-size:12px;color:var(--tx2,#8b949e)">{{info.count|default(0)}} runs</div>
+  </div>
+  {% endfor %}
+ </div>
+</div>
+{% endif %}
+
+<!-- Requote Triggers (V5 Phase 6) -->
+<div id="requote-triggers-card" class="card" style="margin-bottom:16px;display:none">
+ <div class="card-t" style="display:flex;align-items:center;gap:8px">
+  <span>Quotes Needing Attention</span>
+  <span id="rqt-badge" style="background:#d29922;color:#000;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px">0</span>
+ </div>
+ <div id="rqt-content" style="margin-top:12px">
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px" id="rqt-summary"></div>
+  <div id="rqt-list" style="margin-top:10px;max-height:200px;overflow-y:auto"></div>
+ </div>
+</div>
+<script>
+(function(){
+  fetch('/api/pricing-intel/requote-triggers',{credentials:'same-origin'})
+  .then(function(r){return r.json()}).then(function(d){
+    if(!d.ok||!d.total)return;
+    var card=document.getElementById('requote-triggers-card');
+    card.style.display='block';
+    document.getElementById('rqt-badge').textContent=d.total;
+    var sum=document.getElementById('rqt-summary');
+    var types=[
+      {key:'quote_expiring',label:'Expiring',icon:'⏰',color:'#d29922'},
+      {key:'cost_dropped',label:'Cost Dropped',icon:'📉',color:'#3fb950'},
+      {key:'cost_spiked',label:'Cost Spiked',icon:'📈',color:'#f85149'}
+    ];
+    types.forEach(function(t){
+      var c=d.by_type[t.key]||0;
+      if(c===0)return;
+      sum.innerHTML+='<div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px"><div style="font-size:20px;font-weight:700;color:'+t.color+';font-family:monospace">'+c+'</div><div style="font-size:12px;color:var(--tx2,#8b949e)">'+t.icon+' '+t.label+'</div></div>';
+    });
+    var list=document.getElementById('rqt-list');
+    d.triggers.slice(0,10).forEach(function(t){
+      var color=t.trigger_type==='cost_dropped'?'#3fb950':t.trigger_type==='cost_spiked'?'#f85149':'#d29922';
+      var detail=t.trigger_type==='quote_expiring'?t.details.days_old+'d old':
+                 t.trigger_type==='cost_dropped'?t.details.delta_pct+'% cheaper':
+                 '+'+t.details.delta_pct+'% more expensive';
+      list.innerHTML+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-bottom:1px solid var(--bd,#30363d);font-size:13px"><a href="/pricecheck/'+t.pc_id+'" style="color:#58a6ff;font-weight:600">PC #'+t.pc_number+'</a><span style="color:var(--tx2,#8b949e)">'+t.institution+'</span><span style="color:'+color+';font-weight:600;margin-left:auto">'+detail+'</span></div>';
+    });
+  }).catch(function(){});
+})();
+</script>
+
 <!-- Conversion Funnel -->
 <div class="card">
  <div class="card-t">Conversion Funnel</div>

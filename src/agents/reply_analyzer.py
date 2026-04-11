@@ -72,6 +72,17 @@ QUESTION_PATTERNS = [
     r"\?",
 ]
 
+CORRECTION_PATTERNS = [
+    r"(?:please\s+)?re-?(?:submit|send|do|fill)",
+    r"(?:wrong|incorrect|invalid)\s+(?:form|document|pdf|fields?)",
+    r"(?:fields?\s+(?:are|is|were)\s+)?(?:blank|empty|missing|not\s+filled)",
+    r"(?:missing|incomplete)\s+(?:information|data|fields?|signature)",
+    r"(?:please\s+)?correct\s+(?:and|the|this)",
+    r"(?:can(?:\'t|not)|unable\s+to)\s+(?:read|open|see|view)\s+(?:the|your)",
+    r"unreadable|garbled|corrupted",
+    r"(?:need|require)s?\s+(?:a\s+)?(?:new|corrected|updated)\s+(?:copy|version|form|quote)",
+]
+
 PO_NUMBER_PATTERN = re.compile(
     r"(?:PO|purchase\s+order)(?:\s+(?:number|#|no\.?)\s*(?:is|:)?)?\s*[:#-]?\s*([A-Z]*\d+[-A-Z0-9]*)", re.IGNORECASE)
 
@@ -100,6 +111,7 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
     win_score = 0
     loss_score = 0
     question_score = 0
+    correction_score = 0
 
     # Check win patterns
     for pattern in WIN_PATTERNS:
@@ -119,6 +131,12 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
             question_score += 1
             triggers.append(f"question: {pattern[:40]}")
 
+    # Check correction patterns
+    for pattern in CORRECTION_PATTERNS:
+        if re.search(pattern, text_clean, re.IGNORECASE):
+            correction_score += 1
+            triggers.append(f"correction: {pattern[:40]}")
+
     # Extract references
     raw_text = f"{subject or ''}\n{body or ''}"
     po_match = PO_NUMBER_PATTERN.search(raw_text)
@@ -133,7 +151,10 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
         quote_ref = subj_match.group(0)
 
     # Determine signal
-    if win_score > loss_score and win_score > question_score:
+    if correction_score > 0 and correction_score >= max(win_score, loss_score, question_score):
+        signal = "correction"
+        confidence = min(1.0, correction_score * 0.3)
+    elif win_score > loss_score and win_score > question_score:
         signal = "win"
         confidence = min(1.0, win_score * 0.3 + (0.2 if po_number else 0))
     elif loss_score > win_score and loss_score > question_score:
@@ -152,6 +173,7 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
 
     # Summary
     summaries = {
+        "correction": "Buyer reporting document issue \u2014 resubmit may be needed",
         "win": f"Buyer appears ready to proceed" + (f" — PO: {po_number}" if po_number else ""),
         "loss": "Buyer may be declining or going with another vendor",
         "question": "Buyer has questions — follow up needed",
@@ -167,6 +189,7 @@ def analyze_reply(subject: str, body: str, sender: str = "") -> dict:
         "win_score": win_score,
         "loss_score": loss_score,
         "question_score": question_score,
+        "correction_score": correction_score,
         "summary": summaries[signal],
     }
 

@@ -397,28 +397,51 @@ class DocumentPipeline:
     # ── VERIFICATION ──────────────────────────────────────────────────
 
     def _verify(self, strategy: str):
-        """Read back the output PDF and verify against intended values."""
+        """Read back the output PDF and verify against intended values.
+        Two-stage: 1) Read-back 2) Visual QA (only if readback passes)."""
         from src.forms.readback_verify import (
-            verify_form_fields, verify_overlay_text, ReadbackResult
+            verify_form_fields, verify_overlay_text, ReadbackResult, ReadbackIssue
         )
-
-        # Load the intended field values from the JSON that fill_ams704 writes
         intended = self._load_intended_values()
-
         if not intended:
-            # No field values to verify — can't confirm, report as issue
             log.warning("pipeline: no intended values to verify against")
             return ReadbackResult(
-                score=100,  # No data to check = trust the output
-                fields_intended=0, fields_confirmed=0,
-                fields_missing=0, fields_wrong=0,
-                verification_mode="none",
+                score=100, fields_intended=0, fields_confirmed=0,
+                fields_missing=0, fields_wrong=0, verification_mode="none",
             )
-
         if strategy == "overlay":
-            return verify_overlay_text(self.output_pdf, intended)
+            readback = verify_overlay_text(self.output_pdf, intended)
         else:
-            return verify_form_fields(self.output_pdf, intended)
+            readback = verify_form_fields(self.output_pdf, intended)
+        if readback.score == 100 and self.fill_kwargs.get("run_visual_qa", True):
+            readback = self._run_visual_qa(readback)
+        return readback
+
+    def _run_visual_qa(self, readback):
+        """Run Visual QA and deduct from score if rendering issues found."""
+        from src.forms.readback_verify import ReadbackIssue
+        try:
+            from src.forms.pdf_visual_qa import inspect_pdf
+            vqa = inspect_pdf(self.output_pdf, company_name="Reytech Inc.")
+            if not vqa.passed:
+                for error in vqa.errors:
+                    readback.issues.append(ReadbackIssue(
+                        field_name=error.field_name or f"page_{error.page}_{error.category}",
+                        intended_value="(visible)",
+                        actual_value=f"[Visual] {error.description}",
+                        issue_type="missing",
+                        is_critical=error.category in ("blank_field", "signature"),
+                    ))
+                    if error.category in ("blank_field", "signature"):
+                        readback.score = max(0, readback.score - 10)
+                    else:
+                        readback.score = max(0, readback.score - 3)
+                log.info("pipeline: Visual QA deducted \u2192 score=%d", readback.score)
+            if vqa.pages_inspected > 0:
+                readback.verification_mode = readback.verification_mode + "+visual_qa"
+        except Exception as e:
+            log.info("pipeline: Visual QA skipped: %s", e)
+        return readback
 
     def _load_intended_values(self) -> list:
         """Load the field_values JSON that fill_ams704 writes."""

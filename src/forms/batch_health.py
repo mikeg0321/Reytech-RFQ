@@ -218,6 +218,22 @@ def _regenerate_pc(pcid: str, pc: dict) -> dict:
         delivery_option=pc.get("delivery_option", ""),
     )
     result = pipeline.execute()
+    if result.ok:
+        pc["output_pdf"] = result.output_path
+        pc["verification_score"] = result.verification_score
+        pc["generation_strategy"] = result.strategy_used
+        pc["generation_attempts"] = len(result.attempts)
+        try:
+            from src.core.paths import DATA_DIR
+            pcs_path = os.path.join(DATA_DIR, "pcs.json")
+            with open(pcs_path) as f:
+                all_pcs = json.load(f)
+            all_pcs[pcid] = pc
+            with open(pcs_path, "w") as f:
+                json.dump(all_pcs, f, indent=2, default=str)
+            log.info("batch_health: regen %s saved (score=%d)", pcid, result.verification_score)
+        except Exception as e:
+            log.warning("batch_health: regen save failed for %s: %s", pcid, e)
     return {"ok": result.ok, "score": result.verification_score}
 
 

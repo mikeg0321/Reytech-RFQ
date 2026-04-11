@@ -2584,6 +2584,15 @@ def rfq_update_field(rid):
                                   r.get("agency", "")))
                     except Exception:
                         pass
+                    try:
+                        from src.forms.template_learning import record_buyer_feedback
+                        record_buyer_feedback(
+                            pc_id=rid,
+                            feedback_type="parse_gap",
+                            detail=f"{field}={data[field][:100]}",
+                        )
+                    except Exception:
+                        pass
     if changed:
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
