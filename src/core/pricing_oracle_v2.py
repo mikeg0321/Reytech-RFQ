@@ -1365,8 +1365,14 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
                 margins = []
                 for it in cat_items:
                     p = it.get("pricing") or {}
-                    cost = float(it.get("vendor_cost") or p.get("unit_cost") or 0)
-                    price = float(p.get("final_price") or p.get("bid_price") or 0)
+                    cost = float(
+                        it.get("vendor_cost") or it.get("supplier_cost") or it.get("catalog_cost")
+                        or p.get("unit_cost") or p.get("cost") or 0
+                    )
+                    price = float(
+                        it.get("unit_price") or it.get("bid_price")
+                        or p.get("final_price") or p.get("bid_price") or p.get("unit_price") or 0
+                    )
                     if cost > 0 and price > cost:
                         margins.append(((price - cost) / cost) * 100)
                 if margins:
@@ -1383,7 +1389,10 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
                         deltas = []
                         for it in cat_items:
                             p = it.get("pricing") or {}
-                            our_price = float(p.get("final_price") or p.get("bid_price") or 0)
+                            our_price = float(
+                                it.get("unit_price") or it.get("bid_price")
+                                or p.get("final_price") or p.get("bid_price") or p.get("unit_price") or 0
+                            )
                             idx = items.index(it) if it in items else -1
                             comp_price = winner_prices.get(idx, 0) if winner_prices else 0
                             if our_price > 0 and comp_price > 0:

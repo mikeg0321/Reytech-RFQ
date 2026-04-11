@@ -99,7 +99,7 @@ def mark_won(record, record_type, record_id, po_number="", notes=""):
             agency=record.get("institution") or record.get("agency", "")
         )
     except Exception as e:
-        log.debug("mark_won V3 calibration: %s", e)
+        log.warning("mark_won V3 calibration: %s", e)
 
     # CRM activity
     try:
@@ -196,7 +196,7 @@ def mark_lost(record, record_type, record_id, competitor="", competitor_price=0,
             loss_reason=loss_type,
         )
     except Exception as e:
-        log.debug("mark_lost V3 calibration: %s", e)
+        log.warning("mark_lost V3 calibration: %s", e)
 
     # Update recommendation_audit
     try:

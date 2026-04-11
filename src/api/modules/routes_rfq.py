@@ -794,6 +794,16 @@ def api_rfq_mark_won(rid):
     except Exception:
         pass
 
+    # V5: Calibrate Oracle from win outcome
+    try:
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+        calibrate_from_outcome(
+            r.get("items", r.get("line_items", [])), "won",
+            agency=r.get("institution") or r.get("agency", ""),
+        )
+    except Exception as e:
+        log.warning("RFQ mark-won calibration: %s", e)
+
     log.info("RFQ %s marked WON (PO: %s)", rid, po_number)
     return jsonify({"ok": True, "status": "won", "po_number": po_number})
 
@@ -917,6 +927,19 @@ def api_rfq_mark_lost(rid):
                   })
     except Exception:
         pass
+
+    # V5: Calibrate Oracle from loss outcome
+    try:
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+        items = r.get("items", r.get("line_items", []))
+        loss_type = "price" if float(data.get("competitor_price", 0) or 0) > 0 else "other"
+        calibrate_from_outcome(
+            items, "lost",
+            agency=r.get("institution") or r.get("agency", ""),
+            loss_reason=loss_type,
+        )
+    except Exception as e:
+        log.warning("RFQ mark-lost calibration: %s", e)
 
     log.info("RFQ %s marked LOST (reason: %s)", rid, r["closed_reason"][:50])
     return jsonify({"ok": True, "status": "lost"})

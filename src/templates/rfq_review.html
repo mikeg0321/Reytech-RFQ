@@ -94,9 +94,13 @@
   {% if manifest.field_audit and manifest.field_audit.get('_qa_passed') == false %}
   <div class="rv-error" style="margin-bottom:12px">
     <b>Form QA Failed</b> — {{ manifest.field_audit.get('_qa_summary', {}).get('critical_issues', [])|length }} critical issue(s) found. Fix errors before finalizing.
-    {% for issue in manifest.field_audit.get('_qa_summary', {}).get('critical_issues', [])[:5] %}
-    <div style="margin-top:4px">❌ {{ issue }}</div>
+    {% set _qa_issues = manifest.field_audit.get('_qa_summary', {}).get('critical_issues', []) %}
+    {% for issue in _qa_issues %}
+    <div style="margin-top:4px{% if loop.index0 >= 5 %};display:none{% endif %}" class="rv-qa-issue">❌ {{ issue }}</div>
     {% endfor %}
+    {% if _qa_issues|length > 5 %}
+    <div style="margin-top:6px"><a onclick="document.querySelectorAll('.rv-qa-issue').forEach(function(e){e.style.display='block'});this.style.display='none'" style="cursor:pointer;color:#58a6ff;font-size:12px">Show all {{ _qa_issues|length }} issues</a></div>
+    {% endif %}
   </div>
   {% elif manifest.field_audit and manifest.field_audit.get('_qa_passed') == true %}
   <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#3fb950;margin-bottom:8px">

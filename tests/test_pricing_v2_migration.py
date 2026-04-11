@@ -151,6 +151,38 @@ class TestCalibration:
         assert row is not None
         assert row[0] > 0, "loss_on_price should be incremented"
 
+    def test_calibrate_flat_fields(self, temp_data_dir):
+        """Items with flat fields (unit_price, supplier_cost) should calibrate correctly."""
+        from src.core.db import init_db, DB_PATH
+        init_db()
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+        # Flat structure — no nested "pricing" dict (this is what production sends)
+        items = [
+            {"description": "Nitrile Gloves", "supplier_cost": 10.00, "unit_price": 15.00},
+            {"description": "Face Masks", "vendor_cost": 8.00, "unit_price": 12.00},
+        ]
+        calibrate_from_outcome(items, "won", agency="CDCR")
+
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        row = conn.execute(
+            "SELECT win_count, avg_winning_margin FROM oracle_calibration WHERE agency='CDCR' LIMIT 1"
+        ).fetchone()
+        conn.close()
+        assert row is not None, "Flat-field items should create calibration row"
+        assert row[0] > 0, "win_count should be > 0"
+        assert row[1] > 0, "avg_winning_margin should be > 0 (50% and 50% margins)"
+
+    def test_calibrate_empty_items(self, temp_data_dir):
+        """Empty items list should not crash."""
+        from src.core.db import init_db
+        init_db()
+        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+
+        # Should not raise
+        calibrate_from_outcome([], "won", agency="TEST")
+        calibrate_from_outcome([], "lost", agency="TEST", loss_reason="price")
+
 
 # ── Thread safety ───────────────────────────────────────────────────────────
 

@@ -945,23 +945,34 @@
       } else {
        c += '<span style="min-width:28px;text-align:center;padding:2px 5px;background:#21262d;border:1px solid #30363d;border-radius:3px;font-size:11px;font-weight:700;color:#8b949e">PC</span>';
       }
-      c += '<div style="flex:1;color:#c9d1d9">' + (issue.message||'').replace(/</g,'&lt;') + '</div>';
+      var _msg = (issue.message||'').replace(/</g,'&lt;');
+      if (_msg.length > 120) {
+       var _mid = 'qa-msg-' + Math.random().toString(36).substr(2,6);
+       c += '<div style="flex:1;color:#c9d1d9"><span>' + _msg.substr(0,120) + '</span><span id="' + _mid + '" style="display:none">' + _msg.substr(120) + '</span> <a onclick="var s=document.getElementById(\'' + _mid + '\');s.style.display=s.style.display===\'none\'?\'inline\':\'none\';this.textContent=s.style.display===\'none\'?\'more\':\'less\'" style="cursor:pointer;color:#58a6ff;font-size:11px">more</a></div>';
+      } else {
+       c += '<div style="flex:1;color:#c9d1d9">' + _msg + '</div>';
+      }
       c += '</div>';
       return c;
      }
 
+     var _catIdx = 0;
      categories.forEach(function(cat) {
       var catIssues = d.issues.filter(function(i){return i.category === cat.id});
       if (catIssues.length === 0) return;
       var catBlockers = catIssues.filter(function(i){return i.severity==='blocker'}).length;
       var badge = catBlockers > 0 ? ' <span style="background:#da363344;color:#f85149;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">'+catBlockers+' BLOCKER'+(catBlockers>1?'S':'')+'</span>' : '';
-      html += '<div style="margin-bottom:14px">';
-      html += '<div style="font-size:12px;color:' + cat.color + ';font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px">'
+      var _secId = 'qa-cat-' + _catIdx++;
+      var _expanded = catBlockers > 0 || catIssues.length <= 3;
+      html += '<div style="margin-bottom:10px;border:1px solid #30363d;border-radius:6px;overflow:hidden">';
+      html += '<div onclick="var b=document.getElementById(\'' + _secId + '\');var a=this.querySelector(\'.qa-arrow\');if(b.style.display===\'none\'){b.style.display=\'block\';a.textContent=\'▾\'}else{b.style.display=\'none\';a.textContent=\'▸\'}" style="cursor:pointer;padding:8px 12px;background:#161b22;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:' + cat.color + '">'
+       + '<span class="qa-arrow" style="font-size:10px;color:#8b949e">' + (_expanded ? '▾' : '▸') + '</span>'
        + cat.icon + ' ' + cat.label + ' <span style="color:#8b949e;font-weight:400">(' + catIssues.length + ')</span>' + badge + '</div>';
+      html += '<div id="' + _secId + '" style="display:' + (_expanded ? 'block' : 'none') + ';padding:4px">';
       catIssues.forEach(function(issue) {
        html += renderIssueCard(issue, cat.color, cat.border);
       });
-      html += '</div>';
+      html += '</div></div>';
      });
 
      // Uncategorized issues (safety net)

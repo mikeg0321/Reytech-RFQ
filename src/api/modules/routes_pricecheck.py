@@ -6876,7 +6876,7 @@ def api_pricecheck_mark_won(pcid):
             agency=pc.get("institution") or pc.get("agency", ""),
         )
     except Exception as e:
-        log.debug("mark-won calibration error: %s", e)
+        log.warning("mark-won calibration error: %s", e)
     # ── Feed won items to FI$Cal catalog for future intelligence ──
     try:
         from src.agents.quote_intelligence import learn_new_item
@@ -7026,7 +7026,7 @@ def api_pricecheck_mark_lost(pcid):
             loss_reason=loss_type,
         )
     except Exception as e:
-        log.debug("mark-lost calibration error: %s", e)
+        log.warning("mark-lost calibration error: %s", e)
     return jsonify({"ok": True, "status": "lost"})
 
 
