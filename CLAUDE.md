@@ -200,7 +200,7 @@ The pre-push git hook (`.githooks/pre-push`) blocks pushes when tests fail.
 
 ### Running Tests
 ```bash
-# Full sandbox suite (105 tests, ~61 seconds):
+# Full sandbox suite (134 tests, ~86 seconds):
 python -m pytest tests/test_ams704_helpers.py tests/test_template_registry.py tests/test_pc_generation.py tests/test_rfq_generation.py tests/test_multipage_704.py tests/test_golden_path.py -v --tb=short
 
 # By area — run the relevant subset:
@@ -212,6 +212,8 @@ python -m pytest tests/test_template_registry.py -v
 python -m pytest tests/test_rfq_generation.py -v
 # Golden path (E2E pricing + email + metrics):
 python -m pytest tests/test_golden_path.py -v
+# Order lifecycle + pricing pipeline + V5 features:
+python -m pytest tests/test_order_lifecycle.py tests/test_quote_counter.py -v
 ```
 
 ### Writing New Tests — Available Fixtures
