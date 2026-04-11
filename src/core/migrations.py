@@ -537,6 +537,40 @@ MIGRATIONS = [
           WHERE NEW.quote_number IS NOT NULL AND NEW.quote_number != '' AND NOT EXISTS (SELECT 1 FROM quotes WHERE quote_number = NEW.quote_number);
         END;
     """),
+
+    (18, "api_usage_tracking", """
+        CREATE TABLE IF NOT EXISTS api_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            service TEXT NOT NULL,
+            agent TEXT DEFAULT '',
+            pc_id TEXT DEFAULT '',
+            call_date TEXT NOT NULL DEFAULT (date('now')),
+            called_at TEXT NOT NULL DEFAULT (datetime('now')),
+            request_tokens INTEGER DEFAULT 0,
+            response_tokens INTEGER DEFAULT 0,
+            estimated_cost REAL DEFAULT 0,
+            response_time_ms INTEGER DEFAULT 0,
+            error TEXT DEFAULT '',
+            model TEXT DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_usage_service ON api_usage(service);
+        CREATE INDEX IF NOT EXISTS idx_api_usage_date ON api_usage(call_date);
+        CREATE INDEX IF NOT EXISTS idx_api_usage_agent ON api_usage(agent);
+
+        CREATE TABLE IF NOT EXISTS api_quotas (
+            service TEXT PRIMARY KEY,
+            daily_limit_dollars REAL DEFAULT 1.0,
+            monthly_limit_dollars REAL DEFAULT 20.0,
+            per_pc_limit INTEGER DEFAULT 10,
+            enabled INTEGER DEFAULT 1,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+
+        INSERT OR IGNORE INTO api_quotas (service, daily_limit_dollars, monthly_limit_dollars, per_pc_limit)
+        VALUES ('grok', 1.00, 20.00, 8);
+        INSERT OR IGNORE INTO api_quotas (service, daily_limit_dollars, monthly_limit_dollars, per_pc_limit)
+        VALUES ('claude', 0.50, 10.00, 4);
+    """),
 ]
 
 

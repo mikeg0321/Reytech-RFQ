@@ -1766,18 +1766,9 @@ def api_pricing_trends():
 
 @bp.route("/pricing")
 @auth_required
-@safe_page
 def pricing_intel_page():
-    """Pricing Intelligence dashboard — historical win data + recommendations."""
-    try:
-        from src.knowledge.pricing_intel import get_pricing_intelligence_summary
-        data = get_pricing_intelligence_summary()
-    except Exception:
-        data = {"total_records": 0, "unique_items": 0, "unique_agencies": 0,
-                "total_revenue": 0, "avg_margin": 0, "recent_wins_30d": 0,
-                "top_items": [], "top_agencies": [], "margin_distribution": {}}
-
-    return render_page("pricing.html", active_page="Pricing", data=data)
+    """Redirect to unified analytics tab."""
+    return redirect("/analytics?tab=pricing")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -395,107 +395,146 @@ def buyer_profile(buyer_key):
 @auth_required
 @safe_page
 def analytics_dashboard():
-    """Pipeline analytics — conversion funnel, revenue trends, win rates."""
-    rfqs = load_rfqs()
-    pcs = _load_price_checks()
+    """Unified analytics dashboard — all tabs served from one route."""
+    from flask import redirect as _redirect
+    tab = request.args.get("tab", "pipeline")
+    valid_tabs = ["pipeline", "business_intel", "suppliers", "pricing", "win_loss", "loss_intel"]
+    if tab not in valid_tabs:
+        tab = "pipeline"
 
-    # Conversion funnel
-    statuses = _defaultdict(int)
-    for r in rfqs.values():
-        statuses[r.get("status", "unknown")] += 1
-    for pc in pcs.values():
-        statuses[f"pc_{pc.get('status', 'unknown')}"] += 1
+    data = {"tab": tab}
 
-    funnel = {
-        "imported": len(rfqs) + len(pcs),
-        "parsed": sum(1 for r in rfqs.values() if r.get("status") not in ("dismissed",)),
-        "priced": statuses.get("priced", 0) + statuses.get("pc_priced", 0),
-        "sent": statuses.get("sent", 0) + statuses.get("pc_sent", 0),
-        "won": statuses.get("won", 0) + statuses.get("pc_won", 0),
-        "lost": statuses.get("lost", 0) + statuses.get("pc_lost", 0),
-    }
+    if tab == "pipeline":
+        rfqs = load_rfqs()
+        pcs = _load_price_checks()
 
-    # Revenue by month
-    monthly_revenue = _defaultdict(float)
-    monthly_won = _defaultdict(int)
-    for r in rfqs.values():
-        if r.get("status") == "won":
-            created = r.get("created_at", "")[:7]  # YYYY-MM
-            for item in r.get("line_items", []):
-                monthly_revenue[created] += (item.get("qty", 0) or 0) * (item.get("price_per_unit", 0) or 0)
-            monthly_won[created] += 1
+        # Conversion funnel
+        statuses = _defaultdict(int)
+        for r in rfqs.values():
+            statuses[r.get("status", "unknown")] += 1
+        for pc in pcs.values():
+            statuses[f"pc_{pc.get('status', 'unknown')}"] += 1
 
-    # Win rate by institution
-    inst_stats = _defaultdict(lambda: {"won": 0, "lost": 0, "revenue": 0})
-    for r in rfqs.values():
-        inst = r.get("department") or r.get("institution") or r.get("delivery_location", "")[:30] or "Unknown"
-        if r.get("status") == "won":
-            inst_stats[inst]["won"] += 1
-            for item in r.get("line_items", []):
-                inst_stats[inst]["revenue"] += (item.get("qty", 0) or 0) * (item.get("price_per_unit", 0) or 0)
-        elif r.get("status") == "lost":
-            inst_stats[inst]["lost"] += 1
+        funnel = {
+            "imported": len(rfqs) + len(pcs),
+            "parsed": sum(1 for r in rfqs.values() if r.get("status") not in ("dismissed",)),
+            "priced": statuses.get("priced", 0) + statuses.get("pc_priced", 0),
+            "sent": statuses.get("sent", 0) + statuses.get("pc_sent", 0),
+            "won": statuses.get("won", 0) + statuses.get("pc_won", 0),
+            "lost": statuses.get("lost", 0) + statuses.get("pc_lost", 0),
+        }
 
-    # Time to quote (created → sent)
-    quote_times = []
-    for r in rfqs.values():
-        created = r.get("created_at", "")
-        sent = r.get("sent_at", "")
-        if created and sent:
-            try:
-                c = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                s = datetime.fromisoformat(sent.replace("Z", "+00:00"))
-                hours = (s - c).total_seconds() / 3600
-                if 0 < hours < 720:  # Max 30 days
-                    quote_times.append(hours)
-            except Exception:
-                pass
-    avg_quote_time = round(sum(quote_times) / len(quote_times), 1) if quote_times else 0
+        # Revenue by month
+        monthly_revenue = _defaultdict(float)
+        monthly_won = _defaultdict(int)
+        for r in rfqs.values():
+            if r.get("status") == "won":
+                created = r.get("created_at", "")[:7]  # YYYY-MM
+                for item in r.get("line_items", []):
+                    monthly_revenue[created] += (item.get("qty", 0) or 0) * (item.get("price_per_unit", 0) or 0)
+                monthly_won[created] += 1
 
-    # Growth metrics integration
-    growth_kpis = {}
-    growth_top = []
-    try:
-        from src.agents.growth_agent import get_growth_kpis, get_campaign_performance, get_agency_intelligence
-        growth_kpis = get_growth_kpis()
-        campaign_perf = get_campaign_performance()
-        agency_intel = get_agency_intelligence()
-        # Top 5 agencies by engagement
-        growth_top = sorted(agency_intel, key=lambda a: a.get("responded", 0), reverse=True)[:5]
-    except Exception:
-        campaign_perf = {}
+        # Win rate by institution
+        inst_stats = _defaultdict(lambda: {"won": 0, "lost": 0, "revenue": 0})
+        for r in rfqs.values():
+            inst = r.get("department") or r.get("institution") or r.get("delivery_location", "")[:30] or "Unknown"
+            if r.get("status") == "won":
+                inst_stats[inst]["won"] += 1
+                for item in r.get("line_items", []):
+                    inst_stats[inst]["revenue"] += (item.get("qty", 0) or 0) * (item.get("price_per_unit", 0) or 0)
+            elif r.get("status") == "lost":
+                inst_stats[inst]["lost"] += 1
 
-    # QA Effectiveness metrics
-    qa_eff = {}
-    try:
-        from src.core.dal import get_qa_effectiveness_metrics
-        qa_eff = get_qa_effectiveness_metrics(days=90)
-    except Exception:
-        pass
+        # Time to quote (created → sent)
+        quote_times = []
+        for r in rfqs.values():
+            created = r.get("created_at", "")
+            sent = r.get("sent_at", "")
+            if created and sent:
+                try:
+                    c = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                    s = datetime.fromisoformat(sent.replace("Z", "+00:00"))
+                    hours = (s - c).total_seconds() / 3600
+                    if 0 < hours < 720:  # Max 30 days
+                        quote_times.append(hours)
+                except Exception:
+                    pass
+        avg_quote_time = round(sum(quote_times) / len(quote_times), 1) if quote_times else 0
 
-    strategy_stats = {}
-    try:
-        from src.forms.template_learning import get_strategy_stats
-        strategy_stats = get_strategy_stats(days=90)
-    except Exception:
-        pass
+        # Growth metrics integration
+        growth_kpis = {}
+        growth_top = []
+        try:
+            from src.agents.growth_agent import get_growth_kpis, get_campaign_performance, get_agency_intelligence
+            growth_kpis = get_growth_kpis()
+            campaign_perf = get_campaign_performance()
+            agency_intel = get_agency_intelligence()
+            growth_top = sorted(agency_intel, key=lambda a: a.get("responded", 0), reverse=True)[:5]
+        except Exception:
+            campaign_perf = {}
 
-    return render_page("analytics.html",
-        active_page="Pipeline",
-        funnel=funnel,
-        statuses=dict(statuses),
-        monthly_revenue=dict(sorted(monthly_revenue.items())),
-        monthly_won=dict(sorted(monthly_won.items())),
-        inst_stats=dict(inst_stats),
-        avg_quote_time=avg_quote_time,
-        total_rfqs=len(rfqs),
-        total_pcs=len(pcs),
-        growth_kpis=growth_kpis,
-        campaign_perf=campaign_perf,
-        growth_top=growth_top,
-        qa_eff=qa_eff,
-        strategy_stats=strategy_stats,
-    )
+        # QA Effectiveness metrics
+        qa_eff = {}
+        try:
+            from src.core.dal import get_qa_effectiveness_metrics
+            qa_eff = get_qa_effectiveness_metrics(days=90)
+        except Exception:
+            pass
+
+        strategy_stats = {}
+        try:
+            from src.forms.template_learning import get_strategy_stats
+            strategy_stats = get_strategy_stats(days=90)
+        except Exception:
+            pass
+
+        data.update(
+            funnel=funnel,
+            statuses=dict(statuses),
+            monthly_revenue=dict(sorted(monthly_revenue.items())),
+            monthly_won=dict(sorted(monthly_won.items())),
+            inst_stats=dict(inst_stats),
+            avg_quote_time=avg_quote_time,
+            total_rfqs=len(rfqs),
+            total_pcs=len(pcs),
+            growth_kpis=growth_kpis,
+            campaign_perf=campaign_perf,
+            growth_top=growth_top,
+            qa_eff=qa_eff,
+            strategy_stats=strategy_stats,
+        )
+
+    elif tab == "business_intel":
+        from datetime import datetime as _dt
+        _empty = {"bid_to_win": {"revenue_won": 0, "win_rate_pct": 0, "pipeline_value": 0, "avg_deal_size": 0, "total_bids": 0, "won": 0, "lost": 0, "cost_per_quote_est": 0},
+                  "customer_ltv": [], "competitors": [], "top_products": [], "head_to_head": [],
+                  "time_to_quote": {"avg_days": 0, "min_days": 0, "max_days": 0, "sample_size": 0},
+                  "monthly_trend": []}
+        try:
+            import sqlite3 as _bsq
+            from src.core.db import DB_PATH as _bdbp
+            _bconn = _bsq.connect(_bdbp, timeout=30)
+            _bconn.row_factory = _bsq.Row
+            bi = _build_bi_data(_bconn)
+            _bconn.close()
+        except Exception as _bi_err:
+            log.error("BI tab failed: %s", _bi_err, exc_info=True)
+            bi = _empty
+        data.update(bi=bi)
+
+    elif tab == "pricing":
+        try:
+            from src.knowledge.pricing_intel import get_pricing_intelligence_summary
+            pricing_data = get_pricing_intelligence_summary()
+        except Exception:
+            pricing_data = {"total_records": 0, "unique_items": 0, "unique_agencies": 0,
+                    "total_revenue": 0, "avg_margin": 0, "recent_wins_30d": 0,
+                    "top_items": [], "top_agencies": [], "margin_distribution": {}}
+        data.update(data=pricing_data)
+
+    # suppliers, win_loss, loss_intel all load data client-side via JS — no server data needed
+
+    return render_page("analytics.html", active_page="Analytics", **data)
 
 
 @bp.route("/api/analytics/data")
@@ -1888,18 +1927,18 @@ def follow_ups_page():
 
 @bp.route("/analytics/win-loss")
 @auth_required
-@safe_page
 def win_loss_page():
-    """Win/loss analysis page with charts and trends."""
-    return render_page("win_loss.html", active_page="Analytics")
+    """Redirect to unified analytics tab."""
+    from flask import redirect as _redirect
+    return _redirect("/analytics?tab=win_loss")
 
 
 @bp.route("/loss-intelligence")
 @auth_required
-@safe_page
 def loss_intelligence_page():
-    """Loss intelligence dashboard — why we lose, margin analysis, competitor deep dive."""
-    return render_page("loss_intelligence.html", active_page="Analytics")
+    """Redirect to unified analytics tab."""
+    from flask import redirect as _redirect
+    return _redirect("/analytics?tab=loss_intel")
 
 
 @bp.route("/loss-detail/<quote_number>")
@@ -2101,10 +2140,10 @@ def api_win_loss_analysis():
 
 @bp.route("/suppliers/performance")
 @auth_required
-@safe_page
 def supplier_performance_page():
-    """Supplier performance rankings and analytics."""
-    return render_page("supplier_performance.html", active_page="Vendors")
+    """Redirect to unified analytics tab."""
+    from flask import redirect as _redirect
+    return _redirect("/analytics?tab=suppliers")
 
 
 @bp.route("/api/suppliers/performance")
@@ -3962,25 +4001,10 @@ def api_dashboard_kpis():
 
 @bp.route("/business-intel")
 @auth_required
-@safe_page
 def business_intel_page():
-    """Business Intelligence dashboard — visual metrics page."""
-    from datetime import datetime as _dt
-    _empty = {"bid_to_win": {"revenue_won": 0, "win_rate_pct": 0, "pipeline_value": 0, "avg_deal_size": 0, "total_bids": 0, "won": 0, "lost": 0, "cost_per_quote_est": 0},
-              "customer_ltv": [], "competitors": [], "top_products": [], "head_to_head": [],
-              "time_to_quote": {"avg_days": 0, "min_days": 0, "max_days": 0, "sample_size": 0},
-              "monthly_trend": []}
-    try:
-        import sqlite3 as _bsq
-        from src.core.db import DB_PATH as _bdbp
-        _bconn = _bsq.connect(_bdbp, timeout=30)
-        _bconn.row_factory = _bsq.Row
-        bi = _build_bi_data(_bconn)
-        _bconn.close()
-    except Exception as _bi_err:
-        log.error("BI page failed: %s", _bi_err, exc_info=True)
-        bi = _empty
-    return render_page("business_intel.html", active_page="BI", bi=bi, now=_dt.now().strftime("%Y-%m-%d %H:%M"))
+    """Redirect to unified analytics tab."""
+    from flask import redirect as _redirect
+    return _redirect("/analytics?tab=business_intel")
 
 
 def _build_bi_data(conn):
