@@ -399,6 +399,13 @@ def _lifecycle_loop():
             if result.get("expired", 0) > 0 or result.get("follow_ups_due", 0) > 0:
                 log.info("Lifecycle check: expired=%d follow_ups_due=%d",
                          result.get("expired", 0), result.get("follow_ups_due", 0))
+            # V5 Phase 6: Check for cost changes on pending quotes
+            try:
+                cost_alerts = check_cost_changes()
+                if cost_alerts:
+                    log.info("Cost change alerts: %d pending quotes affected", len(cost_alerts))
+            except Exception as ce:
+                log.debug("Cost change check: %s", ce)
             try:
                 heartbeat("quote-lifecycle", success=True)
             except Exception:
