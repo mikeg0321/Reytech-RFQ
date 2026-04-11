@@ -197,6 +197,14 @@ def app(temp_data_dir, monkeypatch):
     # Clear price check cache so tests get fresh data from temp_data_dir
     monkeypatch.setattr(dashboard, "_pc_cache", None)
     monkeypatch.setattr(dashboard, "_pc_cache_time", 0)
+    # Also patch data_layer (canonical location after refactor)
+    try:
+        import src.api.data_layer as _dl
+        monkeypatch.setattr(_dl, "_pc_cache", None)
+        monkeypatch.setattr(_dl, "_pc_cache_time", 0)
+        monkeypatch.setattr(_dl, "DATA_DIR", temp_data_dir)
+    except Exception:
+        pass
     # Ensure auth vars match test credentials (patch both dashboard + shared)
     monkeypatch.setattr(dashboard, "DASH_USER", "reytech")
     monkeypatch.setattr(dashboard, "DASH_PASS", "changeme")
