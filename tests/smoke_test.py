@@ -27,6 +27,11 @@ import os, sys, json, time, argparse, base64, traceback
 from datetime import datetime
 from typing import Optional
 
+# Force UTF-8 stdout on Windows (cp1252 can't encode emoji)
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 try:
     import requests
     from requests.auth import HTTPBasicAuth
