@@ -3373,11 +3373,10 @@ def api_catalog_schedule_price_check():
     return jsonify({"ok": True, "schedule": _PRICE_CHECK_SCHEDULE})
 
 
-# Start the scheduler thread on app boot
+# Start the scheduler thread on app boot (skip in tests)
 import threading as _sched_threading
-_sched_t = _sched_threading.Thread(target=_price_check_scheduler, daemon=True, name="price-check-scheduler")
-_sched_t.start()
-
-
-# Start polling on import (for gunicorn) and on direct run
-start_polling()
+if os.environ.get("TESTING") != "1":
+    _sched_t = _sched_threading.Thread(target=_price_check_scheduler, daemon=True, name="price-check-scheduler")
+    _sched_t.start()
+    # Start polling on import (for gunicorn) and on direct run
+    start_polling()
