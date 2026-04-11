@@ -472,6 +472,13 @@ def analytics_dashboard():
     except Exception:
         pass
 
+    strategy_stats = {}
+    try:
+        from src.forms.template_learning import get_strategy_stats
+        strategy_stats = get_strategy_stats(days=90)
+    except Exception:
+        pass
+
     return render_page("analytics.html",
         active_page="Pipeline",
         funnel=funnel,
@@ -486,6 +493,7 @@ def analytics_dashboard():
         campaign_perf=campaign_perf,
         growth_top=growth_top,
         qa_eff=qa_eff,
+        strategy_stats=strategy_stats,
     )
 
 

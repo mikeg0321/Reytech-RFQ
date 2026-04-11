@@ -3482,8 +3482,20 @@
        var composer = document.getElementById('email-composer');
        if(composer) composer.scrollIntoView({behavior:'smooth',block:'start'});
       }
-      else{btn.textContent='📄 Save & Fill 704';showMsg('❌ Generation failed: '+(d?.error||'unknown'),'err')}
+      else{btn.textContent='📄 Save & Fill 704';_showPipelineError(d)}
      }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false; _hideGenOverlay(); showMsg('❌ '+e.message,'err')});
+    }
+
+    function _showPipelineError(d) {
+     var msg = '❌ Generation failed: ' + (d?.error || 'unknown');
+     if (d?.verification_score !== undefined) msg += ' (score: ' + d.verification_score + ')';
+     if (d?.failed_fields && d.failed_fields.length > 0) {
+      msg += '\nFailed fields: ' + d.failed_fields.slice(0, 5).join(', ');
+     }
+     if (d?.attempts && d.attempts.length > 0) {
+      msg += '\nStrategies tried: ' + d.attempts.map(function(a){return a.strategy+'('+a.score+')'}).join(', ');
+     }
+     showMsg(msg, 'err');
     }
 
     function generateOriginal704(btn) {

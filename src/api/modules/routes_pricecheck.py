@@ -2743,22 +2743,7 @@ def _generate_pc_pdf(pcid):
         except Exception as _qe:
             log.debug("GENERATE %s: Form QA skipped: %s", pcid, _qe)
 
-        # Run Visual QA — vision-based rendering check (V4)
-        try:
-            from src.forms.pdf_visual_qa import inspect_pdf
-            _vqa = inspect_pdf(pipe_result.output_path, company_name="Reytech Inc.")
-            if not _vqa.passed:
-                for _vi in _vqa.errors:
-                    log.warning("GENERATE %s: Visual QA ERROR — %s", pcid, _vi.description)
-                _qa_warnings.extend([f"[Visual] {i.description}" for i in _vqa.warnings])
-            elif _vqa.warnings:
-                _qa_warnings.extend([f"[Visual] {i.description}" for i in _vqa.warnings])
-            if _vqa.pages_inspected > 0:
-                log.info("GENERATE %s: Visual QA %s (%d pages, %d issues)",
-                         pcid, "PASSED" if _vqa.passed else "FAILED",
-                         _vqa.pages_inspected, len(_vqa.issues))
-        except Exception as _vqe:
-            log.info("GENERATE %s: Visual QA skipped: %s", pcid, _vqe)
+        # Visual QA now runs INSIDE the pipeline verify step (V2).
 
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
@@ -2786,6 +2771,7 @@ def _generate_pc_pdf(pcid):
         "error": pipe_result.error,
         "verification_score": pipe_result.verification_score,
         "attempts": pipe_result.attempt_summaries,
+        "failed_fields": pipe_result.failed_fields,
     }
 
 
@@ -2803,7 +2789,11 @@ def _do_generate(pcid):
         except NameError:
             pass  # _qa not defined if QA was skipped
         return jsonify(resp)
-    return jsonify({"ok": False, "error": result.get("error", "Unknown error")})
+    err_resp = {"ok": False, "error": result.get("error", "Unknown error")}
+    for _ek in ("verification_score", "attempts", "failed_fields"):
+        if result.get(_ek) is not None:
+            err_resp[_ek] = result[_ek]
+    return jsonify(err_resp)
 
 
 @bp.route("/pricecheck/<pcid>/source-pdf")
