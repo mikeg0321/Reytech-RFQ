@@ -7,8 +7,7 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Context | Status | Description | Started |
 |--------|---------|--------|-------------|---------|
-| `feat/pipeline-v2-feedback` | — | Open PR #5 | Oracle V5 + north star P1 | 2026-04-10 |
-| `feat/golden-path-expansion` | — | Open PR #4 | Golden path expansion tests | 2026-04-10 |
+| (none active) | — | — | All PRs merged | — |
 
 ## Coordination Rules
 
@@ -21,6 +20,8 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Merged | Description |
 |--------|--------|-------------|
+| `feat/golden-path-expansion` | 2026-04-10 | Golden path: RFQ conversion + package gen tests (PR #4) |
+| `feat/pipeline-v2-feedback` | 2026-04-10 | Oracle V5 + V2 pipeline feedback loops (PR #5) |
 | `feat/golden-path-test` | 2026-04-10 | Golden path E2E pricing accuracy test (PR #3) |
 | `fix/test-schema-sync` | 2026-04-10 | Test schema sync (PR #2) |
 | `fix/qa-delivery-and-quote-number` | 2026-04-10 | QA panel fixes (PR #1) |
@@ -30,10 +31,10 @@ Track all in-progress work across Claude Code context windows.
 ## Conflict Zones
 
 Files that are frequently edited and likely to cause merge conflicts:
-- `src/api/dashboard.py` — main blueprint, 4000+ lines
+- `src/api/dashboard.py` — main blueprint, 6000+ lines
 - `src/api/modules/routes_pricecheck.py` — PC workflow
 - `src/api/modules/routes_rfq.py` — RFQ workflow
-- `src/forms/fill_ams704.py` — PDF generation
+- `src/forms/price_check.py` — PDF generation
 - `src/agents/growth_agent.py` — 104 functions, frequently extended
 - `src/core/dal.py` — data access layer
 - `CLAUDE.md` — project rules (coordinate edits)

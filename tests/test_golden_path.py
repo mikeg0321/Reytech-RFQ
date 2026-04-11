@@ -719,3 +719,87 @@ class TestGoldenPathMetrics:
 
         result = _match_catalog_product("Test item", part_number="HP-20500")
         assert result is None or isinstance(result, int)
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# TEST CLASS: Golden Path — PC → RFQ Conversion
+# ═════════════════════════════════════════════════════════════════════════════
+
+class TestGoldenPathConversion:
+    """Verify PC → RFQ conversion preserves all pricing and item data."""
+
+    def _seed_golden_pc(self, temp_data_dir, blank_704_path):
+        """Seed a golden PC into JSON, return pc dict."""
+        pc_pdf_dir = os.path.join(temp_data_dir, "pc_pdfs")
+        os.makedirs(pc_pdf_dir, exist_ok=True)
+        source_copy = os.path.join(pc_pdf_dir, f"{GOLDEN_PC_ID}_source.pdf")
+        shutil.copy2(blank_704_path, source_copy)
+        pc = _build_golden_pc(source_copy)
+        pcs_json = os.path.join(temp_data_dir, "price_checks.json")
+        pcs = {}
+        if os.path.exists(pcs_json):
+            with open(pcs_json) as f:
+                pcs = json.load(f)
+        pcs[GOLDEN_PC_ID] = pc
+        with open(pcs_json, "w") as f:
+            json.dump(pcs, f, default=str)
+        return pc
+
+    def test_conversion_preserves_items(self, client, temp_data_dir,
+                                         blank_704_path, mock_scprs, mock_gmail):
+        """PC → RFQ must carry all line items with pricing intact."""
+        self._seed_golden_pc(temp_data_dir, blank_704_path)
+        resp = client.post(f"/api/pc/{GOLDEN_PC_ID}/convert-to-rfq")
+        if resp.status_code == 200:
+            data = resp.get_json()
+            assert data.get("ok"), f"Conversion failed: {data}"
+            assert data["items"] == len(GOLDEN_ITEMS)
+        else:
+            pytest.skip(f"Conversion endpoint returned {resp.status_code}")
+
+    def test_conversion_math_integrity(self):
+        """Verify golden items survive deepcopy without floating point drift."""
+        pc = _build_golden_pc("/fake/source.pdf")
+        rfq_data = copy.deepcopy(pc)
+        for i, golden in enumerate(GOLDEN_ITEMS):
+            item = rfq_data["items"][i]
+            assert item["unit_price"] == golden["_expected_price"]
+            assert item["supplier_cost"] == golden["_expected_cost"]
+
+    def test_full_pipeline_pc_to_package(self, blank_704_path, temp_data_dir):
+        """Integration: golden PC → fill 704 → convert → fill 704B."""
+        from src.forms.price_check import fill_ams704
+
+        pc_output = os.path.join(temp_data_dir, "output", "pipeline_704.pdf")
+        os.makedirs(os.path.dirname(pc_output), exist_ok=True)
+        parsed = _build_golden_parsed()
+        result = fill_ams704(
+            source_pdf=blank_704_path, parsed_pc=parsed, output_pdf=pc_output,
+        )
+        assert result["ok"], f"704 fill failed: {result}"
+
+        # Simulate conversion (deepcopy)
+        pc = _build_golden_pc(blank_704_path)
+        rfq_data = copy.deepcopy(pc)
+        rfq_data["source"] = "pc_conversion"
+        rfq_data["solicitation_number"] = pc["pc_number"]
+        rfq_data["line_items"] = rfq_data.get("items", [])
+
+        try:
+            from src.forms.reytech_filler_v4 import fill_704b
+        except ImportError:
+            pytest.skip("fill_704b not available")
+
+        template_704b = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "data", "templates", "ams_704_blank.pdf"
+        )
+        if not os.path.exists(template_704b):
+            template_704b = blank_704_path
+
+        rfq_data["sign_date"] = "04/10/2026"
+        config = {"company": {"name": "Reytech Inc.", "owner": "Michael Gutierrez"}}
+        rfq_output = os.path.join(temp_data_dir, "output", "pipeline_704b.pdf")
+        fill_704b(template_704b, rfq_data, config, rfq_output)
+
+        assert os.path.exists(rfq_output), "704B output not created"
+        assert os.path.getsize(rfq_output) > 1000

@@ -24,6 +24,7 @@ python -m pytest \
     tests/test_compile_safety.py \
     tests/test_api_contracts.py \
     tests/test_pricing_math.py \
+    tests/test_golden_path.py \
     -x -q --tb=short 2>&1
 
 RESULT=$?
