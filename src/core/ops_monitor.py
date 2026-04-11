@@ -584,6 +584,29 @@ def check_disk_usage(data_dir: str = None) -> dict:
     except Exception:
         pass
 
+    # Directory sizes (walk subdirs to find space hogs)
+    try:
+        dirs = []
+        for d in os.listdir(data_dir):
+            dp = os.path.join(data_dir, d)
+            if os.path.isdir(dp):
+                total = 0
+                file_count = 0
+                for root, _, fnames in os.walk(dp):
+                    for fn in fnames:
+                        try:
+                            total += os.path.getsize(os.path.join(root, fn))
+                            file_count += 1
+                        except OSError:
+                            pass
+                dirs.append((d, total, file_count))
+        dirs.sort(key=lambda x: x[1], reverse=True)
+        result["largest_dirs"] = [
+            {"name": d, "size": _fmt_size(s), "files": c} for d, s, c in dirs[:15]
+        ]
+    except Exception:
+        pass
+
     return result
 
 
