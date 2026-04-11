@@ -386,6 +386,13 @@ def create_app():
             _boot_sync_pcs()
         except Exception:
             pass
+        # Recover PCs stuck in 'enriching' state from interrupted deploys
+        try:
+            from src.agents.pc_enrichment_pipeline import recover_stuck_enrichments
+            recover_stuck_enrichments()
+        except Exception as e:
+            logging.getLogger("reytech").warning("Enrichment recovery on boot: %s", e)
+
         # Structured logging already initialized in create_app()
         try:
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
@@ -400,6 +407,16 @@ def create_app():
             start_watchdog(check_interval=300)
         except Exception:
             pass
+
+        # Initialize task queue and start consumer
+        try:
+            from src.core.task_queue import init_task_queue, reset_stale_running
+            init_task_queue()
+            reset_stale_running()
+            from src.core.task_consumer import start_task_consumer
+            start_task_consumer(poll_interval=10)
+        except Exception as e:
+            logging.getLogger("reytech").warning("Task consumer startup: %s", e)
 
         # Full FI$Cal exhaustive scrape at 2:00 AM PST
         try:

@@ -11,7 +11,7 @@
 # Direct deploy (legacy, use only when branch protection is not yet enabled):
 #   make deploy                         # test + check + push main
 
-.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help
+.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
@@ -174,6 +174,20 @@ smoke-staging:  ## Run smoke tests against staging
 	fi
 	@echo "Smoke testing staging: $(STAGING_URL)..."
 	@REYTECH_URL=$(STAGING_URL) python tests/smoke_test.py
+
+# ── Staging ─────────────────────────────────────────────────────────────────
+
+staging-setup:  ## Set up Railway staging environment (one-time)
+	@./scripts/staging.sh setup
+
+staging-deploy: test check  ## Deploy current branch to staging
+	@./scripts/staging.sh deploy
+
+staging-smoke:  ## Run smoke tests against staging
+	@./scripts/staging.sh smoke
+
+staging-promote:  ## Promote staging to production (merge to main)
+	@./scripts/staging.sh promote
 
 # ── Development ─────────────────────────────────────────────────────────────
 

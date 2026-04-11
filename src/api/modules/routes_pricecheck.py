@@ -6796,6 +6796,8 @@ def api_pc_enrichment_status(pcid):
             "ok": True,
             "running": False,
             "status": pc.get("enrichment_status", "none"),
+            "phase": pc.get("enrichment_phase", ""),
+            "progress": pc.get("enrichment_progress", ""),
             "completed": pc.get("enrichment_at"),
             "summary": pc.get("enrichment_summary"),
         })

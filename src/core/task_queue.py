@@ -135,6 +135,26 @@ def fail(task_id: int, error: str):
         conn.close()
 
 
+def reset_stale_running(max_age_minutes: int = 30) -> int:
+    """On boot: reset tasks stuck in 'running' (from pre-deploy crash) back to 'pending'.
+
+    Returns count of tasks reset.
+    """
+    conn = _get_db()
+    try:
+        cur = conn.execute(
+            "UPDATE task_queue SET status='pending', error='reset on boot' "
+            "WHERE status='running' AND started_at < datetime('now', ?)",
+            (f"-{max_age_minutes} minutes",))
+        conn.commit()
+        count = cur.rowcount
+        if count:
+            log.info("Reset %d stale 'running' tasks to 'pending' on boot", count)
+        return count
+    finally:
+        conn.close()
+
+
 def get_queue_stats() -> dict:
     """Get queue statistics."""
     conn = _get_db()

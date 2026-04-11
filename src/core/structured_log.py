@@ -50,6 +50,20 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(log_entry, default=str)
 
 
+def log_event(logger, level: str, event_type: str, **fields):
+    """Emit a structured log event with typed fields for log aggregation.
+
+    The 'event' key and any additional fields flow through JsonFormatter
+    into the JSON output, making them filterable in Railway log drain.
+
+    Usage:
+        log_event(log, "info", "task_completed", task_id=42, task_type="price_rfq")
+    """
+    extra = {"event": event_type, **fields}
+    msg = "event=%s %s" % (event_type, " ".join(f"{k}={v}" for k, v in fields.items()))
+    getattr(logger, level)(msg, extra=extra)
+
+
 def setup_structured_logging(level: str = None):
     """
     Configure structured JSON logging for production.

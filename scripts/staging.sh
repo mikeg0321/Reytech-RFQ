@@ -42,6 +42,14 @@ case "${1:-help}" in
     ;;
 
   deploy)
+    # Verify railway CLI is available
+    if ! command -v railway &>/dev/null; then
+        echo "ERROR: railway CLI not found."
+        echo "Install: npm i -g @railway/cli"
+        echo "Auth:    railway login"
+        exit 1
+    fi
+
     echo "Deploying branch '$BRANCH' to staging..."
 
     # Run tests first
@@ -138,14 +146,27 @@ case "${1:-help}" in
     railway status --environment staging 2>/dev/null || echo "(railway CLI not connected to staging)"
     ;;
 
+  teardown)
+    echo "Removing staging environment..."
+    echo "WARNING: This deletes the staging service and its volume."
+    read -p "Type 'DELETE' to confirm: " confirm
+    if [ "$confirm" = "DELETE" ]; then
+        railway environment delete staging 2>/dev/null || echo "  (staging env not found or already deleted)"
+        echo "Staging environment removed."
+    else
+        echo "Cancelled."
+    fi
+    ;;
+
   *)
-    echo "Usage: ./scripts/staging.sh {setup|deploy|smoke|promote|logs|status}"
+    echo "Usage: ./scripts/staging.sh {setup|deploy|smoke|promote|logs|status|teardown}"
     echo ""
-    echo "  setup   - Create staging environment (one-time)"
-    echo "  deploy  - Deploy current branch to staging (runs tests first)"
-    echo "  smoke   - Run smoke tests against staging"
-    echo "  promote - Merge to main (prod) after staging passes"
-    echo "  logs    - Tail staging logs"
-    echo "  status  - Show staging state"
+    echo "  setup    - Create staging environment (one-time)"
+    echo "  deploy   - Deploy current branch to staging (runs tests first)"
+    echo "  smoke    - Run smoke tests against staging"
+    echo "  promote  - Merge to main (prod) after staging passes"
+    echo "  logs     - Tail staging logs"
+    echo "  status   - Show staging state"
+    echo "  teardown - Delete staging environment"
     ;;
 esac
