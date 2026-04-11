@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Growth & Intel{% endblock %}
+{% from "partials/_growth_tabs.html" import growth_tabs %}
 {% block content %}
+{{ growth_tabs('discovery') }}
 <div style="max-width:1400px;margin:0 auto;padding:0 16px">
 
 <!-- Intel Tab Bar -->

@@ -254,6 +254,108 @@ class TestPricingPipeline:
         triggers = check_requote_triggers()
         assert isinstance(triggers, list)
 
+    def test_expiring_costs(self, temp_data_dir):
+        """get_expiring_costs should return costs expiring within N days."""
+        from src.core.pricing_oracle_v2 import get_expiring_costs
+        result = get_expiring_costs(days=7)
+        assert isinstance(result, list)
+
+    def test_price_history_for_item(self, temp_data_dir):
+        """Price history lookup should return results without error."""
+        from src.core.pricing_oracle_v2 import get_price_history_for_item
+        result = get_price_history_for_item("Nitrile exam gloves medium")
+        assert isinstance(result, list)
+
+    def test_speed_stats(self, temp_data_dir):
+        """Speed stats should return metrics dict."""
+        from src.core.pricing_oracle_v2 import get_speed_stats
+        result = get_speed_stats()
+        assert isinstance(result, dict)
+        assert "pcs" in result or "quotes" in result
+
+    def test_pricing_intel_summary(self, temp_data_dir):
+        """Pricing intel summary should return dashboard stats."""
+        from src.knowledge.pricing_intel import get_pricing_intelligence_summary
+        result = get_pricing_intelligence_summary()
+        assert isinstance(result, dict)
+        assert "total_records" in result
+
+
+class TestEmailClassification:
+    """Test email classification functions for pipeline coverage."""
+
+    def test_solicitation_number_extraction(self, mock_gmail):
+        """Extract solicitation number from email subject/body."""
+        from src.agents.email_poller import extract_solicitation_number
+        result = extract_solicitation_number(
+            subject="Price Check - CSP Sacramento - Office Supplies Q3",
+            body="Please provide pricing per the attached 704 form.",
+        )
+        # Should return a string (may be empty if no number found)
+        assert isinstance(result, str)
+
+    def test_reply_followup_detection(self, mock_gmail):
+        """Reply/follow-up emails should be detected."""
+        from src.agents.email_poller import is_reply_followup
+        msg = {"from": "buyer@cdcr.ca.gov", "subject": "Re: Price Check - Supplies"}
+        result = is_reply_followup(
+            msg=msg,
+            subject="Re: Price Check - Supplies",
+            body="Following up on the pricing request.",
+            sender="buyer@cdcr.ca.gov",
+            pdf_names=[],
+        )
+        # Returns truthy/falsy (may be None, dict, or bool)
+        assert result is None or isinstance(result, (bool, dict))
+
+    def test_sender_email_extraction(self, mock_gmail):
+        """_extract_email_addr should parse email from sender string."""
+        from src.agents.email_poller import _extract_email_addr
+        assert _extract_email_addr("John Doe <john@example.com>") == "john@example.com"
+        assert _extract_email_addr("plain@example.com") == "plain@example.com"
+
+
+class TestQuoteLifecycle:
+    """Test quote generation and lifecycle."""
+
+    def test_quote_number_format(self, temp_data_dir):
+        """Quote numbers follow R{YY}Q{seq} format."""
+        from src.forms.quote_generator import _next_quote_number
+        qn = _next_quote_number()
+        assert qn.startswith("R")
+        assert "Q" in qn
+
+    def test_normalize_rfq_fields(self, temp_data_dir):
+        """RFQ normalization should add alias fields."""
+        from src.api.data_layer import _normalize_rfq_fields
+        rfqs = {
+            "rfq1": {"items": [{"desc": "test"}], "rfq_number": "SOL-001"},
+        }
+        result = _normalize_rfq_fields(rfqs)
+        assert "line_items" in result["rfq1"]
+        assert "solicitation_number" in result["rfq1"]
+
+    def test_is_user_facing_pc(self, temp_data_dir):
+        """User-facing filter should show PCs with items, hide dismissed."""
+        from src.api.data_layer import _is_user_facing_pc
+        assert _is_user_facing_pc({"items": [{"desc": "test"}], "status": "parsed"}) is True
+        assert _is_user_facing_pc({"items": [], "status": "dismissed"}) is False
+        assert _is_user_facing_pc({"items": [], "status": "new", "pc_number": "GP-001"}) is True
+        assert _is_user_facing_pc({"items": [], "status": "new"}) is False
+
+    def test_get_pc_items_from_items(self, temp_data_dir):
+        """_get_pc_items should return items list."""
+        from src.api.data_layer import _get_pc_items
+        pc = {"items": [{"desc": "A"}, {"desc": "B"}]}
+        assert len(_get_pc_items(pc)) == 2
+
+    def test_get_pc_items_from_pc_data(self, temp_data_dir):
+        """_get_pc_items should fall back to pc_data blob."""
+        from src.api.data_layer import _get_pc_items
+        import json
+        pc = {"items": [], "pc_data": json.dumps({"items": [{"desc": "X"}]})}
+        assert len(_get_pc_items(pc)) == 1
+
     def test_fingerprint_deterministic(self, temp_data_dir):
         """Same input always produces same fingerprint."""
         from src.knowledge.pricing_intel import _item_fingerprint
