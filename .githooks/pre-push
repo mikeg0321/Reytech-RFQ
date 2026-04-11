@@ -10,6 +10,35 @@ BRANCH=$(git branch --show-current)
 echo "Pre-push gate: testing before push to '$BRANCH'..."
 echo ""
 
+# ── HARD BLOCK: Never push directly to main ─────────────────────────────────
+# Main = production. Railway auto-deploys on push. ALL changes must go through
+# a feature branch + PR + CI. No exceptions.
+
+if [ "$BRANCH" = "main" ]; then
+    echo ""
+    echo "============================================================"
+    echo "  PUSH BLOCKED: Direct pushes to main are not allowed."
+    echo "============================================================"
+    echo ""
+    echo "  Main is production. Railway auto-deploys on push."
+    echo "  All changes must go through a feature branch + PR + CI."
+    echo ""
+    echo "  Create a branch and use the ship workflow:"
+    echo ""
+    echo "    git checkout -b feat/my-feature"
+    echo "    # <do work, commit>"
+    echo "    make ship       # test + push + create PR"
+    echo "    make promote    # merge after CI passes"
+    echo ""
+    echo "  For urgent hotfixes:"
+    echo ""
+    echo "    git checkout -b hotfix/fix-description"
+    echo "    make ship"
+    echo ""
+    echo "============================================================"
+    exit 1
+fi
+
 # ── Critical tests (always run, all branches) ───────────────────────────────
 # These are the core business logic tests that must NEVER break.
 
@@ -36,33 +65,6 @@ if [ $RESULT -ne 0 ]; then
     echo "Fix the failures above, then try again."
     echo "Run full suite for details: make test-full"
     exit 1
-fi
-
-# ── Extended checks for main branch only ─────────────────────────────────────
-# Main = production. Run additional safety checks.
-
-if [ "$BRANCH" = "main" ]; then
-    echo ""
-    echo "Pushing to MAIN (production). Running extended checks..."
-
-    # Pre-deploy validation (security, routes, templates)
-    SECRET_KEY=test FLASK_ENV=testing python tests/pre_deploy_check.py 2>&1
-    PREDEPLOY=$?
-
-    if [ $PREDEPLOY -ne 0 ]; then
-        echo ""
-        echo "PUSH BLOCKED: Pre-deploy checks failed."
-        echo "This push would auto-deploy broken code to production."
-        echo ""
-        echo "Recommended: use a feature branch instead."
-        echo "  git checkout -b hotfix/fix-description"
-        echo "  make ship"
-        exit 1
-    fi
-
-    echo ""
-    echo "WARNING: Pushing directly to main. Railway will auto-deploy."
-    echo "Prefer feature branches: make branch name=feat/description"
 fi
 
 echo ""
