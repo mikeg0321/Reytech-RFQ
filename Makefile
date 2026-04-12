@@ -98,12 +98,17 @@ ship: test check  ## Test + push branch + create PR (the safe way to deploy)
 	fi
 	@echo ""
 	@echo "Tests passed. Pushing branch..."
-	git add -A
-	@echo ""
-	@echo "Staged files:"
-	@git diff --cached --stat
-	@echo ""
-	@echo "Review the staged changes above."
+	@if [ -n "$$(git status --porcelain | grep -v '^.. data/')" ]; then \
+		echo ""; \
+		echo "WARNING: Uncommitted code changes detected:"; \
+		git status --short | grep -v '^.. data/'; \
+		echo ""; \
+		echo "Commit your changes first, then re-run make ship."; \
+		echo "  git add <files>"; \
+		echo "  git commit -m 'your message'"; \
+		echo "  make ship"; \
+		exit 1; \
+	fi
 	git push origin HEAD -u
 	@echo ""
 	@echo "Creating pull request..."
