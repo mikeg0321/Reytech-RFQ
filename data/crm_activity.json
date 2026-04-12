@@ -22747,5 +22747,181 @@
       "institution": "CIM",
       "agency": "CDCR"
     }
+  },
+  {
+    "id": "crm-20260411110010-1963",
+    "ref_id": "03144c95",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 03144c95. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T11:00:10.878912",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "03144c95",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411110446-1964",
+    "ref_id": "9666a318",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 9666a318. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T11:04:46.008741",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "9666a318",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411111057-1965",
+    "ref_id": "08166335",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 08166335. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T11:10:57.876873",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "08166335",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411115601-1966",
+    "ref_id": "1da32cfa",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 1da32cfa. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T11:56:01.339547",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "1da32cfa",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411131153-1967",
+    "ref_id": "4cd41b89",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 4cd41b89. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T13:11:53.304623",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "4cd41b89",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411134036-1968",
+    "ref_id": "45c7eb13",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 45c7eb13. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T13:40:36.475247",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "45c7eb13",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411142217-1969",
+    "ref_id": "b6f35cd4",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ b6f35cd4. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T14:22:17.454220",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "b6f35cd4",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411142849-1970",
+    "ref_id": "3b9830ad",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 3b9830ad. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T14:28:49.088756",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "3b9830ad",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411145551-1971",
+    "ref_id": "0a153308",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 0a153308. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T14:55:51.124090",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "0a153308",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411151610-1972",
+    "ref_id": "2ea6c349",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 2ea6c349. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T15:16:10.907693",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "2ea6c349",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
+  },
+  {
+    "id": "crm-20260411152034-1973",
+    "ref_id": "3f997a5b",
+    "event_type": "pc_to_rfq_conversion",
+    "description": "PC GP-TEST-001 converted to RFQ 3f997a5b. 4 items, status=priced.",
+    "actor": "user",
+    "timestamp": "2026-04-11T15:20:34.510017",
+    "metadata": {
+      "pc_id": "golden-path-test",
+      "rfq_id": "3f997a5b",
+      "pc_number": "GP-TEST-001",
+      "item_count": 4,
+      "files_copied": 0,
+      "source_status": "priced"
+    }
   }
 ]

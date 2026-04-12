@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "partials/_crm_tabs.html" import crm_tabs %}
 {% block title %}CRM Contacts — Reytech{% endblock %}
 
 {% block head_extra %}
@@ -16,6 +17,7 @@
 {% endblock %}
 
 {% block content %}
+{{ crm_tabs('contacts') }}
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;flex-wrap:wrap;gap:12px">
  <div>
   <h1 style="font-size:22px;font-weight:700;margin-bottom:4px">👥 CRM Contacts</h1>
