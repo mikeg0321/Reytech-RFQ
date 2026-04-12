@@ -591,6 +591,108 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_wf_type ON workflow_runs(task_type);
         CREATE INDEX IF NOT EXISTS idx_wf_running ON workflow_runs(running);
     """),
+
+    (20, "json_validation_triggers", """
+        -- BEFORE INSERT triggers: reject invalid JSON on critical columns
+
+        CREATE TRIGGER IF NOT EXISTS validate_quotes_items_insert
+        BEFORE INSERT ON quotes FOR EACH ROW
+        WHEN NEW.items_detail IS NOT NULL AND NEW.items_detail != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in quotes.items_detail')
+          WHERE NOT json_valid(NEW.items_detail);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_pc_items_insert
+        BEFORE INSERT ON price_checks FOR EACH ROW
+        WHEN NEW.items IS NOT NULL AND NEW.items != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in price_checks.items')
+          WHERE NOT json_valid(NEW.items);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_rfq_items_insert
+        BEFORE INSERT ON rfqs FOR EACH ROW
+        WHEN NEW.items IS NOT NULL AND NEW.items != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in rfqs.items')
+          WHERE NOT json_valid(NEW.items);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_order_items_insert
+        BEFORE INSERT ON orders FOR EACH ROW
+        WHEN NEW.items IS NOT NULL AND NEW.items != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in orders.items')
+          WHERE NOT json_valid(NEW.items);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_vo_items_insert
+        BEFORE INSERT ON vendor_orders FOR EACH ROW
+        WHEN NEW.items_json IS NOT NULL AND NEW.items_json != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in vendor_orders.items_json')
+          WHERE NOT json_valid(NEW.items_json);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_wf_errors_insert
+        BEFORE INSERT ON workflow_runs FOR EACH ROW
+        WHEN NEW.errors_json IS NOT NULL AND NEW.errors_json != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in workflow_runs.errors_json')
+          WHERE NOT json_valid(NEW.errors_json);
+        END;
+
+        -- BEFORE UPDATE triggers: same validation on updates
+
+        CREATE TRIGGER IF NOT EXISTS validate_quotes_items_update
+        BEFORE UPDATE ON quotes FOR EACH ROW
+        WHEN NEW.items_detail IS NOT NULL AND NEW.items_detail != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in quotes.items_detail')
+          WHERE NOT json_valid(NEW.items_detail);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_pc_items_update
+        BEFORE UPDATE ON price_checks FOR EACH ROW
+        WHEN NEW.items IS NOT NULL AND NEW.items != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in price_checks.items')
+          WHERE NOT json_valid(NEW.items);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_rfq_items_update
+        BEFORE UPDATE ON rfqs FOR EACH ROW
+        WHEN NEW.items IS NOT NULL AND NEW.items != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in rfqs.items')
+          WHERE NOT json_valid(NEW.items);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_order_items_update
+        BEFORE UPDATE ON orders FOR EACH ROW
+        WHEN NEW.items IS NOT NULL AND NEW.items != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in orders.items')
+          WHERE NOT json_valid(NEW.items);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_vo_items_update
+        BEFORE UPDATE ON vendor_orders FOR EACH ROW
+        WHEN NEW.items_json IS NOT NULL AND NEW.items_json != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in vendor_orders.items_json')
+          WHERE NOT json_valid(NEW.items_json);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS validate_wf_errors_update
+        BEFORE UPDATE ON workflow_runs FOR EACH ROW
+        WHEN NEW.errors_json IS NOT NULL AND NEW.errors_json != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in workflow_runs.errors_json')
+          WHERE NOT json_valid(NEW.errors_json);
+        END;
+    """),
 ]
 
 

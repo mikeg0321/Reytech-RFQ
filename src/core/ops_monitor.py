@@ -14,6 +14,7 @@ Background threads respect scheduler.should_run() for graceful shutdown.
 """
 
 import collections
+import gzip
 import logging
 import os
 import shutil
@@ -70,16 +71,24 @@ def run_hourly_backup(data_dir: str = None) -> dict:
         dst_conn.close()
         src_conn.close()
 
-        size = os.path.getsize(backup_path)
-
-        # Quick integrity check on the backup
+        # Quick integrity check on the uncompressed backup
         integrity_ok = verify_backup_integrity(backup_path)
 
-        # Rotate: keep 6 hourly (DB is ~1.2GB, 6 × 1.2 = ~7.2GB max)
-        _rotate_files(backup_dir, prefix="reytech_", suffix=".db", keep=6)
+        # Compress with gzip (reduces size ~60-70%, makes casual reading harder)
+        gz_path = backup_path + ".gz"
+        with open(backup_path, 'rb') as f_in:
+            with gzip.open(gz_path, 'wb', compresslevel=6) as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(backup_path)  # Remove uncompressed version
+
+        size = os.path.getsize(gz_path)
+        gz_filename = filename + ".gz"
+
+        # Rotate: keep 6 hourly compressed backups
+        _rotate_files(backup_dir, prefix="reytech_", suffix=".db.gz", keep=6)
 
         log.info("Hourly backup: %s (%s, integrity=%s)",
-                 filename, _fmt_size(size), "OK" if integrity_ok else "FAILED")
+                 gz_filename, _fmt_size(size), "OK" if integrity_ok else "FAILED")
 
         try:
             from src.core.scheduler import heartbeat
@@ -89,10 +98,11 @@ def run_hourly_backup(data_dir: str = None) -> dict:
 
         return {
             "ok": True,
-            "filename": filename,
+            "filename": gz_filename,
             "size": size,
             "size_human": _fmt_size(size),
             "integrity": integrity_ok,
+            "compressed": True,
             "created_at": now.isoformat(),
         }
 
@@ -113,14 +123,33 @@ def run_hourly_backup(data_dir: str = None) -> dict:
 def verify_backup_integrity(backup_path: str) -> bool:
     """Verify a backup file is a valid, non-corrupted SQLite database.
 
+    Handles both plain .db and compressed .db.gz files.
     Checks: file exists, header valid, integrity_check passes,
     critical tables exist, quote counter present.
     """
     if not os.path.exists(backup_path):
         return False
 
+    # If compressed, decompress to a temp file for verification
+    temp_path = None
+    check_path = backup_path
+    if backup_path.endswith(".gz"):
+        import tempfile
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".db")
+        os.close(temp_fd)
+        try:
+            with gzip.open(backup_path, 'rb') as f_in:
+                with open(temp_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            check_path = temp_path
+        except Exception as e:
+            log.error("Failed to decompress backup for verification: %s → %s", backup_path, e)
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            return False
+
     try:
-        conn = sqlite3.connect(backup_path, timeout=10)
+        conn = sqlite3.connect(check_path, timeout=10)
 
         # Integrity check
         result = conn.execute("PRAGMA integrity_check").fetchone()
@@ -154,6 +183,9 @@ def verify_backup_integrity(backup_path: str) -> bool:
     except Exception as e:
         log.error("Backup verification error: %s → %s", backup_path, e)
         return False
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 def run_nightly_verification(data_dir: str = None) -> dict:
@@ -168,23 +200,36 @@ def run_nightly_verification(data_dir: str = None) -> dict:
     if not os.path.isdir(backup_dir):
         return {"ok": False, "error": "No backup directory found"}
 
-    # Find latest backup
+    # Find latest backup (support both .db and .db.gz)
     backups = sorted(
-        [f for f in os.listdir(backup_dir) if f.startswith("reytech_") and f.endswith(".db")],
+        [f for f in os.listdir(backup_dir)
+         if f.startswith("reytech_") and (f.endswith(".db") or f.endswith(".db.gz"))],
         reverse=True
     )
     if not backups:
         return {"ok": False, "error": "No backup files found"}
 
     latest = os.path.join(backup_dir, backups[0])
-    result = {"ok": True, "backup": backups[0], "checks": {}}
+    is_compressed = backups[0].endswith(".gz")
+    result = {"ok": True, "backup": backups[0], "compressed": is_compressed, "checks": {}}
 
-    # Integrity
+    # Integrity (verify_backup_integrity handles .gz transparently)
     result["checks"]["integrity"] = verify_backup_integrity(latest)
 
-    # Row counts
+    # Row counts — need to decompress .gz to a temp file for direct SQL access
+    temp_path = None
+    db_check_path = latest
     try:
-        conn = sqlite3.connect(latest, timeout=10)
+        if is_compressed:
+            import tempfile
+            temp_fd, temp_path = tempfile.mkstemp(suffix=".db")
+            os.close(temp_fd)
+            with gzip.open(latest, 'rb') as f_in:
+                with open(temp_path, 'wb') as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+            db_check_path = temp_path
+
+        conn = sqlite3.connect(db_check_path, timeout=10)
         for table in ["quotes", "contacts", "price_history", "app_settings"]:
             try:
                 count = conn.execute(f"SELECT COUNT(*) FROM [{table}]").fetchone()[0]
@@ -195,16 +240,21 @@ def run_nightly_verification(data_dir: str = None) -> dict:
     except Exception as e:
         result["ok"] = False
         result["checks"]["error"] = str(e)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
-    # Compare size to live DB
+    # Compare size to live DB (compressed ratio will be lower, adjust thresholds)
     live_db = os.path.join(data_dir, "reytech.db")
     if os.path.exists(live_db):
         live_size = os.path.getsize(live_db)
         backup_size = os.path.getsize(latest)
         ratio = backup_size / live_size if live_size > 0 else 0
         result["checks"]["size_ratio"] = round(ratio, 3)
-        # Backup should be within 50%-150% of live size
-        if ratio < 0.5 or ratio > 1.5:
+        # Compressed backups are typically 30-50% of live size; uncompressed 50-150%
+        min_ratio = 0.1 if is_compressed else 0.5
+        max_ratio = 0.8 if is_compressed else 1.5
+        if ratio < min_ratio or ratio > max_ratio:
             result["ok"] = False
             result["checks"]["size_warning"] = f"Backup size ratio {ratio:.2f} is suspicious"
 

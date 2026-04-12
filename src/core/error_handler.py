@@ -12,6 +12,12 @@ import logging
 import traceback
 from functools import wraps
 
+try:
+    from src.core.pii_mask import mask_pii
+except Exception:
+    def mask_pii(text):
+        return text or ""
+
 log = logging.getLogger("reytech.errors")
 
 
@@ -51,7 +57,7 @@ def safe_route(f):
         try:
             return f(*args, **kwargs)
         except Exception as e:
-            log.error("Route %s failed: %s", f.__name__, str(e)[:300],
+            log.error("Route %s failed: %s", f.__name__, mask_pii(str(e)[:300]),
                       exc_info=True)
             from flask import jsonify
             return jsonify({
@@ -79,7 +85,7 @@ def safe_page(f):
         try:
             return f(*args, **kwargs)
         except Exception as e:
-            log.error("Page %s failed: %s", f.__name__, str(e)[:300],
+            log.error("Page %s failed: %s", f.__name__, mask_pii(str(e)[:300]),
                       exc_info=True)
             from flask import render_template_string
             return render_template_string("""
@@ -111,7 +117,7 @@ def safe_background(fn):
         except Exception as e:
             log.critical(
                 "BACKGROUND TASK CRASHED: %s — %s\n%s",
-                fn.__name__, str(e)[:300],
+                fn.__name__, mask_pii(str(e)[:300]),
                 traceback.format_exc()[-500:]
             )
             raise  # Re-raise so thread can handle restart logic
