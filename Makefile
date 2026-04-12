@@ -167,6 +167,22 @@ rollback:  ## Revert last commit on main and push (emergency only)
 		echo "Cancelled."; \
 	fi
 
+rollback-to:  ## Roll back Railway to a specific deploy id (no rebuild, ~60s): make rollback-to id=<deployment-id>
+	@if [ -z "$(id)" ]; then \
+		echo "Usage: make rollback-to id=<railway-deployment-id>"; \
+		echo ""; \
+		echo "Find a deployment id with:"; \
+		echo "  make deploys                # list recent Railway deploys"; \
+		echo ""; \
+		echo "Uses Railway GraphQL deploymentRedeploy with usePreviousImageTag=true,"; \
+		echo "so it skips the build step entirely and reuses the cached image."; \
+		exit 1; \
+	fi
+	@./scripts/railway_rollback.sh "$(id)"
+
+deploys:  ## List the 10 most recent Railway deploys with status + commit
+	@./scripts/railway_deploys.sh
+
 smoke:  ## Run smoke tests against production
 	@echo "Smoke testing $(PROD_URL)..."
 	@REYTECH_URL=$(PROD_URL) python tests/smoke_test.py
