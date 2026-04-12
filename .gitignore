@@ -44,6 +44,18 @@ data/qa_intelligence.db
 data/rfq.db
 data/scprs_harvest.log
 data/reminded_ids.json
+
+# ── Generated PDFs / reports (rebuilt at runtime) ────────────────────────────
+data/backups/
+data/Quote_*.pdf
+data/PC_*.pdf
+data/tax_rate_cache.json
+data/growth_report.pdf
+data/growth_report.xlsx
+
+# ── Migration artifacts ──────────────────────────────────────────────────────
+data/*.migrated
+
 # ── Claude Code (ignore settings, keep shared coordination files) ───────────
 .claude/*
 !.claude/WORKSTREAMS.md
@@ -51,7 +63,3 @@ data/reminded_ids.json
 # ── GitHub (ignore IDE config, keep workflows) ─────────────────────────────
 .github/*
 !.github/workflows
--e 
-data/backups/
-data/Quote_*.pdf
-data/tax_rate_cache.json

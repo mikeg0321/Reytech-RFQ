@@ -41,7 +41,7 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_URL = os.environ.get("REYTECH_URL", "http://localhost:8000")
-USER     = os.environ.get("REYTECH_USER", "reytech")
+USER     = os.environ.get("REYTECH_USER", "Reytech")
 PASS     = os.environ.get("REYTECH_PASS", "changeme")
 TIMEOUT  = int(os.environ.get("SMOKE_TIMEOUT", "15"))
 
