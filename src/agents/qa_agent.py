@@ -102,14 +102,18 @@ def _check_js_string_escaping(html: str, findings: dict):
     # Extract <script> blocks
     scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
     for script in scripts:
-        # Method 1: Find innerHTML='...' and check the captured content
-        # When an apostrophe is inside, the regex captures up to it
-        # and leaves dangling content that looks like broken HTML
-        for match in re.finditer(r"innerHTML\s*=\s*'([^']*)'", script):
+        # Method 1: Find innerHTML='...' and check the captured content.
+        # Use a regex that respects backslash escapes so that
+        # `innerHTML='x \'inner\' y'` captures the full string instead of
+        # stopping at the first escaped apostrophe. Before this fix, the
+        # scanner produced a false positive for every legit `\'` inside
+        # an innerHTML assignment.
+        for match in re.finditer(r"innerHTML\s*=\s*'((?:\\.|[^'\\])*)'", script):
             content = match.group(1)
             pos_after = match.end()
-            # Check what comes after — if it's letters (like "re caught up")
-            # that means an apostrophe broke the string
+            # What comes after the closing quote — if it's alphabetic
+            # without an operator/semicolon/closing paren first, a
+            # real unescaped apostrophe probably broke the string.
             after = script[pos_after:pos_after+30].strip()
             if after and after[0].isalpha():
                 findings["critical"].append({
@@ -189,29 +193,110 @@ def _check_empty_catch_handlers(html: str, findings: dict):
 
 
 def _check_onclick_handlers(html: str, findings: dict):
-    """Check that onclick handlers reference defined JS functions."""
+    """Check that onclick handlers reference defined JS functions.
+
+    Recognises every definition form the codebase uses, so this check
+    doesn't spam false positives on the modern `window.foo = function()`
+    and `const foo = () => {}` patterns that CLAUDE.md recommends.
+    """
     scripts = re.findall(r'<script[^>]*>(.*?)</script>', html, re.DOTALL)
     all_script = "\n".join(scripts)
-    
-    # Find all defined functions
-    defined_funcs = set(re.findall(r'function\s+(\w+)\s*\(', all_script))
-    # Also const/let/var func = function/arrow
-    defined_funcs.update(re.findall(r'(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\()', all_script))
-    
-    # Find all onclick handlers
+
+    defined_funcs = set()
+    # function foo(...) { ... }
+    defined_funcs.update(re.findall(r'function\s+(\w+)\s*\(', all_script))
+    # const/let/var foo = function(...) { ... }
+    # const/let/var foo = (...) => { ... }
+    # const/let/var foo = arg => ...
+    defined_funcs.update(re.findall(
+        r'(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\(|async\s)', all_script
+    ))
+    # window.foo = function(...)  |  window.foo = (...) =>  |  window['foo'] = ...
+    defined_funcs.update(re.findall(
+        r"window\.(\w+)\s*=\s*(?:function|async|\(|[a-zA-Z_])", all_script
+    ))
+    defined_funcs.update(re.findall(
+        r"window\[['\"](\w+)['\"]\]\s*=", all_script
+    ))
+    # Object.assign(window, { foo: function(){}, bar: ()=>{}, ... })
+    for block in re.findall(r'Object\.assign\(\s*window\s*,\s*\{([^}]*)\}', all_script, re.DOTALL):
+        defined_funcs.update(re.findall(r'(\w+)\s*:', block))
+    # Hoisted from included <script src="...">: any function whose identifier
+    # appears in the static/ directory is treated as defined. Cached so we
+    # don't stat the directory per template.
+    defined_funcs.update(_get_shared_script_funcs())
+
+    # Find onclick handlers — excluding inline expressions (if/while/for/etc.)
+    # Built-in JS keywords produce "if(...)" style onclicks that are not
+    # function calls at all — skip them instead of flagging.
+    _JS_KEYWORDS = {
+        "if", "for", "while", "switch", "return", "throw", "new", "delete",
+        "typeof", "void", "in", "of", "do", "else", "try", "catch", "finally",
+        "function", "class", "var", "let", "const", "true", "false", "null",
+        "undefined", "break", "continue", "yield", "async", "await",
+    }
     onclick_funcs = re.findall(r'onclick=["\'](\w+)\s*\(', html)
-    
+
     for func_name in onclick_funcs:
-        if func_name not in defined_funcs:
-            # Skip built-in methods
-            if func_name in ('window', 'location', 'document', 'alert', 'confirm', 'prompt',
-                           'setTimeout', 'setInterval', 'console', 'JSON', 'this'):
-                continue
-            findings["critical"].append({
-                "type": "broken_onclick",
-                "detail": f"onclick calls '{func_name}()' but function is not defined",
-                "function": func_name,
-            })
+        if func_name in _JS_KEYWORDS:
+            continue
+        if func_name in defined_funcs:
+            continue
+        if func_name in ('window', 'location', 'document', 'alert', 'confirm',
+                         'prompt', 'setTimeout', 'setInterval', 'console',
+                         'JSON', 'this', 'fetch', 'Promise', 'Math', 'Object',
+                         'Array', 'String', 'Number', 'parseInt', 'parseFloat',
+                         'encodeURIComponent', 'decodeURIComponent',
+                         'localStorage', 'sessionStorage', 'history',
+                         'navigator', 'event'):
+            continue
+        findings["critical"].append({
+            "type": "broken_onclick",
+            "detail": f"onclick calls '{func_name}()' but function is not defined",
+            "function": func_name,
+        })
+
+
+_SHARED_SCRIPT_FUNC_CACHE: set = None
+
+
+def _get_shared_script_funcs() -> set:
+    """Return every function-like identifier defined in src/static/*.js.
+
+    The scanner inspects a single template at a time, but templates routinely
+    call into functions that live in shared JS files loaded via <script src>.
+    Treating those as "undefined" fires a cascade of false positives. This
+    walker reads each static JS file once per process and extracts the names.
+    """
+    global _SHARED_SCRIPT_FUNC_CACHE
+    if _SHARED_SCRIPT_FUNC_CACHE is not None:
+        return _SHARED_SCRIPT_FUNC_CACHE
+
+    names: set = set()
+    static_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "src", "static",
+    )
+    if os.path.isdir(static_dir):
+        for root, _dirs, files in os.walk(static_dir):
+            for fname in files:
+                if not fname.endswith(".js"):
+                    continue
+                try:
+                    with open(os.path.join(root, fname), encoding="utf-8") as f:
+                        src = f.read()
+                except Exception:
+                    continue
+                names.update(re.findall(r'function\s+(\w+)\s*\(', src))
+                names.update(re.findall(
+                    r'(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\(|async\s)', src
+                ))
+                names.update(re.findall(
+                    r"window\.(\w+)\s*=\s*(?:function|async|\(|[a-zA-Z_])", src
+                ))
+
+    _SHARED_SCRIPT_FUNC_CACHE = names
+    return names
 
 
 def _check_route_wiring(html: str, route_list: list, findings: dict):
@@ -249,21 +334,35 @@ def _check_route_wiring(html: str, route_list: list, findings: dict):
 
 
 def _check_responsive(html: str, findings: dict):
-    """Check for responsive design basics."""
-    # Viewport meta tag
-    if 'viewport' not in html.lower():
-        findings["warning"].append({
-            "type": "no_viewport",
-            "detail": "Missing <meta name='viewport'> — page won't scale on mobile",
-        })
-    
-    # Media queries
-    media_count = len(re.findall(r'@media', html))
-    if media_count == 0:
-        findings["warning"].append({
-            "type": "no_media_queries",
-            "detail": "No @media queries found — layout won't adapt to screen size",
-        })
+    """Check for responsive design basics.
+
+    Child templates ({% extends "base.html" %}) inherit the viewport meta
+    and global styles from the parent, so we only warn when the template
+    actually owns a top-level <html> block or is a fragment with no parent.
+    """
+    is_child_template = bool(re.search(r'\{%\s*extends\s', html))
+    has_own_html_tag = bool(re.search(r'<html[\s>]', html, re.IGNORECASE))
+
+    if not is_child_template:
+        # Match the actual tag, not substring "viewport" which might appear
+        # in page copy. The child-template guard above already covers pages
+        # that inherit the meta from base.html.
+        has_viewport = bool(re.search(
+            r'<meta[^>]+name\s*=\s*["\']viewport["\']', html, re.IGNORECASE
+        ))
+        if not has_viewport:
+            findings["warning"].append({
+                "type": "no_viewport",
+                "detail": "Missing <meta name='viewport'> — page won't scale on mobile",
+            })
+        # Media queries — only complain on standalone pages; child templates
+        # inherit global responsive styles from base.html.
+        media_count = len(re.findall(r'@media', html))
+        if media_count == 0 and has_own_html_tag:
+            findings["warning"].append({
+                "type": "no_media_queries",
+                "detail": "No @media queries found — layout won't adapt to screen size",
+            })
     
     # Table overflow handling
     tables = re.findall(r'<table[^>]*>', html)

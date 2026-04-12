@@ -44,6 +44,93 @@ class TestJSEscaping:
         _check_js_string_escaping(html, findings)
         assert len(findings["critical"]) == 0
 
+    def test_escaped_single_quote_in_single_string_no_false_positive(self):
+        """Regression: legitimate \\' inside innerHTML='...' must not trip the
+        unescaped-apostrophe heuristic. The old regex [^']* would stop at the
+        first escaped quote and flag the leftover HTML as 'string terminated
+        early', which produced a false positive on every template that
+        inserted a button with `closest('div[style]')`-style handlers."""
+        html = (
+            "<script>"
+            "div.innerHTML='<button onclick=\"this.closest(\\'div[style]\\')"
+            ".remove()\">x</button>';"
+            "</script>"
+        )
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_js_string_escaping(html, findings)
+        assert len(findings["critical"]) == 0, (
+            f"Expected 0 criticals, got: {findings['critical']}"
+        )
+
+
+class TestOnclickDefinitionRecognition:
+    """Regression: scanner must recognise every JS function-definition form
+    the codebase uses so it doesn't spam false positives on valid patterns."""
+
+    def test_window_assignment_function_recognised(self):
+        html = (
+            "<script>window.foo = function() { return 1; };</script>"
+            "<button onclick=\"foo()\">ok</button>"
+        )
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_onclick_handlers(html, findings)
+        broken = [c for c in findings["critical"] if c.get("type") == "broken_onclick"]
+        assert not broken, f"window.foo=function() should be recognised. Got: {broken}"
+
+    def test_window_assignment_arrow_recognised(self):
+        html = (
+            "<script>window.foo = () => { return 1; };</script>"
+            "<button onclick=\"foo()\">ok</button>"
+        )
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_onclick_handlers(html, findings)
+        broken = [c for c in findings["critical"] if c.get("type") == "broken_onclick"]
+        assert not broken
+
+    def test_builtin_fetch_not_flagged(self):
+        """onclick='fetch(...).then(...)' is valid — fetch is a browser API."""
+        html = "<button onclick=\"fetch('/api/x').then(r=>r.json())\">Go</button>"
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_onclick_handlers(html, findings)
+        broken = [c for c in findings["critical"] if c.get("type") == "broken_onclick"]
+        assert not broken
+
+    def test_js_keyword_if_not_flagged(self):
+        """onclick='if(confirm(...))doThing()' is a valid inline expression."""
+        html = "<button onclick=\"if(confirm('sure?'))doIt()\">x</button>"
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_onclick_handlers(html, findings)
+        broken = [c for c in findings["critical"] if c.get("type") == "broken_onclick"
+                  and c.get("function") == "if"]
+        assert not broken
+
+    def test_actual_missing_function_still_caught(self):
+        """We must not neutralise the check entirely — a truly undefined
+        function still has to be reported."""
+        html = "<button onclick=\"reallyMissingFunction()\">x</button>"
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_onclick_handlers(html, findings)
+        broken = [c for c in findings["critical"] if c.get("type") == "broken_onclick"]
+        assert len(broken) == 1
+        assert broken[0]["function"] == "reallyMissingFunction"
+
+
+class TestResponsiveChildTemplate:
+    """Child templates that extend base.html inherit viewport/media queries
+    from the parent. The scanner must not re-flag them."""
+
+    def test_child_template_no_viewport_warning(self):
+        html = "{% extends 'base.html' %}\n{% block content %}<div>ok</div>{% endblock %}"
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_responsive(html, findings)
+        assert not any(w["type"] == "no_viewport" for w in findings["warning"])
+
+    def test_standalone_page_still_flagged(self):
+        html = "<html><body><div>no viewport here</div></body></html>"
+        findings = {"critical": [], "warning": [], "info": []}
+        _check_responsive(html, findings)
+        assert any(w["type"] == "no_viewport" for w in findings["warning"])
+
 
 # ─── Test Fetch Credentials ──────────────────────────────────────────────────
 
