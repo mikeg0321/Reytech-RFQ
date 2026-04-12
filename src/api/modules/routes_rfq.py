@@ -370,6 +370,13 @@ def home():
     # Recovery runs at boot (dashboard.py), not on every request
     from src.api.dashboard import _is_user_facing_pc
     user_pcs = {k: v for k, v in all_pcs.items() if _is_user_facing_pc(v)}
+    # Hide test fixtures from the human queue. The /api/test/create-pc route
+    # is hit by the smoke suite on every promote (smoke_test.py feature_321)
+    # and by the "Create Test RFQ" button on the agents page. Both flag the
+    # record is_test=True — respect that flag here so those records don't
+    # crowd out real work. They remain accessible via direct URL for any
+    # admin diagnostic that wants them.
+    user_pcs = {k: v for k, v in user_pcs.items() if not v.get("is_test")}
     # Additional cleanup: filter PCs with no solicitation AND 0 items
     user_pcs = {k: v for k, v in user_pcs.items()
                 if len(v.get("items", [])) > 0

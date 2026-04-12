@@ -276,8 +276,20 @@ def run_feature_321():
         return "empty body handled"
     check("Empty body returns ok=False", "feature_321", check_empty_body)
 
-    # Clean up test PCs
-    get("/api/test/clear")
+    # Clean up the test PC we just created so prod doesn't collect 20+ of
+    # them across deploy runs. The old call hit /api/test/clear which
+    # doesn't exist — 14 test PCs were found in the UI on 2026-04-12
+    # because of this silent 404. Delete the specific PC we made first,
+    # then fall back to the bulk cleanup endpoint for any stragglers.
+    if pc_id:
+        try:
+            post(f"/api/pricecheck/{pc_id}/delete", json={})
+        except Exception as _cleanup_err:
+            print(f"  cleanup: per-PC delete failed: {_cleanup_err}")
+    try:
+        get("/api/test/cleanup")
+    except Exception as _cleanup_err:
+        print(f"  cleanup: bulk cleanup failed: {_cleanup_err}")
 
 
 # ── Category: Email Templates ─────────────────────────────────────────────────
