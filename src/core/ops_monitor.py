@@ -638,7 +638,17 @@ def run_synthetic_test(base_url: str = None, auth: tuple = None) -> dict:
     import requests as _req
 
     if not base_url:
-        base_url = os.environ.get("REYTECH_URL", "http://localhost:8000")
+        # Prefer the explicit override, else the Railway-provided public domain,
+        # else localhost on the actual gunicorn $PORT (NOT a hardcoded 8000 —
+        # Railway assigns PORT dynamically).
+        base_url = os.environ.get("REYTECH_URL")
+        if not base_url:
+            domain = os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+            if domain:
+                base_url = f"https://{domain}"
+            else:
+                port = os.environ.get("PORT", "8000")
+                base_url = f"http://localhost:{port}"
     if not auth:
         _user = os.environ.get("DASH_USER", os.environ.get("REYTECH_USER", ""))
         _pass = os.environ.get("DASH_PASS", os.environ.get("REYTECH_PASS", ""))
