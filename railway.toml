@@ -2,7 +2,7 @@
 builder = "NIXPACKS"
 
 [deploy]
-startCommand = "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --max-requests 1000 --max-requests-jitter 50 --worker-tmp-dir /dev/shm"
+startCommand = "python -c \"import sqlite3,os; p='/data/reytech.db'; os.path.exists(p) and [print(f'dropping {t}') or sqlite3.connect(p, timeout=30).execute(f'DROP TRIGGER IF EXISTS {t}').connection.commit() for t in ['validate_quotes_items_insert','validate_quotes_items_update','validate_pc_items_insert','validate_pc_items_update','validate_rfq_items_insert','validate_rfq_items_update','validate_order_items_insert','validate_order_items_update','validate_vo_items_insert','validate_vo_items_update','validate_wf_errors_insert','validate_wf_errors_update']]\" || true; gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --max-requests 10000 --max-requests-jitter 500 --worker-tmp-dir /dev/shm"
 healthcheckPath = "/ping"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"
