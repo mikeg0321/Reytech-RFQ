@@ -22,6 +22,59 @@ class TestPCDetailPage:
         # Missing PC redirects to homepage (302) rather than 404
         assert resp.status_code in (200, 302, 404)
 
+    def test_pc_detail_shows_ai_chip_when_grok_validated(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """When the Grok validator has verified an item, the source chip
+        must carry an 'AI' attribution so the user can see the match was
+        AI-verified (not a blind Amazon scrape)."""
+        import os, json
+        sample_pc["items"][0]["pricing"]["llm_validated"] = True
+        sample_pc["items"][0]["pricing"]["llm_confidence"] = 0.88
+        sample_pc["items"][0]["pricing"]["price_source"] = "llm_grok"
+        sample_pc["items"][0]["pricing"]["llm_reasoning"] = (
+            "Verified UPC 840614150049 matches S&S Worldwide Mini Velvet Art Posters"
+        )
+        sample_pc["parsed"]["line_items"] = sample_pc["items"]
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w") as f:
+            json.dump({sample_pc["id"]: sample_pc}, f)
+        resp = client.get(f"/pricecheck/{sample_pc['id']}")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        # AI attribution must appear somewhere in the item's sources column
+        assert " · AI" in body or "AI · " in body, (
+            "Expected 'AI' attribution on the Grok-validated chip"
+        )
+        # Reasoning should be surfaced in a title/tooltip
+        assert "Verified UPC" in body, (
+            "Expected Grok reasoning to be rendered as a chip tooltip"
+        )
+
+    def test_pc_detail_shows_ai_suggest_chip_for_low_confidence(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """When Grok has a lead but confidence is below the auto-apply
+        threshold, it stores llm_suggestion_* fields. The UI must show this
+        as a separate 'AI suggest' chip so the user can accept or reject it."""
+        import os, json
+        sample_pc["items"][0]["pricing"]["llm_suggestion"] = (
+            "S&S Worldwide Pack of 100"
+        )
+        sample_pc["items"][0]["pricing"]["llm_suggestion_price"] = 27.99
+        sample_pc["items"][0]["pricing"]["llm_suggestion_url"] = (
+            "https://www.amazon.com/dp/B07663Q1KX"
+        )
+        sample_pc["items"][0]["pricing"]["llm_suggestion_confidence"] = 0.55
+        sample_pc["parsed"]["line_items"] = sample_pc["items"]
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w") as f:
+            json.dump({sample_pc["id"]: sample_pc}, f)
+        resp = client.get(f"/pricecheck/{sample_pc['id']}")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "AI suggest" in body, (
+            "Expected 'AI suggest' chip for low-confidence Grok suggestion"
+        )
+
 
 class TestPCSavePrices:
     """Saving prices on the PC detail page."""
