@@ -41,9 +41,15 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_URL = os.environ.get("REYTECH_URL", "http://localhost:8000")
-USER     = os.environ.get("REYTECH_USER", "Reytech")
-PASS     = os.environ.get("REYTECH_PASS", "changeme")
+USER     = os.environ.get("REYTECH_USER") or os.environ.get("DASH_USER") or ""
+PASS     = os.environ.get("REYTECH_PASS") or os.environ.get("DASH_PASS") or ""
 TIMEOUT  = int(os.environ.get("SMOKE_TIMEOUT", "15"))
+
+if not USER or not PASS:
+    print("ERROR: smoke test credentials missing.", file=sys.stderr)
+    print("Set REYTECH_USER/REYTECH_PASS (or DASH_USER/DASH_PASS) before running.", file=sys.stderr)
+    print("Example: REYTECH_PASS='...' make smoke", file=sys.stderr)
+    sys.exit(2)
 
 AUTH = HTTPBasicAuth(USER, PASS)
 SESS = requests.Session()

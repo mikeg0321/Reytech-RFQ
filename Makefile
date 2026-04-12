@@ -11,7 +11,7 @@
 # Direct deploy (legacy, use only when branch protection is not yet enabled):
 #   make deploy                         # test + check + push main
 
-.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list
+.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
@@ -19,6 +19,15 @@ PROD_URL ?= https://web-production-dcee9.up.railway.app
 STAGING_URL ?=
 BRANCH := $(shell git branch --show-current 2>/dev/null)
 COMMIT := $(shell git log -1 --format="%h %s" 2>/dev/null)
+
+# Smoke credentials — pulled from the shell or from a local .env file so
+# make smoke / make promote actually authenticate. Before 2026-04-12 these
+# were not forwarded, which made smoke_test.py default to a fake "changeme"
+# password and silently return 401 on every authed endpoint. That turned
+# the deploy gate into a rubber stamp. Fail loud instead of falling through.
+-include .env
+SMOKE_USER := $(or $(REYTECH_USER),$(DASH_USER))
+SMOKE_PASS := $(or $(REYTECH_PASS),$(DASH_PASS))
 
 # ── Testing ─────────────────────────────────────────────────────────────────
 
@@ -173,7 +182,7 @@ ship: test check  ## Test + push branch + create PR (the safe way to deploy)
 	@echo "Branch pushed + PR created."
 	@echo "CI will run automatically. When green, run: make promote"
 
-promote:  ## Merge current PR after CI passes, then smoke test production
+promote: require-smoke-creds  ## Merge current PR after CI passes, then smoke test production
 	@if [ "$(BRANCH)" = "main" ]; then \
 		echo "ERROR: Already on main. Nothing to promote."; \
 		exit 1; \
@@ -191,7 +200,8 @@ promote:  ## Merge current PR after CI passes, then smoke test production
 	@sleep 90
 	@echo ""
 	@echo "Running smoke tests against production..."
-	@REYTECH_URL=$(PROD_URL) python tests/smoke_test.py && \
+	@REYTECH_URL=$(PROD_URL) REYTECH_USER=$(SMOKE_USER) REYTECH_PASS=$(SMOKE_PASS) \
+		python tests/smoke_test.py && \
 		echo "" && \
 		echo "DEPLOY SUCCESSFUL: $(COMMIT)" || \
 		(echo "" && \
@@ -239,9 +249,27 @@ rollback-to:  ## Roll back Railway to a specific deploy id (no rebuild, ~60s): m
 deploys:  ## List the 10 most recent Railway deploys with status + commit
 	@./scripts/railway_deploys.sh
 
-smoke:  ## Run smoke tests against production
-	@echo "Smoke testing $(PROD_URL)..."
-	@REYTECH_URL=$(PROD_URL) python tests/smoke_test.py
+require-smoke-creds:
+	@if [ -z "$(SMOKE_USER)" ] || [ -z "$(SMOKE_PASS)" ]; then \
+		echo ""; \
+		echo "ERROR: smoke credentials not configured."; \
+		echo ""; \
+		echo "Set REYTECH_USER/REYTECH_PASS (or DASH_USER/DASH_PASS) in your"; \
+		echo "shell or in a local .env file at the repo root. Example:"; \
+		echo ""; \
+		echo "  echo 'REYTECH_USER=Reytech'     >> .env"; \
+		echo "  echo 'REYTECH_PASS=<password>'  >> .env   # .env is gitignored"; \
+		echo ""; \
+		echo "Without this, smoke_test.py authenticates as 'changeme' and"; \
+		echo "every authed endpoint returns 401 — the deploy gate becomes"; \
+		echo "a rubber stamp."; \
+		exit 1; \
+	fi
+
+smoke: require-smoke-creds  ## Run smoke tests against production
+	@echo "Smoke testing $(PROD_URL) as $(SMOKE_USER)..."
+	@REYTECH_URL=$(PROD_URL) REYTECH_USER=$(SMOKE_USER) REYTECH_PASS=$(SMOKE_PASS) \
+		python tests/smoke_test.py
 
 smoke-staging:  ## Run smoke tests against staging
 	@if [ -z "$(STAGING_URL)" ]; then \
