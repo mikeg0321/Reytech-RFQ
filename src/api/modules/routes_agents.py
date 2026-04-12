@@ -720,6 +720,18 @@ def api_usage_dashboard():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/system/workflows")
+@auth_required
+def api_system_workflows():
+    """Recent workflow runs across all agents (durable, DB-backed)."""
+    try:
+        from src.core.workflow_tracker import tracker
+        return jsonify({"ok": True, "workflows": tracker.get_recent(30)})
+    except Exception as e:
+        log.error("Workflow status error: %s", e)
+        return jsonify({"ok": False, "error": str(e), "workflows": []}), 500
+
+
 @bp.route("/api/system/api-usage/monthly")
 @auth_required
 def api_usage_monthly():

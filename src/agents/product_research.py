@@ -38,6 +38,11 @@ try:
 except ImportError:
     api_quota = None
 
+try:
+    from src.core.workflow_tracker import tracker as _wf_tracker
+except Exception:
+    _wf_tracker = None
+
 log = logging.getLogger("research")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -535,6 +540,9 @@ def research_rfq_items(rfq_data: dict) -> dict:
     cached = 0
     not_found = 0
 
+    # Derive a task_id from rfq_data if possible
+    _wf_task_id = f"research_{rfq_data.get('solicitation_number', '') or rfq_data.get('pc_id', '') or 'rfq'}"
+
     with _status_lock:
         RESEARCH_STATUS.update({
             "running": True, "progress": "starting",
@@ -543,10 +551,17 @@ def research_rfq_items(rfq_data: dict) -> dict:
             "started_at": datetime.now().isoformat(), "finished_at": None,
         })
 
+    if _wf_tracker:
+        _wf_tracker.start(_wf_task_id, "product_research", items_total=len(line_items))
+
     for idx, item in enumerate(line_items):
         with _status_lock:
             RESEARCH_STATUS["items_done"] = idx
             RESEARCH_STATUS["progress"] = f"Researching: {item.get('description', '')[:50]}"
+
+        if _wf_tracker:
+            _wf_tracker.update(_wf_task_id, items_done=idx,
+                               progress=f"Researching: {item.get('description', '')[:50]}")
 
         if item.get("supplier_cost") and item["supplier_cost"] > 0:
             results.append({
@@ -583,6 +598,8 @@ def research_rfq_items(rfq_data: dict) -> dict:
             log.error("Research error item %d: %s", idx, e)
             with _status_lock:
                 RESEARCH_STATUS["errors"].append(str(e))
+            if _wf_tracker:
+                _wf_tracker.error(_wf_task_id, str(e))
             results.append({
                 "line_number": item.get("line_number"),
                 "found": False, "error": str(e),
@@ -598,6 +615,9 @@ def research_rfq_items(rfq_data: dict) -> dict:
             "items_done": len(line_items), "prices_found": found,
             "finished_at": datetime.now().isoformat(),
         })
+
+    if _wf_tracker:
+        _wf_tracker.finish(_wf_task_id, results_count=found)
 
     return {
         "rfq_id": rfq_data.get("solicitation_number", "") or "RFQ",

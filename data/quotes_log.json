@@ -11,7 +11,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-22T01:35:18.202596",
-    "updated_at": "2026-02-23T03:18:36.184294",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -23,7 +23,15 @@
         "unit_price": 10.0
       }
     ],
-    "ship_to_name": "CIM"
+    "ship_to_name": "CIM",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q16",
@@ -37,7 +45,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:29:51.765768",
-    "updated_at": "2026-02-20T10:32:49.730692",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "2026-02-20T10:29:51.765768",
@@ -49,7 +57,15 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "CCWF - Central California Women's Facility"
+    "ship_to_name": "CCWF - Central California Women's Facility",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q99",
@@ -63,7 +79,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:24:06.237018",
-    "updated_at": "2026-02-23T03:18:59.128276",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -72,22 +88,45 @@
         "description": "X-RESTRAINT PACKAGE by Stryker Medical\nNew OEM Original Outright\nOEM#: 6500001430",
         "part_number": "6500-001-430",
         "qty": 2,
-        "unit_price": 454.4
+        "unit_price": 454.4,
+        "asin": "",
+        "supplier_url": "",
+        "supplier": "",
+        "cost": 0
       },
       {
         "description": "RESTRAINT STRAP, CHEST, GREEN",
         "part_number": "6250-001-125",
         "qty": 2,
-        "unit_price": 69.12
+        "unit_price": 69.12,
+        "asin": "",
+        "supplier_url": "",
+        "supplier": "",
+        "cost": 0
       },
       {
         "description": "RESTRAINT STRAP, CHEST, BLACK",
         "part_number": "6250-001-126",
         "qty": 2,
-        "unit_price": 69.12
+        "unit_price": 69.12,
+        "asin": "",
+        "supplier_url": "",
+        "supplier": "",
+        "cost": 0
       }
     ],
-    "ship_to_name": "SCC - Sierra Conservation Center"
+    "ship_to_name": "SCC - Sierra Conservation Center",
+    "ship_to_address": [
+      "5100 O'Byrnes Ferry Road",
+      "Jamestown, CA 95327"
+    ],
+    "pdf_path": "C:\\Users\\mikeg\\AppData\\Local\\Temp\\pytest-of-mikeg\\pytest-117\\test_lock_in_reuses_number0\\lock.pdf",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q22",
@@ -101,7 +140,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:24:06.137211",
-    "updated_at": "2026-02-20T10:24:06.138187",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -113,7 +152,15 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "CCWF - Central California Women's Facility"
+    "ship_to_name": "CCWF - Central California Women's Facility",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q21",
@@ -127,7 +174,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:19:06.710185",
-    "updated_at": "2026-02-20T10:19:06.711075",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -139,7 +186,15 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "CCWF - Central California Women\u2019s Facility"
+    "ship_to_name": "CCWF - Central California Women\u2019s Facility",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q20",
@@ -153,7 +208,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:16:06.189469",
-    "updated_at": "2026-02-20T10:16:06.190301",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -165,7 +220,15 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "23370 Road 22"
+    "ship_to_name": "23370 Road 22",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q19",
@@ -179,7 +242,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:13:44.154618",
-    "updated_at": "2026-02-20T10:13:44.155390",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -191,7 +254,15 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610"
+    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q18",
@@ -205,7 +276,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:10:58.114722",
-    "updated_at": "2026-02-20T10:10:58.115382",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "",
@@ -217,7 +288,15 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610"
+    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
   },
   {
     "quote_number": "R26Q17",
@@ -231,7 +310,7 @@
     "contact_name": "",
     "contact_email": "",
     "created_at": "2026-02-20T10:10:22.563999",
-    "updated_at": "2026-03-05T04:12:36.755893",
+    "updated_at": "2026-04-05T20:55:19.829372+00:00",
     "is_test": false,
     "source": "",
     "sent_at": "2026-02-20T10:10:22.563999",
@@ -243,6 +322,52 @@
         "unit_price": 262.32
       }
     ],
-    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610"
+    "ship_to_name": "23370 Road 22\nChowchilla\nCA 93610",
+    "ship_to_address": [],
+    "pdf_path": "",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "status_notes": "",
+    "requestor": "",
+    "notes": "",
+    "status_history": []
+  },
+  {
+    "quote_number": "R26QPREDEPLOY",
+    "date": "Apr 11, 2026",
+    "agency": "CDCR",
+    "institution": "",
+    "rfq_number": "PREDEPLOY-001",
+    "total": 81.56,
+    "subtotal": 75.0,
+    "tax": 6.56,
+    "items_count": 1,
+    "items_text": "Test Item",
+    "items_detail": [
+      {
+        "description": "Test Item",
+        "part_number": "",
+        "qty": 0,
+        "unit_price": 5.0,
+        "asin": "",
+        "supplier_url": "",
+        "supplier": "",
+        "cost": 0
+      }
+    ],
+    "pdf_path": "C:\\Users\\mikeg\\AppData\\Local\\Temp\\predeploy_pkg_yyc2qyo4\\quote.pdf",
+    "source_pc_id": "",
+    "source_rfq_id": "",
+    "ship_to_name": "California Institution for Women",
+    "ship_to_address": [],
+    "requestor": "",
+    "contact_name": "",
+    "email": "",
+    "phone": "",
+    "source": "",
+    "is_test": true,
+    "status": "pending",
+    "created_at": "2026-04-11T15:47:57.814873",
+    "status_history": []
   }
 ]

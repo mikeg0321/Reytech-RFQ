@@ -20,6 +20,11 @@ from datetime import datetime
 
 log = logging.getLogger("reytech.enrichment")
 
+try:
+    from src.core.workflow_tracker import tracker as _wf_tracker
+except Exception:
+    _wf_tracker = None
+
 # ─── Module-level status dict for live polling ────────────────────────────────
 # Keyed by pc_id. Polled by /api/pricecheck/<pcid>/enrichment-status.
 # Protected by _LOCK for all mutations. TTL-evicted to prevent memory leaks.
@@ -111,6 +116,9 @@ def enrich_pc(pc_id: str, force: bool = False):
             "_ts": time.time(),
         }
 
+    if _wf_tracker:
+        _wf_tracker.start(f"enrich_{pc_id}", "enrichment")
+
     # Structured lifecycle logging
     try:
         from src.core.structured_log import log_event
@@ -137,6 +145,8 @@ def enrich_pc(pc_id: str, force: bool = False):
             if pc_id in ENRICHMENT_STATUS:
                 ENRICHMENT_STATUS[pc_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
                 ENRICHMENT_STATUS[pc_id]["phase"] = "failed"
+        if _wf_tracker:
+            _wf_tracker.error(f"enrich_{pc_id}", str(e)[:200])
         # Persist failure on PC
         try:
             from src.api.dashboard import _load_price_checks, _save_single_pc
@@ -153,6 +163,10 @@ def enrich_pc(pc_id: str, force: bool = False):
             if pc_id in ENRICHMENT_STATUS:
                 ENRICHMENT_STATUS[pc_id]["running"] = False
                 ENRICHMENT_STATUS[pc_id]["_ts"] = time.time()
+        if _wf_tracker:
+            _phase = ENRICHMENT_STATUS.get(pc_id, {}).get("phase", "")
+            _wf_tracker.finish(f"enrich_{pc_id}",
+                               status="failed" if _phase == "failed" else "completed")
 
 
 def _run_pipeline(pc_id: str, force: bool):
@@ -1054,6 +1068,8 @@ def _update_status(pc_id: str, phase: str, progress: str):
             ENRICHMENT_STATUS[pc_id]["phase"] = phase
             ENRICHMENT_STATUS[pc_id]["progress"] = progress
     _persist_enrichment_phase(pc_id, phase, progress)
+    if _wf_tracker:
+        _wf_tracker.update(f"enrich_{pc_id}", phase=phase, progress=progress)
 
 
 def _mark_step_done(pc_id: str, step: str):
