@@ -219,7 +219,8 @@ def add_security_headers(response):
             "img-src 'self' data: https:; "
             "connect-src 'self'; "
             "font-src 'self'; "
-            "frame-src 'self'"
+            "frame-src 'self'; "
+            "report-uri /api/csp-report"
         )
     if not response.headers.get("Cache-Control"):
         response.headers["Cache-Control"] = "no-store"
