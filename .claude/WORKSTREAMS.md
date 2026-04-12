@@ -37,6 +37,7 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Merged | Description |
 |--------|--------|-------------|
+| `chore/worktree-protocol` | 2026-04-12 | Require git worktrees for parallel Claude windows; `make worktree` / `worktree-remove` / `worktree-list` (PR #24) |
 | `feat/final-cleanup` | 2026-04-11 | Delete stubs, growth tabs, 12 new tests (PR #9) |
 | `feat/data-layer-refactor` | 2026-04-11 | Move data access from dashboard.py to data_layer.py (PR #8) |
 | `feat/intelligence-layer` | 2026-04-11 | UNSPSC, COO, Docling, NL Query, Compliance Matrix (PR #7) |
