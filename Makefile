@@ -11,7 +11,7 @@
 # Direct deploy (legacy, use only when branch protection is not yet enabled):
 #   make deploy                         # test + check + push main
 
-.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote
+.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
@@ -82,6 +82,62 @@ branch:  ## Create feature branch: make branch name=feat/my-feature
 	@echo ""
 	@echo "Branch '$(name)' created from latest main."
 	@echo "When ready: make ship"
+
+worktree:  ## Create an isolated worktree: make worktree name=feat/my-topic
+	@if [ -z "$(name)" ]; then \
+		echo "Usage: make worktree name=feat/my-topic"; \
+		echo ""; \
+		echo "Creates ../rfq-<topic> on a new branch from latest origin/main."; \
+		echo "Use this for every parallel Claude Code window to avoid silent"; \
+		echo "overwrites from a shared working tree (see CLAUDE.md)."; \
+		echo ""; \
+		echo "Branch name must start with: feat/ fix/ refactor/ hotfix/ chore/"; \
+		exit 1; \
+	fi
+	@case "$(name)" in \
+		feat/*|fix/*|refactor/*|hotfix/*|chore/*) : ;; \
+		*) echo "ERROR: branch name must start with feat/ fix/ refactor/ hotfix/ or chore/"; exit 1 ;; \
+	esac
+	@topic=$$(echo "$(name)" | sed 's|.*/||'); \
+	dest="../rfq-$$topic"; \
+	if [ -e "$$dest" ]; then \
+		echo "ERROR: $$dest already exists. Pick a different name or:"; \
+		echo "  make worktree-remove name=$(name)"; \
+		exit 1; \
+	fi; \
+	echo "Fetching latest origin/main..."; \
+	git fetch origin main --quiet && \
+	git worktree add -b $(name) "$$dest" origin/main && \
+	echo "" && \
+	echo "Worktree ready: $$dest" && \
+	echo "Branch:         $(name) (from origin/main)" && \
+	echo "" && \
+	echo "Next steps:" && \
+	echo "  cd $$dest" && \
+	echo "  # launch Claude Code here — isolated working tree, shared .git" && \
+	echo "  # update .claude/WORKSTREAMS.md with your branch + worktree path" && \
+	echo "  # when done: make ship   (from inside the worktree)" && \
+	echo "  # after merge: make worktree-remove name=$(name)"
+
+worktree-remove:  ## Remove a worktree: make worktree-remove name=feat/my-topic
+	@if [ -z "$(name)" ]; then \
+		echo "Usage: make worktree-remove name=feat/my-topic"; \
+		exit 1; \
+	fi
+	@topic=$$(echo "$(name)" | sed 's|.*/||'); \
+	dest="../rfq-$$topic"; \
+	if [ ! -e "$$dest" ]; then \
+		echo "Nothing to remove: $$dest does not exist."; \
+		echo "Active worktrees:"; \
+		git worktree list; \
+		exit 0; \
+	fi; \
+	git worktree remove "$$dest" && \
+	echo "Removed worktree: $$dest" && \
+	echo "Branch $(name) still exists locally — delete with: git branch -D $(name)"
+
+worktree-list:  ## List all active worktrees
+	@git worktree list
 
 ship: test check  ## Test + push branch + create PR (the safe way to deploy)
 	@if [ "$(BRANCH)" = "main" ]; then \
