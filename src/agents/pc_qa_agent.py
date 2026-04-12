@@ -40,6 +40,7 @@ CAT_SHIPPING = "shipping"
 CAT_AGENCY = "agency"
 CAT_SPELLING = "spelling"
 CAT_DUPLICATE = "duplicate"
+CAT_REQUIREMENTS = "requirements"  # Email-as-contract gaps
 
 PROFIT_FLOOR = 75.00  # Minimum total profit to justify the quote
 
@@ -74,6 +75,7 @@ def run_qa(pc: dict, use_llm: bool = True) -> dict:
     issues.extend(_check_shipping(pc))
     issues.extend(_check_agency(pc, items))
     issues.extend(_check_duplicates(items))
+    issues.extend(_check_requirements(pc))
     totals = _verify_totals(pc, items)
     if not totals.get("correct"):
         issues.append({
@@ -355,6 +357,71 @@ def _check_agency(pc: dict, items: list) -> list:
         issues.append({"severity": BLOCKER, "item_index": -1, "field": "unpriced_items",
                         "category": CAT_COMPLETE,
                         "message": f"{unpriced} of {len(active)} active items have no price"})
+
+    return issues
+
+
+# ─── REQUIREMENTS: email-as-contract gap check ────────────────────────────
+
+def _check_requirements(pc: dict) -> list:
+    """Validate the generated package against email-extracted requirements.
+
+    The buyer's email is a contract. If they said "food items require OBS-1600
+    certification" and the package lacks OBS-1600, that's a gap we must surface
+    before send. This delegates to form_qa.validate_against_requirements() so
+    the RFQ and PC sides stay aligned.
+
+    Severity:
+      - WARNING for every gap (missing_form, due_date mismatch, etc.)
+      - INFO when requirements extraction confidence is low (<0.5) — we
+        don't trust the gaps enough to warn on them
+      - Skipped silently when no requirements have been extracted
+    """
+    issues = []
+    req_json = pc.get("requirements_json", "") or "{}"
+    if not req_json or req_json == "{}":
+        return issues
+
+    try:
+        from src.forms.form_qa import validate_against_requirements
+    except Exception as e:
+        log.debug("form_qa unavailable — skipping requirements check: %s", e)
+        return issues
+
+    # Generated files for this PC — may be empty if user hasn't generated yet.
+    # We still run the check so the user sees the requirements up front.
+    generated = pc.get("output_files") or []
+    if not generated:
+        _out = pc.get("output_pdf", "") or ""
+        if _out:
+            generated = [os.path.basename(_out)]
+
+    try:
+        result = validate_against_requirements(generated, req_json, pc)
+    except Exception as e:
+        log.debug("validate_against_requirements error: %s", e)
+        return issues
+
+    gaps = result.get("gaps") or []
+    req_confidence = float(result.get("confidence") or 0)
+    # Low-confidence extractions should advise, not warn — the extractor may
+    # have hallucinated requirements from noisy email text.
+    severity = INFO if req_confidence < 0.5 else WARNING
+
+    for gap in gaps:
+        issues.append({
+            "severity": severity,
+            "item_index": -1,
+            "field": gap.get("form_id") or gap.get("type") or "requirement",
+            "category": CAT_REQUIREMENTS,
+            "message": gap.get("msg") or "Requirement gap detected",
+            "gap_type": gap.get("type", ""),
+            "extraction_confidence": req_confidence,
+        })
+
+    if gaps:
+        log.info("QA requirements: %d gap(s) vs email contract (conf=%.2f)",
+                 len(gaps), req_confidence)
 
     return issues
 
