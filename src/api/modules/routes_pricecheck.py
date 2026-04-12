@@ -609,6 +609,10 @@ def _pricecheck_detail_inner(pcid):
                 elif "uline" in _domain: a_source = "Uline"
                 elif "amazon" not in _domain: a_source = _domain.replace("www.","").split(".")[0].title()
             a_label = a_source + (f" · {asin}" if asin and "amazon" in (a_url or "").lower() else "")
+            # AI attribution: when the Grok validator found/verified this price,
+            # annotate so the user can see it wasn't a blind scrape.
+            if p.get("llm_validated") or p.get("price_source") == "llm_grok":
+                a_label += " · AI"
             # Preferred if we've used this supplier before
             a_pref = a_source.lower() in cat_best_sup or a_source.lower() in known_supplier or "amazon" in known_supplier
             # Amazon/retail: exact if ASIN confirmed or part# matched in title
@@ -637,6 +641,33 @@ def _pricecheck_detail_inner(pcid):
         if _item_link and _item_link_price and _item_link_price not in [s[0] for s in sources]:
             _il_supplier = item.get("item_supplier", "Link")
             sources.append((_item_link_price, _il_supplier, _item_link, "#f59e0b", True, 0.99))
+
+        # ── AI validator source chips (Phase 2 UI) ──
+        # The Grok validator runs on items with confidence < 0.75 and either:
+        #  (a) sets unit_cost + price_source="llm_grok" when it's confident, or
+        #  (b) stores llm_suggestion_* when it has a lead but isn't confident enough
+        #      to auto-apply.
+        # Case (a) is usually already carried by the Amazon chip (Grok writes
+        # amazon_price). Case (b) has no existing chip — surface it so the user
+        # can choose to accept the AI lead instead of quoting blind.
+        _llm_validated = bool(p.get("llm_validated") or p.get("price_source") == "llm_grok")
+        _llm_cost = _safe_float(p.get("unit_cost"), 0) if _llm_validated else 0
+        if _llm_validated and _llm_cost > 0:
+            # If no source chip mirrors the Grok price yet, add a dedicated one
+            if not any(abs(s[0] - _llm_cost) < 0.01 for s in sources):
+                _llm_name = (p.get("llm_product_name") or "")[:24]
+                _llm_label = f"AI · {_llm_name}" if _llm_name else "AI"
+                _llm_conf = _safe_float(p.get("llm_confidence"), 0.75)
+                sources.append((_llm_cost, _llm_label, "", "#d2a8ff", True, _llm_conf))
+
+        # AI suggestion (low-confidence — stored but not auto-applied to cost)
+        _llm_sugg_price = _safe_float(p.get("llm_suggestion_price"), 0)
+        if _llm_sugg_price > 0 and not any(abs(s[0] - _llm_sugg_price) < 0.01 for s in sources):
+            _llm_sugg_name = (p.get("llm_suggestion") or "")[:20]
+            _llm_sugg_url = p.get("llm_suggestion_url", "")
+            _llm_sugg_conf = _safe_float(p.get("llm_suggestion_confidence"), 0.50)
+            _sugg_label = f"AI suggest: {_llm_sugg_name}" if _llm_sugg_name else "AI suggest"
+            sources.append((_llm_sugg_price, _sugg_label, _llm_sugg_url, "#d2a8ff", False, _llm_sugg_conf))
 
         # Sort by price, preferred suppliers get a small boost (within 10% of cheapest = preferred wins)
         if sources:
@@ -679,11 +710,17 @@ def _pricecheck_detail_inner(pcid):
                 conf_tag = ' <span style="font-size:9px;padding:1px 3px;border-radius:2px;background:#d2992230;letter-spacing:.3px">~FUZZY</span>'
                 border_style = f"border:1px dashed {scolor}60"
             conf_title = f" ({sconf:.0%} match)" if sconf else ""
+            # Surface Grok reasoning in the tooltip for AI-attributed chips.
+            # The reasoning is short (≤200 chars, truncated by validator) and is
+            # the only place in the UI where a user can see WHY the AI picked it.
+            _ai_reason = ""
+            if "AI" in slabel and p.get("llm_reasoning"):
+                _ai_reason = " — " + str(p.get("llm_reasoning", ""))[:160].replace('"', "'")
             _chip_style = f"display:inline-flex;align-items:center;gap:2px;padding:2px 5px;border-radius:4px;font-size:12px;background:{scolor}15;{border_style};color:{scolor};white-space:nowrap"
             if surl:
-                chip = f'<a href="{surl}" target="_blank" style="{_chip_style};text-decoration:none;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</a>'
+                chip = f'<a href="{surl}" target="_blank" style="{_chip_style};text-decoration:none;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}{_ai_reason}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</a>'
             else:
-                chip = f'<span style="{_chip_style}" title="{slabel}{conf_title}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</span>'
+                chip = f'<span style="{_chip_style}" title="{slabel}{conf_title}{_ai_reason}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</span>'
             # Reject button for non-EXACT matches (× to dismiss bad match)
             if sconf <= 0.95 and source_key in ("scprs", "catalog", "web"):
                 chip += (f'<a href="#" onclick="rejectMatch({idx},\'{source_key}\',this);return false" '
