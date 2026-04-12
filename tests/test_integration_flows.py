@@ -50,6 +50,48 @@ class TestPCDetailPage:
             "Expected Grok reasoning to be rendered as a chip tooltip"
         )
 
+    def test_pc_detail_shows_review_tier_summary(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """Phase 3 review UX: the line items header must carry a
+        READY/REVIEW/MANUAL summary so the user knows what's safe to quote
+        at a glance, and each row must have its own tier pill."""
+        import os, json
+        # Item 1: unit_cost set + ASIN → READY (code excludes Amazon from
+        # unit_cost by design, so the cost must be set explicitly)
+        sample_pc["items"][0]["pricing"]["unit_cost"] = 12.58
+        # Item 2: lower confidence — force REVIEW via low catalog confidence
+        sample_pc["items"][1]["pricing"]["unit_cost"] = 42.99
+        sample_pc["items"][1]["pricing"]["catalog_cost"] = 42.99
+        sample_pc["items"][1]["pricing"]["catalog_match"] = "Generic Paper"
+        sample_pc["items"][1]["pricing"]["catalog_confidence"] = 0.60
+        # Wipe Amazon data so only the weaker catalog signal drives the tier
+        sample_pc["items"][1]["pricing"].pop("amazon_price", None)
+        sample_pc["items"][1]["pricing"].pop("amazon_asin", None)
+        # Add a third item with no cost at all → MANUAL
+        sample_pc["items"].append({
+            "item_number": "3",
+            "qty": 1,
+            "uom": "EA",
+            "description": "Obscure item nobody can find",
+            "no_bid": False,
+            "pricing": {},
+        })
+        sample_pc["parsed"]["line_items"] = sample_pc["items"]
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w") as f:
+            json.dump({sample_pc["id"]: sample_pc}, f)
+        resp = client.get(f"/pricecheck/{sample_pc['id']}")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        # Summary banner must appear
+        assert 'id="review-tier-summary"' in body
+        assert "READY" in body and "REVIEW" in body and "MANUAL" in body
+        # Each non-skipped row gets a tier pill
+        assert 'class="row-tier row-tier-ready"' in body
+        assert 'class="row-tier row-tier-manual"' in body
+        # "Jump to next review" action must appear when REVIEW or MANUAL > 0
+        assert "jumpToNextReview" in body
+
     def test_pc_detail_shows_ai_suggest_chip_for_low_confidence(
         self, client, temp_data_dir, sample_pc
     ):
