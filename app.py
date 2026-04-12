@@ -52,8 +52,6 @@ def create_app():
     app.config["SESSION_COOKIE_SECURE"] = True
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours
-    app.config["SESSION_PERMANENT"] = True
 
     # ── Structured logging — MUST be first, before any other init ─────────
     try:

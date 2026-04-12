@@ -554,71 +554,52 @@ Home | PCs | Quotes | Orders | PO Track | CRM | Catalog | Analytics | Awards
 
 ---
 
-## SECTION 11: IMPLEMENTATION STATUS (Updated April 12, 2026)
+## SECTION 11: IMPLEMENTATION STATUS (Updated April 11, 2026)
 
-### ALL AUDIT ITEMS COMPLETE
-
-**21 phases executed across 4 deployment rounds. Every Critical, High, Medium,
-and Low priority item addressed. 199 tests passing.**
-
-### Round 1: Critical + High Priority (Phases 1-7)
+### Phase 1: Security & Stability — COMPLETE
 ```
-[x] C1: XSS sanitization — markupsafe.escape() on 15 |safe HTML builders
-[x] C2: Rate limiting — @rate_limit("heavy") on 25 upload routes
-[x] C3: Thread safety — threading.Lock() on 2 agent status dicts
-[x] H1: Migration 16 — 17 performance indexes
-[x] H2: Migration 17 — 6 FK validation triggers
+[x] C1: Apply markupsafe.escape() to all |safe template f-strings (3 files)
+[x] C2: Add @rate_limit("heavy") to 25 upload endpoints (10 files)
+[x] C3: Add threading.Lock() to 2 agent status dicts
+[x] H7: Remove duplicate /api/quotes/expiring
+[x] H8: Delete empty voice_campaigns.py
+[x] M9: Remove XXXDEBUG statement
+```
+
+### Phase 2: Database Hardening — COMPLETE
+```
+[x] H1: Migration 16 — 17 performance indexes added
+[x] H2: Migration 17 — 6 FK validation triggers added
 [x] H3: Migration 16 — 4 unused tables dropped
-[x] H4: pricing_oracle V1 → thin V2 facade (538→130 lines)
-[x] H5: /growth route confirmed working (redirect to /pipeline)
-[x] H6: Error handling on 18 POST routes
-[x] H7: Duplicate /api/quotes/expiring removed
-[x] H8: Empty voice_campaigns.py deleted
-[x] H9: rfq_parser.py re-exports generic_rfq_parser functions
-[x] A1: Merged routes_orders_enhance into routes_orders_full
-[x] A3: SCPRS orchestrator facade created
+[x] H4: pricing_oracle V1 converted to thin V2 facade (538→130 lines)
+[x] H9: rfq_parser.py now re-exports generic_rfq_parser functions
 ```
 
-### Round 2: Architecture + Code Quality (Phases 8-15)
+### Phase 3: Route Consolidation — COMPLETE
 ```
-[x] M1: Split routes_pricecheck.py (12K→4 files)
-[x] M2: Split routes_rfq.py (9.3K→3 files)
-[x] M2: Split routes_intel.py (6.5K→2 files)
-[x] M8: 33 aria-labels added to emoji buttons
-[x] M9: XXXDEBUG removed
-[x] M10: DOM null safety (9 fixes in _brief.html + agents.html)
-[x] L4: 19 print() converted to logging
-[x] H9: RFQ parser facade (re-exports generic parser)
+[x] H5: /growth route already works (redirect to /pipeline — no fix needed)
+[x] H6: Added try/except to 18 POST routes (3 files)
+[x] M3: Merged routes_orders_enhance.py into routes_orders_full.py
+[x] M10: Fixed DOM null safety in _brief.html (1 fix) and agents.html (8 fixes)
 ```
 
-### Round 3: High Value (Phases 16-18)
+### Phase 4: Test & Code Quality — PARTIAL
 ```
-[x] M4: Analytics page consolidation (6→1 tabbed view)
-[x] H10: 59 new tests (dashboard_core + email_poller_class)
-[x] M6: API cost quota system (Migration 18 + api_quota.py + 4 agents)
-```
-
-### Round 4: Medium Value (Phases 19-21)
-```
-[x] M7: Workflow tracking DB (Migration 19 + workflow_tracker.py + 4 agents)
-[x] Catalog + vendors consolidation (2→1 tabbed)
-[x] CRM tab bar (3 pages linked)
+[ ] H10: Add tests for dashboard.py, email_poller.py (DEFERRED)
+[x] L4: Converted 19 print() to logging in qa_agent.py and tax_agent.py
+[x] M8: Added 33 aria-labels to emoji buttons (4 templates)
 ```
 
-### Round 5: Low Priority / Remaining (Phases 22-27)
+### Phase 5: Architecture — MOSTLY COMPLETE
 ```
-[x] L1: Compressed database backups (gzip)
-[x] L2: Session timeout (PERMANENT_SESSION_LIFETIME = 24h)
-[x] L6: JSON validation triggers (Migration 20 — 12 triggers)
-[x] L7: CSP violation reporting (/api/csp-report endpoint)
-[x] M5: PII masking in error logs (pii_mask.py)
-```
-
-### Remaining (ongoing / multi-session)
-```
-[ ] L3: Refactor inline styles to CSS (~1,400 inline declarations)
-[ ] L5: Document PK generation strategy per table
-[ ] L8: Type hints migration (currently ~40%)
+[x] M1: Split routes_pricecheck.py (12K→4 files: core 3.3K, gen 2K, pricing 1.3K, admin 5.7K)
+[x] M2: Split routes_rfq.py (9.3K→3 files: core 3.2K, gen 2.8K, admin 3.4K)
+[x] M2: Split routes_intel.py (6.5K→2 files: core 2.5K, ops 4.1K)
+[x] A1: Merged order route files
+[x] A3: Created SCPRS orchestrator facade
+[ ] M4: Page consolidation (Analytics → tabbed) — DEFERRED (needs visual QA)
+[ ] M6: API cost quota caps — DEFERRED (needs monitoring infra design)
+[ ] M7: Status dicts to DB — DEFERRED (needs schema design)
 ```
 
 ---
@@ -628,30 +609,29 @@ and Low priority item addressed. 199 tests passing.**
 ```
 ╔══════════════════════════════════════════════════════════╗
 ║              REYTECH-RFQ SYSTEM STATUS                  ║
-║              April 12, 2026 (Audit Complete)            ║
+║              April 11, 2026 (Post-Audit Fix)            ║
 ╠══════════════════════════════════════════════════════════╣
 ║                                                          ║
 ║  SCALE                                                   ║
-║  ├─ Python files:    275                                 ║
-║  ├─ Lines of code:   183K                                ║
-║  ├─ Routes:          1,067                               ║
-║  ├─ Route modules:   24 (focused, split from 18)         ║
-║  ├─ Templates:       55 (was 63 — consolidated)          ║
-║  ├─ DB tables:       61 (+2 new, -4 dropped)             ║
-║  ├─ DB indexes:      131 (+20 added)                     ║
-║  ├─ Triggers:        18 (6 FK + 12 JSON validation)      ║
-║  └─ Migrations:      20 (was 15)                         ║
+║  ├─ Python files:    272 (+6 splits, -2 deleted)         ║
+║  ├─ Lines of code:   182K (same — split, not added)      ║
+║  ├─ Routes:          1,065 (-2 removed)                  ║
+║  ├─ Route modules:   24 (was 18 — split into focused)    ║
+║  ├─ Templates:       62 (-1 deleted stub)                ║
+║  ├─ DB tables:       59 (-4 dropped)                     ║
+║  ├─ DB indexes:      128 (+17 added)                     ║
+║  ├─ FK triggers:     6 (NEW)                             ║
+║  └─ Migrations:      17 (was 15)                         ║
 ║                                                          ║
 ║  QUALITY                                                 ║
-║  ├─ Test functions:  1,223 (+59)  ✅ Strong              ║
+║  ├─ Test functions:  1,164        ✅ Strong              ║
 ║  ├─ Auth coverage:   98.2%        ✅ Excellent           ║
 ║  ├─ SQL injection:   0 vectors    ✅ Clean               ║
+║  ├─ Bare excepts:    0            ✅ Clean               ║
+║  ├─ Circular deps:   0            ✅ Clean               ║
 ║  ├─ XSS vectors:     0            ✅ Fixed (was 15)      ║
 ║  ├─ Thread safety:   0 issues     ✅ Fixed (was 3)       ║
 ║  ├─ Upload rate lim: 25 routes    ✅ Protected           ║
-║  ├─ PII masking:     Active       ✅ Error logs masked   ║
-║  ├─ Session timeout: 24 hours     ✅ Configured          ║
-║  ├─ CSP reporting:   /api/csp     ✅ Active              ║
 ║  └─ Aria labels:     33 added     ✅ Accessible          ║
 ║                                                          ║
 ║  INFRASTRUCTURE                                          ║
@@ -659,17 +639,16 @@ and Low priority item addressed. 199 tests passing.**
 ║  ├─ Pre-push gate:   9 test files ✅ Enforced            ║
 ║  ├─ WAL mode:        Enabled      ✅ Configured          ║
 ║  ├─ Rate limiting:   5 tiers      ✅ Active              ║
-║  ├─ Backups:         Compressed   ✅ gzip + hourly       ║
-║  ├─ API quotas:      $1/day Grok  ✅ Tracked + capped   ║
-║  ├─ Workflow track:  DB-backed    ✅ Survives restart    ║
+║  ├─ Backups:         Hourly+Daily ✅ Running             ║
 ║  └─ Dependencies:    22 pinned    ✅ Locked              ║
 ║                                                          ║
-║  REMAINING (ongoing)                                     ║
-║  ├─ Inline CSS:      ~1,400       ◻  Refactor to files  ║
-║  ├─ Type hints:      ~40%         ◻  Gradual migration  ║
-║  └─ PK docs:         Missing      ◻  Document strategy  ║
+║  DEBT (remaining)                                        ║
+║  ├─ Largest file:    5.7K lines   ⚠️  (was 12.3K)       ║
+║  ├─ Page count:      62 (target 12) ⚠️  Consolidation   ║
+║  ├─ Dashboard tests: Missing      ⚠️  H10 deferred      ║
+║  └─ API cost caps:   Missing      ⚠️  M6 deferred       ║
 ║                                                          ║
-║  OVERALL GRADE:  A+                                      ║
+║  OVERALL GRADE:  A                                       ║
 ╚══════════════════════════════════════════════════════════╝
 ```
 

@@ -7,7 +7,6 @@ from src.api.shared import bp, auth_required
 import logging
 log = logging.getLogger("reytech")
 from src.core.paths import DATA_DIR
-from src.core.security import rate_limit
 import os, json, time
 from datetime import datetime, timedelta
 # ─────────────────────────────────────────────────────────────────────────────
@@ -743,23 +742,3 @@ def api_usage_monthly():
     except Exception as e:
         log.error("API usage monthly error: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
-
-
-# ════════════════════════════════════════════════════════════════════════════════
-# CSP VIOLATION REPORTING (L7)
-# ════════════════════════════════════════════════════════════════════════════════
-
-@bp.route("/api/csp-report", methods=["POST"])
-@rate_limit("api")
-def api_csp_report():
-    """Receive Content-Security-Policy violation reports from browsers."""
-    try:
-        report = request.get_json(force=True, silent=True) or {}
-        violation = report.get("csp-report", report)
-        log.warning("CSP violation: %s blocked by %s (page: %s)",
-                    violation.get("blocked-uri", "?"),
-                    violation.get("violated-directive", "?"),
-                    violation.get("document-uri", "?"))
-        return "", 204
-    except Exception:
-        return "", 204

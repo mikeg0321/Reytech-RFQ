@@ -407,10 +407,9 @@ def run_backup(data_dir: str = None) -> dict:
 
 
 def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):
-    """Keep last N daily + M weekly backups, delete the rest. Supports .db and .db.gz."""
+    """Keep last N daily + M weekly backups, delete the rest."""
     files = sorted(
-        [f for f in os.listdir(backup_dir)
-         if f.startswith("reytech_") and (f.endswith(".db") or f.endswith(".db.gz"))],
+        [f for f in os.listdir(backup_dir) if f.startswith("reytech_") and f.endswith(".db")],
         reverse=True  # newest first
     )
 
@@ -427,7 +426,7 @@ def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):
             continue
         # Parse date from filename
         try:
-            date_str = f.replace("reytech_", "").replace(".db.gz", "").replace(".db", "")[:8]
+            date_str = f.replace("reytech_", "").replace(".db", "")[:8]
             file_date = datetime.strptime(date_str, "%Y%m%d")
             # Keep if it's a Sunday (weekly) and we haven't kept enough weeklies
             if file_date.weekday() == 6 and weekly_kept < keep_weekly:
@@ -450,7 +449,7 @@ def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):
 
 
 def list_backups(data_dir: str = None) -> list:
-    """List available backups with metadata. Supports both .db and .db.gz files."""
+    """List available backups with metadata."""
     data_dir = data_dir or _get_data_dir()
     backup_dir = os.path.join(data_dir, "backups")
     if not os.path.exists(backup_dir):
@@ -458,14 +457,13 @@ def list_backups(data_dir: str = None) -> list:
 
     backups = []
     for f in sorted(os.listdir(backup_dir), reverse=True):
-        if f.startswith("reytech_") and (f.endswith(".db") or f.endswith(".db.gz")):
+        if f.startswith("reytech_") and f.endswith(".db"):
             path = os.path.join(backup_dir, f)
             stat = os.stat(path)
             backups.append({
                 "filename": f,
                 "size": stat.st_size,
                 "size_human": _fmt_size(stat.st_size),
-                "compressed": f.endswith(".gz"),
                 "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
             })
     return backups
