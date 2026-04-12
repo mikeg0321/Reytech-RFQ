@@ -5,9 +5,13 @@ Track all in-progress work across Claude Code context windows.
 
 ## Current Branches
 
-| Branch | Context | Status | Description | Started |
-|--------|---------|--------|-------------|---------|
-| fix/ci-staging-pipeline | Window 1 | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
+> **Worktree column is MANDATORY.** Every parallel window must own a distinct
+> working directory. See `CLAUDE.md → Worktrees Are Required for Parallel Windows`.
+> Use `make worktree name=feat/topic` to create one; `make worktree-list` to audit.
+
+| Branch | Context | Worktree | Status | Description | Started |
+|--------|---------|----------|--------|-------------|---------|
+| fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

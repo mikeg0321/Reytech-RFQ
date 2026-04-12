@@ -4,6 +4,36 @@
 
 Multiple Claude Code sessions run in parallel. Follow this protocol to avoid conflicts.
 
+### Worktrees Are Required for Parallel Windows
+
+**Branches alone do not isolate parallel Claude windows.** A `git checkout` in one
+window silently overwrites the other window's uncommitted edits on disk, because
+both windows share the same working tree at `C:\Users\mikeg\Reytech-RFQ`. Symptoms:
+edits "revert themselves" between writes, `make ship` tests a mix of both windows'
+files, pre-push hooks pass/fail non-deterministically.
+
+**Rule:** If a second Claude window will be active on this repo at the same time
+as yours, one of you MUST work from a separate git worktree. Use the Makefile:
+
+```bash
+make worktree name=feat/my-topic       # creates ../rfq-my-topic on feat/my-topic from latest main
+cd ../rfq-my-topic                     # launch Claude here — isolated working tree, shared .git
+# <do work, commit, make ship as normal>
+make worktree-remove name=feat/my-topic  # after merge/abandon
+make worktree-list                      # see all active worktrees
+```
+
+**Skip worktrees only when:**
+- Only one Claude window is active on this repo (no collision risk).
+- The edit is a tiny one-off you will finish in under 2 minutes.
+- Two tasks both need to edit the same conflict-zone file (see WORKSTREAMS.md) —
+  worktrees solve filesystem collisions, not logical merge conflicts. Sequence
+  the work instead.
+
+**Update `.claude/WORKSTREAMS.md`** with the `Worktree` column so every window
+knows which directory it owns. Worktrees are **additive** to branch protection
+and WORKSTREAMS.md coordination — not a replacement.
+
 ### Before Starting Any Work
 1. **Read `.claude/WORKSTREAMS.md`** — check what branches are active and what files they touch
 2. **Never work directly on `main`.** Always create a feature branch: `make branch name=feat/description`
