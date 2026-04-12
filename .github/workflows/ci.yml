@@ -6,24 +6,21 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-progress runs for the same branch/PR
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ── Job 1: Static Analysis (fast, no deps needed) ─────────────────────────
-  static-checks:
+  checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
-
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
 
       - name: Syntax check (all Python files)
         run: |
@@ -48,7 +45,7 @@ jobs:
               for e in errors:
                   print(f'FAIL: {e}')
               sys.exit(1)
-          print(f'OK: all Python files compile clean')
+          print('OK: all Python files compile clean')
           "
 
       - name: Duplicate endpoint check
@@ -72,23 +69,8 @@ jobs:
           print('OK: no duplicate endpoints')
           "
 
-  # ── Job 2: Import & Template Checks (needs deps) ──────────────────────────
-  build-checks:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
-
       - name: Install dependencies
-        run: |
-          pip install --quiet -r requirements.txt
+        run: pip install --quiet -r requirements.txt
 
       - name: Import check (core modules)
         env:
@@ -123,27 +105,21 @@ jobs:
               for e in errors:
                   print(f'FAIL: {e}')
               import sys; sys.exit(1)
-          print(f'OK: all templates compile')
+          print('OK: all templates compile')
           "
 
-  # ── Job 3: Full Test Suite (THE REAL GATE) ─────────────────────────────────
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-
       - name: Install dependencies
-        run: |
-          pip install --quiet -r requirements.txt
-
+        run: pip install --quiet -r requirements.txt
       - name: Run full test suite
         env:
           SECRET_KEY: test-secret-key-for-ci
@@ -156,27 +132,21 @@ jobs:
           python -m pytest tests/ \
             --ignore=tests/test_award_intelligence.py \
             --ignore=tests/smoke_test.py \
-            -x -q --tb=short
+            -n auto -q --tb=short
 
-  # ── Job 4: Pre-deploy safety checks (runs on PRs AND main push) ───────────
   pre-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [static-checks, build-checks, tests]
-
+    needs: [checks]
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-
       - name: Install dependencies
-        run: |
-          pip install --quiet -r requirements.txt
-
+        run: pip install --quiet -r requirements.txt
       - name: Run pre-deploy validation
         env:
           SECRET_KEY: test
@@ -184,9 +154,11 @@ jobs:
           TESTING: "1"
           ENABLE_BACKGROUND_AGENTS: "false"
           ENABLE_EMAIL_POLLING: "false"
-        run: |
-          python -u tests/pre_deploy_check.py
+        run: python -u tests/pre_deploy_check.py
 
-      - name: Deploy gate passed
-        run: |
-          echo "All CI gates passed. Safe to merge."
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    needs: [checks, tests, pre-deploy]
+    steps:
+      - run: echo "All CI gates passed. Safe to merge."
