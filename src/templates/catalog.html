@@ -1,194 +1,56 @@
 {% extends "base.html" %}
 {% block title %}Catalog — Reytech{% endblock %}
-{% from "partials/_catalog_tabs.html" import catalog_tabs %}
 
 {% block content %}
-{{ catalog_tabs(tab|default('products')) }}
 
-{% if tab|default('products') == 'products' %}
-{# Products tab — content is pre-built HTML from the route #}
-{# SECURITY: backend must sanitize before passing #}
-{{ content | safe }}
-
-{% elif tab == 'vendors' %}
-{# Vendors tab — vendor management #}
-<style>
-.btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:.15s;text-decoration:none;font-size:14px;font-weight:500}
-.btn:hover{opacity:.8}
-table{width:100%;border-collapse:collapse}
-th{padding:8px 12px;font-size:14px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;text-align:left;border-bottom:1px solid var(--bd)}
-</style>
-
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
   <div>
-    <h2 style="font-size:22px;font-weight:700">🏭 Vendor Management</h2>
-    <p style="color:var(--tx2);font-size:13px;margin-top:4px">{{ vendors|length }} vendors · {{ api_ready_count }} API-ready · {{ setup_needed|length }} need setup</p>
+    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px">📦 Product Catalog</h2>
+    <div style="font-size:14px;color:var(--tx2)">{{ stats['total_skus'] }} SKUs across {{ stats['categories'] }} categories — sourced from SCPRS, won quotes, and manual imports</div>
   </div>
-  <div style="display:flex;gap:8px">
-    <a href="/" class="btn">🏠 Home</a>
-    <a href="/api/vendor/status" class="btn" target="_blank">⚙️ API Status</a>
-    <button class="btn" onclick="testGrainger(this)" style="border-color:var(--ac);color:var(--ac)" aria-label="Test Grainger Search">🔍 Test Grainger Search</button>
-    <button class="btn" onclick="scoreAllVendors(this)" style="border-color:var(--gn);color:var(--gn)" title="Score all vendors by price/reliability/speed">📊 Score Vendors</button>
-    <button class="btn" onclick="showEnrichment()" style="border-color:var(--yl);color:var(--yl)" title="Vendor data completeness">📈 Enrichment</button>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input id="cat-search" type="text" placeholder="🔍 Search SKUs, items, vendors..." onkeyup="filterCatalog(this.value)"
+      style="padding:8px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:14px;width:260px">
+    <a href="/analytics?tab=pricing" style="font-size:14px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:8px 14px;border-radius:8px;border:1px solid var(--bd)">💰 Pricing Intel</a>
+    <a href="/vendors" style="font-size:14px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:8px 14px;border-radius:8px;border:1px solid var(--bd)">🏭 Vendors</a>
   </div>
 </div>
 
-<!-- Vendor KPIs -->
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
- <div class="card" style="text-align:center;margin:0;padding:14px">
-  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:var(--ac)">{{ vendors|length }}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Total Vendors</div>
+<!-- KPI Stats -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ stats['total_skus'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Total SKUs</div>
  </div>
- <div class="card" style="text-align:center;margin:0;padding:14px">
-  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#3fb950">{{ api_ready_count }}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">API-Ready</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:#a78bfa;font-family:'JetBrains Mono',monospace">{{ stats['categories'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Categories</div>
  </div>
- <div class="card" style="text-align:center;margin:0;padding:14px">
-  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#fbbf24">{{ setup_needed|length }}</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Need Setup</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:#3fb950;font-family:'JetBrains Mono',monospace">{{ stats['p0_skus_loaded'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Gap Items Loaded</div>
  </div>
- <div class="card" style="text-align:center;margin:0;padding:14px">
-  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#58a6ff" id="scored-count">—</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Scored</div>
- </div>
- <div class="card" style="text-align:center;margin:0;padding:14px">
-  <div style="font-size:26px;font-weight:800;font-family:'JetBrains Mono',monospace;color:#a78bfa" id="avg-score">—</div>
-  <div style="font-size:13px;color:var(--tx2);margin-top:4px">Avg Score</div>
+ <div class="card" style="text-align:center;padding:14px;margin:0">
+  <div style="font-size:28px;font-weight:800;color:#fbbf24;font-family:'JetBrains Mono',monospace" id="visible-count">{{ stats['total_skus'] }}</div>
+  <div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-top:4px">Showing</div>
  </div>
 </div>
 
-<!-- Setup guide cards -->
-<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:24px">
-  <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)') }}">
-    <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">GRAINGER REST API</div>
-    <div style="font-size:20px;font-weight:700;color:{{ ('var(--gn)' if vs.get('grainger_can_order') else 'var(--yl)') }}">
-      {{ '✅ Active' if vs.get('grainger_can_order') else '⚙ Setup Needed' }}
-    </div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:6px">Free public API · industrial + medical</div>
-    {{ '<div style="font-size:14px;color:var(--yl);margin-top:8px">→ Set GRAINGER_CLIENT_ID/SECRET/ACCOUNT_NUMBER in Railway</div>' if not vs.get('grainger_can_order') else '' }}
-  </div>
-  <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)') }}">
-    <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">AMAZON BUSINESS SP-API</div>
-    <div style="font-size:20px;font-weight:700;color:{{ ('var(--gn)' if vs.get('amazon_configured') else 'var(--yl)') }}">
-      {{ '✅ Active' if vs.get('amazon_configured') else '⚙ Setup Needed' }}
-    </div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:6px">Search via SerpApi ✅ · ordering via SP-API</div>
-    {{ '<div style="font-size:14px;color:var(--yl);margin-top:8px">→ Set AMZN_ACCESS_KEY/SECRET/REFRESH_TOKEN in Railway</div>' if not vs.get('amazon_configured') else '' }}
-  </div>
-  <div class="card" style="border-color:{{ ('var(--gn)' if vs.get('email_po_active') else 'var(--bd)') }}">
-    <div style="font-size:14px;color:var(--tx2);margin-bottom:8px">EMAIL PO VENDORS</div>
-    <div style="font-size:20px;font-weight:700;color:var(--gn)">
-      {{ vs.get('email_po_vendors',[])|length }} Active
-    </div>
-    <div style="font-size:14px;color:var(--tx2);margin-top:6px">Curbell · IMS · Echelon · TSI</div>
-    <div style="font-size:14px;color:var(--gn);margin-top:6px">POs sent automatically on quote won</div>
-  </div>
-</div>
-
-<!-- Preferred Vendors + Scorecard -->
-<div class="card" style="margin-bottom:20px">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">⭐ Preferred Vendors by Category</div>
-    <button class="btn" onclick="loadPreferred()" style="border-color:var(--ac);color:var(--ac)" aria-label="Refresh">Refresh</button>
-  </div>
-  <div id="preferred-vendors" style="color:var(--tx2);font-size:14px">Loading...</div>
-</div>
-
-<!-- Vendor table -->
-<div class="card" style="margin-bottom:20px">
-  <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
-    All Vendors ({{ vendors|length }})
-  </div>
-  <div style="overflow-x:auto">
-    <table>
-      <thead><tr>
-        <th>Vendor</th><th>Integration</th><th>Score</th><th>Categories</th>
-        <th>Email</th><th>Phone</th><th>Balance</th><th>Notes</th>
-      </tr></thead>
-      <tbody>{{ all_rows|safe }}</tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Recent vendor orders -->
-<div class="card">
-  <div style="font-size:14px;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:14px">
-    Vendor Order History
-  </div>
-  <table>
-    <thead><tr>
-      <th>Date</th><th>Vendor</th><th>PO Number</th><th>Quote</th><th>Total</th><th>Status</th>
-    </tr></thead>
-    <tbody>{{ orders_html|safe }}</tbody>
-  </table>
-</div>
-
-<div id="grainger-results" style="margin-top:16px"></div>
+{# SECURITY: backend must sanitize before passing #}
+<div id="catalog-content" class="card" style="overflow-x:auto">{{ cats_html | safe }}</div>
 
 <script>
-function scoreAllVendors(btn){
-  btn.disabled=true;btn.textContent='Scoring...';
-  fetch('/api/vendor/score-all',{method:'POST',credentials:'same-origin'})
-  .then(r=>r.json()).then(d=>{
-    btn.disabled=false;btn.textContent='📊 Score Vendors';
-    alert(d.ok?'Scored '+d.scored+' vendors — refresh to see scores':'Failed');
-    if(d.ok)location.reload();
-  }).catch(()=>{btn.disabled=false;btn.textContent='📊 Score Vendors';});
-}
-function showEnrichment(){
-  fetch('/api/vendor/enrichment').then(r=>r.json()).then(d=>{
-    alert('Vendor Enrichment Status:\n'+
-      'Total: '+d.total_vendors+'\n'+
-      'With email: '+d.with_email+' ('+d.email_pct+'%)\n'+
-      'With phone: '+d.with_phone+'\n'+
-      'With website: '+d.with_website+'\n'+
-      'Scored: '+d.with_score+' ('+d.scored_pct+'%)');
+function filterCatalog(q) {
+  q = q.toLowerCase();
+  var visible = 0;
+  document.querySelectorAll('#catalog-content tr[style*="border-bottom"], #catalog-content tr').forEach(function(row) {
+    var show = !q || row.textContent.toLowerCase().includes(q);
+    row.style.display = show ? '' : 'none';
+    if(show) visible++;
   });
+  var el = document.getElementById('visible-count');
+  if(el) el.textContent = visible;
 }
-function testGrainger(btn){
-  loadPreferred(); // auto-load on page init
-  var q=prompt("Search Grainger catalog (e.g. 'nitrile gloves medium 100 box'):");
-  if(!q)return;
-  btn.disabled=true;btn.textContent='Searching...';
-  fetch('/api/vendor/search?vendor=grainger&q='+encodeURIComponent(q),{credentials:'same-origin'})
-  .then(r=>r.json()).then(d=>{
-    btn.disabled=false;btn.textContent='🔍 Test Grainger Search';
-    var el=document.getElementById('grainger-results');
-    if(!d.results||!d.results.length){el.innerHTML='<p style="color:var(--yl)">No results (configure GRAINGER_CLIENT_ID/SECRET for full access)</p>';return;}
-    var rows=d.results.map(r=>'<tr><td style="padding:6px 10px">'+r.item_number+'</td><td style="padding:6px 10px">'+r.title.substring(0,60)+'</td><td style="padding:6px 10px;color:var(--gn)">$'+(r.price||0).toFixed(2)+'</td><td style="padding:6px 10px;color:var(--tx2)">'+r.availability+'</td></tr>').join('');
-    el.innerHTML='<div class="card"><div style="font-size:14px;font-weight:600;color:var(--tx2);margin-bottom:10px">Grainger Results: '+d.results.length+' found</div><table><thead><tr><th>Item#</th><th>Title</th><th>Price</th><th>Availability</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
-  }).catch(()=>{btn.disabled=false;btn.textContent='🔍 Test Grainger Search';alert('Search failed')});
-}
-function loadPreferred(){
-  fetch('/api/vendor/preferred',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
-    const el=document.getElementById('preferred-vendors');
-    if(!d.ok||!d.matrix||!Object.keys(d.matrix).length){
-      el.innerHTML='<div style="color:var(--tx2);padding:8px">No scored vendors yet — click "Score Vendors" first</div>';
-      return;
-    }
-    let html='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">';
-    for(const[cat,v]of Object.entries(d.matrix)){
-      const sc=v.score||0;
-      const clr=sc>=70?'var(--gn)':sc>=40?'var(--yl)':'var(--rd)';
-      html+='<div style="background:var(--sf2);border-radius:8px;padding:12px;border:1px solid var(--bd)">';
-      html+='<div style="font-size:13px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">'+cat+'</div>';
-      html+='<div style="font-weight:600;font-size:13px;color:'+clr+'">'+v.vendor+'</div>';
-      html+='<div style="display:flex;align-items:center;gap:5px;margin-top:6px"><div style="background:var(--bg);border-radius:3px;height:6px;flex:1;overflow:hidden"><div style="width:'+sc+'%;height:100%;background:'+clr+';border-radius:3px"></div></div><span style="font-size:13px;font-family:monospace">'+sc.toFixed(0)+'</span></div>';
-      html+='</div>';
-    }
-    html+='</div>';
-    el.innerHTML=html;
-  }).catch(()=>{document.getElementById('preferred-vendors').innerHTML='Failed to load';});
-}
-loadPreferred();
-// Vendor KPI enrichment
-fetch('/api/vendor/enrichment',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
- if(d.with_score!==undefined)document.getElementById('scored-count').textContent=d.with_score;
- if(d.total_vendors>0&&d.with_score>0){
-  document.getElementById('avg-score').textContent=d.avg_score?d.avg_score.toFixed(0):'\u2014';
- }
-}).catch(function(){});
 </script>
 
-{% endif %}
 {% endblock %}

@@ -2,7 +2,7 @@
 
 // ── Keyboard shortcuts ──
 (function(){
-  var shortcuts = {'n':'/pricechecks','q':'/quotes','o':'/orders','p':'/pipeline','g':'/growth','b':'/brief','c':'/contacts','i':'/intelligence','v':'/catalog?tab=vendors','d':'/debug','h':'/'};
+  var shortcuts = {'n':'/pricechecks','q':'/quotes','o':'/orders','p':'/pipeline','g':'/growth','b':'/brief','c':'/contacts','i':'/intelligence','v':'/vendors','d':'/debug','h':'/'};
   document.addEventListener('keydown', function(e) {
     var tag = (e.target.tagName||'').toLowerCase();
     if (tag==='input'||tag==='textarea'||tag==='select'||e.target.isContentEditable) return;

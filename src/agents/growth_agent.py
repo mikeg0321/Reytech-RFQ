@@ -28,11 +28,6 @@ except ImportError:
 
 log = logging.getLogger("growth")
 
-try:
-    from src.core.workflow_tracker import tracker as _wf_tracker
-except Exception:
-    _wf_tracker = None
-
 # ── Thread-safety locks ──
 _json_write_lock = threading.Lock()
 _status_lock = threading.Lock()
@@ -158,9 +153,6 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
             "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
         })
 
-    if _wf_tracker:
-        _wf_tracker.start("growth_pull", "growth_pull")
-
     try:
         session = _get_session()
         if not session.initialized and not session.init_session():
@@ -235,9 +227,6 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
                 "finished_at": datetime.now().isoformat(),
             })
 
-        if _wf_tracker:
-            _wf_tracker.finish("growth_pull", results_count=len(history))
-
         return {
             "ok": True, "total_pos": len(history),
             "total_items": PULL_STATUS["items_total"],
@@ -248,9 +237,6 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
     except Exception as e:
         with _status_lock:
             PULL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
-        if _wf_tracker:
-            _wf_tracker.error("growth_pull", str(e))
-            _wf_tracker.finish("growth_pull", status="failed")
         return {"ok": False, "error": str(e)}
 
 
@@ -306,9 +292,6 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 
     with _status_lock:
         BUYER_STATUS.update({"running": True, "phase": "searching", "progress": "Starting...", "prospects_found": 0, "errors": []})
-
-    if _wf_tracker:
-        _wf_tracker.start("growth_buyers", "growth_buyers")
 
     try:
         session = _get_session()
@@ -404,9 +387,6 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
         with _status_lock:
             BUYER_STATUS.update({"running": False, "phase": "complete", "prospects_found": len(prospect_list)})
 
-        if _wf_tracker:
-            _wf_tracker.finish("growth_buyers", results_count=len(prospect_list))
-
         return {
             "ok": True, "prospects_found": len(prospect_list),
             "categories_searched": len(cats),
@@ -416,9 +396,6 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
     except Exception as e:
         with _status_lock:
             BUYER_STATUS.update({"running": False, "phase": "error"})
-        if _wf_tracker:
-            _wf_tracker.error("growth_buyers", str(e))
-            _wf_tracker.finish("growth_buyers", status="failed")
         return {"ok": False, "error": str(e)}
 
 
@@ -492,9 +469,6 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
             "p1_buyers": 0, "p2_crosssell": 0, "p3_opportunities": 0,
             "errors": [],
         })
-
-    if _wf_tracker:
-        _wf_tracker.start("growth_intel", "growth_intel")
 
     try:
         session = _get_session()
@@ -809,10 +783,6 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
                 "finished_at": datetime.now().isoformat(),
             })
 
-        if _wf_tracker:
-            _wf_tracker.finish("growth_intel",
-                               results_count=len(p1_list) + len(p2_list) + len(p3_medical) + len(p3_commodity))
-
         return {
             "ok": True,
             "phase_1_buyers": len(p1_list),
@@ -825,9 +795,6 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         log.error("Buyer intelligence error: %s", e, exc_info=True)
         with _status_lock:
             INTEL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
-        if _wf_tracker:
-            _wf_tracker.error("growth_intel", str(e))
-            _wf_tracker.finish("growth_intel", status="failed")
         return {"ok": False, "error": str(e)}
 
 

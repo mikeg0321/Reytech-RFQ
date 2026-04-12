@@ -736,14 +736,6 @@ def api_voice_call_details(call_id):
 
 # ─── CRM / Contacts Route ────────────────────────────────────────────────────
 
-@bp.route("/crm")
-@auth_required
-@safe_page
-def crm_page():
-    """CRM hub — redirects to contacts page."""
-    return redirect("/contacts")
-
-
 @bp.route("/contacts")
 @auth_required
 @safe_page

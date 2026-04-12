@@ -524,7 +524,7 @@ def api_dashboard_actions():
             scored_pct = ve.get("scored_pct", 0)
             progress.append({
                 "icon": "🏭", "label": f"{ve['total_vendors']} vendors tracked ({scored_pct}% scored)",
-                "link": "/catalog?tab=vendors", "type": "vendor_intel"
+                "link": "/vendors", "type": "vendor_intel"
             })
     except Exception as _e:
         log.debug("Suppressed: %s", _e)

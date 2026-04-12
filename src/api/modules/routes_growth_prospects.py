@@ -292,17 +292,6 @@ def api_growth_pull_status():
     """Check progress of Reytech history pull."""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
-    # In-memory dict is primary (fast, current session)
-    if PULL_STATUS.get("running"):
-        return jsonify({"ok": True, **PULL_STATUS})
-    # Fall back to DB for durability across restarts
-    try:
-        from src.core.workflow_tracker import tracker
-        db_status = tracker.get_status("growth_pull")
-        if db_status:
-            return jsonify({"ok": True, **db_status})
-    except Exception:
-        pass
     return jsonify({"ok": True, **PULL_STATUS})
 
 
@@ -367,19 +356,7 @@ def api_growth_intel_status():
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     from src.agents.growth_agent import get_intel_status
-    status = get_intel_status()
-    # In-memory dict is primary (fast, current session)
-    if status.get("running"):
-        return jsonify({"ok": True, **status})
-    # Fall back to DB for durability across restarts
-    try:
-        from src.core.workflow_tracker import tracker
-        db_status = tracker.get_status("growth_intel")
-        if db_status:
-            return jsonify({"ok": True, **db_status})
-    except Exception:
-        pass
-    return jsonify({"ok": True, **status})
+    return jsonify({"ok": True, **get_intel_status()})
 
 
 @bp.route("/api/growth/intel-results")
@@ -400,17 +377,6 @@ def api_growth_buyer_status():
     """Check progress of buyer search."""
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
-    # In-memory dict is primary (fast, current session)
-    if BUYER_STATUS.get("running"):
-        return jsonify({"ok": True, **BUYER_STATUS})
-    # Fall back to DB for durability across restarts
-    try:
-        from src.core.workflow_tracker import tracker
-        db_status = tracker.get_status("growth_buyers")
-        if db_status:
-            return jsonify({"ok": True, **db_status})
-    except Exception:
-        pass
     return jsonify({"ok": True, **BUYER_STATUS})
 
 

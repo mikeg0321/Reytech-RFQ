@@ -157,7 +157,7 @@ def run_api():
         r = get("/api/funnel/stats")
         assert r.status_code == 200
         d = r.json()
-        assert "rfqs_active" in d or "quotes_sent" in d or "ok" in d, f"missing keys: {list(d.keys())}"
+        assert "rfqs_total" in d or "quotes_total" in d or "pending" in d, f"missing keys: {list(d.keys())}"
         return f"keys: {list(d.keys())[:5]}"
     check("GET /api/funnel/stats", "api", funnel_api)
 

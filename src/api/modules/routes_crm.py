@@ -760,18 +760,6 @@ def api_research_status():
     """Check progress of RFQ product research."""
     if not PRODUCT_RESEARCH_AVAILABLE:
         return jsonify({"error": "product_research.py not available"}), 503
-    # In-memory dict is primary (fast, current session)
-    if RESEARCH_STATUS.get("running"):
-        return jsonify(RESEARCH_STATUS)
-    # Fall back to DB for durability across restarts
-    try:
-        from src.core.workflow_tracker import tracker
-        # Find any recent product_research task
-        active = tracker.get_active(task_type="product_research")
-        if active:
-            return jsonify(active[0])
-    except Exception:
-        pass
     return jsonify(RESEARCH_STATUS)
 
 
@@ -2451,19 +2439,9 @@ def page_catalog_legacy():
   </table>
 </div>"""
 
-    # Build content HTML for the unified catalog template
-    content = f"""
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px">
-  <div>
-    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px">📦 Product Catalog (Legacy)</h2>
-    <div style="font-size:14px;color:var(--tx2)">{stats['total_skus']} SKUs across {stats['categories']} categories</div>
-  </div>
-</div>
-<div class="card" style="overflow-x:auto">{cats_html}</div>
-"""
     html = render_page("catalog.html", active_page="Catalog",
-        tab="products",
-        content=content)
+        cats_html=cats_html,
+        stats=stats)
     return html
 
 
@@ -3382,7 +3360,7 @@ def api_vendor_registration_update():
             from src.agents.notify_agent import send_alert
             vendor_name = next((v["vendor"] for v in VENDOR_REGISTRATION_LIST if v["key"]==vendor_key), vendor_key)
             send_alert("bell", f"Vendor account activated: {vendor_name}", {
-                "type":"vendor_activated","vendor_key":vendor_key,"vendor":vendor_name,"link":"/catalog?tab=vendors"
+                "type":"vendor_activated","vendor_key":vendor_key,"vendor":vendor_name,"link":"/vendors"
             })
         except Exception: pass
     active_count = sum(1 for v in reg.values() if v.get("status")=="active")

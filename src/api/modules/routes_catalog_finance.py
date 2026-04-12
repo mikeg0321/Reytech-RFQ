@@ -6,14 +6,14 @@
 # ═══════════════════════════════════════════════════════════════════════
 
 # ── Explicit imports (S11 refactor: no longer relying solely on injection) ──
-from flask import request, jsonify, redirect, flash
-from markupsafe import escape as esc
+from flask import request, jsonify
 from src.api.shared import bp, auth_required
 import logging
 import os
 import re
 from src.core.security import rate_limit
 log = logging.getLogger("reytech")
+from flask import redirect, flash
 from src.core.paths import DATA_DIR
 from src.api.render import render_page
 
@@ -44,84 +44,8 @@ except ImportError:
 @safe_page
 def catalog_page():
     """Product catalog with search, pricing intelligence, margin analysis."""
-    tab = request.args.get("tab", "products")
-
-    # ── Vendors tab ──────────────────────────────────────────────────────
-    if tab == "vendors":
-        from src.agents.vendor_ordering_agent import get_enriched_vendor_list, get_agent_status as _voas, get_vendor_orders
-        vendors = get_enriched_vendor_list()
-        vs = _voas()
-        recent_orders = get_vendor_orders(limit=20)
-
-        active = [v for v in vendors if v.get("can_order")]
-        email_po = [v for v in vendors if v.get("integration_status") == "email_po"]
-        setup_needed = [v for v in vendors if v.get("integration_status") == "setup_needed"]
-
-        STATUS_BADGE = {
-            "active": ("<span style='color:var(--gn);font-size:14px;font-weight:600'>● ACTIVE</span>", "var(--gn)"),
-            "email_po": ("<span style='color:var(--ac);font-size:14px;font-weight:600'>✉ EMAIL PO</span>", "var(--ac)"),
-            "setup_needed": ("<span style='color:var(--yl);font-size:14px;font-weight:600'>⚙ SETUP</span>", "var(--yl)"),
-            "ready": ("<span style='color:var(--or);font-size:14px;font-weight:600'>◑ PARTIAL</span>", "var(--or)"),
-            "manual_only": ("<span style='color:var(--tx2);font-size:14px'>— MANUAL</span>", "var(--tx2)"),
-        }
-
-        def vendor_row(v):
-            name = esc(v.get("name",""))
-            status = v.get("integration_status","manual_only")
-            badge_html, color = STATUS_BADGE.get(status, STATUS_BADGE["manual_only"])
-            email = esc(v.get("email","") or v.get("contact_email",""))
-            phone = esc(v.get("phone",""))
-            balance = v.get("open_balance","")
-            cats = esc(", ".join(v.get("categories",[])[:3]) or "—")
-            note = esc(v.get("note","") or v.get("action",""))
-            oscore = v.get("overall_score", 0) or 0
-            score_color = "var(--gn)" if oscore >= 70 else "var(--yl)" if oscore >= 40 else "var(--rd)" if oscore > 0 else "var(--tx2)"
-            score_html = f'<div style="display:flex;align-items:center;gap:5px"><div style="background:var(--sf2);border-radius:3px;height:6px;width:40px;overflow:hidden"><div style="width:{oscore}%;height:100%;background:{score_color};border-radius:3px"></div></div><span style="font-size:14px;font-family:monospace">{oscore:.0f}</span></div>' if oscore > 0 else '<span style="font-size:13px;color:var(--tx2)">—</span>'
-            return f"""<tr style="border-bottom:1px solid var(--bd)">
-  <td style="padding:10px 12px;font-weight:500;color:{color}">{name}</td>
-  <td style="padding:10px 12px;font-size:14px">{badge_html}</td>
-  <td style="padding:10px 12px;font-size:14px">{score_html}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--tx2)">{cats}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--ac)">{email}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--tx2)">{phone}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--yl)">{f"${float(balance):,.2f}" if balance else ""}</td>
-  <td style="padding:10px 12px;font-size:14px;color:var(--tx2);max-width:200px">{note[:80] if note else ""}</td>
-</tr>"""
-
-        priority_vendors = [v for v in vendors if v.get("integration_status") in ("active","email_po","setup_needed","ready")]
-        other_vendors = [v for v in vendors if v.get("integration_status") == "manual_only"]
-        all_rows = "".join(vendor_row(v) for v in priority_vendors + other_vendors)
-
-        orders_html = ""
-        if recent_orders:
-            for o in recent_orders[:10]:
-                ts = (o.get("submitted_at","")[:16] or "").replace("T"," ")
-                status_color = {"submitted":"var(--ac)","confirmed":"var(--gn)","shipped":"var(--yl)","failed":"var(--rd)"}.get(o.get("status",""),("var(--tx2)"))
-                orders_html += f"""<tr>
-  <td style="padding:8px 12px;font-size:14px">{ts}</td>
-  <td style="padding:8px 12px;font-size:14px;font-weight:500">{esc(o.get("vendor_name",""))}</td>
-  <td style="padding:8px 12px;font-size:14px;font-family:'JetBrains Mono',monospace">{esc(o.get("po_number",""))}</td>
-  <td style="padding:8px 12px;font-size:14px">{esc(o.get("quote_number",""))}</td>
-  <td style="padding:8px 12px;font-size:14px">${o.get("total",0):,.2f}</td>
-  <td style="padding:8px 12px;font-size:14px;color:{status_color}">{o.get("status","").upper()}</td>
-</tr>"""
-        else:
-            orders_html = '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--tx2)">No vendor orders yet — orders appear here when quotes are won</td></tr>'
-
-        return render_page("catalog.html", active_page="Catalog",
-            tab="vendors",
-            all_rows=all_rows,
-            orders_html=orders_html,
-            vs=vs,
-            vendors=vendors,
-            active=active,
-            setup_needed=setup_needed,
-            api_ready_count=len(active)+len(email_po))
-
-    # ── Products tab (default) ───────────────────────────────────────────
     if not CATALOG_AVAILABLE:
-        return render_page("catalog.html", active_page="Catalog", tab="products",
-            content="<div class='card'><p>Product catalog module not available.</p></div>")
+        return _wrap_page("<div class='card'><p>Product catalog module not available.</p></div>", "Catalog")
 
     init_catalog_db()
     stats = get_catalog_stats()
@@ -456,7 +380,7 @@ def catalog_page():
     }}
     </script>
     """
-    return render_page("catalog.html", active_page="Catalog", tab="products", content=content)
+    return _wrap_page(content, "Product Catalog")
 
 
 @bp.route("/catalog/<int:pid>")
