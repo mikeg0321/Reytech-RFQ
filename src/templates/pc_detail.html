@@ -573,6 +573,29 @@
       <button id="quoteAnalysisBtn" onclick="runQuoteAnalysis()" style="background:rgba(88,166,255,.12);border:1px solid rgba(88,166,255,.3);color:#58a6ff;font-size:12px;padding:4px 12px;border-radius:5px;cursor:pointer;font-weight:600;white-space:nowrap" title="Run Oracle analysis on full quote">📊 Quote Analysis</button>
      </div>
      <div id="quote-analysis-panel" style="display:none;margin-bottom:12px"></div>
+     {% set _tc = tier_counts | default({'READY':0,'REVIEW':0,'MANUAL':0,'SKIP':0}) %}
+     {% if (_tc.READY + _tc.REVIEW + _tc.MANUAL) > 0 %}
+     <div id="review-tier-summary" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;font-size:13px;flex-wrap:wrap" role="status" aria-live="polite">
+      <span style="color:#8b949e;font-size:12px;text-transform:uppercase;letter-spacing:.5px;font-weight:600">Review Status</span>
+      <span class="tier-chip tier-ready" data-tier="READY" title="Confidence ≥ 75% — safe to quote" style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:12px;background:rgba(63,185,80,.12);border:1px solid rgba(63,185,80,.35);color:#3fb950;font-weight:700">
+       <b>{{ _tc.READY }}</b> READY
+      </span>
+      <span class="tier-chip tier-review" data-tier="REVIEW" title="Confidence 50–75% — needs a second look" style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:12px;background:rgba(210,153,34,.12);border:1px solid rgba(210,153,34,.35);color:#d29922;font-weight:700{% if _tc.REVIEW == 0 %};opacity:0.5{% endif %}">
+       <b>{{ _tc.REVIEW }}</b> REVIEW
+      </span>
+      <span class="tier-chip tier-manual" data-tier="MANUAL" title="No match found or confidence < 50% — manual lookup required" style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:12px;background:rgba(248,81,73,.12);border:1px solid rgba(248,81,73,.35);color:#f85149;font-weight:700{% if _tc.MANUAL == 0 %};opacity:0.5{% endif %}">
+       <b>{{ _tc.MANUAL }}</b> MANUAL
+      </span>
+      {% if _tc.SKIP %}
+      <span class="tier-chip tier-skip" data-tier="SKIP" title="Items marked as no-bid" style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:12px;background:rgba(139,148,158,.12);border:1px solid rgba(139,148,158,.35);color:#8b949e;font-weight:700">
+       <b>{{ _tc.SKIP }}</b> SKIP
+      </span>
+      {% endif %}
+      {% if _tc.REVIEW or _tc.MANUAL %}
+      <button type="button" onclick="jumpToNextReview()" style="margin-left:auto;background:rgba(210,153,34,.15);border:1px solid rgba(210,153,34,.35);color:#d29922;border-radius:6px;padding:4px 12px;font-size:12px;font-weight:600;cursor:pointer" aria-label="Jump to next item that needs review" title="Scroll to the next REVIEW or MANUAL row">↓ Next item to review</button>
+      {% endif %}
+     </div>
+     {% endif %}
      <div class="pc-table-wrap" style="overflow-x:auto">
      <table id="itemsTable">
       <thead><tr><th style="width:52px">#</th><th style="width:100px">MFG#</th><th style="width:58px">Qty</th><th style="width:48px">UOM</th><th style="width:240px">Description</th><th style="width:200px">Item Link</th><th style="width:220px">Sources</th><th style="width:100px">Unit Cost</th><th style="width:72px">Markup</th><th style="width:100px">Our Price</th><th style="width:80px">Extension</th><th style="width:75px">Profit</th></tr></thead>
@@ -764,6 +787,32 @@
     window._pcLog=[];
     function _log(msg){window._pcLog.push({t:Date.now(),m:msg});try{console.log('[PC]',msg)}catch(e){}}
     _log('script-start');
+
+    // ── Review tier jump action (Phase 3 UX) ──
+    // Scrolls to the next row classified REVIEW or MANUAL, looping from the
+    // currently focused row. Skips rows with no tier pill (SKIP / no-bid).
+    window.jumpToNextReview = function() {
+     var rows = Array.prototype.slice.call(document.querySelectorAll('#itemsTable tr[data-row]'));
+     if (!rows.length) return;
+     var needReview = rows.filter(function(r){
+      var pill = r.querySelector('.row-tier');
+      if (!pill) return false;
+      var t = pill.getAttribute('data-tier');
+      return t === 'REVIEW' || t === 'MANUAL';
+     });
+     if (!needReview.length) return;
+     var active = document.activeElement ? document.activeElement.closest('tr[data-row]') : null;
+     var startIdx = active ? rows.indexOf(active) : -1;
+     var target = null;
+     for (var i = 0; i < needReview.length; i++) {
+      if (rows.indexOf(needReview[i]) > startIdx) { target = needReview[i]; break; }
+     }
+     if (!target) target = needReview[0];
+     var prevY = window.scrollY;
+     target.scrollIntoView({behavior:'smooth', block:'center'});
+     var firstInput = target.querySelector('input, textarea');
+     if (firstInput) { try { firstInput.focus({preventScroll:true}); } catch(e) {} }
+    };
 
     let cachedTaxRate = {{ tax_rate|default(0.0725)|tojson }};
 

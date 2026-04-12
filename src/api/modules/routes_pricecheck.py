@@ -394,6 +394,10 @@ def _pricecheck_detail_inner(pcid):
     header = _copy.deepcopy((pc.get("parsed") or {}).get("header") or {})
 
     items_html = ""
+    # Review UX: classify each item into a tier so the user knows at a glance
+    # what's safe to quote vs what needs a second look. Counts feed the
+    # summary banner above the table.
+    tier_counts = {"READY": 0, "REVIEW": 0, "MANUAL": 0, "SKIP": 0}
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
             item = {"description": str(item), "qty": 1, "pricing": {}}
@@ -781,6 +785,47 @@ def _pricecheck_detail_inner(pcid):
         bid_checked = "" if no_bid else "checked"
         row_opacity = "opacity:0.4" if no_bid else ""
 
+        # ── Review tier classification (Phase 3 UX) ──
+        # READY   = has cost AND best source confidence >= 0.75 — safe to quote
+        # REVIEW  = has cost but best confidence 0.50-0.75 — needs a second look
+        # MANUAL  = no cost OR confidence < 0.50 — human must lookup
+        # SKIP    = user marked no-bid — excluded from counts/coverage
+        if no_bid:
+            _tier = "SKIP"
+        elif not unit_cost or unit_cost <= 0:
+            _tier = "MANUAL"
+        else:
+            _best_src_conf = max((s[5] for s in sources), default=0) if sources else 0
+            if _best_src_conf >= 0.75:
+                _tier = "READY"
+            elif _best_src_conf >= 0.50:
+                _tier = "REVIEW"
+            else:
+                _tier = "MANUAL"
+        tier_counts[_tier] = tier_counts.get(_tier, 0) + 1
+
+        # Tier pill shown next to the line# — text first (colorblind safe),
+        # colour is secondary. Hidden for SKIP to avoid visual noise on
+        # skipped rows (they already get a Skip badge).
+        _tier_meta = {
+            "READY":  ("#3fb950", "READY"),
+            "REVIEW": ("#d29922", "REVIEW"),
+            "MANUAL": ("#f85149", "MANUAL"),
+        }
+        if _tier in _tier_meta:
+            _tc, _tlabel = _tier_meta[_tier]
+            _tier_pill = (
+                f'<div class="row-tier row-tier-{_tier.lower()}" '
+                f'data-tier="{_tier}" '
+                f'style="display:inline-block;margin-top:3px;padding:1px 5px;'
+                f'border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.3px;'
+                f'background:{_tc}22;color:{_tc};border:1px solid {_tc}55;'
+                f'font-family:\'JetBrains Mono\',monospace" '
+                f'title="Review tier: {_tlabel}">{_tlabel}</div>'
+            )
+        else:
+            _tier_pill = ""
+
         # Substitute item state
         is_sub = item.get("is_substitute", False)
         sub_checked = "checked" if is_sub else ""
@@ -844,7 +889,7 @@ def _pricecheck_detail_inner(pcid):
 
         _disc_attr = f' data-discount-cost="{discount_cost:.2f}"' if discount_cost > 0 else ''
         items_html += f"""<tr style="{row_opacity}" data-row="{idx}"{_disc_attr}>
-         <td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_{idx}" {bid_checked} style="display:none"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="display:none"><input type="text" name="linenum_{idx}" value="{line_num}" class="lockable-field" style="width:32px;text-align:center;font-weight:700;font-size:15px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px" title="Line # (unlock to edit)"><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn{' skip-active' if no_bid else ''}" onclick="toggleSkip({idx});this.closest('details').open=false">{'&#10003; Skipped' if no_bid else '&#10060; Skip Item'}</button><button type="button" class="sub-toggle-btn{' active-item' if sub_checked else ''}" onclick="toggleSubstitute({idx});this.closest('details').open=false">{'&#10003; Substitute' if sub_checked else '&#8644; Substitute'}</button><button type="button" onclick="toggleRowNotes({idx});this.closest('details').open=false">&#128221; Notes</button>{'<button type=&quot;button&quot; onclick=&quot;mergeUp('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#11014; Merge Up</button>' if idx > 0 else ''}<button type=&quot;button&quot; onclick=&quot;findBetterPricing('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#128269; Find Better Pricing</button></div></details>{'<div class=&quot;row-badge row-badge-skip&quot;>Skip</div>' if no_bid else ''}{'<div class=&quot;row-badge row-badge-sub&quot;>Sub</div>' if sub_checked else ''}</td>
+         <td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_{idx}" {bid_checked} style="display:none"><input type="checkbox" name="substitute_{idx}" {sub_checked} style="display:none"><input type="text" name="linenum_{idx}" value="{line_num}" class="lockable-field" style="width:32px;text-align:center;font-weight:700;font-size:15px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px" title="Line # (unlock to edit)"><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn{' skip-active' if no_bid else ''}" onclick="toggleSkip({idx});this.closest('details').open=false">{'&#10003; Skipped' if no_bid else '&#10060; Skip Item'}</button><button type="button" class="sub-toggle-btn{' active-item' if sub_checked else ''}" onclick="toggleSubstitute({idx});this.closest('details').open=false">{'&#10003; Substitute' if sub_checked else '&#8644; Substitute'}</button><button type="button" onclick="toggleRowNotes({idx});this.closest('details').open=false">&#128221; Notes</button>{'<button type=&quot;button&quot; onclick=&quot;mergeUp('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#11014; Merge Up</button>' if idx > 0 else ''}<button type=&quot;button&quot; onclick=&quot;findBetterPricing('+str(idx)+');this.closest(&#39;details&#39;).open=false&quot;>&#128269; Find Better Pricing</button></div></details>{'<div class=&quot;row-badge row-badge-skip&quot;>Skip</div>' if no_bid else ''}{'<div class=&quot;row-badge row-badge-sub&quot;>Sub</div>' if sub_checked else ''}{_tier_pill}</td>
          <td><input type="text" name="itemnum_{idx}" value="{mfg_display}" class="text-in lockable-field" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:13px;font-family:'JetBrains Mono',monospace;padding:5px 3px" placeholder="MFG#" onblur="handleMfgInput({idx}, this)"></td>
          <td><input type="number" name="qty_{idx}" value="{qty}" class="num-in sm" style="width:48px" onchange="recalcPC()"><input type="hidden" name="qpu_{idx}" value="{qpu}">{'<input type="hidden" name="saleprice_'+str(idx)+'" value="'+str(_sale_price)+'">' if _sale_price > 0 else ''}{'<input type="hidden" name="listprice_'+str(idx)+'" value="'+str(_list_price_val)+'">' if _list_price_val > 0 else ''}{'<input type="hidden" name="photo_url_'+str(idx)+'" value="'+str(item.get("photo_url",""))+'">' if item.get("photo_url") else ''}{_qpu_badge}</td>
          <td><input type="text" name="uom_{idx}" value="{(item.get('uom') or 'EA').upper()}" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>
@@ -1232,6 +1277,7 @@ def _pricecheck_detail_inner(pcid):
 
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
+        tier_counts=tier_counts,
         download_html=download_html, expiry_date=expiry_date,
         header=header, custom_val=custom_val, custom_display=custom_display,
         del_sel=del_sel, next_quote_preview=next_quote_preview,
