@@ -5991,3 +5991,226 @@ def api_admin_resolve_pc_rfq_dupes():
         "dismissed": dismissed,
         "total_matches": len(matches),
     })
+
+
+@bp.route("/api/admin/email-rescue", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_email_rescue():
+    """Rescue a specific email that the poller silently dropped.
+
+    POST body or query params:
+      inbox  — "mike" or "sales" (default: mike)
+      query  — Gmail search query, e.g. "subject:10841813" or
+               "from:kevin.jensen@cdcr.ca.gov"
+      limit  — max messages to inspect (default 20, hard cap 100)
+      dry_run=1 — don't process, just return the matches
+
+    For each matching message the endpoint:
+      1. Clears any stale dedup fingerprint blocking it
+      2. Removes the UID from processed_emails_<inbox>.json + the
+         processed_emails SQLite table
+      3. Calls the poller's per-message processing path so the email
+         re-runs the classifier and (if accepted) reaches process_rfq_email
+      4. Returns subject/sender/result for each message
+
+    Built 2026-04-12 after Kevin Jensen's CDCR RFQ from Apr 10 was
+    silently dropped by the cross-inbox dedup gate. Stops the
+    "wait for the next poll cycle" workaround that didn't actually
+    work because the same fingerprint kept blocking the email.
+    """
+    data = request.get_json(force=True, silent=True) or {}
+
+    def _arg(key, default=""):
+        return (data.get(key) if data.get(key) is not None
+                else request.args.get(key, default))
+
+    inbox_name = (_arg("inbox", "mike") or "mike").strip().lower()
+    if inbox_name not in ("mike", "sales"):
+        return jsonify({"ok": False, "error": "inbox must be 'mike' or 'sales'"}), 400
+    query = (_arg("query", "") or "").strip()
+    if not query:
+        return jsonify({
+            "ok": False,
+            "error": "query is required (e.g. query=subject:10841813 or query=from:kevin.jensen@cdcr.ca.gov)"
+        }), 400
+    try:
+        limit = int(_arg("limit", "20"))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(limit, 100))
+    dry_run = str(_arg("dry_run", "0")).lower() in ("1", "true", "yes")
+
+    # ── Connect to the right inbox ──
+    try:
+        from src.core.gmail_api import (
+            get_service, list_message_ids, get_raw_message, get_message_metadata
+        )
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"gmail_api unavailable: {e}"}), 500
+
+    try:
+        service = get_service(inbox_name)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Gmail API connect failed: {e}"}), 502
+
+    try:
+        msg_ids = list_message_ids(service, query=query, max_results=limit)
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Gmail search failed: {e}"}), 502
+
+    if not msg_ids:
+        return jsonify({
+            "ok": True,
+            "inbox": inbox_name,
+            "query": query,
+            "matches": 0,
+            "results": [],
+        })
+
+    # ── Build a preview list (always returned) ──
+    previews = []
+    for mid in msg_ids:
+        try:
+            meta = get_message_metadata(service, mid)
+            previews.append({
+                "id": mid,
+                "subject": (meta.get("subject") or "")[:120],
+                "from": (meta.get("from") or "")[:120],
+                "date": (meta.get("date") or "")[:40],
+            })
+        except Exception as e:
+            previews.append({"id": mid, "error": str(e)[:120]})
+
+    if dry_run:
+        return jsonify({
+            "ok": True,
+            "inbox": inbox_name,
+            "query": query,
+            "dry_run": True,
+            "matches": len(previews),
+            "messages": previews,
+        })
+
+    # ── Clear blockers for each matching message and trigger a poll ──
+    # Strategy: don't try to replicate check_for_rfqs's internal email-dict
+    # building (it's tightly coupled to the poller class). Instead, clear
+    # every cache that would prevent the email from being re-considered:
+    #   - in-memory poller._processed set
+    #   - JSON processed_emails_<inbox>.json file
+    #   - SQLite processed_emails table (rows where inbox matches)
+    #   - email_fingerprints rows for this message's fingerprint
+    # Then trigger a manual poll — the poller will re-encounter the message
+    # and run it through the full classifier + processing pipeline as if
+    # it were brand new.
+    try:
+        from src.api.dashboard import _shared_poller
+    except Exception:
+        _shared_poller = None
+
+    proc_file = os.path.join(
+        DATA_DIR,
+        "processed_emails.json" if inbox_name == "sales" else "processed_emails_mike.json",
+    )
+
+    cleared = {"json": 0, "sqlite": 0, "fingerprint": 0, "in_memory": 0}
+    for preview in previews:
+        mid = preview.get("id")
+        if not mid:
+            continue
+        # 1. Remove from in-memory _processed if the running poller is for
+        # this inbox. Different inbox? Skip — it's a different set.
+        try:
+            if _shared_poller and getattr(_shared_poller, "_inbox_name", "") == inbox_name:
+                if mid in _shared_poller._processed:
+                    _shared_poller._processed.discard(mid)
+                    cleared["in_memory"] += 1
+        except Exception:
+            pass
+        # 2. Remove from JSON processed file
+        try:
+            if os.path.exists(proc_file):
+                with open(proc_file) as f:
+                    uids = json.load(f)
+                if isinstance(uids, list) and mid in uids:
+                    uids.remove(mid)
+                    with open(proc_file, "w") as f:
+                        json.dump(uids, f)
+                    cleared["json"] += 1
+        except Exception as e:
+            log.debug("rescue clear json (%s): %s", mid, e)
+        # 3. Remove from SQLite processed_emails for the right inbox
+        try:
+            with get_db() as conn:
+                cur = conn.execute(
+                    "DELETE FROM processed_emails WHERE uid=? AND inbox=?",
+                    (mid, inbox_name),
+                )
+                if cur.rowcount:
+                    cleared["sqlite"] += cur.rowcount
+                conn.commit()
+        except Exception as e:
+            log.debug("rescue clear sqlite (%s): %s", mid, e)
+        # 4. Clear stale fingerprint (the silent-skip blocker)
+        try:
+            from src.api.modules.routes_catalog_finance import _email_fingerprint
+            fp = _email_fingerprint(
+                preview.get("subject", ""),
+                preview.get("from", ""),
+                preview.get("date", ""),
+            )
+            with get_db() as conn:
+                cur = conn.execute(
+                    "DELETE FROM email_fingerprints WHERE fingerprint=?", (fp,)
+                )
+                if cur.rowcount:
+                    cleared["fingerprint"] += cur.rowcount
+                conn.commit()
+        except Exception as e:
+            log.debug("rescue clear fingerprint: %s", e)
+
+    # ── Trigger a fresh poll now so the cleared messages get reprocessed ──
+    poll_result = {"triggered": False}
+    try:
+        from src.api.dashboard import do_poll_check
+        imported = do_poll_check()
+        poll_result = {
+            "triggered": True,
+            "imported_count": len(imported) if imported else 0,
+        }
+    except Exception as e:
+        poll_result = {"triggered": False, "error": str(e)[:200]}
+        log.warning("rescue: poll trigger failed: %s", e)
+
+    return jsonify({
+        "ok": True,
+        "inbox": inbox_name,
+        "query": query,
+        "matches": len(previews),
+        "messages": previews,
+        "cleared": cleared,
+        "poll_result": poll_result,
+        "next_step": (
+            "Check the homepage or run /api/diag/find-rfq?q=<sol_or_subject> "
+            "to confirm the rescued email produced a record. If not, the "
+            "classifier rejected it — check Railway logs for "
+            "'is_rfq_email' decisions on these subjects."
+        ),
+    })
+
+
+@bp.route("/api/admin/clear-tentative-fingerprints", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_clear_tentative_fingerprints():
+    """Delete every email_fingerprints row that has no result_type — these
+    are leftovers from the buggy pre-2026-04-12 code path where every
+    first-pass scan locked in a fingerprint regardless of downstream
+    success. Safe to run anytime; one-shot fix for the silent-skip bug.
+    """
+    try:
+        from src.api.modules.routes_catalog_finance import clear_tentative_fingerprints
+        removed = clear_tentative_fingerprints()
+        return jsonify({"ok": True, "removed": removed})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500

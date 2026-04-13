@@ -1895,7 +1895,11 @@ def process_rfq_email(rfq_email):
     _trace.append(f"START: {_subj}")
     t = Trace("email_pipeline", subject=_subj, email_uid=rfq_email.get("email_uid", "?"))
     
-    # Dedup: check if this email UID is already in the queue
+    # Dedup: check if this email UID is already in the queue. Pre-2026-04-12
+    # this only checked the RFQs table — meaning the same email could create
+    # an RFQ on one poll and a PC on another (or duplicate PCs across polls).
+    # The Valencia "Group Tx Materials" email had this happen: it produced
+    # 12 PCs across re-poll cycles. Now we check both queues.
     rfqs = load_rfqs()
     _incoming_uid = rfq_email.get("email_uid", "")
     if _incoming_uid:  # Only dedup if we have a real UID
@@ -1907,6 +1911,32 @@ def process_rfq_email(rfq_email):
                 POLL_STATUS.setdefault("_email_traces", []).append(_trace)
                 t.ok("Skipped: duplicate email_uid in RFQ queue", existing_id=_eid)
                 return None
+        # Also check the PC queue — a previous poll cycle may have routed
+        # this email to a PC instead of an RFQ.
+        try:
+            _existing_pcs = _load_price_checks()
+            for _pcid, _existing_pc in _existing_pcs.items():
+                if not isinstance(_existing_pc, dict):
+                    continue
+                if _existing_pc.get("email_uid") == _incoming_uid:
+                    if _existing_pc.get("status") in (
+                        "dismissed", "deleted", "duplicate", "archived"
+                    ):
+                        continue
+                    _trace.append(
+                        f"SKIP: duplicate email_uid {_incoming_uid} "
+                        f"matches existing PC {_pcid}"
+                    )
+                    log.info(
+                        "Skipping duplicate email UID %s: matches PC %s",
+                        _incoming_uid, _pcid,
+                    )
+                    POLL_STATUS.setdefault("_email_traces", []).append(_trace)
+                    t.ok("Skipped: duplicate email_uid in PC queue",
+                         existing_id=_pcid)
+                    return None
+        except Exception as _pcdedup_err:
+            log.debug("PC dedup pass: %s", _pcdedup_err)
 
     # Dedup layer 2: check solicitation number + sender
     _incoming_sender = (rfq_email.get("sender", "") or "").lower()
@@ -3327,8 +3357,36 @@ def do_poll_check():
                     rfq_data = process_rfq_email(rfq_email)
                     if rfq_data:
                         imported.append(rfq_data)
+                        # Lock in the cross-inbox dedup fingerprint NOW that
+                        # processing succeeded. Without this, the fingerprint
+                        # stays soft and we'd reprocess every cycle.
+                        try:
+                            from src.api.modules.routes_catalog_finance import record_email_fingerprint
+                            record_email_fingerprint(
+                                rfq_email.get("subject", ""),
+                                rfq_email.get("sender", ""),
+                                rfq_email.get("date", ""),
+                                inbox="sales",
+                                result_type="rfq",
+                                result_id=rfq_data.get("id", "") if isinstance(rfq_data, dict) else "",
+                                message_id=rfq_email.get("message_id", ""),
+                            )
+                        except Exception as _fpe:
+                            log.debug("fingerprint record (sales): %s", _fpe)
                     else:
                         POLL_STATUS["_diag"]["pcs_routed"] += 1
+                        try:
+                            from src.api.modules.routes_catalog_finance import record_email_fingerprint
+                            record_email_fingerprint(
+                                rfq_email.get("subject", ""),
+                                rfq_email.get("sender", ""),
+                                rfq_email.get("date", ""),
+                                inbox="sales",
+                                result_type="pc",
+                                message_id=rfq_email.get("message_id", ""),
+                            )
+                        except Exception as _fpe:
+                            log.debug("fingerprint record (sales pc): %s", _fpe)
                 except Exception as pe:
                     _subj_err = rfq_email.get('subject','?')[:40] if isinstance(rfq_email, dict) else str(rfq_email)[:40]
                     POLL_STATUS["_diag"]["errors"].append(f"process_rfq({_subj_err}): {pe}")
@@ -3415,6 +3473,32 @@ def do_poll_check():
                         rfq_data = process_rfq_email(rfq_email)
                         if rfq_data:
                             imported.append(rfq_data)
+                            try:
+                                from src.api.modules.routes_catalog_finance import record_email_fingerprint
+                                record_email_fingerprint(
+                                    rfq_email.get("subject", ""),
+                                    rfq_email.get("sender", ""),
+                                    rfq_email.get("date", ""),
+                                    inbox="mike",
+                                    result_type="rfq",
+                                    result_id=rfq_data.get("id", "") if isinstance(rfq_data, dict) else "",
+                                    message_id=rfq_email.get("message_id", ""),
+                                )
+                            except Exception as _fpe:
+                                log.debug("fingerprint record (mike): %s", _fpe)
+                        else:
+                            try:
+                                from src.api.modules.routes_catalog_finance import record_email_fingerprint
+                                record_email_fingerprint(
+                                    rfq_email.get("subject", ""),
+                                    rfq_email.get("sender", ""),
+                                    rfq_email.get("date", ""),
+                                    inbox="mike",
+                                    result_type="pc",
+                                    message_id=rfq_email.get("message_id", ""),
+                                )
+                            except Exception as _fpe:
+                                log.debug("fingerprint record (mike pc): %s", _fpe)
                     except Exception as pe:
                         log.error("process_rfq_email (mike@) error: %s", pe, exc_info=True)
                         POLL_STATUS["_mike_diag"].setdefault("errors", []).append(str(pe))
