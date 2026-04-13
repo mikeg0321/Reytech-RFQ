@@ -110,7 +110,11 @@ jobs:
 
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 20 min: CCHCS packet tests + golden path tests each do full
+    # parse/fill/splice/gate cycles on real 18-page PDFs (~4-5s each).
+    # 15-min ceiling was hit 2026-04-13 at 95% completion; bump to 20
+    # gives ~5 min headroom for future growth.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.12
