@@ -402,7 +402,21 @@ def _load_price_checks(include_items=True):
 
 
 def _save_single_pc(pc_id, pc):
-    """Save a SINGLE price check to SQLite."""
+    """Save a SINGLE price check to SQLite.
+
+    Auto-tags CCHCS Non-IT RFQ packets with packet_type=cchcs_non_it
+    before persisting. Centralizing at the save layer means every PC
+    that hits the DB gets tagged, regardless of which ingest path
+    created it (email poller, manual upload, REST admin, test harness).
+    tag_pc_if_packet is idempotent and defensive (returns False on any
+    error) so it cannot break the save path.
+    """
+    try:
+        from src.agents.cchcs_packet_detector import tag_pc_if_packet
+        tag_pc_if_packet(pc)
+    except Exception:
+        pass  # never let tagging break a save
+
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
         _pc_cache = None

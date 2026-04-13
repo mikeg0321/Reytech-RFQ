@@ -1,12 +1,17 @@
 """Flask routes for the CCHCS Non-IT RFQ Packet automation.
 
-One endpoint:
+Endpoints:
     POST /api/pricecheck/<pcid>/cchcs-packet/generate
+    POST /api/admin/cchcs-packets/backfill
 
-Reads the PC's source PDF, parses it via cchcs_packet_parser, matches
-items against all active PCs via cchcs_pc_matcher, fills the packet
-via cchcs_packet_filler, and returns a download URL for the
-`<source>_Reytech.pdf` output.
+The generate route reads the PC's source PDF, parses it via
+cchcs_packet_parser, matches items against all active PCs via
+cchcs_pc_matcher, fills the packet via cchcs_packet_filler, and returns
+a download URL for the `<source>_Reytech.pdf` output.
+
+The backfill route walks every existing PC and tags any that look like
+a CCHCS packet (via filename / subject patterns) so the inbox badge and
+filter work for historical PCs.
 
 Built 2026-04-13 overnight. Phase 4 of 5. See
 _overnight_review/MORNING_REVIEW.md.
@@ -195,3 +200,69 @@ def api_cchcs_packet_generate(pcid):
 def _utc_now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(timezone.utc).isoformat()
+
+
+@bp.route("/api/admin/cchcs-packets/backfill", methods=["POST"])
+@auth_required
+@safe_route
+def api_cchcs_packets_backfill():
+    """Walk every existing PC and tag any that look like a CCHCS Non-IT
+    RFQ Packet with `packet_type=cchcs_non_it`. Idempotent — already-
+    tagged PCs are counted as already_tagged and not re-touched.
+
+    Returns:
+        {
+            "ok": bool,
+            "total": int,           # total PCs scanned
+            "tagged_now": int,      # newly tagged by this call
+            "already_tagged": int,  # already had packet_type set
+            "not_packet": int,      # PCs that don't match packet patterns
+            "tagged_ids": [str],    # IDs newly tagged by this call
+        }
+
+    This is a one-shot admin operation for after initial deployment of
+    the CCHCS packet automation. Running it multiple times is safe.
+    """
+    try:
+        from src.api.dashboard import _load_price_checks, _save_single_pc
+        from src.agents.cchcs_packet_detector import backfill_existing_pcs
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"imports failed: {e}"}), 500
+
+    pcs = _load_price_checks()
+    summary = backfill_existing_pcs(pcs)
+
+    # Persist any PCs that were newly tagged. backfill_existing_pcs
+    # mutates in place, so we save only the ones in tagged_ids.
+    persisted = 0
+    persist_errors = []
+    for pc_id in summary.get("tagged_ids", []):
+        pc = pcs.get(pc_id)
+        if not pc:
+            continue
+        try:
+            _save_single_pc(pc_id, pc)
+            persisted += 1
+        except Exception as e:
+            persist_errors.append(f"{pc_id}: {e}")
+            log.warning("backfill: persist failed for %s: %s", pc_id, e)
+
+    log.info(
+        "cchcs backfill: total=%d tagged_now=%d already=%d not_packet=%d persisted=%d",
+        summary.get("total", 0),
+        summary.get("tagged_now", 0),
+        summary.get("already_tagged", 0),
+        summary.get("not_packet", 0),
+        persisted,
+    )
+
+    return jsonify({
+        "ok": True,
+        "total": summary.get("total", 0),
+        "tagged_now": summary.get("tagged_now", 0),
+        "already_tagged": summary.get("already_tagged", 0),
+        "not_packet": summary.get("not_packet", 0),
+        "tagged_ids": summary.get("tagged_ids", []),
+        "persisted": persisted,
+        "persist_errors": persist_errors,
+    })

@@ -431,6 +431,15 @@
         <!-- GENERATE section -->
         <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Generate</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#3fb950;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateQuote1Click(this);this.closest('details').open=false">Formal Quote (704b/703b)</button>
+        {% if pc and pc.packet_type == 'cchcs_non_it' %}
+        <!-- CCHCS Non-IT RFQ Packet — full 22-page consolidated packet.
+             Only visible when the PC has been tagged as a CCHCS packet
+             (by filename/subject detection at ingest or by the backfill
+             endpoint). The route enforces a 9-check gate validator before
+             returning ok=True — gate failures show inline here with
+             their issue list. -->
+        <button class="btn btn-sm" data-testid="pc-generate-cchcs-packet" style="width:100%;text-align:left;background:none;color:#f0883e;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="generateCchcsPacket(this);this.closest('details').open=false">CCHCS Non-IT Packet (22pg)</button>
+        {% endif %}
         <!-- Original 704 removed — Save & Generate handles this -->
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#d2a8ff;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showPreview();this.closest('details').open=false">Internal Quote View</button>
         <!-- HISTORY section -->
@@ -3751,6 +3760,76 @@
     }
 
     // ═══ PRD Feature 3.2.1: 1-click Price Check → Quote ═══
+    // ─── CCHCS Non-IT RFQ Packet generator ────────────────────────────
+    // Calls the gate-protected /api/pricecheck/<id>/cchcs-packet/generate
+    // endpoint. On 200 OK: shows download link. On 422 (gate failure):
+    // renders the list of critical_issues inline so the operator knows
+    // what to fix before retrying. On 500 or network error: shows the
+    // raw error.
+    function generateCchcsPacket(btn) {
+     if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
+     _isGenerating = true; _showGenOverlay();
+     btn.disabled = true;
+     const origText = btn.textContent;
+     btn.textContent = '⏳ Saving prices...';
+     showMsg('Generating CCHCS packet — this runs parse → match → fill → splice → gate...', 'info');
+
+     // Step 1: save current prices so the matcher sees them
+     fetch('/pricecheck/'+_pcid+'/save-prices', {
+       method: 'POST',
+       headers: {'Content-Type': 'application/json'},
+       body: JSON.stringify(collectPrices())
+     })
+     .then(r => r.json())
+     .then(d => {
+       if (!d.ok) throw new Error('save-prices failed: ' + (d.error || 'unknown'));
+       btn.textContent = '⏳ Generating 22-page packet...';
+       return fetch('/api/pricecheck/' + encodeURIComponent(_pcid) + '/cchcs-packet/generate', {
+         method: 'POST',
+         headers: {'Content-Type': 'application/json'},
+       });
+     })
+     .then(async r => {
+       const status = r.status;
+       const d = await r.json();
+       btn.disabled = false; btn.textContent = origText;
+       _isGenerating = false; _hideGenOverlay();
+       if (status === 200 && d.ok) {
+         const total = d.grand_total != null ? (' — $' + parseFloat(d.grand_total).toLocaleString('en-US', {minimumFractionDigits:2})) : '';
+         const priced = (d.rows_priced != null) ? (' [' + d.rows_priced + ' rows priced]') : '';
+         const warnCount = (d.gate && d.gate.warnings) ? d.gate.warnings.length : 0;
+         const warnStr = warnCount > 0 ? (' · ' + warnCount + ' warning' + (warnCount > 1 ? 's' : '')) : '';
+         showMsg(
+           '✅ CCHCS packet generated' + total + priced + warnStr +
+           ' — <a href="' + d.download_url + '" target="_blank" style="color:#58a6ff;text-decoration:underline">Download PDF</a>',
+           'ok'
+         );
+         if (warnCount > 0 && d.gate.warnings) {
+           console.warn('CCHCS packet warnings:', d.gate.warnings);
+         }
+       } else if (status === 422 && d.gate) {
+         // Gate validation failed — show the issues list
+         const issues = d.gate.critical_issues || [];
+         const lines = issues.slice(0, 10).map((i, idx) => (idx+1) + '. ' + i).join('<br>');
+         const more = issues.length > 10 ? '<br>...and ' + (issues.length - 10) + ' more' : '';
+         showMsg(
+           '❌ CCHCS gate blocked generation (' + issues.length + ' critical issue' + (issues.length > 1 ? 's' : '') + '):<br>' + lines + more,
+           'err'
+         );
+         console.error('CCHCS gate failed:', d.gate);
+       } else {
+         showMsg('❌ CCHCS packet generation failed: ' + (d.error || ('HTTP ' + status)), 'err');
+         console.error('CCHCS packet error:', d);
+       }
+     })
+     .catch(err => {
+       btn.disabled = false; btn.textContent = origText;
+       _isGenerating = false; _hideGenOverlay();
+       showMsg('❌ CCHCS packet error: ' + err.message, 'err');
+       console.error(err);
+     });
+    }
+
     function generateQuote1Click(btn) {
      if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
      // Pre-flight: check for items missing cost

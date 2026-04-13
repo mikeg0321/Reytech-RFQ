@@ -157,3 +157,103 @@ class TestCCHCSPacketRoute:
         meta = pc.get("cchcs_packet_last_generated") or {}
         assert "at" in meta
         assert "rows_priced" in meta
+
+
+class TestCCHCSBackfillRoute:
+    """POST /api/admin/cchcs-packets/backfill scans every existing PC
+    and tags the ones that look like CCHCS packets. Safe to run
+    multiple times."""
+
+    def test_backfill_end_state_correct(self, client, temp_data_dir, sample_pc):
+        """End-state assertion: after calling backfill, every CCHCS
+        packet PC in the DB has packet_type=cchcs_non_it and no
+        standard 704 is tagged. Whether they were tagged at save time
+        (via the _save_single_pc auto-hook) or by the backfill endpoint
+        doesn't matter — both paths converge on the same end state.
+        """
+        from src.api.dashboard import _save_single_pc, _load_price_checks
+
+        packet_pc = dict(sample_pc)
+        packet_pc["id"] = "pc_backfill_packet"
+        packet_pc["email_subject"] = "PREQ10843276 Quote Request"
+        packet_pc["source_pdf"] = "/tmp/Non-Cloud RFQ Packet PREQ10843276.pdf"
+        _save_single_pc(packet_pc["id"], packet_pc)
+
+        standard_pc = dict(sample_pc)
+        standard_pc["id"] = "pc_backfill_std"
+        standard_pc["email_subject"] = "Price Check Worksheet"
+        standard_pc["source_pdf"] = "/tmp/AMS 704 Office Supplies.pdf"
+        _save_single_pc(standard_pc["id"], standard_pc)
+
+        r = client.post("/api/admin/cchcs-packets/backfill")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True
+        # Totals should be consistent — 2 scanned, both handled (either
+        # already_tagged because save hook ran, or tagged_now because
+        # it didn't — either way, packet_pc must end up tagged).
+        assert d["total"] == 2
+        assert (d["tagged_now"] + d["already_tagged"]) >= 1
+        assert d["not_packet"] >= 1
+
+        # Verify the end-state tags on disk
+        pcs = _load_price_checks()
+        assert pcs["pc_backfill_packet"].get("packet_type") == "cchcs_non_it"
+        assert pcs["pc_backfill_std"].get("packet_type") != "cchcs_non_it"
+
+    def test_save_single_pc_auto_tags_cchcs_packets(self, temp_data_dir, sample_pc):
+        """Centralized ingest hook: every _save_single_pc call runs
+        tag_pc_if_packet before writing to SQLite. This means any
+        path that creates a PC (email poller, manual upload, admin,
+        test harness) auto-tags CCHCS packets without having to
+        wire each path individually."""
+        from src.api.dashboard import _save_single_pc, _load_price_checks
+
+        pc = dict(sample_pc)
+        pc["id"] = "pc_ingest_auto_tag"
+        pc["email_subject"] = "PREQ99999 Quote Request"
+        pc["source_pdf"] = "/tmp/Non-Cloud RFQ Packet PREQ99999.pdf"
+        # Note: no packet_type set by caller
+        assert "packet_type" not in pc
+
+        _save_single_pc(pc["id"], pc)
+
+        # Reload from DB and verify the tag landed
+        pcs = _load_price_checks()
+        loaded = pcs.get(pc["id"])
+        assert loaded is not None
+        assert loaded.get("packet_type") == "cchcs_non_it"
+
+    def test_save_single_pc_does_not_tag_standard_704(self, temp_data_dir, sample_pc):
+        """Negative case: a standard AMS 704 PC must NOT get tagged."""
+        from src.api.dashboard import _save_single_pc, _load_price_checks
+
+        pc = dict(sample_pc)
+        pc["id"] = "pc_standard_704_ingest"
+        pc["email_subject"] = "Price Check Worksheet — Office Supplies"
+        pc["source_pdf"] = "/tmp/AMS 704 Office Supplies.pdf"
+
+        _save_single_pc(pc["id"], pc)
+
+        pcs = _load_price_checks()
+        loaded = pcs.get(pc["id"])
+        assert loaded is not None
+        # Either absent or explicitly not the CCHCS type
+        assert loaded.get("packet_type") != "cchcs_non_it"
+
+    def test_backfill_is_idempotent(self, client, temp_data_dir, sample_pc):
+        from src.api.dashboard import _save_single_pc
+
+        pc = dict(sample_pc)
+        pc["id"] = "pc_already_tagged"
+        pc["email_subject"] = "PREQ12345 Quote Request"
+        pc["source_pdf"] = "/tmp/RFQ Packet PREQ12345.pdf"
+        pc["packet_type"] = "cchcs_non_it"  # already tagged
+        _save_single_pc(pc["id"], pc)
+
+        r = client.post("/api/admin/cchcs-packets/backfill")
+        assert r.status_code == 200
+        d = r.get_json()
+        # Already-tagged PC counted as already_tagged, not tagged_now
+        assert d["already_tagged"] >= 1
+        assert "pc_already_tagged" not in d["tagged_ids"]
