@@ -2,6 +2,11 @@
   "company": {
     "name": "Reytech Inc.",
     "address": "30 Carnoustie Way Trabuco Canyon CA 92679",
+    "street": "30 Carnoustie Way",
+    "city": "Trabuco Canyon",
+    "state": "CA",
+    "zip": "92679",
+    "county": "Orange",
     "owner": "Michael Guadan",
     "title": "Owner",
     "phone": "949-229-1575",
@@ -10,8 +15,23 @@
     "sellers_permit": "245652416 - 00001",
     "cert_number": "2002605",
     "cert_expiration": "5/31/2027",
+    "cert_type": "SB/DVBE",
     "description_of_goods": "Medical/Office and other supplies",
     "drug_free_expiration": "7/1/2028"
+  },
+  "compliance": {
+    "claiming_sb_preference": true,
+    "is_manufacturer": false,
+    "subcontract_25_percent": false,
+    "subcontract_amount": "",
+    "cuf_all_yes": true,
+    "uses_genai": false,
+    "uses_subcontractors": false,
+    "scrutinized_darfur_company": false,
+    "doing_business_in_sudan": false,
+    "postconsumer_recycled_percent": "0%",
+    "sabrc_product_category": "N/A",
+    "unit_section": "Procurement"
   },
   "pricing_rules": {
     "scprs_undercut_pct": 0.01,

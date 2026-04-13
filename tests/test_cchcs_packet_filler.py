@@ -41,11 +41,37 @@ def reytech_info():
     return {
         "company_name": "Reytech Inc.",
         "representative": "Michael Guadan",
+        "title": "Owner",
         "address": "30 Carnoustie Way, Trabuco Canyon, CA 92679",
+        "street": "30 Carnoustie Way",
+        "city": "Trabuco Canyon",
+        "state": "CA",
+        "zip": "92679",
+        "county": "Orange",
         "phone": "949-229-1575",
         "email": "sales@reytechinc.com",
         "sb_mb": "2002605",
         "dvbe": "2002605",
+        "cert_number": "2002605",
+        "cert_expiration": "5/31/2027",
+        "cert_type": "SB/DVBE",
+        "sellers_permit": "245652416 - 00001",
+        "fein": "47-4588061",
+        "description_of_goods": "Medical/Office and other supplies",
+        "compliance": {
+            "claiming_sb_preference": True,
+            "is_manufacturer": False,
+            "subcontract_25_percent": False,
+            "subcontract_amount": "",
+            "cuf_all_yes": True,
+            "uses_genai": False,
+            "uses_subcontractors": False,
+            "scrutinized_darfur_company": False,
+            "doing_business_in_sudan": False,
+            "postconsumer_recycled_percent": "0%",
+            "sabrc_product_category": "N/A",
+            "unit_section": "Procurement",
+        },
     }
 
 
@@ -99,17 +125,89 @@ class TestFieldUpdatesFromParsed:
         updates = _build_field_updates(parsed, reytech_info)
         assert updates["SBMBDVBE Certification  if applicable"] == "2002605"
 
-    def test_signature_and_date(self, parsed, reytech_info):
+    def test_signature_field_left_empty_for_png_overlay(self, parsed, reytech_info):
+        # The Signature1 text field must NOT be written — the PNG overlay
+        # draws the real signature image on top, and a typed name would
+        # show through underneath.
         updates = _build_field_updates(parsed, reytech_info)
-        assert updates["Signature1_es_:signer:signature"] == "Michael Guadan"
-        # Date is today in MM/DD/YYYY form
+        assert "Signature1_es_:signer:signature" not in updates
+        # Date is still set in the adjacent Date_es_:date field
         assert len(updates["Date_es_:date"]) >= 8
         assert "/" in updates["Date_es_:date"]
 
-    def test_compliance_checkboxes_default_yes(self, parsed, reytech_info):
+    def test_cert_expiration_filled(self, parsed, reytech_info):
         updates = _build_field_updates(parsed, reytech_info)
-        for cb in COMPLIANCE_CHECKBOXES_YES:
+        assert updates["Expiration Date"] == "5/31/2027"
+
+    def test_sw_renewal_no_and_term_na(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        assert updates["SW Renew No"] == "/Yes"
+        assert updates["SW Term"] == "N/A"
+
+    def test_reseller_permit_filled(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        assert updates["CA Reseller Permit Num"] == "245652416 - 00001"
+
+    def test_cuf_attestation_text_filled(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        assert updates["DOING BUSINESS AS DBA NAME"] == "Reytech Inc."
+        assert updates["OSDS REF  CURRENTLY CERTIFIED FIRMS ONLY"] == "2002605"
+        # Signature block is NOT written as text — the PNG overlay
+        # draws the cursive signature directly on the widget rect.
+        assert "Signature Block28_es_:signer:signatureblock" not in updates
+        assert "/" in updates["DATE"]
+
+    def test_cuf_attestation_yes_boxes_ticked(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        for cb in (
+            "Check Box29.0.0", "Check Box29.1.0", "Check Box29.2.0",
+            "Check Box21.0.0.0", "Check Box21.0.1.0", "Check Box21.0.2.0",
+        ):
             assert updates[cb] == "/Yes"
+
+    def test_ams708_supplier_block_filled(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        assert updates["AMS 708 Supplier Phone"] == "949-229-1575"
+        assert updates["AMS 708 Supplier Address"] == "30 Carnoustie Way"
+        assert updates["AMS 708 Supplier City"] == "Trabuco Canyon"
+        assert updates["AMS 708 Supplier State"] == "CA"
+        assert updates["AMS 708 Supplier Zip Code"] == "92679"
+
+    def test_ams708_genai_no_checked(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        assert updates["AMS 708 GenAI No"] == "/Yes"
+
+    def test_ams708_questions_filled_with_na(self, parsed, reytech_info):
+        updates = _build_field_updates(parsed, reytech_info)
+        # Spot-check a few of the 15 questions + the explanation field
+        assert updates["1 Gen AI Model Nmae Version including number of parameters"] == "N/A"
+        assert updates["8 Input and Outputs"] == "N/A"
+        assert updates["Explanation - GenAI not adversely affecting decisions"] == "N/A"
+
+    def test_preference_checkboxes_sb_yes_manufacturer_no_subcontract_no(self, parsed, reytech_info):
+        # Reytech default compliance stance: claiming SB preference,
+        # not a manufacturer, not a 25% subcontract prime. Drives the
+        # 3 YES/NO checkbox pairs on page 1.
+        reytech_info = {
+            **reytech_info,
+            "compliance": {
+                "claiming_sb_preference": True,
+                "is_manufacturer": False,
+                "subcontract_25_percent": False,
+            },
+        }
+        updates = _build_field_updates(parsed, reytech_info)
+        # SB preference: YES ticked, NO off
+        assert updates["Check Box12"] == "/Yes"
+        assert updates["Check Box11"] == "/Off"
+        # Manufacturer: NO ticked, YES off
+        assert updates["Check Box13"] == "/Off"
+        assert updates["Check Box14"] == "/Yes"
+        # 25% subcontract: NO ticked, YES off
+        assert updates["Check Box15"] == "/Off"
+        assert updates["Check Box16"] == "/Yes"
+        # Subcontract amount blank because we said no
+        assert updates["Amount"] == ""
 
     def test_empty_row_does_not_get_placeholder_price(self, parsed, reytech_info):
         updates = _build_field_updates(parsed, reytech_info)
@@ -135,7 +233,10 @@ class TestFieldUpdatesFromParsed:
         )
         assert updates["Extension TotalSubtotal"] == "5,925.00"
         assert updates["Extension TotalTotal"].replace(",", "").startswith("5925")
-        assert updates["Amount"] == updates["Extension TotalTotal"]
+        # The page 1 "Amount" field is NOT the grand total — it is the
+        # subcontract dollar-input below the 25% subcontract YES/NO row.
+        # It stays blank unless Reytech is actually claiming 25% subcontract.
+        assert updates["Amount"] == ""
 
 
 class TestEndToEndFill:
@@ -204,6 +305,91 @@ class TestEndToEndFill:
         assert "_Reytech.pdf" in os.path.basename(r["output_path"])
 
 
+class TestAttachmentSplicing:
+    """The 7 placeholder pages in the source packet (pages 6, 7, 8, 9,
+    10, 12, 13) are replaced with real filled attachments at their
+    original positions. Total page count grows because most real
+    attachments are more than 1 page (STD 204 is 2, CalRecycle is 2,
+    DARFUR is 2, DVBE 843 is 1). Verified by round-trip field check."""
+
+    def test_output_has_more_pages_than_source(self, parsed, reytech_info, tmp_path):
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=SAMPLE,
+            parsed=parsed,
+            output_dir=str(tmp_path),
+            reytech_info=reytech_info,
+            price_overrides={1: {"unit_price": 395.00}},
+        )
+        assert r["ok"] is True
+        src = PdfReader(SAMPLE)
+        out = PdfReader(r["output_path"])
+        # Source is 18 pages; we replace 7 placeholders with multi-page
+        # attachments, so the final packet is at least a few pages
+        # longer.
+        assert len(out.pages) > len(src.pages)
+
+    def test_civil_rights_fields_populated(self, parsed, reytech_info, tmp_path):
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=SAMPLE,
+            parsed=parsed,
+            output_dir=str(tmp_path),
+            reytech_info=reytech_info,
+            price_overrides={1: {"unit_price": 395.00}},
+        )
+        out = PdfReader(r["output_path"])
+        fields = out.get_fields() or {}
+        assert "ProposerBidder Firm Name Printed" in fields
+        firm_val = str(fields["ProposerBidder Firm Name Printed"].get("/V", ""))
+        assert "Reytech" in firm_val
+
+    def test_bidder_declaration_fields_populated(self, parsed, reytech_info, tmp_path):
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=SAMPLE,
+            parsed=parsed,
+            output_dir=str(tmp_path),
+            reytech_info=reytech_info,
+        )
+        out = PdfReader(r["output_path"])
+        fields = out.get_fields() or {}
+        # Bidder Declaration fields from the spliced attachment
+        assert "Solicitaion #" in fields
+        sol_val = str(fields["Solicitaion #"].get("/V", ""))
+        assert sol_val  # non-empty
+        text1_val = str(fields.get("Text1", {}).get("/V", ""))
+        assert "SB" in text1_val or "DVBE" in text1_val
+
+    def test_std204_fields_populated(self, parsed, reytech_info, tmp_path):
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=SAMPLE,
+            parsed=parsed,
+            output_dir=str(tmp_path),
+            reytech_info=reytech_info,
+        )
+        out = PdfReader(r["output_path"])
+        fields = out.get_fields() or {}
+        # STD 204 has a distinctive field name we can key on
+        key = "NAME OF AUTHORIZED PAYEE REPRESENTATIVE"
+        assert key in fields
+        val = str(fields[key].get("/V", ""))
+        assert "Michael Guadan" in val
+
+    def test_darfur_fields_populated(self, parsed, reytech_info, tmp_path):
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=SAMPLE,
+            parsed=parsed,
+            output_dir=str(tmp_path),
+            reytech_info=reytech_info,
+        )
+        out = PdfReader(r["output_path"])
+        fields = out.get_fields() or {}
+        assert "CompanyVendor Name" in fields
+
+
 class TestErrorPaths:
     def test_missing_source(self, tmp_path):
         r = fill_cchcs_packet(
@@ -214,16 +400,36 @@ class TestErrorPaths:
         assert r["ok"] is False
         assert "not found" in r["error"]
 
-    def test_fill_without_prices_leaves_line_items_blank(self, parsed, reytech_info, tmp_path):
-        """Reytech standard: don't write zeros or placeholders for rows
-        we can't price. Human operator sees blanks, knows to fill manually."""
+    def test_fill_without_prices_blocks_in_strict_mode(self, parsed, reytech_info, tmp_path):
+        """Gate enforcement: filling with no prices is a hard error in
+        strict mode (default). The gate flags 'row 1: no price set' as
+        critical and fill returns ok=False with the issue in the
+        error string."""
         r = fill_cchcs_packet(
             source_pdf=SAMPLE,
             parsed=parsed,
             output_dir=str(tmp_path),
             reytech_info=reytech_info,
-            price_overrides=None,  # nothing to price
+            price_overrides=None,
+        )
+        assert r["ok"] is False
+        assert "gate validation failed" in r.get("error", "")
+        assert any("no price set" in i for i in r["gate"]["critical_issues"])
+
+    def test_fill_without_prices_allowed_in_non_strict_preview(self, parsed, reytech_info, tmp_path):
+        """Non-strict (dry_run / preview) allows a no-price fill to
+        return ok=True so the operator can eyeball the rendered packet
+        before pricing. Gate report still attached with the issues."""
+        r = fill_cchcs_packet(
+            source_pdf=SAMPLE,
+            parsed=parsed,
+            output_dir=str(tmp_path),
+            reytech_info=reytech_info,
+            price_overrides=None,
+            strict=False,
         )
         assert r["ok"] is True
         assert r["rows_priced"] == 0
         assert r["subtotal"] == 0
+        assert r["gate"]["passed"] is False
+        assert any("no price set" in i for i in r["gate"]["critical_issues"])

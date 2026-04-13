@@ -200,6 +200,38 @@ FORM_FIELD_REGISTRY = {
         "date_fields": [],
         "signature_fields": [],  # Sig is on rotated page — skip for QA
     },
+    # CCHCS Non-IT RFQ Packet — consolidated 22-page output from the
+    # cchcs_packet_filler. The registry here only checks the cover-page
+    # supplier info block; deep attachment validation is handled by
+    # src/forms/cchcs_packet_gate.py which runs first and blocks on
+    # business-rule violations. This registry entry gives Reytech's
+    # existing Form QA Agent a second opinion on the supplier fields
+    # using the same code path as every other form in the system.
+    "cchcs_packet": {
+        "prefix_detect": False,
+        "required_fields": {
+            "Supplier Name": "company.name",
+            "Contact Name": "company.owner",
+            "Phone": "company.phone",
+            "Supplier Email": "company.email",
+            "SBMBDVBE Certification  if applicable": "company.cert_number",
+            "Expiration Date": "company.cert_expiration",
+            "Solicitation No": "rfq.solicitation_number",
+        },
+        "checkbox_fields": {
+            # SB preference YES side must be ticked
+            "Check Box12": "/Yes",
+            # Manufacturer NO side must be ticked
+            "Check Box14": "/Yes",
+            # 25% subcontract NO side must be ticked
+            "Check Box16": "/Yes",
+        },
+        "date_fields": ["Date_es_:date"],
+        # Signatures are handled by the gate's signature_log check,
+        # not here — form_qa's signature verifier doesn't understand
+        # PNG overlays merged into page content streams.
+        "signature_fields": [],
+    },
 }
 
 # Forms that are INSIDE the bid package — never generate standalone for CCHCS

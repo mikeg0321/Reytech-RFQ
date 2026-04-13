@@ -25,7 +25,9 @@ SAMPLE_PACKET = os.path.join(
 
 @pytest.fixture
 def pc_with_packet(temp_data_dir, sample_pc):
-    """Seed a PC whose source_pdf points at the real CCHCS packet."""
+    """Seed a PC whose source_pdf points at the real CCHCS packet,
+    plus a second priced PC the matcher can hit for DS8178 scanner
+    so the gate passes in strict mode."""
     if not os.path.exists(SAMPLE_PACKET):
         pytest.skip("sample CCHCS packet missing")
     # Copy packet into the isolated test data dir so it's under DATA_DIR
@@ -43,6 +45,33 @@ def pc_with_packet(temp_data_dir, sample_pc):
     pc["items"] = []  # packet parser will populate
     from src.api.dashboard import _save_single_pc
     _save_single_pc(pc["id"], pc)
+
+    # Seed a separate priced PC with a matching DS8178 item so the
+    # CCHCS matcher has ground truth to map against. Without this
+    # the gate blocks the fill because row 1 has no price.
+    priced_pc = dict(sample_pc)
+    priced_pc["id"] = "pc_ds8178_priced"
+    priced_pc["pc_number"] = "PC_DS8178_HISTORICAL"
+    priced_pc["status"] = "complete"
+    priced_pc["source_pdf"] = ""
+    priced_pc["items"] = [
+        {
+            "item_number": "1",
+            "qty": 15,
+            "uom": "EA",
+            "description": "Handheld Scanner w/ USB cable and standard cradle",
+            "mfg_number": "DS8178",
+            "part_number": "DS8178",
+            "unit_price": 395.00,
+            "extension": 5925.00,
+            "pricing": {
+                "unit_cost": 295.00,
+                "recommended_price": 395.00,
+            },
+        }
+    ]
+    _save_single_pc(priced_pc["id"], priced_pc)
+
     return pc["id"]
 
 

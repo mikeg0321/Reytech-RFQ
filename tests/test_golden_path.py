@@ -803,3 +803,255 @@ class TestGoldenPathConversion:
 
         assert os.path.exists(rfq_output), "704B output not created"
         assert os.path.getsize(rfq_output) > 1000
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CCHCS Non-IT RFQ Packet — E2E gate validation
+# ═══════════════════════════════════════════════════════════════════════
+#
+# These tests pull the real Apr 2026 CCHCS sample packet through the
+# full parse -> match -> fill -> splice -> gate pipeline and assert
+# every business rule lands. They are the golden-path E2E guard
+# against scale regressions in the attachment-splicing pipeline.
+
+CCHCS_SAMPLE_PACKET = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "_overnight_review",
+    "source_packet.pdf",
+)
+
+
+@pytest.fixture
+def cchcs_reytech_info():
+    """Canonical Reytech identity for the CCHCS E2E tests. Mirrors
+    the production reytech_config.json compliance stance so the gate
+    sees real production values, not test stubs."""
+    return {
+        "company_name": "Reytech Inc.",
+        "representative": "Michael Guadan",
+        "title": "Owner",
+        "address": "30 Carnoustie Way, Trabuco Canyon, CA 92679",
+        "street": "30 Carnoustie Way",
+        "city": "Trabuco Canyon",
+        "state": "CA",
+        "zip": "92679",
+        "county": "Orange",
+        "phone": "949-229-1575",
+        "email": "sales@reytechinc.com",
+        "sb_mb": "2002605",
+        "dvbe": "2002605",
+        "cert_number": "2002605",
+        "cert_expiration": "5/31/2027",
+        "cert_type": "SB/DVBE",
+        "sellers_permit": "245652416 - 00001",
+        "fein": "47-4588061",
+        "description_of_goods": "Medical/Office and other supplies",
+        "compliance": {
+            "claiming_sb_preference": True,
+            "is_manufacturer": False,
+            "subcontract_25_percent": False,
+            "subcontract_amount": "",
+            "cuf_all_yes": True,
+            "uses_genai": False,
+            "uses_subcontractors": False,
+            "scrutinized_darfur_company": False,
+            "doing_business_in_sudan": False,
+            "postconsumer_recycled_percent": "0%",
+            "sabrc_product_category": "N/A",
+            "unit_section": "Procurement",
+        },
+    }
+
+
+class TestCCHCSGoldenPath:
+    """End-to-end CCHCS packet generation with the gate validator
+    enforcing every business rule. These tests ARE the scale-safety
+    contract for the automation."""
+
+    @pytest.fixture
+    def parsed_packet(self):
+        if not os.path.exists(CCHCS_SAMPLE_PACKET):
+            pytest.skip("CCHCS sample packet missing")
+        from src.forms.cchcs_packet_parser import parse_cchcs_packet
+        parsed = parse_cchcs_packet(CCHCS_SAMPLE_PACKET)
+        assert parsed["ok"]
+        return parsed
+
+    def test_full_pipeline_with_priced_overrides_passes_gate(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        assert r["ok"] is True, f"gate blocked: {r.get('error')}"
+        assert r["gate"]["passed"] is True
+        assert r["gate"]["checks_run"] >= 9
+        assert not r["gate"]["critical_issues"]
+        assert os.path.exists(r["output_path"])
+        with open(r["output_path"], "rb") as f:
+            assert f.read(5) == b"%PDF-"
+
+    def test_gate_blocks_missing_prices(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides=None,
+            strict=True,
+        )
+        assert r["ok"] is False
+        assert any("no price" in i for i in r["gate"]["critical_issues"])
+
+    def test_gate_blocks_price_below_cost(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 50.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        assert r["ok"] is False
+        assert any("BELOW cost" in i for i in r["gate"]["critical_issues"])
+
+    def test_gate_blocks_price_above_5x_cost_ceiling(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 2000.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        assert r["ok"] is False
+        assert any("5x cost" in i for i in r["gate"]["critical_issues"])
+
+    def test_all_seven_attachments_spliced(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        from src.forms.cchcs_attachment_registry import CCHCS_ATTACHMENTS
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        assert r["ok"] is True
+        spliced = set(r["splice_log"]["spliced"])
+        expected = {a["num"] for a in CCHCS_ATTACHMENTS}
+        assert spliced == expected, f"missing: {expected - spliced}"
+        assert r["splice_log"]["failed"] == []
+
+    def test_all_three_signatures_overlaid(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        overlaid = set(r["signature_log"]["overlaid"])
+        assert "Signature1_es_:signer:signature" in overlaid
+        assert "Signature Block28_es_:signer:signatureblock" in overlaid
+        assert "AMS 708 Signature" in overlaid
+
+    def test_extension_arithmetic_validated(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        assert r["ok"] is True
+        assert abs(r["grand_total"] - (15 * 395.00)) < 0.01
+        assert r["gate"]["by_check"]["extension_arithmetic"]["issues"] == []
+
+    def test_amount_field_regression_guard(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        fields = PdfReader(r["output_path"]).get_fields() or {}
+        amt = str((fields.get("Amount") or {}).get("/V", ""))
+        assert amt in ("", "None"), (
+            f"Amount field must stay blank, got {amt!r} - this is the "
+            f"subcontract dollar input, not the grand total"
+        )
+
+    def test_preference_checkbox_pair_regression_guard(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        from pypdf import PdfReader
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        fields = PdfReader(r["output_path"]).get_fields() or {}
+
+        def val(name: str) -> str:
+            return str((fields.get(name) or {}).get("/V", ""))
+
+        assert val("Check Box12") == "/Yes"
+        assert val("Check Box11") in ("/Off", "", "None")
+        assert val("Check Box14") == "/Yes"
+        assert val("Check Box13") in ("/Off", "", "None")
+        assert val("Check Box16") == "/Yes"
+        assert val("Check Box15") in ("/Off", "", "None")
+
+    def test_form_qa_second_pass_runs(
+        self, parsed_packet, cchcs_reytech_info, tmp_path
+    ):
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=CCHCS_SAMPLE_PACKET,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides={1: {"unit_price": 395.00, "unit_cost": 295.00}},
+            strict=True,
+        )
+        assert "form_qa" in r
+        fqa = r["form_qa"]
+        assert fqa["form_id"] == "cchcs_packet"
+        assert fqa["passed"] is True, f"form_qa issues: {fqa.get('issues')}"

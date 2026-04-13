@@ -84,6 +84,106 @@ TOTALS_FIELDS = {
     "grand_total": "Extension TotalTotal",
 }
 
+# ── Page 1 preference claim checkbox pairs ──
+# The cover page has 3 YES/NO questions laid out as 6 checkbox widgets.
+# Positional verification via PyMuPDF `page.widgets()` confirms:
+#   y≈258: Check Box12 (YES, x≈425) / Check Box11 (NO, x≈494) — SB preference
+#   y≈290: Check Box13 (YES, x≈424) / Check Box14 (NO, x≈495) — manufacturer?
+#   y≈339: Check Box15 (YES, x≈422) / Check Box16 (NO, x≈495) — 25% subcontract
+# This was initially mistaken for 6 independent "compliance affirmations"
+# (Check Box11-16 all /Yes) and produced the bug where both YES and NO
+# were ticked for every question. Do not revert — the pairing is
+# positional and confirmed from the actual widget rects.
+PREFERENCE_CHECKBOX_PAIRS = {
+    "claiming_sb_preference": ("Check Box12", "Check Box11"),   # (yes, no)
+    "is_manufacturer": ("Check Box13", "Check Box14"),
+    "subcontract_25_percent": ("Check Box15", "Check Box16"),
+}
+# Subcontract dollar amount input (NOT the packet grand total — lives
+# directly below the 25% subcontract row on page 1).
+SUBCONTRACT_AMOUNT_FIELD = "Amount"
+
+
+# ── Additional supplier-fill fields the user called out on morning review ──
+# (2026-04-13: morning review identified these as missing from Phase 2 filler)
+
+# Software renewal block on the line-item worksheet (page 5).
+SW_RENEWAL_YES_CHECKBOX = "SW Renew Yes"
+SW_RENEWAL_NO_CHECKBOX = "SW Renew No"
+SW_RENEWAL_TERM_FIELD = "SW Term"
+
+# CA Reseller Permit attachment (page 10): single text field.
+RESELLER_PERMIT_FIELD = "CA Reseller Permit Num"
+
+# CUF Certification Form / Attachment 6 (page 11). 4 text fields +
+# 6 Yes/No radio groups split across two parent checkbox trees:
+#
+#   Check Box29.0.0 / 29.0.1   Q1 Yes / No
+#   Check Box29.1.0 / 29.1.1   Q2 Yes / No
+#   Check Box29.2.0 / 29.2.1   Q3 Yes / No
+#   Check Box21.0.0.0 / 21.0.0.1   Q4 Yes / No
+#   Check Box21.0.1.0 / 21.0.1.1   Q5 Yes / No
+#   Check Box21.0.2.0 / 21.1       Q6 Yes / No
+CUF_TEXT_FIELDS = {
+    "dba_name": "DOING BUSINESS AS DBA NAME",
+    "osds_ref": "OSDS REF  CURRENTLY CERTIFIED FIRMS ONLY",
+    "signature_block": "Signature Block28_es_:signer:signatureblock",
+    "date": "DATE",
+}
+# Reytech is a DVBE meeting CUF — answer Yes to all 6 questions.
+CUF_YES_CHECKBOXES = (
+    "Check Box29.0.0",
+    "Check Box29.1.0",
+    "Check Box29.2.0",
+    "Check Box21.0.0.0",
+    "Check Box21.0.1.0",
+    "Check Box21.0.2.0",
+)
+CUF_NO_CHECKBOXES = (
+    "Check Box29.0.1",
+    "Check Box29.1.1",
+    "Check Box29.2.1",
+    "Check Box21.0.0.1",
+    "Check Box21.0.1.1",
+    "Check Box21.1",
+)
+
+# AMS 708 GenAI Disclosure / Attachment (pages 15-16). Only relevant when
+# quoting AI products. For hardware (DS8178 scanner) we fill supplier
+# identity + tick "No" to GenAI usage + put "N/A" in every numbered
+# question so the state sees a fully-filled form rather than a blank.
+AMS708_SUPPLIER_FIELDS = {
+    "vendor_id": "Bidder/Vendor ID",
+    "phone": "AMS 708 Supplier Phone",
+    "address": "AMS 708 Supplier Address",
+    "city": "AMS 708 Supplier City",
+    "state": "AMS 708 Supplier State",
+    "zip_code": "AMS 708 Supplier Zip Code",
+    "date_signed": "AMS 708 Sign Date_af_date",
+}
+AMS708_GENAI_YES_CHECKBOX = "AMS 708 GenAI Yes"
+AMS708_GENAI_NO_CHECKBOX = "AMS 708 GenAI No"
+# The 15 numbered GenAI questions + the free-text explanation field.
+# Names are copied verbatim from the PDF (typos and all).
+AMS708_QUESTION_FIELDS = (
+    "1 Gen AI Model Nmae Version including number of parameters",
+    "2 Model Owner",
+    "3 Overview",
+    "4 Purpose",
+    "5 Intended Domain",
+    "6 Mdoel Training Data",
+    "7 Model Information",
+    "8 Input and Outputs",
+    "9 Performance Metrics",
+    "10 Optimal Conditions",
+    "11 Poor Conditions",
+    "12 Bias",
+    "13 Test Data",
+    "14 Rish Categorization for Vendor Solutions (High, Medium, Low)",
+    "15 Ownership of AI system-generated data and/or content (Vendor or Agency)",
+    "Explanation - GenAI not adversely affecting decisions",
+)
+
 # Filename / subject patterns the poller can use to detect this format
 FILENAME_PATTERN = re.compile(
     r"(?:Non[- ]?Cloud\s*)?RFQ\s*Packet.*?(?:PREQ|REQ)?(\d{5,})",
@@ -303,4 +403,17 @@ __all__ = [
     "SUPPLIER_FIELDS",
     "TOTALS_FIELDS",
     "MAX_ROWS",
+    "SW_RENEWAL_YES_CHECKBOX",
+    "SW_RENEWAL_NO_CHECKBOX",
+    "SW_RENEWAL_TERM_FIELD",
+    "RESELLER_PERMIT_FIELD",
+    "CUF_TEXT_FIELDS",
+    "CUF_YES_CHECKBOXES",
+    "CUF_NO_CHECKBOXES",
+    "AMS708_SUPPLIER_FIELDS",
+    "AMS708_GENAI_YES_CHECKBOX",
+    "AMS708_GENAI_NO_CHECKBOX",
+    "AMS708_QUESTION_FIELDS",
+    "PREFERENCE_CHECKBOX_PAIRS",
+    "SUBCONTRACT_AMOUNT_FIELD",
 ]

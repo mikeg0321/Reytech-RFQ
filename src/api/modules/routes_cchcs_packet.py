@@ -109,13 +109,34 @@ def api_cchcs_packet_generate(pcid):
 
     # ── Fill ──
     output_dir = os.path.dirname(source_pdf) or DATA_DIR
+    # Gate enforcement: strict mode blocks fill from returning ok=True
+    # if any critical business rule is violated. Dry-run preview still
+    # runs every check but surfaces issues without blocking.
     fill_result = fill_cchcs_packet(
         source_pdf=source_pdf,
         parsed=parsed,
         output_dir=output_dir,
         price_overrides=match_result.get("price_overrides"),
+        strict=True,
     )
     if not fill_result.get("ok"):
+        # Distinguish gate failures (business rule violations, 422)
+        # from infrastructure failures (fill crash, 500). Gate failures
+        # are actionable by the operator; crashes need engineering.
+        gate_report = fill_result.get("gate") or {}
+        if gate_report and not gate_report.get("passed", True):
+            return jsonify({
+                "ok": False,
+                "error": fill_result.get("error", "gate validation failed"),
+                "gate": {
+                    "passed": False,
+                    "critical_issues": gate_report.get("critical_issues", []),
+                    "warnings": gate_report.get("warnings", []),
+                    "checks_run": gate_report.get("checks_run", 0),
+                    "by_check": gate_report.get("by_check", {}),
+                },
+                "match_result": match_result,
+            }), 422
         return jsonify({
             "ok": False,
             "error": f"fill failed: {fill_result.get('error')}",
@@ -162,6 +183,12 @@ def api_cchcs_packet_generate(pcid):
         "unmatched": match_result["unmatched_count"],
         "match_report": match_result.get("report", []),
         "fields_written": fill_result.get("fields_written", 0),
+        "gate": {
+            "passed": fill_result.get("gate", {}).get("passed", False),
+            "critical_issues": fill_result.get("gate", {}).get("critical_issues", []),
+            "warnings": fill_result.get("gate", {}).get("warnings", []),
+            "checks_run": fill_result.get("gate", {}).get("checks_run", 0),
+        },
     })
 
 
