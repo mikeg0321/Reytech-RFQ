@@ -98,6 +98,10 @@ def normalize_queue_item(raw, queue_type, item_id):
         "status_color": STATUS_COLOR.get(display_status, "#8b90a0"),
         "url": url,
         "queue_type": queue_type,
+        # Surface the parse-failure flag set upstream in routes_rfq.home()
+        # so the queue row can render a badge. Set when a PC ingested from
+        # email has zero items — the parser couldn't read the 704.
+        "_parse_failed": bool(raw.get("_parse_failed")),
     }
 
 

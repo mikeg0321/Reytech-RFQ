@@ -92,8 +92,17 @@
       {% if r._days_left < 0 %}{{ -r._days_left }}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{ r._days_left }}d left{% endif %}
      </div>{% endif %}
     </td>
-    {# Col 5: Item count #}
-    <td style="text-align:center" class="mono">{{ r.item_count }}</td>
+    {# Col 5: Item count — with parse-failed badge when the 704 parser
+       returned zero items. Before 2026-04-12 these PCs were silently
+       hidden from the queue; they're now surfaced so the user can
+       re-parse or triage manually. #}
+    <td style="text-align:center" class="mono">
+     {% if r._parse_failed %}
+      <span title="Parser extracted 0 items from the source PDF — open the PC and click Re-parse, or upload a replacement" style="display:inline-block;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:700;background:rgba(248,81,73,.12);color:#f85149;border:1px solid rgba(248,81,73,.35);letter-spacing:.3px">PARSE FAIL</span>
+     {% else %}
+      {{ r.item_count }}
+     {% endif %}
+    </td>
     {# Col 6: Priced readiness #}
     <td style="padding:8px 6px;text-align:center">
      {% set rd = r._readiness %}
