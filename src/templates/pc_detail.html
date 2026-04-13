@@ -1397,6 +1397,58 @@
      return active?parseInt(active.getAttribute('data-buffer'))||0:0;
     }
 
+    // ── Buffer state helpers ─────────────────────────────────────────────
+    // The buffer mutates the displayed cost field, but data-base-cost
+    // holds the TRUE supplier cost so we can restore / reapply on tier
+    // changes. Pre-2026-04-12 the base went stale on manual cost edits
+    // and on URL-paste cost fills — toggling the buffer afterwards
+    // reverted to the wrong value. These helpers keep base in sync.
+    window._currentBuffer = function() {
+      var active = document.querySelector('.tier-btn.tier-active');
+      return active ? (parseInt(active.getAttribute('data-buffer')) || 0) : 0;
+    };
+
+    // Called when the user manually types into a cost field. The newly
+    // typed value is the BUFFERED display value (because that is what
+    // the user sees). We back out the buffer to derive the true base
+    // and store it, so subsequent tier changes apply against the
+    // correct base.
+    window.handleManualCostChange = function(idx) {
+      var costEl = document.querySelector('[name=cost_'+idx+']');
+      if (!costEl) return;
+      var displayed = parseFloat(String(costEl.value).replace(/[^0-9.\-]/g, '')) || 0;
+      var buffer = window._currentBuffer();
+      if (displayed <= 0) {
+        costEl.removeAttribute('data-base-cost');
+      } else if (buffer > 0) {
+        var newBase = displayed / (1 + buffer/100);
+        costEl.setAttribute('data-base-cost', newBase.toFixed(4));
+      } else {
+        // No buffer active — clear stale base entirely
+        costEl.removeAttribute('data-base-cost');
+      }
+      recalcRow(parseInt(idx), true);
+    };
+
+    // Called from _applyLinkData after a URL paste fills a cost. The
+    // freshly filled cost is the supplier's MSRP — that IS the new true
+    // base. Set data-base-cost to it, then reapply the active buffer
+    // on top so the displayed value reflects the current tier.
+    window._syncBufferOnCostFill = function(idx) {
+      var costEl = document.querySelector('[name=cost_'+idx+']');
+      if (!costEl) return;
+      var filled = parseFloat(String(costEl.value).replace(/[^0-9.\-]/g, '')) || 0;
+      if (filled <= 0) return;
+      var buffer = window._currentBuffer();
+      if (buffer > 0) {
+        costEl.setAttribute('data-base-cost', filled.toFixed(4));
+        var buffered = Math.round(filled * (1 + buffer/100) * 100) / 100;
+        costEl.value = buffered.toFixed(2);
+      } else {
+        costEl.removeAttribute('data-base-cost');
+      }
+    };
+
     function applyTier(buffer, btn) {
      // Update active button
      document.querySelectorAll('.tier-btn').forEach(b=>b.classList.remove('tier-active'));
@@ -1408,28 +1460,30 @@
       var idx=row.getAttribute('data-row');
       var markupInp=row.querySelector('[name=markup_'+idx+']');
       if(markupInp) markupInp.value=markup;
-      // Apply buffer to cost if there's a cost value
+      var costInp=row.querySelector('[name=cost_'+idx+']');
+      if(!costInp) return;
+      // Determine the TRUE base cost. If data-base-cost exists, use it.
+      // Otherwise the displayed value IS the base (buffer was 0 before).
+      var baseAttr = costInp.getAttribute('data-base-cost');
+      var displayed = parseFloat(String(costInp.value).replace(/[^0-9.\-]/g, '')) || 0;
+      var baseCost = baseAttr ? (parseFloat(baseAttr) || 0) : displayed;
       if(buffer > 0) {
-       var costInp=row.querySelector('[name=cost_'+idx+']');
-       if(costInp) {
-        var baseCost=parseFloat(costInp.getAttribute('data-base-cost')||costInp.value.replace(/[^0-9.\-]/g,''))||0;
-        if(baseCost>0) {
-         // Store original cost on first buffer application
-         if(!costInp.getAttribute('data-base-cost')) costInp.setAttribute('data-base-cost',baseCost.toFixed(2));
-         var bufferedCost=Math.round(baseCost*(1+buffer/100)*100)/100;
-         costInp.value=bufferedCost.toFixed(2);
-         updated++;
-        }
+       if(baseCost > 0) {
+        // Persist the base so future toggles + manual edits see it
+        costInp.setAttribute('data-base-cost', baseCost.toFixed(4));
+        var bufferedCost = Math.round(baseCost * (1 + buffer/100) * 100) / 100;
+        costInp.value = bufferedCost.toFixed(2);
+        updated++;
        }
       } else {
-       // Buffer = 0: restore original cost
-       var costInp=row.querySelector('[name=cost_'+idx+']');
-       if(costInp && costInp.getAttribute('data-base-cost')) {
-        costInp.value=costInp.getAttribute('data-base-cost');
+       // Buffer = 0: restore base, clear stored attribute
+       if(baseAttr && baseCost > 0) {
+        costInp.value = baseCost.toFixed(2);
+        costInp.removeAttribute('data-base-cost');
         updated++;
        }
       }
-      recalcRow(parseInt(idx));
+      recalcRow(parseInt(idx), true);
      });
      showTierComparison();
      if(updated>0) showMsg('✅ Applied '+buffer+'% buffer + '+markup+'% markup to '+updated+' items','ok');
