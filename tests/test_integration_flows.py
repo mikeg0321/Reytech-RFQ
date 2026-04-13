@@ -182,6 +182,31 @@ class TestHomepage:
         resp = client.get("/")
         assert resp.status_code == 200
 
+    def test_homepage_hides_test_pcs(self, client, temp_data_dir, sample_pc):
+        """Regression: PCs created via /api/test/create-pc are flagged
+        is_test=True and must not appear in the human queue. Before this
+        fix the smoke suite collected ~14 test PCs in prod on top of
+        real work because the old /api/test/clear cleanup endpoint was
+        a 404 and the home filter didn't respect is_test."""
+        import os, json
+        real_pc = dict(sample_pc)
+        real_pc["id"] = "real-pc-001"
+        real_pc["pc_number"] = "REAL-001"
+        test_pc = dict(sample_pc)
+        test_pc["id"] = "test_abcdef12"
+        test_pc["pc_number"] = "TEST-001"
+        test_pc["is_test"] = True
+        test_pc["institution"] = "CSP-Sacramento (TEST)"
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w") as f:
+            json.dump({real_pc["id"]: real_pc, test_pc["id"]: test_pc}, f)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "REAL-001" in body, "Real PC must appear in the queue"
+        assert "CSP-Sacramento (TEST)" not in body, (
+            "is_test PC leaked into the human queue"
+        )
+
 
 # ── API Endpoints ─────────────────────────────────────────────────────────────
 
