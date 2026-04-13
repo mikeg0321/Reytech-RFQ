@@ -1322,6 +1322,20 @@ CREATE TABLE IF NOT EXISTS template_strategies (
 );
 CREATE INDEX IF NOT EXISTS idx_ts_fingerprint ON template_strategies(fingerprint);
 CREATE INDEX IF NOT EXISTS idx_ts_strategy ON template_strategies(strategy);
+
+-- ═════════════════════════════════════════════════════════════════════
+-- Runtime feature flags (Item C of P0 resilience backlog)
+-- Threshold + constant hotfixes that should NOT require a deploy.
+-- Read via src/core/flags.py get_flag(key, default) which layers a
+-- 60s in-memory cache on top of this table.
+-- ═════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS feature_flags (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')),
+    updated_by TEXT DEFAULT '',
+    description TEXT DEFAULT ''
+);
 """
 
 def init_db():

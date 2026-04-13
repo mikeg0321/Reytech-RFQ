@@ -205,7 +205,12 @@ class DocumentPipeline:
             # the rest). Anything 70+ is acceptable as a "good enough"
             # delivery; below 70 we keep escalating and only block if all
             # strategies stay below 70.
-            _DELIVERY_THRESHOLD = 70
+            # Runtime-flaggable: operator can hotfix this threshold via
+            # POST /api/admin/flags body {"key": "pipeline.delivery_threshold",
+            # "value": "80"} without a deploy. Default 70 is the code
+            # floor that the incident post-mortem settled on.
+            from src.core.flags import get_flag
+            _DELIVERY_THRESHOLD = get_flag("pipeline.delivery_threshold", 70)
             if readback.score >= _DELIVERY_THRESHOLD:
                 log.info("pipeline: PASSED (strategy=%s, attempt=%d, score=%d, %dms)",
                          strategy, attempt_num, readback.score, duration)
