@@ -159,7 +159,9 @@ def clean_description(raw: str) -> str:
 def _build_reytech_info():
     try:
         from src.forms.reytech_filler_v4 import load_config
-        co = load_config().get("company", {})
+        cfg = load_config()
+        co = cfg.get("company", {})
+        compliance = cfg.get("compliance", {})
         addr = co.get("address", "30 Carnoustie Way Trabuco Canyon CA 92679")
         # Add commas for form display: "Street, City, ST ZIP"
         if addr and ", " not in addr:
@@ -169,11 +171,24 @@ def _build_reytech_info():
         return {
             "company_name": co.get("name", "Reytech Inc."),
             "representative": co.get("owner", "Michael Guadan"),
+            "title": co.get("title", "Owner"),
             "address": addr,
+            "street": co.get("street", ""),
+            "city": co.get("city", ""),
+            "state": co.get("state", "CA"),
+            "zip": co.get("zip", ""),
+            "county": co.get("county", "Orange"),
             "phone": co.get("phone", "949-229-1575"),
             "email": co.get("email", "sales@reytechinc.com"),
             "sb_mb": co.get("cert_number", "2002605"),
             "dvbe": co.get("cert_number", "2002605"),
+            "cert_number": co.get("cert_number", "2002605"),
+            "cert_expiration": co.get("cert_expiration", ""),
+            "cert_type": co.get("cert_type", "SB/DVBE"),
+            "sellers_permit": co.get("sellers_permit", ""),
+            "fein": co.get("fein", ""),
+            "description_of_goods": co.get("description_of_goods", ""),
+            "compliance": compliance,
             "discount": "Included",
             "delivery": "5-7 business days",
         }
