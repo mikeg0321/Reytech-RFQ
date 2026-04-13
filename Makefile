@@ -203,11 +203,17 @@ promote: require-smoke-creds  ## Merge current PR after CI passes, then smoke te
 	@REYTECH_URL=$(PROD_URL) REYTECH_USER=$(SMOKE_USER) REYTECH_PASS=$(SMOKE_PASS) \
 		python tests/smoke_test.py && \
 		echo "" && \
-		echo "DEPLOY SUCCESSFUL: $(COMMIT)" || \
+		echo "DEPLOY SUCCESSFUL: $(COMMIT)" && \
+		echo "Launching deploy watcher in background (auto-rollback on FAILED)..." && \
+		(REYTECH_URL=$(PROD_URL) nohup python scripts/railway_deploy_watcher.py \
+			--max-poll-minutes 5 > /tmp/reytech_deploy_watcher.log 2>&1 &) \
+		|| \
 		(echo "" && \
-		echo "SMOKE TESTS FAILED!" && \
-		echo "Check production immediately: $(PROD_URL)" && \
-		echo "Rollback: make rollback" && \
+		echo "SMOKE TESTS FAILED — triggering auto-rollback..." && \
+		REYTECH_URL=$(PROD_URL) python scripts/railway_deploy_watcher.py \
+			--max-poll-minutes 3 && \
+		echo "" && \
+		echo "Auto-rollback flow complete. Verify: make smoke" && \
 		exit 1)
 
 # ── Emergency Operations ────────────────────────────────────────────────────
