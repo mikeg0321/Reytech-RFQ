@@ -16,8 +16,9 @@ except Exception:
     pass
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REVIEW_DIR = os.path.dirname(HERE)
-REPO = os.path.dirname(REVIEW_DIR)
+REPO = os.path.dirname(HERE)  # scripts/ is one level below repo root
+REVIEW_DIR = os.path.join(REPO, "_overnight_review")
+os.makedirs(REVIEW_DIR, exist_ok=True)
 sys.path.insert(0, REPO)
 
 os.environ.setdefault("SECRET_KEY", "diag")
