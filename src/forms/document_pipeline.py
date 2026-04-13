@@ -193,13 +193,26 @@ class DocumentPipeline:
             self._record_outcome(strategy, readback.score)
 
             # Gate check
-            if readback.score == 100:
-                log.info("pipeline: PASSED (strategy=%s, attempt=%d, %dms)",
-                         strategy, attempt_num, duration)
+            # 2026-04-12: was `score == 100` (perfect-or-block). That refused
+            # to deliver any PDF where even one field couldn't be readback-
+            # verified, including DocuSign-flat sources where 4 of ~70 fields
+            # routinely fail cosmetic checks. Mike was blocked from quoting
+            # active CDCR PCs because of this. The pipeline still tries every
+            # strategy and picks the best — we just don't refuse to ship a
+            # 70-grade PDF when the alternative is no PDF at all.
+            #
+            # If a strategy hits 100 we still short-circuit (no need to try
+            # the rest). Anything 70+ is acceptable as a "good enough"
+            # delivery; below 70 we keep escalating and only block if all
+            # strategies stay below 70.
+            _DELIVERY_THRESHOLD = 70
+            if readback.score >= _DELIVERY_THRESHOLD:
+                log.info("pipeline: PASSED (strategy=%s, attempt=%d, score=%d, %dms)",
+                         strategy, attempt_num, readback.score, duration)
                 return PipelineResult(
                     ok=True,
                     output_path=self.output_pdf,
-                    verification_score=100,
+                    verification_score=readback.score,
                     strategy_used=strategy,
                     source_type=self.source_type,
                     attempts=self.attempts,
