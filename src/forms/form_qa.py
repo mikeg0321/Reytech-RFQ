@@ -915,6 +915,156 @@ def verify_buyer_fields_untouched(pdf_path: str, template_path: str) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Overlay Bounds Check (DOCX-converted 704 regression guard)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Maximum allowed drift between an overlay text object's position and the
+# cell rect it is supposed to sit inside. 5pt is tight enough to catch
+# the 20-40pt drift seen on LibreOffice-converted 704 forms but loose
+# enough to tolerate sub-pixel rounding from pdfplumber/reportlab.
+OVERLAY_DRIFT_TOLERANCE_PT = 5.0
+
+
+def verify_overlay_bounds(
+    pdf_path: str,
+    expected_cells: dict,
+    tolerance_pt: float = OVERLAY_DRIFT_TOLERANCE_PT,
+) -> dict:
+    """Verify that overlay text drawn onto a flat 704 (or similar)
+    lands inside the expected cell rectangles. Catches the DOCX→
+    LibreOffice→overlay regression where text lands 20-40pt off.
+
+    Args:
+        pdf_path: path to the filled output PDF
+        expected_cells: {field_id: (x0, y0_bot, x1, y1_top)} in
+            reportlab coordinates (Y grows upward). Example:
+                {
+                    "Row1_price": (637, 292, 686, 311),
+                    "Row1_ext":   (691, 292, 754, 311),
+                    "COMPANY NAME": (33, 421, 278, 441),
+                }
+        tolerance_pt: max allowed drift from each cell edge
+
+    Returns: {
+        "passed": bool,
+        "issues": [str],
+        "warnings": [str],
+        "drift_details": [{field, text, expected, actual, drift}],
+    }
+
+    The check reads overlay text via pdfplumber's word extraction and
+    finds the word(s) that correspond to each expected field by nearest
+    cell-center match. For each match, it then checks whether the
+    word's bounding box is within tolerance_pt of the cell rect edges.
+    """
+    result = {
+        "passed": True,
+        "issues": [],
+        "warnings": [],
+        "drift_details": [],
+    }
+    if not pdf_path or not os.path.exists(pdf_path):
+        result["issues"].append(f"overlay bounds: PDF not found: {pdf_path}")
+        result["passed"] = False
+        return result
+    if not expected_cells:
+        return result
+
+    try:
+        import pdfplumber
+    except ImportError:
+        result["warnings"].append("overlay bounds: pdfplumber unavailable — skipped")
+        return result
+
+    try:
+        pdf = pdfplumber.open(pdf_path)
+    except Exception as e:
+        result["issues"].append(f"overlay bounds: cannot open PDF: {e}")
+        result["passed"] = False
+        return result
+
+    try:
+        # Walk every page, extract words with coordinates, and for each
+        # expected cell find the closest word by center distance.
+        # Words are returned in pdfplumber coordinates (Y grows downward);
+        # convert to reportlab (Y grows upward) for comparison with the
+        # expected cell rects.
+        all_words = []  # (page_idx, rl_x0, rl_y0, rl_x1, rl_y1, text)
+        for pg_idx, page in enumerate(pdf.pages):
+            ph = float(page.height)
+            for w in page.extract_words(keep_blank_chars=False,
+                                         x_tolerance=2, y_tolerance=2):
+                rl_y0 = ph - w["bottom"]  # bottom in reportlab = top in pdfplumber
+                rl_y1 = ph - w["top"]
+                all_words.append(
+                    (pg_idx, float(w["x0"]), rl_y0, float(w["x1"]), rl_y1, w["text"])
+                )
+
+        for field_id, (ex0, ey0, ex1, ey1) in expected_cells.items():
+            ecx = (ex0 + ex1) / 2
+            ecy = (ey0 + ey1) / 2
+
+            # Find the word whose center is closest to the cell center
+            # AND is within a generous proximity window (3x tolerance)
+            # so we don't match unrelated words on the far side of the
+            # page when the target cell is empty.
+            proximity = tolerance_pt * 6
+            best = None
+            best_dist = float("inf")
+            for (pg_idx, wx0, wy0, wx1, wy1, wtxt) in all_words:
+                wcx = (wx0 + wx1) / 2
+                wcy = (wy0 + wy1) / 2
+                if abs(wcx - ecx) > (ex1 - ex0) / 2 + proximity:
+                    continue
+                if abs(wcy - ecy) > (ey1 - ey0) / 2 + proximity:
+                    continue
+                d = ((wcx - ecx) ** 2 + (wcy - ecy) ** 2) ** 0.5
+                if d < best_dist:
+                    best_dist = d
+                    best = (pg_idx, wx0, wy0, wx1, wy1, wtxt)
+
+            if best is None:
+                # Cell is empty in the output. Not an error — just skip.
+                continue
+
+            pg_idx, wx0, wy0, wx1, wy1, wtxt = best
+            # Compute signed drift at each edge. Positive means the word
+            # extends OUTSIDE the cell on that side.
+            drift_left = max(0.0, ex0 - wx0)
+            drift_right = max(0.0, wx1 - ex1)
+            drift_bot = max(0.0, ey0 - wy0)
+            drift_top = max(0.0, wy1 - ey1)
+            max_drift = max(drift_left, drift_right, drift_bot, drift_top)
+
+            detail = {
+                "field": field_id,
+                "text": wtxt[:40],
+                "expected": (round(ex0, 1), round(ey0, 1),
+                             round(ex1, 1), round(ey1, 1)),
+                "actual": (round(wx0, 1), round(wy0, 1),
+                           round(wx1, 1), round(wy1, 1)),
+                "drift": round(max_drift, 2),
+                "page": pg_idx + 1,
+            }
+            result["drift_details"].append(detail)
+
+            if max_drift > tolerance_pt:
+                result["passed"] = False
+                result["issues"].append(
+                    f"[overlay drift] {field_id} pg{pg_idx + 1}: "
+                    f"text '{wtxt[:20]}' is {max_drift:.1f}pt outside its "
+                    f"cell (tolerance {tolerance_pt:.0f}pt)"
+                )
+    finally:
+        try:
+            pdf.close()
+        except Exception:
+            pass
+
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Master QA Function
 # ═══════════════════════════════════════════════════════════════════════
 
