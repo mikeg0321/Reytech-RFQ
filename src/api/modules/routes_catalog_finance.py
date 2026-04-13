@@ -1463,28 +1463,48 @@ def _init_dedup_table():
 _init_dedup_table()
 
 
+def _email_fingerprint(subject: str, sender: str, date_str: str = "") -> str:
+    import hashlib
+    raw = f"{(subject or '').strip().lower()}|{(sender or '').strip().lower()}|{(date_str or '')[:16]}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
 def check_email_fingerprint(subject: str, sender: str, date_str: str = "",
                             message_id: str = "", inbox: str = "sales") -> bool:
-    """Check if email was already processed by ANY inbox. Returns True if duplicate."""
-    import hashlib
-    raw = f"{subject.strip().lower()}|{sender.strip().lower()}|{date_str[:16]}"
-    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
-    
+    """Return True only if this email was previously processed AND produced
+    a record (result_type non-empty).
+
+    History note (2026-04-12): the prior implementation recorded the
+    fingerprint on the very first call regardless of whether downstream
+    processing succeeded — and there was no separate `record_*` call wired
+    up. Effect: any classifier rejection or attachment download error
+    permanently poisoned the dedup table for that email, and on the next
+    poll cycle the cross-inbox dedup gate at email_poller.py:1846 silently
+    dropped the same email forever. Kevin Jensen's RFQ from 2026-04-10
+    was lost this way.
+
+    Now this function is strictly read-only and only treats fingerprints
+    as duplicates when result_type is set, i.e. the upstream caller actually
+    invoked record_email_fingerprint after a successful pipeline run.
+    """
+    fp = _email_fingerprint(subject, sender, date_str)
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            existing = conn.execute(
-                "SELECT inbox, processed_at FROM email_fingerprints WHERE fingerprint=?", (fp,)
+            row = conn.execute(
+                "SELECT result_type, result_id FROM email_fingerprints WHERE fingerprint=?",
+                (fp,)
             ).fetchone()
-            if existing:
-                return True
-            # Not a dupe — record it
-            conn.execute(
-                "INSERT OR IGNORE INTO email_fingerprints (fingerprint, inbox, subject, sender, message_id, processed_at) VALUES (?,?,?,?,?,?)",
-                (fp, inbox, subject[:200], sender[:200], message_id[:200], datetime.now().isoformat())
-            )
-            conn.commit()
-            return False
+            if not row:
+                return False
+            # Treat as duplicate only when a downstream record was created.
+            # Tentative rows from the legacy code path have empty result_type
+            # and must NOT block reprocessing.
+            try:
+                rt = row["result_type"] if hasattr(row, "keys") else row[0]
+            except Exception:
+                rt = ""
+            return bool((rt or "").strip())
     except Exception:
         return False
 
@@ -1492,23 +1512,51 @@ def check_email_fingerprint(subject: str, sender: str, date_str: str = "",
 def record_email_fingerprint(subject: str, sender: str, date_str: str = "",
                              inbox: str = "sales", result_type: str = "",
                              result_id: str = "", message_id: str = ""):
-    """Record an email fingerprint after successful processing."""
-    import hashlib
-    raw = f"{subject.strip().lower()}|{sender.strip().lower()}|{date_str[:16]}"
-    fp = hashlib.sha256(raw.encode()).hexdigest()[:32]
-    
+    """Lock in a fingerprint after successful pipeline processing.
+
+    Call this from the poll loop only when process_rfq_email (or the PO
+    routing path) actually produced a record. Without this call, the
+    fingerprint stays soft and check_email_fingerprint returns False on
+    re-poll, giving the email another chance.
+    """
+    fp = _email_fingerprint(subject, sender, date_str)
     try:
         from src.core.db import get_db
         with get_db() as conn:
             conn.execute("""
-                INSERT OR REPLACE INTO email_fingerprints 
+                INSERT OR REPLACE INTO email_fingerprints
                 (fingerprint, inbox, subject, sender, message_id, processed_at, result_type, result_id)
                 VALUES (?,?,?,?,?,?,?,?)
-            """, (fp, inbox, subject[:200], sender[:200], message_id[:200],
+            """, (fp, inbox, (subject or "")[:200], (sender or "")[:200],
+                  (message_id or "")[:200],
                   datetime.now().isoformat(), result_type, result_id))
             conn.commit()
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
+
+
+def clear_tentative_fingerprints() -> int:
+    """Delete every email_fingerprints row that has no result_type — i.e.
+    a leftover from the buggy old check_email_fingerprint code path. Safe
+    to run multiple times. Returns the number of rows removed."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM email_fingerprints "
+                "WHERE result_type IS NULL OR result_type = ''"
+            ).fetchone()
+            count = int(row[0]) if row else 0
+            if count > 0:
+                conn.execute(
+                    "DELETE FROM email_fingerprints "
+                    "WHERE result_type IS NULL OR result_type = ''"
+                )
+                conn.commit()
+            return count
+    except Exception as e:
+        log.debug("clear_tentative_fingerprints: %s", e)
+        return 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
