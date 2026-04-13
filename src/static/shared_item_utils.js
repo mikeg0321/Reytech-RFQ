@@ -274,9 +274,35 @@ function _applyLinkData(idx, d, mode) {
     if (_matchScore < 40 && !_aiVerified) {
       filled.push('cost BLOCKED — low match ' + _matchScore + '%, verify product');
     } else {
-      var msrp = d.list_price ? parseFloat(d.list_price) : d.price;
-      costEl.value = (msrp || d.price).toFixed(2);
-      filled.push('cost $' + (msrp || d.price).toFixed(2));
+      // Quotes are valid 45 days; sale prices may expire.
+      // Use list_price (MSRP) as cost basis ALWAYS when available.
+      // If only sale price is found, DO NOT silently fill cost — surface
+      // a warning so the user can decide. Pre-2026-04-12 the code fell
+      // through to d.price (the sale price) and quietly poisoned cost
+      // with discounted values that would expire mid-quote.
+      var lp = d.list_price ? parseFloat(d.list_price) : 0;
+      var sp = d.sale_price ? parseFloat(d.sale_price) : 0;
+      if (lp > 0) {
+        // MSRP available — use it as cost basis
+        costEl.value = lp.toFixed(2);
+        filled.push('cost $' + lp.toFixed(2) + ' (MSRP)');
+      } else if (sp > 0) {
+        // Only sale price found — DON'T fill cost, warn the user
+        filled.push('⚠ MSRP not found — sale $' + sp.toFixed(2)
+          + ' — paste cost manually, sale may expire in 45-day window');
+      } else if (d.price && d.price > 0) {
+        // Some other supplier without MSRP/sale split — fill but warn
+        costEl.value = parseFloat(d.price).toFixed(2);
+        filled.push('cost $' + parseFloat(d.price).toFixed(2)
+          + ' (no MSRP/sale split — verify it is non-discount)');
+      }
+      // After cost fill, sync the buffer: update data-base-cost and
+      // reapply active buffer so the displayed cost reflects the
+      // current tier. Without this, paste-after-buffer overwrites the
+      // buffered value with raw cost.
+      if (parseFloat(costEl.value) > 0 && typeof window._syncBufferOnCostFill === 'function') {
+        window._syncBufferOnCostFill(idx);
+      }
     }
     // Warn (but don't block) if price is very different from catalog
     if (existingCost > 0 && d.price > existingCost * 3) {
