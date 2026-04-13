@@ -4,7 +4,20 @@ builder = "NIXPACKS"
 [deploy]
 startCommand = "python -c \"import sqlite3,os; p='/data/reytech.db'; os.path.exists(p) and [print(f'dropping {t}') or sqlite3.connect(p, timeout=30).execute(f'DROP TRIGGER IF EXISTS {t}').connection.commit() for t in ['validate_quotes_items_insert','validate_quotes_items_update','validate_pc_items_insert','validate_pc_items_update','validate_rfq_items_insert','validate_rfq_items_update','validate_order_items_insert','validate_order_items_update','validate_vo_items_insert','validate_vo_items_update','validate_wf_errors_insert','validate_wf_errors_update']]\" || true; gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --max-requests 10000 --max-requests-jitter 500 --worker-tmp-dir /dev/shm"
 healthcheckPath = "/ping"
-healthcheckTimeout = 30
+# 2026-04-12 incident: 4 consecutive deploys (including a rollback to a
+# known-good image) hit "1/1 replicas never became healthy!" because the
+# 30s window was tighter than the boot path:
+#   1. startCommand preamble runs DROP TRIGGER on the 1.2 GB SQLite DB
+#      across 12 names — ~10-15s on first cold mount
+#   2. gunicorn starts
+#   3. create_app() loads 23 route modules with 1093 deferred fns
+#   4. DB schema check + migrations
+#   5. Secrets startup_check
+# Total cold boot can run 30-60s. The healthcheck only probes /ping (a
+# 3-line `return "pong"`), so the wall is purely "is gunicorn accepting
+# connections yet". 300s gives generous margin without affecting
+# steady-state runtime behavior.
+healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
