@@ -620,21 +620,44 @@ def validate_against_requirements(
     generated_files: list,
     requirements_json: str,
     rfq_data: dict = None,
+    config: dict = None,
+    strict: bool = False,
 ) -> dict:
     """Check that generated package satisfies email-extracted requirements.
 
+    This is Phase 2 of the Email-as-Contract pipeline: the buyer email
+    is treated as a binding spec, and we verify the generated package
+    covers every requirement they listed (forms, certifications, due
+    dates, delivery constraints) BEFORE allowing the package to ship.
+
     Args:
         generated_files: List of generated PDF filenames.
-        requirements_json: JSON string of RFQRequirements.to_dict().
-        rfq_data: Full RFQ dict (for due_date, etc.).
+        requirements_json: JSON string or dict of RFQRequirements.to_dict().
+        rfq_data: Full RFQ dict (for due_date, agency, etc.).
+        config: App config with company info (cert number, expiration, etc.).
+            When present, enables cert validity checks.
+        strict: If True, upgrade certain gaps from "warning" to "critical"
+            severity so `passed=False` and callers block the send. When
+            False (default), all gaps stay as warnings and the caller
+            sees them in the report but isn't blocked.
 
     Returns:
-        {"gaps": [{"type": str, "form_id": str, "msg": str, "severity": str}],
-         "confirmed": [str],
-         "confidence": float}
+        {
+            "passed": bool,
+            "gaps": [{type, form_id, msg, severity}],
+            "confirmed": [str],
+            "confidence": float,
+        }
+
+    Severity taxonomy:
+        - critical: MUST fix before send (cert expired, sol# mismatch)
+        - warning:  should review (missing form the email expects)
+        - info:     FYI only (low-confidence extraction, edge hints)
     """
     import json as _json
-    result = {"gaps": [], "confirmed": [], "confidence": 0.0}
+    from datetime import datetime
+
+    result = {"passed": True, "gaps": [], "confirmed": [], "confidence": 0.0}
 
     if not requirements_json or requirements_json == "{}":
         return result
@@ -643,49 +666,151 @@ def validate_against_requirements(
         reqs = _json.loads(requirements_json) if isinstance(requirements_json, str) else requirements_json
     except (ValueError, TypeError):
         return result
+    if not isinstance(reqs, dict):
+        return result
 
     confidence = reqs.get("confidence", 0.0)
     result["confidence"] = confidence
-    forms_required = reqs.get("forms_required", [])
-    gen_lower = [fn.lower() for fn in generated_files]
+    forms_required = reqs.get("forms_required", []) or []
+    gen_lower = [fn.lower() for fn in (generated_files or [])]
+    rfq_data = rfq_data or {}
+    config = config or {}
 
-    # Check each required form
+    def _add_gap(type_, form_id, msg, severity):
+        result["gaps"].append({
+            "type": type_,
+            "form_id": form_id,
+            "msg": msg,
+            "severity": severity,
+        })
+        if strict and severity == "critical":
+            result["passed"] = False
+
+    # ── Required forms ──────────────────────────────────────────────
     for form_id in forms_required:
-        # See if any generated file matches this form
         found = any(form_id.replace("_", "") in fn.replace("_", "") for fn in gen_lower)
         if found:
             result["confirmed"].append(form_id)
         else:
-            result["gaps"].append({
-                "type": "missing_form",
-                "form_id": form_id,
-                "msg": f"Email requires {form_id.upper()} but none generated",
-                "severity": "warning",
-            })
+            # Missing a form the buyer explicitly asked for is CRITICAL
+            # in strict mode — they told us what they need.
+            _add_gap(
+                "missing_form",
+                form_id,
+                f"Email requires {form_id.upper()} but none generated",
+                "critical" if strict else "warning",
+            )
 
-    # Check food items → OBS-1600
+    # ── Food items → OBS-1600 heuristic ─────────────────────────────
     if reqs.get("food_items_present") and "obs_1600" not in forms_required:
         if not any("obs" in fn or "1600" in fn for fn in gen_lower):
-            result["gaps"].append({
-                "type": "missing_form",
-                "form_id": "obs_1600",
-                "msg": "Email mentions food items — OBS 1600 certification may be required",
-                "severity": "warning",
-            })
+            _add_gap(
+                "missing_form",
+                "obs_1600",
+                "Email mentions food items — OBS 1600 certification may be required",
+                "warning",
+            )
 
-    # Check due date
-    rfq_data = rfq_data or {}
+    # ── Due date deadline check ─────────────────────────────────────
     req_due = reqs.get("due_date", "")
     rfq_due = rfq_data.get("due_date", "")
     if req_due and rfq_due in ("TBD", "", None):
-        result["gaps"].append({
-            "type": "due_date_missing",
-            "form_id": "",
-            "msg": f"Email due date is {req_due} but RFQ due date not set",
-            "severity": "warning",
-        })
+        _add_gap(
+            "due_date_missing",
+            "",
+            f"Email due date is {req_due} but RFQ due date not set",
+            "warning",
+        )
+    # If both are set, also verify we're still BEFORE the deadline
+    if req_due:
+        parsed_due = _parse_requirement_date(req_due)
+        if parsed_due:
+            if parsed_due < datetime.now():
+                _add_gap(
+                    "deadline_passed",
+                    "",
+                    f"Email due date {req_due} has already passed — "
+                    f"do not submit without buyer confirmation",
+                    "critical",
+                )
+            elif (parsed_due - datetime.now()).days == 0:
+                _add_gap(
+                    "deadline_today",
+                    "",
+                    f"Email due date {req_due} is TODAY — ensure submission before cutoff time",
+                    "warning",
+                )
+
+    # ── Cert validity check ────────────────────────────────────────
+    # If the email requires DVBE/SB/MB certs and the package is using
+    # Reytech's cert, verify it isn't expired.
+    co = config.get("company", {}) or {}
+    cert_expiration = co.get("cert_expiration") or config.get("cert_expiration", "")
+    dvbe_or_sb_required = any(
+        f in forms_required for f in ("dvbe843", "std843", "sb_dvbe_cert")
+    ) or bool(reqs.get("requires_sb_dvbe"))
+    if cert_expiration and dvbe_or_sb_required:
+        parsed_cert = _parse_requirement_date(cert_expiration)
+        if parsed_cert and parsed_cert < datetime.now():
+            _add_gap(
+                "cert_expired",
+                "",
+                f"Reytech SB/DVBE cert expired {cert_expiration} — "
+                f"renew before bidding on DVBE solicitations",
+                "critical",
+            )
+
+    # ── Solicitation number match ───────────────────────────────────
+    req_sol = (reqs.get("solicitation_number") or "").strip()
+    rfq_sol = (rfq_data.get("solicitation_number") or "").strip()
+    if req_sol and rfq_sol and req_sol != rfq_sol:
+        _add_gap(
+            "solicitation_mismatch",
+            "",
+            f"Email says solicitation {req_sol} but RFQ is set to {rfq_sol} — "
+            f"verify before sending",
+            "critical",
+        )
+
+    # ── Delivery location constraint ───────────────────────────────
+    delivery_location = (reqs.get("delivery_location") or "").strip()
+    if delivery_location:
+        # FYI only — we can't verify the package contains the right
+        # ship-to without parsing the PDF, but we surface it so the
+        # operator eyeballs the cover page
+        _add_gap(
+            "delivery_reminder",
+            "",
+            f"Email specifies delivery to: {delivery_location}",
+            "info",
+        )
+
+    # ── Low-confidence extraction warning ──────────────────────────
+    if confidence and confidence < 0.5:
+        _add_gap(
+            "low_confidence_extraction",
+            "",
+            f"Requirements extraction confidence is only {confidence:.0%} — "
+            f"review extracted requirements manually",
+            "info",
+        )
 
     return result
+
+
+def _parse_requirement_date(date_str: str):
+    """Best-effort parse of a date string in one of the formats the
+    requirement extractor emits. Returns a datetime or None."""
+    from datetime import datetime
+    if not date_str:
+        return None
+    s = str(date_str).strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1149,6 +1274,8 @@ def run_form_qa(
     config: dict,
     agency_key: str,
     required_forms: set,
+    requirements_json: str = "",
+    strict_requirements: bool = False,
 ) -> dict:
     """Run complete QA on all generated forms.
 
@@ -1194,6 +1321,36 @@ def run_form_qa(
         report["passed"] = False
         report["critical_issues"].extend(pkg_check["issues"])
     report["warnings"].extend(pkg_check.get("warnings", []))
+
+    # 1b. Email-as-Contract requirements check — the buyer's email is
+    # a binding spec. Verify the generated package satisfies every
+    # requirement they listed (forms, certs, due dates) before allowing
+    # the send. Only runs if the caller provided extracted requirements.
+    if requirements_json:
+        try:
+            req_check = validate_against_requirements(
+                generated_files=output_files,
+                requirements_json=requirements_json,
+                rfq_data=rfq_data,
+                config=config,
+                strict=strict_requirements,
+            )
+            report["requirements_check"] = req_check
+            if not req_check.get("passed", True):
+                report["passed"] = False
+            for gap in req_check.get("gaps", []):
+                msg = f"[requirements] {gap.get('msg','')}"
+                if gap.get("severity") == "critical":
+                    report["critical_issues"].append(msg)
+                    if strict_requirements:
+                        report["passed"] = False
+                elif gap.get("severity") == "warning":
+                    report["warnings"].append(msg)
+                else:  # info
+                    report["warnings"].append(msg)
+        except Exception as e:
+            log.warning("run_form_qa: requirements check crashed: %s", e)
+            report["warnings"].append(f"requirements check crashed: {e}")
 
     # 2. Verify each generated form
     for form_info in form_id_map:
