@@ -66,7 +66,8 @@ def api_cchcs_packet_generate(pcid):
 
     # Guard: only run on CCHCS packet sources. If the filename doesn't
     # look like a packet, return 400 with a pointer to the normal 704
-    # generate endpoint.
+    # generate endpoint. Also tag the PC's packet_type now if it isn't
+    # already set, so the home queue / UI can show a packet badge.
     basename = os.path.basename(source_pdf)
     email_subject = pc.get("email_subject", "") or ""
     if not looks_like_cchcs_packet(filename=basename, subject=email_subject):
@@ -77,6 +78,11 @@ def api_cchcs_packet_generate(pcid):
                 f"RFQ Packet. Use /pricecheck/<id>/generate for standard 704s."
             ),
         }), 400
+    try:
+        from src.agents.cchcs_packet_detector import tag_pc_if_packet
+        tag_pc_if_packet(pc)
+    except Exception as _de:
+        log.debug("cchcs packet tag: %s", _de)
 
     dry_run = request.args.get("dry_run", "0") == "1"
 
