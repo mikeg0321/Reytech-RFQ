@@ -5678,3 +5678,316 @@ def api_pcs_diagnostic_all():
         "hidden_count": len(pcs) - visible_count,
         "hidden_pcs": hidden,
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Admin bulk maintenance — reparse empty PCs + PC/RFQ duplicate resolver
+#
+# 2026-04-12 context: 12 Valencia/CDCR PCs on prod had empty item lists
+# because they were ingested with old parser code that couldn't handle
+# Docusign-signed 704 PDFs. Mike had to ask me to `curl` the reparse
+# endpoint for each one individually. These endpoints fix both issues:
+#
+#   POST /api/admin/reparse-empty-pcs        — batch reparse
+#   POST /api/admin/resolve-pc-rfq-dupes     — dismiss PC side when the
+#                                              same solicitation is in
+#                                              both the PC and RFQ queues
+# ═══════════════════════════════════════════════════════════════════════
+
+def _pc_came_from_email(pc: dict) -> bool:
+    """A PC qualifies for bulk reparse only if it originated from a real
+    buyer email — we don't want to touch half-abandoned manual entries.
+    """
+    return bool(
+        pc.get("email_subject")
+        or pc.get("sender_email")
+        or pc.get("original_sender")
+        or pc.get("email_uid")
+    )
+
+
+def _source_pdf_exists(pc: dict, pcid: str) -> str:
+    """Return an on-disk path to the PC's source PDF, recovering from the
+    rfq_files / email_attachments tables if the stored path is stale.
+    Returns empty string if the PDF cannot be located or restored.
+    """
+    source_pdf = pc.get("source_pdf", "") or ""
+    if source_pdf and os.path.exists(source_pdf):
+        return source_pdf
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT data, filename FROM rfq_files "
+                "WHERE rfq_id=? AND category='source' ORDER BY id DESC LIMIT 1",
+                (pcid,)
+            ).fetchone()
+            if not row:
+                try:
+                    row = conn.execute(
+                        "SELECT data, filename FROM email_attachments "
+                        "WHERE pc_id=? ORDER BY id DESC LIMIT 1",
+                        (pcid,)
+                    ).fetchone()
+                except Exception:
+                    row = None
+            if row and row["data"]:
+                restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
+                os.makedirs(restore_dir, exist_ok=True)
+                restored = os.path.join(
+                    restore_dir, row["filename"] or f"{pcid}.pdf"
+                )
+                with open(restored, "wb") as f:
+                    f.write(row["data"])
+                return restored
+    except Exception as e:
+        log.debug("reparse recovery for %s failed: %s", pcid, e)
+    return ""
+
+
+@bp.route("/api/admin/reparse-empty-pcs", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_reparse_empty_pcs():
+    """Reparse every PC that has zero items AND came from a real email.
+
+    Query params:
+      dry_run=1  — don't mutate anything, just return the candidate list
+      limit=N    — cap the number of PCs to touch in this call (default 100)
+
+    Use case: a batch of PCs was ingested with old parser code that
+    failed on their layout. Current code works. One POST unsticks them
+    all without having to curl /pricecheck/<id>/reparse in a loop.
+    """
+    dry_run = request.args.get("dry_run", "0") == "1"
+    try:
+        limit = int(request.args.get("limit", "100"))
+    except (TypeError, ValueError):
+        limit = 100
+    limit = max(1, min(limit, 500))
+
+    try:
+        from src.api.dashboard import _load_price_checks, _save_single_pc
+        from src.api.config import PRICE_CHECK_AVAILABLE
+        from src.forms.price_check import parse_ams704
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"imports failed: {e}"}), 500
+
+    if not PRICE_CHECK_AVAILABLE:
+        return jsonify({"ok": False, "error": "price_check module unavailable"}), 500
+
+    pcs = _load_price_checks()
+
+    candidates = []
+    for pcid, pc in pcs.items():
+        if not isinstance(pc, dict):
+            continue
+        if pc.get("status") in (
+            "dismissed", "archived", "deleted", "sent", "won", "lost",
+            "duplicate", "reclassified", "expired",
+        ):
+            continue
+        items = pc.get("items") or []
+        if len(items) > 0:
+            continue
+        if not _pc_came_from_email(pc):
+            continue
+        candidates.append((pcid, pc))
+        if len(candidates) >= limit:
+            break
+
+    if dry_run:
+        return jsonify({
+            "ok": True,
+            "dry_run": True,
+            "would_reparse": len(candidates),
+            "candidates": [
+                {
+                    "pc_id": pid,
+                    "pc_number": p.get("pc_number", ""),
+                    "subject": p.get("email_subject", "")[:100],
+                    "sender": p.get("sender_email") or p.get("original_sender", ""),
+                }
+                for pid, p in candidates
+            ],
+        })
+
+    results = {"reparsed": [], "skipped": [], "errors": []}
+    for pcid, pc in candidates:
+        source_pdf = _source_pdf_exists(pc, pcid)
+        if not source_pdf:
+            results["skipped"].append({
+                "pc_id": pcid, "reason": "source PDF missing"
+            })
+            continue
+        try:
+            parsed = parse_ams704(source_pdf)
+        except Exception as e:
+            results["errors"].append({"pc_id": pcid, "error": str(e)[:200]})
+            continue
+        fresh_items = parsed.get("line_items") or []
+        if not fresh_items:
+            results["skipped"].append({
+                "pc_id": pcid, "reason": "parser still returned 0 items"
+            })
+            continue
+        # Merge the fresh parse back into the PC without destroying any
+        # user-set top-level fields. Empty PCs by definition have no
+        # user pricing, so we overwrite items + parsed block cleanly.
+        pc["items"] = fresh_items
+        pc["parsed"] = parsed
+        pc["source_pdf"] = source_pdf
+        pc["status"] = "parsed"
+        pc["_reparsed_at"] = datetime.now(timezone.utc).isoformat()
+        try:
+            _save_single_pc(pcid, pc)
+            results["reparsed"].append({
+                "pc_id": pcid,
+                "pc_number": pc.get("pc_number", ""),
+                "items": len(fresh_items),
+            })
+            log.info("BULK REPARSE: %s → %d items", pcid, len(fresh_items))
+        except Exception as e:
+            results["errors"].append({"pc_id": pcid, "error": f"save failed: {e}"})
+
+    return jsonify({
+        "ok": True,
+        "dry_run": False,
+        "total_candidates": len(candidates),
+        "reparsed_count": len(results["reparsed"]),
+        "skipped_count": len(results["skipped"]),
+        "error_count": len(results["errors"]),
+        "results": results,
+    })
+
+
+def _normalize_sol(value) -> str:
+    """Normalize a solicitation/pc number for equality comparison across
+    PC and RFQ sides. Strips whitespace, lowercases, removes common
+    prefixes/suffixes that differ between how PCs and RFQs store them."""
+    if not value:
+        return ""
+    s = str(value).strip().lower()
+    # Strip a leading '#' some templates prepend
+    if s.startswith("#"):
+        s = s[1:]
+    return s
+
+
+@bp.route("/api/admin/resolve-pc-rfq-dupes", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_resolve_pc_rfq_dupes():
+    """Find (PC, RFQ) pairs that point to the same solicitation and
+    dismiss the PC side so the solicitation only appears once in the
+    home queue (on the RFQ side, which is the richer data model).
+
+    Query params:
+      dry_run=1  — return matches without mutating
+      keep=pc    — invert: dismiss the RFQ side instead of the PC
+                   (default 'rfq' keeps the RFQ)
+
+    2026-04-12 observed case: Drew Sims CalVet #26-04-003 appeared as
+    BOTH auto_20260410_1775831475 (PC) AND 20260410_142935_19d77a (RFQ)
+    simultaneously. This endpoint dismisses the PC clone automatically.
+    """
+    from src.api.dashboard import _load_price_checks, _save_single_pc, load_rfqs
+
+    dry_run = request.args.get("dry_run", "0") == "1"
+    keep_side = request.args.get("keep", "rfq").lower()
+    if keep_side not in ("rfq", "pc"):
+        keep_side = "rfq"
+
+    pcs = _load_price_checks()
+    rfqs = load_rfqs()
+
+    # Build a sol → [pc_ids] index of ACTIVE PCs only
+    _active_pc_statuses = {
+        "new", "draft", "parsed", "parse_error", "priced", "ready",
+        "auto_drafted", "quoted", "generated", "enriching", "enriched",
+    }
+    pc_by_sol: dict = {}
+    for pid, pc in pcs.items():
+        if not isinstance(pc, dict):
+            continue
+        if pc.get("status", "new") not in _active_pc_statuses:
+            continue
+        sol = _normalize_sol(
+            pc.get("solicitation_number") or pc.get("pc_number", "")
+        )
+        if not sol:
+            continue
+        pc_by_sol.setdefault(sol, []).append(pid)
+
+    # Scan RFQs for matching solicitations among the same active set
+    _active_rfq_statuses = {
+        "new", "draft", "ready", "generated", "parsed", "priced", "quoted"
+    }
+    matches = []
+    for rid, rfq in rfqs.items():
+        if not isinstance(rfq, dict):
+            continue
+        if rfq.get("status", "new") not in _active_rfq_statuses:
+            continue
+        sol = _normalize_sol(
+            rfq.get("solicitation_number") or rfq.get("rfq_number", "")
+        )
+        if not sol or sol not in pc_by_sol:
+            continue
+        for pid in pc_by_sol[sol]:
+            matches.append({
+                "solicitation": sol,
+                "rfq_id": rid,
+                "pc_id": pid,
+                "rfq_subject": rfq.get("email_subject", "")[:100],
+                "pc_subject": pcs[pid].get("email_subject", "")[:100],
+            })
+
+    if dry_run:
+        return jsonify({
+            "ok": True,
+            "dry_run": True,
+            "keep_side": keep_side,
+            "matches": matches,
+            "would_dismiss": len(matches),
+        })
+
+    dismissed = []
+    for m in matches:
+        if keep_side == "rfq":
+            target_id = m["pc_id"]
+            target = pcs.get(target_id)
+            if target:
+                target["status"] = "dismissed"
+                target["_dismissed_reason"] = (
+                    f"duplicate of RFQ {m['rfq_id']} (sol {m['solicitation']})"
+                )
+                try:
+                    _save_single_pc(target_id, target)
+                    dismissed.append({"type": "pc", "id": target_id,
+                                      "sol": m["solicitation"]})
+                except Exception as e:
+                    log.error("PC/RFQ dedupe save failed for %s: %s", target_id, e)
+        else:
+            target_id = m["rfq_id"]
+            target = rfqs.get(target_id)
+            if target:
+                target["status"] = "dismissed"
+                target["_dismissed_reason"] = (
+                    f"duplicate of PC {m['pc_id']} (sol {m['solicitation']})"
+                )
+                try:
+                    from src.api.dashboard import _save_single_rfq
+                    _save_single_rfq(target_id, target)
+                    dismissed.append({"type": "rfq", "id": target_id,
+                                      "sol": m["solicitation"]})
+                except Exception as e:
+                    log.error("PC/RFQ dedupe save failed for %s: %s", target_id, e)
+
+    return jsonify({
+        "ok": True,
+        "dry_run": False,
+        "keep_side": keep_side,
+        "dismissed_count": len(dismissed),
+        "dismissed": dismissed,
+        "total_matches": len(matches),
+    })
