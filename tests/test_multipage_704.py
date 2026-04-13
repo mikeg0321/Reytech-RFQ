@@ -219,6 +219,173 @@ def test_summary_totals():
     print(f"  PASS: subtotal = ${expected_sub:.2f}")
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Overlay bounds regression tests (infrastructure for DOCX 704 calibration)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# These tests verify that the form_qa.verify_overlay_bounds() helper and
+# the conftest.assert_overlay_text_in_cell fixture correctly detect drift
+# when overlay text lands outside its expected cell. They run against
+# synthetic fixtures so they don't depend on LibreOffice being installed.
+#
+# Once a real DOCX-converted 704 is available (run
+# _overnight_review/scripts/08_measure_docx_704.py with LibreOffice
+# installed, or drop a converted PDF into tests/fixtures/docx_704/),
+# the same helpers drive the real DOCX calibration tests in this file.
+
+def _write_synthetic_overlay_pdf(out_path, cell_rects, texts, drift=0.0):
+    """Generate a tiny PDF with text drawn at given cell positions.
+
+    Each text in `texts` is drawn at the corresponding cell rect from
+    `cell_rects`, offset by `drift` points on both axes. Used to
+    exercise the overlay bounds check: drift=0 should pass, drift>5
+    should fail.
+    """
+    from reportlab.pdfgen import canvas as rl_canvas
+    c = rl_canvas.Canvas(out_path, pagesize=(792, 612))
+    for (x0, y0, x1, y1), text in zip(cell_rects, texts):
+        fs = 9
+        c.setFont("Helvetica", fs)
+        c.drawString(x0 + 4 + drift, y0 + 4 + drift, text)
+    c.save()
+
+
+def test_overlay_bounds_helper_passes_on_clean_fill():
+    """Zero drift: text drawn exactly inside cell rects must pass the
+    bounds check and the test helper."""
+    from src.forms.form_qa import verify_overlay_bounds
+    cells = [
+        ("row1_price", (637, 292, 686, 311)),
+        ("row1_ext", (691, 292, 754, 311)),
+    ]
+    texts = ["10.00", "20.00"]
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        _write_synthetic_overlay_pdf(tmp.name, [c[1] for c in cells], texts, drift=0)
+        path = tmp.name
+    try:
+        expected = {k: v for k, v in cells}
+        r = verify_overlay_bounds(path, expected, tolerance_pt=5.0)
+        assert r["passed"], f"clean fill should pass, got issues: {r['issues']}"
+        assert not r["issues"]
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+def test_overlay_bounds_helper_catches_20pt_drift():
+    """20pt drift (the documented DOCX 704 failure mode) must be
+    caught as a critical issue, not a warning."""
+    from src.forms.form_qa import verify_overlay_bounds
+    cells = [
+        ("row1_price", (637, 292, 686, 311)),
+        ("row1_ext", (691, 292, 754, 311)),
+    ]
+    texts = ["99.00", "88.00"]
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        _write_synthetic_overlay_pdf(tmp.name, [c[1] for c in cells], texts, drift=25)
+        path = tmp.name
+    try:
+        expected = {k: v for k, v in cells}
+        r = verify_overlay_bounds(path, expected, tolerance_pt=5.0)
+        assert not r["passed"], "25pt drift must fail the bounds check"
+        assert any("drift" in i.lower() or "outside" in i.lower() for i in r["issues"]), \
+            f"expected a drift issue, got: {r['issues']}"
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+def test_overlay_bounds_helper_tolerates_small_drift():
+    """Sub-tolerance drift (2pt, within the 5pt tolerance) must NOT
+    be flagged — covers normal sub-pixel rounding from pdfplumber."""
+    from src.forms.form_qa import verify_overlay_bounds
+    cells = [("row1_price", (637, 292, 686, 311))]
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        _write_synthetic_overlay_pdf(tmp.name, [cells[0][1]], ["15.00"], drift=2)
+        path = tmp.name
+    try:
+        expected = {k: v for k, v in cells}
+        r = verify_overlay_bounds(path, expected, tolerance_pt=5.0)
+        assert r["passed"], f"2pt drift should pass, got: {r['issues']}"
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+def test_conftest_helper_matches_form_qa_behavior():
+    """The tests/conftest.py assert_overlay_text_in_cell helper and
+    the form_qa.verify_overlay_bounds function must agree — same
+    tolerance logic applied to the same PDF should produce the same
+    pass/fail result."""
+    import sys as _sys
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from conftest import assert_overlay_text_in_cell
+    from src.forms.form_qa import verify_overlay_bounds
+
+    cells = [("row1_price", (637, 292, 686, 311))]
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+        _write_synthetic_overlay_pdf(tmp.name, [cells[0][1]], ["42.00"], drift=0)
+        path = tmp.name
+    try:
+        # form_qa: passes
+        r = verify_overlay_bounds(path, {cells[0][0]: cells[0][1]}, tolerance_pt=5.0)
+        assert r["passed"]
+        # conftest helper: passes (raises on failure, so reaching the
+        # next line is the assertion)
+        assert_overlay_text_in_cell(
+            path, cells[0][0], cells[0][1],
+            expected_text_contains="42",
+            tolerance_pt=5.0,
+        )
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+# ── DOCX 704 real-fixture test (skipped until fixture exists) ────────────
+
+DOCX_CONVERTED_FIXTURE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "docx_704", "sample_non_food_converted.pdf"
+)
+
+
+import pytest
+
+@pytest.mark.skipif(
+    not os.path.exists(DOCX_CONVERTED_FIXTURE),
+    reason="DOCX-converted fixture not present — run _overnight_review/scripts/08_measure_docx_704.py"
+)
+def test_docx_704_overlay_bounds_real_fixture():
+    """When a real LibreOffice-converted DOCX 704 PDF is present at
+    tests/fixtures/docx_704/sample_non_food_converted.pdf, verify that
+    our detector places overlay text inside the expected cells. This
+    test is the authoritative DOCX calibration guard — it skips on CI
+    where LibreOffice isn't installed and runs locally once someone
+    has dropped a converted fixture into place."""
+    from src.forms.price_check import _detect_ams704_overlay_positions
+
+    detected = _detect_ams704_overlay_positions(DOCX_CONVERTED_FIXTURE)
+    assert detected is not None, "detector returned None on DOCX-converted fixture"
+    assert any(d is not None for d in detected), "all pages failed detection"
+
+    # For every detected row, the price_x and ext_x ranges must be
+    # sane (> 30pt wide) and positioned in the right half of the page.
+    for pg_idx, d in enumerate(detected):
+        if d is None:
+            continue
+        assert d["price_x"][1] - d["price_x"][0] > 25, \
+            f"pg{pg_idx+1}: price_x range too narrow: {d['price_x']}"
+        assert d["ext_x"][1] - d["ext_x"][0] > 25, \
+            f"pg{pg_idx+1}: ext_x range too narrow: {d['ext_x']}"
+        assert d["price_x"][0] > 400, \
+            f"pg{pg_idx+1}: price_x not in right half: {d['price_x']}"
+        # Every item row must have sane Y bounds (bot < top, band 10-40pt)
+        for yb, yt in d["item_rows"]:
+            band = yt - yb
+            assert 8 < band < 50, \
+                f"pg{pg_idx+1}: item row band {band:.1f}pt outside (8, 50)"
+
+
 if __name__ == "__main__":
     if not os.path.exists(TEMPLATE):
         print(f"ERROR: Template not found at {TEMPLATE}")

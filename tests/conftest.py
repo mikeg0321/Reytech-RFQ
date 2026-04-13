@@ -532,6 +532,134 @@ def get_pdf_page_count(pdf_path):
     return len(PdfReader(pdf_path).pages)
 
 
+def extract_pdf_words(pdf_path, page_num=None):
+    """Return a list of (page_idx, x0, rl_y0, x1, rl_y1, text) tuples
+    for every word in the PDF, in reportlab coordinates (Y grows upward
+    from the bottom of the page).
+
+    pdfplumber natively emits coordinates in PDF-top-origin space
+    (Y grows downward); we flip them so callers can compare directly
+    against reportlab-drawn cell rects, which is how the overlay code
+    defines positions.
+    """
+    import pdfplumber
+    out = []
+    with pdfplumber.open(pdf_path) as pdf:
+        pages = [pdf.pages[page_num]] if page_num is not None else pdf.pages
+        for i, page in enumerate(pages):
+            ph = float(page.height)
+            idx = page_num if page_num is not None else i
+            for w in page.extract_words(keep_blank_chars=False,
+                                         x_tolerance=2, y_tolerance=2):
+                rl_y0 = ph - w["bottom"]
+                rl_y1 = ph - w["top"]
+                out.append((idx, float(w["x0"]), rl_y0,
+                            float(w["x1"]), rl_y1, w["text"]))
+    return out
+
+
+def assert_overlay_text_in_cell(
+    pdf_path,
+    field_id,
+    expected_cell,
+    expected_text_contains=None,
+    tolerance_pt=5.0,
+    page_num=None,
+    msg="",
+):
+    """Assert that the overlay text for a field lands inside the
+    expected cell rectangle (within tolerance_pt at every edge).
+
+    This is the core regression guard for the DOCX 704 overlay drift:
+    when LibreOffice converts a .docx to PDF, cell geometry shifts by
+    20-40pt compared to the standard DocuSign template, and our
+    pdfplumber detector silently produces coordinates that place
+    overlay text outside its cell. This helper reads the actual
+    rendered text and verifies it lands where we said it would.
+
+    Args:
+        pdf_path: path to the filled output PDF
+        field_id: human label for the assertion message
+        expected_cell: (x0, y0_bot, x1, y1_top) in reportlab coords
+        expected_text_contains: optional substring the overlay text
+            must contain. Use to disambiguate when two fields are
+            close together.
+        tolerance_pt: max allowed drift (default 5pt)
+        page_num: optional 0-indexed page filter
+        msg: optional assertion-error prefix
+    """
+    ex0, ey0, ex1, ey1 = expected_cell
+    ecx = (ex0 + ex1) / 2
+    ecy = (ey0 + ey1) / 2
+
+    words = extract_pdf_words(pdf_path, page_num=page_num)
+    proximity = tolerance_pt * 6
+
+    # Find the best-matching word: prefer those containing the expected
+    # substring, then by nearest center distance.
+    best = None
+    best_dist = float("inf")
+    for (pg_idx, wx0, wy0, wx1, wy1, wtxt) in words:
+        if expected_text_contains and expected_text_contains not in wtxt:
+            continue
+        wcx = (wx0 + wx1) / 2
+        wcy = (wy0 + wy1) / 2
+        if abs(wcx - ecx) > (ex1 - ex0) / 2 + proximity:
+            continue
+        if abs(wcy - ecy) > (ey1 - ey0) / 2 + proximity:
+            continue
+        d = ((wcx - ecx) ** 2 + (wcy - ecy) ** 2) ** 0.5
+        if d < best_dist:
+            best_dist = d
+            best = (pg_idx, wx0, wy0, wx1, wy1, wtxt)
+
+    prefix = f"{msg}: " if msg else ""
+    assert best is not None, (
+        f"{prefix}no overlay word found near cell {field_id}={expected_cell}"
+        + (f" containing '{expected_text_contains}'" if expected_text_contains else "")
+    )
+
+    pg_idx, wx0, wy0, wx1, wy1, wtxt = best
+    drift_left = max(0.0, ex0 - wx0)
+    drift_right = max(0.0, wx1 - ex1)
+    drift_bot = max(0.0, ey0 - wy0)
+    drift_top = max(0.0, wy1 - ey1)
+    max_drift = max(drift_left, drift_right, drift_bot, drift_top)
+
+    assert max_drift <= tolerance_pt, (
+        f"{prefix}overlay text for {field_id} is {max_drift:.1f}pt outside "
+        f"its cell (tolerance {tolerance_pt:.0f}pt). "
+        f"Word '{wtxt[:30]}' actual=({wx0:.1f},{wy0:.1f},{wx1:.1f},{wy1:.1f}) "
+        f"expected=({ex0:.1f},{ey0:.1f},{ex1:.1f},{ey1:.1f}) "
+        f"drift: L={drift_left:.1f} R={drift_right:.1f} "
+        f"B={drift_bot:.1f} T={drift_top:.1f}"
+    )
+    return best
+
+
+def measure_pdf_cell_rects(pdf_path, page_num=0, min_width=30, min_height=8):
+    """Return all visible table cell rects in a page using pdfplumber's
+    horizontal/vertical edge detection. Useful for building expected-
+    cell maps from a real template instead of hardcoding coordinates.
+
+    Returns a list of (x0, y0_bot, x1, y1_top) tuples in reportlab coords.
+    """
+    import pdfplumber
+    with pdfplumber.open(pdf_path) as pdf:
+        page = pdf.pages[page_num]
+        ph = float(page.height)
+        rects = []
+        for r in page.rects:
+            w = float(r["width"])
+            h = float(r["height"])
+            if w < min_width or h < min_height:
+                continue
+            rl_y0 = ph - float(r["bottom"])
+            rl_y1 = ph - float(r["top"])
+            rects.append((float(r["x0"]), rl_y0, float(r["x1"]), rl_y1))
+    return rects
+
+
 # ── External API mocking fixtures ────────────────────────────────────────────
 
 @pytest.fixture
