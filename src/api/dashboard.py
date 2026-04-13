@@ -95,11 +95,66 @@ def _save_pending_pos():
     with open(os.path.join(DATA_DIR, "pending_po_reviews.json"), "w") as f:
         json.dump(_pending_po_reviews, f, indent=2, default=str)
 
+def _dedupe_pending_pos(entries: list) -> list:
+    """Collapse duplicate PO entries by po_number, keeping the one with
+    the richest data (highest total / most items). Discards entries with
+    an empty or missing po_number — those are parse failures, not
+    actionable PO awards, and letting them sit in the queue clogs up the
+    home banner with "PO#? $0.00" noise.
+
+    2026-04-12 incident: 80 pending POs on prod collapsed to 6 uniques
+    after dedupe, because _add_pending_po appended on every detection
+    without checking for an existing entry with the same po_number.
+    """
+    by_po = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        po_num = (entry.get("po_number") or "").strip()
+        if not po_num or po_num.lower() == "none":
+            continue
+        existing = by_po.get(po_num)
+        if existing is None:
+            by_po[po_num] = entry
+            continue
+        # Prefer the entry with a non-zero total; tie-break on item count,
+        # then fall back to the newer detected_at timestamp.
+        def _score(e):
+            try:
+                total = float(e.get("total") or 0)
+            except (TypeError, ValueError):
+                total = 0
+            items = len(e.get("items") or [])
+            ts = e.get("detected_at") or ""
+            return (1 if total > 0 else 0, items, ts)
+        if _score(entry) > _score(existing):
+            by_po[po_num] = entry
+    # Preserve detection order (oldest first) so /awards renders stable.
+    return sorted(
+        by_po.values(),
+        key=lambda e: e.get("detected_at") or "",
+    )
+
 def _add_pending_po(po_data):
-    """Add a PO to the pending review queue instead of auto-creating order."""
+    """Add a PO to the pending review queue instead of auto-creating order.
+
+    Deduplicates on po_number — if the same PO was already added (e.g.
+    the email was re-polled, or the poller crashed mid-write and retried),
+    the existing entry is replaced rather than appended. Empty/invalid PO
+    numbers are rejected outright to keep the review queue actionable.
+    """
     po_data["review_status"] = "pending"
     po_data["detected_at"] = datetime.now().isoformat()
+    po_num = (po_data.get("po_number") or "").strip()
+    if not po_num or po_num.lower() == "none":
+        log.warning("PO rejected from pending review: empty/invalid po_number")
+        return
     _load_pending_pos()
+    # Remove any existing entry for this po_number before appending.
+    _pending_po_reviews[:] = [
+        e for e in _pending_po_reviews
+        if (e.get("po_number") or "").strip() != po_num
+    ]
     _pending_po_reviews.append(po_data)
     # Hard cap at 200 entries — evict oldest first regardless of age
     while len(_pending_po_reviews) > 200:

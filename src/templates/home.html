@@ -242,14 +242,32 @@ setTimeout(function(){
 
 <script>
 // Check for pending PO reviews
-fetch('/api/awards/pending').then(r=>r.json()).then(d=>{
- if(d.ok && d.count > 0){
-  var banner = document.getElementById('po-review-banner');
-  banner.style.display = 'block';
-  document.getElementById('po-banner-title').textContent = '🏆 ' + d.count + ' PO Award' + (d.count > 1 ? 's' : '') + ' Pending Review';
-  var details = d.pending.map(function(p){ return 'PO#' + (p.po_number || '?') + ' $' + (p.total || 0).toFixed(2); }).join(' · ');
-  document.getElementById('po-banner-detail').textContent = details + ' — Click to review';
- }
+fetch('/api/awards/pending',{credentials:'same-origin'}).then(r=>r.json()).then(d=>{
+ if(!d.ok || !d.count || d.count <= 0) return;
+ var banner = document.getElementById('po-review-banner');
+ if(!banner) return;
+ banner.style.display = 'block';
+ document.getElementById('po-banner-title').textContent =
+  '🏆 ' + d.count + ' PO Award' + (d.count > 1 ? 's' : '') + ' Pending Review';
+ // Cap the inline preview at 5 POs. Before 2026-04-12 this mapped
+ // every pending PO into one string — 80 entries produced a ~1200px
+ // wall of text that pushed the rest of the home layout off-screen.
+ var DISPLAY_CAP = 5;
+ var seen = {};
+ var unique = (d.pending || []).filter(function(p){
+  var po = (p.po_number || '').toString().trim();
+  if (!po || seen[po]) return false;
+  seen[po] = true;
+  return true;
+ });
+ var shown = unique.slice(0, DISPLAY_CAP).map(function(p){
+  var total = Number(p.total || 0);
+  return 'PO#' + p.po_number + ' $' + total.toFixed(2);
+ });
+ var extra = unique.length - shown.length;
+ var tail = extra > 0 ? ' · +' + extra + ' more' : '';
+ document.getElementById('po-banner-detail').textContent =
+  shown.join(' · ') + tail + ' — Click to review';
 }).catch(function(e){console.warn('fetch error:',e);showMsg('Connection error: '+e.message,'err')});
 </script>
 

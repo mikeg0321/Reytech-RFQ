@@ -680,10 +680,42 @@ def api_award_dismiss(idx):
 @auth_required
 @safe_route
 def api_awards_pending():
-    """Get count of pending PO reviews (for home page banner)."""
-    from src.api.dashboard import _load_pending_pos
-    pending = [p for p in _load_pending_pos() if p.get("review_status") == "pending"]
+    """Get count of pending PO reviews (for home page banner).
+
+    Deduplicates by po_number on the way out so historical duplicates
+    (200-entry cap previously accepted the same PO on every redetection)
+    don't bloat the banner or crash the home layout with an 80-item
+    wall of text.
+    """
+    from src.api.dashboard import _load_pending_pos, _dedupe_pending_pos
+    raw = [p for p in _load_pending_pos() if p.get("review_status") == "pending"]
+    pending = _dedupe_pending_pos(raw)
     return jsonify({"ok": True, "count": len(pending), "pending": pending})
+
+
+@bp.route("/api/awards/purge-dupes", methods=["POST"])
+@auth_required
+@safe_route
+def api_awards_purge_dupes():
+    """Admin one-shot: rewrite pending_po_reviews.json with a deduped copy.
+
+    Useful after an incident that left many duplicate entries in the queue
+    (2026-04-12 incident: 80 entries collapsed to 6 uniques). Returns
+    the before/after counts so the caller can verify.
+    """
+    from src.api.dashboard import _load_pending_pos, _dedupe_pending_pos, _save_pending_pos
+    import src.api.dashboard as _dash
+    before = _load_pending_pos()
+    before_count = len(before)
+    deduped = _dedupe_pending_pos(before)
+    _dash._pending_po_reviews[:] = deduped
+    _save_pending_pos()
+    return jsonify({
+        "ok": True,
+        "before": before_count,
+        "after": len(deduped),
+        "removed": before_count - len(deduped),
+    })
 
 
 @bp.route("/api/rfq/<rid>/mark-won", methods=["POST"])
