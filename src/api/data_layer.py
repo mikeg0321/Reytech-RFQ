@@ -496,7 +496,20 @@ def _merge_save_pc(pc_id: str, pc_data: dict):
 
 
 def _is_user_facing_pc(pc: dict) -> bool:
-    """Should this PC show in the PC queue on the homepage?"""
+    """Should this PC show in the PC queue on the homepage?
+
+    A PC is user-facing when it's actionable work — either it has items,
+    or it has a real solicitation/pc number, or it came from a real buyer
+    email (even if the parser returned 0 items, that's a parse failure
+    that still needs human attention, not noise).
+
+    2026-04-12 regression context: 12 Valencia/CDCR PCs were silently
+    hidden from the home queue because the parser failed to extract
+    items from their Docusign-signed 704 PDFs, and this function returned
+    False for any empty-item PC without a solicitation number. The user
+    thought the email poller was broken when in fact the PCs existed
+    as parse failures waiting for triage.
+    """
     status = pc.get("status", "new")
     if status in ("dismissed", "archived", "deleted", "duplicate",
                   "no_response", "not_responding", "expired", "reclassified"):
@@ -512,6 +525,10 @@ def _is_user_facing_pc(pc: dict) -> bool:
         return True
     sol = pc.get("solicitation_number", "") or pc.get("pc_number", "")
     if sol and sol != "unknown":
+        return True
+    # Zero items, no solicitation — but came from email with a real
+    # sender. This is a parse failure: surface it, don't hide it.
+    if pc.get("email_subject") or pc.get("sender_email") or pc.get("original_sender"):
         return True
     return False
 

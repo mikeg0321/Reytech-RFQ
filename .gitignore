@@ -63,3 +63,4 @@ data/*.migrated
 # ── GitHub (ignore IDE config, keep workflows) ─────────────────────────────
 .github/*
 !.github/workflows
+_diag/

@@ -377,11 +377,30 @@ def home():
     # crowd out real work. They remain accessible via direct URL for any
     # admin diagnostic that wants them.
     user_pcs = {k: v for k, v in user_pcs.items() if not v.get("is_test")}
-    # Additional cleanup: filter PCs with no solicitation AND 0 items
-    user_pcs = {k: v for k, v in user_pcs.items()
-                if len(v.get("items", [])) > 0
-                or v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced")
-                or (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown", "RFQ")}
+    # Keep PCs with zero items IF they came from a real buyer email —
+    # those are parse failures that need human attention, not noise.
+    # Before 2026-04-12 the filter was `len(items) > 0 OR status in (...)`,
+    # which meant every Valencia / Jensen / CDCR email where the parser
+    # missed the item table got silently hidden from the home queue. The
+    # user had 12 such empty-item PCs on prod with no way to see them.
+    # The _parse_failed flag is added below so the row can show a badge.
+    def _keep_pc(v):
+        items = v.get("items") or []
+        if len(items) > 0:
+            return True
+        # Zero items but came from email with a sender — surface it so
+        # the user can re-parse manually.
+        if v.get("email_subject") or v.get("sender_email") or v.get("original_sender"):
+            v["_parse_failed"] = True
+            return True
+        # Zero items but user explicitly moved it along — keep.
+        if v.get("status") in ("sent", "won", "lost", "generated", "ready", "priced"):
+            return True
+        # Zero items and has a real PC/solicitation number — keep.
+        if (v.get("solicitation_number") or v.get("pc_number", "")) not in ("", "unknown", "RFQ"):
+            return True
+        return False
+    user_pcs = {k: v for k, v in user_pcs.items() if _keep_pc(v)}
     # Split: active queue vs sent/completed
     _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}

@@ -182,6 +182,60 @@ class TestHomepage:
         resp = client.get("/")
         assert resp.status_code == 200
 
+    def test_homepage_surfaces_empty_pcs_from_email(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """Regression: a PC ingested from email with zero items is a PARSE
+        FAILURE that needs human attention — not noise to hide. Before this
+        fix the home filter at routes_rfq.py:380 excluded len(items)==0
+        unconditionally, so 12 Valencia/CDCR PCs silently disappeared from
+        prod and the user thought the poller wasn't working at all."""
+        import os, json
+        # Empty PC that came from a real buyer email — must appear
+        empty_pc = dict(sample_pc)
+        empty_pc["id"] = "pc_empty_email"
+        empty_pc["pc_number"] = ""
+        empty_pc["items"] = []
+        empty_pc["parsed"] = {"line_items": [], "header": {}}
+        empty_pc["status"] = "parsed"
+        empty_pc["email_subject"] = "Price Quote Request - Group Tx Materials"
+        empty_pc["sender_email"] = "katrina.valencia@cdcr.ca.gov"
+        empty_pc["original_sender"] = "katrina.valencia@cdcr.ca.gov"
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w") as f:
+            json.dump({empty_pc["id"]: empty_pc}, f)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "pc_empty_email" in body, (
+            "Empty-item PC from email must surface in the queue so the user "
+            "can re-parse or triage. Regression test for the silent hide bug."
+        )
+        assert "PARSE FAIL" in body, (
+            "The parse-failure badge should replace the item count on zero-item email PCs"
+        )
+
+    def test_homepage_still_hides_empty_pc_without_email(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """Counter-test: a PC with zero items AND no email metadata is still
+        noise (e.g. half-abandoned manual entry) and stays hidden."""
+        import os, json
+        noise_pc = dict(sample_pc)
+        noise_pc["id"] = "pc_noise"
+        noise_pc["pc_number"] = ""
+        noise_pc["items"] = []
+        noise_pc["parsed"] = {"line_items": [], "header": {}}
+        noise_pc["status"] = "new"
+        noise_pc.pop("email_subject", None)
+        noise_pc.pop("sender_email", None)
+        noise_pc.pop("original_sender", None)
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w") as f:
+            json.dump({noise_pc["id"]: noise_pc}, f)
+        resp = client.get("/")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert "pc_noise" not in body
+
     def test_homepage_hides_test_pcs(self, client, temp_data_dir, sample_pc):
         """Regression: PCs created via /api/test/create-pc are flagged
         is_test=True and must not appear in the human queue. Before this
