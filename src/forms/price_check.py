@@ -1400,9 +1400,11 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
     """
     # Try pdfplumber first
     pdfplumber_worked = False
+    _pdf_page_count = 0
     try:
         import pdfplumber
         with pdfplumber.open(pdf_path) as pdf:
+            _pdf_page_count = len(pdf.pages)
             for page_num, page in enumerate(pdf.pages):
                 text = page.extract_text() or ""
                 if page_num == 0:
@@ -1417,12 +1419,27 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
     except Exception as e:
         log.debug("pdfplumber attempt: %s", e)
 
-    if pdfplumber_worked and len(result["line_items"]) >= 3:
+    # Only return early when pdfplumber's table extraction looks like it
+    # actually covered the whole document. On Docusign-flat multi-page
+    # 704s, page 1 has a table grid (6-8 items) and pages 2-4 are flowing
+    # text continuation rows with no grid lines — pdfplumber gets nothing
+    # from those pages. Old behavior: any >= 3 items short-circuited and
+    # the text regex fallback never saw pages 2-4. Now we require at least
+    # 5 items per page; below that, fall through to the text regex which
+    # CAN read continuation pages.
+    _per_page_threshold = max(3, _pdf_page_count * 5) if _pdf_page_count else 3
+    if pdfplumber_worked and len(result["line_items"]) >= _per_page_threshold:
         result["line_items"] = _merge_continuation_items(result["line_items"])
         # Filter out junk items (legal text, instructions, boilerplate)
         result["line_items"] = _filter_junk_items(_sanitize_parsed_items(result["line_items"]))
         result["parse_quality"] = validate_parse_quality(pdf_path, result["line_items"])
         return result
+    if pdfplumber_worked:
+        log.info(
+            "pdfplumber found %d items but %d-page PDF expects >= %d — "
+            "falling through to text regex for continuation pages",
+            len(result["line_items"]), _pdf_page_count, _per_page_threshold,
+        )
 
     # pdfplumber failed — use regex text parser on pypdf output
     log.info("pdfplumber found %d items — falling back to text parser for %s",
@@ -1717,6 +1734,46 @@ def _extract_items_from_text(text: str, result: dict):
         if re.match(r'^\d{1,2}$', line.strip()):
             continue
         
+        # Pattern 0 (NEW 2026-04-13): "ITEM_NUM QTY UOM QTY_PER_UOM DESC"
+        # This is the canonical Docusign 704 row layout where the buyer's
+        # item number leads the line. Pre-2026-04-13 the parser only had
+        # qty-first patterns, which meant multi-page Docusign PDFs lost
+        # everything after page 1. Mike's CDCR PCs (~25 items / 4 pages)
+        # were extracting only 6-7 items because pages 2-4 use this layout.
+        m = re.match(
+            r'^(\d{1,2})\s+(\d{1,3})\s+'
+            r'(EA|BX|CS|PK|PKG|PCK|PACK|BAG|SET|DZ|PR|GL|LB|OZ|CASE|EACH|CTN|RL|BT|TB|JR|CT|CA)'
+            r'\s+(\d{1,4})\s+(.+)',
+            line, re.IGNORECASE
+        )
+        if m:
+            try:
+                inum = int(m.group(1))
+                if 1 <= inum <= 50:
+                    qty = int(m.group(2))
+                    uom = m.group(3).upper()
+                    qpu = int(m.group(4))
+                    desc = m.group(5).strip()
+                    # Strip trailing UPC blob if present
+                    upc = ""
+                    upc_m = re.search(r'[-–]\s*(\d{6,15})\s*$', desc)
+                    if upc_m:
+                        upc = upc_m.group(1)
+                        desc = desc[:upc_m.start()].strip().rstrip('-–').strip()
+                    items.append({
+                        "item_number": str(inum),
+                        "qty": qty,
+                        "uom": uom,
+                        "qty_per_uom": qpu,
+                        "description": desc[:200],
+                        "part_number": upc,
+                        "row_index": item_number - 1,
+                    })
+                    item_number += 1
+                    continue
+            except (ValueError, TypeError):
+                pass
+
         # Pattern A: "QTY UOM QTY_PER_UOM DESCRIPTION - UPC"
         # Most common on pages 2+ of DocuSign 704s
         m = re.match(
