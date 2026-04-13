@@ -1064,6 +1064,79 @@ def verify_overlay_bounds(
     return result
 
 
+def verify_704_overlay_self_check(pdf_path: str) -> dict:
+    """Run the 704 overlay self-check: read the detector's output for
+    the filled PDF, then verify that price/extension overlay text
+    actually lands inside those detected cells. Returns an empty-pass
+    result when the form doesn't look like a 704 overlay target
+    (so the check is safe to call from run_form_qa for any form).
+
+    This closes the loop on the DOCX 704 overlay bug: even if a new
+    buyer format causes the detector to return wrong cell positions,
+    this self-check will fail loudly instead of shipping a silently-
+    broken PDF.
+    """
+    result = {
+        "passed": True,
+        "issues": [],
+        "warnings": [],
+        "drift_details": [],
+        "rows_checked": 0,
+    }
+    if not pdf_path or not os.path.exists(pdf_path):
+        return result
+
+    try:
+        from src.forms.price_check import _detect_ams704_overlay_positions
+    except ImportError:
+        result["warnings"].append(
+            "overlay self-check: _detect_ams704_overlay_positions unavailable"
+        )
+        return result
+
+    try:
+        detected = _detect_ams704_overlay_positions(pdf_path)
+    except Exception as e:
+        result["warnings"].append(f"overlay self-check: detector crashed: {e}")
+        return result
+
+    if not detected:
+        # No detection result at all — this is a form-field 704, not an
+        # overlay 704. Skip.
+        return result
+    if not any(d is not None for d in detected):
+        return result
+
+    expected_cells = {}
+    row_num = 0
+    for pg_idx, d in enumerate(detected):
+        if d is None:
+            continue
+        for (yb, yt) in d.get("item_rows", []):
+            row_num += 1
+            px = d.get("price_x") or ()
+            ex = d.get("ext_x") or ()
+            if len(px) == 2:
+                expected_cells[f"price_row{row_num}"] = (px[0], yb, px[1], yt)
+            if len(ex) == 2:
+                expected_cells[f"ext_row{row_num}"] = (ex[0], yb, ex[1], yt)
+    result["rows_checked"] = row_num
+
+    if not expected_cells:
+        return result
+
+    bounds = verify_overlay_bounds(
+        pdf_path,
+        expected_cells,
+        tolerance_pt=OVERLAY_DRIFT_TOLERANCE_PT,
+    )
+    result["passed"] = bounds["passed"]
+    result["issues"] = bounds["issues"]
+    result["warnings"].extend(bounds.get("warnings", []))
+    result["drift_details"] = bounds.get("drift_details", [])
+    return result
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Master QA Function
 # ═══════════════════════════════════════════════════════════════════════
@@ -1152,6 +1225,14 @@ def run_form_qa(
         # Value range check
         range_result = verify_value_ranges(pdf_path, form_id)
 
+        # Overlay self-check: for flat/overlay-based 704 forms, confirm
+        # that the detector's reported cells match where overlay text
+        # actually landed. This is the scale-safety net that would have
+        # caught the 20-40pt DOCX 704 drift if it had ever shipped.
+        overlay_result = None
+        if form_id in ("704", "704a", "704b", "price_check_overlay"):
+            overlay_result = verify_704_overlay_self_check(pdf_path)
+
         # Combine
         form_report = {
             "filename": filename,
@@ -1170,6 +1251,10 @@ def run_form_qa(
         if not range_result["passed"]:
             form_report["passed"] = False
         form_report["value_ranges"] = range_result
+        if overlay_result is not None:
+            form_report["overlay_self_check"] = overlay_result
+            if not overlay_result["passed"]:
+                form_report["passed"] = False
 
         report["form_results"][form_id] = form_report
         report["forms_checked"] += 1
@@ -1182,6 +1267,10 @@ def run_form_qa(
             if buyer_result:
                 report["critical_issues"].extend(buyer_result.get("issues", []))
             report["critical_issues"].extend(range_result.get("issues", []))
+            if overlay_result:
+                report["critical_issues"].extend(overlay_result.get("issues", []))
+        if overlay_result:
+            report["warnings"].extend(overlay_result.get("warnings", []))
 
         report["warnings"].extend(field_result.get("warnings", []))
         report["warnings"].extend(sig_result.get("warnings", []))
@@ -1243,6 +1332,17 @@ def verify_single_form(pdf_path: str, form_id: str, data: dict = None, config: d
         result["warnings"].extend(sig_check.get("warnings", []))
     else:
         result["warnings"].append(f"No QA registry for form_id '{form_id}' — skipping field checks")
+
+    # Overlay self-check — runs for any 704-family form, independent
+    # of whether the registry has an entry. Catches cell-drift
+    # regressions on flat/DocuSign/DOCX-converted 704 PDFs.
+    if form_id in ("704", "704a", "704b", "price_check_overlay"):
+        overlay_result = verify_704_overlay_self_check(pdf_path)
+        if not overlay_result["passed"]:
+            result["passed"] = False
+            result["issues"].extend(overlay_result.get("issues", []))
+        result["warnings"].extend(overlay_result.get("warnings", []))
+        result["overlay_self_check"] = overlay_result
 
     status = "PASS" if result["passed"] else "FAIL"
     log.info("Form QA [single] %s: %s — %d issues, %d warnings",
