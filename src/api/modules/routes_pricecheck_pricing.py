@@ -1362,3 +1362,174 @@ def api_buyer_curve(institution):
         },
     })
 
+
+@bp.route("/api/oracle/buyer-list")
+@auth_required
+@safe_route
+def api_buyer_list():
+    """Return the top-N institutions by quote volume with their fitted
+    curves summarized. Feeds the /buyer-intelligence page — one query
+    builds the initial render so the client doesn't fan out 20 parallel
+    /api/oracle/buyer-curve requests.
+
+    Query params:
+        limit — max institutions to return (default 20, max 100)
+        days  — lookback window for curve fitting (default 365)
+    """
+    from src.core.pricing_oracle_v2 import optimal_markup_for_expected_profit
+    from datetime import datetime, timedelta
+
+    try:
+        limit = int(request.args.get("limit", "20"))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(100, limit))
+
+    try:
+        days = int(request.args.get("days", "365"))
+    except (TypeError, ValueError):
+        days = 365
+    days = max(30, min(1095, days))
+
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT COALESCE(NULLIF(institution, ''), agency) AS name,
+                          COUNT(*) AS total,
+                          SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) AS won,
+                          SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) AS lost,
+                          MAX(created_at) AS last_quote_at
+                     FROM quotes
+                    WHERE created_at >= ?
+                      AND is_test = 0
+                      AND status IN ('won', 'lost')
+                      AND COALESCE(NULLIF(institution, ''), agency) IS NOT NULL
+                      AND COALESCE(NULLIF(institution, ''), agency) != ''
+                    GROUP BY name
+                    ORDER BY total DESC
+                    LIMIT ?""",
+                (since, limit),
+            ).fetchall()
+
+            buyers = []
+            for row in rows:
+                d = dict(row) if hasattr(row, "keys") else {
+                    "name": row[0], "total": row[1],
+                    "won": row[2], "lost": row[3],
+                    "last_quote_at": row[4],
+                }
+                name = d.get("name") or ""
+                if not name:
+                    continue
+                total = int(d.get("total") or 0)
+                won = int(d.get("won") or 0)
+                lost = int(d.get("lost") or 0)
+                opt = optimal_markup_for_expected_profit(name, conn)
+                buyers.append({
+                    "institution": name,
+                    "total_quotes": total,
+                    "won": won,
+                    "lost": lost,
+                    "win_rate": round(won / total, 3) if total else 0,
+                    "last_quote_at": d.get("last_quote_at") or "",
+                    "sufficient": bool(opt.get("sufficient")),
+                    "optimal_markup_pct": opt.get("markup_pct"),
+                    "expected_value": opt.get("expected_value"),
+                    "win_probability": opt.get("win_probability"),
+                })
+    except Exception as e:
+        log.warning("buyer-list query failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({
+        "ok": True,
+        "days": days,
+        "count": len(buyers),
+        "buyers": buyers,
+    })
+
+
+@bp.route("/buyer-intelligence")
+@auth_required
+def buyer_intelligence_page():
+    """Growth Phase B — buyer intelligence UI. Renders server-side with
+    the top-N buyer summary already embedded, then fetches the selected
+    buyer's full curve over XHR when the user clicks a row.
+    """
+    from src.core.pricing_oracle_v2 import optimal_markup_for_expected_profit
+    from datetime import datetime, timedelta
+
+    try:
+        days = int(request.args.get("days", "365"))
+    except (TypeError, ValueError):
+        days = 365
+    days = max(30, min(1095, days))
+
+    since = (datetime.now() - timedelta(days=days)).isoformat()
+    buyers = []
+    totals = {"institutions": 0, "quotes": 0, "won": 0, "sufficient": 0}
+
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT COALESCE(NULLIF(institution, ''), agency) AS name,
+                          COUNT(*) AS total,
+                          SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) AS won,
+                          SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) AS lost,
+                          MAX(created_at) AS last_quote_at
+                     FROM quotes
+                    WHERE created_at >= ?
+                      AND is_test = 0
+                      AND status IN ('won', 'lost')
+                      AND COALESCE(NULLIF(institution, ''), agency) IS NOT NULL
+                      AND COALESCE(NULLIF(institution, ''), agency) != ''
+                    GROUP BY name
+                    ORDER BY total DESC
+                    LIMIT 40""",
+                (since,),
+            ).fetchall()
+
+            for row in rows:
+                d = dict(row) if hasattr(row, "keys") else {
+                    "name": row[0], "total": row[1],
+                    "won": row[2], "lost": row[3],
+                    "last_quote_at": row[4],
+                }
+                name = d.get("name") or ""
+                if not name:
+                    continue
+                total = int(d.get("total") or 0)
+                won = int(d.get("won") or 0)
+                lost = int(d.get("lost") or 0)
+                opt = optimal_markup_for_expected_profit(name, conn)
+                buyers.append({
+                    "institution": name,
+                    "total_quotes": total,
+                    "won": won,
+                    "lost": lost,
+                    "win_rate": round(won / total, 3) if total else 0,
+                    "last_quote_at": d.get("last_quote_at") or "",
+                    "sufficient": bool(opt.get("sufficient")),
+                    "optimal_markup_pct": opt.get("markup_pct"),
+                    "expected_value": opt.get("expected_value"),
+                    "win_probability": opt.get("win_probability"),
+                    "curve": opt.get("curve") or {},
+                })
+                totals["quotes"] += total
+                totals["won"] += won
+                if opt.get("sufficient"):
+                    totals["sufficient"] += 1
+            totals["institutions"] = len(buyers)
+    except Exception as e:
+        log.warning("buyer-intelligence page query failed: %s", e)
+
+    return render_page(
+        "buyer_intelligence.html",
+        active_page="Buyer Intel",
+        days=days,
+        buyers=buyers,
+        totals=totals,
+    )
+
