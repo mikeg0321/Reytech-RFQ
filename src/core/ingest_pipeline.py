@@ -98,11 +98,18 @@ def process_buyer_request(
     result = IngestResult()
     files = files or []
 
-    # Telemetry: start the feature timer so every ingest is measured
+    # Telemetry: start the feature timer so every ingest is measured.
+    # Populate what we already know about the input BEFORE we attempt
+    # to classify — that way a classifier crash still emits context
+    # (file count, sender, subject length) to the dead_features view.
     try:
         from src.core.utilization import time_feature
         _timer_ctx_mgr = time_feature("ingest.process_buyer_request")
         _telemetry_ctx = _timer_ctx_mgr.__enter__()
+        _telemetry_ctx["file_count"] = len(files)
+        _telemetry_ctx["has_email_body"] = bool(email_body)
+        _telemetry_ctx["subject_len"] = len(email_subject or "")
+        _telemetry_ctx["sender"] = (email_sender or "")[:80]
         _telemetry_started = True
     except Exception:
         _timer_ctx_mgr = None
@@ -121,6 +128,26 @@ def process_buyer_request(
     except Exception as e:
         log.error("classifier crashed: %s", e, exc_info=True)
         result.errors.append(f"classifier crashed: {e}")
+        # Emit a dedicated crash event — the main timer records only
+        # "ingest.process_buyer_request" (which includes success
+        # cases), so crashes get buried. A separate feature name gives
+        # the dead_features / error-rate views something to latch onto.
+        try:
+            from src.core.utilization import record_feature_use
+            record_feature_use(
+                feature="ingest.classify_crashed",
+                context={
+                    "error": str(e)[:200],
+                    "error_type": type(e).__name__,
+                    "file_count": len(files),
+                    "attachment_names": [os.path.basename(f) for f in files[:10]],
+                    "sender": (email_sender or "")[:80],
+                    "subject_len": len(email_subject or ""),
+                },
+                ok=False,
+            )
+        except Exception:
+            pass
         if _telemetry_started:
             try:
                 _timer_ctx_mgr.__exit__(Exception, e, None)
@@ -128,11 +155,10 @@ def process_buyer_request(
                 pass
         return result
 
-    # Telemetry context
+    # Telemetry context — classification succeeded, enrich the timer
     _telemetry_ctx["shape"] = classification.shape
     _telemetry_ctx["agency"] = classification.agency
     _telemetry_ctx["confidence"] = classification.confidence
-    _telemetry_ctx["file_count"] = len(files)
 
     result.classification = classification.to_dict()
     result.reasons.extend(classification.reasons)

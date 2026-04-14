@@ -30,17 +30,95 @@ Retention: 90 days. Older events purged by a weekly job.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
 import threading
 import time
+from collections import deque
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional, Tuple
 
 log = logging.getLogger("reytech.utilization")
 
 
 # ── Event recording ──────────────────────────────────────────────────────
+#
+# Events are enqueued into an in-memory deque and flushed by a single
+# background daemon thread every ~1s (or immediately when the queue
+# hits _MAX_QUEUE). This keeps the request hot path at a few
+# microseconds — the alternative is a synchronous SQLite INSERT which
+# costs ~1-2ms and, more importantly, can stall under WAL contention.
+# On process exit we flush once more so short-lived workers don't
+# drop their last batch.
+
+_MAX_QUEUE = 2000          # backpressure ceiling
+_FLUSH_INTERVAL = 1.0      # seconds between drain cycles
+_FLUSH_BATCH_MAX = 500     # events per INSERT transaction
+
+_queue: Deque[Tuple[str, str, str, int, int, str]] = deque()
+_queue_lock = threading.Lock()
+_flusher_started = False
+_flusher_lock = threading.Lock()
+
+
+def _start_flusher_once() -> None:
+    global _flusher_started
+    if _flusher_started:
+        return
+    with _flusher_lock:
+        if _flusher_started:
+            return
+        t = threading.Thread(
+            target=_flusher_loop,
+            name="utilization-flusher",
+            daemon=True,
+        )
+        t.start()
+        atexit.register(_flush_queue)
+        _flusher_started = True
+
+
+def _flusher_loop() -> None:
+    while True:
+        time.sleep(_FLUSH_INTERVAL)
+        try:
+            _flush_queue()
+        except Exception as e:
+            log.debug("utilization flusher error: %s", e)
+
+
+def flush_now() -> int:
+    """Public synchronous drain. Callers: tests that need to read
+    their own writes; shutdown hooks; the atexit handler. Returns
+    the number of rows flushed on this call."""
+    return _flush_queue()
+
+
+def _flush_queue() -> int:
+    """Drain up to `_FLUSH_BATCH_MAX` events into SQLite in one
+    transaction. Returns the number of rows written. Safe to call
+    from anywhere — locks the queue only long enough to copy rows."""
+    batch: List[Tuple[str, str, str, int, int, str]] = []
+    with _queue_lock:
+        while _queue and len(batch) < _FLUSH_BATCH_MAX:
+            batch.append(_queue.popleft())
+    if not batch:
+        return 0
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT INTO utilization_events
+                   (feature, context, user, duration_ms, ok, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                batch,
+            )
+        return len(batch)
+    except Exception as e:
+        log.debug("utilization flush suppressed: %s", e)
+        return 0
+
 
 def record_feature_use(
     feature: str,
@@ -49,8 +127,10 @@ def record_feature_use(
     duration_ms: int = 0,
     ok: bool = True,
 ) -> None:
-    """Record one feature use. Fire-and-forget — never raises, never
-    blocks the caller for more than a few ms.
+    """Record one feature use. Fire-and-forget and truly non-blocking
+    — the call path is a JSON-encode + deque append (~microseconds),
+    with a background daemon thread flushing the queue to SQLite
+    every ~1s.
 
     Args:
         feature: short feature key, e.g. "generate_quote_1click",
@@ -68,16 +148,20 @@ def record_feature_use(
     if not feature:
         return
     try:
-        from src.core.db import get_db
         ctx_json = json.dumps(context or {}, default=str)[:4000]
-        with get_db() as conn:
-            conn.execute(
-                """INSERT INTO utilization_events
-                   (feature, context, user, duration_ms, ok, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (feature, ctx_json, user or "", int(duration_ms),
-                 1 if ok else 0, datetime.now().isoformat()),
-            )
+        row = (
+            feature, ctx_json, user or "", int(duration_ms),
+            1 if ok else 0, datetime.now().isoformat(),
+        )
+        with _queue_lock:
+            if len(_queue) >= _MAX_QUEUE:
+                # Backpressure: drop the oldest event to protect the
+                # caller from unbounded memory growth if the flusher
+                # falls behind. Count is logged so the dashboard shows
+                # the drop rate in its error-rate column.
+                _queue.popleft()
+            _queue.append(row)
+        _start_flusher_once()
     except Exception as e:
         log.debug("record_feature_use suppressed: %s", e)
 
