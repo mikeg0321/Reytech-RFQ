@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/flags-unify | Window 2 | `C:\Users\mikeg\rfq-flags-unify` | Active | P0: unify split-brain feature flag systems before flipping ingest.classifier_v2_enabled | 2026-04-14 |
+| feat/audit-p1-fixes | Window 2 | `C:\Users\mikeg\rfq-audit-p1-fixes` | Active | P1 audit fixes: CCHCS confidence floor + triangulated linker sol-number tie-break | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

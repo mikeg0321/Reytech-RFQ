@@ -643,6 +643,14 @@ def _score_confidence(
     if attachments:
         score += 0.05
 
+    # Floor: a CCHCS packet with a confirmed agency match is a known
+    # high-signal request even when the buyer forgot to include a
+    # solicitation number on the cover page. Without this floor the
+    # same packet dips to 0.70 and falls into manual review, which
+    # is noisy for the #1 buyer we see.
+    if result.shape == SHAPE_CCHCS_PACKET and result.agency != "other":
+        score = max(score, 0.80)
+
     return min(1.0, round(score, 2))
 
 
