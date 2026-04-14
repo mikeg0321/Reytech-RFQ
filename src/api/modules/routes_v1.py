@@ -96,8 +96,8 @@ def api_v1_pipeline():
                     "last_run": job.get("last_run"),
                     "error_count": job.get("error_count", 0),
                 }
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_pipeline: %s', _e)
 
         return api_response({
             "rfqs": {"total": len(rfqs), "by_status": rfq_counts},
@@ -308,8 +308,8 @@ def api_v1_health():
                 ["git", "rev-parse", "--short", "HEAD"],
                 stderr=subprocess.DEVNULL, timeout=2
             ).decode().strip()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_health: %s', _e)
 
         # Uptime
         uptime = int(_time.time() - _BOOT_TIME)
@@ -342,8 +342,8 @@ def api_v1_health():
             queues["rfqs_new"] = len(list_rfqs(status="new"))
             queues["pcs_new"] = len(list_pcs(status="parsed"))
             queues["orders_active"] = len(list_orders(status="new")) + len(list_orders(status="active"))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_health: %s', _e)
 
         # Agent status from scheduler
         agents = {}
@@ -359,8 +359,8 @@ def api_v1_health():
                 }
                 if name == "email-poller":
                     agents[name]["emails_processed_24h"] = job.get("run_count", 0)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_health: %s', _e)
 
         # QB health
         try:
@@ -387,16 +387,16 @@ def api_v1_health():
             if _os.path.exists(_log_path):
                 harvest["last_harvest"] = datetime.fromtimestamp(
                     _os.path.getmtime(_log_path)).isoformat()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_health: %s', _e)
 
         # Connector status
         connector_status = {}
         try:
             from src.core.pull_orchestrator import PullOrchestrator
             connector_status = PullOrchestrator().get_status()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_health: %s', _e)
 
         # Compliance status
         compliance = {}
@@ -409,8 +409,8 @@ def api_v1_health():
                 "warning": len([a for a in alerts if a["severity"] == "warning"]),
                 "health": "critical" if any(a["severity"] == "critical" for a in alerts) else "ok"
             }
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_health: %s', _e)
 
         _result = {
             "version": version,
@@ -692,8 +692,8 @@ def api_v1_db_repair():
                     except Exception:
                         report["steps"].append(f"{t}: MISSING")
                 conn2.close()
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_v1_db_repair: %s', _e)
             return api_response(report)
 
     except Exception as e:
@@ -950,16 +950,16 @@ def api_v1_harvest_diagnose():
                         if isinstance(v, str) and len(v) > 200:
                             d[k] = v[:200] + "..."
                     diag["samples"][t] = d
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_v1_harvest_diagnose: %s', _e)
         # Reytech wins
         try:
             r = conn.execute(
                 "SELECT COUNT(*), SUM(grand_total) FROM scprs_po_master WHERE LOWER(supplier) LIKE '%reytech%'"
             ).fetchone()
             diag["reytech"] = {"wins": r[0], "value": r[1]}
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_harvest_diagnose: %s', _e)
         conn.close()
         return api_response(diag)
     except Exception as e:
@@ -1826,8 +1826,8 @@ def api_v1_harvest_browser_test():
                                 source="scprs_browser",
                             )
                             ingested += 1
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in api_v1_harvest_browser_test: %s', _e)
         except ImportError:
             pass
 
@@ -1913,8 +1913,8 @@ def api_v1_fiscal_scrape_status():
             files = os.listdir(records_dir)
             po_screenshots = len([f for f in files if f.endswith(".png")])
             po_htmls = len([f for f in files if f.endswith(".html")])
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_v1_fiscal_scrape_status: %s', _e)
 
     return api_response({
         "layer1_raw_fiscal": {"total_pos": po_count, "total_line_items": line_count, "reytech_pos": reytech_pos},
@@ -1976,8 +1976,8 @@ def api_v1_populate_catalog():
                                 times_seen = scprs_catalog.times_seen + 1,
                                 updated_at = datetime('now')
                         """, (desc, "", price, r[2] or 1, "", r[3] or "", r[4] or "", r[5] or "", r[6] or ""))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_v1_populate_catalog: %s', _e)
                 db.commit()
                 catalog_count = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
                 db.close()
@@ -2027,8 +2027,8 @@ def api_v1_populate_catalog():
                         updated_at = datetime('now')
                 """, (desc, r[1] or "", price, qty, r[4] or "", r[5] or "", r[6] or "", r[7] or "", r[8] or ""))
                 inserted += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_v1_populate_catalog: %s', _e)
         db.commit()
         catalog_count = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
         db.close()
@@ -2149,8 +2149,8 @@ def api_v1_fire_all_now():
                             "last_date, times_seen, updated_at) "
                             "VALUES (?,?,?,?,?,?,?,1,datetime('now'))",
                             (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in _run_full_pipeline: %s', _e)
                 _db.commit()
                 _log.info("Step 1 done: catalog has %d items",
                           _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0])
@@ -2257,8 +2257,8 @@ def api_v1_usage_track():
         data = request.get_json(silent=True) or {}
         track_action(page=data.get("page", ""), action=data.get("action", ""),
                      detail=data.get("type", "click"))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_v1_usage_track: %s', _e)
     return "", 204
 
 
@@ -2299,8 +2299,8 @@ def api_v1_pricing_lookup():
     try:
         from src.core.usage_tracker import track_feature
         track_feature("pricing_lookup", q[:60])
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_v1_pricing_lookup: %s', _e)
     return api_response(result)
 
 
@@ -2464,8 +2464,8 @@ def api_v1_recovery_from_db():
                     live.execute("UPDATE rfqs SET items=?, updated_at=datetime('now') WHERE id=?",
                                  (_json.dumps(items, default=str), r[0]))
                     restored_rfqs += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_v1_recovery_from_db: %s', _e)
         live.commit()
         results["restored_rfqs_to_sqlite"] = restored_rfqs
         results["steps"].append(f"Restored {restored_rfqs} RFQs to SQLite")
@@ -2479,8 +2479,8 @@ def api_v1_recovery_from_db():
                     live.execute("UPDATE price_checks SET pc_data=?, items=?, updated_at=datetime('now') WHERE id=?",
                                  (_json.dumps(pc_data, default=str), _json.dumps(items_col, default=str), r[0]))
                     restored_pcs += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_v1_recovery_from_db: %s', _e)
         live.commit()
         live.close()
         results["restored_pcs_to_sqlite"] = restored_pcs
@@ -3522,8 +3522,8 @@ def api_v1_system_recover_pcs():
         try:
             with open(pc_json_path) as f:
                 current = _json.load(f)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_system_recover_pcs: %s', _e)
 
         # Load from live SQLite
         all_sources = {}
@@ -3601,8 +3601,8 @@ def api_v1_system_recover_pcs():
                           _json.dumps(items, default=str),
                           pc.get("pc_number", ""), pc.get("status", "parsed"),
                           _json.dumps(pc, default=str)))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_v1_system_recover_pcs: %s', _e)
 
         total_items = sum(info["items"] for info in all_sources.values())
         return api_response({
@@ -3657,8 +3657,8 @@ def api_v1_system_emergency_cleanup():
                     if best_snap is None or snap["size"] > best_size:
                         best_snap = snap["file"]
                         best_size = snap["size"]
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_v1_system_emergency_cleanup: %s', _e)
 
     restored_from = None
     if best_snap:
@@ -3798,8 +3798,8 @@ def api_v1_system_disk_usage():
                         pd = _jclean.loads(r[1]) if isinstance(r[1], str) else r[1]
                         if isinstance(pd, dict):
                             rebuilt[r[0]] = {k: v for k, v in pd.items() if k != "pc_data"}
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_v1_system_disk_usage: %s', _e)
                 if rebuilt:
                     old_size = os.path.getsize(pc_path)
                     from src.core.data_guard import safe_save_json
@@ -3901,8 +3901,8 @@ def api_v1_rfq_backfill_all_fields():
                                 r["institution"] = hist[1]
                                 entry["filled"].append(f"institution={hist[1][:40]}")
                                 changed = True
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_v1_rfq_backfill_all_fields: %s', _e)
 
             # Source 2: Buyer SCPRS history for requestor name
             if email and not r.get("requestor_name"):
@@ -3917,8 +3917,8 @@ def api_v1_rfq_backfill_all_fields():
                             r["requestor_name"] = buyer[0]
                             entry["filled"].append(f"requestor_name={buyer[0]}")
                             changed = True
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_v1_rfq_backfill_all_fields: %s', _e)
 
             # Source 3: Email text for due date
             if not r.get("due_date") or r.get("due_date") == "TBD":
@@ -4275,8 +4275,8 @@ def _get_source_material(entity_type, entity_id):
                     "size_kb": round(f.get("file_size", 0) / 1024, 1) if f.get("file_size") else 0,
                     "download_url": f"/rfq/{entity_id}/file/{f['id']}" if f.get("id") else "",
                 })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _get_source_material: %s', _e)
         return api_response(result)
     except Exception as e:
         log.error("source-material error: %s", e, exc_info=True)
@@ -4348,8 +4348,8 @@ def api_v1_quotes_cleanup_ghosts():
                                 datetime('now')),
                                 'void', datetime('now'), 'empty shell')
                         """, (qn, qn))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_v1_quotes_cleanup_ghosts: %s', _e)
                     voided.append(qn)
         return api_response({"voided": voided, "count": len(voided)})
     except Exception as e:
@@ -4447,16 +4447,16 @@ def api_v1_email_reprocess(uid):
                     with open(_mike_path, "w") as _f:
                         _jm.dump(_mike_uids, _f)
                     cleared.append("mike@")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_email_reprocess: %s', _e)
         # Clear from SQLite (both inboxes)
         try:
             from src.core.db import get_db
             with get_db() as conn:
                 conn.execute("DELETE FROM processed_emails WHERE uid=?", (uid,))
             cleared.append("sqlite")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_email_reprocess: %s', _e)
         # Also clear cross-inbox fingerprint (uses subject+sender hash, not UID)
         # Fetch the email header to compute the fingerprint
         try:
@@ -4487,8 +4487,8 @@ def api_v1_email_reprocess(uid):
                         if _del:
                             cleared.append(f"fingerprint")
                 _imap.logout()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_email_reprocess: %s', _e)
         return api_response({"ok": True, "uid": uid, "cleared_from": cleared})
     except Exception as e:
         return api_response(error=str(e), status=500)
@@ -4559,8 +4559,8 @@ def api_v1_recover_stuck():
                 u = r.get("email_uid", "")
                 if u:
                     created_uids.add(str(u))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_recover_stuck: %s', _e)
 
         days = int(request.args.get("days", 30))
         buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh",
@@ -4635,8 +4635,8 @@ def api_v1_recover_stuck():
                                 _muids.remove(uid_str)
                                 with open(_mike_path, "w") as _f:
                                     _jrm.dump(_muids, _f)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_v1_recover_stuck: %s', _e)
 
                     recovered.append({
                         "uid": uid_str,
@@ -4804,8 +4804,8 @@ def api_v1_email_force_process(uid):
             if part.get_content_type() == "text/plain":
                 try:
                     body = part.get_payload(decode=True).decode(errors="replace")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_v1_email_force_process: %s', _e)
                 break
         orig_sender = ""
         _fm = _re.search(r'From:.*?([\w.+-]+@[\w.-]+)', body, _re.IGNORECASE)
@@ -5051,16 +5051,16 @@ def api_v1_integrity_check():
                 valid, v = validate_pc(pc, pcid)
                 if not valid:
                     issues.append({"type": "pc", "id": pcid[:30], "violations": v})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_integrity_check: %s', _e)
         try:
             rfqs = load_rfqs()
             for rid, r in rfqs.items():
                 valid, v = validate_rfq(r, rid)
                 if not valid:
                     issues.append({"type": "rfq", "id": rid[:30], "violations": v})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_v1_integrity_check: %s', _e)
         return api_response({
             "total_issues": len(issues), "issues": issues[:100],
             "summary": {
