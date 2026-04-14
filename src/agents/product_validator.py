@@ -133,6 +133,18 @@ def validate_product(
     if not HAS_REQUESTS:
         return {"ok": False, "error": "requests not available"}
 
+    # Runtime kill switch: operator can disable the Grok validator
+    # without a deploy by POSTing to /api/admin/flags:
+    #   {"key": "pricing.grok_validator_enabled", "value": "0"}
+    # Default ON because it's already shipped and working in prod.
+    try:
+        from src.core.flags import get_flag
+        if not get_flag("pricing.grok_validator_enabled", True):
+            log.info("product_validator: disabled via pricing.grok_validator_enabled flag")
+            return {"ok": False, "error": "disabled via feature flag", "skipped": True}
+    except Exception as e:
+        log.debug("product_validator flag check failed: %s — proceeding", e)
+
     # Check cache first
     cached = _cache_lookup(description, upc, mfg_number)
     if cached:
