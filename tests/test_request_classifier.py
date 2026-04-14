@@ -69,6 +69,38 @@ class TestCCHCSPacketClassification:
         r = classify_request(attachments=[CCHCS_PACKET])
         assert r.confidence >= 0.70
 
+    def test_cchcs_packet_no_sol_number_has_floor(self):
+        """Regression: CCHCS packet + confirmed agency must score >=0.80
+        even when the buyer forgot to include a solicitation number.
+        Without the floor in _score_confidence this dipped to 0.70 and
+        landed in manual review for our highest-volume buyer."""
+        from src.core.request_classifier import (
+            RequestClassification, SHAPE_CCHCS_PACKET, _score_confidence,
+        )
+        r = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="cchcs",
+            agency_name="CCHCS / CDCR",
+            solicitation_number="",  # missing — the edge case
+            institution="CHCF",
+        )
+        assert _score_confidence(r, attachments=["packet.pdf"],
+                                 agency_matches=["cchcs"]) >= 0.80
+
+    def test_cchcs_packet_unknown_agency_does_not_get_floor(self):
+        """Floor only applies when the agency is confirmed. A shape match
+        alone is not enough to vault into high-confidence territory."""
+        from src.core.request_classifier import (
+            RequestClassification, SHAPE_CCHCS_PACKET, _score_confidence,
+        )
+        r = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="other",
+            solicitation_number="",
+        )
+        assert _score_confidence(r, attachments=["packet.pdf"],
+                                 agency_matches=[]) < 0.80
+
     def test_cchcs_packet_required_forms_from_agency(self):
         from src.core.request_classifier import classify_request
         r = classify_request(attachments=[CCHCS_PACKET])

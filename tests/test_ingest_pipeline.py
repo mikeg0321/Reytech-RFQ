@@ -168,6 +168,57 @@ class TestTriangulatedLinker:
         assert result.linked_pc_id != "pc_b_calvet_colliding_sol"
         assert result.link_confidence >= 0.5
 
+    def test_sol_number_wins_over_higher_anchor_count(
+        self, temp_data_dir, sample_pc
+    ):
+        """Regression: a re-sent RFQ with a solicitation number must link
+        to the PC that shares that solicitation, NOT to the most-recent
+        PC from the same agency that happens to outscore it on anchor
+        count. Before the fix the tie-break was (-score, -created_at)
+        which routed re-sends to whichever PC was created most recently."""
+        from src.api.dashboard import _save_single_pc
+        from src.core.ingest_pipeline import _run_triangulated_linker
+        from src.core.request_classifier import RequestClassification, SHAPE_CCHCS_PACKET
+
+        # PC OLD: matches on agency + solicitation (2 anchors, the
+        # actually-correct link even though created weeks ago).
+        pc_old = dict(sample_pc)
+        pc_old["id"] = "pc_old_correct"
+        pc_old["solicitation_number"] = "PREQ99999"
+        pc_old["agency"] = "cchcs"
+        pc_old["institution"] = "some other prison"
+        pc_old["items"] = [{"description": "Zebra Handheld Scanner DS8178", "qty": 5}]
+        pc_old["created_at"] = "2026-03-01T10:00:00"
+        _save_single_pc(pc_old["id"], pc_old)
+
+        # PC NEW: matches on agency + institution + items (3 anchors, no
+        # solicitation). Created more recently so the old tie-break
+        # would have preferred it.
+        pc_new = dict(sample_pc)
+        pc_new["id"] = "pc_new_wrong"
+        pc_new["solicitation_number"] = ""
+        pc_new["agency"] = "cchcs"
+        pc_new["institution"] = "ca state prison sacramento"
+        pc_new["items"] = [{"description": "Zebra Handheld Scanner DS8178", "qty": 5}]
+        pc_new["created_at"] = "2026-04-13T10:00:00"
+        _save_single_pc(pc_new["id"], pc_new)
+
+        classification = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="cchcs",
+            institution="ca state prison sacramento",
+            solicitation_number="PREQ99999",
+        )
+        rfq_items = [{"description": "Zebra Handheld Scanner DS8178", "qty": 5}]
+
+        linked_pc_id, reason, confidence = _run_triangulated_linker(
+            "rfq_test_resend", classification, rfq_items
+        )
+        assert linked_pc_id == "pc_old_correct", (
+            f"expected sol-match to win, got {linked_pc_id} ({reason})"
+        )
+        assert "solicitation" in reason
+
     def test_linker_refuses_single_anchor_match(
         self, temp_data_dir, sample_pc
     ):

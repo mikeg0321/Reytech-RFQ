@@ -472,9 +472,18 @@ def _run_triangulated_linker(
     if not candidates:
         return "", "no triangulated match (need >=2 anchors)", 0.0
 
-    # Tie-break: most anchors, then most-recent created_at
-    candidates.sort(key=lambda c: (-c["score"], -_ts(c["created_at"])))
-    best = candidates[0]
+    # Solicitation number is the strongest anchor — if exactly one
+    # candidate has it, return that one regardless of anchor count.
+    # Without this, a re-sent old RFQ would tie-break to the
+    # most-recently-created PC (which just happens to be current)
+    # instead of the actually-matching sol-number PC from weeks ago.
+    sol_candidates = [c for c in candidates if "solicitation" in c["anchors"]]
+    if len(sol_candidates) == 1:
+        best = sol_candidates[0]
+    else:
+        # Tie-break: most anchors, then most-recent created_at
+        candidates.sort(key=lambda c: (-c["score"], -_ts(c["created_at"])))
+        best = candidates[0]
     return (
         best["pc_id"],
         "+".join(best["anchors"]),
