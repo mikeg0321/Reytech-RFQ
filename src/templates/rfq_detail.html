@@ -42,6 +42,36 @@
   <div class="meta-i"><div class="meta-l">Delivery</div><div class="meta-v" style="position:relative"><input type="text" id="delivery-input" value="{{r.get('delivery_location','')}}" class="editable-field" aria-label="Delivery Location" oninput="searchLocations(this)" onblur="setTimeout(function(){document.getElementById('loc-dropdown').style.display='none'},200);saveField(document.getElementById('delivery-input'),'delivery_location');rfqTaxLookup(document.getElementById('delivery-input').value)" onfocus="this.style.borderColor='#58a6ff';if(this.value.length>=2)searchLocations(this)" placeholder="Type facility name..." autocomplete="off" style="background:transparent;border:1px solid transparent;border-radius:4px;padding:2px 6px;color:inherit;font-size:14px;width:260px"><div id="loc-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:#1c2128;border:1px solid #30363d;border-radius:6px;max-height:220px;overflow-y:auto;width:320px;box-shadow:0 8px 24px rgba(0,0,0,.4)"></div></div></div>
  </div>
 
+ {# Phase 5: classification banner — shows what the unified ingest classifier sees.
+    Only appears when the record was processed through classifier_v2.
+    Auto-surfaces shape / agency / confidence / required forms so Mike can see
+    at a glance what the app decided without clicking into anything. #}
+ {% set _cls = r.get('_classification') or {} %}
+ {% if _cls and _cls.get('shape') %}
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);font-size:13px">
+  <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
+   <span style="font-weight:700;color:#58a6ff">🤖 Auto-Classification</span>
+   <span><span style="color:#8b949e">shape:</span> <b style="color:#c9d1d9">{{ _cls.shape }}</b></span>
+   <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ _cls.agency_name or _cls.agency }}</b></span>
+   {% if _cls.solicitation_number %}<span><span style="color:#8b949e">sol#:</span> <b style="color:#c9d1d9">{{ _cls.solicitation_number }}</b></span>{% endif %}
+   {% set _conf = _cls.confidence|default(0)|float %}
+   {% set _conf_color = '#3fb950' if _conf >= 0.75 else ('#d29922' if _conf >= 0.5 else '#f85149') %}
+   <span><span style="color:#8b949e">confidence:</span> <b style="color:{{ _conf_color }}">{{ '{:.0%}'.format(_conf) }}</b></span>
+   {% if _cls.required_forms %}
+   <span style="color:#8b949e">needs: <b style="color:#c9d1d9">{{ _cls.required_forms|join(', ') }}</b></span>
+   {% endif %}
+  </div>
+  {% if _cls.reasons %}
+  <details style="margin-top:6px">
+   <summary style="cursor:pointer;color:#8b949e;font-size:12px">why? ({{ _cls.reasons|length }} signals)</summary>
+   <ul style="margin:4px 0 0 18px;padding:0;font-size:12px;color:#8b949e">
+    {% for reason in _cls.reasons %}<li>{{ reason }}</li>{% endfor %}
+   </ul>
+  </details>
+  {% endif %}
+ </div>
+ {% endif %}
+
  {% set reqs = requirements|default({}) %}
  <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(167,139,250,.05);border:1px solid rgba(167,139,250,.15);font-size:13px{% if not reqs or not reqs.get('forms_required') %};display:flex;align-items:center;gap:8px{% endif %}">
  {% if reqs and reqs.get('forms_required') %}
@@ -327,7 +357,19 @@
      <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
     </div>
    </td>
-   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})"></td>
+   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})">
+    {% if i.get('oracle_price') and i.get('oracle_price')|float > 0 %}
+    {# Phase 4: auto-surface Oracle recommendation on every item row — no click required #}
+    <div style="margin-top:3px">
+     {% set _oc_conf = (i.get('oracle_confidence') or '')|string %}
+     {% set _oc_color = '#3fb950' if _oc_conf == 'high' else ('#d29922' if _oc_conf == 'medium' else '#8b949e') %}
+     <a href="#" onclick="if(typeof loadOracleDetail==='function'){loadOracleDetail({{loop.index0}});}return false"
+        style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;font-size:12px;background:{{_oc_color}}15;border:1px solid {{_oc_color}}40;color:{{_oc_color}};text-decoration:none"
+        title="Oracle: ${{ '{:.2f}'.format(i.oracle_price|float) }} ({{ _oc_conf or 'unknown' }}){% if i.get('oracle_rationale') %} — {{i.oracle_rationale|e}}{% endif %}">
+      ● Oracle <b>${{ '{:.2f}'.format(i.oracle_price|float) }}</b>{% if _oc_conf %} <span style="font-size:10px;opacity:.8">{{_oc_conf}}</span>{% endif %}
+     </a>
+    </div>
+    {% endif %}</td>
    <td class="mono" style="font-size:16px;font-weight:600" id="sub_{{loop.index0}}">—</td>
    <td id="mg_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>
    <td id="pf_{{loop.index0}}" style="font-weight:700;font-size:15px">—</td>

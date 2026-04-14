@@ -295,6 +295,33 @@
       <b>Today:</b> {{ today_date }}
      </div>
 
+     {# Phase 5: classification banner — auto-surface what the classifier sees #}
+     {% set _cls = pc.get('_classification') or {} %}
+     {% if _cls and _cls.get('shape') %}
+     <div style="margin-top:10px;padding:10px 14px;border-radius:8px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);font-size:13px">
+      <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
+       <span style="font-weight:700;color:#58a6ff">🤖 Auto-Classification</span>
+       <span><span style="color:#8b949e">shape:</span> <b style="color:#c9d1d9">{{ _cls.shape }}</b></span>
+       <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ _cls.agency_name or _cls.agency }}</b></span>
+       {% if _cls.solicitation_number %}<span><span style="color:#8b949e">sol#:</span> <b style="color:#c9d1d9">{{ _cls.solicitation_number }}</b></span>{% endif %}
+       {% set _conf = _cls.confidence|default(0)|float %}
+       {% set _conf_color = '#3fb950' if _conf >= 0.75 else ('#d29922' if _conf >= 0.5 else '#f85149') %}
+       <span><span style="color:#8b949e">confidence:</span> <b style="color:{{ _conf_color }}">{{ '{:.0%}'.format(_conf) }}</b></span>
+       {% if _cls.required_forms %}
+       <span style="color:#8b949e">needs: <b style="color:#c9d1d9">{{ _cls.required_forms|join(', ') }}</b></span>
+       {% endif %}
+      </div>
+      {% if _cls.reasons %}
+      <details style="margin-top:6px">
+       <summary style="cursor:pointer;color:#8b949e;font-size:12px">why? ({{ _cls.reasons|length }} signals)</summary>
+       <ul style="margin:4px 0 0 18px;padding:0;font-size:12px;color:#8b949e">
+        {% for reason in _cls.reasons %}<li>{{ reason }}</li>{% endfor %}
+       </ul>
+      </details>
+      {% endif %}
+     </div>
+     {% endif %}
+
      <!-- CRM Customer Card + Quote History -->
      <!-- PC→RFQ Linkage Banner -->
      {% if pc.get('linked_rfq_id') %}

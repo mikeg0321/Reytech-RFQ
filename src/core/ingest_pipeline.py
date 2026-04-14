@@ -98,6 +98,17 @@ def process_buyer_request(
     result = IngestResult()
     files = files or []
 
+    # Telemetry: start the feature timer so every ingest is measured
+    try:
+        from src.core.utilization import time_feature
+        _timer_ctx_mgr = time_feature("ingest.process_buyer_request")
+        _telemetry_ctx = _timer_ctx_mgr.__enter__()
+        _telemetry_started = True
+    except Exception:
+        _timer_ctx_mgr = None
+        _telemetry_ctx = {}
+        _telemetry_started = False
+
     # ── Step 1: classify ──
     try:
         from src.core.request_classifier import classify_request
@@ -110,7 +121,18 @@ def process_buyer_request(
     except Exception as e:
         log.error("classifier crashed: %s", e, exc_info=True)
         result.errors.append(f"classifier crashed: {e}")
+        if _telemetry_started:
+            try:
+                _timer_ctx_mgr.__exit__(Exception, e, None)
+            except Exception:
+                pass
         return result
+
+    # Telemetry context
+    _telemetry_ctx["shape"] = classification.shape
+    _telemetry_ctx["agency"] = classification.agency
+    _telemetry_ctx["confidence"] = classification.confidence
+    _telemetry_ctx["file_count"] = len(files)
 
     result.classification = classification.to_dict()
     result.reasons.extend(classification.reasons)
@@ -187,6 +209,15 @@ def process_buyer_request(
             result.warnings.append(f"linker: {e}")
 
     result.ok = True
+    _telemetry_ctx["record_type"] = result.record_type
+    _telemetry_ctx["record_id"] = result.record_id
+    _telemetry_ctx["items_parsed"] = result.items_parsed
+    _telemetry_ctx["linked"] = bool(result.linked_pc_id)
+    if _telemetry_started:
+        try:
+            _timer_ctx_mgr.__exit__(None, None, None)
+        except Exception:
+            pass
     return result
 
 
