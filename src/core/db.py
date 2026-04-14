@@ -84,8 +84,8 @@ def close_thread_db():
     if conn:
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         _local.conn = None
 
 
@@ -138,8 +138,8 @@ def db_retry(fn, max_retries=3, delay=1.0):
                             "attempts": max_retries,
                             "error": str(e)[:200],
                         })
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
                 raise
     raise last_err
 
@@ -1371,8 +1371,8 @@ def init_db():
         from src.core.usage_tracker import init_usage_tracking
         with get_db() as _uconn:
             init_usage_tracking(_uconn)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     print("[BOOT:DB] init_db: complete", flush=True)
     log.info("DB initialized at %s", DB_PATH)
     return True
@@ -1579,16 +1579,16 @@ def _migrate_columns():
         ]:
             try:
                 conn.execute(_idx_sql)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         # Copy agency_code → agency_key for existing SCPRS data
         try:
             conn.execute("""
                 UPDATE scprs_po_master SET agency_key = agency_code
                 WHERE (agency_key IS NULL OR agency_key = '') AND agency_code IS NOT NULL
             """)
-        except Exception:
-            pass  # agency_code column may not exist on fresh installs
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)  # agency_code column may not exist on fresh installs
         conn.commit()
         conn.close()
     except Exception as e:
@@ -1841,8 +1841,8 @@ def upsert_quote(q: dict, actor: str = "system") -> bool:
             if not is_valid:
                 log_blocked_save("quote", q.get("quote_number", "?"), violations, "upsert_quote")
                 return False
-    except ImportError:
-        pass  # contracts.py not deployed yet — skip
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)  # contracts.py not deployed yet — skip
     now = datetime.now().isoformat()
 
     # Compute profit from line items — use first-class fields if available
@@ -2288,8 +2288,8 @@ def get_db_stats() -> dict:
     stats = {"db_path": DB_PATH, "db_size_kb": 0}
     try:
         stats["db_size_kb"] = round(os.path.getsize(DB_PATH) / 1024, 1)
-    except FileNotFoundError:
-        pass
+    except FileNotFoundError as _e:
+        log.debug("suppressed: %s", _e)
     with get_db() as conn:
         for table in tables:
             try:
@@ -2363,8 +2363,8 @@ def migrate_json_to_db() -> dict:
                     source="manual",
                 )
                 counts["revenue"] += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     log.info("JSON→DB migration: %s", counts)
 
@@ -2375,16 +2375,16 @@ def migrate_json_to_db() -> dict:
             try:
                 upsert_outbox_email(em)
                 counts["quotes"] += 0  # count it under general migration
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     elif isinstance(outbox, dict):
         for eid, em in outbox.items():
             try:
                 if isinstance(em, dict):
                     em['id'] = em.get('id', eid)
                     upsert_outbox_email(em)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # ── growth_outreach migration ──
     growth = _try_load("growth_outreach.json")
@@ -2392,14 +2392,14 @@ def migrate_json_to_db() -> dict:
         for camp in growth.get("campaigns", []):
             try:
                 save_growth_campaign(camp)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     elif isinstance(growth, list):
         for camp in growth:
             try:
                 save_growth_campaign(camp)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     return counts
 
@@ -2473,8 +2473,8 @@ def _boot_sync_pcs():
             with open(pc_path) as f:
                 pcs = json.load(f)
             json_count = len(pcs) if isinstance(pcs, dict) else 0
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if json_count > 0:
         return  # JSON has data, no need to restore
@@ -2494,8 +2494,8 @@ def _boot_sync_pcs():
                 items = []
                 try:
                     items = json.loads(r["items"] or "[]")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 restored[pc_id] = {
                     "id": pc_id,
                     "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,
@@ -2646,8 +2646,8 @@ def _fix_data_on_boot():
                     # Rename to .migrated so we don't re-read on next boot
                     os.rename(orders_path, orders_path + ".migrated")
                     fixes.append("renamed orders.json to orders.json.migrated")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             # Fix 3: Mark test fixture quotes as is_test=1
             real_pattern = _re.compile(r'^R26Q\d+$')
@@ -3686,8 +3686,8 @@ def create_sent_document(pc_id: str, filepath: str, items: list = None,
         file_size = 0
         try:
             file_size = __import__('os').path.getsize(filepath)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         filename = __import__('os').path.basename(filepath)
         change_summary = ""
         if next_version > 1:
