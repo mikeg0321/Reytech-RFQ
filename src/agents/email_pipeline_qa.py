@@ -612,8 +612,8 @@ def full_inbox_audit(email_config: dict = None) -> dict:
                         payload = part.get_payload(decode=True)
                         if payload:
                             body_text = payload.decode("utf-8", errors="replace")[:800]
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             
             emails.append({
                 "uid": uid,
@@ -656,8 +656,8 @@ def full_inbox_audit(email_config: dict = None) -> dict:
         if os.path.exists(outbox_path):
             with open(outbox_path) as f:
                 cs_drafts = json.load(f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     
     # Run audit
     result = audit_pipeline(expectations, pcs, rfqs, cs_drafts)

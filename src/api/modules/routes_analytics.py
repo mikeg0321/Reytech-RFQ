@@ -75,8 +75,8 @@ def poll_progress(task_id):
     if is_done:
         try:
             os.remove(pf)
-        except OSError:
-            pass
+        except OSError as _e:
+            log.debug("suppressed: %s", _e)
     return jsonify({"steps": new_steps, "done": is_done, "next_idx": len(steps)})
 
 
@@ -114,8 +114,8 @@ def rfq_auto_lookup(rid):
                             _item["cost_supplier_name"] = _item.get("scprs_vendor", "")
                             if not _item.get("pricing"): _item["pricing"] = {}
                             _item["pricing"]["unit_cost"] = float(_sp)
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as _e:
+                            log.debug("suppressed: %s", _e)
                 scprs_found = sum(1 for i in r["line_items"] if i.get("scprs_last_price"))
                 _emit_progress(task_id, "scprs_done", f"SCPRS: {scprs_found}/{total} found")
             except Exception as e:
@@ -137,8 +137,8 @@ def rfq_auto_lookup(rid):
                             _item["cost_source"] = "Amazon"
                             if not _item.get("pricing"): _item["pricing"] = {}
                             _item["pricing"]["unit_cost"] = float(_ap)
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as _e:
+                            log.debug("suppressed: %s", _e)
                 amazon_found = sum(1 for i in r["line_items"] if i.get("amazon_price"))
                 _emit_progress(task_id, "amazon_done", f"Amazon: {amazon_found}/{total} found")
             except Exception as e:

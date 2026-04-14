@@ -615,8 +615,8 @@ def _place_vapi_call(phone_number: str, script_key: str, variables: dict) -> dic
                             descs = [i.get("description", "")[:40] if isinstance(i, dict) else str(i)[:40] for i in items[:3]]
                             top_items = ", ".join(d for d in descs if d)
                         break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     if not top_items:
         top_items = "office and facility supplies"
 

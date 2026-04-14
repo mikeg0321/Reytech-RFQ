@@ -33,8 +33,8 @@ def request_shutdown():
     try:
         from src.core.db import close_thread_db
         close_thread_db()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def should_run():
@@ -190,8 +190,8 @@ def restart_dead_jobs():
                     elapsed = (datetime.now(timezone.utc) - last).total_seconds()
                     if elapsed > job.interval_sec * 3:
                         is_dead = True
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
             # Thread was running but died
             if not is_alive and job.status in ("running", "restarted") and job.started_at:
                 is_dead = True
@@ -223,8 +223,8 @@ def restart_dead_jobs():
                     log_event(log, "warning", "job_restart",
                               job=name, attempt=job.restart_count,
                               max_restarts=job.max_restarts, silent_secs=int(elapsed))
-                except ImportError:
-                    pass
+                except ImportError as _e:
+                    log.debug("suppressed: %s", _e)
             except Exception as e:
                 job.restart_count += 1
                 log.error("Failed to restart job %s (attempt %d/%d): %s",
@@ -238,8 +238,8 @@ def restart_dead_jobs():
             from src.core.structured_log import log_event
             log_event(log, "critical", "job_exhausted",
                       job=name, max_restarts=_jobs[name].max_restarts)
-        except ImportError:
-            pass
+        except ImportError as _e:
+            log.debug("suppressed: %s", _e)
 
     return restarted, exhausted
 
@@ -262,8 +262,8 @@ def start_watchdog(check_interval: int = 300):
                             channels=["bell"],
                             run_async=False,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
                 if exhausted:
                     try:
                         from src.agents.notify_agent import send_alert
@@ -275,8 +275,8 @@ def start_watchdog(check_interval: int = 300):
                             channels=["email", "bell"],
                             cooldown_key="exhausted:" + ",".join(exhausted),
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             except Exception as e:
                 log.error("Watchdog error: %s", e)
             time.sleep(check_interval)
@@ -433,8 +433,8 @@ def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):
             if file_date.weekday() == 6 and weekly_kept < keep_weekly:
                 kept.add(f)
                 weekly_kept += 1
-        except ValueError:
-            pass
+        except ValueError as _e:
+            log.debug("suppressed: %s", _e)
 
     # Delete files not in kept set
     deleted = 0
@@ -443,8 +443,8 @@ def _rotate_backups(backup_dir: str, keep_daily: int = 7, keep_weekly: int = 4):
             try:
                 os.remove(os.path.join(backup_dir, f))
                 deleted += 1
-            except OSError:
-                pass
+            except OSError as _e:
+                log.debug("suppressed: %s", _e)
     if deleted:
         log.info("Rotated %d old backups (kept %d daily + %d weekly)", deleted, keep_daily, weekly_kept)
 
@@ -524,8 +524,8 @@ def start_backup_scheduler(interval_hours: int = 24):
                     if os.path.getmtime(fp) < cutoff:
                         os.remove(fp)
                         removed += 1
-                except OSError:
-                    pass
+                except OSError as _e:
+                    log.debug("suppressed: %s", _e)
         if removed:
             log.info("Cleaned up %d old uploads (>30 days)", removed)
 

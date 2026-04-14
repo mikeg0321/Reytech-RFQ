@@ -343,8 +343,8 @@ def find_similar_items(
                 ).fetchall()
                 if rows:
                     log.info("KB UPC match: %s → %d results", _upc, len(rows))
-            except Exception:
-                pass  # upc column may not exist yet
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)  # upc column may not exist yet
         # Priority 2: exact item number (index scan)
         if not rows and normalized_item:
             rows = conn.execute(

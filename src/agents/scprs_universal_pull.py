@@ -387,8 +387,8 @@ def run_universal_pull(priority: str = "P0") -> dict:
                         )
                         if detail:
                             po.update(detail)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                 po_num = po.get("po_number", "")
                 if not po_num:

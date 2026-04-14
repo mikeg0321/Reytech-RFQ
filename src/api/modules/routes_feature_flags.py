@@ -75,8 +75,8 @@ def api_flags_set():
     try:
         if request.authorization and request.authorization.username:
             updated_by = request.authorization.username
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     from src.core.flags import set_flag
     ok = set_flag(key, value, updated_by=updated_by, description=description)

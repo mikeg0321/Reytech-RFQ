@@ -201,8 +201,8 @@ def growth_prospect_detail(prospect_id):
             if (contact_email and q_email == contact_email.lower()) or \
                (agency and agency.lower() != "unknown" and q_agency == agency.lower()):
                 linked_quotes.append(q)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     try:
         pcs = _load_price_checks() if '_load_price_checks' in dir() else {}
         if not pcs:
@@ -214,8 +214,8 @@ def growth_prospect_detail(prospect_id):
             if (agency and agency.lower() != "unknown" and pc_inst == agency.lower()) or \
                (contact_email and contact_email.lower() in pc_req):
                 linked_pcs.append({"id": pcid, **pc})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Calculate response rate from activity
     activity_list = crm_c.get("activity", [])
@@ -241,8 +241,8 @@ def growth_prospect_detail(prospect_id):
         wf_state = pr.get("workflow", {})
         _all_cal = get_calendar_events(upcoming_only=True)
         prospect_cal = [e for e in _all_cal if e.get("prospect_id") == pid][:5]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return render_page("prospect_detail.html", active_page="CRM",
         pr=pr, pid=pid, agency=agency, total_spend=total_spend,
@@ -301,8 +301,8 @@ def api_growth_pull_status():
         db_status = tracker.get_status("growth_pull")
         if db_status:
             return jsonify({"ok": True, **db_status})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return jsonify({"ok": True, **PULL_STATUS})
 
 
@@ -377,8 +377,8 @@ def api_growth_intel_status():
         db_status = tracker.get_status("growth_intel")
         if db_status:
             return jsonify({"ok": True, **db_status})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return jsonify({"ok": True, **status})
 
 
@@ -409,8 +409,8 @@ def api_growth_buyer_status():
         db_status = tracker.get_status("growth_buyers")
         if db_status:
             return jsonify({"ok": True, **db_status})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return jsonify({"ok": True, **BUYER_STATUS})
 
 

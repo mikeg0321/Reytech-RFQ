@@ -231,28 +231,28 @@ def _catalog_learn_item(desc, part_number, sell_price, cost, supplier,
     if supplier and supplier_url:
         try:
             _sup(pid, supplier, float(cost) if cost else 0, url=supplier_url)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     elif asin:
         try:
             _sup(pid, "Amazon", float(cost) if cost else 0,
                  url=f"https://www.amazon.com/dp/{asin}")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Record price history
     if sell_price and sell_price > 0:
         try:
             _record(pid, "quoted", float(sell_price), quantity=float(qty or 1),
                     source=source, agency=agency, institution=institution)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     if cost and cost > 0:
         try:
             _record(pid, "cost", float(cost), quantity=float(qty or 1),
                     source=source, agency=agency, institution=institution)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
 
 @bp.route("/api/catalog/rebuild-from-history", methods=["POST"])
@@ -533,8 +533,8 @@ def api_rfq_outcome(rid):
         try:
             created_dt = datetime.fromisoformat(created.replace("Z", "+00:00").split("+")[0])
             record["days_to_decision"] = (datetime.now() - created_dt).days
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     wl_log.append(record)
     _save_win_loss_log(wl_log)
@@ -872,8 +872,8 @@ def api_outreach_draft():
                     reference = q.get("institution", "") or q.get("ship_to_name", "")
                     if reference:
                         break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Categories from their purchase history
     categories = target.get("categories", [])
@@ -969,8 +969,8 @@ def api_outreach_send():
                 break
         with open(crm_path, "w") as f:
             json.dump(contacts, f, indent=2)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     log.info("Outreach sent: %s → %s", to_email, subject)
     return jsonify({"ok": True, "record": record})

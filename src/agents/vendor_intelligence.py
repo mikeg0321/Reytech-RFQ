@@ -101,8 +101,8 @@ def score_all_vendors() -> dict:
                 """, (name, now, score["price_score"], score["reliability_score"],
                       score["speed_score"], score["breadth_score"],
                       score["overall_score"], json.dumps(score.get("categories", []))))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     _save_vendors(vendors)
     log.info("Scored %d vendors", scored)
@@ -128,8 +128,8 @@ def _get_vendor_price_data() -> dict:
                             "sanitizer", "thermometer", "dental", "surgical"]:
                     if cat in desc:
                         data[source]["categories"].add(cat)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return data
 
 
@@ -148,8 +148,8 @@ def _get_vendor_order_data() -> dict:
                 data[name]["total_value"] += r["total"] or 0
                 if r["status"] in ("delivered", "shipped"):
                     data[name]["delivered"] += 1
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return data
 
 

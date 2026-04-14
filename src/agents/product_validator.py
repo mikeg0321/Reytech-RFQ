@@ -47,8 +47,8 @@ def _load_cache() -> dict:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE) as f:
                 return json.load(f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return {}
 
 
@@ -154,8 +154,8 @@ def validate_product(
             "has_mfg": bool(mfg_number),
             "best_match_confidence": best_match_confidence,
         })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Check cache first
     cached = _cache_lookup(description, upc, mfg_number)

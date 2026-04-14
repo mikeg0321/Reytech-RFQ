@@ -805,8 +805,8 @@ def api_manager_metrics():
                 if dt >= month_start:
                     month_revenue += q.get("total", 0)
                     month_quotes += 1
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
     # Weekly quote volume (last 4 weeks)
     weekly_volume = []
@@ -823,8 +823,8 @@ def api_manager_metrics():
                     if week_start <= dt < week_end:
                         count += 1
                         value += q.get("total", 0)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
         label = f"Week {4-w}" if w > 0 else "This Week"
         weekly_volume.append({"label": label, "quotes": count, "value": round(value, 2)})
     weekly_volume.reverse()
@@ -881,8 +881,8 @@ def api_manager_metrics():
                 hours = (p - c).total_seconds() / 3600
                 if 0 < hours < 720:  # Sanity: under 30 days
                     response_times.append(hours)
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
     avg_response = round(sum(response_times) / max(len(response_times), 1), 1)
 
     # Top institutions by revenue
@@ -1149,8 +1149,8 @@ def api_qb_vendor_create():
                         INSERT OR IGNORE INTO vendors (name, qb_vendor_id, email, status, created_at)
                         VALUES (?, ?, ?, 'active', datetime('now'))
                     """, (name, result.get("Id", ""), data.get("email", "")))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             return jsonify({"ok": True, "vendor": result})
         return jsonify({"ok": False, "error": "QuickBooks API error — check connection"})
     except Exception as e:
@@ -1539,8 +1539,8 @@ def _load_crm_contacts() -> dict:
         contacts = get_all_contacts()
         if contacts:
             return contacts
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return _cached_json_load(CRM_CONTACTS_FILE, fallback={})
 
 def _save_crm_contacts(contacts: dict):
@@ -3061,8 +3061,8 @@ def api_cleanup_duplicates():
         try:
             n = int(qn.split("Q")[-1])
             max_num = max(max_num, n)
-        except (ValueError, IndexError):
-            pass
+        except (ValueError, IndexError) as _e:
+            log.debug("suppressed: %s", _e)
 
     # Build report
     from collections import Counter
@@ -3457,8 +3457,8 @@ def api_competitor_price_intel():
             data["avg_price_diff_pct"] = round(sum(diffs) / len(diffs), 1) if diffs else None
             data["total_encounters"] = data["won_against"] + data["lost_to"]
             data["win_rate_vs"] = round(data["won_against"] / data["total_encounters"] * 100, 1) if data["total_encounters"] > 0 else None
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return jsonify({"ok": True, **intel})
 

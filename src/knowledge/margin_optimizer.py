@@ -57,8 +57,8 @@ def get_margin_summary() -> dict:
                                     "agency": q[1] or "",
                                     "status": q[6] or "",
                                 })
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
 
             # "Should have won" — lost quotes within 5% of competitor price
             should_have_won = []
@@ -90,8 +90,8 @@ def get_margin_summary() -> dict:
                                     "gap_pct": round(gap_pct, 1),
                                     "notes": notes[:150],
                                 })
-                    except ValueError:
-                        pass
+                    except ValueError as _e:
+                        log.debug("suppressed: %s", _e)
 
             # Price source breakdown
             price_sources = conn.execute("""

@@ -149,8 +149,8 @@ def _log_alert(event_type, title, body, urgency, context, channels, results):
                 1 if results.get("email",{}).get("ok") else 0,
                 event_type,
             ))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def _dispatch_alert(event_type, title, body, urgency, context, channels_override):
@@ -337,8 +337,8 @@ def _push_bell(event_type: str, title: str, body: str, urgency: str, context: di
     try:
         from src.api.dashboard import _push_notification
         _push_notification(notif)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Persist to SQLite
     try:
@@ -448,8 +448,8 @@ def log_email_event(
                     "intent": intent,
                 },
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return result
 
@@ -711,8 +711,8 @@ def notify_package_ready(rfq, result=None):
     try:
         from src.core.dal import log_lifecycle_event
         log_lifecycle_event("rfq", rid, "package_ready", msg, actor="system")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Webhook (Slack/Teams/custom)
     try:
@@ -725,5 +725,5 @@ def notify_package_ready(rfq, result=None):
             "items": items,
             "url": f"/rfq/{rid}/review-package",
         })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)

@@ -468,8 +468,8 @@ def _parse_product_page(html: str, url: str, cfg: dict) -> dict:
                         result["price"] = price
                     elif not result["list_price"]:
                         result["list_price"] = price
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
     # If list_price found but not price, swap
     if result["list_price"] and not result["price"]:

@@ -123,24 +123,24 @@ def enrich_pc(pc_id: str, force: bool = False):
     try:
         from src.core.structured_log import log_event
         log_event(log, "info", "enrichment_start", pc_id=pc_id, force=force)
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         _run_pipeline(pc_id, force)
         try:
             from src.core.structured_log import log_event
             log_event(log, "info", "enrichment_complete", pc_id=pc_id)
-        except ImportError:
-            pass
+        except ImportError as _e:
+            log.debug("suppressed: %s", _e)
     except Exception as e:
         log.error("ENRICH %s FAILED: %s", pc_id, e, exc_info=True)
         try:
             from src.core.structured_log import log_event
             log_event(log, "error", "enrichment_failed",
                       pc_id=pc_id, error=str(e)[:200])
-        except ImportError:
-            pass
+        except ImportError as _e:
+            log.debug("suppressed: %s", _e)
         with _LOCK:
             if pc_id in ENRICHMENT_STATUS:
                 ENRICHMENT_STATUS[pc_id]["error"] = f"{type(e).__name__}: {str(e)[:200]}"
@@ -338,8 +338,8 @@ def _run_pipeline(pc_id: str, force: bool):
                     time.sleep(0.5)  # rate limit
             except Exception as e:
                 log.debug("ENRICH %s: UPC resolution error for %s: %s", pc_id, _upc, e)
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     except Exception as e:
         log.debug("ENRICH %s: UPC resolution error: %s", pc_id, e)
     _mark_step_done(pc_id, "upc_resolution")
@@ -478,8 +478,8 @@ def _run_pipeline(pc_id: str, force: bool):
             if _priced or it.get("item_link"):
                 _ssww_lookups += 1
                 time.sleep(0.5)
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     except Exception as e:
         log.debug("ENRICH %s: S&S resolution error: %s", pc_id, e)
     _mark_step_done(pc_id, "ssww_resolution")
@@ -821,8 +821,8 @@ def _run_pipeline(pc_id: str, force: bool):
                                 it["pricing"]["web_suggestion_price"] = result["price"]
                                 it["pricing"]["web_suggestion_url"] = result.get("url", "")
                                 it["pricing"]["web_suggestion_confidence"] = _sem.get("confidence", 0)
-                        except Exception:
-                            pass  # Claude unavailable — trust the result
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)  # Claude unavailable — trust the result
 
                     if _sem_ok:
                         it["pricing"]["web_price"] = result["price"]
@@ -953,8 +953,8 @@ def _run_pipeline(pc_id: str, force: bool):
                         trend_alerts.append(f"{desc[:40]}: prices RISING (avg ${history.get('avg_price', 0):.2f} → recent ${history.get('recent_avg', 0):.2f})")
             except Exception as _e:
                 log.debug('suppressed in _run_pipeline: %s', _e)
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     except Exception as e:
         log.debug("ENRICH %s: trend detection error: %s", pc_id, e)
     if trend_alerts:
@@ -987,8 +987,8 @@ def _run_pipeline(pc_id: str, force: bool):
             except Exception as e:
                 log.warning("ENRICH %s: classification error: %s", pc_id, e)
             _mark_step_done(pc_id, "classification")
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── Save enriched PC ─────────────────────────────────────────────────
     _update_status(pc_id, "saving", "persisting results")

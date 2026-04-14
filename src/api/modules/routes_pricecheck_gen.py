@@ -203,8 +203,8 @@ def api_bundle_send(bundle_id):
                 _log_crm_activity(pc["id"], "bundle_quote_sent",
                     f"Bundle quote sent to {to_email} (bundle {bundle_id})",
                     actor="user")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         log.info("BUNDLE SEND %s: sent to %s (%d PCs)", bundle_id, to_email, len(bundle_pcs))
         return jsonify({"ok": True, "sent_to": to_email, "pcs_sent": len(bundle_pcs)})
@@ -418,8 +418,8 @@ def api_pc_multi_upload():
                     from src.forms.vision_parser import parse_from_text as _ai_parse, is_available as _ai_ok
                     if _ai_ok():
                         parsed = _ai_parse(_doc_text, source_path=pc_file) or {}
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 if not parsed.get("line_items"):
                     _fb = _parse_txt(_doc_text)
                     parsed = {"line_items": _fb or [], "header": {}, "parse_method": "regex_fallback"}
@@ -469,8 +469,8 @@ def api_pc_multi_upload():
             with open(pc_file, "rb") as _pf:
                 save_rfq_file(pc_id, safe_name, "application/pdf", _pf.read(),
                               category="source", uploaded_by="manual_upload")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Auto-enrich
         try:
@@ -798,8 +798,8 @@ def api_force_reprocess():
             conn.execute("DELETE FROM processed_emails")
             try:
                 conn.execute("DELETE FROM email_fingerprints")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         log.info("Force-reprocess: cleared SQLite processed_emails + fingerprints")
     except Exception as _db_e:
         log.warning("Force-reprocess: SQLite clear failed: %s", _db_e)
@@ -822,8 +822,8 @@ def api_force_reprocess():
                 _dash._shared_poller._processed.clear()
             _dash._shared_poller = None
             log.info("Force-reprocess: cleared dashboard._shared_poller")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     
     # Re-poll
     try:

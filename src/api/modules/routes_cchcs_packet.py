@@ -61,8 +61,8 @@ def api_cchcs_packet_generate(pcid):
             "pc_id": pcid,
             "dry_run": request.args.get("dry_run", "0") == "1",
         })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     pcs = _load_price_checks()
     pc = pcs.get(pcid)

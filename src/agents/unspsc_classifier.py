@@ -355,8 +355,8 @@ def batch_retag_catalog(limit: int = 50) -> dict:
         try:
             with get_db() as conn:
                 remaining = conn.execute("SELECT COUNT(*) FROM products WHERE unspsc_code IS NULL OR unspsc_code = ''").fetchone()[0]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         log.info("UNSPSC batch retag: tagged=%d, errors=%d, remaining=%d", tagged, errors, remaining)
         return {"tagged": tagged, "remaining": remaining, "errors": errors}
     except Exception as e:

@@ -47,23 +47,23 @@ try:
     from src.knowledge.won_quotes_db import (ingest_scprs_result, find_similar_items,
                                              get_kb_stats, get_price_history)
     PRICING_ORACLE_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    log.debug("suppressed: %s", _e)
 
 try:
     from src.agents.product_research import (research_product, research_rfq_items,
                                              quick_lookup, test_amazon_search,
                                              get_research_cache_stats, RESEARCH_STATUS)
     PRODUCT_RESEARCH_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    log.debug("suppressed: %s", _e)
 
 try:
     from src.forms.price_check import (parse_ams704, process_price_check, lookup_prices,
                                        test_parse, REYTECH_INFO, clean_description)
     PRICE_CHECK_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    log.debug("suppressed: %s", _e)
 
 try:
     from src.forms.quote_generator import (generate_quote, generate_quote_from_pc,
@@ -73,16 +73,16 @@ try:
                                            get_quote_stats, set_quote_counter,
                                            _detect_agency)
     QUOTE_GEN_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    log.debug("suppressed: %s", _e)
 
 try:
     from src.auto.auto_processor import (auto_process_price_check, detect_document_type,
                                          score_quote_confidence, system_health_check,
                                          get_audit_stats, track_response_time)
     AUTO_PROCESSOR_AVAILABLE = True
-except ImportError:
-    pass
+except ImportError as _e:
+    log.debug("suppressed: %s", _e)
 
 # Tier 2: Intelligence & agents (set during module loading)
 INTEL_AVAILABLE = False

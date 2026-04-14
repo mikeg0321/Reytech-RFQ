@@ -1006,8 +1006,8 @@ def check_competitive_trends(competitor="", agency="", category=""):
                         channels=["sms", "bell"],
                         cooldown_key=f"comp_trend:{competitor}:{agency}:{datetime.now().strftime('%Y%m')}",
                     )
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
                 log.info("COMPETITOR_TREND: %s — %d losses %s, avg delta %+.1f%%",
                          competitor, count, scope, avg_delta)

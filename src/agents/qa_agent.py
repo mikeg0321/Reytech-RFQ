@@ -872,8 +872,8 @@ def _check_sales_metrics() -> list:
                 else:
                     results.append({"check": "sales", "status": "pass",
                                     "message": "Won quotes ↔ revenue tracker in sync"})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     except ImportError:
         results.append({"check": "sales", "status": "info",
                         "message": "Sales intel not loaded — revenue check skipped"})
@@ -896,8 +896,8 @@ def _check_sales_metrics() -> list:
                             qs = json.load(f)
                         if not any(q.get("quote_number") == qn for q in qs):
                             orphan += 1
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             if orphan:
                 results.append({"check": "sales", "status": "warn",
                                 "message": f"{orphan} orders reference missing quotes",
@@ -1352,8 +1352,8 @@ def _check_rfq_lifecycle() -> list:
         else:
             results.append({"check": "rfq_lifecycle", "status": "fail",
                             "message": f"Missing routes: {', '.join(missing)}"})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     
     # 4. Check activity logging + email logging work
     try:
@@ -1779,14 +1779,14 @@ class QAMonitor:
                         log.error("CRITICAL: 'bp not defined' detected — PC routing broken! Run /api/qa/trace-diagnostic")
                     if msgs.count("duplicate email_uid") > 3:
                         log.error("CRITICAL: Mass dedup skip detected — stale cache? Run /api/qa/trace-diagnostic")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             try:
                 from src.core.scheduler import heartbeat
                 heartbeat("qa-monitor", success=True)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             time.sleep(self.interval)
 

@@ -55,8 +55,8 @@ def run_nightly_backup(force: bool = False) -> dict:
                 last = f.read().strip()
             if last == today:
                 return {"ok": True, "skipped": True, "last_backup": today}
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     result = {
         "ok": True,
@@ -129,8 +129,8 @@ def run_nightly_backup(force: bool = False) -> dict:
                 try:
                     upload_file(extra, day_folder, os.path.basename(extra))
                     result["files_uploaded"] += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
         # Record success
         _audit("backup_complete", f"backup_{today}", day_folder, "",
@@ -229,8 +229,8 @@ def get_backup_health() -> dict:
         try:
             with open(LAST_BACKUP_FILE) as f:
                 last_backup = f.read().strip()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     from src.core.gdrive import is_configured
 
@@ -239,8 +239,8 @@ def get_backup_health() -> dict:
         try:
             last_dt = datetime.strptime(last_backup, "%Y-%m-%d")
             hours_since = (datetime.now() - last_dt).total_seconds() / 3600
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return {
         "configured": is_configured(),
@@ -297,8 +297,8 @@ def start_backup_scheduler():
                                 urgency="high",
                                 cooldown_key="backup_fail",
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
             except Exception as e:
                 log.error("Backup scheduler error: %s", e)
             _shutdown_event.wait(900)  # Wakes immediately on shutdown

@@ -341,8 +341,8 @@ def _check_agency(pc: dict, items: list) -> list:
                     break
                 except ValueError:
                     continue
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Quote number — PCs are buyer documents, not Reytech quotes.
     # Quote numbers are assigned later when generating a formal response.

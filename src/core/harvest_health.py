@@ -87,8 +87,8 @@ def validate_pull(agency: str, source_system: str, state: str,
             pct = (nulls / total * 100) if total > 0 else 0
             if pct > 10:
                 null_issues.append(f"{field}: {nulls}/{total} ({pct:.0f}%) NULL")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     passed = len(null_issues) == 0
     detail = "All required fields < 10% NULL" if passed else "; ".join(null_issues)
     checks.append({"name": "null_check", "passed": passed, "detail": detail})
@@ -125,8 +125,8 @@ def validate_pull(agency: str, source_system: str, state: str,
                         continue
                     if dt > now + timedelta(days=30):  # 30-day grace period
                         future_count += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
             if future_count > len(dates) * 0.1:
                 date_ok = False
                 date_detail = f"{future_count} future dates out of {len(dates)}"

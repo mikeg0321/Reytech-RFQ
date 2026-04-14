@@ -173,8 +173,8 @@ def _log_audit_internal(action: str, details: str = "", metadata: dict = None):
                  (request.user_agent.string[:200] if request and request.user_agent else ""),
                  json.dumps(metadata or {}, default=str)[:1000])
             )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def audit_action(action_name: str):
@@ -188,8 +188,8 @@ def audit_action(action_name: str):
                 if kwargs:
                     details += f" {kwargs}"
                 _log_audit_internal(action_name, details)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             return result
         return wrapper
     return decorator
@@ -264,8 +264,8 @@ def init_security(app):
                                    status_code=response.status_code, duration_ms=dur)
                 elif response.content_type and 'text/html' in response.content_type:
                     track_page_view(page=path, route=path, duration_ms=dur)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         return response
     
     # ── E5: Auto-inject CSRF token into template context ─────────────────────
@@ -311,8 +311,8 @@ def get_user_role(username: str = None) -> str:
             with open(rbac_path) as f:
                 roles = json.load(f)
             return roles.get(username, "admin")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return "admin"  # Single-user default
 
 def set_user_role(username: str, role: str) -> bool:

@@ -213,10 +213,10 @@ def load_agency_configs():
                             configs[key]["required_forms"] = req
                         if opt:
                             configs[key]["optional_forms"] = opt
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return configs
 
 
@@ -276,8 +276,8 @@ def match_agency(rfq_data):
                 """, (buyer_email,)).fetchone()
                 if row and row[0] in configs:
                     return _matched(row[0], configs[row[0]], buyer_email, "buyer_history")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     log.warning("AGENCY_MATCH: No match for '%s' — falling back to 'other' (minimal forms)",
                 (rfq_data.get("institution") or rfq_data.get("agency") or "?")[:40])
@@ -340,8 +340,8 @@ def get_buyer_form_preferences(buyer_email):
         for r in rows:
             try:
                 all_forms.update(json.loads(r[1]))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         return {
             "forms": sorted(all_forms),
             "agency": top_agency,

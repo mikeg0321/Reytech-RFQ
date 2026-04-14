@@ -630,8 +630,8 @@ Reytech Inc. | CA SB/DVBE #2002605
                 intent="vendor_po",
                 status="sent",
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         _log_vendor_order(vendor_key, vendor["name"], po_number, f"EMAIL-{po_number}", items, total, "po_emailed")
 
@@ -876,8 +876,8 @@ def _run_ordering_pipeline(quote_number, items, agency, po_number):
                 context={"quote_number": quote_number},
                 cooldown_key=f"pending_order_{quote_number}",
             )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     log.info("[OrderPipeline] Done: %d submitted, %d pending, $%.2f | %.1fs",
              len(orders_submitted), len(orders_pending), total_ordered, elapsed)
@@ -928,8 +928,8 @@ def compare_vendor_prices(description: str, quantity: int = 1) -> dict:
                 "url": "",
                 "vendor": "scprs",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if not results:
         return {"best": None, "comparison": [], "savings_vs_worst": 0}

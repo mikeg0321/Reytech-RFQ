@@ -257,8 +257,8 @@ def _auto_alert_failures(results):
                 "INSERT INTO audit_trail (timestamp, event_type, actor, details) VALUES (datetime('now'), ?, ?, ?)",
                 ("deploy_health_fail", "system", json.dumps({"failed": [c["name"] for c in failed], "details": body[:500]}))
             )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def get_results():

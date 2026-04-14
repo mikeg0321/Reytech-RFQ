@@ -27,8 +27,8 @@ def api_document_upload():
         from src.core.feature_flags import get_flag
         if not get_flag("docling_intake", default=False):
             return jsonify({"ok": False, "error": "Document intake is not enabled"}), 403
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from src.agents.docling_parser import parse_document, save_parsed_document, validate_file
@@ -90,8 +90,8 @@ def api_document_upload():
             # Clean up temp file
             try:
                 os.unlink(tmp_path)
-            except OSError:
-                pass
+            except OSError as _e:
+                log.debug("suppressed: %s", _e)
 
     except Exception as e:
         log.error("Document upload error: %s", e, exc_info=True)
@@ -159,8 +159,8 @@ def api_nl_query():
         from src.core.feature_flags import get_flag
         if not get_flag("nl_query_enabled", default=False):
             return jsonify({"ok": False, "error": "Natural language query is not enabled"}), 403
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from src.agents.nl_query_agent import nl_query
@@ -209,8 +209,8 @@ def api_compliance_extract(rfq_id):
         from src.core.feature_flags import get_flag
         if not get_flag("compliance_matrix", default=False):
             return jsonify({"ok": False, "error": "Compliance matrix is not enabled"}), 403
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from src.agents.compliance_extractor import extract_compliance_matrix
@@ -247,8 +247,8 @@ def api_compliance_extract(rfq_id):
             if os.path.isdir(rfq_dir):
                 generated_files = [os.path.splitext(os.path.basename(f))[0]
                                    for f in glob.glob(os.path.join(rfq_dir, "*.pdf"))]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         result = extract_compliance_matrix(pdf_path, rfq_id, rfq_data, generated_files)
 
@@ -256,8 +256,8 @@ def api_compliance_extract(rfq_id):
         if "file" in request.files:
             try:
                 os.unlink(pdf_path)
-            except OSError:
-                pass
+            except OSError as _e:
+                log.debug("suppressed: %s", _e)
 
         return jsonify(result)
 
@@ -328,8 +328,8 @@ def api_bid_score(pc_id):
         from src.core.feature_flags import get_flag
         if not get_flag("bid_scoring", default=False):
             return jsonify({"ok": False, "error": "Bid scoring not enabled"}), 403
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     try:
         from src.agents.bid_decision_agent import score_pc
         return jsonify(score_pc(pc_id))
@@ -400,8 +400,8 @@ def api_retag_unspsc():
         from src.core.feature_flags import get_flag
         if not get_flag("unspsc_enrichment", default=False):
             return jsonify({"ok": False, "error": "UNSPSC enrichment not enabled"}), 403
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     try:
         from src.agents.unspsc_classifier import batch_retag_catalog
         data = request.get_json(silent=True) or {}

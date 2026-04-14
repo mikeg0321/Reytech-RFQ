@@ -63,8 +63,8 @@ def score_prospects(limit: int = 50) -> dict:
                     WHERE status IN ('won', 'sent', 'pending') AND is_test = 0
                 """).fetchall()
                 existing = {r["agency"].upper() for r in rows if r.get("agency")}
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             # Get already-contacted prospects
             contacted = set()
@@ -74,8 +74,8 @@ def score_prospects(limit: int = 50) -> dict:
                     WHERE source = 'outreach' AND created_at >= ?
                 """, (six_months_ago,)).fetchall()
                 contacted = {r["agency"].upper() for r in rows if r.get("agency")}
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             # Get buyer contacts from SCPRS
             buyers = {}
@@ -98,8 +98,8 @@ def score_prospects(limit: int = 50) -> dict:
                         "phone": r.get("buyer_phone"),
                         "po_count": r["po_count"],
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             # Score each agency
             max_spend = max((dict(a).get("total_spend") or 0) for a in agencies) or 1
@@ -130,8 +130,8 @@ def score_prospects(limit: int = 50) -> dict:
                             recency_score = 12
                         elif days_ago <= 365:
                             recency_score = 5
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
 
                 # Match score (0-25): what % of their spend is on items we sell
                 match_ratio = match_spend / total_spend if total_spend > 0 else 0

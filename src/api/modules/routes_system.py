@@ -224,8 +224,8 @@ def api_pipeline_health():
                 ).fetchone()[0]
                 if stuck_pcs > 0:
                     issues.append({"level": "warning", "area": "price_checks", "msg": f"{stuck_pcs} PCs stuck in new/parsed for >7 days"})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             try:
                 pending_old = conn.execute(
@@ -238,8 +238,8 @@ def api_pipeline_health():
                 ).fetchone()[0]
                 if sent_no_followup > 0:
                     issues.append({"level": "info", "area": "quotes", "msg": f"{sent_no_followup} sent quotes with 0 follow-ups after 7+ days"})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             try:
                 overdue_pulls = conn.execute("""
@@ -251,16 +251,16 @@ def api_pipeline_health():
                 """).fetchall()
                 for r in overdue_pulls:
                     issues.append({"level": "warning", "area": "SCPRS", "msg": f"{r[0]} pull overdue ({r[3]}h since last, expected every {r[2]}h)"})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             try:
                 from src.core.circuit_breaker import all_status
                 for cb in all_status():
                     if cb["state"] == "open":
                         issues.append({"level": "critical", "area": "circuits", "msg": f"{cb['name']} circuit OPEN ({cb['failure_count']} failures)"})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             stats["issues_count"] = len(issues)
             stats["critical"] = sum(1 for i in issues if i["level"] == "critical")

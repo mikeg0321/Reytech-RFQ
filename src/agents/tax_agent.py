@@ -14,7 +14,6 @@ Returns: rate, jurisdiction, city, county, tac, confidence
 """
 import os, json, re, logging, time
 from datetime import datetime
-
 log = logging.getLogger("cdtfa_tax")
 
 # ── Circuit breaker for CDTFA API ────────────────────────────────────────────
@@ -136,8 +135,8 @@ def get_cached_rate(key, max_age_days=30):
         cached_at = datetime.fromisoformat(entry["cached_at"])
         if (datetime.now() - cached_at).days <= max_age_days:
             return entry["result"]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return None
 
 

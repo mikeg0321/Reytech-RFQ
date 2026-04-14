@@ -185,8 +185,8 @@ def get_completion_checklist(rfq_data):
         try:
             if float(str(c or 0).replace("$", "").replace(",", "")) > 0:
                 costed += 1
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
     checks.append({
         "label": "All items have supplier cost",
         "ok": costed == len(items) and len(items) > 0,
@@ -200,8 +200,8 @@ def get_completion_checklist(rfq_data):
         try:
             if float(str(p or 0).replace("$", "").replace(",", "")) > 0:
                 priced += 1
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
     checks.append({
         "label": "All items have bid price",
         "ok": priced == len(items) and len(items) > 0,

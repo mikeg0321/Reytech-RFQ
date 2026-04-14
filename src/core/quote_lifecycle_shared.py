@@ -208,8 +208,8 @@ def mark_lost(record, record_type, record_id, competitor="", competitor_price=0,
                 WHERE (pc_id=? OR quote_number=?) AND outcome='pending'
             """, (float(competitor_price) if competitor_price else 0,
                   record_id, record.get("reytech_quote_number", "")))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Generate action items from loss
     try:
@@ -220,8 +220,8 @@ def mark_lost(record, record_type, record_id, competitor="", competitor_price=0,
             agency=record.get("institution") or record.get("agency", ""),
             institution=record.get("institution", ""),
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     log.info("MARK_LOST: %s %s — competitor=%s price=%s", record_type, record_id, competitor, competitor_price)
     return result
