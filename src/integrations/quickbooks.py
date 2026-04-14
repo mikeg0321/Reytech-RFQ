@@ -109,8 +109,8 @@ def draft_invoice_to_qb_payload(draft_invoice: dict, order: dict) -> dict:
     days = 45  # default
     try:
         days = int(''.join(c for c in terms if c.isdigit()))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in draft_invoice_to_qb_payload: %s', _e)
     payload["DueDate"] = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
     
     # Tax

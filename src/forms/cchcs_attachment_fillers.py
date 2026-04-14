@@ -50,8 +50,8 @@ def _template_path(filename: str) -> Optional[str]:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         candidates.append(os.path.join(repo_root, "data", "templates", filename))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _template_path: %s', _e)
     candidates.append(os.path.join("/app", "data", "templates", filename))
     return next((p for p in candidates if os.path.exists(p)), None)
 
@@ -119,8 +119,8 @@ def _best_on_state(annot: Any) -> Optional[str]:
             k = str(key)
             if k != "/Off":
                 return k
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _best_on_state: %s', _e)
     return None
 
 
@@ -157,8 +157,8 @@ def _apply_checkbox_updates(writer: "PdfWriter", updates: Dict[str, Any]) -> int
                     if parent is not None:
                         pobj = parent.get_object()
                         pobj[NameObject("/V")] = export
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _apply_checkbox_updates: %s', _e)
                 written += 1
             except Exception:
                 continue
@@ -204,15 +204,15 @@ def _overlay_signature_on_widgets(
                 sig_rect = tuple(float(x) for x in rect)
                 try:
                     annot[NameObject("/V")] = TextStringObject("")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _overlay_signature_on_widgets: %s', _e)
 
                 page_w, page_h = 612.0, 792.0
                 try:
                     mb = page.mediabox
                     page_w, page_h = float(mb.width), float(mb.height)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _overlay_signature_on_widgets: %s', _e)
                 fl, fb, fr, ft = sig_rect
                 pad = 2.0
                 buf = io.BytesIO()

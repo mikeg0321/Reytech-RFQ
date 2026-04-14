@@ -122,8 +122,8 @@ def run_health_check(pc_ids: list = None, auto_regenerate: bool = False,
                 try:
                     with open(fv_path) as f:
                         intended = json.load(f)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in run_health_check: %s', _e)
 
             if intended:
                 result = verify_form_fields(output_path, intended)

@@ -134,8 +134,8 @@ def load_won_quotes(limit: int = MAX_RECORDS) -> list:
             try:
                 with open(WON_QUOTES_FILE) as f:
                     return json.load(f)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in load_won_quotes: %s', _e)
         return []
 
 
@@ -321,8 +321,8 @@ def find_similar_items(
                 (norm_query,)
             ).fetchall()
             _rejected_matches = {r[0] for r in _rej_rows}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in find_similar_items: %s', _e)
 
     # Detect UPC: explicit parameter, or item_number that's a 12-13 digit barcode
     _upc = upc
@@ -388,8 +388,8 @@ def find_similar_items(
                         break
                     except ValueError:
                         continue
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in find_similar_items: %s', _e)
 
         confidence = 0.0
         match_reasons = []
@@ -639,8 +639,8 @@ def ingest_scprs_result(
               supplier, department, po_number, award_date))
         _cdb.commit()
         _cdb.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in ingest_scprs_result: %s', _e)
 
     return record
 
