@@ -1099,6 +1099,40 @@ def api_rfq_upload_parse_doc(rid):
     except Exception as e:
         return jsonify({"ok": False, "error": f"Could not save file: {e}"})
 
+    # ── Phase 3: unified ingest shortcut ──
+    # When the classifier_v2 feature flag is on, route through the new
+    # pipeline instead of the parallel parser chain. Fixes the RFQ
+    # 6655f190 class of bugs (wrong parser picked, wrong PC linked)
+    # at the root. Gated by flag so it can be disabled in 30 seconds
+    # if anything regresses.
+    try:
+        from src.core.request_classifier import classify_enabled
+        if classify_enabled():
+            from src.core.ingest_pipeline import process_buyer_request
+            log.info("upload-parse-doc: routing through classifier_v2 pipeline")
+            result = process_buyer_request(
+                files=[save_path],
+                email_body=r.get("body_text", ""),
+                email_subject=r.get("email_subject", ""),
+                email_sender=r.get("requestor_email", ""),
+                existing_record_id=rid,
+                existing_record_type="rfq",
+            )
+            return jsonify({
+                "ok": result.ok,
+                "items": result.items_parsed,
+                "parser_used": (result.classification or {}).get("shape", "classifier_v2"),
+                "classification": result.classification,
+                "linked_pc_id": result.linked_pc_id,
+                "link_reason": result.link_reason,
+                "link_confidence": result.link_confidence,
+                "errors": result.errors,
+                "warnings": result.warnings,
+                "reasons": result.reasons,
+            })
+    except Exception as _cv2_e:
+        log.warning("classifier_v2 fallthrough: %s", _cv2_e)
+
     items = []
     parser_used = ""
     header = {}

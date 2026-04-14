@@ -1336,6 +1336,23 @@ CREATE TABLE IF NOT EXISTS feature_flags (
     updated_by TEXT DEFAULT '',
     description TEXT DEFAULT ''
 );
+
+-- ═════════════════════════════════════════════════════════════════════
+-- Utilization events (Phase 4 of PC↔RFQ refactor)
+-- Feature-use tracking so the internal dashboard knows which
+-- parts of the app are hot, dead, or error-prone.
+-- ═════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS utilization_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature TEXT NOT NULL,
+    context TEXT DEFAULT '',
+    user TEXT DEFAULT '',
+    duration_ms INTEGER DEFAULT 0,
+    ok INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_util_feature ON utilization_events(feature);
+CREATE INDEX IF NOT EXISTS idx_util_created ON utilization_events(created_at);
 """
 
 def init_db():

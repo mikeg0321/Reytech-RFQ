@@ -2340,6 +2340,33 @@ def pricecheck_reparse(pcid):
         if not recovered:
             return jsonify({"ok": False, "error": "Source PDF not found on disk or in DB. Upload the PDF manually."})
 
+    # ── Phase 3: unified ingest shortcut (feature-flagged) ──
+    # When classifier_v2 is enabled, route the re-parse through the new
+    # pipeline. Re-parses an existing PC in place and stores the
+    # classification so downstream UI can branch on request.shape.
+    try:
+        from src.core.request_classifier import classify_enabled
+        if classify_enabled():
+            from src.core.ingest_pipeline import process_buyer_request
+            log.info("pc/%s/reparse: routing through classifier_v2", pcid)
+            result = process_buyer_request(
+                files=[source_pdf],
+                email_body=pc.get("body_text", ""),
+                email_subject=pc.get("email_subject", ""),
+                email_sender=pc.get("requestor_email", ""),
+                existing_record_id=pcid,
+                existing_record_type="pc",
+            )
+            return jsonify({
+                "ok": result.ok,
+                "items": result.items_parsed,
+                "classification": result.classification,
+                "errors": result.errors,
+                "warnings": result.warnings,
+            })
+    except Exception as _cv2_e:
+        log.warning("pc/reparse classifier_v2 fallthrough: %s", _cv2_e)
+
     from src.forms.price_check import parse_ams704
     from src.forms.doc_converter import is_office_doc as _is_office
 
