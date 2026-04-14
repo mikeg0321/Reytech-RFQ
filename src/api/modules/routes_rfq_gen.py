@@ -2090,7 +2090,14 @@ def generate_rfq_package(rid):
             log.debug("Source validation: %s", _sv_e)
 
         # ── Form QA: comprehensive field, signature, and package verification ──
+        # This runs the full form_qa suite (field verification, signature
+        # check, 704b computation audit, buyer-field contamination guard,
+        # overlay bounds self-check, Email-as-Contract requirements gate)
+        # against every generated file. Passing requirements_json +
+        # strict_requirements=True activates the Email-as-Contract
+        # blocking check from PR #45 for every agency, not just CCHCS.
         _field_audits = {}
+        _req_json_for_qa = r.get("requirements_json", "") or ""
         try:
             from src.forms.form_qa import run_form_qa
             _qa_report = run_form_qa(
@@ -2101,6 +2108,8 @@ def generate_rfq_package(rid):
                 config=CONFIG,
                 agency_key=_agency_key,
                 required_forms=_req_forms,
+                requirements_json=_req_json_for_qa,
+                strict_requirements=True,
             )
             # Transform QA report into flat per-form structure for the review template
             # Template expects: audits[form_id] = {checks: [], warnings: [], errors: [], page_count, field_count}
@@ -2252,8 +2261,64 @@ def generate_rfq_package(rid):
         except Exception as _de:
             t.warn(f"DB store failed: {f}", error=str(_de))
     
+    # ── Package completeness gate (agency-agnostic hard fail) ──
+    # PR D: every required form in agency_config.required_forms MUST be
+    # in output_files AND pass form_qa, OR the package is incomplete
+    # and the transition to "generated" is BLOCKED. This gives every
+    # agency (CalVet, DGS, DSH, CalFire, etc.) the same guarantee that
+    # the CCHCS packet got in PR #40.
+    try:
+        from src.forms.package_completeness import check_package_completeness
+        _gen_form_ids = {f["form_id"] for f in _gen_forms}
+        _qa_form_results = (
+            _qa_report.get("form_results", {}) if '_qa_report' in dir() else {}
+        )
+        _completeness = check_package_completeness(
+            required_forms=_req_forms,
+            generated_form_ids=_gen_form_ids,
+            qa_form_results=_qa_form_results,
+        )
+    except Exception as _ce:
+        log.error("completeness check crashed: %s", _ce, exc_info=True)
+        # Fail-open on gate errors — don't want a bug in the gate to
+        # block every package generation. The errors list still shows
+        # the crash so the operator can investigate.
+        _completeness = {"complete": True, "reasons": [],
+                         "missing_required": [], "failed_required": []}
+        errors.append(f"completeness check crashed: {_ce}")
+
+    _package_complete = _completeness["complete"]
+    _missing_required = _completeness["missing_required"]
+    _failed_required = _completeness["failed_required"]
+    _incomplete_msg = "; ".join(_completeness["reasons"])
+
+    if not _package_complete:
+        log.error("PACKAGE INCOMPLETE %s: %s", rid, _incomplete_msg)
+        errors.append(f"Package incomplete: {_incomplete_msg}")
+        try:
+            _lle("rfq", rid, "package_incomplete",
+                 f"Package generation incomplete: {_incomplete_msg}",
+                 actor="system",
+                 detail={
+                     "missing_required": list(_missing_required),
+                     "failed_required": list(_failed_required),
+                     "agency": _agency_key,
+                     "required_forms": list(_req_forms),
+                 })
+        except Exception:
+            pass
+
     # ── Step 6: Save, transition, create draft email ──
-    _transition_status(r, "generated", actor="user", notes=f"Package: {len(final_output_files)} files")
+    # Only transition to "generated" when the package is complete.
+    # Incomplete packages transition to "generated_incomplete" so the
+    # review UI shows them but blocks send.
+    _final_status = "generated" if _package_complete else "generated_incomplete"
+    _transition_notes = (
+        f"Package: {len(final_output_files)} files"
+        if _package_complete
+        else f"INCOMPLETE ({_incomplete_msg}) — {len(final_output_files)} files"
+    )
+    _transition_status(r, _final_status, actor="user", notes=_transition_notes)
 
     # Notify: package ready to review
     try:
@@ -2282,14 +2347,22 @@ def generate_rfq_package(rid):
     except Exception as _gde:
         log.debug("Drive trigger (package_generated): %s", _gde)
     
-    # Draft email with final files attached (quote + merged package)
-    try:
-        sender = EmailSender(CONFIG.get("email", {}))
-        all_paths = [os.path.join(out_dir, f) for f in final_output_files]
-        r["draft_email"] = sender.create_draft_email(r, all_paths)
-        t.step("Draft email created", attachments=len(all_paths))
-    except Exception as e:
-        t.warn("Draft email failed", error=str(e))
+    # Draft email with final files attached (quote + merged package).
+    # PR D: blocked when package is incomplete — operator must fix the
+    # missing/failed forms before a draft can be created.
+    if _package_complete:
+        try:
+            sender = EmailSender(CONFIG.get("email", {}))
+            all_paths = [os.path.join(out_dir, f) for f in final_output_files]
+            r["draft_email"] = sender.create_draft_email(r, all_paths)
+            t.step("Draft email created", attachments=len(all_paths))
+        except Exception as e:
+            t.warn("Draft email failed", error=str(e))
+    else:
+        t.warn(
+            "Draft email SKIPPED: package is incomplete",
+            reasons=_package_incomplete_reasons,
+        )
     
     # Save SCPRS prices for history
     try:
@@ -2312,16 +2385,35 @@ def generate_rfq_package(rid):
         elif "Package" in f: parts.append(f"RFQ Package ({len(package_pdfs)} docs merged)")
         else: parts.append(os.path.basename(f))
     
-    msg = f"✅ RFP Package ready: {', '.join(parts)}"
-    if errors:
-        msg += f" | ⚠️ {'; '.join(errors)}"
-    
+    if _package_complete:
+        msg = f"✅ RFP Package ready: {', '.join(parts)}"
+        if errors:
+            # Package is complete but had non-blocking errors (warnings)
+            msg += f" | ⚠️ {'; '.join(errors[:3])}"
+        _flash_level = "success" if not errors else "info"
+        t.ok("Package complete", files=len(output_files), errors=len(errors))
+    else:
+        msg = (
+            f"❌ Package INCOMPLETE: {_incomplete_msg}. "
+            f"Fix the missing/failed required forms and re-generate — "
+            f"send is blocked until every required form passes QA."
+        )
+        _flash_level = "error"
+        t.fail("Package incomplete", files=len(output_files),
+               reasons=_package_incomplete_reasons)
+
     # Log activity
     _log_rfq_activity(rid, "package_generated", msg, actor="user",
-        metadata={"files": output_files, "quote_number": r.get("reytech_quote_number",""), "errors": errors})
-    
-    t.ok("Package complete", files=len(output_files), errors=len(errors))
-    flash(msg, "success" if not errors else "info")
+        metadata={
+            "files": output_files,
+            "quote_number": r.get("reytech_quote_number", ""),
+            "errors": errors,
+            "package_complete": _package_complete,
+            "missing_required": list(_missing_required) if not _package_complete else [],
+            "failed_required": list(_failed_required) if not _package_complete else [],
+        })
+
+    flash(msg, _flash_level)
 
     # Clean up archived old files ONLY after successful generation
     if _old_dir and os.path.exists(_old_dir):
