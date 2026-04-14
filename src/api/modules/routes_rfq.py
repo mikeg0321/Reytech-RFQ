@@ -1069,6 +1069,13 @@ def api_rfq_upload_parse_doc(rid):
     2. Generic RFQ parser (XFA + text extraction)
     3. Vision parser (Claude vision for scanned/image docs)
     """
+    # Telemetry: every manual upload recorded
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("rfq.upload_parse_doc", context={"rfq_id": rid})
+    except Exception:
+        pass
+
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:

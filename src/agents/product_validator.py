@@ -145,6 +145,18 @@ def validate_product(
     except Exception as e:
         log.debug("product_validator flag check failed: %s — proceeding", e)
 
+    # Telemetry: every Grok call recorded (cache hits + misses) so the
+    # dashboard shows how often the LLM validator actually runs
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("grok.validate_product", context={
+            "has_upc": bool(upc),
+            "has_mfg": bool(mfg_number),
+            "best_match_confidence": best_match_confidence,
+        })
+    except Exception:
+        pass
+
     # Check cache first
     cached = _cache_lookup(description, upc, mfg_number)
     if cached:
