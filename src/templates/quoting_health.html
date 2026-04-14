@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+{% block title %}Quoting Health — Reytech{% endblock %}
+{% block content %}
+{% macro stat(value, label, color='#58a6ff', suffix='') -%}
+  <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
+    <div style="font-size:22px;font-weight:700;color:{{ color }};font-family:monospace">{{ value }}{{ suffix }}</div>
+    <div style="font-size:12px;color:var(--tx2,#8b949e)">{{ label }}</div>
+  </div>
+{%- endmacro %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+  <h1 style="margin:0">Quoting Health</h1>
+  <div style="display:flex;gap:6px">
+    {% for d in [1, 7, 30, 90] %}
+      <a href="/health/quoting?days={{d}}"
+         style="padding:6px 14px;border-radius:6px;font-size:13px;
+                background:{% if days == d %}#1f6feb{% else %}var(--sf2,#161b22){% endif %};
+                color:{% if days == d %}#fff{% else %}var(--tx2,#8b949e){% endif %};
+                text-decoration:none;border:1px solid var(--bd,#30363d)">
+        {{ d }}d
+      </a>
+    {% endfor %}
+  </div>
+</div>
+
+{# ── Flag state banner ── #}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {% if flag_card.classifier_v2_on %}#3fb950{% else %}#d29922{% endif %}">
+  <div style="display:flex;align-items:center;gap:14px">
+    <div style="font-size:28px">{% if flag_card.classifier_v2_on %}🟢{% else %}🟡{% endif %}</div>
+    <div style="flex:1">
+      <div style="font-size:15px;font-weight:700">
+        classifier_v2 is
+        <span style="color:{% if flag_card.classifier_v2_on %}#3fb950{% else %}#d29922{% endif %}">
+          {% if flag_card.classifier_v2_on %}ENABLED{% else %}DISABLED{% endif %}
+        </span>
+      </div>
+      <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:2px">
+        {{ flag_card.flag_count }} runtime flag{{ 's' if flag_card.flag_count != 1 else '' }} active.
+        Manage via <code>/api/admin/flags</code>.
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Classifier activity ── #}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">Classifier activity — last {{ days }}d</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
+    {{ stat(classifier_window.invocations, 'Invocations', '#58a6ff') }}
+    {{ stat(classifier_1d.invocations, 'Invocations (24h)', '#79c0ff') }}
+    {{ stat(classifier_window.crashes, 'Crashes ' ~ days ~ 'd',
+            '#3fb950' if classifier_window.crashes == 0 else '#f85149') }}
+    {{ stat(
+        (classifier_window.error_rate * 100)|round(1) if classifier_window.error_rate is not none else '--',
+        'Error rate',
+        '#3fb950' if (classifier_window.error_rate or 0) < 0.01 else '#d29922',
+        '%' if classifier_window.error_rate is not none else '') }}
+    {{ stat(classifier_window.avg_ms, 'Avg latency', '#8b949e', ' ms') }}
+  </div>
+  {% if classifier_window.invocations == 0 %}
+    <div style="margin-top:12px;padding:10px;background:var(--sf2,#161b22);border-radius:6px;color:var(--tx2,#8b949e);font-size:13px">
+      No classifier invocations in the window. Either the flag is off or no buyer
+      requests have hit the pipeline yet. Check <code>/api/admin/flags</code>.
+    </div>
+  {% endif %}
+</div>
+
+{# ── Confidence distribution + top shapes/agencies ── #}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px">
+  <div class="card" style="margin-bottom:0">
+    <div class="card-t">Confidence distribution — last {{ days }}d</div>
+    {% if confidence.total == 0 %}
+      <div style="margin-top:12px;color:var(--tx2,#8b949e);font-size:13px">No confidence data yet.</div>
+    {% else %}
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px">
+        {{ stat(confidence.high, 'High (≥0.85)', '#3fb950') }}
+        {{ stat(confidence.mid, 'Mid (0.60-0.85)', '#d29922') }}
+        {{ stat(confidence.low, 'Low (<0.60)', '#f85149') }}
+      </div>
+      {# bar chart #}
+      <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:12px;background:var(--sf2,#161b22)">
+        {% if confidence.high_pct %}<div style="width:{{ confidence.high_pct }}%;background:#3fb950" title="High {{ confidence.high_pct }}%"></div>{% endif %}
+        {% if confidence.mid_pct %}<div style="width:{{ confidence.mid_pct }}%;background:#d29922" title="Mid {{ confidence.mid_pct }}%"></div>{% endif %}
+        {% if confidence.low_pct %}<div style="width:{{ confidence.low_pct }}%;background:#f85149" title="Low {{ confidence.low_pct }}%"></div>{% endif %}
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--tx2,#8b949e)">
+        {{ confidence.total }} classified request{{ 's' if confidence.total != 1 else '' }}
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card" style="margin-bottom:0">
+    <div class="card-t">Top shapes / agencies — last {{ days }}d</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:12px">
+      <div>
+        <div style="font-size:12px;color:var(--tx2,#8b949e);margin-bottom:6px">Shapes</div>
+        {% for shape, n in confidence.top_shapes %}
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--bd,#30363d)">
+            <span>{{ shape }}</span><strong style="color:#58a6ff">{{ n }}</strong>
+          </div>
+        {% else %}
+          <div style="color:var(--tx2,#8b949e);font-size:13px">--</div>
+        {% endfor %}
+      </div>
+      <div>
+        <div style="font-size:12px;color:var(--tx2,#8b949e);margin-bottom:6px">Agencies</div>
+        {% for agency, n in confidence.top_agencies %}
+          <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--bd,#30363d)">
+            <span>{{ agency }}</span><strong style="color:#58a6ff">{{ n }}</strong>
+          </div>
+        {% else %}
+          <div style="color:var(--tx2,#8b949e);font-size:13px">--</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Funnel ── #}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">Ingest → Quote funnel</div>
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px">
+    {{ stat(funnel_window.ingested, 'Ingested ' ~ days ~ 'd', '#58a6ff') }}
+    {{ stat(funnel_window.pcs, 'PCs created', '#79c0ff') }}
+    {{ stat(funnel_window.quotes, 'Quotes drafted', '#a5d6ff') }}
+    {{ stat(funnel_window.quotes_sent, 'Quotes sent', '#d2a8ff') }}
+    {{ stat(funnel_window.quotes_won, 'Quotes won', '#3fb950') }}
+    {{ stat('$' ~ '{:,.0f}'.format(funnel_window.won_total), 'Won $', '#3fb950') }}
+  </div>
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+    Last 24h: {{ funnel_1d.ingested }} ingested · {{ funnel_1d.pcs }} PCs ·
+    {{ funnel_1d.quotes }} quotes · {{ funnel_1d.quotes_sent }} sent ·
+    {{ funnel_1d.quotes_won }} won (${{ '{:,.0f}'.format(funnel_1d.won_total) }})
+  </div>
+</div>
+
+{# ── Margin ── #}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">Margin — last {{ days }}d (costed quotes)</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+    {{ stat(margin.costed, 'Costed quotes', '#58a6ff') }}
+    {{ stat(margin.avg_margin, 'Avg margin', '#3fb950' if margin.avg_margin >= 30 else '#d29922', '%') }}
+    {{ stat('$' ~ '{:,.0f}'.format(margin.avg_total), 'Avg quote total', '#79c0ff') }}
+    {{ stat('$' ~ '{:,.0f}'.format(margin.gross_profit), 'Gross profit', '#3fb950') }}
+  </div>
+</div>
+
+{# ── Top errored features ── #}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">Top errored features — last {{ days }}d</div>
+  {% if top_errors %}
+    <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
+      <thead>
+        <tr style="color:var(--tx2,#8b949e);text-align:left">
+          <th style="padding:6px 0">Feature</th>
+          <th style="padding:6px 0;text-align:right">Uses</th>
+          <th style="padding:6px 0;text-align:right">Errors</th>
+          <th style="padding:6px 0;text-align:right">Error rate</th>
+          <th style="padding:6px 0;text-align:right">Avg ms</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in top_errors %}
+          <tr style="border-top:1px solid var(--bd,#30363d)">
+            <td style="padding:6px 0;font-family:monospace">{{ row.feature }}</td>
+            <td style="padding:6px 0;text-align:right">{{ row.uses }}</td>
+            <td style="padding:6px 0;text-align:right;color:#f85149;font-weight:700">{{ row.errors }}</td>
+            <td style="padding:6px 0;text-align:right">{{ row.error_rate }}%</td>
+            <td style="padding:6px 0;text-align:right;color:var(--tx2,#8b949e)">{{ row.avg_ms }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div style="margin-top:12px;color:#3fb950;font-size:13px">No errored features in the window. 🎉</div>
+  {% endif %}
+</div>
+
+{# ── Recent classifier crashes ── #}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">Recent classifier crashes (ingest.classify_crashed)</div>
+  {% if recent_crashes %}
+    <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
+      <thead>
+        <tr style="color:var(--tx2,#8b949e);text-align:left">
+          <th style="padding:6px 0">When</th>
+          <th style="padding:6px 0">Error type</th>
+          <th style="padding:6px 0">Sender</th>
+          <th style="padding:6px 0;text-align:right">Files</th>
+          <th style="padding:6px 0">Message</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in recent_crashes %}
+          <tr style="border-top:1px solid var(--bd,#30363d)">
+            <td style="padding:6px 0;color:var(--tx2,#8b949e);white-space:nowrap">{{ row.created_at[:19] }}</td>
+            <td style="padding:6px 0;font-family:monospace">{{ row.error_type }}</td>
+            <td style="padding:6px 0;font-size:12px">{{ row.sender }}</td>
+            <td style="padding:6px 0;text-align:right">{{ row.file_count }}</td>
+            <td style="padding:6px 0;color:#f85149;font-family:monospace;font-size:12px">{{ row.error }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div style="margin-top:12px;color:#3fb950;font-size:13px">No classifier crashes recorded. 🎉</div>
+  {% endif %}
+</div>
+
+<div style="font-size:12px;color:var(--tx2,#8b949e);margin-top:20px">
+  All data is read-only. JSON mirror at
+  <a href="/api/health/quoting?days={{days}}" style="color:#58a6ff">/api/health/quoting?days={{days}}</a>
+</div>
+{% endblock %}

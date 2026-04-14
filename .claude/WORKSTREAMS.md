@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/except-pass-sweep-2 | Window 2 | `C:\Users\mikeg\rfq-except-pass-sweep-2` | Active | except-pass sweep #2: agents + DAL + top routes (233 blocks / 14 files) | 2026-04-14 |
+| feat/quoting-health-dashboard | Window 2 | `C:\Users\mikeg\rfq-quoting-health-dashboard` | Active | Quoting Health Dashboard — /health/quoting with classifier+funnel+margin observability | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
