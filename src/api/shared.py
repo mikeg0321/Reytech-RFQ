@@ -119,8 +119,8 @@ def _set_request_trace():
     try:
         from src.core.tracing import set_trace_id
         set_trace_id(operation=request.endpoint or request.path)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _set_request_trace: %s', _e)
 
 
 # ── Global auth guard (before_request) ───────────────────────────────────────
@@ -153,8 +153,8 @@ def _global_auth_guard():
             try:
                 from src.core.security import _log_audit_internal
                 _log_audit_internal("auth_denied", f"{request.method} {_path} from {request.remote_addr}")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _global_auth_guard: %s', _e)
             return Response(
                 "Reytech RFQ Dashboard — Login Required",
                 401, {"WWW-Authenticate": 'Basic realm="Reytech RFQ Dashboard"'})

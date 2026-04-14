@@ -571,8 +571,8 @@ def track_response_time(doc_type: str, received_at: str, responded_at: str = Non
         try:
             with open(stats_file) as f:
                 stats = json.load(f)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in track_response_time: %s', _e)
 
     stats["total"] += 1
     stats["sum_minutes"] += minutes

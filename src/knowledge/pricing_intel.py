@@ -177,8 +177,8 @@ def record_winning_prices(order: dict):
                             updated_at = ?
                         WHERE id = ?
                     """, (sell, now[:10], margin, margin, now, cat_id))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in record_winning_prices: %s', _e)
         
         conn.commit()
         log.info("Recorded %d winning prices from order %s (quote=%s, po=%s)", recorded, oid, qn, po)

@@ -175,8 +175,8 @@ def catalog_page():
                 info = url_map.get(p["id"], {})
                 p["primary_url"] = info.get("url", "")
                 p["last_price_checked"] = info.get("last_checked", "")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in vendor_row: %s', _e)
 
     # Macro stats bento
     tp = stats["total_products"]
@@ -855,8 +855,8 @@ def api_catalog_import_quotewerks():
             dedup_result = dedup_catalog()
             result["dupes_merged"] = dedup_result.get("groups_merged", 0)
             result["dupes_deleted"] = dedup_result.get("products_deleted", 0)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_catalog_import_quotewerks: %s', _e)
 
         return jsonify({"ok": True, **result})
     except Exception as e:
@@ -1122,8 +1122,8 @@ def api_catalog_check_price():
             if row:
                 old_price = row["last_price"] or 0
             conn.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_catalog_check_price: %s', _e)
 
     # Update supplier record + record price history
     if product_id:
@@ -2249,8 +2249,8 @@ def api_qb_cash_flow():
             row = cur.fetchone()
             pipeline_value = float(row[0] or 0)
             conn.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_qb_cash_flow: %s', _e)
 
         total_expected = sum(i["amount"] for i in inflows)
         return jsonify({
@@ -2402,8 +2402,8 @@ def api_qb_draft_reminders():
             try:
                 due_dt = datetime.strptime(due_date, "%Y-%m-%d")
                 days_overdue = (datetime.now() - due_dt).days
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_qb_draft_reminders: %s', _e)
             drafts.append({
                 "to": email or f"(no email for {cust_name})",
                 "customer": cust_name, "invoice_number": inv_num,
@@ -2480,8 +2480,8 @@ def api_qb_expense_summary():
             bills = _qb_query("SELECT * FROM Bill WHERE TxnDate >= '{}' MAXRESULTS 100".format(
                 (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")))
             bill_total = sum(float(b.get("TotalAmt", 0)) for b in bills)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_qb_expense_summary: %s', _e)
         return jsonify({
             "ok": True, "po_total_90d": round(total, 2),
             "bill_total_90d": round(bill_total, 2),
@@ -2772,14 +2772,14 @@ def api_qb_customer_health():
                         d2 = datetime.strptime(due, "%Y-%m-%d")
                         days = (d2 - d1).days
                         cust_stats[cid]["avg_days_to_pay"].append(max(days, 0))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_qb_customer_health: %s', _e)
             elif due:
                 try:
                     if datetime.strptime(due, "%Y-%m-%d") < datetime.now():
                         cust_stats[cid]["overdue"] += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_qb_customer_health: %s', _e)
 
         # Score each customer
         scored = []
