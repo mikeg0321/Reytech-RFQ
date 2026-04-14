@@ -358,6 +358,72 @@ class TestQuoteRequestWrapper:
         assert qr.kind == "rfq"
         assert len(qr.get_items()) == 1
 
+    def test_write_items_pc_sets_top_level_items(self):
+        from src.core.quote_request import QuoteRequest
+        pc = {"id": "pc_w1", "items": [{"qty": 1, "description": "old"}]}
+        qr = QuoteRequest.from_pc(pc)
+        qr.write_items([{"qty": 5, "description": "new"}])
+        assert pc["items"][0]["qty"] == 5
+        assert qr.get_items()[0]["qty"] == 5
+
+    def test_write_items_pc_syncs_nested_pc_data(self):
+        """When pc_data.items exists as a legacy mirror, write_items
+        must keep it in sync so a reader that falls through to the
+        nested path doesn't return stale data."""
+        from src.core.quote_request import QuoteRequest
+        pc = {
+            "id": "pc_w2",
+            "pc_data": {"items": [{"qty": 1, "description": "stale"}]},
+        }
+        qr = QuoteRequest.from_pc(pc)
+        qr.write_items([{"qty": 9, "description": "fresh"}])
+        assert pc["items"][0]["qty"] == 9
+        assert pc["pc_data"]["items"][0]["qty"] == 9
+
+    def test_write_items_pc_reserializes_pc_data_json_string(self):
+        from src.core.quote_request import QuoteRequest
+        pc = {
+            "id": "pc_w3",
+            "pc_data": json.dumps({"items": [{"qty": 2, "description": "a"}], "extra": "keep"}),
+        }
+        qr = QuoteRequest.from_pc(pc)
+        qr.write_items([{"qty": 7, "description": "b"}])
+        assert pc["items"][0]["qty"] == 7
+        reparsed = json.loads(pc["pc_data"])
+        assert reparsed["items"][0]["qty"] == 7
+        assert reparsed["extra"] == "keep"  # preserved
+
+    def test_write_items_drops_stale_data_json(self):
+        """data_json is a whole-record snapshot and can't be patched
+        in place — drop it so _save_single_pc re-emits a fresh copy."""
+        from src.core.quote_request import QuoteRequest
+        pc = {
+            "id": "pc_w4",
+            "items": [],
+            "data_json": json.dumps({"items": [{"qty": 99}], "anything": 1}),
+        }
+        qr = QuoteRequest.from_pc(pc)
+        qr.write_items([{"qty": 3}])
+        assert "data_json" not in pc
+        assert pc["items"][0]["qty"] == 3
+
+    def test_write_items_rfq_sets_line_items(self):
+        from src.core.quote_request import QuoteRequest
+        rfq = {"id": "rfq_w1", "line_items": [{"qty": 1}]}
+        qr = QuoteRequest.from_rfq(rfq)
+        qr.write_items([{"qty": 4}, {"qty": 5}])
+        assert len(rfq["line_items"]) == 2
+        assert qr.get_items()[0]["qty"] == 4
+
+    def test_write_items_rejects_non_list(self):
+        """Defensive — never crash, but also never coerce silently."""
+        from src.core.quote_request import QuoteRequest
+        pc = {"id": "pc_w5", "items": [{"qty": 1}]}
+        qr = QuoteRequest.from_pc(pc)
+        qr.write_items("not a list")  # type: ignore[arg-type]
+        # Original items preserved
+        assert pc["items"][0]["qty"] == 1
+
     def test_empty_record_returns_empty_items_safely(self):
         from src.core.quote_request import QuoteRequest
         qr = QuoteRequest.from_pc({})

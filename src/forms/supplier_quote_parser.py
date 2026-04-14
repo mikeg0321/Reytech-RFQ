@@ -88,8 +88,8 @@ def parse_supplier_quote(pdf_path: str) -> dict:
         for _i, _e in enumerate(enriched):
             if _i < len(unique) and _e.get("intelligence"):
                 unique[_i]["intelligence"] = _e["intelligence"]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return {
         "ok": True,

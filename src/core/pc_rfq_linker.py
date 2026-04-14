@@ -148,8 +148,8 @@ def auto_link_rfq_to_pc(rfq_data, pc_id, pc_data):
             try:
                 if cost and float(str(cost).replace("$", "").replace(",", "")) > 0:
                     continue
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
             best_sim = 0
             best_pc_item = None
@@ -301,8 +301,8 @@ def auto_link_rfq_to_bundle(rfq_data, bundle_pcs):
             try:
                 if cost and float(str(cost).replace("$", "").replace(",", "")) > 0:
                     continue
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
             best_sim = 0
             best_pc_item = None

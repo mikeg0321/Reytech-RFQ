@@ -49,8 +49,8 @@ def _parse_with_docling(file_path: str) -> dict:
                 df = table.export_to_dataframe()
                 table_data["headers"] = list(df.columns)
                 table_data["rows"] = df.values.tolist()
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         tables.append(table_data)
 
     page_count = getattr(result.document, "num_pages", 0)
@@ -305,8 +305,8 @@ def get_parsed_document(doc_id: int) -> dict:
                 if d.get(field):
                     try:
                         d[field] = json.loads(d[field])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    except (json.JSONDecodeError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
             d["ok"] = True
             return d
     except Exception as e:

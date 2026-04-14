@@ -909,8 +909,8 @@ def parse_generic_rfq(pdf_paths, subject="", sender_email="", body=""):
         for i, e in enumerate(enriched):
             if i < len(all_items) and e.get("intelligence"):
                 all_items[i]["intelligence"] = e["intelligence"]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return result
 

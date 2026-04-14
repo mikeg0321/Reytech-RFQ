@@ -1338,8 +1338,8 @@ def api_rfq_upload_parse_doc(rid):
     finally:
         try:
             os.remove(save_path)
-        except OSError:
-            pass
+        except OSError as _e:
+            log.debug("suppressed: %s", _e)
 
 
 @bp.route("/upload", methods=["POST"])
@@ -1422,8 +1422,8 @@ def upload():
                     try:
                         _item["supplier_cost"] = float(_best_cost)
                         _item["cost_source"] = "SCPRS" if _sp else "Amazon"
-                    except (ValueError, TypeError):
-                        pass
+                    except (ValueError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
             items = rfq.get("line_items", [])
             priced_count = sum(1 for i in items if i.get("price_per_unit") or i.get("scprs_last_price"))
             rfq["auto_lookup_results"] = {
@@ -1491,8 +1491,8 @@ def upload():
             try:
                 _item["supplier_cost"] = float(_best_cost)
                 _item["cost_source"] = "SCPRS" if _sp else "Amazon"
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
     # Store lookup results summary
     items = rfq.get("line_items", [])
@@ -3247,8 +3247,8 @@ def api_rfq_bulk_paste_data(rid):
                             markup = 25
                         item["markup_pct"] = markup
                         item["price_per_unit"] = round(cost * (1 + markup / 100), 2)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
             elif (row.get("markup_pct") or "").strip():
                 # Markup without cost — update markup only if item already has cost
                 markup_str = (row.get("markup_pct") or "").strip().replace("%", "")
@@ -3258,8 +3258,8 @@ def api_rfq_bulk_paste_data(rid):
                     if item.get("supplier_cost") and float(item["supplier_cost"]) > 0:
                         item["price_per_unit"] = round(float(item["supplier_cost"]) * (1 + markup / 100), 2)
                     fields_set += 1
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
             if fields_set > 0:
                 res_obj = {"line": i + 1, "status": "ok", "fields": fields_set}
                 if item.get("supplier_cost"):

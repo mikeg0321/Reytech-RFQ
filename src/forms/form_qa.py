@@ -496,8 +496,8 @@ def verify_signatures(pdf_path: str, form_id: str) -> dict:
                         if str(obj.get("/Subtype", "")) == "/Image":
                             has_image = True
                             break
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                 # Only flag pages in the lower half where signatures live
                 page_h = float(page.get("/MediaBox", [0, 0, 612, 792])[3])
@@ -1183,8 +1183,8 @@ def verify_overlay_bounds(
     finally:
         try:
             pdf.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return result
 

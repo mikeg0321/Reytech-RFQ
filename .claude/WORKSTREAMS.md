@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/audit-p2-fixes | Window 2 | `C:\Users\mikeg\rfq-audit-p2-fixes` | Active | P2 audit fixes: classifier-crash telemetry + v2 email-only gate + async utilization queue | 2026-04-14 |
+| feat/audit-p3-8-write-items | Window 2 | `C:\Users\mikeg\rfq-audit-p3-8-write-items` | Active | P3.8 QuoteRequest.write_items() + except-pass sweep across 15 hot-path files | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
