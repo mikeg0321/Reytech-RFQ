@@ -266,8 +266,8 @@ async def _scrape_detail_async(supplier_name="reytech",
                                         full_page=True
                                     )
                                     detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug('suppressed in _scrape_detail_async: %s', _e)
                     else:
                         log.warning("Browser: PO %s no line items in %db",
                                     po_text, len(dp_content))
@@ -286,8 +286,8 @@ async def _scrape_detail_async(supplier_name="reytech",
                     for extra in page.context.pages[1:]:
                         try:
                             await extra.close()
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _scrape_detail_async: %s', _e)
                     if failed > 10:
                         log.error("Browser: too many failures (%d), stopping", failed)
                         break
@@ -299,8 +299,8 @@ async def _scrape_detail_async(supplier_name="reytech",
             # Save final state
             try:
                 await page.screenshot(path="/data/scprs_final.png", full_page=True)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _scrape_detail_async: %s', _e)
 
         except Exception as e:
             log.error("Browser scrape failed: %s", e)
@@ -360,8 +360,8 @@ def scrape_details(supplier_name="reytech", from_date="",
         import os
         if os.environ.get("SCRAPER_SERVICE_URL"):
             return _remote(supplier_name=supplier_name, from_date=from_date, max_rows=max_rows)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in scrape_details: %s', _e)
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -383,8 +383,8 @@ def scrape_po_detail(po_number):
         import os
         if os.environ.get("SCRAPER_SERVICE_URL"):
             return _remote(po_number)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in scrape_po_detail: %s', _e)
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -445,8 +445,8 @@ async def _scrape_single_po(po_number):
                         "[id^='ZZ_SCPR_SBP_WRK']",
                         timeout=10000
                     )
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _scrape_single_po: %s', _e)
 
                 html = await page.content()
                 detail = _parse_browser_detail(html)
@@ -560,8 +560,8 @@ def _store_results(batch, seen_pos):
                             po, header.get("start_date", ""),
                         ))
                         catalog_items += 1
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in _store_results: %s', _e)
 
             # Commit after each PO to release the write lock promptly
             try:
@@ -892,8 +892,8 @@ async def _scrape_full_async(search_params, seen_pos, max_rows=500):
                                 try:
                                     await detail_page.screenshot(path=f"/data/po_records/{po_text}.png", full_page=True)
                                     detail["screenshot_path"] = f"/data/po_records/{po_text}.png"
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug('suppressed in _scrape_full_async: %s', _e)
                             results.append(detail)
                             seen_pos.add(po_text)
                             log.info("Browser full: PO=%s %d lines [%d done]",
@@ -909,8 +909,8 @@ async def _scrape_full_async(search_params, seen_pos, max_rows=500):
                     for extra in page.context.pages[1:]:
                         try:
                             await extra.close()
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _scrape_full_async: %s', _e)
                     if failed > 10:
                         break
 
@@ -968,8 +968,8 @@ def _cleanup_old_po_records():
                 freed += os.path.getsize(fpath)
                 os.remove(fpath)
                 deleted += 1
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _cleanup_old_po_records: %s', _e)
     if deleted:
         log.info("PO cleanup: deleted %d files, freed %.0fMB", deleted, freed / 1_000_000)
     return deleted
