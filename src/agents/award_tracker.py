@@ -183,8 +183,8 @@ def run_award_check(force: bool = False) -> dict:
                     parsed = json.loads(items_raw)
                     if parsed and isinstance(parsed, list):
                         sol = parsed[0].get("solicitation", "") if isinstance(parsed[0], dict) else ""
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in run_award_check: %s', _e)
             if not sol:
                 sol = q.get("quote_number", "")
 
@@ -235,8 +235,8 @@ def run_award_check(force: bool = False) -> dict:
         sent_at_dt = None
         try:
             sent_at_dt = datetime.fromisoformat(sent_at_str[:19])
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in run_award_check: %s', _e)
 
         if not force and sent_at_dt:
             try:
@@ -273,8 +273,8 @@ def run_award_check(force: bool = False) -> dict:
                     try:
                         last_checked_dt = datetime.fromisoformat(
                             last_check_row["checked_at"][:19])
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in run_award_check: %s', _e)
                     # Extract window from notes if stored
                     notes_str = last_check_row["notes"] or ""
                     if "window" in notes_str:
@@ -354,8 +354,8 @@ def run_award_check(force: bool = False) -> dict:
         our_items = []
         try:
             our_items = json.loads(q.get("line_items") or "[]")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in run_award_check: %s', _e)
 
         # Extract search keywords from items
         keywords = _extract_search_keywords(our_items, q.get("items_text", ""))
@@ -666,8 +666,8 @@ def run_award_check(force: bool = False) -> dict:
                 datetime.fromisoformat((q.get("sent_at") or q.get("created_at", ""))[:19])
             ) if q.get("sent_at") or q.get("created_at") else "unknown"
             notes += f" | window {window_label} | phase {phase_label}"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in run_award_check: %s', _e)
 
         conn.execute("""
             INSERT INTO award_tracker_log
@@ -1446,8 +1446,8 @@ def _heartbeat(success: bool = True, error: str = ""):
     try:
         from src.core.scheduler import heartbeat
         heartbeat("award-tracker", success=success, error=error[:200] if error else "")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _heartbeat: %s', _e)
 
 
 def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
@@ -1469,8 +1469,8 @@ def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
     try:
         from src.core.scheduler import register_job
         register_job("award-tracker", interval_seconds)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in start_award_tracker: %s', _e)
 
     def _loop():
         from src.core.scheduler import _shutdown_event
@@ -1625,8 +1625,8 @@ def get_monitoring_queue():
                         if sent_dt:
                             biz_days = business_days_since(sent_dt)
                             phase = get_check_phase(sent_dt)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in get_monitoring_queue: %s', _e)
 
                 # Last check from award_tracker_log
                 last_check = None
@@ -1635,8 +1635,8 @@ def get_monitoring_queue():
                         SELECT checked_at, outcome, notes FROM award_tracker_log
                         WHERE quote_number=? ORDER BY checked_at DESC LIMIT 1
                     """, (qnum,)).fetchone()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in get_monitoring_queue: %s', _e)
 
                 # Best match from quote_po_matches
                 best_match = None
@@ -1646,8 +1646,8 @@ def get_monitoring_queue():
                         FROM quote_po_matches WHERE quote_number=?
                         ORDER BY match_confidence DESC LIMIT 1
                     """, (qnum,)).fetchone()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in get_monitoring_queue: %s', _e)
 
                 entry = {
                     "quote_number": qnum,
@@ -1674,7 +1674,7 @@ def get_monitoring_queue():
     finally:
         try:
             db.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in get_monitoring_queue: %s', _e)
 
     return result

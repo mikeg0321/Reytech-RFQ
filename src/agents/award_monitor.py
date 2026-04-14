@@ -152,8 +152,8 @@ def smart_match_pc(new_email: dict, existing_pcs: dict) -> dict | None:
                 if days <= 14:
                     score += 10
                     reasons.append(f"{days}d ago")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in smart_match_pc: %s', _e)
         
         if score > best_score and score >= 30:
             best_score = score
@@ -421,8 +421,8 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
                         sug["preferred_vendor"] = info.get("vendor", "")
                         sug["vendor_score"] = info.get("score", 0)
                         break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in get_price_suggestions: %s', _e)
     # ── End preferred vendor ──────────────────────────────────────
     
     return suggestions
@@ -532,8 +532,8 @@ def run_award_check() -> dict:
                     log.info("PC %s expired: %d days since sent, no award found",
                              pc.get("pc_number", pcid), days_since)
                     continue
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in run_award_check: %s', _e)
         
         # Rate limit
         if checked_this_run >= MAX_CHECKS_PER_RUN:
@@ -581,8 +581,8 @@ def run_award_check() -> dict:
                     _push_notification("bell",
                         f"🏆 WON: {pc.get('pc_number','')} — PO {award.get('po_number','')}",
                         "success")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in run_award_check: %s', _e)
                 
             elif award["outcome"] == "lost":
                 pc["status"] = "lost"
@@ -600,8 +600,8 @@ def run_award_check() -> dict:
                     for it in pc.get("items", []):
                         p = it.get("pricing", {})
                         our_total += (p.get("recommended_price") or 0) * it.get("qty", 1)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in run_award_check: %s', _e)
                 log_competitor(pc, award, our_total)
                 
                 # ── Quote Lifecycle Bridge: close matching quote as lost ──
@@ -631,8 +631,8 @@ def run_award_check() -> dict:
                     _push_notification("bell",
                         f"❌ Lost: {pc.get('pc_number','')} to {award['supplier']}",
                         "warn")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in run_award_check: %s', _e)
         else:
             # No match yet — keep checking
             pass  # PC stays in "sent" status until won/lost/expired

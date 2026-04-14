@@ -133,8 +133,8 @@ def bulk_delete(email_ids: list = None, status_filter: str = "draft") -> dict:
                 conn.execute("DELETE FROM email_outbox WHERE id IN (" + placeholders + ")", list(email_ids))
             else:
                 conn.execute("DELETE FROM email_outbox WHERE status = ?", (status_filter,))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in bulk_delete: %s', _e)
 
     log.info("Bulk deleted %d emails (filter=%s)", deleted, status_filter)
     return {"ok": True, "deleted": deleted}
@@ -234,8 +234,8 @@ def record_engagement(tracking_id: str, event_type: str,
                     email["last_clicked"] = now
                 break
         _save_outbox_json(outbox)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in record_engagement: %s', _e)
 
     # Log to DB
     try:
@@ -336,8 +336,8 @@ def _notify_permanent_failure(email: dict):
             urgency="warning",
             deep_link="/outbox"
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _notify_permanent_failure: %s', _e)
 
 
 # ── Agent Status ──────────────────────────────────────────────────────────────

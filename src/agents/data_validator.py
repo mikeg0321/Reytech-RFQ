@@ -63,8 +63,8 @@ def validate_all():
             report["passed"] += 1
         else:
             report["warnings"] += 1
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _check: %s', _e)
 
     # PO records
     po_dir = "/data/po_records"
@@ -110,7 +110,7 @@ def validate_all():
         os.makedirs("/data", exist_ok=True)
         with open("/data/data_validation.json", "w") as f:
             json.dump(report, f, indent=2, default=str)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _check: %s', _e)
 
     return report
