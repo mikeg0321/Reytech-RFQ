@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/carrier-tracking-framework | Window 2 | `C:\Users\mikeg\rfq-carrier-tracking-framework` | Active | Orders V2 phase 5 — carrier detection + tracking URL + status endpoints | 2026-04-14 |
+| feat/orders-v2-po-merge-guard | Window 2 | `C:\Users\mikeg\rfq-orders-v2-po-merge-guard` | Active | Orders V2 PO merge regression guard tests + audit memo | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
