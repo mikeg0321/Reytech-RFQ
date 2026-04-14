@@ -1273,3 +1273,92 @@ def api_pc_mark_auto_priced(pcid):
     _save_single_pc(pcid, pc)
     return jsonify({"ok": True})
 
+
+# ═══════════════════════════════════════════════════════════════════════
+# Oracle V5.5 — Per-Buyer Win-Rate Curves (read-only API)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/oracle/buyer-curve/<institution>")
+@auth_required
+@safe_route
+def api_buyer_curve(institution):
+    """Return the fitted win-rate curve for a single institution, plus
+    the EV-maximizing markup. Used by the quoting UI to show the
+    "recommended markup = X% (P(win) = Y%)" widget and by smoke tests
+    to sanity-check that the curve fitter is producing results.
+
+    Query params:
+        days  — lookback window (default 365)
+
+    Response:
+        {
+          "ok": True,
+          "institution": "cchcs",
+          "optimal": {
+            "sufficient": True,
+            "markup_pct": 32.0,
+            "expected_value": 17.6,
+            "win_probability": 0.55
+          },
+          "curve": {
+            "total_samples": 27,
+            "won": 14,
+            "lost": 13,
+            "global_win_rate": 0.518,
+            "buckets": [...]
+          }
+        }
+
+    When sample_size is below the threshold the curve still returns but
+    `optimal.sufficient == False` and the caller should fall back to
+    V5 scalar logic.
+    """
+    from src.core.pricing_oracle_v2 import (
+        _fit_buyer_curve,
+        optimal_markup_for_expected_profit,
+    )
+
+    try:
+        days = int(request.args.get("days", "365"))
+    except (TypeError, ValueError):
+        days = 365
+    days = max(30, min(1095, days))
+
+    # _fit_buyer_curve + optimizer both need a DB handle
+    try:
+        with get_db() as conn:
+            curve = _fit_buyer_curve(conn, institution, days=days)
+            optimal = optimal_markup_for_expected_profit(institution, conn)
+    except Exception as e:
+        log.warning("buyer-curve lookup failed for %s: %s", institution, e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    if curve is None:
+        return jsonify({
+            "ok": True,
+            "institution": institution,
+            "optimal": {"sufficient": False, "markup_pct": None,
+                        "expected_value": None, "win_probability": None},
+            "curve": None,
+        })
+
+    return jsonify({
+        "ok": True,
+        "institution": institution,
+        "days": days,
+        "optimal": {
+            "sufficient": bool(optimal.get("sufficient")),
+            "markup_pct": optimal.get("markup_pct"),
+            "expected_value": optimal.get("expected_value"),
+            "win_probability": optimal.get("win_probability"),
+        },
+        "curve": {
+            "total_samples": curve.get("total_samples", 0),
+            "won": curve.get("won", 0),
+            "lost": curve.get("lost", 0),
+            "global_win_rate": curve.get("global_win_rate", 0),
+            "sufficient": curve.get("sufficient", False),
+            "buckets": curve.get("buckets", []),
+        },
+    })
+

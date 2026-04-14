@@ -7,8 +7,10 @@ import logging
 import re
 import math
 import json
+import time
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
+from typing import Any, Dict
 
 log = logging.getLogger("reytech.pricing_oracle")
 
@@ -547,6 +549,56 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                 cal["recommended_max_markup"] = blended
                 result["calibration"]["blended_with_institution"] = True
                 result["calibration"]["recommended_max_markup"] = round(blended, 1)
+
+    # V5.5: Per-buyer win-rate curve. When we have ≥ _CURVE_MIN_SAMPLES
+    # won+lost quotes for this institution, fit a bucketed response
+    # curve and pick the markup that maximizes markup × P(win). This
+    # dominates the scalar avg_winning_markup above — a buyer who wins
+    # 70% of 25%-markup quotes and 30% of 40%-markup quotes has an
+    # *expected profit* peak at ~28%, not at their historical average.
+    # Falls through silently when data is thin.
+    buyer_opt = None
+    if _db and agency:
+        try:
+            buyer_opt = optimal_markup_for_expected_profit(agency, _db)
+        except Exception as e:
+            log.debug("V5.5 buyer curve lookup error: %s", e)
+            buyer_opt = None
+    if buyer_opt and buyer_opt.get("sufficient"):
+        curve_summary = buyer_opt.get("curve") or {}
+        result["buyer_curve"] = {
+            "optimal_markup_pct": buyer_opt["markup_pct"],
+            "expected_value": buyer_opt["expected_value"],
+            "win_probability": buyer_opt["win_probability"],
+            "total_samples": curve_summary.get("total_samples", 0),
+            "won": curve_summary.get("won", 0),
+            "lost": curve_summary.get("lost", 0),
+            "buckets": curve_summary.get("buckets", []),
+        }
+        # Override the calibration ceiling with the EV-maximizing markup
+        # so the downstream `ceiling = cost * (1 + markup/100)` uses it.
+        if cal:
+            cal["recommended_max_markup"] = buyer_opt["markup_pct"]
+            result["calibration"]["recommended_max_markup"] = buyer_opt["markup_pct"]
+            result["calibration"]["source"] = "buyer_curve_v5_5"
+        else:
+            # No category calibration — synthesize one so the
+            # downstream ceiling math picks it up.
+            cal = {
+                "recommended_max_markup": buyer_opt["markup_pct"],
+                "sample_size": curve_summary.get("total_samples", 0),
+                "win_rate": curve_summary.get("total_samples", 0) and
+                            (curve_summary.get("won", 0) / curve_summary["total_samples"]),
+                "avg_winning_margin": buyer_opt["markup_pct"],
+            }
+            result["calibration"] = {
+                "win_rate": round((cal["win_rate"] or 0) * 100),
+                "sample_size": cal["sample_size"],
+                "recommended_max_markup": buyer_opt["markup_pct"],
+                "avg_winning_margin": buyer_opt["markup_pct"],
+                "category": category or "general",
+                "source": "buyer_curve_v5_5",
+            }
 
     # If we have a strong win history, that's the best ceiling — we KNOW this
     # price wins. Use it instead of SCPRS/market estimates.
@@ -1550,3 +1602,327 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
             db.close()
         except Exception as _e:
             log.debug("suppressed: %s", _e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ORACLE V5.5 — Per-Buyer Win-Rate Curves
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# V5 Phase 2 stores a scalar `avg_winning_markup` per institution. That's a
+# single number summarizing the *average* markup on winning quotes, but it
+# can't answer the question that actually matters at quoting time:
+#
+#     "If I quote this buyer at 32% markup, what's my win probability?"
+#
+# V5.5 replaces the scalar with a bucketed win-rate curve fitted from every
+# (markup_pct, outcome) pair in the `quotes` table, then finds the markup that
+# maximizes expected profit = markup_pct × P(win | markup). This is a proper
+# response-curve, not a scalar target.
+#
+# The curve is rebuilt on-demand (cached 10 min per institution) and falls
+# back to the scalar V5 profile when sample size is below _CURVE_MIN_SAMPLES.
+# Nothing breaks if this module is stripped — it's additive over V5.
+
+_CURVE_MIN_SAMPLES = 8         # need ≥ this many won+lost quotes to trust the curve
+_CURVE_BUCKETS = (15, 20, 25, 30, 35, 40, 45, 50, 60)  # left edges, in %
+_CURVE_MARKUP_MIN = 15.0       # optimizer search floor
+_CURVE_MARKUP_MAX = 60.0       # optimizer search ceiling
+_CURVE_STEP = 1.0              # 1% resolution when searching for optimum
+_CURVE_CACHE_TTL = 600         # 10 minutes
+
+_curve_cache: Dict[str, Any] = {}  # type: ignore[name-defined]
+_curve_cache_lock = None
+
+
+def _curve_cache_init():
+    global _curve_cache_lock
+    if _curve_cache_lock is None:
+        import threading
+        _curve_cache_lock = threading.RLock()
+
+
+def _curve_cache_get(key: str):
+    _curve_cache_init()
+    with _curve_cache_lock:
+        entry = _curve_cache.get(key)
+        if entry is None:
+            return None
+        if time.time() > entry["expires_at"]:
+            _curve_cache.pop(key, None)
+            return None
+        return entry["value"]
+
+
+def _curve_cache_put(key: str, value):
+    _curve_cache_init()
+    with _curve_cache_lock:
+        _curve_cache[key] = {
+            "value": value,
+            "expires_at": time.time() + _CURVE_CACHE_TTL,
+        }
+
+
+def _curve_cache_clear():
+    """Test helper — not exposed publicly."""
+    _curve_cache_init()
+    with _curve_cache_lock:
+        _curve_cache.clear()
+
+
+def _read_markup_outcomes(db, institution: str, category: str = None,
+                          days: int = 365):
+    """Return a list of (markup_pct, won_bool) from the quotes table for
+    the given institution within the lookback window.
+
+    The scalar V5 profile only tracks `avg_winning_markup`; we re-read
+    from the raw quotes so we don't lose the shape of the distribution.
+    `category` is accepted for forward compat but not yet used — the
+    quotes table doesn't store a category column, so we'd have to
+    reconstruct it from `items_detail` JSON. V5.5 keeps it simple and
+    treats every institution as one curve.
+    """
+    try:
+        since = (datetime.now() - timedelta(days=days)).isoformat()
+        rows = db.execute(
+            """SELECT margin_pct, status FROM quotes
+                WHERE created_at >= ?
+                  AND is_test = 0
+                  AND (institution = ? OR agency = ?)
+                  AND margin_pct IS NOT NULL
+                  AND margin_pct > 0
+                  AND status IN ('won', 'lost')""",
+            (since, institution, institution),
+        ).fetchall()
+    except Exception as e:
+        log.debug("V5.5 _read_markup_outcomes error: %s", e)
+        return []
+
+    out = []
+    for row in rows:
+        try:
+            markup = float(row[0] if not isinstance(row, dict) else row["margin_pct"])
+            status = row[1] if not isinstance(row, dict) else row["status"]
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
+            continue
+        if markup <= 0:
+            continue
+        out.append((markup, status == "won"))
+    return out
+
+
+def _bucket_markup(markup_pct: float) -> int:
+    """Return the left edge of the bucket this markup falls into.
+    Buckets are [_CURVE_BUCKETS[i], _CURVE_BUCKETS[i+1]); values below
+    the first edge fall into the first bucket, values above the last
+    edge fall into the last bucket."""
+    if markup_pct < _CURVE_BUCKETS[0]:
+        return _CURVE_BUCKETS[0]
+    for i in range(len(_CURVE_BUCKETS) - 1):
+        if _CURVE_BUCKETS[i] <= markup_pct < _CURVE_BUCKETS[i + 1]:
+            return _CURVE_BUCKETS[i]
+    return _CURVE_BUCKETS[-1]
+
+
+def _fit_buyer_curve(db, institution: str, days: int = 365):
+    """Build a bucketed win-rate curve for a single institution.
+
+    Returns a dict:
+        {
+          "institution": "cchcs",
+          "total_samples": 27,
+          "won": 14,
+          "lost": 13,
+          "days": 365,
+          "buckets": [
+              {"markup_min": 15, "markup_max": 20, "samples": 3,
+               "wins": 0, "win_rate": 0.0},
+              ...
+          ],
+          "sufficient": True,   # >= _CURVE_MIN_SAMPLES
+          "global_win_rate": 0.518,  # fallback when a bucket is empty
+        }
+
+    Never raises — returns a "sufficient: False" shell when the data
+    is too thin to trust, so callers can fall through to scalar V5.
+    """
+    if not institution:
+        return None
+    cache_key = f"{institution.lower()}::{days}"
+    cached = _curve_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    pairs = _read_markup_outcomes(db, institution, days=days)
+    total = len(pairs)
+    won = sum(1 for _m, w in pairs if w)
+    lost = total - won
+
+    curve = {
+        "institution": institution,
+        "total_samples": total,
+        "won": won,
+        "lost": lost,
+        "days": days,
+        "buckets": [],
+        "sufficient": total >= _CURVE_MIN_SAMPLES,
+        "global_win_rate": (won / total) if total > 0 else 0.0,
+    }
+
+    # Build bucket histogram
+    counts: Dict[int, Dict[str, int]] = {b: {"wins": 0, "total": 0}
+                                          for b in _CURVE_BUCKETS}
+    for markup, is_win in pairs:
+        b = _bucket_markup(markup)
+        counts[b]["total"] += 1
+        if is_win:
+            counts[b]["wins"] += 1
+
+    edges = list(_CURVE_BUCKETS) + [_CURVE_MARKUP_MAX + 1.0]
+    for i, b in enumerate(_CURVE_BUCKETS):
+        c = counts[b]
+        win_rate = (c["wins"] / c["total"]) if c["total"] > 0 else None
+        curve["buckets"].append({
+            "markup_min": b,
+            "markup_max": edges[i + 1],
+            "samples": c["total"],
+            "wins": c["wins"],
+            "win_rate": round(win_rate, 4) if win_rate is not None else None,
+        })
+
+    _curve_cache_put(cache_key, curve)
+    return curve
+
+
+def buyer_win_probability(institution: str, markup_pct: float,
+                           db=None, _curve=None) -> float:
+    """P(win | institution, markup_pct) derived from the fitted curve.
+
+    Interpolates linearly between adjacent buckets when both have data;
+    falls back to the global institution win rate when the target bucket
+    is empty; falls back to a 50/50 prior when there's no data at all.
+
+    `_curve` is accepted so the recommender can pass a pre-fetched curve
+    without re-hitting the DB.
+    """
+    curve = _curve
+    if curve is None and db is not None:
+        curve = _fit_buyer_curve(db, institution)
+    if curve is None or curve.get("total_samples", 0) == 0:
+        return 0.5  # uninformed prior
+
+    buckets = curve.get("buckets") or []
+    if not buckets:
+        return curve.get("global_win_rate", 0.5)
+
+    target = _bucket_markup(float(markup_pct))
+    # Find the target bucket
+    target_idx = None
+    for i, b in enumerate(buckets):
+        if b["markup_min"] == target:
+            target_idx = i
+            break
+    if target_idx is None:
+        return curve.get("global_win_rate", 0.5)
+
+    target_bucket = buckets[target_idx]
+    if target_bucket.get("win_rate") is not None and target_bucket["samples"] >= 2:
+        return float(target_bucket["win_rate"])
+
+    # Target bucket empty or thin — interpolate linearly between the
+    # nearest populated bucket on the LEFT and on the RIGHT. This
+    # produces a smooth response curve instead of the step-function
+    # you get from snapping to the nearest neighbor, which matters a
+    # lot when a buyer has a clear peak at low markup and a flat tail
+    # at high markup — snap-to-nearest picks the wrong side.
+    def _find_neighbor(start_idx, step_dir):
+        i = start_idx + step_dir
+        while 0 <= i < len(buckets):
+            b = buckets[i]
+            if b.get("win_rate") is not None and b["samples"] >= 2:
+                return i, float(b["win_rate"])
+            i += step_dir
+        return None, None
+
+    left_idx, left_wr = _find_neighbor(target_idx, -1)
+    right_idx, right_wr = _find_neighbor(target_idx, 1)
+    global_wr = curve.get("global_win_rate", 0.5)
+
+    if left_wr is not None and right_wr is not None:
+        # Linear interpolation by index distance
+        left_dist = target_idx - left_idx
+        right_dist = right_idx - target_idx
+        total = left_dist + right_dist
+        return (left_wr * right_dist + right_wr * left_dist) / total
+    if left_wr is not None:
+        dist = target_idx - left_idx
+        shrink = min(1.0, 0.2 * dist)
+        return left_wr * (1 - shrink) + global_wr * shrink
+    if right_wr is not None:
+        dist = right_idx - target_idx
+        shrink = min(1.0, 0.2 * dist)
+        return right_wr * (1 - shrink) + global_wr * shrink
+    return global_wr
+
+
+def optimal_markup_for_expected_profit(institution: str, db,
+                                        markup_min: float = _CURVE_MARKUP_MIN,
+                                        markup_max: float = _CURVE_MARKUP_MAX,
+                                        step: float = _CURVE_STEP) -> dict:
+    """Search over [markup_min, markup_max] in `step` increments for the
+    markup that maximizes markup_pct × P(win | markup), then return the
+    optimum along with the curve's summary.
+
+    Returns:
+        {
+          "markup_pct": 32.0,
+          "expected_value": 17.6,   # markup_pct × P(win)
+          "win_probability": 0.55,
+          "curve": {...},           # same shape as _fit_buyer_curve()
+          "sufficient": True,
+        }
+
+    Or `{"sufficient": False, "curve": ...}` when the curve has too few
+    samples to trust — the caller should fall back to V5 scalar logic.
+    """
+    curve = _fit_buyer_curve(db, institution)
+    if curve is None:
+        return {"sufficient": False, "curve": None,
+                "markup_pct": None, "win_probability": None,
+                "expected_value": None}
+    if not curve.get("sufficient"):
+        return {"sufficient": False, "curve": curve,
+                "markup_pct": None, "win_probability": None,
+                "expected_value": None}
+
+    best_markup = None
+    best_ev = -1.0
+    best_wp = 0.0
+    m = markup_min
+    # Use a small epsilon so the loop condition is stable in float
+    while m <= markup_max + 1e-9:
+        wp = buyer_win_probability(institution, m, _curve=curve)
+        ev = m * wp
+        if ev > best_ev:
+            best_ev = ev
+            best_markup = m
+            best_wp = wp
+        m += step
+
+    return {
+        "sufficient": True,
+        "curve": curve,
+        "markup_pct": round(best_markup, 1) if best_markup is not None else None,
+        "win_probability": round(best_wp, 3),
+        "expected_value": round(best_ev, 2),
+    }
+
+
+__all__ = __all__ if "__all__" in dir() else []
+for _name in (
+    "buyer_win_probability",
+    "optimal_markup_for_expected_profit",
+    "_fit_buyer_curve",
+):
+    if _name not in __all__:
+        __all__.append(_name)
