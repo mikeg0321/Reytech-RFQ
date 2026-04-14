@@ -37,6 +37,57 @@
   </div>
 </div>
 
+{% if outreach %}
+  <div class="card" style="margin-bottom:14px;border-left:4px solid #d29922">
+    <div class="card-t">📬 Reach out — {{ outreach|length }} buyer{{ 's' if outreach|length != 1 else '' }} gone quiet ≥{{ silence_days }}d</div>
+    <div style="margin-top:6px;font-size:12px;color:var(--tx2,#8b949e)">
+      Historical buyers with no new quote activity in the window. Ranked by
+      lost-revenue potential (avg quote $ × historical win rate × quote count).
+      These are relationships worth a nudge.
+    </div>
+    <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
+      <thead>
+        <tr style="color:var(--tx2,#8b949e);text-align:left">
+          <th style="padding:6px 4px">Institution</th>
+          <th style="padding:6px 4px;text-align:right">Quotes</th>
+          <th style="padding:6px 4px;text-align:right">Wins</th>
+          <th style="padding:6px 4px;text-align:right">Win rate</th>
+          <th style="padding:6px 4px;text-align:right">Avg $</th>
+          <th style="padding:6px 4px;text-align:right">Days silent</th>
+          <th style="padding:6px 4px;text-align:right">Opportunity</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in outreach %}
+        <tr style="border-top:1px solid var(--bd,#30363d)">
+          <td style="padding:6px 4px;font-weight:700">{{ r.institution|upper }}</td>
+          <td style="padding:6px 4px;text-align:right">{{ r.total_quotes }}</td>
+          <td style="padding:6px 4px;text-align:right;color:#3fb950">{{ r.won }}</td>
+          <td style="padding:6px 4px;text-align:right;color:{% if r.win_rate >= 0.6 %}#3fb950{% elif r.win_rate >= 0.4 %}#d29922{% else %}#f85149{% endif %};font-weight:700">
+            {{ (r.win_rate * 100)|round(0)|int }}%
+          </td>
+          <td style="padding:6px 4px;text-align:right;font-family:monospace">${{ '{:,.0f}'.format(r.avg_total) }}</td>
+          <td style="padding:6px 4px;text-align:right;font-family:monospace;color:{% if r.days_since_last_quote and r.days_since_last_quote >= 120 %}#f85149{% else %}#d29922{% endif %}">
+            {% if r.days_since_last_quote is not none %}{{ r.days_since_last_quote }}d{% else %}--{% endif %}
+          </td>
+          <td style="padding:6px 4px;text-align:right;font-family:monospace;color:#d2a8ff;font-weight:700">
+            ${{ '{:,.0f}'.format(r.opportunity_score) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:12px;color:var(--tx2,#8b949e)">
+      JSON feed:
+      <a href="/api/oracle/outreach-triggers?silence_days={{silence_days}}" style="color:#58a6ff">/api/oracle/outreach-triggers</a>
+      · window:
+      <a href="/buyer-intelligence?days={{days}}&silence_days=30" style="color:#58a6ff">30d</a>
+      <a href="/buyer-intelligence?days={{days}}&silence_days=60" style="color:#58a6ff">60d</a>
+      <a href="/buyer-intelligence?days={{days}}&silence_days=90" style="color:#58a6ff">90d</a>
+    </div>
+  </div>
+{% endif %}
+
 {% if not buyers %}
   <div class="card">
     <div style="color:var(--tx2,#8b949e);font-size:14px">

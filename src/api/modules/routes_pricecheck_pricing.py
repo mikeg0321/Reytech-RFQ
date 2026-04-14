@@ -1451,6 +1451,98 @@ def api_buyer_list():
     })
 
 
+def _compute_outreach_triggers(conn, silence_days: int = 60,
+                                 min_quotes: int = 5, limit: int = 20):
+    """Return buyers who look like they've gone quiet and are worth a
+    nudge. The heuristic:
+
+      - We've quoted them at least `min_quotes` times (real relationship,
+        not a one-off).
+      - Their most recent quote is at least `silence_days` days old.
+      - Rank by *lost-revenue potential*: avg_quote_total × historical
+        win_rate × number_of_quotes. This biases toward buyers who
+        actually converted in the past, so we're not wasting outreach
+        on a zero-win buyer who just happened to ask a bunch.
+
+    Never raises — SQL errors return an empty list so the page still
+    renders if the quotes table isn't available.
+    """
+    from datetime import datetime, timedelta
+    cutoff = (datetime.now() - timedelta(days=silence_days)).isoformat()
+    try:
+        # NOTE: `total` in HAVING would resolve to the quotes.total
+        # column, not the COUNT(*) alias, so we repeat COUNT(*) /
+        # SUM(...) explicitly. Same story for the ORDER BY scoring —
+        # spelling out the aggregates is clearer than hoping the
+        # aliases resolve correctly in every SQLite version.
+        rows = conn.execute(
+            """SELECT COALESCE(NULLIF(institution, ''), agency) AS name,
+                      COUNT(*) AS quote_count,
+                      SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) AS won_count,
+                      SUM(CASE WHEN status='won' THEN COALESCE(total,0) ELSE 0 END) AS won_dollars,
+                      AVG(COALESCE(total,0)) AS avg_dollars,
+                      MAX(created_at) AS last_quote_at
+                 FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost', 'sent', 'pending')
+                  AND COALESCE(NULLIF(institution, ''), agency) IS NOT NULL
+                  AND COALESCE(NULLIF(institution, ''), agency) != ''
+                GROUP BY name
+               HAVING COUNT(*) >= ?
+                  AND (MAX(created_at) IS NULL OR MAX(created_at) < ?)
+                ORDER BY (AVG(COALESCE(total,0)) *
+                          (CAST(SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) AS REAL)
+                           / NULLIF(COUNT(*), 0)) *
+                          COUNT(*)) DESC
+                LIMIT ?""",
+            (min_quotes, cutoff, limit),
+        ).fetchall()
+    except Exception as e:
+        log.debug("_compute_outreach_triggers failed: %s", e)
+        return []
+
+    now = datetime.now()
+    out = []
+    for row in rows:
+        d = dict(row) if hasattr(row, "keys") else {
+            "name": row[0], "quote_count": row[1], "won_count": row[2],
+            "won_dollars": row[3], "avg_dollars": row[4],
+            "last_quote_at": row[5],
+        }
+        name = d.get("name") or ""
+        if not name:
+            continue
+        total = int(d.get("quote_count") or 0)
+        won = int(d.get("won_count") or 0)
+        win_rate = (won / total) if total else 0
+        avg_total = float(d.get("avg_dollars") or 0)
+        last_quote_at = d.get("last_quote_at") or ""
+        # Days since last quote
+        days_since = None
+        try:
+            if last_quote_at:
+                last_dt = datetime.fromisoformat(
+                    last_quote_at.replace("Z", "+00:00").split("+")[0]
+                )
+                days_since = (now - last_dt).days
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
+        # Lost-revenue potential: avg_total × win_rate × total
+        opportunity = round(avg_total * win_rate * total, 2)
+        out.append({
+            "institution": name,
+            "total_quotes": total,
+            "won": won,
+            "win_rate": round(win_rate, 3),
+            "avg_total": round(avg_total, 2),
+            "won_total": round(float(d.get("won_dollars") or 0), 2),
+            "last_quote_at": last_quote_at,
+            "days_since_last_quote": days_since,
+            "opportunity_score": opportunity,
+        })
+    return out
+
+
 @bp.route("/buyer-intelligence")
 @auth_required
 def buyer_intelligence_page():
@@ -1467,8 +1559,18 @@ def buyer_intelligence_page():
         days = 365
     days = max(30, min(1095, days))
 
+    # Outreach-trigger window is independent of the curve window. A
+    # buyer who has been silent for 60d might still have enough 365d
+    # history to fit a curve — both are useful.
+    try:
+        silence_days = int(request.args.get("silence_days", "60"))
+    except (TypeError, ValueError):
+        silence_days = 60
+    silence_days = max(14, min(365, silence_days))
+
     since = (datetime.now() - timedelta(days=days)).isoformat()
     buyers = []
+    outreach = []
     totals = {"institutions": 0, "quotes": 0, "won": 0, "sufficient": 0}
 
     try:
@@ -1522,6 +1624,8 @@ def buyer_intelligence_page():
                 if opt.get("sufficient"):
                     totals["sufficient"] += 1
             totals["institutions"] = len(buyers)
+            # CRM outreach triggers — computed from the same DB handle
+            outreach = _compute_outreach_triggers(conn, silence_days=silence_days)
     except Exception as e:
         log.warning("buyer-intelligence page query failed: %s", e)
 
@@ -1529,7 +1633,59 @@ def buyer_intelligence_page():
         "buyer_intelligence.html",
         active_page="Buyer Intel",
         days=days,
+        silence_days=silence_days,
         buyers=buyers,
+        outreach=outreach,
         totals=totals,
     )
+
+
+@bp.route("/api/oracle/outreach-triggers")
+@auth_required
+@safe_route
+def api_outreach_triggers():
+    """JSON feed of buyers worth reaching out to. Used by scripts,
+    external monitors, and the CRM outreach scheduler if we ever wire
+    it to an email sender.
+
+    Query params:
+        silence_days — minimum days since last quote (default 60)
+        min_quotes   — minimum historical quote count (default 5)
+        limit        — max results (default 20, capped at 100)
+    """
+    try:
+        silence_days = int(request.args.get("silence_days", "60"))
+    except (TypeError, ValueError):
+        silence_days = 60
+    silence_days = max(14, min(365, silence_days))
+
+    try:
+        min_quotes = int(request.args.get("min_quotes", "5"))
+    except (TypeError, ValueError):
+        min_quotes = 5
+    min_quotes = max(1, min(100, min_quotes))
+
+    try:
+        limit = int(request.args.get("limit", "20"))
+    except (TypeError, ValueError):
+        limit = 20
+    limit = max(1, min(100, limit))
+
+    try:
+        with get_db() as conn:
+            triggers = _compute_outreach_triggers(
+                conn, silence_days=silence_days,
+                min_quotes=min_quotes, limit=limit,
+            )
+    except Exception as e:
+        log.warning("api_outreach_triggers failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({
+        "ok": True,
+        "silence_days": silence_days,
+        "min_quotes": min_quotes,
+        "count": len(triggers),
+        "triggers": triggers,
+    })
 
