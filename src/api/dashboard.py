@@ -5295,6 +5295,7 @@ _ROUTE_MODULES = [
     "routes_cchcs_packet",    # CCHCS Non-IT RFQ Packet generation (Phase 4 — fills 18-page packet end to end)
     "routes_feature_flags",   # P0 resilience Item C: runtime flag admin endpoints
     "routes_utilization",     # Phase 4: utilization tracking dashboard endpoints
+    "routes_classifier_debug", # Followup: POST /api/admin/classifier/classify debug endpoint
 ]
 
 for _mod in _ROUTE_MODULES:

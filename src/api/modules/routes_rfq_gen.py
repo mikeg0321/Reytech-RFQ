@@ -2042,6 +2042,18 @@ def generate_rfq_package(rid):
         return redirect(f"/rfq/{rid}")
     
     # ── Create package manifest for audit trail ──
+    # Telemetry: record package generation attempt with agency + outcome
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("rfq.generate_package", context={
+            "rfq_id": rid,
+            "agency": _agency_key if '_agency_key' in dir() else "",
+            "file_count": len(output_files),
+            "required_forms": list(_req_forms) if '_req_forms' in dir() else [],
+        }, ok=not errors)
+    except Exception:
+        pass
+
     _manifest_id = None
     try:
         from src.core.dal import create_package_manifest, log_lifecycle_event as _lle

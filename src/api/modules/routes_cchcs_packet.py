@@ -54,6 +54,16 @@ def api_cchcs_packet_generate(pcid):
     except Exception as e:
         return jsonify({"ok": False, "error": f"imports failed: {e}"}), 500
 
+    # Telemetry: every CCHCS packet generation attempt recorded
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("cchcs_packet.generate", context={
+            "pc_id": pcid,
+            "dry_run": request.args.get("dry_run", "0") == "1",
+        })
+    except Exception:
+        pass
+
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:

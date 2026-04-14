@@ -2297,6 +2297,13 @@ def _enrich_catalog_from_pc(pc):
 @safe_page
 def pricecheck_reparse(pcid):
     """Re-parse a price check from its source PDF, preserving user-edited pricing."""
+    # Telemetry: reparse is one of the most-used debug actions
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("pc.reparse", context={"pc_id": pcid})
+    except Exception:
+        pass
+
     if not PRICE_CHECK_AVAILABLE:
         return jsonify({"ok": False, "error": "price_check.py not available"})
     pcs = _load_price_checks()
