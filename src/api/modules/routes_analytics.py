@@ -208,8 +208,8 @@ def rfq_auto_lookup(rid):
                 log_lifecycle_event("rfq", rid, "price_lookup",
                     f"Auto-lookup: SCPRS {scprs_found}/{total}, Amazon {amazon_found}/{total}, Catalog {catalog_found}/{total}",
                     actor="system", detail={"scprs": scprs_found, "amazon": amazon_found, "catalog": catalog_found, "total": total})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _run: %s', _e)
         except Exception as e:
             log.error("Auto-lookup FATAL error: %s", e, exc_info=True)
             _emit_progress(task_id, "fatal_error", f"Fatal: {str(e)[:100]}", done=True)
@@ -244,8 +244,8 @@ def _compute_recommended_price(item):
             avg_win = sum(w.get("price", 0) for w in wins[:3]) / min(3, len(wins))
             if avg_win > 0:
                 return {"price": round(avg_win, 2), "reason": f"Won avg ${avg_win:.2f} ({len(wins)} wins)", "confidence": "high"}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _compute_recommended_price: %s', _e)
 
     # Priority 3: Catalog sell price
     if catalog > 0:
@@ -343,8 +343,8 @@ def buyer_profile(buyer_key):
             ).fetchone()
             if row:
                 contact = dict(row)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in buyer_profile: %s', _e)
 
     # Activity log
     activities = []
@@ -357,8 +357,8 @@ def buyer_profile(buyer_key):
                 (f"%{buyer_key_lower}%",)
             ).fetchall()
             activities = [dict(r) for r in rows]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in buyer_profile: %s', _e)
 
     buyer_name = ""
     buyer_email = ""
@@ -457,8 +457,8 @@ def analytics_dashboard():
                     hours = (s - c).total_seconds() / 3600
                     if 0 < hours < 720:  # Max 30 days
                         quote_times.append(hours)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in analytics_dashboard: %s', _e)
         avg_quote_time = round(sum(quote_times) / len(quote_times), 1) if quote_times else 0
 
         # Growth metrics integration
@@ -478,15 +478,15 @@ def analytics_dashboard():
         try:
             from src.core.dal import get_qa_effectiveness_metrics
             qa_eff = get_qa_effectiveness_metrics(days=90)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in analytics_dashboard: %s', _e)
 
         strategy_stats = {}
         try:
             from src.forms.template_learning import get_strategy_stats
             strategy_stats = get_strategy_stats(days=90)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in analytics_dashboard: %s', _e)
 
         data.update(
             funnel=funnel,
@@ -724,8 +724,8 @@ def send_quote_email(rid):
                     VALUES (?,?,?,?,?,?,?)""",
                     ("outbound", gmail_user, to_email, subject, body[:200], "sent",
                      datetime.now().isoformat()))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in send_quote_email: %s', _e)
 
         log.info("Quote sent for RFQ %s to %s", rid, to_email)
         
@@ -936,8 +936,8 @@ def _load_settings():
                         settings[k] = v
                 else:
                     settings[k] = v
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _load_settings: %s', _e)
     return settings
 
 
@@ -1166,8 +1166,8 @@ def _find_won_history(description, item_number=""):
                     "qty": w.get("qty", 0),
                     "quote_number": w.get("quote_number", ""),
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _find_won_history: %s', _e)
 
     # Also check recent PCs that were marked won
     try:
@@ -1190,8 +1190,8 @@ def _find_won_history(description, item_number=""):
                                 "quote_number": pc.get("reytech_quote_number", ""),
                                 "source": "pc_won",
                             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _find_won_history: %s', _e)
 
     # Deduplicate and sort by recency
     seen = set()
@@ -1509,8 +1509,8 @@ def _get_stale_list(days):
                 "days_since": (datetime.now() - sent_dt).days,
                 "total": pc.get("total", 0),
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_stale_list: %s', _e)
 
     try:
         rfqs = load_rfqs()
@@ -1534,8 +1534,8 @@ def _get_stale_list(days):
                 "days_since": (datetime.now() - sent_dt).days,
                 "total": r.get("total", 0),
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_stale_list: %s', _e)
 
     return result
 
@@ -1897,8 +1897,8 @@ def reclassify_pc_as_rfq(pcid):
             actor="user",
             metadata={"pc_id": pcid, "rfq_id": rfq_id, "pc_number": pc.get("pc_number", "")},
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in reclassify_pc_as_rfq: %s', _e)
 
     return jsonify({
         "ok": True, "rfq_id": rfq_id, "items": item_count,
@@ -2195,8 +2195,8 @@ def api_supplier_performance():
                         ship = datetime.fromisoformat(li["ship_date"][:19])
                         deliv = datetime.fromisoformat(li["delivery_date"][:19])
                         s["lead_days_list"].append((deliv - ship).days)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_supplier_performance: %s', _e)
             elif status in ("shipped",):
                 s["pending"] += 1
             elif status == "pending":
@@ -2219,8 +2219,8 @@ def api_supplier_performance():
             s["overall_score"] = v.get("overall_score", 40)
             for cat in (v.get("categories_served") or []):
                 s["categories"].add(cat)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_supplier_performance: %s', _e)
 
     # From catalog supplier pricing
     try:
@@ -2237,8 +2237,8 @@ def api_supplier_performance():
                 s["name"] = sup
                 s["catalog_products"] = r["products"]
                 s["avg_catalog_cost"] = round(r["avg_cost"] or 0, 2)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_supplier_performance: %s', _e)
 
     # Build results
     results = []
@@ -2519,8 +2519,8 @@ def rfq_relink_pc(rid):
                                         item["pricing"]["unit_cost"] = price
                                         item["pricing"]["recommended_price"] = round(price * 1.25, 2)
                                         priced += 1
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in rfq_relink_pc: %s', _e)
                     if priced > 0:
                         pc["items"] = pc_items
                         pcs[pid] = pc
@@ -2775,8 +2775,8 @@ def api_pcs_list():
             rfq = _rfqs.get(rfq_id, {})
             rfq_sol = (rfq.get("solicitation_number") or "").strip()
             rfq_institution = (rfq.get("agency_name") or rfq.get("department") or "").lower()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_pcs_list: %s', _e)
 
     result = []
     for pid, pc in pcs.items():
@@ -2904,8 +2904,8 @@ def api_rfq_import_from_pc(rid):
                     po_path = os.path.join(DATA_DIR, "po_records", f"{po_num}{ext}")
                     if os.path.exists(po_path):
                         rfq_item["po_screenshot"] = po_path
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_import_from_pc: %s', _e)
 
         imported.append(rfq_item)
 
@@ -3209,8 +3209,8 @@ def api_quote_audit():
                 pcs = conn.execute("SELECT id, quote_number, pc_number, status FROM price_checks WHERE quote_number IS NOT NULL AND quote_number != ''").fetchall()
                 for p in pcs:
                     result["pcs_with_quotes"].append(dict(p))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_quote_audit: %s', _e)
     except Exception as e:
         result["error"] = str(e)
     
@@ -3706,8 +3706,8 @@ def api_system_error_log():
                     lower = line.lower()
                     if "error" in lower or "exception" in lower or "traceback" in lower:
                         errors.append({"file": os.path.basename(path), "line": line.strip()[:200]})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_system_error_log: %s', _e)
 
     qa_path = os.path.join(DATA_DIR, "qa_history.json")
     if os.path.exists(qa_path):
@@ -3718,8 +3718,8 @@ def api_system_error_log():
             for run in recent:
                 if isinstance(run, dict) and run.get("score", 100) < 70:
                     errors.append({"file": "qa_history", "line": f"QA score {run.get('score')}: {run.get('grade', '?')}"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_system_error_log: %s', _e)
 
     return jsonify({"ok": True, "errors": errors[-30:], "count": len(errors)})
 
@@ -3845,16 +3845,16 @@ def api_system_metrics():
             disk = psutil.disk_usage("/")
             metrics["disk_used_gb"] = round(disk.used / 1024 / 1024 / 1024, 1)
             metrics["disk_total_gb"] = round(disk.total / 1024 / 1024 / 1024, 1)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_system_metrics: %s', _e)
     data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
     try:
         files = os.listdir(data_dir)
         metrics["data_files"] = len(files)
         total_size = sum(os.path.getsize(os.path.join(data_dir, f)) for f in files if os.path.isfile(os.path.join(data_dir, f)))
         metrics["data_size_mb"] = round(total_size / 1024 / 1024, 2)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_system_metrics: %s', _e)
     return jsonify(metrics)
 
 
@@ -3874,8 +3874,8 @@ def api_system_recent_errors_trace():
                     errors = data[-20:]
                 elif isinstance(data, dict):
                     errors = data.get("errors", [])[-20:]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_system_recent_errors_trace: %s', _e)
     qa_file = os.path.join(log_dir, "qa_reports.json")
     qa_errors = []
     try:
@@ -3887,8 +3887,8 @@ def api_system_recent_errors_trace():
                     for r in latest.get("results", []):
                         if r.get("status") == "fail":
                             qa_errors.append({"source": "qa", "test": r.get("test"), "message": r.get("message"), "fix": r.get("fix")})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_system_recent_errors_trace: %s', _e)
     return jsonify({"ok": True, "errors": errors, "qa_failures": qa_errors,
                      "total": len(errors), "qa_total": len(qa_errors)})
 
@@ -4023,23 +4023,23 @@ def _build_bi_data(conn):
         won_revenue_orders = float(conn.execute(
             "SELECT COALESCE(SUM(total),0) FROM orders WHERE status IN ('paid','invoiced','delivered','shipped','active')"
         ).fetchone()[0] or 0)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _build_bi_data: %s', _e)
     # Also check revenue_log
     revenue_logged = 0
     try:
         revenue_logged = float(conn.execute(
             "SELECT COALESCE(SUM(amount),0) FROM revenue_log WHERE logged_at >= strftime('%Y-01-01', 'now')"
         ).fetchone()[0] or 0)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _build_bi_data: %s', _e)
     won_revenue = max(won_revenue_quotes, won_revenue_orders, revenue_logged)
     # Count won from orders too
     try:
         orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','')").fetchone()[0] or 0
         won_quotes = max(won_quotes, orders_count)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _build_bi_data: %s', _e)
     pipeline_revenue = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced')").fetchone()[0] or 0)
     bi["bid_to_win"] = {
         "total_bids": total_quotes,
@@ -4122,10 +4122,10 @@ def _build_bi_data(conn):
                         "first_seen": r[4],
                         "last_seen": r[5],
                     })
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as _e:
+                log.debug('suppressed in _build_bi_data: %s', _e)
+    except Exception as _e:
+        log.debug('suppressed in _build_bi_data: %s', _e)
 
     # ── 3b. Win/Loss Against Competitors ──
     # Cross-reference our lost quotes with SCPRS awards to find who beat us
@@ -4159,8 +4159,8 @@ def _build_bi_data(conn):
                 "our_avg_price": float(r[3] or 0),
                 "departments": (r[4] or "")[:60],
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _build_bi_data: %s', _e)
 
     # ── 4. Time-to-Quote SLA ──
     ttq_rows = conn.execute("""
@@ -4248,8 +4248,8 @@ def api_workflow_history():
             with open(wf_file) as f:
                 runs = json.load(f)
                 history = runs[-20:] if isinstance(runs, list) else []
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_workflow_history: %s', _e)
     return jsonify({"ok": True, "runs": history, "count": len(history)})
 
 
@@ -4330,8 +4330,8 @@ def api_data_quality_missing_data():
             if no_total: issues.append({"type": "quotes", "issue": f"{no_total} quotes with $0 total"})
             if no_inst: issues.append({"type": "quotes", "issue": f"{no_inst} quotes missing institution"})
             if no_items: issues.append({"type": "quotes", "issue": f"{no_items} quotes with no line items"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_data_quality_missing_data: %s', _e)
 
     try:
         from src.core.db import get_all_contacts
@@ -4340,8 +4340,8 @@ def api_data_quality_missing_data():
         no_phone = sum(1 for c in _contacts if not c.get("buyer_phone"))
         if no_email: issues.append({"type": "crm", "issue": f"{no_email} contacts missing email"})
         if no_phone: issues.append({"type": "crm", "issue": f"{no_phone} contacts missing phone"})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_data_quality_missing_data: %s', _e)
 
     return jsonify({"ok": True, "issues": issues, "count": len(issues)})
 
@@ -4360,8 +4360,8 @@ def api_data_quality_orphaned_quotes():
                 name = (c.get("buyer_name") or "").lower()
                 if name:
                     crm_institutions.add(name)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_data_quality_orphaned_quotes: %s', _e)
 
         with get_db() as conn:
             quotes = conn.execute("SELECT quote_number, institution, total, status FROM quotes WHERE is_test=0").fetchall()
@@ -4431,8 +4431,8 @@ def api_system_heartbeat():
         results["systems"]["email"] = {
             "status": "configured" if os.environ.get("EMAIL_USER") else "not_configured"
         }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_system_heartbeat: %s', _e)
 
     all_ok = all(s.get("status") in ("ok", "connected", "configured") for s in results["systems"].values())
     results["overall"] = "healthy" if all_ok else "degraded"
@@ -4475,8 +4475,8 @@ def api_dashboard_morning_brief():
                 "collected_30d": ctx.get("total_collected", 0),
                 "open_invoices": ctx.get("open_invoices", 0)
             }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_dashboard_morning_brief: %s', _e)
 
     try:
         cat_path = os.path.join(DATA_DIR, "product_catalog.json")
@@ -4487,8 +4487,8 @@ def api_dashboard_morning_brief():
                 "total_products": len(cat.get("products", [])),
                 "with_pricing": sum(1 for p in cat.get("products", []) if p.get("avg_sell_price"))
             }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_dashboard_morning_brief: %s', _e)
 
     try:
         oq_path = os.path.join(DATA_DIR, "outreach_queue.json")
@@ -4500,8 +4500,8 @@ def api_dashboard_morning_brief():
                              if e.get("status") == "sent" and
                              e.get("follow_up_date", "") <= datetime.now().strftime("%Y-%m-%d"))
             brief["sections"]["outreach"] = {"sent": sent, "follow_ups_due": follow_ups}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_dashboard_morning_brief: %s', _e)
 
     actions = []
     pipeline = brief["sections"].get("pipeline", {})
@@ -4550,8 +4550,8 @@ def api_dashboard_morning_brief():
                     actions.append("QA Review: all resolved quotes had QA issues — no clean baseline yet")
             elif _runs >= 10 and _sample < 3:
                 actions.append(f"QA tracking: {_runs} QA runs but only {_sample} outcomes marked. Mark quotes won/lost to build QA feedback loop")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_dashboard_morning_brief: %s', _e)
 
     brief["actions_needed"] = actions
     brief["action_count"] = len(actions)
@@ -4935,8 +4935,8 @@ def _webhook_pipeline_status(payload, actor):
         if os.path.exists(rfqs_path):
             with open(rfqs_path) as f:
                 rfqs = json.load(f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _webhook_pipeline_status: %s', _e)
     statuses = {}
     for r in rfqs.values():
         s = (r.get("status") or "unknown").lower()
