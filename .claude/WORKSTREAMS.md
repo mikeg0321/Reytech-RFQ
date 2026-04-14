@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/oracle-v5-5-buyer-curves | Window 2 | `C:\Users\mikeg\rfq-oracle-v5-5-buyer-curves` | Active | Oracle V5.5 — per-buyer win-rate curves replace scalar avg_winning_markup | 2026-04-14 |
+| feat/orders-drop-data-json | Window 2 | `C:\Users\mikeg\rfq-orders-drop-data-json` | Active | Orders V2 phase 4 — stop data_json blob read/write in legacy dal.py | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
