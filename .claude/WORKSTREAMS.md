@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/outreach-bias-fix | Window 2 | `C:\Users\mikeg\rfq-outreach-bias-fix` | Active | Debias outreach win_rate + add capture-gap widget | 2026-04-14 |
+| fix/ux-audit-p0 | Window 2 | `C:\Users\mikeg\rfq-ux-audit-p0` | Active | UX Audit §9 P0: DGS do-not-send + send-all disabled + force-reprocess gated | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

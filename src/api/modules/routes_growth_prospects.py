@@ -420,10 +420,38 @@ def api_growth_buyer_status():
 def api_growth_outreach():
     """Step 3: Launch email outreach to prospects.
     ?dry_run=true (default) previews without sending.
-    ?dry_run=false sends live emails."""
+    ?dry_run=false sends live emails.
+
+    UX Audit 2026-04-14 §9.2: dry_run=false is blocked until the
+    CS-reply agent rewrite ships. Dry-run previews still work so the
+    operator can inspect drafts. Runtime override via the
+    `outbox.send_approved_enabled` feature flag (shared with the
+    outbox send-approved endpoint).
+    """
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})
     dry_run = request.args.get("dry_run", "true").lower() != "false"
+
+    # Live-send guard — dry runs always allowed
+    if not dry_run:
+        try:
+            from src.core.flags import get_flag
+            if not get_flag("outbox.send_approved_enabled", False):
+                return jsonify({
+                    "ok": False,
+                    "error": "BLOCKED: Live growth outreach is disabled "
+                             "until the CS-reply agent rewrite ships. "
+                             "Use ?dry_run=true to preview drafts.",
+                    "blocked_reason": "ux_audit_p0_2",
+                }), 423
+        except Exception as e:
+            log.debug("growth outreach flag check failed: %s", e)
+            return jsonify({
+                "ok": False,
+                "error": "BLOCKED: feature flag layer unavailable, "
+                         "defaulting to deny for live growth outreach.",
+            }), 423
+
     try:
         max_p = max(1, min(int(request.args.get("max", 50)), 500))
     except (ValueError, TypeError, OverflowError):

@@ -95,8 +95,81 @@ def validate_ready_to_generate(rfq_data):
     }
 
 
+# ── UX Audit 2026-04-14 §9.1: hard-coded do-not-send list ────────────────
+#
+# RFQs listed here are hard-blocked from sending by validate_ready_to_send.
+# Add an ID when a parser bug, data-corruption incident, or compliance hold
+# makes outbound sending unsafe until a code fix ships. The send gate is
+# intentionally a deny-list (not an allow-list) so the default stays
+# "sending works" — but a single misclick on a flagged RFQ cannot escape.
+#
+# Callers can also populate the runtime flag `rfq.do_not_send_list` with a
+# comma-separated list via /api/admin/flags — use that for ad-hoc blocks
+# without a deploy. The static set below takes precedence and cannot be
+# removed at runtime.
+_STATIC_DO_NOT_SEND_RFQ_IDS = frozenset([
+    # DGS RFQ #10837703 — flagged 2026-04-14 after UX audit P0.1.
+    # DGS 703B parser over-extracted 59 items from boilerplate text;
+    # outbound quote would be inaccurate. Remove after parser fix ships
+    # and the RFQ is re-parsed + manually reviewed.
+    "20260413_215152_19d88d",
+])
+
+
+def _runtime_do_not_send_ids():
+    """Read the runtime flag for additional do-not-send IDs. Defensive —
+    any error returns an empty set so the flag layer can't break the
+    send path by misbehaving."""
+    try:
+        from src.core.flags import get_flag
+        raw = get_flag("rfq.do_not_send_list", "")
+        if not raw:
+            return set()
+        return {rid.strip() for rid in str(raw).split(",") if rid.strip()}
+    except Exception as e:
+        log.debug("do_not_send runtime flag read failed: %s", e)
+        return set()
+
+
+def is_rfq_do_not_send(rfq_id: str) -> bool:
+    """Return True when the given RFQ id is on the static blocklist OR
+    the runtime flag. Used by the send routes as a final guard before
+    handing the draft to EmailSender. Safe to call on an unknown id —
+    returns False."""
+    if not rfq_id:
+        return False
+    if rfq_id in _STATIC_DO_NOT_SEND_RFQ_IDS:
+        return True
+    return rfq_id in _runtime_do_not_send_ids()
+
+
 def validate_ready_to_send(rfq_data):
-    """Stricter check before sending — everything must be complete."""
+    """Stricter check before sending — everything must be complete.
+
+    Adds the UX audit §9.1 do-not-send guard: any RFQ id on the static
+    or runtime blocklist is hard-blocked with a loud error message. The
+    gate fires BEFORE the usual completeness checks so the operator
+    immediately sees why, not a long list of unrelated validation
+    issues.
+    """
+    errors = []
+    warnings = []
+
+    # Do-not-send guard — check this first so the error message is
+    # clear when the RFQ is flagged.
+    rid = rfq_data.get("id") or rfq_data.get("rfq_id") or ""
+    if is_rfq_do_not_send(rid):
+        return {
+            "ok": False,
+            "errors": [
+                "BLOCKED: This RFQ is flagged as do-not-send. "
+                "Contact Mike before removing the block."
+            ],
+            "warnings": [],
+            "score": 0,
+            "blocked_reason": "do_not_send_list",
+        }
+
     result = validate_ready_to_generate(rfq_data)
 
     if not rfq_data.get("requestor_email"):

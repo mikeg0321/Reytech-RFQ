@@ -2307,7 +2307,34 @@ def api_outbox_send(email_id):
 @auth_required
 @safe_route
 def api_outbox_send_all():
-    """Send all approved emails."""
+    """Send all approved emails.
+
+    UX Audit 2026-04-14 §9.2: hard-disabled until the CS-reply agent
+    rewrite ships. Bulk-approving canned text is the class of action
+    that can damage real customer relationships, so the endpoint
+    rejects with 423 (Locked) instead of just hiding the UI button.
+    Runtime override via `outbox.send_approved_enabled=true` feature
+    flag for when the rewrite lands.
+    """
+    try:
+        from src.core.flags import get_flag
+        if not get_flag("outbox.send_approved_enabled", False):
+            return jsonify({
+                "ok": False,
+                "error": "BLOCKED: Send All Approved is disabled until the "
+                         "CS-reply agent rewrite ships. Review drafts "
+                         "individually in /outbox.",
+                "blocked_reason": "ux_audit_p0_2",
+            }), 423
+    except Exception as e:
+        log.debug("send-approved flag check failed: %s", e)
+        # If the flag layer is broken, default-deny — this is a
+        # destructive bulk action.
+        return jsonify({
+            "ok": False,
+            "error": "BLOCKED: feature flag layer unavailable, "
+                     "defaulting to deny for send-approved.",
+        }), 423
     if not OUTREACH_AVAILABLE:
         return jsonify({"ok": False, "error": "Email outreach agent not available"})
     return jsonify({"ok": True, **send_approved()})

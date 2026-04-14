@@ -152,7 +152,8 @@ h1 { font-size:22px; margin-bottom:4px; }
  <div class="step-label">Step 3 — Outreach</div>
  <div class="grid" style="margin-bottom:12px">
   <button class="btn btn-go" onclick="ac(this,'/api/growth/outreach?dry_run=true')"><span class="label">📧 Preview Outreach</span><span class="desc">Dry run</span><span class="spin"></span></button>
-  <button class="btn" onclick="if(confirm('Send real emails?')) ac(this,'/api/growth/outreach?dry_run=false')" style="border-color:rgba(52,211,153,.3)"><span class="label">🚀 Send Outreach</span><span class="desc">Email all scored prospects</span><span class="spin"></span></button>
+  {# UX Audit 2026-04-14 §9.2: disabled until CS-reply rewrite ships. #}
+  <button class="btn" disabled title="Disabled: CS-reply agent rewrite in progress. Use Preview Outreach for now." style="opacity:0.5;cursor:not-allowed;border-color:var(--bd);color:var(--tx2)"><span class="label">🔒 Send Outreach (disabled)</span><span class="desc">Rewrite in progress</span></button>
  </div>
  <div class="step-label">Step 4 — Follow Up</div>
  <div class="grid">
@@ -212,7 +213,8 @@ h1 { font-size:22px; margin-bottom:4px; }
   <button class="btn" onclick="ac(this,'/api/outbox?status=draft')"><span class="label">📝 Drafts</span><span class="desc">Pending review</span><span class="spin"></span></button>
   <button class="btn" onclick="ac(this,'/api/outbox/sent')"><span class="label">✅ Sent</span><span class="desc">Already sent</span><span class="spin"></span></button>
   <button class="btn btn-go" onclick="draftForPc()"><span class="label">✏️ Draft for PC</span><span class="desc">Create from PC</span><span class="spin"></span></button>
-  <button class="btn btn-danger" onclick="sendApproved()"><span class="label">🚀 Send Approved</span><span class="desc">Send all approved</span><span class="spin"></span></button>
+  {# UX Audit 2026-04-14 §9.2: disabled until CS-reply rewrite ships. #}
+  <button class="btn" disabled title="Disabled: CS-reply agent rewrite in progress. Review drafts individually in /outbox."><span class="label">🔒 Send Approved (disabled)</span><span class="desc">Rewrite in progress</span></button>
  </div></div>
 </div>
 
