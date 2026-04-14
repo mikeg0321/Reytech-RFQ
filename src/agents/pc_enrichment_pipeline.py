@@ -97,8 +97,8 @@ def enrich_pc(pc_id: str, force: bool = False):
     try:
         from src.core.tracing import set_trace_id
         set_trace_id(operation=f"enrich-{pc_id}")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in enrich_pc: %s', _e)
 
     # Guard against double-runs
     with _LOCK:
@@ -156,8 +156,8 @@ def enrich_pc(pc_id: str, force: bool = False):
                 pc["enrichment_status"] = "failed"
                 pc["enrichment_error"] = str(e)[:200]
                 _save_single_pc(pc_id, pc)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in enrich_pc: %s', _e)
     finally:
         with _LOCK:
             if pc_id in ENRICHMENT_STATUS:
@@ -315,8 +315,8 @@ def _run_pipeline(pc_id: str, force: bool):
                             if _m and _m[0].get("match_confidence", 0) >= 0.70:
                                 _cat_pid = _m[0]["id"]
                                 it["pricing"]["catalog_product_id"] = _cat_pid
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _run_pipeline: %s', _e)
                     if _cat_pid:
                         try:
                             from src.agents.product_catalog import enrich_catalog_product
@@ -332,8 +332,8 @@ def _run_pipeline(pc_id: str, force: bool):
                                 amazon_price=_price if _asin else 0,
                                 asin=_asin,
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _run_pipeline: %s', _e)
                     _upc_lookups += 1
                     time.sleep(0.5)  # rate limit
             except Exception as e:
@@ -397,8 +397,8 @@ def _run_pipeline(pc_id: str, force: bool):
                             _priced = True
                         counters.setdefault("ssww_catalog_hit", 0)
                         counters["ssww_catalog_hit"] += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _run_pipeline: %s', _e)
 
             # Step B: Build S&S URL and do direct lookup for current pricing
             if not _priced and _ssww_sku:
@@ -553,8 +553,8 @@ def _run_pipeline(pc_id: str, force: bool):
                         upc=_item_upc,
                         mfg_number=_item_mfg,
                     )
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _run_pipeline: %s', _e)
     except Exception as e:
         log.warning("ENRICH %s: catalog match error: %s", pc_id, e)
     _mark_step_done(pc_id,"catalog_match")
@@ -563,8 +563,8 @@ def _run_pipeline(pc_id: str, force: bool):
     try:
         from src.knowledge.won_quotes_db import sync_from_scprs_tables
         sync_from_scprs_tables()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _run_pipeline: %s', _e)
 
     # ── Step 4: SCPRS KB lookup ──────────────────────────────────────────
     _update_status(pc_id, "scprs_lookup", f"0/{total} items")
@@ -703,8 +703,8 @@ def _run_pipeline(pc_id: str, force: bool):
                                 amazon_price=_price if _asin else 0,
                             )
                             p["catalog_product_id"] = _pid
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in _run_pipeline: %s', _e)
                     counters.setdefault("llm_validated", 0)
                     counters["llm_validated"] += 1
                     log.info("ENRICH %s: Grok item %d → %s $%.2f (conf=%.0f%%)",
@@ -888,15 +888,15 @@ def _run_pipeline(pc_id: str, force: bool):
                 try:
                     lock_cost(desc, float(cost_val), source="auto_enrich", expires_days=30,
                               item_number=it.get("item_number", ""))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _run_pipeline: %s', _e)
             # Auto-learn mapping
             if it["pricing"].get("catalog_match"):
                 try:
                     auto_learn_mapping(desc, it["pricing"]["catalog_match"],
                                        item_number=it.get("item_number", ""), confidence=0.6)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _run_pipeline: %s', _e)
     except ImportError:
         log.debug("pricing_oracle_v2 not available")
     except Exception as e:
@@ -951,8 +951,8 @@ def _run_pipeline(pc_id: str, force: bool):
                         trend_alerts.append(f"{desc[:40]}: prices FALLING (avg ${history.get('avg_price', 0):.2f} → recent ${history.get('recent_avg', 0):.2f})")
                     elif history["trend"] == "rising":
                         trend_alerts.append(f"{desc[:40]}: prices RISING (avg ${history.get('avg_price', 0):.2f} → recent ${history.get('recent_avg', 0):.2f})")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _run_pipeline: %s', _e)
     except ImportError:
         pass
     except Exception as e:
@@ -1031,8 +1031,8 @@ def _run_pipeline(pc_id: str, force: bool):
         pc_num = pc.get("pc_number", pc_id)
         send_alert("bell", f"Auto-enriched: {pc_num} — {total_found}/{total} items",
                     {"type": "auto_enrich", "pc_id": pc_id})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _run_pipeline: %s', _e)
 
 
 def enrich_pc_background(pc_id: str, force: bool = False):
