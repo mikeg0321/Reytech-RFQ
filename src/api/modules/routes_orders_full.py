@@ -3511,3 +3511,79 @@ def api_orders_kpi():
         "monthly": monthly_sorted,
         "top_agencies": top_agencies,
     })
+
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Carrier tracking status (Orders V2 phase 5)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/order/<oid>/line/<int:lid>/tracking-status")
+@auth_required
+@safe_route
+def api_order_line_tracking_status(oid, lid):
+    """Return the current tracking status for a specific order line.
+    Currently reads manual status from the DB row and enriches with
+    auto-detected carrier + URL. Future UPS/FedEx API integration
+    will replace the manual read with a live API call internally,
+    keeping the response shape stable."""
+    from src.core.carrier_tracking import check_tracking_status
+    result = check_tracking_status(oid, lid)
+    status_code = 200 if result.get("ok") else 404
+    return jsonify(result), status_code
+
+
+@bp.route("/api/order/<oid>/tracking-candidates")
+@auth_required
+@safe_route
+def api_order_tracking_candidates(oid):
+    """Return all line items on an order that have a tracking
+    number but are not yet marked delivered. Feeds a future auto-
+    status background job that will call carrier APIs on this
+    subset instead of every line item."""
+    from src.core.carrier_tracking import carrier_and_url
+    from src.core.db import get_db
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT id, line_number, tracking_number, carrier,
+                          sourcing_status, ship_date, delivery_date,
+                          description
+                     FROM order_line_items
+                    WHERE order_id = ?
+                      AND tracking_number IS NOT NULL
+                      AND tracking_number != ''
+                      AND (delivery_date IS NULL OR delivery_date = '')""",
+                (oid,),
+            ).fetchall()
+    except Exception as e:
+        log.warning("tracking-candidates query failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    candidates = []
+    for row in rows:
+        d = dict(row) if hasattr(row, "keys") else {
+            "id": row[0], "line_number": row[1], "tracking_number": row[2],
+            "carrier": row[3], "sourcing_status": row[4],
+            "ship_date": row[5], "delivery_date": row[6],
+            "description": row[7],
+        }
+        tracking = d.get("tracking_number") or ""
+        carrier, url = carrier_and_url(tracking, d.get("carrier") or "")
+        candidates.append({
+            "line_id": d.get("id"),
+            "line_number": d.get("line_number"),
+            "description": (d.get("description") or "")[:120],
+            "tracking_number": tracking,
+            "carrier": carrier,
+            "carrier_url": url,
+            "status": d.get("sourcing_status") or "pending",
+            "ship_date": d.get("ship_date") or "",
+            "delivery_date": d.get("delivery_date") or "",
+        })
+    return jsonify({
+        "ok": True,
+        "order_id": oid,
+        "count": len(candidates),
+        "candidates": candidates,
+    })
