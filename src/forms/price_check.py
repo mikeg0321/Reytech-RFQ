@@ -2064,11 +2064,15 @@ def _extract_items_from_text(text: str, result: dict):
     # e.g. item with desc="144" should be removed (it was merged above)
     items = [it for it in items if not re.match(r'^\d{1,4}$', it.get("description", "").strip())]
     
-    # Re-number items sequentially
+    # Re-number items sequentially (1-indexed to match item_number).
+    # Prior bug: row_index = i (0-indexed) → items 1 and 2 both collapsed
+    # to row_index=1 after the sanitizer's max(1, ...) clamp, causing
+    # duplicate "line item N" display in the PC detail UI. See
+    # pc_e922bd5c (SCU Group Tx Materials, 26 items).
     for i, it in enumerate(items):
         it["item_number"] = str(i + 1)
-        it["row_index"] = i
-    
+        it["row_index"] = i + 1
+
     result["line_items"].extend(items)
     log.info("Text parser extracted %d items from %s", len(items),
              result.get("source_pdf", "?"))
