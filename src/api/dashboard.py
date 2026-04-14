@@ -1958,6 +1958,63 @@ def process_rfq_email(rfq_email):
                 t.ok("Skipped: duplicate solicitation+sender", existing_id=_eid)
                 return None
 
+    # ── Classifier V2 path (feature-flagged) ───────────────────────────────
+    # When ingest.classifier_v2_enabled is on, dispatch to the unified
+    # ingest pipeline instead of the legacy parallel PC/RFQ branches.
+    # Legacy dedup above still runs; this only short-circuits when v2
+    # successfully creates a record. On any failure we fall through so
+    # no email is lost.
+    try:
+        from src.core.request_classifier import classify_enabled
+        if classify_enabled():
+            _v2_atts = rfq_email.get("attachments", [])
+            _v2_files = [
+                a.get("path") for a in _v2_atts
+                if isinstance(a, dict) and a.get("path")
+            ]
+            if _v2_files:
+                from src.core.ingest_pipeline import process_buyer_request
+                _v2_result = process_buyer_request(
+                    files=_v2_files,
+                    email_body=(
+                        rfq_email.get("body_text", "")
+                        or rfq_email.get("body", "")
+                    ),
+                    email_subject=rfq_email.get("subject", ""),
+                    email_sender=(
+                        rfq_email.get("sender_email", "")
+                        or rfq_email.get("sender", "")
+                    ),
+                    email_uid=rfq_email.get("email_uid", ""),
+                )
+                if _v2_result.ok and _v2_result.record_id:
+                    log.info(
+                        "classifier_v2: %s %s items=%d linked=%s",
+                        _v2_result.record_type, _v2_result.record_id,
+                        _v2_result.items_parsed,
+                        _v2_result.linked_pc_id or "none",
+                    )
+                    t.ok(
+                        "classifier_v2 dispatched",
+                        record_type=_v2_result.record_type,
+                        record_id=_v2_result.record_id,
+                        linked_pc_id=_v2_result.linked_pc_id,
+                    )
+                    # v2 saved the record itself. Return the RFQ dict so
+                    # poller accounting matches the legacy contract; PCs
+                    # return None (same as legacy 704→PC early-exit).
+                    if _v2_result.record_type == "rfq":
+                        _rfqs_after = load_rfqs()
+                        return _rfqs_after.get(_v2_result.record_id)
+                    return None
+                else:
+                    log.warning(
+                        "classifier_v2 rejected, legacy fallthrough: errors=%s",
+                        _v2_result.errors,
+                    )
+    except Exception as _v2_err:
+        log.debug("classifier_v2 wire-in failed, legacy path: %s", _v2_err)
+
     # ── Route 704 price checks to PC queue, NOT the RFQ queue ──────────────
     attachments = rfq_email.get("attachments", [])
     pdf_paths = [a["path"] for a in attachments if a.get("path") and a["path"].lower().endswith(".pdf")]
