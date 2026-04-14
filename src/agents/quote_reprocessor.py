@@ -65,8 +65,8 @@ def _enrich_pending_pcs():
                         try:
                             if (datetime.now() - datetime.fromisoformat(last)).total_seconds() < 43200:
                                 continue
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _enrich_pending_pcs: %s', _e)
 
                     items_for_enrichment = [{
                         "description": it.get("description", it.get("desc", "")),
@@ -333,8 +333,8 @@ def _write_price_alerts(alerts):
         from src.agents.notify_agent import send_alert
         send_alert("bell", f"Price validation: {len(alerts)} underpriced by ${alert_data['total_money_left']:,.2f}",
                    {"type": "price_validation"})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _write_price_alerts: %s', _e)
 
 
 def get_underpriced_report():
@@ -365,10 +365,10 @@ def get_underpriced_report():
                                 "quantity": item.get("quantity", item.get("qty")),
                                 **v,
                             })
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _e:
+                    log.debug('suppressed in get_underpriced_report: %s', _e)
+        except Exception as _e:
+            log.debug('suppressed in get_underpriced_report: %s', _e)
 
         # Check quotes
         try:
@@ -388,10 +388,10 @@ def get_underpriced_report():
                                 "quantity": item.get("quantity", item.get("qty")),
                                 **v,
                             })
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _e:
+                    log.debug('suppressed in get_underpriced_report: %s', _e)
+        except Exception as _e:
+            log.debug('suppressed in get_underpriced_report: %s', _e)
 
         db.close()
     except Exception as e:

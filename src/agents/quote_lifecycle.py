@@ -209,10 +209,10 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
                                     lock_cost(_desc, float(str(_cost).replace("$", "").replace(",", "")),
                                               supplier=_it.get("supplier", ""),
                                               source="won_quote_lifecycle", expires_days=60)
-                                except Exception:
-                                    pass
-                except Exception:
-                    pass
+                                except Exception as _e:
+                                    log.debug('suppressed in process_reply_signal: %s', _e)
+                except Exception as _e:
+                    log.debug('suppressed in process_reply_signal: %s', _e)
 
             elif signal == "loss" and confidence >= 0.6:
                 new_status = "lost"
@@ -408,14 +408,14 @@ def _lifecycle_loop():
                 log.debug("Cost change check: %s", ce)
             try:
                 heartbeat("quote-lifecycle", success=True)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _lifecycle_loop: %s', _e)
         except Exception as e:
             log.error("Lifecycle scheduler error: %s", e, exc_info=True)
             try:
                 heartbeat("quote-lifecycle", success=False, error=str(e)[:200])
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _lifecycle_loop: %s', _e)
         _shutdown_event.wait(CHECK_INTERVAL)
     log.info("Quote lifecycle scheduler shutting down")
 
