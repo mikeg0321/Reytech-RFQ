@@ -61,8 +61,8 @@ def _check_guardrails(items):
                 from src.core.db import calc_landed_cost
                 _lc = calc_landed_cost(cost, item.get("qty", 1) or 1, _supplier)
                 _eff_cost = _lc["landed_cost"]
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _check_guardrails: %s', _e)
         if _eff_cost > 0:
             margin = (bid - _eff_cost) / bid * 100
             _margin_note = "" if _eff_cost == cost else f" (landed: ${_eff_cost:.2f})"
@@ -112,8 +112,8 @@ def _check_guardrails(items):
                         "msg": f"Bid ${bid:.2f} is >{10}% above competitor floor "
                                f"${comp_floor:.2f} (from {loss_rec.get('sources_used',0)} losses)"
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _check_guardrails: %s', _e)
 
     return warnings
 
@@ -175,8 +175,8 @@ def _recommend_price(item):
                     if cost > 0 and beat_floor > cost * 1.05:  # Must keep 5% min margin
                         result["competitive"] = beat_floor
                         result["reason"] += f" | Loss Intel: floor ${comp_floor:.2f}"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _recommend_price: %s', _e)
 
     return result
 
@@ -204,8 +204,8 @@ def _enrich_items_with_intel(items, rfq_number="", agency=""):
                         "list_price": m.get("list_price", 0),
                         "category": m.get("category", ""),
                     }
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _enrich_items_with_intel: %s', _e)
 
         # 2. Price history (last 5 observations)
         if not item.get("price_intel"):
@@ -228,8 +228,8 @@ def _enrich_items_with_intel(items, rfq_number="", agency=""):
                         "last_date": history[0].get("found_at", "")[:10] if history else "",
                         "last_quote": history[0].get("quote_number", "") if history else "",
                     }
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _enrich_items_with_intel: %s', _e)
 
 
 def _record_rfq_prices(rfq_data, source="rfq_save"):
@@ -253,8 +253,8 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
                     source_url=item.get("item_link", ""),
                     notes=f"Supplier cost from RFQ {sol}"
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _record_rfq_prices: %s', _e)
 
         # Record bid price
         bid = item.get("price_per_unit") or 0
@@ -266,8 +266,8 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
                     part_number=pn, agency=agency, quote_number=sol,
                     notes=f"Bid price from RFQ {sol}"
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _record_rfq_prices: %s', _e)
 
         # Record SCPRS price
         scprs = item.get("scprs_last_price") or 0
@@ -278,8 +278,8 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
                     description=desc, unit_price=scprs, source="scprs",
                     part_number=pn, agency=agency, quote_number=sol,
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _record_rfq_prices: %s', _e)
 
         # Record Amazon price
         amz = item.get("amazon_price") or 0
@@ -290,8 +290,8 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
                     description=desc, unit_price=amz, source="amazon",
                     part_number=pn, source_url=item.get("item_link", ""),
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _record_rfq_prices: %s', _e)
 
         # Auto-ingest to product_catalog (same table PC uses + auto-price reads)
         if cost > 0 or bid > 0:
@@ -307,8 +307,8 @@ def _record_rfq_prices(rfq_data, source="rfq_save"):
                     supplier_name=item.get("item_supplier", ""),
                     supplier_url=item.get("item_link", ""),
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _record_rfq_prices: %s', _e)
 
 @bp.route("/health")
 def health_check():
@@ -432,8 +432,8 @@ def home():
                     return (urgency, due_sort, pc.get("created_at", ""))
                 except ValueError:
                     continue
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _pc_sort_key: %s', _e)
         # No parseable due date — sort by creation
         return (2, "", pc.get("created_at", ""))
     sorted_pcs = dict(sorted(active_pcs.items(), key=_pc_sort_key))
@@ -455,8 +455,8 @@ def home():
                     break
                 except ValueError:
                     continue
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _pc_sort_key: %s', _e)
 
     # Same for RFQs — split active from sent/completed
     _actionable_rfq = {"new", "draft", "ready", "generated", "parsed", "priced"}
@@ -484,8 +484,8 @@ def home():
                     break
                 except ValueError:
                     continue
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _pc_sort_key: %s', _e)
     # Sort RFQs by urgency too
     active_rfqs = dict(sorted(active_rfqs.items(), key=lambda x: (
         3 if x[1].get("status") in ("sent","generated") else 0 if x[1].get("_urgency") in ("overdue","critical") else 1,
@@ -526,8 +526,8 @@ def home():
                 hours_old = (_today - priced_at.replace(tzinfo=None)).total_seconds() / 3600
                 if hours_old > 48:
                     action_items.append({"type": "convert", "icon": "📤", "text": f"PC #{pc.get('pc_number', pid[:8])} priced {int(hours_old)}h ago — ready to convert to RFQ?", "url": f"/pricecheck/{pid}", "priority": 2})
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _pc_sort_key: %s', _e)
     # Trend alerts from enriched PCs
     for pid, pc in all_pcs.items():
         for alert in (pc.get("trend_alerts") or [])[:2]:
@@ -544,16 +544,16 @@ def home():
             ).fetchall()
             for r in _exp_rows:
                 action_items.append({"type": "expiring", "icon": "⏰", "text": f"Quote {r[0]} ({r[1]}) expires in {30 - int(r[4] or 0)}d — ${float(r[2] or 0):,.0f}", "url": f"/quotes", "priority": 2})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _pc_sort_key: %s', _e)
     # Circuit breaker alerts
     try:
         from src.core.circuit_breaker import all_status as _cb_status
         for cb in _cb_status():
             if cb["state"] == "open":
                 action_items.append({"type": "circuit", "icon": "⚡", "text": f"{cb['name']} API circuit OPEN — {cb['failure_count']} failures", "url": "/api/system/circuits", "priority": 1})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _pc_sort_key: %s', _e)
     action_items.sort(key=lambda x: x.get("priority", 9))
 
     # P0.4: Compute readiness scoring for each PC
@@ -598,8 +598,8 @@ def home():
         from src.core.feature_flags import get_flag
         _nl_q = get_flag("nl_query_enabled", default=False)
         _doc_intake = get_flag("docling_intake", default=False)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _pc_sort_key: %s', _e)
 
     return render_page("home.html", active_page="Home",
                        rfqs=active_rfqs, price_checks=sorted_pcs,
@@ -764,8 +764,8 @@ def api_rfq_mark_won(rid):
             r.get("reytech_quote_number", rid), "quote_won",
             f"RFQ marked WON — PO {po_number}. Total: ${r.get('total', 0):,.2f}",
             actor="user", metadata={"po_number": po_number, "rfq_id": rid})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_won: %s', _e)
     # Log revenue
     try:
         from src.core.db import log_revenue
@@ -777,8 +777,8 @@ def api_rfq_mark_won(rid):
         if _total > 0:
             log_revenue(amount=_total, source="rfq_won", quote_number=r.get("reytech_quote_number", ""),
                         po_number=po_number, agency=r.get("agency", ""), date=now[:10])
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_won: %s', _e)
     # Notify
     try:
         from src.agents.notify_agent import send_alert
@@ -786,8 +786,8 @@ def api_rfq_mark_won(rid):
                    title=f"RFQ Won — PO {po_number or 'manual'}",
                    body=f"RFQ {r.get('solicitation_number', rid)} marked won. PO: {po_number}",
                    urgency="deal", context={"rfq_id": rid, "po_number": po_number})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_won: %s', _e)
     # Create Drive folder: Year/Quarter/PO-XXXXX/{RFQ,Supplier,Delivery,Invoice,Misc}
     try:
         from src.core.gdrive import is_configured, enqueue
@@ -817,8 +817,8 @@ def api_rfq_mark_won(rid):
               "won_manual", f"PO {po_number} — manually marked won"))
         _aconn.commit()
         _aconn.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_won: %s', _e)
 
     # QA correlation — snapshot QA state at outcome time
     try:
@@ -850,8 +850,8 @@ def api_rfq_mark_won(rid):
                      "quote_total": float(r.get("total", 0) or 0),
                      "po_number": po_number,
                  })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_won: %s', _e)
 
     # V5: Calibrate Oracle from win outcome
     try:
@@ -896,8 +896,8 @@ def api_rfq_mark_lost(rid):
             f"RFQ lost to {data.get('competitor', 'unknown')}. "
             f"Their price: {data.get('competitor_price', 'unknown')}",
             actor="user", metadata={"rfq_id": rid, "competitor": data.get("competitor", "")})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_lost: %s', _e)
 
     # Competitor intel — feed into loss intelligence
     try:
@@ -933,8 +933,8 @@ def api_rfq_mark_lost(rid):
                    title=f"RFQ Lost — {data.get('competitor', 'unknown')}",
                    body=f"RFQ {r.get('solicitation_number', rid)} lost to {data.get('competitor', 'unknown')}",
                    urgency="warning", context={"rfq_id": rid})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_lost: %s', _e)
 
     # Award tracker — stop SCPRS checking
     try:
@@ -949,8 +949,8 @@ def api_rfq_mark_lost(rid):
               "lost_manual", f"Lost to {data.get('competitor', 'unknown')}"))
         _aconn.commit()
         _aconn.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_lost: %s', _e)
 
     # QA correlation — snapshot QA state at outcome time
     try:
@@ -984,8 +984,8 @@ def api_rfq_mark_lost(rid):
                       "competitor_name": data.get("competitor", ""),
                       "competitor_price": float(_comp_pr),
                   })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_mark_lost: %s', _e)
 
     # V5: Calibrate Oracle from loss outcome
     try:
@@ -1051,8 +1051,8 @@ def api_rfq_create_manual():
         log_lifecycle_event("rfq", rid, "manual_create",
             f"RFQ #{sol} created manually — {agency_name} / {data.get('requestor_name', '')}",
             actor="user")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_create_manual: %s', _e)
 
     return jsonify({"ok": True, "rfq_id": rid, "sol": sol})
 
@@ -1073,8 +1073,8 @@ def api_rfq_upload_parse_doc(rid):
     try:
         from src.core.utilization import record_feature_use
         record_feature_use("rfq.upload_parse_doc", context={"rfq_id": rid})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_upload_parse_doc: %s', _e)
 
     rfqs = load_rfqs()
     r = rfqs.get(rid)
@@ -1277,8 +1277,8 @@ def api_rfq_upload_parse_doc(rid):
                         r["tax_source"] = _tr.get("source", "fallback")
                         r["tax_validated"] = True
                         r["tax_jurisdiction"] = _tr.get("jurisdiction", "")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_rfq_upload_parse_doc: %s', _e)
 
         # Overwrite: uploaded doc replaces existing items (user intent = replace)
         existing_items = []
@@ -1326,8 +1326,8 @@ def api_rfq_upload_parse_doc(rid):
             from src.core.dal import log_lifecycle_event
             log_lifecycle_event("rfq", rid, "doc_uploaded",
                 f"Uploaded {f.filename}: {added} items via {parser_used}", actor="user")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_upload_parse_doc: %s', _e)
 
         return jsonify({"ok": True, "items_found": len(items), "items_added": added,
                         "parser": parser_used, "header": header})
@@ -1517,8 +1517,8 @@ def upload():
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rfq_id, rfq.get("status", "draft"))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in upload: %s', _e)
 
     scprs_found = sum(1 for i in rfq["line_items"] if i.get("scprs_last_price"))
     msg = f"RFQ #{rfq['solicitation_number']} parsed — {len(rfq['line_items'])} items"
@@ -1602,10 +1602,10 @@ def _transition_status(record, new_status, actor="system", notes=""):
             try:
                 from flask import flash as _flash
                 _flash(f"Unusual status change: {old_status} -> {new_status}", "warning")
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as _e:
+                log.debug('suppressed in _transition_status: %s', _e)
+    except Exception as _e:
+        log.debug('suppressed in _transition_status: %s', _e)
 
     record["status"] = new_status
     now = datetime.now().isoformat()
@@ -1630,8 +1630,8 @@ def _transition_status(record, new_status, actor="system", notes=""):
         event = speed_map.get(new_status)
         if event and record_id:
             record_speed_event(record_type, record_id, event)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _transition_status: %s', _e)
 
     # On win: confirm item mappings + lock costs
     if new_status in ("won", "awarded"):
@@ -1658,10 +1658,10 @@ def _transition_status(record, new_status, actor="system", notes=""):
                                   supplier=item.get("item_supplier", ""),
                                   source="won_quote", expires_days=60,
                                   item_number=item.get("item_number", ""))
-                    except Exception:
-                        pass
-        except Exception:
-            pass
+                    except Exception as _e:
+                        log.debug('suppressed in _transition_status: %s', _e)
+        except Exception as _e:
+            log.debug('suppressed in _transition_status: %s', _e)
 
     # Post-send pipeline: schedule follow-ups and tracking
     if new_status in ("sent", "submitted"):
@@ -2031,8 +2031,8 @@ def detail(rid):
                     siblings = expand_to_bundle(pc_id, pcs)
                     r["_suggested_bundle_id"] = bid
                     r["_suggested_bundle_pcs"] = len(siblings)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in detail: %s', _e)
 
     # ── Sibling RFQ/PC discovery for bundle-linked RFQs ──
     _sibling_rfqs = []
@@ -2055,8 +2055,8 @@ def detail(rid):
                     _sibling_pcs_unconverted.append({
                         "id": _pcid, "pc_number": _bpc.get("pc_number", ""),
                     })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in detail: %s', _e)
 
     # Trim intelligence blobs to prevent page crash / slow render
     import json as _json_trim
@@ -2080,8 +2080,8 @@ def detail(rid):
                             _v = _cm.get(_fld, "")
                             if len(_v) > 100:
                                 _cm[_fld] = _v[:100] + "..."
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in detail: %s', _e)
 
     log.info("RFQ detail render: rid=%s, line_items=%d", rid, len(_items_list))
 
@@ -2101,8 +2101,8 @@ def detail(rid):
         if _ak != "other" and r.get("agency_key") != _ak:
             r["agency_key"] = _ak
             r["agency_name_resolved"] = _agency_name
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in detail: %s', _e)
 
     # ── Normalize due_date to ISO for <input type="date"> ──
     _due_date_iso = ""
@@ -2134,8 +2134,8 @@ def detail(rid):
                 _landed_summary["raw_cost"] += _sc * _q
                 _landed_summary["landed_cost"] += _lc["landed_cost"] * _q
                 _landed_summary["items"] += 1
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in detail: %s', _e)
 
     # Parse extracted requirements for display
     _requirements = {}
@@ -2143,8 +2143,8 @@ def detail(rid):
         import json as _rj
         _req_raw = r.get("requirements_json", "{}")
         _requirements = _rj.loads(_req_raw) if _req_raw and _req_raw != "{}" else {}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in detail: %s', _e)
 
     return render_page("rfq_detail.html", active_page="Home", r=r, rid=rid,
                        agency_required_forms=_agency_req,
@@ -2231,8 +2231,8 @@ def review_package(rid):
                     (rid, manifest["version"] - 1)).fetchone()
                 if prev_row:
                     prev_manifest = get_package_manifest(prev_row[0])
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in review_package: %s', _e)
 
     # Determine which forms are hidden (inside bid package, not standalone)
     _has_bidpkg = any(
@@ -2252,8 +2252,8 @@ def review_package(rid):
     try:
         from src.core.feature_flags import get_flag
         _cm_enabled = get_flag("compliance_matrix", default=False)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in review_package: %s', _e)
 
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
@@ -2295,8 +2295,8 @@ def rfq_support_view(rid):
             rows = conn.execute(
                 "SELECT * FROM package_delivery WHERE rfq_id = ? ORDER BY delivered_at DESC", (rid,)).fetchall()
             deliveries = [dict(row) for row in rows]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in rfq_support_view: %s', _e)
     try:
         from src.core.db import get_db
         with get_db() as conn:
@@ -2304,8 +2304,8 @@ def rfq_support_view(rid):
                 "SELECT id, logged_at, direction, sender, recipient, subject, status "
                 "FROM email_log WHERE rfq_id = ? ORDER BY logged_at DESC LIMIT 20", (rid,)).fetchall()
             emails = [dict(row) for row in rows]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in rfq_support_view: %s', _e)
 
     sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or "RFQ"
     return render_page("rfq_support.html", r=r, rid=rid, sol=sol,
@@ -2445,8 +2445,8 @@ def api_resend_package(rid):
                     full = get_rfq_file(dbf["id"])
                     if full and full.get("data"):
                         pkg_data = full["data"]; break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_resend_package: %s', _e)
     if not pkg_data:
         return jsonify({"ok": False, "error": f"Package file not found: {pkg_filename}"})
 
@@ -2599,8 +2599,8 @@ def update(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in update: %s', _e)
 
     # Save SCPRS prices for future lookups
     save_prices_from_rfq(r)
@@ -2639,8 +2639,8 @@ def update(rid):
                             "UPDATE product_catalog SET photo_url=COALESCE(NULLIF(photo_url,''),?) WHERE id=?",
                             (url, pid))
                         conn.commit(); conn.close()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in update: %s', _e)
                 cat_updated += 1
             else:
                 pid = add_to_catalog(
@@ -2676,8 +2676,8 @@ def update(rid):
                     lock_cost(_desc, _cv, supplier=_item.get("item_supplier", ""),
                               source="user_pricing", expires_days=30,
                               item_number=_item.get("item_number", ""))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in update: %s', _e)
 
     _log_rfq_activity(rid, "pricing_finalized",
         f"Pricing finalized for #{r.get('solicitation_number','?')} ({len(r.get('line_items',[]))} items, catalog +{cat_added}/~{cat_updated})",
@@ -2726,8 +2726,8 @@ def rfq_update_field(rid):
                                   r.get("email_subject", ""),
                                   r.get("requestor_email", ""),
                                   r.get("agency", "")))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in rfq_update_field: %s', _e)
                     try:
                         from src.forms.template_learning import record_buyer_feedback
                         record_buyer_feedback(
@@ -2735,8 +2735,8 @@ def rfq_update_field(rid):
                             feedback_type="parse_gap",
                             detail=f"{field}={data[field][:100]}",
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in rfq_update_field: %s', _e)
     if changed:
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(rid, r)
@@ -2809,8 +2809,8 @@ def rfq_update_field(rid):
                                 f"You entered '{new_val}'. Confirm?"
                             )
                             suggestions["needs_confirm"] = True
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in rfq_update_field: %s', _e)
 
     return jsonify({"ok": True, "updated": changed, "suggestions": suggestions,
                     "link_result": link_result})
@@ -3017,8 +3017,8 @@ def api_rfq_auto_price(rid):
         try:
             from src.agents.product_catalog import save_pc_items_to_catalog
             save_pc_items_to_catalog({"items": items})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_auto_price: %s', _e)
 
     return jsonify({"ok": True, "results": results, "priced": priced, "total": len(items),
                     "catalog_matched": len(catalog_urls)})
@@ -3219,8 +3219,8 @@ def api_rfq_bulk_paste_data(rid):
                 try:
                     from src.agents.item_link_lookup import detect_supplier
                     item["item_supplier"] = detect_supplier(link)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_rfq_bulk_paste_data: %s', _e)
                 fields_set += 1
             # Cost
             cost_str = (row.get("supplier_cost") or "").strip().replace("$", "").replace(",", "")

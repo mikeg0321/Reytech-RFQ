@@ -275,8 +275,8 @@ def api_rfq_autosave(rid):
             try:
                 from src.agents.item_link_lookup import detect_supplier
                 item["item_supplier"] = detect_supplier(item["item_link"])
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_rfq_autosave: %s', _e)
 
     # Save package form checklist if provided
     pkg_forms = data.get("package_forms")
@@ -323,8 +323,8 @@ def api_rfq_autosave(rid):
         log_lifecycle_event("rfq", rid, "items_edited",
             f"Autosaved {len(r.get('line_items', []))} items" + (" (markup changed)" if _has_markup else ""),
             actor="user")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_autosave: %s', _e)
 
     # F11: Check guardrails on saved data
     guardrail_warnings = _check_guardrails(r.get("line_items", []))
@@ -353,8 +353,8 @@ def api_rfq_autosave(rid):
                     old_value=0, new_value=float(update["price_per_unit"]),
                     source="manual_edit", rfq_id=rid, actor="user"
                 )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_autosave: %s', _e)
 
     # Write priced items to catalog (same as full save does)
     try:
@@ -885,8 +885,8 @@ def rfq_upload_supplier_quote(rid):
         try:
             from src.agents.drive_triggers import on_supplier_quote_uploaded
             on_supplier_quote_uploaded(r, pdf_path, supplier, quote_num)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in rfq_upload_supplier_quote: %s', _e)
         
         return jsonify({
             "ok": True, "supplier": supplier, "quote_number": quote_num,
@@ -980,8 +980,8 @@ def rfq_upload_supplier_quote(rid):
                                 )
                                 conn.commit()
                                 conn.close()
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug('suppressed in rfq_upload_supplier_quote: %s', _e)
                         add_supplier_price(pid, supplier, cost)
                         catalog_updated += 1
                     else:
@@ -1050,8 +1050,8 @@ def rfq_upload_supplier_quote(rid):
                 if item.get("supplier_cost") and not item.get("item_supplier"):
                     item["item_supplier"] = _sq_supplier
                     item["cost_source"] = f"Supplier Quote ({_sq_supplier})"
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in rfq_upload_supplier_quote: %s', _e)
 
     # Save RFQ
     r["_last_supplier_quote"] = {
@@ -1305,8 +1305,8 @@ def generate_rfq_package(rid):
             t.warn("Archive failed, removing old files", error=str(_ce))
             try:
                 _sh_clean.rmtree(out_dir)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in generate_rfq_package: %s', _e)
     os.makedirs(out_dir, exist_ok=True)
 
     r["output_files"] = []
@@ -1436,8 +1436,8 @@ def generate_rfq_package(rid):
             _lle_start("rfq", rid, "package_generate_started",
                 f"Generating package for {_agency_key} ({len(_req_forms)} required forms)",
                 actor="user", detail={"agency": _agency_key, "required_forms": list(_req_forms)})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _include: %s', _e)
 
         # ── Pre-flight: verify required templates exist BEFORE generating ──
         _buyer_templates = {"703b", "703c", "704b"}
@@ -1470,8 +1470,8 @@ def generate_rfq_package(rid):
             _sig_check = verify_signature_file_exists(CONFIG)
             if not _sig_check["passed"]:
                 t.warn(f"Signature image not found: {_sig_check.get('issue', '')}")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _include: %s', _e)
 
         # ── Template-based forms (only if agency requires them) ──
         # 703B or 703C — use whichever template was provided by the buyer
@@ -1751,8 +1751,8 @@ def generate_rfq_package(rid):
                 try:
                     _sh_w9.copy2(_w9_path, f"{out_dir}/{sol}_W9_Reytech.pdf")
                     output_files.append(f"{sol}_W9_Reytech.pdf")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _include: %s', _e)
 
         # Seller's Permit (static copy if not already added)
         if _include("sellers_permit"):
@@ -1762,8 +1762,8 @@ def generate_rfq_package(rid):
                 try:
                     _sh_sp.copy2(_sp_path, f"{out_dir}/{sol}_SellersPermit_Reytech.pdf")
                     output_files.append(f"{sol}_SellersPermit_Reytech.pdf")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _include: %s', _e)
 
     except Exception as e:
         errors.append(f"State forms: {e}")
@@ -1798,8 +1798,8 @@ def generate_rfq_package(rid):
                         if locked_qn:
                             r["reytech_quote_number"] = locked_qn
                             t.step(f"Recovered quote number from JSON: {locked_qn}")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _include: %s', _e)
 
             # GUARDRAIL: if this RFQ already has a quote number locked,
             # ALWAYS reuse it — never burn a new counter on regenerate.
@@ -1871,8 +1871,8 @@ def generate_rfq_package(rid):
                 _sh_clean.rmtree(out_dir)
                 os.rename(_old_dir, out_dir)
                 log.info("Restored old files after generation failure for %s", rid)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _include: %s', _e)
         return redirect(f"/rfq/{rid}")
     
     # ── Step 3.5: Collect ALL package PDFs (state forms + original RFQ attachments) ──
@@ -2051,8 +2051,8 @@ def generate_rfq_package(rid):
             "file_count": len(output_files),
             "required_forms": list(_req_forms) if '_req_forms' in dir() else [],
         }, ok=not errors)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _form_sort_key: %s', _e)
 
     _manifest_id = None
     try:
@@ -2187,8 +2187,8 @@ def generate_rfq_package(rid):
                          "form_pass_fail": _qa_form_pf,
                          "generation_sequence": _gen_seq,
                      })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _form_sort_key: %s', _e)
         except Exception as _fa_e:
             log.warning("Form QA error: %s", _fa_e)
             # Fallback to shallow audit
@@ -2200,8 +2200,8 @@ def generate_rfq_package(rid):
                     if os.path.exists(_gf_path):
                         _audit = audit_generated_form(_gf_path, _gf["form_id"], _expected)
                         _field_audits[_gf["form_id"]] = _audit
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _form_sort_key: %s', _e)
 
         _qtotal = 0
         _qnum = r.get("reytech_quote_number", "")
@@ -2255,8 +2255,8 @@ def generate_rfq_package(rid):
                             (_jm.dumps(_source_val, default=str) if _source_val else None,
                              _jm.dumps(_field_audits, default=str) if _field_audits else None,
                              _manifest_id))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _form_sort_key: %s', _e)
     except Exception as _me:
         log.error("MANIFEST CREATION FAILED: %s", _me, exc_info=True)
         errors.append(f"Manifest: {_me}")
@@ -2317,8 +2317,8 @@ def generate_rfq_package(rid):
                      "agency": _agency_key,
                      "required_forms": list(_req_forms),
                  })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _form_sort_key: %s', _e)
 
     # ── Step 6: Save, transition, create draft email ──
     # Only transition to "generated" when the package is complete.
@@ -2336,8 +2336,8 @@ def generate_rfq_package(rid):
     try:
         from src.agents.notify_agent import notify_package_ready
         notify_package_ready(r, result)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _form_sort_key: %s', _e)
 
     r["output_files"] = final_output_files
 
@@ -2348,8 +2348,8 @@ def generate_rfq_package(rid):
             rid, _agency_key if '_agency_key' in dir() else r.get("agency", "unknown"),
             output_files,
             buyer_email=r.get("requestor_email", ""))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _form_sort_key: %s', _e)
     r["generated_at"] = datetime.now().isoformat()
     
     # ── Google Drive: upload package to Pending ──
@@ -2387,8 +2387,8 @@ def generate_rfq_package(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "generated")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _form_sort_key: %s', _e)
 
     # Build success message
     parts = []
@@ -2431,8 +2431,8 @@ def generate_rfq_package(rid):
     if _old_dir and os.path.exists(_old_dir):
         try:
             _sh_clean.rmtree(_old_dir)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _form_sort_key: %s', _e)
     # Clean old DB files not in new output
     try:
         from src.core.db import get_db as _gdb_clean
@@ -2442,8 +2442,8 @@ def generate_rfq_package(rid):
                 _conn_clean.execute(f"DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated' AND filename NOT IN ({_ph})", [rid] + list(output_files))
             else:
                 _conn_clean.execute("DELETE FROM rfq_files WHERE rfq_id = ? AND category = 'generated'", (rid,))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _form_sort_key: %s', _e)
 
     return redirect(f"/rfq/{rid}/review-package")
 
@@ -2500,8 +2500,8 @@ def generate(rid):
         try:
             from src.agents.notify_agent import notify_package_ready
             notify_package_ready(r, {})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in generate: %s', _e)
 
         r["output_files"] = output_files
         r["generated_at"] = datetime.now().isoformat()
@@ -2525,8 +2525,8 @@ def generate(rid):
         try:
             from src.core.dal import update_rfq_status as _dal_ur
             _dal_ur(rid, "generated")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in generate: %s', _e)
         msg = f"Generated {len(output_files)} form(s) for #{sol}"
         if missing:
             msg += f" — missing: {', '.join(missing)}"
@@ -2586,8 +2586,8 @@ def rfq_generate_quote(rid):
                 locked_qn = _jrfqs2.get(rid, {}).get("reytech_quote_number", "")
                 if locked_qn:
                     r["reytech_quote_number"] = locked_qn
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in rfq_generate_quote: %s', _e)
     if not locked_qn:
         from src.forms.quote_generator import _next_quote_number
         locked_qn = _next_quote_number()
@@ -2652,8 +2652,8 @@ def send_email(rid):
         try:
             from src.core.dal import update_rfq_status as _dal_ur
             _dal_ur(rid, "sent")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in send_email: %s', _e)
         t.ok("Email sent", to=r["draft_email"].get("to",""), sol=r.get("solicitation_number","?"))
         flash(f"Bid response sent to {r['draft_email']['to']}", "success")
         _log_rfq_activity(rid, "email_sent",
@@ -2676,8 +2676,8 @@ def send_email(rid):
             if _mf:
                 record_package_delivery(_mf["id"], rid, _to,
                     recipient_name=r.get("requestor_name", ""), email_subject=_subj)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in send_email: %s', _e)
     except Exception as e:
         t.fail("Send failed", error=str(e))
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
@@ -2759,8 +2759,8 @@ def api_quote_regenerate(qn):
                 with open(output_path, "rb") as _fb:
                     save_rfq_file(qn, fname, "generated_quote", _fb.read(),
                                   category="generated", uploaded_by="user")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_quote_regenerate: %s', _e)
             
             t.ok("Regenerated", path=output_path, total=result.get("total", 0))
             return jsonify({
