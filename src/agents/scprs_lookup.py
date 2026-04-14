@@ -21,7 +21,6 @@ PeopleSoft Naming Convention:
 
 import json, os, re, logging, time
 from datetime import datetime, timedelta
-
 try:
     from src.core.circuit_breaker import get_breaker, CircuitOpenError
     _scprs_breaker = get_breaker("scprs")
@@ -773,8 +772,8 @@ def lookup_price(item_number=None, description=None):
                         award_date=result.get("date", ""),
                         source="scprs_live",
                     )
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
             return result
     return None
 
@@ -857,8 +856,8 @@ def _scrape_fiscal(item_number=None, description=None):
             if detail is None and c.get("_results_html"):
                 try:
                     session.init_session()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
         # Return best detail price, or summary fallback
         if best_detail:
@@ -1099,8 +1098,8 @@ def bulk_seed_won_quotes(max_categories=None, max_pos_per_category=3):
                                     source="scprs_bulk_seed",
                                 )
                                 total_ingested += 1
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
                     pos_checked += 1
                 else:
                     # Fallback: ingest summary-level data (grand total, lower confidence)
@@ -1121,8 +1120,8 @@ def bulk_seed_won_quotes(max_categories=None, max_pos_per_category=3):
                             )
                             total_ingested += 1
                             pos_checked += 1
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
 
                 SEED_STATUS["records_ingested"] = total_ingested
 

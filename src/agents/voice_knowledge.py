@@ -176,8 +176,8 @@ def build_call_context(institution: str = "", po_number: str = "",
             comm = build_cs_communication_summary(buyer_email, quote_number, po_number)
             if comm:
                 sections.append(comm)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # ── Financial Context (QB) ────────────────────────────────────────────
     financial = _get_financial_context(institution)
@@ -278,8 +278,8 @@ def _get_quote_context(quote_number: str) -> str:
                             for it in items[:8]:
                                 desc = it.get("description","")[:60]
                                 lines.append(f"  - {desc} (Qty {it.get('qty',it.get('quantity',0))}) ${it.get('unit_price',it.get('our_price',0)):,.2f}")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
                     return "\n".join(lines)
         except Exception as e:
             log.debug("SQLite quote context: %s", e)
@@ -397,8 +397,8 @@ def _get_pricing_context(institution: str) -> str:
                 for r in ph.get("results",[])[:4]:
                     lines.append(f"  - {r.get('description','')[:50]}: ${r.get('unit_price',0):,.2f} ({r.get('source','')})")
                 return "\n".join(lines)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # scprs_prices.json fallback
     scprs = _load("scprs_prices.json")
@@ -548,8 +548,8 @@ def _tool_lookup_pricing(params: dict) -> str:
                 for r in rows:
                     lines.append(f"  {r.get('description','')[:50]} — ${r.get('unit_price',0):,.2f} ({r.get('source','')})")
                 return "\n".join(lines)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Quote history fallback
     if HAS_DB:
@@ -566,8 +566,8 @@ def _tool_lookup_pricing(params: dict) -> str:
                     for r in rows:
                         lines.append(f"  ${r['unit_price']:,.2f} ({r['source'] or r['agency'] or '?'})")
                     return "\n".join(lines)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # JSON fallback
     quotes = _load("quotes_log.json")
@@ -610,8 +610,8 @@ def _tool_check_quote_status(params: dict) -> str:
                     if row.get("po_number"):
                         msg += f", PO: {row['po_number']}"
                     return msg
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     quotes = _load("quotes_log.json")
     qt = next((q for q in quotes if q.get("quote_number") == qn), None)
     if not qt:
@@ -640,8 +640,8 @@ def _tool_schedule_follow_up(params: dict) -> str:
             body=f"When: {when}",
             actor="voice_agent",
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return f"Got it — noted for follow-up{' about ' + topic if topic else ''}{' on ' + when if when else ''}. Our team will reach out."
 
 
@@ -658,8 +658,8 @@ def _tool_check_order_status(params: dict) -> str:
                 ).fetchone()
                 if row:
                     return f"Order {row['id']}: {row['status']}, {row['items_count']} items, placed {(row['created_at'] or '')[:10]}."
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     # SQLite fallback via DAL
     try:
         from src.core.dal import list_orders as _dal_lo
@@ -670,8 +670,8 @@ def _tool_check_order_status(params: dict) -> str:
                 items = order.get("line_items", order.get("items", []))
                 delivered = sum(1 for i in items if i.get("sourcing_status") == "delivered")
                 return f"Order {oid}: {status}. {delivered} of {len(items)} items delivered."
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return f"No order matching {order_id} found."
 
 

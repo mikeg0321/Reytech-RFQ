@@ -325,8 +325,8 @@ def _trace_pdf_history(doc_id: str, template_type: str, lineage: dict, conn):
                 "generated_at": rd.get("generated_at"),
                 "file_path": rd.get("file_path"),
             })
-    except Exception:
-        pass  # Table may not exist yet
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)  # Table may not exist yet
 
 
 def _add_event(lineage: dict, event_type: str, timestamp: str, detail: str):

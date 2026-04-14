@@ -236,8 +236,8 @@ def process_nurture_queue() -> dict:
         from src.core.dal import upsert_outbox_email as _upsert
         for e in outbox:
             if e.get("id"): _upsert(e)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if drafts_created:
         log.info("Nurture: created %d email drafts", drafts_created)
@@ -333,8 +333,8 @@ def _calculate_lead_score(lead: dict) -> float:
             # Old leads lose points
             elif days_old > 180:
                 score -= 10
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Category match (medical/dental → Reytech's bread and butter)
     category = (lead.get("category") or "").lower()
@@ -356,8 +356,8 @@ def _notify_score_increase(lead: dict, old_score: float, new_score: float):
             urgency="info",
             deep_link="/growth"
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 # ── Lead → Customer Conversion ────────────────────────────────────────────────

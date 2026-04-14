@@ -401,8 +401,8 @@ def run_weekly_report():
                 channels=["bell"],
                 run_async=False,
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return {"ok": False, "error": str(e)}
 
 
@@ -543,8 +543,8 @@ def start_weekly_reporter():
                 try:
                     from src.core.scheduler import heartbeat as _hb
                     _hb("oracle-weekly-report", success=False, error=str(e))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 time.sleep(3600)
 
     t = threading.Thread(target=_loop, daemon=True, name="oracle-weekly-report")

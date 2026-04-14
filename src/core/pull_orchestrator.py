@@ -121,8 +121,8 @@ class PullOrchestrator:
             """, (connector_id, meta.get("state", ""), stored, now, now, duration))
             hconn.commit()
             hconn.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         return {"ok": True, "connector_id": connector_id,
                 "stored": stored, "health_grade": grade,
@@ -189,8 +189,8 @@ class PullOrchestrator:
                     last = datetime.fromisoformat(c["last_pulled_at"])
                     next_due = (last + timedelta(hours=c.get("pull_frequency_hours", 168))).isoformat()
                     is_overdue = datetime.fromisoformat(next_due) < now
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
             status[c["id"]] = {
                 "name": c["name"],
                 "status": c["status"],

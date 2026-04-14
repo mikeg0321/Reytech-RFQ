@@ -34,8 +34,8 @@ def atomic_json_save(filepath, data, indent=2):
     except Exception:
         try:
             os.unlink(tmp_path)
-        except OSError:
-            pass
+        except OSError as _e:
+            log.debug("suppressed: %s", _e)
         raise
 
 
@@ -55,8 +55,8 @@ def _prune_snapshots(basename):
     for old in snaps[MAX_SNAPSHOTS_PER_FILE:]:
         try:
             os.remove(os.path.join(SNAPSHOT_DIR, old))
-        except OSError:
-            pass
+        except OSError as _e:
+            log.debug("suppressed: %s", _e)
 
 
 def safe_save_json(filepath, data, reason=""):
@@ -75,8 +75,8 @@ def safe_save_json(filepath, data, reason=""):
                 age = datetime.now().timestamp() - os.path.getmtime(os.path.join(SNAPSHOT_DIR, newest))
                 if age < SNAPSHOT_THROTTLE_SEC:
                     _skip_snapshot = True
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         if not _skip_snapshot:
             snapshot_path = os.path.join(SNAPSHOT_DIR, f"{basename}.{ts}")
             try:
@@ -97,8 +97,8 @@ def safe_save_json(filepath, data, reason=""):
                     len(r.get("line_items", r.get("items", [])))
                     for r in old.values() if isinstance(r, dict)
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         new_items = sum(
             len(r.get("line_items", r.get("items", [])))
             for r in data.values() if isinstance(r, dict)
@@ -137,8 +137,8 @@ def safe_save_json(filepath, data, reason=""):
                         pd.get("items", pc.get("items", []))
                         if isinstance(pd, dict) else []
                     )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         for pc in (data.values() if isinstance(data, dict) else []):
             if not isinstance(pc, dict):
                 continue
@@ -323,8 +323,8 @@ def boot_health_check():
             if total_snap_size > 100_000_000:  # >100MB
                 checks["issues"].append(f"Snapshots using {round(total_snap_size/1_000_000,1)}MB — run cleanup")
                 log.warning("BOOT CHECK: Snapshots using %.1fMB", total_snap_size/1_000_000)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if checks["issues"]:
         checks["ok"] = False

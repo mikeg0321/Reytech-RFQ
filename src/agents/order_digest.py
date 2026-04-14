@@ -207,8 +207,8 @@ def run_daily_digest(force: bool = False):
     try:
         with open(DIGEST_STATE_FILE) as f:
             state = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     today = datetime.now().strftime("%Y-%m-%d")
     if not force and state.get("last_digest") == today:
@@ -431,8 +431,8 @@ def apply_tracking_to_order(oid: str, tracking_number: str, carrier: str = ""):
                 urgency="info",
                 cooldown_key=f"track_apply:{oid}:{tracking_number}",
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return {"ok": True, "applied_to": applied_to}
 

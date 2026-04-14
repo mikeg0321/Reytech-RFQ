@@ -205,8 +205,8 @@ def load_rfqs():
                             for rid, r in json_data.items():
                                 try:
                                     _save_single_rfq(rid, r)
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug("suppressed: %s", _e)
                             os.rename(json_path, json_path + ".migrated")
                             return _normalize_rfq_fields(json_data)
                     except Exception as e:
@@ -228,8 +228,8 @@ def load_rfqs():
                                 full[key] = d[key]
                         result[rid] = full
                         continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    except (json.JSONDecodeError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
                 items_raw = d.get("items", "[]")
                 if isinstance(items_raw, str):
                     try:
@@ -351,8 +351,8 @@ def _load_price_checks(include_items=True):
                                 full[key] = d[key]
                         data[pcid] = full
                         continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    except (json.JSONDecodeError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
                 items_raw = d.get("items", "[]")
                 if isinstance(items_raw, str):
                     try:
@@ -375,8 +375,8 @@ def _load_price_checks(include_items=True):
                     for pcid, pc in json_data.items():
                         try:
                             _save_single_pc(pcid, pc)
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
                     data = json_data
                     os.rename(json_path, json_path + ".migrated")
             except Exception as e:
@@ -414,8 +414,8 @@ def _save_single_pc(pc_id, pc):
     try:
         from src.agents.cchcs_packet_detector import tag_pc_if_packet
         tag_pc_if_packet(pc)
-    except Exception:
-        pass  # never let tagging break a save
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)  # never let tagging break a save
 
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time

@@ -621,8 +621,8 @@ def api_agent_favorites():
         try:
             with open(fav_file, "w") as f:
                 json.dump(_favorites, f)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return jsonify({"ok": True, "favorites": _favorites})
     # GET
     if not _favorites:
@@ -630,8 +630,8 @@ def api_agent_favorites():
         try:
             with open(fav_file) as f:
                 _favorites = json.load(f)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     return jsonify({"ok": True, "favorites": _favorites})
 
 

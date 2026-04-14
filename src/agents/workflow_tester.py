@@ -283,8 +283,8 @@ def test_cs_draft_visibility() -> list:
                 age_h = (now - ts).total_seconds() / 3600
                 if age_h > 24:
                     old_drafts.append((d["subject"][:40], f"{age_h:.0f}h old"))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         if old_drafts:
             results.append(_result(

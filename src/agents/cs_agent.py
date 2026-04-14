@@ -263,8 +263,8 @@ def _lookup_contact(sender_email: str) -> Optional[dict]:
             for c in ctx.get("contacts", []):
                 if (c.get("email") or "").lower() == sender_email.lower():
                     return c
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     return None
 
 
@@ -320,8 +320,8 @@ def build_cs_response_draft(
                 po_number=po_nums[0] if po_nums else "",
                 sender_email=sender_email,
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         if order_ctx and order_ctx.get("found"):
             o = order_ctx["orders"][0]
@@ -408,8 +408,8 @@ def build_cs_response_draft(
                     if o.get("tracking_numbers"):
                         tracking_ref = o["tracking_numbers"][0]
                         entities_resolved["tracking_from_order"] = True
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         if tracking_ref:
             entities_resolved["tracking_number"] = tracking_ref
@@ -452,8 +452,8 @@ def build_cs_response_draft(
     try:
         from src.agents.notify_agent import get_email_thread
         prior_thread = get_email_thread(contact_email=sender_email, limit=10)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── QUOTE STATUS ─────────────────────────────────────────────────────────
     if intent == "quote_status":
@@ -554,8 +554,8 @@ def build_cs_response_draft(
             actor="cs_agent",
             metadata={"intent": intent, "draft_id": draft["id"]},
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     log.info("CS draft created: intent=%s, to=%s, draft_id=%s", intent, sender_email, draft["id"])
 
@@ -715,8 +715,8 @@ def place_cs_call(phone_number: str, context: dict = None) -> dict:
         )
         if knowledge:
             system_prompt += knowledge
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Use Vapi to place the call
     try:

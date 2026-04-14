@@ -133,8 +133,8 @@ def score_quote(quote: dict, contacts: list = None, price_history: list = None) 
         try:
             dt = datetime.fromisoformat(created_at[:19])
             days_old = (datetime.now() - dt).days
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     if days_old <= 7:
         time_score = 100
@@ -206,8 +206,8 @@ def score_all_quotes() -> dict:
                     "SELECT description, unit_price, agency FROM price_history LIMIT 500"
                 ).fetchall()
                 price_history = [dict(r) for r in rows]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         scored = [score_quote(q, contacts=contacts, price_history=price_history)
                   for q in open_quotes]

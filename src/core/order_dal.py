@@ -879,8 +879,8 @@ def _find_line_item(conn, order_id: str, line_id) -> dict | None:
         ).fetchone()
         if row:
             return dict(row)
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     # Try as legacy line_id string (L001 → line_number 1)
     if isinstance(line_id, str) and line_id.startswith("L"):
@@ -892,8 +892,8 @@ def _find_line_item(conn, order_id: str, line_id) -> dict | None:
             ).fetchone()
             if row:
                 return dict(row)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     # No match found — return None (do NOT fall back to first row)
     return None

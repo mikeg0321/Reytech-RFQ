@@ -1828,8 +1828,8 @@ def api_v1_harvest_browser_test():
                             ingested += 1
                         except Exception as _e:
                             log.debug('suppressed in api_v1_harvest_browser_test: %s', _e)
-        except ImportError:
-            pass
+        except ImportError as _e:
+            log.debug("suppressed: %s", _e)
 
         return api_response({
             "count": len(results),
@@ -3718,8 +3718,8 @@ def api_v1_system_disk_usage():
                         try:
                             total += os.path.getsize(fp)
                             count += 1
-                        except OSError:
-                            pass
+                        except OSError as _e:
+                            log.debug("suppressed: %s", _e)
                 result["usage"].append({"name": entry + "/", "size_mb": round(total / 1_000_000, 1), "files": count})
         result["usage"].sort(key=lambda x: x["size_mb"], reverse=True)
         result["total_mb"] = round(sum(u["size_mb"] for u in result["usage"]), 1)
@@ -3746,8 +3746,8 @@ def api_v1_system_disk_usage():
                     elif f.endswith(".png") and os.path.getmtime(fp) < cutoff_30d:
                         os.remove(fp)
                         result["cleaned"].append({"file": f"po_records/{f}", "size_mb": round(size / 1_000_000, 2)})
-                except OSError:
-                    pass
+                except OSError as _e:
+                    log.debug("suppressed: %s", _e)
 
         # 2. Snapshots >7 days
         snap_dir = os.path.join(_DATA_DIR, "snapshots")
@@ -3759,8 +3759,8 @@ def api_v1_system_disk_usage():
                         size = os.path.getsize(fp)
                         os.remove(fp)
                         result["cleaned"].append({"file": f"snapshots/{f}", "size_mb": round(size / 1_000_000, 2)})
-                except OSError:
-                    pass
+                except OSError as _e:
+                    log.debug("suppressed: %s", _e)
 
         # 3. Uploads >30 days
         upload_dir = os.path.join(_DATA_DIR, "uploads")
@@ -3774,8 +3774,8 @@ def api_v1_system_disk_usage():
                             os.remove(fp)
                             relpath = os.path.relpath(fp, _DATA_DIR)
                             result["cleaned"].append({"file": relpath, "size_mb": round(size / 1_000_000, 2)})
-                    except OSError:
-                        pass
+                    except OSError as _e:
+                        log.debug("suppressed: %s", _e)
 
         # 4. Delete corrupt DB backup
         corrupt = os.path.join(_DATA_DIR, "reytech.db.corrupt.20260314_205443")
@@ -3820,8 +3820,8 @@ def api_v1_system_disk_usage():
                     size = os.path.getsize(fp)
                     os.remove(fp)
                     result["cleaned"].append({"file": f, "size_mb": round(size / 1_000_000, 2)})
-                except OSError:
-                    pass
+                except OSError as _e:
+                    log.debug("suppressed: %s", _e)
 
         result["freed_mb"] = round(sum(c.get("size_mb", 0) for c in result["cleaned"]), 1)
 

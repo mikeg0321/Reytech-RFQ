@@ -70,8 +70,8 @@ def _handle_429(resp) -> bool:
     if retry_after:
         try:
             wait = max(int(float(retry_after)), 5)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
     log.warning("429 rate limited — backing off %ds", wait)
     _last_api_call = time.time() + wait  # block future calls too
     time.sleep(wait)
@@ -96,8 +96,8 @@ def _load_cache() -> dict:
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE) as f:
                 return json.load(f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return {}
 
 def _save_cache(cache: dict):
@@ -497,8 +497,8 @@ def web_search_for_pc(pc_id: str) -> dict:
             if _wpid and r.get("source"):
                 _ws(_wpid, r["source"], r["price"],
                     url=r.get("url", ""), sku=web_pn)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     
     # Save
     if found > 0:

@@ -30,8 +30,8 @@ def _save_reminded(ids):
         os.makedirs(os.path.dirname(REMINDED_FILE), exist_ok=True)
         with open(REMINDED_FILE, "w") as f:
             json.dump(list(ids), f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def _parse_date(s):
@@ -133,14 +133,14 @@ def check_due_dates():
                        urgency="urgent",
                        context={"type": "due_date", "item_type": alert["type"],
                                 "item_id": alert["id"]})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # SMS via Twilio (if configured)
         try:
             _send_sms_reminder(alert["message"])
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         log.info("DUE DATE ALERT: %s", alert["message"])
 

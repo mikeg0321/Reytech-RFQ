@@ -50,8 +50,8 @@ def on_quote_sent(record_type, record_id, record_data):
             price = float(str(item.get("price_per_unit", item.get("bid_price", 0)) or 0).replace("$", "").replace(",", ""))
             qty = float(str(item.get("quantity", item.get("qty", 1)) or 1).replace(",", ""))
             total += price * qty
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     now = datetime.now()
 

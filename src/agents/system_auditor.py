@@ -213,8 +213,8 @@ def _audit_database(report):
                     "issue": f"{orphan_lines} orphaned line items (no matching PO master)",
                     "severity": "medium",
                 })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         db.close()
 
@@ -252,8 +252,8 @@ def _audit_data_flow(report):
         try:
             latest = db.execute("SELECT MAX(scraped_at) FROM scprs_po_master").fetchone()[0]
             section["findings"].append(f"  Latest scrape: {latest or 'never'}")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         try:
             cat_count = db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0]
@@ -266,8 +266,8 @@ def _audit_data_flow(report):
                     "severity": "medium",
                     "recommendation": "Run /api/v1/harvest/populate-catalog to sync",
                 })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         db.close()
 
@@ -307,8 +307,8 @@ def _audit_ui_consistency(report):
                             "issue": f"{inline_count} inline styles",
                             "severity": "low",
                         })
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             if len(button_styles) > 8:
                 report["ui_issues"].append({
@@ -346,8 +346,8 @@ def _audit_duplicates(report):
                         if func.startswith("_"):
                             continue
                         all_functions.setdefault(func, []).append(filepath)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
         dup_funcs = {k: v for k, v in all_functions.items()
                      if len(v) > 1 and k not in ("__init__", "setup", "init", "register", "create")}
@@ -401,8 +401,8 @@ def _audit_new_data_integration(report):
                 if "rfq" in f.lower() or "quote" in f.lower():
                     if "quote_intelligence" not in content and "enrich_quote" not in content:
                         not_connected.append(f"{path} handles quotes but doesn't use quote_intelligence")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     for nc in not_connected:
         report["missing_integrations"].append({"name": nc, "recommendation": "Wire new data layers into existing UI"})

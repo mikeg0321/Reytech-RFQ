@@ -1112,8 +1112,8 @@ def backfill_historical(year: int = 2025, notify_fn=None, force: bool = False) -
                 if notify_fn:
                     try:
                         notify_fn("bell", f"📥 Backfill {year}: pulling {agency_key}...", "info")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                 try:
                     result = pull_agency(
@@ -1150,8 +1150,8 @@ def backfill_historical(year: int = 2025, notify_fn=None, force: bool = False) -
                 notify_fn("bell",
                            f"✅ Historical backfill {year} complete: {total_pos} POs, {total_lines} line items",
                            "deal")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     _engine_thread = threading.Thread(target=_run, daemon=True,
                                        name=f"backfill-{year}")

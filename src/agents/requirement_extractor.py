@@ -255,16 +255,16 @@ def _parse_json_response(text: str) -> Optional[dict]:
     text = text.strip()
     try:
         return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+    except json.JSONDecodeError as _e:
+        log.debug("suppressed: %s", _e)
 
     # Try extracting JSON block from markdown
     m = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
     if m:
         try:
             return json.loads(m.group(1))
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as _e:
+            log.debug("suppressed: %s", _e)
 
     # Try finding first { to last }
     start = text.find("{")
@@ -272,8 +272,8 @@ def _parse_json_response(text: str) -> Optional[dict]:
     if start >= 0 and end > start:
         try:
             return json.loads(text[start:end + 1])
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as _e:
+            log.debug("suppressed: %s", _e)
 
     return None
 
@@ -356,8 +356,8 @@ def _extract_due_date(text: str) -> str:
         raw = m.group(1).replace(",", "")
         try:
             return datetime.strptime(raw, "%B %d %Y").strftime("%Y-%m-%d")
-        except ValueError:
-            pass
+        except ValueError as _e:
+            log.debug("suppressed: %s", _e)
 
     return ""
 

@@ -102,8 +102,8 @@ class QuoteRequest:
                     items = pd.get("items")
                     if isinstance(items, list) and items:
                         return items
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         # data_json fallback
         dj = r.get("data_json")
         if isinstance(dj, str) and dj:
@@ -113,8 +113,8 @@ class QuoteRequest:
                     items = dd.get("line_items") or dd.get("items")
                     if isinstance(items, list) and items:
                         return items
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         return []
 
     def write_items(self, items: List[Dict[str, Any]]) -> None:
@@ -202,8 +202,8 @@ class QuoteRequest:
             forms = cfg.get("required_forms", [])
             if forms:
                 return list(forms)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return []
 
     # ── Request identity ────────────────────────────────────────────

@@ -21,7 +21,6 @@ Storage:
 import json, os, re, logging, time, uuid, threading
 from datetime import datetime, timedelta
 from collections import defaultdict
-
 log = logging.getLogger("sales_intel")
 
 try:
@@ -91,8 +90,8 @@ except ImportError:
         for buyer in d.get("buyers", []):
             try:
                 upsert_contact(buyer)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
 REVENUE_GOAL = 2_000_000  # $2M annual target
 
@@ -570,8 +569,8 @@ def update_revenue_tracker() -> dict:
     try:
         from src.agents.revenue_engine import reconcile_revenue
         reconcile_revenue()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── Primary: SQLite revenue_log (authoritative source) ──────
     db_revenue = 0
@@ -585,8 +584,8 @@ def update_revenue_tracker() -> dict:
                 AND po_number NOT LIKE '%TEST%'
             """).fetchone()
             db_revenue = row["total"] if row else 0
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     # ── End DB revenue ──────────────────────────────────────────
 
     # ── Orders (confirmed purchases = real revenue) ─────────────
@@ -601,8 +600,8 @@ def update_revenue_tracker() -> dict:
                 AND status NOT IN ('cancelled', 'test', 'deleted')
             """).fetchone()
             orders_revenue = row["total"] if row else 0
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     # (orders.json fallback removed — SQLite is single source of truth)
     # ── End orders ──────────────────────────────────────────────
 
@@ -626,8 +625,8 @@ def update_revenue_tracker() -> dict:
                 FROM quotes WHERE status = 'won' AND total > 0 AND is_test = 0
             """).fetchone()
             quotes_revenue = max(quotes_revenue, row["total"] if row else 0)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Pull from QB if available
     qb_revenue = 0
@@ -637,8 +636,8 @@ def update_revenue_tracker() -> dict:
             ctx = get_financial_context()
             if ctx.get("ok"):
                 qb_revenue = ctx.get("total_collected", 0)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Manual entries
     manual_total = sum(e.get("amount", 0) for e in revenue.get("manual_entries", []))
@@ -662,8 +661,8 @@ def update_revenue_tracker() -> dict:
                 FROM quotes WHERE status IN ('pending', 'sent') AND total > 0 AND is_test = 0
             """).fetchone()
             pipeline = max(pipeline, row["total"] if row else 0)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Growth prospects pipeline
     prospects_data = _load_json(PROSPECTS_FILE) if HAS_GROWTH else {}

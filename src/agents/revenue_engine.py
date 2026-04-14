@@ -175,8 +175,8 @@ def reconcile_revenue() -> dict:
                           entry.get("quote_number", ""), entry.get("po_number", ""),
                           entry.get("agency", "")))
                     synced += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             # ── Cleanup: remove old duplicate/orphan revenue entries ──
             # 1. Remove quote_won entries that have a corresponding order-based entry
@@ -189,8 +189,8 @@ def reconcile_revenue() -> dict:
                         WHERE source = 'order' AND quote_number != ''
                     )
                 """)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             # 2. Remove quote_won entries where quote is no longer won and has no order
             try:
                 orphans = conn.execute("""
@@ -209,8 +209,8 @@ def reconcile_revenue() -> dict:
                     conn.execute("DELETE FROM revenue_log WHERE id = ?", (orph["id"],))
                     log.info("Cleaned orphan revenue entry %s (quote %s no longer won)",
                              orph["id"], orph["quote_number"])
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     except Exception as e:
         log.error("reconcile_revenue: %s", e)
@@ -374,8 +374,8 @@ def get_monthly_revenue(months: int = 12) -> dict:
                     monthly[key]["count"] += 1
                     if r["agency"]:
                         monthly[key]["agencies"].add(r["agency"])
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             # Build sorted monthly series
             result = []

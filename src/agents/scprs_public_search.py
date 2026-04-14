@@ -97,8 +97,8 @@ def search_scprs_public(
         import os
         if os.environ.get("SCRAPER_SERVICE_URL"):
             return _remote(keyword=keyword, department_code=department_code, max_results=max_results)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
@@ -198,14 +198,14 @@ def search_scprs_public(
                 try:
                     page.keyboard.press("Enter")
                     clicked = True
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             # Wait for results to load
             try:
                 page.wait_for_load_state("networkidle", timeout=15000)
-            except PWTimeout:
-                pass
+            except PWTimeout as _e:
+                log.debug("suppressed: %s", _e)
             time.sleep(3)
 
             # Capture the page HTML and structure for debugging
@@ -304,8 +304,8 @@ def search_scprs_intercept(keyword: str, department_code: str = "3860") -> dict:
         import os
         if os.environ.get("SCRAPER_SERVICE_URL"):
             return _remote(keyword=keyword, department_code=department_code)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -343,8 +343,8 @@ def search_scprs_intercept(keyword: str, department_code: str = "3860") -> dict:
                                 "content_type": resp.headers.get("content-type", ""),
                                 "body_preview": body[:2000],
                             })
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
             page = ctx.new_page()
             page.on("request", on_request)
@@ -437,8 +437,8 @@ def search_cchcs_purchases(keyword: str) -> dict:
                     parsed = json.loads(body)
                     result["parsed_api_data"] = parsed
                     break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # Save to cache
     cache.setdefault("pulls", []).append({

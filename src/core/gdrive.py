@@ -359,8 +359,8 @@ def search_index(query: str) -> List[dict]:
             for fid, meta in index.items():
                 if q in meta.get("filename", "").lower():
                     results.append({"file_id": fid, **meta})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return results
 
 
@@ -485,6 +485,6 @@ def get_last_backup_date() -> Optional[str]:
             for entry in reversed(entries):
                 if entry.get("action") == "backup_complete":
                     return entry.get("timestamp", "")[:10]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return None

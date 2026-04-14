@@ -1333,8 +1333,8 @@ def _link_rfq_to_pc(rfq_data, _trace):
                 days_old = (_dt_check.now() - pc_dt).days
                 if days_old > 90:
                     continue
-        except Exception:
-            pass  # If date parse fails, still try matching
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)  # If date parse fails, still try matching
 
         pc_sol = (pc.get("pc_number", "") or "").replace("AD-", "").strip()
         pc_items_list = _get_pc_items(pc)
@@ -2102,8 +2102,8 @@ def process_rfq_email(rfq_email):
             _raw = _m.group(1).replace(",", "")
             try:
                 return datetime.strptime(_raw, "%B %d %Y").strftime("%Y-%m-%d")
-            except ValueError:
-                pass
+            except ValueError as _e:
+                log.debug("suppressed: %s", _e)
         # Pattern 3: standalone date after "by" or "due"
         _m = _re_dd.search(r'(?:by|due|deadline|before)\s+(\d{1,2}/\d{1,2}/\d{2,4})', body_text, _re_dd.IGNORECASE)
         if _m:
@@ -2420,8 +2420,8 @@ def process_rfq_email(rfq_email):
                                     try:
                                         if int(_item_num) == 1 and _si > 0:
                                             pcs[pc_id]["_split_hint"]["suggested_splits"].append(_si)
-                                    except (ValueError, TypeError):
-                                        pass
+                                    except (ValueError, TypeError) as _e:
+                                        log.debug("suppressed: %s", _e)
                             _save_single_pc(pc_id, pcs[pc_id])
                             # Persist source file to DB
                             try:

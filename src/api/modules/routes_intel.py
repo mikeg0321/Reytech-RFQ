@@ -1707,8 +1707,8 @@ def quotes_list():
                     if str(_rfq.get("solicitation_number", "")).strip() == str(rfq_num_val).strip():
                         qn_href = f"/rfq/{_rid}"
                         break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         else:
             qn_href = f"/quote/{qn}"
         
@@ -1799,8 +1799,8 @@ def _get_package_files(qt, source_link):
                     "view_url": f"/api/pricecheck/view-pdf/{f}",
                     "icon": icon,
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return package
 
 
@@ -1902,8 +1902,8 @@ def quote_detail(qn):
                         source_link = f"/pricecheck/{_pid}"
                         source_label = f"PC # {rfq_num}"
                         break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             # Search RFQs
             if not source_link:
                 try:
@@ -1914,8 +1914,8 @@ def quote_detail(qn):
                             source_link = f"/rfq/{_rid}"
                             source_label = f"RFQ # {rfq_num}"
                             break
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
         # Also check notes for PC#
         if not source_link and qt.get("notes") and "PC#" in str(qt.get("notes", "")):
             import re as _re2
@@ -1973,8 +1973,8 @@ def quote_detail(qn):
     try:
         _orders = _load_orders()
         has_order = f"ORD-{qn}" in _orders
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if st in ('pending', 'sent'):
         action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'

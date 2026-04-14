@@ -701,8 +701,8 @@ def _run_migration_15(conn):
     def _add_col(table, col, coltype):
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     _add_col("quotes", "expires_at", "TEXT DEFAULT ''")
     _add_col("quotes", "expiry_notified", "INTEGER DEFAULT 0")
     _add_col("contacts", "address", "TEXT DEFAULT ''")
@@ -717,8 +717,8 @@ def _run_migration_14(conn):
     def _add_col(table, col, coltype):
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
-        except Exception:
-            pass  # Column already exists
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)  # Column already exists
 
     for table in ("products", "product_catalog"):
         _add_col(table, "unspsc_code", "TEXT DEFAULT ''")
@@ -733,8 +733,8 @@ def _run_migration_13(conn):
     def _add_col(table, col, coltype):
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
-        except Exception:
-            pass  # Column already exists
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)  # Column already exists
 
     _add_col("competitor_intel", "loss_reason_class", "TEXT DEFAULT ''")
     _add_col("competitor_intel", "our_cost", "REAL DEFAULT 0")

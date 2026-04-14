@@ -63,8 +63,8 @@ def _store_event(event_type, page="", action="", detail="",
               method, status_code, duration_ms, session_id))
         db.commit()
         db.close()
-    except Exception:
-        pass  # Never let tracking break the app
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)  # Never let tracking break the app
 
 
 def get_usage_stats(days=30):

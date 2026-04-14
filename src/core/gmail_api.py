@@ -93,8 +93,8 @@ def get_service(inbox_name: str = "sales"):
                     if svc._http.credentials.expired:
                         from google.auth.transport.requests import Request
                         svc._http.credentials.refresh(Request())
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
             return svc
 
     from googleapiclient.discovery import build

@@ -146,13 +146,13 @@ def process_buyer_request(
                 },
                 ok=False,
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         if _telemetry_started:
             try:
                 _timer_ctx_mgr.__exit__(Exception, e, None)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         return result
 
     # Telemetry context — classification succeeded, enrich the timer
@@ -242,8 +242,8 @@ def process_buyer_request(
     if _telemetry_started:
         try:
             _timer_ctx_mgr.__exit__(None, None, None)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     return result
 
 

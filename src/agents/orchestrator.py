@@ -529,8 +529,8 @@ def _log_run(name: str, inputs: dict, result: dict):
     try:
         with open(log_path) as f:
             runs = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     runs.append({
         "workflow": name,
@@ -546,8 +546,8 @@ def _log_run(name: str, inputs: dict, result: dict):
     try:
         from src.core.data_guard import atomic_json_save
         atomic_json_save(log_path, runs)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def get_workflow_status() -> dict:
@@ -557,8 +557,8 @@ def get_workflow_status() -> dict:
         log_path = os.path.join(DATA_DIR, "workflow_runs.json")
         with open(log_path) as f:
             runs = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     return {
         "agent": "orchestrator",
