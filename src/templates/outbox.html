@@ -26,7 +26,9 @@
  </div>
  <div style="display:flex;gap:8px">
   <a href="/" class="btn">🏠 Home</a>
-  <button class="btn" onclick="sendAllApproved(this)" style="background:rgba(52,211,153,.1);border-color:var(--gn);color:var(--gn)" aria-label="Send All Approved">📤 Send All Approved</button>
+  {# UX Audit 2026-04-14 §9.2: disabled until CS-reply agent rewrite —
+     bulk-approving canned text risks damaging customer relationships. #}
+  <button class="btn" disabled title="Disabled: CS-reply agent rewrite in progress. Review drafts individually." style="opacity:0.5;cursor:not-allowed;background:rgba(128,128,128,.08);border-color:var(--bd);color:var(--tx2)" aria-label="Send All Approved (disabled)">🔒 Send All Approved (disabled)</button>
  </div>
 </div>
 

@@ -772,12 +772,43 @@ def api_email_rejections():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@bp.route("/api/force-reprocess", methods=["GET", "POST"])
+@bp.route("/api/force-reprocess", methods=["POST"])
 @auth_required
 @safe_route
 def api_force_reprocess():
-    """Nuclear option: clear ALL processed UIDs and re-poll.
-    Use when a specific email isn't being picked up despite code fixes."""
+    """Nuclear option: clear ALL processed UIDs and re-poll. Use when
+    a specific email isn't being picked up despite code fixes.
+
+    UX Audit 2026-04-14 §9.3:
+      - The UI button was removed from the header. A single misclick
+        wiped processed-email state with no confirmation.
+      - GET requests are rejected — this endpoint is destructive and
+        must not fire on any drive-by GET from a crawler, a pasted
+        URL, or a misbehaving browser extension.
+      - POST requests must include a body parameter
+        `confirm=wipe_all` to actually run. Anything else returns 400.
+
+    To invoke from a script:
+        curl -u user:pass -X POST /api/force-reprocess \\
+             -H 'Content-Type: application/json' \\
+             -d '{"confirm":"wipe_all"}'
+    """
+    # Explicit confirmation gate
+    confirm = ""
+    try:
+        data = request.get_json(silent=True) or {}
+        confirm = (data.get("confirm") or "").strip()
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
+    if confirm != "wipe_all":
+        return jsonify({
+            "ok": False,
+            "error": "BLOCKED: destructive action requires "
+                     "{\"confirm\": \"wipe_all\"} in POST body. "
+                     "This endpoint wipes processed-email state.",
+            "blocked_reason": "ux_audit_p0_3",
+        }), 400
+
     proc_file = os.path.join(DATA_DIR, "processed_emails.json")
     old_count = 0
 
