@@ -195,8 +195,8 @@ def _ensure_tables():
 
 try:
     _ensure_tables()
-except Exception:
-    pass
+except Exception as _e:
+    log.debug('suppressed in _ensure_tables: %s', _e)
 
 
 def _classify_line(description: str) -> dict:

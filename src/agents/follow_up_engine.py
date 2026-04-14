@@ -440,15 +440,15 @@ def start_follow_up_scheduler(interval_seconds=3600):
                 try:
                     from src.core.scheduler import heartbeat
                     heartbeat("follow-up-engine", success=True)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _loop: %s', _e)
             except Exception as e:
                 log.error("Follow-up scan error: %s", e)
                 try:
                     from src.core.scheduler import heartbeat
                     heartbeat("follow-up-engine", success=False, error=str(e)[:200])
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _loop: %s', _e)
             _shutdown_event.wait(interval_seconds)  # Wakes immediately on shutdown
         log.info("Shutdown requested — follow-up engine exiting")
 

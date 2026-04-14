@@ -142,8 +142,8 @@ def refresh_buyer_profiles():
                              quantity, supplier, date)
                             VALUES (?,?,?,?,?,?,?)
                         """, (email, bi[5], bi[0], bi[1], bi[2], bi[3], bi[4]))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in refresh_buyer_profiles: %s', _e)
 
                 updated += 1
             except Exception as e:
@@ -198,8 +198,8 @@ def _calculate_prospect_score(total_pos, total_spend, last_date,
         if dt:
             age_days = (datetime.now() - dt).days
             score += 30 * math.pow(0.5, age_days / 180)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _calculate_prospect_score: %s', _e)
 
     # Volume (0-25 points)
     if total_pos > 0:

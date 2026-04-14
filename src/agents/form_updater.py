@@ -142,8 +142,8 @@ def download_form(form_id, form_info, force=False):
             bak = f"{form_info['filename']}.{datetime.now().strftime('%Y%m%d')}.bak"
             try:
                 os.rename(target_path, os.path.join(TEMPLATE_DIR, bak))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in download_form: %s', _e)
 
         os.rename(tmp_path, target_path)
 
@@ -176,8 +176,8 @@ def download_form(form_id, form_info, force=False):
                                form_id, list(added)[:3], list(removed)[:3])
                     _on_field_change(form_id, list(added), list(removed),
                                     target_path)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in download_form: %s', _e)
 
         _save_form_index(index)
         result["action"] = "updated" if existing_hash else "new"
