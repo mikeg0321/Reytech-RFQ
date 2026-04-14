@@ -37,21 +37,91 @@
   </div>
 </div>
 
-{% if outreach %}
-  <div class="card" style="margin-bottom:14px;border-left:4px solid #d29922">
-    <div class="card-t">📬 Reach out — {{ outreach|length }} buyer{{ 's' if outreach|length != 1 else '' }} gone quiet ≥{{ silence_days }}d</div>
+{# ── Capture rate summary (trust signal for everything below) ── #}
+{% if capture_summary and capture_summary.total %}
+  {% set rate_pct = (capture_summary.rate * 100)|round(0)|int %}
+  <div class="card" style="margin-bottom:14px;border-left:4px solid {% if rate_pct >= 60 %}#3fb950{% elif rate_pct >= 30 %}#d29922{% else %}#f85149{% endif %}">
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="font-size:28px">{% if rate_pct >= 60 %}🟢{% elif rate_pct >= 30 %}🟡{% else %}🔴{% endif %}</div>
+      <div style="flex:1">
+        <div style="font-size:15px;font-weight:700">
+          Quote capture rate:
+          <span style="color:{% if rate_pct >= 60 %}#3fb950{% elif rate_pct >= 30 %}#d29922{% else %}#f85149{% endif %}">{{ rate_pct }}%</span>
+          ({{ capture_summary.captured }} / {{ capture_summary.total }} quotes in last {{ capture_summary.days }}d)
+        </div>
+        <div style="font-size:13px;color:var(--tx2,#8b949e);margin-top:2px">
+          {% if rate_pct < 60 %}
+            Below 60% — outreach rankings have high noise. Mark quotes
+            as <code>won</code>/<code>lost</code> after PO awards to
+            improve the signal. See the capture-gap widget below.
+          {% else %}
+            Data quality is good enough to trust the outreach rankings
+            and buyer curves below.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{# ── Capture gap — quotes stuck in 'sent' status ── #}
+{% if capture_gap %}
+  <div class="card" style="margin-bottom:14px;border-left:4px solid #f85149">
+    <div class="card-t">🔴 Capture gap — {{ capture_gap|length }} institution{{ 's' if capture_gap|length != 1 else '' }} with stuck quotes</div>
     <div style="margin-top:6px;font-size:12px;color:var(--tx2,#8b949e)">
-      Historical buyers with no new quote activity in the window. Ranked by
-      lost-revenue potential (avg quote $ × historical win rate × quote count).
-      These are relationships worth a nudge.
+      Quotes that were sent ≥30 days ago but never marked
+      <code>won</code>/<code>lost</code>. Every stuck quote biases the
+      buyer-intelligence rankings — resolve them to sharpen the signal.
     </div>
     <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
       <thead>
         <tr style="color:var(--tx2,#8b949e);text-align:left">
           <th style="padding:6px 4px">Institution</th>
-          <th style="padding:6px 4px;text-align:right">Quotes</th>
+          <th style="padding:6px 4px;text-align:right">Stuck</th>
+          <th style="padding:6px 4px;text-align:right">$ exposed</th>
+          <th style="padding:6px 4px;text-align:right">Oldest</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in capture_gap %}
+        <tr style="border-top:1px solid var(--bd,#30363d)">
+          <td style="padding:6px 4px;font-weight:700">{{ g.institution|upper }}</td>
+          <td style="padding:6px 4px;text-align:right;color:#f85149;font-weight:700">{{ g.stuck_count }}</td>
+          <td style="padding:6px 4px;text-align:right;font-family:monospace">${{ '{:,.0f}'.format(g.stuck_dollars) }}</td>
+          <td style="padding:6px 4px;text-align:right;font-family:monospace;color:var(--tx2,#8b949e)">
+            {% if g.oldest_age_days is not none %}{{ g.oldest_age_days }}d{% else %}--{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:12px;color:var(--tx2,#8b949e)">
+      Resolve via <a href="/quotes?status=sent" style="color:#58a6ff">/quotes?status=sent</a> ·
+      JSON feed at <a href="/api/oracle/capture-gap" style="color:#58a6ff">/api/oracle/capture-gap</a>
+    </div>
+  </div>
+{% endif %}
+
+{% if outreach %}
+  <div class="card" style="margin-bottom:14px;border-left:4px solid #d29922">
+    <div class="card-t">📬 Reach out — {{ outreach|length }} buyer{{ 's' if outreach|length != 1 else '' }} gone quiet ≥{{ silence_days }}d</div>
+    <div style="margin-top:6px;font-size:12px;color:var(--tx2,#8b949e)">
+      Historical buyers with no new quote activity in the window. Ranked by
+      lost-revenue potential (avg quote $ × debiased win rate × total quotes).
+      <strong>Debiased</strong> means win_rate is computed on captured
+      quotes only (won + lost), ignoring stuck <code>sent</code> /
+      <code>pending</code> rows that would otherwise drag the numerator
+      down. A buyer with "?" in the Win rate column has no captured
+      data — resolve their stuck quotes first.
+    </div>
+    <table style="width:100%;margin-top:10px;font-size:13px;border-collapse:collapse">
+      <thead>
+        <tr style="color:var(--tx2,#8b949e);text-align:left">
+          <th style="padding:6px 4px">Institution</th>
+          <th style="padding:6px 4px;text-align:right">Total</th>
+          <th style="padding:6px 4px;text-align:right">Captured</th>
           <th style="padding:6px 4px;text-align:right">Wins</th>
-          <th style="padding:6px 4px;text-align:right">Win rate</th>
+          <th style="padding:6px 4px;text-align:right">Win rate*</th>
           <th style="padding:6px 4px;text-align:right">Avg $</th>
           <th style="padding:6px 4px;text-align:right">Days silent</th>
           <th style="padding:6px 4px;text-align:right">Opportunity</th>
@@ -62,9 +132,16 @@
         <tr style="border-top:1px solid var(--bd,#30363d)">
           <td style="padding:6px 4px;font-weight:700">{{ r.institution|upper }}</td>
           <td style="padding:6px 4px;text-align:right">{{ r.total_quotes }}</td>
+          <td style="padding:6px 4px;text-align:right;color:{% if r.capture_rate >= 0.6 %}#3fb950{% elif r.capture_rate >= 0.3 %}#d29922{% else %}#f85149{% endif %};font-family:monospace">
+            {{ r.captured_quotes }}/{{ r.total_quotes }}
+          </td>
           <td style="padding:6px 4px;text-align:right;color:#3fb950">{{ r.won }}</td>
-          <td style="padding:6px 4px;text-align:right;color:{% if r.win_rate >= 0.6 %}#3fb950{% elif r.win_rate >= 0.4 %}#d29922{% else %}#f85149{% endif %};font-weight:700">
-            {{ (r.win_rate * 100)|round(0)|int }}%
+          <td style="padding:6px 4px;text-align:right;font-weight:700;font-family:monospace">
+            {% if r.win_rate is none %}
+              <span style="color:var(--tx2,#8b949e)">?</span>
+            {% else %}
+              <span style="color:{% if r.win_rate >= 0.6 %}#3fb950{% elif r.win_rate >= 0.4 %}#d29922{% else %}#f85149{% endif %}">{{ (r.win_rate * 100)|round(0)|int }}%</span>
+            {% endif %}
           </td>
           <td style="padding:6px 4px;text-align:right;font-family:monospace">${{ '{:,.0f}'.format(r.avg_total) }}</td>
           <td style="padding:6px 4px;text-align:right;font-family:monospace;color:{% if r.days_since_last_quote and r.days_since_last_quote >= 120 %}#f85149{% else %}#d29922{% endif %}">

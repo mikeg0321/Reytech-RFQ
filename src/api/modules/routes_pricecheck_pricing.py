@@ -1459,10 +1459,18 @@ def _compute_outreach_triggers(conn, silence_days: int = 60,
       - We've quoted them at least `min_quotes` times (real relationship,
         not a one-off).
       - Their most recent quote is at least `silence_days` days old.
-      - Rank by *lost-revenue potential*: avg_quote_total × historical
-        win_rate × number_of_quotes. This biases toward buyers who
-        actually converted in the past, so we're not wasting outreach
-        on a zero-win buyer who just happened to ask a bunch.
+      - Rank by *lost-revenue potential* using a **debiased** win
+        rate — won / (won + lost), ignoring quotes stuck in 'sent' or
+        'pending' status. An early version of this function computed
+        win_rate = won / total_quotes, which under-valued buyers whose
+        later quotes went through without being marked won/lost. On
+        prod (2026-04-14) only 16% of quotes reached a terminal
+        status, so the naive formula would have penalized every
+        high-volume buyer.
+
+      - Display columns also include `captured_quotes` (won+lost) and
+        `unresolved_quotes` (sent+pending) so the UI can show a
+        "capture confidence" signal for each buyer.
 
     Never raises — SQL errors return an empty list so the page still
     renders if the quotes table isn't available.
@@ -1470,15 +1478,11 @@ def _compute_outreach_triggers(conn, silence_days: int = 60,
     from datetime import datetime, timedelta
     cutoff = (datetime.now() - timedelta(days=silence_days)).isoformat()
     try:
-        # NOTE: `total` in HAVING would resolve to the quotes.total
-        # column, not the COUNT(*) alias, so we repeat COUNT(*) /
-        # SUM(...) explicitly. Same story for the ORDER BY scoring —
-        # spelling out the aggregates is clearer than hoping the
-        # aliases resolve correctly in every SQLite version.
         rows = conn.execute(
             """SELECT COALESCE(NULLIF(institution, ''), agency) AS name,
                       COUNT(*) AS quote_count,
                       SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) AS won_count,
+                      SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) AS lost_count,
                       SUM(CASE WHEN status='won' THEN COALESCE(total,0) ELSE 0 END) AS won_dollars,
                       AVG(COALESCE(total,0)) AS avg_dollars,
                       MAX(created_at) AS last_quote_at
@@ -1492,7 +1496,7 @@ def _compute_outreach_triggers(conn, silence_days: int = 60,
                   AND (MAX(created_at) IS NULL OR MAX(created_at) < ?)
                 ORDER BY (AVG(COALESCE(total,0)) *
                           (CAST(SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) AS REAL)
-                           / NULLIF(COUNT(*), 0)) *
+                           / NULLIF(SUM(CASE WHEN status IN ('won','lost') THEN 1 ELSE 0 END), 0)) *
                           COUNT(*)) DESC
                 LIMIT ?""",
             (min_quotes, cutoff, limit),
@@ -1506,18 +1510,23 @@ def _compute_outreach_triggers(conn, silence_days: int = 60,
     for row in rows:
         d = dict(row) if hasattr(row, "keys") else {
             "name": row[0], "quote_count": row[1], "won_count": row[2],
-            "won_dollars": row[3], "avg_dollars": row[4],
-            "last_quote_at": row[5],
+            "lost_count": row[3], "won_dollars": row[4], "avg_dollars": row[5],
+            "last_quote_at": row[6],
         }
         name = d.get("name") or ""
         if not name:
             continue
         total = int(d.get("quote_count") or 0)
         won = int(d.get("won_count") or 0)
-        win_rate = (won / total) if total else 0
+        lost = int(d.get("lost_count") or 0)
+        captured = won + lost
+        unresolved = max(0, total - captured)
+        # Debiased win rate: only count quotes that reached a terminal
+        # status. None means "not enough captured data to judge"
+        # rather than a false 0%.
+        win_rate = (won / captured) if captured > 0 else None
         avg_total = float(d.get("avg_dollars") or 0)
         last_quote_at = d.get("last_quote_at") or ""
-        # Days since last quote
         days_since = None
         try:
             if last_quote_at:
@@ -1527,13 +1536,23 @@ def _compute_outreach_triggers(conn, silence_days: int = 60,
                 days_since = (now - last_dt).days
         except Exception as _e:
             log.debug("suppressed: %s", _e)
-        # Lost-revenue potential: avg_total × win_rate × total
-        opportunity = round(avg_total * win_rate * total, 2)
+        # Opportunity: avg_quote × debiased_win_rate × total_quotes.
+        # When win_rate is None (no captured data), treat it as 0 so
+        # the buyer doesn't rank above anyone we actually know is
+        # converting — but still surfaces in the list so the outreach
+        # can double as a "ask for status update" nudge.
+        effective_wr = win_rate if win_rate is not None else 0.0
+        opportunity = round(avg_total * effective_wr * total, 2)
         out.append({
             "institution": name,
             "total_quotes": total,
             "won": won,
-            "win_rate": round(win_rate, 3),
+            "lost": lost,
+            "captured_quotes": captured,
+            "unresolved_quotes": unresolved,
+            "capture_rate": round(captured / total, 3) if total else 0,
+            # win_rate is None-capable now — UI handles the display
+            "win_rate": round(win_rate, 3) if win_rate is not None else None,
             "avg_total": round(avg_total, 2),
             "won_total": round(float(d.get("won_dollars") or 0), 2),
             "last_quote_at": last_quote_at,
@@ -1541,6 +1560,108 @@ def _compute_outreach_triggers(conn, silence_days: int = 60,
             "opportunity_score": opportunity,
         })
     return out
+
+
+def _compute_capture_gap(conn, min_age_days: int = 30, limit: int = 20):
+    """Find quotes stuck in 'sent' status past min_age_days. These are
+    the rows that need a mark-won/mark-lost decision before the
+    outreach and buyer-curve systems can trust their numbers.
+
+    Returns a list of per-institution summaries (not per-quote) so
+    the UI can show "CCHCS has 8 quotes stuck in sent, oldest 87d"
+    instead of a 200-row flat list. The caller can drill down via the
+    /quotes page filtered on status=sent.
+    """
+    from datetime import datetime, timedelta
+    try:
+        cutoff = (datetime.now() - timedelta(days=min_age_days)).isoformat()
+        rows = conn.execute(
+            """SELECT COALESCE(NULLIF(institution, ''), agency) AS name,
+                      COUNT(*) AS stuck_count,
+                      SUM(COALESCE(total,0)) AS stuck_dollars,
+                      MIN(COALESCE(sent_at, created_at)) AS oldest_at
+                 FROM quotes
+                WHERE is_test = 0
+                  AND status = 'sent'
+                  AND COALESCE(sent_at, created_at) < ?
+                  AND COALESCE(NULLIF(institution, ''), agency) IS NOT NULL
+                  AND COALESCE(NULLIF(institution, ''), agency) != ''
+                GROUP BY name
+                ORDER BY stuck_count DESC, stuck_dollars DESC
+                LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+    except Exception as e:
+        log.debug("_compute_capture_gap failed: %s", e)
+        return []
+
+    now = datetime.now()
+    out = []
+    for row in rows:
+        d = dict(row) if hasattr(row, "keys") else {
+            "name": row[0], "stuck_count": row[1],
+            "stuck_dollars": row[2], "oldest_at": row[3],
+        }
+        name = d.get("name") or ""
+        if not name:
+            continue
+        oldest_at = d.get("oldest_at") or ""
+        oldest_age_days = None
+        try:
+            if oldest_at:
+                oldest_dt = datetime.fromisoformat(
+                    oldest_at.replace("Z", "+00:00").split("+")[0]
+                )
+                oldest_age_days = (now - oldest_dt).days
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
+        out.append({
+            "institution": name,
+            "stuck_count": int(d.get("stuck_count") or 0),
+            "stuck_dollars": round(float(d.get("stuck_dollars") or 0), 2),
+            "oldest_at": oldest_at,
+            "oldest_age_days": oldest_age_days,
+        })
+    return out
+
+
+def _compute_capture_rate_summary(conn, days: int = 365):
+    """Return a one-line capture-rate summary for the dashboard header.
+
+    capture_rate = (won + lost) / (won + lost + sent + pending)
+
+    Below 60% means the win-rate bias fix isn't fully effective —
+    outreach rankings still have noise. Above 80% means the data is
+    clean enough to trust the curve-fitting and scalar V5 values
+    simultaneously.
+    """
+    from datetime import datetime, timedelta
+    try:
+        since = (datetime.now() - timedelta(days=days)).isoformat()
+        row = conn.execute(
+            """SELECT
+                 SUM(CASE WHEN status IN ('won','lost') THEN 1 ELSE 0 END) AS captured,
+                 SUM(CASE WHEN status IN ('won','lost','sent','pending') THEN 1 ELSE 0 END) AS total
+               FROM quotes
+              WHERE is_test = 0
+                AND created_at >= ?""",
+            (since,),
+        ).fetchone()
+    except Exception as e:
+        log.debug("_compute_capture_rate_summary failed: %s", e)
+        return {"captured": 0, "total": 0, "rate": 0.0}
+
+    d = dict(row) if hasattr(row, "keys") else {
+        "captured": row[0], "total": row[1],
+    }
+    captured = int(d.get("captured") or 0)
+    total = int(d.get("total") or 0)
+    return {
+        "captured": captured,
+        "total": total,
+        "rate": round(captured / total, 3) if total else 0.0,
+        "days": days,
+    }
 
 
 @bp.route("/buyer-intelligence")
@@ -1624,10 +1745,15 @@ def buyer_intelligence_page():
                 if opt.get("sufficient"):
                     totals["sufficient"] += 1
             totals["institutions"] = len(buyers)
-            # CRM outreach triggers — computed from the same DB handle
+            # CRM outreach triggers + capture-gap widgets — computed
+            # from the same DB handle so we don't reopen the cursor
             outreach = _compute_outreach_triggers(conn, silence_days=silence_days)
+            capture_gap = _compute_capture_gap(conn)
+            capture_summary = _compute_capture_rate_summary(conn, days=days)
     except Exception as e:
         log.warning("buyer-intelligence page query failed: %s", e)
+        capture_gap = []
+        capture_summary = {"captured": 0, "total": 0, "rate": 0.0}
 
     return render_page(
         "buyer_intelligence.html",
@@ -1636,6 +1762,8 @@ def buyer_intelligence_page():
         silence_days=silence_days,
         buyers=buyers,
         outreach=outreach,
+        capture_gap=capture_gap,
+        capture_summary=capture_summary,
         totals=totals,
     )
 
@@ -1687,5 +1815,48 @@ def api_outreach_triggers():
         "min_quotes": min_quotes,
         "count": len(triggers),
         "triggers": triggers,
+    })
+
+
+@bp.route("/api/oracle/capture-gap")
+@auth_required
+@safe_route
+def api_capture_gap():
+    """Return quotes stuck in 'sent' status past min_age_days grouped
+    by institution, plus an overall capture-rate summary. These are
+    the rows that need a mark-won/lost decision before the outreach
+    and buyer-curve systems can produce trustworthy rankings.
+
+    Query params:
+        min_age_days — minimum days since sent (default 30)
+        days         — window for capture-rate summary (default 365)
+    """
+    try:
+        min_age_days = int(request.args.get("min_age_days", "30"))
+    except (TypeError, ValueError):
+        min_age_days = 30
+    min_age_days = max(7, min(365, min_age_days))
+
+    try:
+        days = int(request.args.get("days", "365"))
+    except (TypeError, ValueError):
+        days = 365
+    days = max(30, min(1095, days))
+
+    try:
+        with get_db() as conn:
+            gap = _compute_capture_gap(conn, min_age_days=min_age_days)
+            summary = _compute_capture_rate_summary(conn, days=days)
+    except Exception as e:
+        log.warning("api_capture_gap failed: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({
+        "ok": True,
+        "min_age_days": min_age_days,
+        "days": days,
+        "summary": summary,
+        "count": len(gap),
+        "gap": gap,
     })
 

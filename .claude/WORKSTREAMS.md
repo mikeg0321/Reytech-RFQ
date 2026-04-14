@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| feat/orders-v2-po-merge-guard | Window 2 | `C:\Users\mikeg\rfq-orders-v2-po-merge-guard` | Active | Orders V2 PO merge regression guard tests + audit memo | 2026-04-14 |
+| feat/outreach-bias-fix | Window 2 | `C:\Users\mikeg\rfq-outreach-bias-fix` | Active | Debias outreach win_rate + add capture-gap widget | 2026-04-14 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
