@@ -529,8 +529,8 @@ def api_backfill_wins():
             try:
                 _ingest_pc_to_won_quotes(pc)
                 total_ingested += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             # Calibrate Oracle
             try:
@@ -538,8 +538,8 @@ def api_backfill_wins():
                     pc.get("items", []), "won",
                     agency=pc.get("institution") or pc.get("agency", ""),
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         log.info("Backfill wins: %d PCs, %d prices recorded, %d ingested",
                  len(won_pcs), total_recorded, total_ingested)
@@ -596,8 +596,8 @@ def api_backfill_losses():
                         source="competitor_intel",
                     )
                     total_items += 1
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             # Calibrate Oracle
             try:
@@ -607,8 +607,8 @@ def api_backfill_losses():
                     agency=pc.get("institution") or pc.get("agency", ""),
                     loss_reason=loss_type,
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         log.info("Backfill losses: %d PCs, %d competitor items ingested",
                  len(lost_pcs), total_items)
@@ -1790,8 +1790,8 @@ def api_admin_undo_mark_won(pcid):
     _save_single_pc(pcid, pc)
     try:
         upsert_price_check(pcid, pc)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     # Delete winning_prices rows
     wp_deleted = 0
     try:
@@ -2373,8 +2373,8 @@ def api_pc_qa(pcid):
                           "categories": _pc_cats,
                           "used_llm": use_llm,
                       })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return jsonify(report)
     except Exception as e:
         log.error("QA error for %s: %s", pcid, e, exc_info=True)
@@ -3109,8 +3109,8 @@ def amazon_match_item(pcid, idx):
     qpu = 1
     try:
         qpu = int(float(item.get("qty_per_uom", 1)))
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as _e:
+        log.debug("suppressed: %s", _e)
     uom = (item.get("uom") or "EA").upper().strip()
     _UOM_LABELS = {"PK": "pack", "BX": "box", "BOX": "box", "CS": "case",
                    "EA": "each", "CT": "carton", "DZ": "dozen"}
@@ -3154,8 +3154,8 @@ def amazon_match_item(pcid, idx):
             if m:
                 try:
                     return int(m.group(1))
-                except (ValueError, IndexError):
-                    pass
+                except (ValueError, IndexError) as _e:
+                    log.debug("suppressed: %s", _e)
         return None
 
     desc_tokens = set(_re.findall(r'[a-z]{3,}', desc.lower()))
@@ -3315,8 +3315,8 @@ def api_item_link_lookup():
                             supplier_price=price,
                             amazon_price=price if result.get("asin") else 0,
                         )
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                 # Record supplier price
                 if pid and supplier and price > 0:
@@ -4600,8 +4600,8 @@ def api_rescrape_unpriced(pcid):
                                         if _prod.get("sale_price"):
                                             item["pricing"]["sale_price"] = _prod["sale_price"]
                                             item["sale_price"] = _prod["sale_price"]
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug("suppressed: %s", _e)
                     except Exception as _e:
                         log.debug("Suppressed: %s", _e)
             # Update MFG#/description from scrape
@@ -4793,8 +4793,8 @@ def api_pc_auto_price(pcid):
         try:
             from src.agents.product_catalog import save_pc_items_to_catalog
             save_pc_items_to_catalog(pc)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return jsonify({"ok": True, "results": results, "priced": priced, "total": len(items),
                     "catalog_matched": len(catalog_urls)})
@@ -4983,8 +4983,8 @@ def api_bulk_scrape_urls(pcid):
                                         if _prod.get("sale_price"):
                                             item["pricing"]["sale_price"] = _prod["sale_price"]
                                             item["sale_price"] = _prod["sale_price"]
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug("suppressed: %s", _e)
                             log.info("Amazon fallback for line %d: %s → $%.2f (ASIN: %s)",
                                      i + 1, _search_q[:40], price, _amz_asin)
                     except Exception as e:
@@ -5135,8 +5135,8 @@ def _process_single_bulk_item(i, raw_line, items, pc, _line_labels, _re_bulk):
                                     if _prod.get("sale_price"):
                                         item["pricing"]["sale_price"] = _prod["sale_price"]
                                         item["sale_price"] = _prod["sale_price"]
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
                         log.info("Amazon fallback for line %d: %s → $%.2f (ASIN: %s)",
                                  i + 1, _search_q[:40], price, _amz_asin)
                 except Exception as e:
@@ -5296,8 +5296,8 @@ def _resolve_buyer_name(pc, buyer_email):
                         buyer_name = parts[1].strip()  # First name from "Last, First"
                     else:
                         buyer_name = raw.split()[0]  # First name from "First Last"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     # Fallback: parse from requestor field
     if not buyer_name:
         requestor = pc.get("requestor", "") or ""
@@ -5417,8 +5417,8 @@ def api_pc_send_quote(pcid):
             for f in os.listdir(DATA_DIR):
                 if f.endswith(".pdf") and (pcid in f or safe in f) and "Reytech" in f:
                     candidates.append(os.path.join(DATA_DIR, f))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         for candidate in candidates:
             if os.path.exists(candidate):
                 pdf_path = candidate
@@ -6125,8 +6125,8 @@ def api_admin_email_rescue():
                 if mid in _shared_poller._processed:
                     _shared_poller._processed.discard(mid)
                     cleared["in_memory"] += 1
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         # 2. Remove from JSON processed file
         try:
             if os.path.exists(proc_file):

@@ -83,8 +83,8 @@ def run_hourly_backup(data_dir: str = None) -> dict:
         try:
             from src.core.scheduler import heartbeat
             heartbeat("hourly-backup", success=True)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         return {
             "ok": True,
@@ -100,8 +100,8 @@ def run_hourly_backup(data_dir: str = None) -> dict:
         try:
             from src.core.scheduler import heartbeat
             heartbeat("hourly-backup", success=False, error=str(e))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return {"ok": False, "error": str(e)}
 
 
@@ -219,8 +219,8 @@ def run_nightly_verification(data_dir: str = None) -> dict:
                 urgency="warning",
                 channels=["email", "bell"],
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return result
 
@@ -321,8 +321,8 @@ class ErrorTracker:
                     channels=["email", "bell"],
                     cooldown_key="error_spike",
                 )
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     def get_stats(self) -> dict:
         with self._lock:
@@ -578,8 +578,8 @@ def check_disk_usage(data_dir: str = None) -> dict:
         result["largest_files"] = [
             {"name": f, "size": _fmt_size(s)} for f, s in files[:10]
         ]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Directory sizes (walk subdirs to find space hogs)
     try:
@@ -594,15 +594,15 @@ def check_disk_usage(data_dir: str = None) -> dict:
                         try:
                             total += os.path.getsize(os.path.join(root, fn))
                             file_count += 1
-                        except OSError:
-                            pass
+                        except OSError as _e:
+                            log.debug("suppressed: %s", _e)
                 dirs.append((d, total, file_count))
         dirs.sort(key=lambda x: x[1], reverse=True)
         result["largest_dirs"] = [
             {"name": d, "size": _fmt_size(s), "files": c} for d, s, c in dirs[:15]
         ]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return result
 
@@ -619,8 +619,8 @@ def _fire_disk_alert(result, urgency):
             channels=["email", "bell"],
             cooldown_key="disk_usage",
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -707,8 +707,8 @@ def run_synthetic_test(base_url: str = None, auth: tuple = None) -> dict:
                 channels=["email", "bell"],
                 cooldown_key="uptime_check",
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return result
 
@@ -844,8 +844,8 @@ def start_ops_monitor():
 
                 try:
                     heartbeat("ops-monitor", success=True)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             except Exception as e:
                 log.error("Ops monitor error: %s", e)
@@ -936,7 +936,7 @@ def _rotate_files(directory: str, prefix: str, suffix: str, keep: int):
         for f in files[keep:]:
             try:
                 os.remove(os.path.join(directory, f))
-            except OSError:
-                pass
+            except OSError as _e:
+                log.debug("suppressed: %s", _e)
     except Exception as e:
         log.warning("File rotation error in %s: %s", directory, e)

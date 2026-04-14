@@ -157,8 +157,8 @@ def _get_pending_approvals() -> list:
                     "action_url": f"/rfq/{rfq.get('id', '')}",
                     "action_label": action_label,
                 })
-    except (FileNotFoundError, Exception):
-        pass
+    except (FileNotFoundError, Exception) as _e:
+        log.debug("suppressed: %s", _e)
 
     # 4. Stale quotes (pending 7+ days)
     quotes = _load_json("quotes_log.json", [])
@@ -177,8 +177,8 @@ def _get_pending_approvals() -> list:
                         "age": _age_str(created),
                         "action_url": "/quotes", "action_label": "Follow Up",
                     })
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
     # 5. Growth follow-ups due
     try:
@@ -191,8 +191,8 @@ def _get_pending_approvals() -> list:
                 "detail": "Email sent, no response — time to call",
                 "age": "", "action_url": "/growth", "action_label": "Launch Calls",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 6. Growth bounced emails
     try:
@@ -206,8 +206,8 @@ def _get_pending_approvals() -> list:
                     "detail": "Need alternate contacts",
                     "age": "", "action_url": "/growth", "action_label": "Fix Contacts",
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 7. Pending price checks (parsed, no quote yet) — these are real work items
     try:
@@ -307,8 +307,8 @@ def _get_activity_feed(limit: int = 12) -> list:
                 "detail": req,
                 "timestamp": ts_r, "age": _age_str(ts_r),
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # CRM events
     crm = _load_json("crm_activity.json", [])
@@ -512,8 +512,8 @@ def _get_pipeline_summary() -> dict:
             _rfqs = json.load(_f)
         for _r in (_rfqs.values() if isinstance(_rfqs, dict) else []):
             rfq_by_status[_r.get("status", "unknown")] += 1
-    except (FileNotFoundError, Exception):
-        pass
+    except (FileNotFoundError, Exception) as _e:
+        log.debug("suppressed: %s", _e)
 
     return {
         "price_checks": {
@@ -632,8 +632,8 @@ def generate_brief() -> dict:
     if HAS_AGENT_CTX:
         try:
             db_ctx = get_context(include_contacts=True, include_quotes=True, include_revenue=True)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Build headline — use .get() everywhere so a partial summary never throws
     headlines = []
@@ -686,24 +686,24 @@ def generate_brief() -> dict:
             _conv = _pipe.get("conversion_rate", 0)
             if _conv > 0:
                 headlines.append(f"Quote conversion rate: {_conv}%")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from src.agents.revenue_engine import get_goal_progress
         _goal = get_goal_progress()
         if _goal.get("ok") and _goal.get("ytd_revenue", 0) > 0:
             headlines.append(f"💰 Revenue: ${_goal['ytd_revenue']:,.0f} YTD ({_goal['pct_of_goal']:.1f}% of $2M goal)")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     try:
         from src.agents.lead_nurture_agent import get_agent_status as _ln_st
         _ln = _ln_st()
         if _ln.get("active_nurtures", 0) > 0:
             headlines.append(f"🌱 {_ln['active_nurtures']} active lead nurture sequences")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if not headlines:
         closed = revenue.get("closed_revenue", 0)
@@ -751,8 +751,8 @@ def generate_brief() -> dict:
                     "total_sent": od.get("total_sent", 0),
                     "last_campaign": distro[-1]["id"] if distro else None,
                 }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # SCPRS intelligence section
     try: scprs_intel = get_scprs_brief_section()
@@ -877,8 +877,8 @@ def get_intelligent_recommendations() -> dict:
                     "dollar_value": total,
                     "urgency": "THIS WEEK",
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── SIGNAL 2: Open quotes past 14 days (should be won or lost) ──────────
     try:
@@ -905,8 +905,8 @@ def get_intelligent_recommendations() -> dict:
                 "dollar_value": q.get("total", 0),
                 "urgency": "THIS WEEK",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── SIGNAL 3: SCPRS gap items — products CCHCS/agencies buy, we don't sell ──
     try:
@@ -941,8 +941,8 @@ def get_intelligent_recommendations() -> dict:
                 "dollar_value": spend,
                 "urgency": "NEXT 30 DAYS",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── SIGNAL 4: SCPRS win-back — we sell it, competitor is getting the PO ──
     try:
@@ -976,8 +976,8 @@ def get_intelligent_recommendations() -> dict:
                 "dollar_value": spend,
                 "urgency": "THIS WEEK",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── SIGNAL 5: Inactive CCHCS facilities (32 with $0 balance) ─────────────
     try:
@@ -1007,8 +1007,8 @@ def get_intelligent_recommendations() -> dict:
                 "dollar_value": len(inactive_cchcs) * 8000,
                 "urgency": "THIS WEEK",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── SIGNAL 6: Quotes auto-closed by SCPRS — pricing intel ────────────────
     try:
@@ -1033,8 +1033,8 @@ def get_intelligent_recommendations() -> dict:
                 "dollar_value": q.get("total", 0),
                 "urgency": "THIS WEEK",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── SIGNAL 7: No SCPRS data pulled yet ────────────────────────────────────
     try:
@@ -1054,8 +1054,8 @@ def get_intelligent_recommendations() -> dict:
                 "dollar_value": 0,
                 "urgency": "RIGHT NOW",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     conn.close()
 

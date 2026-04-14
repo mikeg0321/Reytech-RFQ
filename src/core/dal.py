@@ -347,8 +347,8 @@ def _vendor_from_row(row) -> dict:
         if d.get(f) and isinstance(d[f], str):
             try:
                 d[f] = json.loads(d[f])
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     return d
 
 
@@ -378,8 +378,8 @@ def get_outbox(status: str = None, limit: int = 500) -> list:
                     if d.get(f) and isinstance(d[f], str):
                         try:
                             d[f] = json.loads(d[f])
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
                 # Backwards compat: email_outreach uses "to", DB uses "to_address"
                 if "to_address" in d and "to" not in d:
                     d["to"] = d["to_address"]
@@ -673,8 +673,8 @@ def _fallback_load_json(filename: str, default):
         if os.path.exists(path):
             with open(path) as f:
                 return json.load(f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return default
 
 
@@ -698,8 +698,8 @@ def _get_actor() -> str:
             if hasattr(g, 'api_auth') and g.api_auth:
                 return 'api_key'
             return session.get('user', 'web')
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return 'system'
 
 
@@ -818,8 +818,8 @@ def save_rfq(rfq: dict, actor: str = "system") -> bool:
         try:
             _audit("rfq", rfq_id, "create" if not _existing else "update", actor,
                    new_value=json.dumps(rfq, default=str)[:2000])
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         # Fire webhook for new RFQ creation
         try:
             from src.core.webhooks import fire_webhook
@@ -829,8 +829,8 @@ def save_rfq(rfq: dict, actor: str = "system") -> bool:
                 "agency": rfq.get("agency", ""),
                 "item_count": len(rfq.get("items", [])),
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return True
     except Exception as e:
         log.error("save_rfq(%s) failed: %s", rfq_id, e, exc_info=True)
@@ -854,16 +854,16 @@ def update_rfq_status(rfq_id: str, status: str, actor: str = "system") -> bool:
         try:
             _audit("rfq", rfq_id, "status_change", actor,
                    old_value=old_status, new_value=status)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         # Fire webhook for status change
         try:
             from src.core.webhooks import fire_webhook
             fire_webhook("rfq.status_changed", {
                 "rfq_id": rfq_id, "new_status": status, "actor": actor,
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return True
     except Exception as e:
         log.error("update_rfq_status(%s, %s) failed: %s", rfq_id, status, e, exc_info=True)
@@ -909,8 +909,8 @@ def get_pc(pc_id: str) -> dict | None:
                                     d["items"] = blob_items
                             elif k not in d or not d[k]:
                                 d[k] = v
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
             return d
     except Exception as e:
         log.error("get_pc(%s) failed: %s", pc_id, e, exc_info=True)
@@ -947,8 +947,8 @@ def list_pcs(status: str = None, limit: int = 500) -> list[dict]:
                             for k, v in pc_data.items():
                                 if k not in d or not d[k]:
                                     d[k] = v
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    except (json.JSONDecodeError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
                 result.append(d)
             return result
     except Exception as e:
@@ -996,8 +996,8 @@ def save_pc(pc: dict, actor: str = "system") -> bool:
         try:
             _audit("price_check", pc_id, "create" if not _existing else "update", actor,
                    new_value=json.dumps(pc, default=str)[:2000])
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return True
     except Exception as e:
         log.error("save_pc(%s) failed: %s", pc_id, e, exc_info=True)
@@ -1021,8 +1021,8 @@ def update_pc_status(pc_id: str, status: str, actor: str = "system") -> bool:
         try:
             _audit("price_check", pc_id, "status_change", actor,
                    old_value=old_status, new_value=status)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return True
     except Exception as e:
         log.error("update_pc_status(%s, %s) failed: %s", pc_id, status, e, exc_info=True)
@@ -1052,8 +1052,8 @@ def get_order(order_id: str) -> dict | None:
                     full = json.loads(blob)
                     full["order_id"] = order_id
                     return full
-                except (json.JSONDecodeError, TypeError):
-                    pass
+                except (json.JSONDecodeError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
             d["items"] = _safe_json(d.get("items"), [])
             return d
     except Exception as e:
@@ -1089,8 +1089,8 @@ def list_orders(status: str = None, limit: int = 500) -> list[dict]:
                         full["order_id"] = full.get("order_id", oid)
                         result.append(full)
                         continue
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    except (json.JSONDecodeError, TypeError) as _e:
+                        log.debug("suppressed: %s", _e)
                 d["items"] = _safe_json(d.get("items"), [])
                 d["order_id"] = oid
                 result.append(d)
@@ -1136,8 +1136,8 @@ def save_order(order: dict, actor: str = "system") -> bool:
         try:
             _audit("order", order_id, "create" if not _existing else "update", actor,
                    new_value=json.dumps(order, default=str)[:2000])
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return True
     except Exception as e:
         log.error("save_order(%s) failed: %s", order_id, e, exc_info=True)
@@ -1161,8 +1161,8 @@ def update_order_status(order_id: str, status: str, actor: str = "system") -> bo
         try:
             _audit("order", order_id, "status_change", actor,
                    old_value=old_status, new_value=status)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         # Fire webhook for status change
         try:
             from src.core.webhooks import fire_webhook
@@ -1170,8 +1170,8 @@ def update_order_status(order_id: str, status: str, actor: str = "system") -> bo
                 "order_id": order_id, "old_status": old_status, "new_status": status,
                 "actor": actor,
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return True
     except Exception as e:
         log.error("update_order_status(%s, %s) failed: %s", order_id, status, e, exc_info=True)
@@ -1383,8 +1383,8 @@ def check_compliance_alerts(tenant_id: str = "reytech") -> list:
                         "due_date": soi_due,
                         "link": "https://bizfileonline.sos.ca.gov/search/business"
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         # Check certifications with expiry
         for cert in profile.get("certifications", []):
@@ -1423,8 +1423,8 @@ def check_compliance_alerts(tenant_id: str = "reytech") -> list:
                             "severity": sev,
                             "due_date": expiry
                         })
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
         return alerts
     except Exception as e:
@@ -1588,8 +1588,8 @@ def get_package_manifest(manifest_id):
                 if d.get(field):
                     try:
                         d[field] = json.loads(d[field])
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             reviews = conn.execute(
                 "SELECT * FROM package_review WHERE manifest_id = ? ORDER BY id",
                 (manifest_id,)).fetchall()
@@ -1956,8 +1956,8 @@ def seed_form_template_registry():
                     try:
                         from pypdf import PdfReader
                         field_count = len(PdfReader(path).get_fields() or {})
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
                 conn.execute("""
                     INSERT INTO form_templates
                     (form_id, form_name, template_path, revision_date, field_count, sha256, last_verified)

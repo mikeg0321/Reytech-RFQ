@@ -13,6 +13,7 @@ import email
 from email.header import decode_header
 import os, time, json, re, logging, threading
 from datetime import datetime, timedelta
+import logging
 
 log = logging.getLogger("email_poller")
 
@@ -439,8 +440,8 @@ def _parse_po_pdf(pdf_path: str) -> dict:
             )
             if result.stdout and len(result.stdout.strip()) > len(text.strip()):
                 text = result.stdout
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     
     # OCR fallback: scanned/image PDFs (e.g. "Microsoft Print to PDF" state forms)
     if not text or len(text.strip()) < 50:
@@ -893,8 +894,8 @@ def _sender_has_active_item(sender_email):
                         if rfq.get("status", "").lower() in ("new", "pending", "auto_drafted", "in_progress"):
                             rfq_match = {"rfq_id": rid, "status": rfq.get("status"), "sol": rfq.get("solicitation_number", "")}
                             break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Check price checks
         pc_rows = conn.execute(
@@ -1078,8 +1079,8 @@ def _delete_price_check_cascade(pcid, pcs_dict, reason=""):
                     from src.core.db import get_db
                     with get_db() as conn:
                         conn.execute("DELETE FROM quotes WHERE quote_number=? AND status IN ('draft','pending')", (linked_qn,))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
         except Exception as e:
             log.debug("Quote cleanup: %s", e)
     
@@ -1525,8 +1526,8 @@ class EmailPoller:
                 if is_configured():
                     self._use_gmail_api = True
                     log.info("Gmail API backend enabled for %s", self.email_addr)
-            except ImportError:
-                pass
+            except ImportError as _e:
+                log.debug("suppressed: %s", _e)
 
     def _load_processed(self):
         """Load processed UIDs from both JSON file and SQLite for durability."""
@@ -1597,8 +1598,8 @@ class EmailPoller:
                     if breaker.state == "open":
                         log.warning("Gmail circuit breaker OPEN — skipping connect")
                         return False
-                except ImportError:
-                    pass
+                except ImportError as _e:
+                    log.debug("suppressed: %s", _e)
 
                 from src.core.gmail_api import get_service, get_drive_service
                 self._gmail_service = get_service(self._inbox_name)
@@ -1612,8 +1613,8 @@ class EmailPoller:
                 try:
                     from src.core.circuit_breaker import get_breaker
                     get_breaker("gmail")._on_success()
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 return True
             except Exception as e:
                 log.error("Gmail API connect failed: %s", e)
@@ -1622,8 +1623,8 @@ class EmailPoller:
                 try:
                     from src.core.circuit_breaker import get_breaker
                     get_breaker("gmail")._on_failure(e)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 return False
 
         # ── IMAP backend (fallback) ──
@@ -1642,8 +1643,8 @@ class EmailPoller:
                 if breaker.state == "open":
                     log.warning("Gmail circuit breaker OPEN — skipping IMAP connect")
                     return False
-            except ImportError:
-                pass
+            except ImportError as _e:
+                log.debug("suppressed: %s", _e)
 
             self.mail = imaplib.IMAP4_SSL(self.host, self.port)
             self.mail.login(self.email_addr, self.password)
@@ -1654,8 +1655,8 @@ class EmailPoller:
             try:
                 from src.core.circuit_breaker import get_breaker
                 get_breaker("gmail")._on_success()
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             return True
         except imaplib.IMAP4.error as e:
             log.error(f"IMAP auth failed: {e}")
@@ -1663,8 +1664,8 @@ class EmailPoller:
             try:
                 from src.core.circuit_breaker import get_breaker
                 get_breaker("gmail")._on_failure(e)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             return False
         except Exception as e:
             log.error(f"IMAP connection failed: {e}")
@@ -1672,8 +1673,8 @@ class EmailPoller:
             try:
                 from src.core.circuit_breaker import get_breaker
                 get_breaker("gmail")._on_failure(e)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             return False
 
     def check_for_rfqs(self, save_dir="uploads"):
@@ -1738,8 +1739,8 @@ class EmailPoller:
                 _bl_raw = _load_settings().get("email.sender_blocklist", "")
                 if _bl_raw:
                     _blocked_senders = {e.strip().lower() for e in _bl_raw.replace("\n", ",").split(",") if e.strip()}
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
             for uid in new_ids:
 
@@ -1826,8 +1827,8 @@ class EmailPoller:
                                     log.info("Extracted original sender from forward: %s", fwd_sender)
                                     sender_email_raw = fwd_sender.lower()
                                     sender = fwd_sender
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
                         else:
                             log.debug("Skipping own email: %s — %s", sender_email_raw, subject[:50])
                             self._diag.setdefault("self_skipped", 0)
@@ -1849,8 +1850,8 @@ class EmailPoller:
                             self._diag["cross_dedup"] = self._diag.get("cross_dedup", 0) + 1
                             self._processed.add(uid)
                             continue
-                    except Exception:
-                        pass  # Dedup is best-effort, don't block processing
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)  # Dedup is best-effort, don't block processing
                     # ── END CROSS-INBOX DEDUP ──────────────────────────────────
 
                     # ── SENDER + SUBJECT BLOCKLIST — skip non-procurement emails ──
@@ -1899,8 +1900,8 @@ class EmailPoller:
                                         "VALUES (?,?,?,?)",
                                         (_ack_ref, sender_email_raw, subject[:200],
                                          datetime.now().isoformat()))
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
 
                         # ── TUNE 2: Procurement agency auto-reply tagging ──────
                         # DGS, CDCR, CCHCS etc. send auto-replies (OOO, receipt
@@ -1984,8 +1985,8 @@ class EmailPoller:
                                     urgency="normal",
                                     cooldown_key=f"recall_{uid}",
                                 )
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
                         self._processed.add(uid)
                         self._diag["recalled"] += 1
                         continue
@@ -2062,8 +2063,8 @@ class EmailPoller:
                                             matched_quote = rfq.get("reytech_quote_number", "")
                                             log.info("PO matched to RFQ sol#%s → quote %s", sol_number, matched_quote)
                                             break
-                                except (FileNotFoundError, _json.JSONDecodeError):
-                                    pass
+                                except (FileNotFoundError, _json.JSONDecodeError) as _e:
+                                    log.debug("suppressed: %s", _e)
                             
                             # 2. Also check quotes_log directly by solicitation
                             if not matched_quote:
@@ -2077,8 +2078,8 @@ class EmailPoller:
                                             matched_quote = q.get("quote_number", "")
                                             log.info("PO matched to quote %s via sol#%s", matched_quote, sol_number)
                                             break
-                                except (FileNotFoundError, _json.JSONDecodeError):
-                                    pass
+                                except (FileNotFoundError, _json.JSONDecodeError) as _e:
+                                    log.debug("suppressed: %s", _e)
                             
                             # 2b. Smart match: items first, then validate by total
                             if not matched_quote and po_items:
@@ -2148,8 +2149,8 @@ class EmailPoller:
                                                              best_rid, best_score * 100,
                                                              len(_po_parts & set()), len(_po_parts),
                                                              po_total, _rfq_total, matched_quote)
-                                        except (FileNotFoundError, json.JSONDecodeError):
-                                            pass
+                                        except (FileNotFoundError, json.JSONDecodeError) as _e:
+                                            log.debug("suppressed: %s", _e)
                                 except Exception as _me:
                                     log.debug("PO item matching failed: %s", _me)
 
@@ -2188,8 +2189,8 @@ class EmailPoller:
                                 try:
                                     from src.core.db_dal import update_quote_status
                                     update_quote_status(matched_quote, "won")
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug("suppressed: %s", _e)
                                 
                                 # AUTO VENDOR ORDERING DISABLED — was sending POs to
                                 # vendors automatically without human review, causing
@@ -2209,8 +2210,8 @@ class EmailPoller:
                                             agency=po_agency,
                                             date=datetime.now().strftime("%Y-%m-%d"),
                                         )
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug("suppressed: %s", _e)
 
                                 # Bridge: notify award tracker this quote is won (stop SCPRS checking)
                                 try:
@@ -2246,8 +2247,8 @@ class EmailPoller:
                                 from src.core.institution_resolver import normalize
                                 if po_institution:
                                     po_institution = normalize(po_institution) or po_institution
-                            except ImportError:
-                                pass
+                            except ImportError as _e:
+                                log.debug("suppressed: %s", _e)
 
                             # 4. Route to pending PO review queue (human reviews before order creation)
                             try:
@@ -2281,8 +2282,8 @@ class EmailPoller:
                                                      quantity=qty,
                                                      agency=po_agency,
                                                      quote_number=matched_quote or po_number or "")
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
                             
                             # 5b. Update product catalog won prices
                             try:
@@ -2325,8 +2326,8 @@ class EmailPoller:
                                 urgency="deal",
                                 cooldown_key=f"po_{uid}",
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
                         
                         # Log to activity
                         try:
@@ -2338,8 +2339,8 @@ class EmailPoller:
                                 detail=f"PO {po_number or '?'} from {po_detect.get('sender_email','')}. "
                                        f"{'Auto-marked ' + matched_quote + ' as WON.' if matched_quote else 'No matching quote found.'}",
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
                         
                         # Auto reply-all: queue for batch confirmation at end of poll cycle
                         try:
@@ -2425,8 +2426,8 @@ class EmailPoller:
                                 urgency="normal",
                                 cooldown_key=f"followup_{uid}",
                             )
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
 
                         # ── QUOTE LIFECYCLE BRIDGE ─────────────────────────────
                         # Run reply_analyzer to detect win/loss/question signals
@@ -2473,8 +2474,8 @@ class EmailPoller:
                                             ).fetchall()]
                                         result = find_quote_from_reply(subject, body, sender, _quotes)
                                         matched_qn = result.get("matched_quote")
-                                    except Exception:
-                                        pass
+                                    except Exception as _e:
+                                        log.debug("suppressed: %s", _e)
 
                                 if matched_qn:
                                     r = process_reply_signal(
@@ -2665,8 +2666,8 @@ class EmailPoller:
                                     context={"sender": sender, "subject": subject},
                                     cooldown_key=f"unclass_{uid}",
                                 )
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
                         elif not email_handled:
                             log.debug("Non-buyer email skipped: %s — %s", sender[:30], subject[:50])
 
@@ -2825,8 +2826,8 @@ class EmailPoller:
                                 for zn in zf.namelist():
                                     if zn.lower().endswith(".pdf") and not zn.startswith("__MACOSX"):
                                         names.append(os.path.basename(zn))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             if part.get_content_type() == "message/rfc822":
                 payload = part.get_payload()
                 inner_msgs = []
@@ -2868,8 +2869,8 @@ class EmailPoller:
                                  safe_name, len(payload))
                         try:
                             os.remove(filepath)
-                        except OSError:
-                            pass
+                        except OSError as _e:
+                            log.debug("suppressed: %s", _e)
                         continue
                     form_type = self._identify_form(safe_name)
                     saved.append({"path": filepath, "filename": safe_name, "type": form_type})
@@ -3029,8 +3030,8 @@ class EmailPoller:
             from src.core.db import get_db
             with get_db() as conn:
                 conn.execute("DELETE FROM processed_emails WHERE uid=?", (uid_str,))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         log.info("UID %s removed from processed — will reprocess next cycle", uid_str)
         return True
 
@@ -3049,8 +3050,8 @@ class EmailPoller:
                 u = r.get("email_uid", "")
                 if u:
                     created_uids.add(str(u))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire", "chp", "dgs"]
         our_domains = ["reytechinc.com", "reytech.com"]
@@ -3136,8 +3137,8 @@ class EmailPoller:
             try:
                 if self.mail:
                     self.mail.logout()
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         self._connected = False
 
 
@@ -3239,8 +3240,8 @@ Respectfully,"""
             try:
                 from src.core.email_signature import wrap_html_email
                 body_html = wrap_html_email(body_plain)
-            except ImportError:
-                pass
+            except ImportError as _e:
+                log.debug("suppressed: %s", _e)
         
         if body_html:
             alt = MIMEMultipart("alternative")
@@ -3307,8 +3308,8 @@ Respectfully,"""
                                     saved = True
                                     log.info("Saved to detected Sent folder: %s", _fn)
                                     break
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
             if not saved:
                 log.warning("IMAP save-to-sent failed. Folders: %s", _folder_strs)
             imap.logout()

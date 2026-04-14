@@ -131,8 +131,8 @@ def _check_item_memory(db, description, item_number=""):
         result = _row_to_dict(row, "exact_desc")
         if result:
             return result
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return None
 
 
@@ -154,8 +154,8 @@ def _get_locked_cost(db, description, item_number=""):
         if row:
             return {"locked_cost": row[0], "cost_source": row[2], "cost_supplier": row[1],
                     "cost_confirmed": row[3], "cost_expires": row[4], "cost_fresh": True}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return None
 
 
@@ -345,8 +345,8 @@ def _search_product_catalog(db, description, item_number=""):
             if p and p > 0:
                 prices.append({"price": p, "description": r[0], "supplier": r[3] or "",
                                "source": "product_catalog", "is_reytech": True})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return prices
 
 
@@ -803,8 +803,8 @@ def _learn_item(db, item, source="backfill"):
                     cost = excluded.cost, source_url = COALESCE(NULLIF(excluded.source_url,''), supplier_costs.source_url),
                     confirmed_at = datetime('now'), expires_at = excluded.expires_at
             """, (desc[:500], item_num, cost_val, supplier, source, url, expires))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return True
 
@@ -834,8 +834,8 @@ def backfill_item_memory():
                 for item in (items or []):
                     if _learn_item(db, item, source="backfill_pc"):
                         learned += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     except Exception as e:
         log.warning("Backfill PCs: %s", e)
 
@@ -855,8 +855,8 @@ def backfill_item_memory():
                 for item in (items or []):
                     if _learn_item(db, item, source="backfill_quote"):
                         learned += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     except Exception as e:
         log.warning("Backfill quotes: %s", e)
 
@@ -910,8 +910,8 @@ def auto_learn_mapping(original_description, matched_description,
               item_number, confidence))
         db.commit()
         db.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 # ── Supplier Cost Lock ──────────────────────────────────────────
@@ -1005,8 +1005,8 @@ def check_requote_triggers():
                             "item_count": len(items),
                         },
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         # Trigger: cost changes since quote was sent
         for it in items:
@@ -1049,8 +1049,8 @@ def check_requote_triggers():
                                 "delta_pct": round(delta_pct, 1),
                             },
                         })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     db.close()
     log.info("Requote triggers: %d found", len(triggers))
@@ -1079,12 +1079,12 @@ def record_speed_event(record_type, record_id, event):
                     try:
                         elapsed = int((datetime.now() - datetime.fromisoformat(start)).total_seconds() / 60)
                         db.execute(f"UPDATE [{table}] SET time_to_{event}_mins=? WHERE id=?", (elapsed, record_id))
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             db.commit()
         db.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
 
 def get_speed_stats():
@@ -1160,8 +1160,8 @@ def get_price_history_for_item(description, item_number="", agency="", limit=5):
                     "outcome": "won", "quote_number": r["quote_number"] or "",
                     "margin": r["margin_pct"] or 0,
                 })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Search competitor_intel (our losses)
         try:
@@ -1180,12 +1180,12 @@ def get_price_history_for_item(description, item_number="", agency="", limit=5):
                     "outcome": "lost", "quote_number": r["quote_number"] or "",
                     "competitor": r["competitor_name"] or "",
                 })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         db.close()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Sort by date descending
     results.sort(key=lambda x: x.get("date", ""), reverse=True)
@@ -1548,5 +1548,5 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
     finally:
         try:
             db.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)

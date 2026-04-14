@@ -295,8 +295,8 @@ def _verify_match_quality(query_desc: str, catalog_desc: str,
             elif rej_count >= 1:
                 penalty += 0.10
                 reasons.append(f"previously_rejected_match({rej_count})")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return (min(penalty, 1.0), reasons)
 
@@ -407,8 +407,8 @@ def init_catalog_db():
         ]:
             try:
                 conn.execute(idx_sql)
-            except sqlite3.OperationalError:
-                pass
+            except sqlite3.OperationalError as _e:
+                log.debug("suppressed: %s", _e)
         conn.commit()
 
     conn.close()
@@ -424,8 +424,8 @@ def init_catalog_db():
         try:
             conn.execute("ALTER TABLE " + re.sub(r"[^a-zA-Z0-9_]", "", tbl) + " ADD COLUMN " + re.sub(r"[^a-zA-Z0-9_]", "", col_def[0]) + " " + col_def[1])
             log.info("Added column %s to %s", col_def[0], tbl)
-        except sqlite3.OperationalError:
-            pass  # Already exists
+        except sqlite3.OperationalError as _e:
+            log.debug("suppressed: %s", _e)  # Already exists
     conn.commit()
     conn.close()
 
@@ -983,8 +983,8 @@ def import_quotewerks_csv(csv_path: str, replace: bool = False) -> dict:
                                         (sell_price, tq + 1, now, pid))
                                 stats["updated"] += 1
                                 is_dupe = True
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                 if not is_dupe:
                     # Insert new
@@ -1383,8 +1383,8 @@ def import_qw_documents_report(csv_path: str, replace: bool = False) -> dict:
                                         (sell_price, tq + p.get("count", 1), now, pid))
                                 stats["updated"] += 1
                                 is_dupe = True
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                 if not is_dupe:
                     cursor = conn.execute("""
@@ -1617,8 +1617,8 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
                 (_nq,)
             ).fetchall()
             _rejected_ids = {str(r[0]) for r in _rej_rows if r[0]}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Strategy -1: Supplier SKU reverse lookup (if part_number matches a known supplier SKU)
     if part_number and part_number.strip() and not part_number.strip().isdigit():
@@ -1648,8 +1648,8 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
                     matches.append(m)
                     seen_ids.add(r["id"])
                     log.info("Catalog UPC match: %s → product #%s '%s'", _upc, r["id"], (r.get("name") or "")[:40])
-        except Exception:
-            pass  # upc column may not exist yet
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)  # upc column may not exist yet
 
     # Strategy 1: Exact part number match (highest confidence)
     if part_number and part_number.strip():
@@ -1746,8 +1746,8 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
                 m["best_supplier_url"] = sup_row[1] or ""
                 m["best_supplier_price"] = sup_row[2] or 0
                 m["best_supplier_sku"] = sup_row[3] or ""
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     conn.close()
     # ── Post-match verification: penalize false positives ──
@@ -1818,8 +1818,8 @@ def match_items_batch(items: list) -> list:
                 try:
                     updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
                     days_old = (now - updated_dt).days
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
 
             if days_old <= 7:
                 freshness = "fresh"
@@ -1883,8 +1883,8 @@ def match_items_batch(items: list) -> list:
                     results[-1]["supplier_url"] = sup_row["supplier_url"]
                     if not results[-1]["best_supplier"]:
                         results[-1]["best_supplier"] = sup_row["supplier_name"]
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             # Fallback: auto-generate URL from SKU pattern
             if not results[-1].get("supplier_url"):
                 try:
@@ -1896,8 +1896,8 @@ def match_items_batch(items: list) -> list:
                             results[-1]["supplier_url"] = _resolved["url"]
                             if not results[-1]["best_supplier"]:
                                 results[-1]["best_supplier"] = _resolved["supplier"]
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
         else:
             results.append({"idx": item.get("idx", 0), "matched": False})
     return results
@@ -2282,8 +2282,8 @@ def enrich_catalog_product(product_id: int, **fields):
                 )
                 if conn.total_changes:
                     updated.append(col_name)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # Cost update (only if better/newer)
     _cost = fields.get("best_cost") or fields.get("cost")
@@ -2294,8 +2294,8 @@ def enrich_catalog_product(product_id: int, **fields):
                 "WHERE id=? AND (best_cost IS NULL OR best_cost=0 OR best_cost > ?)",
                 (float(_cost), float(_cost), now, product_id, float(_cost))
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Photo URL update (always update if we have one and current is empty)
     _photo = fields.get("photo_url", "")
@@ -2306,8 +2306,8 @@ def enrich_catalog_product(product_id: int, **fields):
                 "WHERE id=? AND (photo_url IS NULL OR photo_url='')",
                 (_photo, now, product_id)
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     conn.commit()
     conn.close()
@@ -2323,8 +2323,8 @@ def enrich_catalog_product(product_id: int, **fields):
                 product_id, _sup_name, _sup_price,
                 url=_sup_url, sku=_sup_sku
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Add Amazon as a supplier if ASIN provided
     _asin = fields.get("asin", "")
@@ -2336,8 +2336,8 @@ def enrich_catalog_product(product_id: int, **fields):
                 url=f"https://www.amazon.com/dp/{_asin}",
                 sku=_asin
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     if updated:
         log.info("Catalog enriched product #%d: %s", product_id, ", ".join(updated))
@@ -2816,15 +2816,15 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                             (mfg_number, now, pid))
             conn.execute("UPDATE product_catalog SET times_quoted=times_quoted+1, updated_at=? WHERE id=?", (now, pid))
             conn.commit()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         conn.close()
         # Save supplier URL for existing products too
         if supplier_url:
             try:
                 add_supplier_price(pid, supplier_name or "Web", cost if cost > 0 else 0, url=supplier_url)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         return pid
 
     # Also check by description tokens to prevent near-duplicates
@@ -2862,14 +2862,14 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                                         (mfg_number, now, pid))
                         conn.execute("UPDATE product_catalog SET times_quoted=times_quoted+1, updated_at=? WHERE id=?", (now, pid))
                         conn.commit()
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
                     conn.close()
                     if supplier_url:
                         try:
                             add_supplier_price(pid, supplier_name or "Web", cost if cost > 0 else 0, url=supplier_url)
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
                     return pid
         except Exception as e:
             log.debug("Token dedup check failed: %s", e)
@@ -2929,8 +2929,8 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
         if _needs_supplier:
             try:
                 add_supplier_price(pid, _sup_name, cost, url=supplier_url)
-            except Exception:
-                pass  # Non-critical
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)  # Non-critical
 
         log.info("add_to_catalog: created product #%d '%s' from %s", pid, name[:40], source)
         return pid
@@ -2939,8 +2939,8 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
         log.error("add_to_catalog error: %s", e)
         try:
             conn.close()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return None
 
 
@@ -3752,8 +3752,8 @@ def fix_catalog_names() -> dict:
                     try:
                         conn.execute("UPDATE product_catalog SET " + sets + " WHERE id = ?", vals)
                         fixed += 1
-                    except Exception:
-                        pass  # Skip truly problematic rows
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)  # Skip truly problematic rows
 
     conn.commit()
     conn.close()

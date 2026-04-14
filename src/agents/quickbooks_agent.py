@@ -98,8 +98,8 @@ def _get_realm_id() -> str:
             if tokens.get("realm_id") != rid:
                 tokens["realm_id"] = rid
                 _save_tokens(tokens)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return rid
     tokens = _load_tokens()
     return tokens.get("realm_id", "")
@@ -310,8 +310,8 @@ def fetch_vendors(force_refresh: bool = False) -> list:
                 cache = json.load(f)
             if time.time() - cache.get("fetched_at", 0) < VENDOR_CACHE_TTL_HOURS * 3600:
                 return cache.get("vendors", [])
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except (FileNotFoundError, json.JSONDecodeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     if not is_configured():
         log.debug("QuickBooks not configured — returning empty vendor list")
@@ -399,8 +399,8 @@ def create_vendor(name: str, email: str = "", phone: str = "") -> Optional[dict]
         # Clear cache so new vendor shows in dropdowns
         try:
             os.remove(VENDOR_CACHE_FILE)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return {
             "Id": v.get("Id"),
             "CompanyName": v.get("CompanyName", name),
@@ -551,8 +551,8 @@ def fetch_invoices(status: str = "all", days_back: int = 90,
             if time.time() - cache.get("fetched_at", 0) < 3600:  # 1hr cache
                 invoices = cache.get("invoices", [])
                 return _filter_invoices(invoices, status)
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except (FileNotFoundError, json.JSONDecodeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     cutoff = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     if not re.match(r"^\d{4}-\d{2}-\d{2}$", cutoff):
@@ -787,8 +787,8 @@ def fetch_customers(force_refresh: bool = False) -> list:
                 cache = json.load(f)
             if time.time() - cache.get("fetched_at", 0) < 3600 * 4:  # 4hr cache
                 return cache.get("customers", [])
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except (FileNotFoundError, json.JSONDecodeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     raw = _qb_query("SELECT * FROM Customer MAXRESULTS 500")
     customers = []
@@ -863,8 +863,8 @@ def create_customer(name: str, email: str = "", phone: str = "",
         # Clear cache
         try:
             os.remove(CUSTOMER_CACHE_FILE)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         return {
             "Id": c.get("Id"),
             "CompanyName": c.get("CompanyName", name),
@@ -906,8 +906,8 @@ def get_financial_context(force_refresh: bool = False) -> dict:
                 cache = json.load(f)
             if time.time() - cache.get("fetched_at", 0) < 3600:
                 return cache
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
+        except (FileNotFoundError, json.JSONDecodeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     if not is_configured():
         return {"ok": False, "error": "QuickBooks not connected"}
@@ -992,24 +992,24 @@ def get_agent_status() -> dict:
         with open(VENDOR_CACHE_FILE) as f:
             cache = json.load(f)
             vendor_count = cache.get("count", 0)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     invoice_count = 0
     try:
         with open(INVOICE_CACHE_FILE) as f:
             cache = json.load(f)
             invoice_count = cache.get("count", 0)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     customer_count = 0
     try:
         with open(CUSTOMER_CACHE_FILE) as f:
             cache = json.load(f)
             customer_count = cache.get("count", 0)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     return {
         "agent": "quickbooks",
