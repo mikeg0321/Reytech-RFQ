@@ -495,19 +495,97 @@ def run_poll_health():
     check("GET /api/diag/inbox-peek returns ok=True", "poll", inbox_peek_reachable)
 
 
+def run_classifier_v2_health():
+    """Post-deploy verification for the unified ingest pipeline.
+
+    The /api/health/quoting endpoint aggregates utilization_events +
+    feature_flags + quotes into a single observability view. Every
+    deploy should prove, before we walk away from it:
+
+      1. The feature flag state is readable — catches a regression in
+         flags.get_flag / feature_flags table.
+      2. `ingest.classify_crashed` count in the window is 0 — catches
+         a classifier crash bug landing in production.
+      3. `ingest.process_buyer_request` is NOT in the top_errors list
+         with a non-zero error count — catches the slow-failure mode
+         where classification succeeds but downstream save/link fails.
+
+    These are all "zero-tolerance" checks — any regression here should
+    block promote and trigger rollback, not show up as a warning.
+    """
+    print("\n🧠 CLASSIFIER V2 HEALTH")
+
+    def health_api_reachable():
+        r = get("/api/health/quoting?days=1")
+        assert r.status_code == 200, f"HTTP {r.status_code}"
+        d = r.json()
+        assert d.get("ok") is True, f"health API returned ok=False: {d}"
+        return "endpoint live"
+    check("GET /api/health/quoting returns ok=True", "classifier_v2", health_api_reachable)
+
+    def flag_card_shape():
+        r = get("/api/health/quoting?days=1")
+        d = r.json()
+        fc = d.get("flag_card") or {}
+        assert "classifier_v2_on" in fc, "flag_card missing classifier_v2_on"
+        assert isinstance(fc["classifier_v2_on"], bool), \
+            f"classifier_v2_on should be bool, got {type(fc['classifier_v2_on']).__name__}"
+        return f"classifier_v2_on={fc['classifier_v2_on']}"
+    check("flag_card.classifier_v2_on is a bool", "classifier_v2", flag_card_shape)
+
+    def no_classifier_crashes():
+        r = get("/api/health/quoting?days=1")
+        d = r.json()
+        crashes_1d = d.get("classifier_1d", {}).get("crashes", 0)
+        assert crashes_1d == 0, (
+            f"classifier_v2 crashed {crashes_1d}x in the last 24h. "
+            f"Check /health/quoting or grep Railway logs for "
+            f"'ingest.classify_crashed'. Recent crashes: "
+            f"{d.get('recent_crashes', [])[:3]}"
+        )
+        return f"0 crashes in 24h (invocations={d.get('classifier_1d', {}).get('invocations', 0)})"
+    check("Zero classifier crashes in last 24h", "classifier_v2", no_classifier_crashes)
+
+    def ingest_not_in_top_errors():
+        r = get("/api/health/quoting?days=7")
+        d = r.json()
+        errored_features = {e.get("feature") for e in (d.get("top_errors") or [])}
+        bad = [f for f in errored_features if f and f.startswith("ingest.")]
+        assert not bad, (
+            f"Ingest features showing errors in 7d window: {bad}. "
+            f"Check /health/quoting top_errors table."
+        )
+        return f"no ingest.* features in top_errors ({len(errored_features)} total)"
+    check("No ingest.* features in top_errors (7d)", "classifier_v2", ingest_not_in_top_errors)
+
+    def recent_crashes_table_sane():
+        """The recent_crashes table should always be readable even when
+        empty — catches a regression in the context-JSON parser."""
+        r = get("/api/health/quoting?days=1")
+        d = r.json()
+        recent = d.get("recent_crashes")
+        assert isinstance(recent, list), f"recent_crashes should be list, got {type(recent).__name__}"
+        for row in recent:
+            assert "created_at" in row
+            assert "error_type" in row
+        return f"recent_crashes list is sane ({len(recent)} entries)"
+    check("recent_crashes list parses cleanly", "classifier_v2", recent_crashes_table_sane)
+
+
 CATEGORIES = {
-    "pages":       run_pages,
-    "auth":        run_auth,
-    "api":         run_api,
-    "feature_321": run_feature_321,
-    "templates":   run_templates,
-    "growth":      run_growth,
-    "forecasting": run_forecasting,
-    "scheduler":   run_scheduler,
-    "prices":      run_price_history,
-    "data":        run_data,
-    "errors":      run_errors,
-    "poll":        run_poll_health,
+    "pages":         run_pages,
+    "auth":          run_auth,
+    "api":           run_api,
+    "feature_321":   run_feature_321,
+    "templates":     run_templates,
+    "growth":        run_growth,
+    "forecasting":   run_forecasting,
+    "scheduler":     run_scheduler,
+    "prices":        run_price_history,
+    "data":          run_data,
+    "errors":        run_errors,
+    "poll":          run_poll_health,
+    "classifier_v2": run_classifier_v2_health,
 }
 
 
