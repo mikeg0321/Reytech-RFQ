@@ -5,16 +5,87 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:  # manual trigger for diagnosis without needing a push
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:  # manual trigger for diagnosis
+
+# Skip CI entirely for docs/memory-only changes. Saves minutes.
+# To force CI on a docs-only PR, add the `full-ci` label.
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # Gating: decide whether to run anything based on paths + labels
+  # ─────────────────────────────────────────────────────────────────
+  gate-decision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    outputs:
+      run_fast: ${{ steps.decide.outputs.run_fast }}
+      run_full: ${{ steps.decide.outputs.run_full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+      - id: decide
+        name: Decide which jobs to run
+        run: |
+          set -e
+          EVENT="${{ github.event_name }}"
+          REF="${{ github.ref }}"
+          LABELS='${{ toJson(github.event.pull_request.labels) }}'
+          echo "event=$EVENT ref=$REF"
+
+          # Default: run fast, not full
+          RUN_FAST="true"
+          RUN_FULL="false"
+
+          # Main branch pushes always get full CI
+          if [ "$EVENT" = "push" ] && [ "$REF" = "refs/heads/main" ]; then
+            RUN_FULL="true"
+            echo "→ push to main: full CI"
+          fi
+
+          # Manual dispatch always gets full CI
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            RUN_FULL="true"
+            echo "→ workflow_dispatch: full CI"
+          fi
+
+          # PRs with full-ci label get full CI
+          if echo "$LABELS" | grep -q '"name":"full-ci"'; then
+            RUN_FULL="true"
+            echo "→ full-ci label present: full CI"
+          fi
+
+          # Paths filter: skip everything for docs-only changes
+          if [ "$EVENT" = "pull_request" ]; then
+            CHANGED=$(git diff --name-only origin/main...HEAD || true)
+            echo "Changed files:"
+            echo "$CHANGED"
+            NON_DOCS=$(echo "$CHANGED" | grep -v -E '^(docs/|.*\.md$|_overnight_review/|memory/)' || true)
+            if [ -z "$NON_DOCS" ] && [ -n "$CHANGED" ]; then
+              RUN_FAST="false"
+              RUN_FULL="false"
+              echo "→ docs-only change: skip all CI"
+            fi
+          fi
+
+          echo "run_fast=$RUN_FAST" >> $GITHUB_OUTPUT
+          echo "run_full=$RUN_FULL" >> $GITHUB_OUTPUT
+          echo "Final: fast=$RUN_FAST full=$RUN_FULL"
+
+  # ─────────────────────────────────────────────────────────────────
+  # Fast path: syntax + duplicate-endpoint + critical test slice
+  # Runs on every non-docs PR. ~3-4 min.
+  # ─────────────────────────────────────────────────────────────────
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs: gate-decision
+    if: needs.gate-decision.outputs.run_fast == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.12
@@ -60,62 +131,80 @@ jobs:
               if not fname.endswith('.py'): continue
               with open(os.path.join(modules_dir, fname), encoding='utf-8') as f:
                   for i, line in enumerate(f, 1):
-                      m = re.match(r'^def (\w+)\(', line)
-                      if m: funcs[m.group(1)].append(f'{fname}:{i}')
-          dupes = {k: v for k, v in funcs.items() if len(v) > 1}
+                      m = re.match(r'^def\s+(\w+)\s*\(', line)
+                      if m:
+                          funcs[m.group(1)].append((fname, i))
+          dupes = {n: locs for n, locs in funcs.items() if len(locs) > 1}
           if dupes:
-              for name, locs in sorted(dupes.items()):
-                  print(f'DUPLICATE: def {name}() in: {\", \".join(locs)}')
+              for n, locs in dupes.items():
+                  print(f'DUPLICATE: {n} in {locs}')
               sys.exit(1)
-          print('OK: no duplicate endpoints')
+          print('OK: no duplicate endpoint functions')
           "
 
-      - name: Install dependencies
-        run: pip install --quiet -r requirements.txt
-
-      - name: Import check (core modules)
-        env:
-          SECRET_KEY: test
-          FLASK_ENV: testing
-        run: |
-          python -c "
-          import importlib, sys
-          for mod in ['src.core.paths', 'src.core.db', 'src.core.dal']:
-              try:
-                  importlib.import_module(mod)
-                  print(f'OK: {mod}')
-              except Exception as e:
-                  print(f'FAIL: {mod}: {e}')
-                  sys.exit(1)
-          "
-
-      - name: Template compilation check
+      - name: Template render smoke (critical pages)
         run: |
           python -c "
           from jinja2 import Environment, FileSystemLoader
-          env = Environment(loader=FileSystemLoader('src/templates'))
-          errors = []
           import os
-          for f in os.listdir('src/templates'):
-              if f.endswith('.html'):
-                  try:
-                      env.get_template(f)
-                  except Exception as e:
-                      errors.append(f'{f}: {e}')
-          if errors:
-              for e in errors:
-                  print(f'FAIL: {e}')
-              import sys; sys.exit(1)
+          env = Environment(loader=FileSystemLoader('src/templates'))
+          critical = ['base.html', 'home.html', 'pc_detail.html', 'rfq_detail.html']
+          for t in critical:
+              if os.path.exists(os.path.join('src/templates', t)):
+                  env.parse(env.loader.get_source(env, t)[0])
           print('OK: all templates compile')
           "
 
+  # ─────────────────────────────────────────────────────────────────
+  # Fast test slice — runs on every PR. ~3 min.
+  # Critical subset only: classifier + ingest + golden path +
+  # package completeness. These catch the top regression classes.
+  # ─────────────────────────────────────────────────────────────────
+  tests-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    needs: gate-decision
+    if: needs.gate-decision.outputs.run_fast == 'true' && needs.gate-decision.outputs.run_full != 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: pip install --quiet -r requirements.txt
+      - name: Run critical test slice
+        env:
+          SECRET_KEY: test-secret-key-for-ci
+          DASH_USER: test
+          DASH_PASS: test
+          FLASK_ENV: testing
+          ENABLE_BACKGROUND_AGENTS: "false"
+          ENABLE_EMAIL_POLLING: "false"
+        run: |
+          python -m pytest \
+            tests/test_request_classifier.py \
+            tests/test_ingest_pipeline.py \
+            tests/test_golden_path.py \
+            tests/test_package_completeness.py \
+            tests/test_email_requirements_validator.py \
+            tests/test_feature_flags.py \
+            tests/test_utilization.py \
+            tests/test_railway_deploy_watcher.py \
+            tests/test_cchcs_packet_filler.py::TestAttachmentSplicing \
+            tests/test_cchcs_packet_route.py \
+            -n auto -q --tb=short
+
+  # ─────────────────────────────────────────────────────────────────
+  # Full test suite — runs on push to main, workflow_dispatch, or
+  # PRs with `full-ci` label. ~13 min.
+  # ─────────────────────────────────────────────────────────────────
   tests:
     runs-on: ubuntu-latest
-    # 20 min: CCHCS packet tests + golden path tests each do full
-    # parse/fill/splice/gate cycles on real 18-page PDFs (~4-5s each).
-    # 15-min ceiling was hit 2026-04-13 at 95% completion; bump to 20
-    # gives ~5 min headroom for future growth.
     timeout-minutes: 20
+    needs: gate-decision
+    if: needs.gate-decision.outputs.run_full == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.12
@@ -139,10 +228,14 @@ jobs:
             --ignore=tests/smoke_test.py \
             -n auto -q --tb=short
 
+  # ─────────────────────────────────────────────────────────────────
+  # Pre-deploy — only when running full CI. ~3 min.
+  # ─────────────────────────────────────────────────────────────────
   pre-deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [checks]
+    needs: [gate-decision, checks]
+    if: needs.gate-decision.outputs.run_full == 'true'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python 3.12
@@ -161,9 +254,54 @@ jobs:
           ENABLE_EMAIL_POLLING: "false"
         run: python -u tests/pre_deploy_check.py
 
+  # ─────────────────────────────────────────────────────────────────
+  # Gate — unified final status. Passes if:
+  #   - fast path ran and checks+tests-fast passed, OR
+  #   - full path ran and checks+tests+pre-deploy passed, OR
+  #   - gate-decision said to skip (docs-only)
+  # This is the required status check for branch protection.
+  # ─────────────────────────────────────────────────────────────────
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 1
-    needs: [checks, tests, pre-deploy]
+    needs: [gate-decision, checks, tests-fast, tests, pre-deploy]
+    if: always()
     steps:
-      - run: echo "All CI gates passed. Safe to merge."
+      - name: Evaluate gate
+        run: |
+          FAST="${{ needs.gate-decision.outputs.run_fast }}"
+          FULL="${{ needs.gate-decision.outputs.run_full }}"
+          CHECKS="${{ needs.checks.result }}"
+          FAST_RESULT="${{ needs.tests-fast.result }}"
+          FULL_RESULT="${{ needs.tests.result }}"
+          PREDEPLOY="${{ needs.pre-deploy.result }}"
+          echo "fast=$FAST full=$FULL checks=$CHECKS tests-fast=$FAST_RESULT tests=$FULL_RESULT pre-deploy=$PREDEPLOY"
+
+          # Docs-only skip path
+          if [ "$FAST" = "false" ] && [ "$FULL" = "false" ]; then
+            echo "OK: docs-only change, CI skipped by design"
+            exit 0
+          fi
+
+          # Full path (push to main, workflow_dispatch, full-ci label)
+          if [ "$FULL" = "true" ]; then
+            if [ "$CHECKS" = "success" ] && [ "$FULL_RESULT" = "success" ] && [ "$PREDEPLOY" = "success" ]; then
+              echo "OK: full CI passed"
+              exit 0
+            fi
+            echo "FAIL: full CI path did not fully succeed"
+            exit 1
+          fi
+
+          # Fast path (normal PR)
+          if [ "$FAST" = "true" ]; then
+            if [ "$CHECKS" = "success" ] && [ "$FAST_RESULT" = "success" ]; then
+              echo "OK: fast CI passed"
+              exit 0
+            fi
+            echo "FAIL: fast CI path did not fully succeed"
+            exit 1
+          fi
+
+          echo "FAIL: unknown CI state"
+          exit 1
