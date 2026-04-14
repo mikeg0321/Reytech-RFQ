@@ -1364,6 +1364,7 @@ def init_db():
         conn.executescript(SCHEMA)
     print("[BOOT:DB] init_db: migrating columns...", flush=True)
     _migrate_columns()
+    _migrate_feature_flags_from_app_settings()
     _seed_supplier_profiles()
     # Usage tracking
     try:
@@ -1611,6 +1612,50 @@ def _migrate_columns():
         log.debug("Test data cleanup: %s", e)
 
     # (orders.json cleanup removed — SQLite is single source of truth)
+
+
+def _migrate_feature_flags_from_app_settings():
+    """One-shot copy of legacy `app_settings WHERE key LIKE 'flag:%'`
+    rows into the canonical `feature_flags` table so admin-API writes
+    and legacy reads converge. Idempotent — `INSERT OR IGNORE` keeps
+    values already written via the new path untouched.
+
+    Legacy values were stored JSON-encoded (`true`, `5`, `"foo"`).
+    Strings come back double-quoted; strip one layer so the unified
+    coercion in `flags._coerce` sees the same shape as a value written
+    through the new API.
+    """
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT key, value FROM app_settings WHERE key LIKE 'flag:%'"
+        ).fetchall()
+        copied = 0
+        for r in rows:
+            name = r["key"].replace("flag:", "", 1)
+            if not name:
+                continue
+            raw = r["value"]
+            if raw is None:
+                continue
+            raw = str(raw)
+            if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+                raw = raw[1:-1]
+            cur = conn.execute(
+                """INSERT OR IGNORE INTO feature_flags
+                       (key, value, updated_by, description, updated_at)
+                   VALUES (?, ?, 'migration', 'copied from app_settings', datetime('now'))""",
+                (name, raw),
+            )
+            if cur.rowcount:
+                copied += 1
+        conn.commit()
+        conn.close()
+        if copied:
+            log.info("feature_flags migration: copied %d legacy flag(s) from app_settings", copied)
+    except Exception as e:
+        log.warning("feature_flags migration failed: %s", e)
 
 
 # ── Supplier Profiles: seed + lookup ─────────────────────────────────────────

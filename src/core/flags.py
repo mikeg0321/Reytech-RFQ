@@ -127,6 +127,16 @@ def get_flag(key: str, default: Any) -> Any:
         return default
 
     if row is None:
+        # Dual-read safety net (temporary, remove after 2026-04-21):
+        # legacy `feature_flags.py` wrote to `app_settings` with a
+        # `flag:` prefix and JSON-encoded values. Fall back to that
+        # path so ops who still write via the legacy route don't hit a
+        # silent miss. Migration in db.init copies these rows forward
+        # on boot; this read just covers the transition week.
+        legacy = _legacy_read(key)
+        if legacy is not None:
+            _cache_set(key, legacy)
+            return _coerce(legacy, default)
         # Store the default as a cache sentinel so we don't re-hit the
         # DB for 60s on unset flags. But we cache a marker value, not
         # the default itself, so we can distinguish "unset in DB" from
@@ -137,6 +147,34 @@ def get_flag(key: str, default: Any) -> Any:
     value_str = str(row[0] if not isinstance(row, dict) else row["value"])
     _cache_set(key, value_str)
     return _coerce(value_str, default)
+
+
+def _legacy_read(key: str) -> Optional[str]:
+    """Read the legacy `app_settings` 'flag:<key>' row and return its
+    string value. Returns None if unset or on any error. The legacy
+    writer JSON-encoded scalars (bool/int/str), so a stored `"true"`
+    comes back as `true` and coerces correctly through `_coerce`."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT value FROM app_settings WHERE key = ?",
+                (f"flag:{key}",),
+            ).fetchone()
+    except Exception:
+        return None
+    if row is None:
+        return None
+    raw = row[0] if not isinstance(row, dict) else row["value"]
+    if raw is None:
+        return None
+    raw = str(raw)
+    # Legacy writer wrapped scalars in json.dumps — unwrap so a stored
+    # bool `"true"` / int `"5"` / string `"\"foo\""` coerces the same
+    # way as a value written through the new API.
+    if len(raw) >= 2 and raw[0] == '"' and raw[-1] == '"':
+        raw = raw[1:-1]
+    return raw
 
 
 def _coerce(raw: str, default: Any) -> Any:
