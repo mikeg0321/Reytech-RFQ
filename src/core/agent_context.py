@@ -142,8 +142,8 @@ def _get_contact_context(limit: int = 50) -> list:
                 cats = []
                 try:
                     cats = json.loads(r["categories"] or "[]")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _get_contact_context: %s', _e)
                 contacts.append({
                     "id": r["id"],
                     "name": r["buyer_name"] or "",
@@ -227,8 +227,8 @@ def _get_revenue_context() -> dict:
                 "on_track": rv.get("on_track", False),
                 "year": rv.get("year", datetime.now().year),
             }
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_revenue_context: %s', _e)
     return {"goal": 2_000_000, "closed": 0, "pct": 0, "gap": 2_000_000}
 
 
@@ -423,8 +423,8 @@ def _get_voice_context() -> dict:
             }
             for c in calls[:5]
         ]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_voice_context: %s', _e)
     try:
         import os as _os, json as _json
         camp_path = _os.path.join(DATA_DIR, "voice_campaigns.json")
@@ -433,13 +433,13 @@ def _get_voice_context() -> dict:
         result["campaigns"] = len(camps)
         active = sum(1 for c in camps.values() if c.get("status") == "active")
         result["active_campaigns"] = active
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_voice_context: %s', _e)
     try:
         from src.agents.voice_agent import SCRIPTS
         result["scripts"] = list(SCRIPTS.keys())
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_voice_context: %s', _e)
     return result
 
 
@@ -457,8 +457,8 @@ def _get_cs_context() -> dict:
             {"intent": d.get("intent","?"), "to": d.get("to",""), "created_at": d.get("created_at","")}
             for d in sorted(cs_drafts, key=lambda x: x.get("created_at",""), reverse=True)[:5]
         ]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_cs_context: %s', _e)
     return result
 
 
@@ -479,8 +479,8 @@ def _get_orders_context() -> dict:
                     result["active"] = result.get("active",0) + cnt
                 elif status == "delivered":
                     result["delivered"] = result.get("delivered",0) + cnt
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_orders_context: %s', _e)
     return result
 
 
@@ -496,6 +496,6 @@ def _get_outbox_context() -> dict:
         result["drafts"] = sum(1 for e in outbox if e.get("status") == "draft")
         result["cs_drafts"] = sum(1 for e in outbox if e.get("type") == "cs_response" or e.get("status") == "cs_draft")
         result["approved"] = sum(1 for e in outbox if e.get("status") == "approved")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_outbox_context: %s', _e)
     return result
