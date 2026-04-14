@@ -173,8 +173,8 @@ def _add_pending_po(po_data):
             "action_url": "/awards",
             "urgent": True,
         })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _add_pending_po: %s', _e)
     log.info("PO %s added to pending review queue (%d items, $%.2f)",
              po_data.get("po_number", "?"), len(po_data.get("items", [])), _po_total)
 
@@ -429,13 +429,13 @@ def backfill_rfq_metadata(dry_run=False):
                                         r["due_date"] = due
                                         _needs_due = False
                                         changed = True
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug('suppressed in backfill_rfq_metadata: %s', _e)
                     finally:
                         try:
                             os.unlink(tmp_path)
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in backfill_rfq_metadata: %s', _e)
             except Exception as _e:
                 log.debug("Backfill PDF re-parse for %s: %s", rid, _e)
 
@@ -481,8 +481,8 @@ def backfill_rfq_metadata(dry_run=False):
                             if _due:
                                 r["due_date"] = _due
                                 changed = True
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in backfill_rfq_metadata: %s', _e)
 
         if changed:
             updated += 1
@@ -704,15 +704,15 @@ def imap_backfill_rfq_metadata(dry_run=False):
                                         r["due_date"] = due
                                         _needs_due = False
                                         entry["due"] = due
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug('suppressed in _get_pdfs: %s', _e)
                     except Exception as _pe:
                         log.debug("Parse PDF %s for %s: %s", pdf["filename"], rid, _pe)
                     finally:
                         try:
                             os.unlink(tmp_path)
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _get_pdfs: %s', _e)
 
             # Fallback: extract from email text
             if _needs_sol:
@@ -736,8 +736,8 @@ def imap_backfill_rfq_metadata(dry_run=False):
 
     try:
         mail.logout()
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _get_pdfs: %s', _e)
 
     if updated and not dry_run:
         save_rfqs(rfqs)
@@ -1166,8 +1166,8 @@ def _ensure_contact_from_email(rfq_email: dict):
                 body=f"Inbound from {sender_email}",
                 actor="email_poller",
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _ensure_contact_from_email: %s', _e)
         log.info("CRM contact upserted: %s <%s> → %s", sender_name, sender_email, agency)
     except Exception as e:
         log.debug("Contact auto-create failed (non-critical): %s", e)
@@ -1657,8 +1657,8 @@ def _link_rfq_to_pc(rfq_data, _trace):
                     po_path = os.path.join(DATA_DIR, "po_records", f"{po_num}{ext}")
                     if os.path.exists(po_path):
                         rfq_item["po_screenshot"] = po_path
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _port_pc_pricing: %s', _e)
 
     # Items in PC but not in RFQ — log as diff but DON'T add them
     # RFQ items are authoritative (from the formal 704B). Pricing comes from catalog.
@@ -1748,8 +1748,8 @@ def _check_delivery_status(email_data, track_result):
                     if it.get("tracking_number") in tracking_numbers:
                         if oid not in matched_orders:
                             matched_orders.append(oid)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _check_delivery_status: %s', _e)
 
     if not matched_orders:
         return
@@ -2248,8 +2248,8 @@ def process_rfq_email(rfq_email):
                                 from src.forms.vision_parser import parse_from_text as _ai_parse, is_available as _ai_ok
                                 if _ai_ok():
                                     parsed = _ai_parse(_doc_text, source_path=pc_file) or {}
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug('suppressed in _is_pc_filename: %s', _e)
                             if not parsed.get("line_items"):
                                 _fb = _parse_txt(_doc_text)
                                 parsed = {"line_items": _fb or [], "header": {}, "parse_method": "regex_fallback"}
@@ -2342,8 +2342,8 @@ def process_rfq_email(rfq_email):
                             if _inst_r.get("agency") and _inst_r["canonical"] != institution:
                                 _trace.append(f"Institution resolved: '{institution}' -> '{_inst_r['canonical']}' (via {_inst_r.get('source','')})")
                                 institution = _inst_r["canonical"]
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _is_pc_filename: %s', _e)
                         # PC name: prefer filename-derived name (unique per attachment),
                         # then PDF header, then email subject
                         if _filename_pc_name and len(_pc_pdf_candidates) > 1:
@@ -2463,8 +2463,8 @@ def process_rfq_email(rfq_email):
                                                   _sf.read(), category="supplementary",
                                                   uploaded_by="email_poller")
                                 _trace.append(f"Supplementary: {_att_fn} → {pc_id}")
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug('suppressed in _is_pc_filename: %s', _e)
                     try:
                         from src.agents.pc_enrichment_pipeline import enrich_pc_background
                         enrich_pc_background(pc_id)
@@ -2481,8 +2481,8 @@ def process_rfq_email(rfq_email):
                         _lle_pc("pc", pc_id, "email_parsed",
                             f"Parsed {len(parsed.get('line_items', []))} items",
                             actor="system", detail={"item_count": len(parsed.get("line_items", []))})
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in _is_pc_filename: %s', _e)
                 elif is_early_pc:
                     _trace.append(f"PC NOT in storage — force-creating minimal PC")
                     pcs = _load_price_checks()
@@ -2511,8 +2511,8 @@ def process_rfq_email(rfq_email):
                                 save_rfq_file(pc_id, os.path.basename(pc_pdf),
                                               "application/pdf", _pdf_f.read(),
                                               category="source", uploaded_by="email_poller")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in _is_pc_filename: %s', _e)
                     _created_pc_ids.append(pc_id)
                     _trace.append(f"FORCE PC CREATED: {pc_id}")
                 else:
@@ -2565,8 +2565,8 @@ def process_rfq_email(rfq_email):
                                 save_rfq_file(_force_id, os.path.basename(_exc_pdf),
                                               "application/pdf", _pdf_f.read(),
                                               category="source", uploaded_by="email_poller")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in _is_pc_filename: %s', _e)
                     _trace.append(f"FORCE PC on exception: {_force_id}")
                     log.info("Force-created PC %s after exception in early-detect path", _force_id)
                     POLL_STATUS.setdefault("_email_traces", []).append(_trace)
@@ -2949,8 +2949,8 @@ def process_rfq_email(rfq_email):
             rfq_data.get("requestor_name", ""), _sender_name, _sender_email)
         if not rfq_data.get("requestor_email") and _sender_email:
             rfq_data["requestor_email"] = _sender_email
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _is_pc_filename: %s', _e)
 
     rfqs[rfq_data["id"]] = rfq_data
     _save_single_rfq(rfq_data["id"], rfq_data)
@@ -3012,8 +3012,8 @@ def process_rfq_email(rfq_email):
         _lle_rfq("rfq", _rid, "email_parsed",
             f"Parsed {len(rfq_data.get('line_items', []))} items from {len(templates)} templates",
             actor="system", detail={"item_count": len(rfq_data.get("line_items", [])), "templates": list(templates.keys())})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _is_pc_filename: %s', _e)
     
     # Log activity
     _log_rfq_activity(rfq_data["id"], "created",
@@ -3054,8 +3054,8 @@ def process_rfq_email(rfq_email):
                         _item["_auto_source"] = f"catalog:{_m['sku']}"
                     _auto_priced += 1
                     continue
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _is_pc_filename: %s', _e)
 
             # Source 2: product_catalog (grows from PC quoting work)
             try:
@@ -3075,8 +3075,8 @@ def process_rfq_email(rfq_email):
                     if _item.get("supplier_cost") or _item.get("price_per_unit"):
                         _auto_priced += 1
                         continue
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _is_pc_filename: %s', _e)
 
             # Source 3: price_history
             try:
@@ -3093,8 +3093,8 @@ def process_rfq_email(rfq_email):
                         _item["price_per_unit"] = round(_avg, 2)
                         _item["_auto_source"] = f"history:avg({len(_prices)})"
                         _auto_priced += 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in _is_pc_filename: %s', _e)
 
         if _auto_priced:
             rfq_data["auto_priced_count"] = _auto_priced
@@ -3328,8 +3328,8 @@ def do_poll_check():
         # Reload processed UIDs from file (picks up system-reset changes)
         try:
             _shared_poller._load_processed()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in do_poll_check: %s', _e)
     processed_count = len(_shared_poller._processed)
     log.debug("Poll: %d processed UIDs loaded", processed_count)
     
@@ -3359,8 +3359,8 @@ def do_poll_check():
                 send_alert(event_type="system_error", title="⚠️ Disk Space Critical",
                           body=f"Only {free_mb:.0f}MB free. Email polling paused. Free space or resize volume.",
                           urgency="high", cooldown_key="disk_low")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in do_poll_check: %s', _e)
             return []
         
         connected = _shared_poller.connect()
@@ -3598,16 +3598,16 @@ def email_poll_loop():
                 try:
                     from src.core.scheduler import heartbeat
                     heartbeat("email-poller", success=True)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in email_poll_loop: %s', _e)
             except Exception as e:
                 POLL_STATUS["error"] = f"Poll loop crash: {e}"
                 log.error("Email poll loop crash: %s", e, exc_info=True)
                 try:
                     from src.core.scheduler import heartbeat
                     heartbeat("email-poller", success=False, error=str(e)[:200])
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in email_poll_loop: %s', _e)
         else:
             log.debug("Email poller paused (system reset in progress)")
         time.sleep(interval)
@@ -3661,8 +3661,8 @@ def _log_crm_activity(ref_id: str, event_type: str, description: str,
             """, (ref_id, _now, event_type, description[:200],
                   description, actor,
                   json.dumps(metadata or {}, default=str)))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _log_crm_activity: %s', _e)
 
 def _get_crm_activity(ref_id: str = None, event_type: str = None,
                        institution: str = None, limit: int = 50) -> list:
@@ -4524,8 +4524,8 @@ def api_health_banner():
                 if job.get("restart_count", 0) >= job.get("max_restarts", 3):
                     detail += " (all restart attempts exhausted)"
                 warnings.append({"level": "critical", "msg": detail, "area": "jobs"})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_health_banner: %s', _e)
     try:
         from src.core.circuit_breaker import all_status
         for cb in all_status():
@@ -4535,8 +4535,8 @@ def api_health_banner():
                     "msg": f"{cb['name']} service unavailable ({cb['failure_count']} failures)",
                     "area": "circuits",
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_health_banner: %s', _e)
     # Check email poller specifically
     if POLL_STATUS.get("running") and not POLL_STATUS.get("paused"):
         last = POLL_STATUS.get("last_check")
@@ -4550,8 +4550,8 @@ def api_health_banner():
                         "msg": f"Email poller stale — last check {int(age_min)}m ago",
                         "area": "email",
                     })
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_health_banner: %s', _e)
     elif not POLL_STATUS.get("running"):
         if POLL_STATUS.get("error"):
             warnings.append({"level": "critical", "msg": f"Email poller offline: {POLL_STATUS['error']}", "area": "email"})
@@ -4683,8 +4683,8 @@ def api_cleanup_queue():
                 with get_db() as conn:
                     for pid in pc_delete_ids:
                         conn.execute("DELETE FROM price_checks WHERE id = ?", (pid,))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_cleanup_queue: %s', _e)
 
         if rfq_delete_ids:
             for rid in rfq_delete_ids:
@@ -4695,8 +4695,8 @@ def api_cleanup_queue():
                 with get_db() as conn:
                     for rid in rfq_delete_ids:
                         conn.execute("DELETE FROM rfqs WHERE id = ?", (rid,))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_cleanup_queue: %s', _e)
 
     results["summary"] = {
         "pc_deleted": len(results["pc_deleted"]),
@@ -4879,8 +4879,8 @@ def api_force_repoll():
                 disk_uids = json.load(f)
             cleared += len(disk_uids)
             os.remove(proc_file)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_force_repoll: %s', _e)
     # Clear SQLite (processed UIDs + cross-inbox fingerprints)
     fp_cleared = 0
     try:
@@ -4892,10 +4892,10 @@ def api_force_repoll():
             try:
                 fp_cleared = conn.execute("SELECT COUNT(*) FROM email_fingerprints").fetchone()[0]
                 conn.execute("DELETE FROM email_fingerprints")
-            except Exception:
-                pass
-    except Exception:
-        pass
+            except Exception as _e:
+                log.debug('suppressed in api_force_repoll: %s', _e)
+    except Exception as _e:
+        log.debug('suppressed in api_force_repoll: %s', _e)
     return jsonify({"ok": True, "cleared_uids": cleared, "cleared_fingerprints": fp_cleared,
                     "next": "Hit Check Now or wait for auto-poll"})
 
@@ -4914,8 +4914,8 @@ def api_admin_delete_pc(pcid):
         from src.core.db import get_db
         with get_db() as conn:
             conn.execute("DELETE FROM price_checks WHERE id = ?", (pcid,))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_admin_delete_pc: %s', _e)
     return jsonify({"ok": True, "deleted": pcid, "sol": sol})
 
 
@@ -4933,8 +4933,8 @@ def api_admin_delete_rfq(rid):
         from src.core.db import get_db
         with get_db() as conn:
             conn.execute("DELETE FROM rfqs WHERE id = ?", (rid,))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_admin_delete_rfq: %s', _e)
     return jsonify({"ok": True, "deleted": rid, "sol": sol})
 
 
@@ -4985,8 +4985,8 @@ def api_admin_delete_by_sol():
                     conn.execute("DELETE FROM price_checks WHERE id = ?", (d["id"],))
                 else:
                     conn.execute("DELETE FROM rfqs WHERE id = ?", (d["id"],))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_admin_delete_by_sol: %s', _e)
 
     return jsonify({"ok": True, "deleted": deleted, "count": len(deleted)})
 
@@ -5553,8 +5553,8 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
                                 "last_date, times_seen, updated_at) "
                                 "VALUES (?,?,?,?,?,?,?,1,datetime('now'))",
                                 (_desc, _r[1], _r[2] or 1, _r[3] or "", _r[4] or "", _r[5] or "", _r[6] or ""))
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _deferred_boot_checks: %s', _e)
                     _db.commit()
                     log.info("Catalog populated: %d items",
                              _db.execute("SELECT COUNT(*) FROM scprs_catalog").fetchone()[0])
@@ -5612,8 +5612,8 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
                             from src.core.usage_tracker import get_recent_activity
                             if get_recent_activity(minutes=30) > 0:
                                 _skip = True
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in _form_update_scheduler: %s', _e)
                         if not _skip:
                             from src.agents.form_updater import update_all_forms
                             _result = update_all_forms()
@@ -5730,8 +5730,8 @@ def _force_recapture():
                 processed = [u for u in processed if u not in cleared_uids]
                 with open(proc_file, "w") as f:
                     json.dump(processed, f)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _force_recapture: %s', _e)
     
     global _shared_poller
     
@@ -5765,10 +5765,10 @@ def _force_recapture():
                     conn.execute("DELETE FROM processed_emails")
                     try:
                         conn.execute("DELETE FROM email_fingerprints")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                    except Exception as _e:
+                        log.debug('suppressed in _force_recapture: %s', _e)
+            except Exception as _e:
+                log.debug('suppressed in _force_recapture: %s', _e)
             log.info("Force-recapture: cleared %d processed UIDs for '%s'", old_count, match_kw)
         except Exception as e:
             log.error("Force-recapture cleanup error: %s", e)
@@ -5832,8 +5832,8 @@ def api_email_trace():
         try:
             if os.path.exists(proc_file):
                 os.remove(proc_file)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_email_trace: %s', _e)
         
         # 4. Clear SQLite processed_emails table (layer 3)
         db_cleared = 0
@@ -5842,8 +5842,8 @@ def api_email_trace():
             with get_db() as conn:
                 db_cleared = conn.execute("SELECT COUNT(*) FROM processed_emails").fetchone()[0]
                 conn.execute("DELETE FROM processed_emails")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_email_trace: %s', _e)
         
         # 5. Clear email_fingerprints table (layer 4 — cross-inbox dedup)
         fp_cleared = 0
@@ -5853,10 +5853,10 @@ def api_email_trace():
                 try:
                     fp_cleared = conn.execute("SELECT COUNT(*) FROM email_fingerprints").fetchone()[0]
                     conn.execute("DELETE FROM email_fingerprints")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _e:
+                    log.debug('suppressed in api_email_trace: %s', _e)
+        except Exception as _e:
+            log.debug('suppressed in api_email_trace: %s', _e)
         
         # 6. Kill poller so next Check Now creates fresh one
         _shared_poller = None
@@ -5968,8 +5968,8 @@ def api_disk_cleanup():
                     for root, dirs, files in os.walk(entry.path):
                         for f in files:
                             dir_sz += os.path.getsize(os.path.join(root, f))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_disk_cleanup: %s', _e)
                 data_sizes[entry.name + "/"] = round(dir_sz / 1024 / 1024, 2)
                 total_data += dir_sz
     
@@ -5992,16 +5992,16 @@ def api_disk_cleanup():
                 d = r.get("rfq_dir", "")
                 if d:
                     active_dirs.add(os.path.basename(d))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_disk_cleanup: %s', _e)
         try:
             pcs = _load_price_checks()
             for pc in pcs.values():
                 d = pc.get("rfq_dir", "")
                 if d:
                     active_dirs.add(os.path.basename(d))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_disk_cleanup: %s', _e)
         
         removed = 0
         freed = 0
@@ -6078,8 +6078,8 @@ def api_disk_cleanup():
                         new_size = os.path.getsize(fpath)
                         freed += old_size - new_size
                         trimmed.append(f"{fname}: {round(old_size/1024)}K → {round(new_size/1024)}K")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_disk_cleanup: %s', _e)
             
             # Delete .bak files and temp files
             if fname.endswith(".bak") or fname.endswith(".tmp"):
