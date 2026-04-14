@@ -24,6 +24,7 @@ Supported suppliers (with structured parsing):
 
 import re, os, logging
 from urllib.parse import urlparse
+import logging
 
 try:
     import requests
@@ -198,8 +199,8 @@ def _scrape_generic(url: str) -> dict:
                 if 0.01 < v < 100000:
                     list_price = v
                     break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # Sale/current price
     for pat in [r'"price"\s*:\s*"?(\d{1,6}\.\d{2})"?',
@@ -219,8 +220,8 @@ def _scrape_generic(url: str) -> dict:
                 if 0.01 < v < 100000:
                     sale_price = v
                     break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # JSON-LD offer price (structured, reliable when present)
     jld_offer_price = re.search(
@@ -232,8 +233,8 @@ def _scrape_generic(url: str) -> dict:
             if v >= 2.0 and v < 100000:
                 if not sale_price:
                     sale_price = v
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Costco: real prices hidden behind React state, but marketing statement
     # has pattern like "$$199.99 After $90 OFF" → sale=$199.99, original=$289.99
@@ -248,8 +249,8 @@ def _scrape_generic(url: str) -> dict:
                 if _sale > 2 and _discount > 0:
                     sale_price = _sale
                     list_price = _sale + _discount
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # Use list price for quoting (stable), sale price as reference
     price = list_price or sale_price
@@ -323,8 +324,8 @@ def _scrape_generic(url: str) -> dict:
             elif m.lastindex and m.group(1):
                 try:
                     result["shipping"] = float(m.group(1))
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
             break
 
     # Description — meta description + OG tags
@@ -473,8 +474,8 @@ def _lookup_amazon(url: str) -> dict:
                             log.info("Amazon ASIN %s: list $%.2f from HTML scrape", asin, _list)
                         if not _sale and _page:
                             _sale = _page.get("sale_price") or _page.get("price")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
             clean_url = _normalize_amazon_url(url)
             _elapsed = _time.monotonic() - _t0
@@ -582,8 +583,8 @@ def _lookup_uline(url: str) -> dict:
                         result["price"] = float(offers["price"])
                         result["cost"] = result["price"]
                     break
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
         # Extract pricing table from attrib tags (Uline-specific)
         attribs = re.findall(r'<attrib[^>]*>(.*?)</attrib>', html, re.DOTALL)
@@ -603,8 +604,8 @@ def _lookup_uline(url: str) -> dict:
             if a.startswith('$'):
                 try:
                     _tier_prices.append(float(a.replace('$', '').replace(',', '')))
-                except ValueError:
-                    pass
+                except ValueError as _e:
+                    log.debug("suppressed: %s", _e)
 
         if _tier_prices:
             # Best price for state orders = 1-case tier (usually middle price)
@@ -761,8 +762,8 @@ def _lookup_ssww(url: str) -> dict:
                 ref_price = m.get("cost") or m.get("sell_price")
                 result["manufacturer"] = m.get("manufacturer", "")
                 ref_source = "Catalog"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Fallback 3: Claude web search — search for the S&S item directly
     if not ref_price and (desc_from_url or item_num):
@@ -851,8 +852,8 @@ def _lookup_target(url: str) -> dict:
         try:
             unescaped = tgt_match.group(1).encode().decode('unicode_escape')
             tgt_data = _json.loads(unescaped)
-        except (ValueError, TypeError, UnicodeDecodeError):
-            pass
+        except (ValueError, TypeError, UnicodeDecodeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     if not tgt_data:
         # Fallback: try generic scrape
@@ -874,8 +875,8 @@ def _lookup_target(url: str) -> dict:
             if prod and isinstance(prod, dict):
                 product = prod
                 break
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if not product:
         fallback = _scrape_generic(url)
@@ -1092,8 +1093,8 @@ def _lookup_dollartree(url: str) -> dict:
         if unit_price:
             try:
                 result["price"] = float(unit_price)
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
         # Also capture case pricing for reference
         case_price = (best.get("product.casePrice") or [""])[0]
@@ -1104,8 +1105,8 @@ def _lookup_dollartree(url: str) -> dict:
                 cpk = int(case_pack)
                 if cp > 0 and cpk > 0:
                     result["shipping_note"] = f"Case of {cpk}: ${cp:.2f} (${cp/cpk:.2f}/ea)"
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
         # UPC as mfg_number fallback
         upcs = (best.get("DollarProductType.UPCs") or [""])[0]
@@ -1203,15 +1204,15 @@ def _lookup_sears(url: str) -> dict:
                         try:
                             result["list_price"] = float(_reg)
                             result["price"] = float(_reg)
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as _e:
+                            log.debug("suppressed: %s", _e)
                     if _final:
                         try:
                             result["sale_price"] = float(_final)
                             if not result.get("price"):
                                 result["price"] = float(_final)
-                        except (ValueError, TypeError):
-                            pass
+                        except (ValueError, TypeError) as _e:
+                            log.debug("suppressed: %s", _e)
                     if result.get("list_price") and result.get("sale_price"):
                         lp, sp = result["list_price"], result["sale_price"]
                         if lp > sp > 0:

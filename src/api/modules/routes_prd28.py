@@ -734,8 +734,8 @@ def api_dashboard_init():
                 urgent.append({"icon": "🔴", "label": f"{ob['permanently_failed']} emails permanently failed", "link": "/outbox", "type": "failed_emails"})
             if ob.get("drafts", 0) > 0:
                 action_needed.append({"icon": "📧", "label": f"{ob['drafts']} email drafts to review", "link": "/outbox", "type": "draft_emails", "count": ob['drafts']})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         try:
             from src.agents.revenue_engine import get_goal_progress
@@ -743,8 +743,8 @@ def api_dashboard_init():
             if goal.get("ok"):
                 progress_items.append({"icon": "💰", "label": f"${goal['ytd_revenue']:,.0f} revenue YTD ({goal['pct_of_goal']}% of $2M goal)", "link": "/revenue", "type": "revenue", "value": goal["pct_of_goal"]})
                 progress_items.append({"icon": "📊", "label": f"${goal['weighted_pipeline']:,.0f} weighted pipeline", "link": "/revenue", "type": "pipeline"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         try:
             from src.agents.quote_lifecycle import get_pipeline_summary
@@ -752,8 +752,8 @@ def api_dashboard_init():
             if ps.get("ok"):
                 conv = ps.get("conversion_rate", 0)
                 progress_items.append({"icon": "📈", "label": f"{conv}% quote conversion rate", "link": "/pipeline", "type": "conversion"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         try:
             from src.core.db import get_db
@@ -761,8 +761,8 @@ def api_dashboard_init():
                 vendor_count = conn.execute("SELECT COUNT(DISTINCT company) FROM contacts WHERE tags LIKE '%vendor%'").fetchone()[0]
                 scored = conn.execute("SELECT COUNT(DISTINCT company) FROM contacts WHERE tags LIKE '%vendor%' AND score > 0").fetchone()[0]
                 progress_items.append({"icon": "🏭", "label": f"{vendor_count} vendors tracked ({scored/max(vendor_count,1)*100:.0f}% scored)", "link": "/crm", "type": "vendors"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # ── Orders needing action ──
         try:
@@ -796,8 +796,8 @@ def api_dashboard_init():
                             from datetime import datetime as _dt
                             created_dt = _dt.fromisoformat(created[:19])
                             age_days = (_dt.now() - created_dt).days
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
                     if age_days > 30:
                         stale_orders.append(o)
@@ -813,8 +813,8 @@ def api_dashboard_init():
                 delivered_orders = [o for o in real_orders.values() if o.get("status") == "delivered"]
                 if delivered_orders:
                     action_needed.append({"icon": "💰", "label": f"{len(delivered_orders)} order{'s' if len(delivered_orders) > 1 else ''} ready to invoice", "link": "/orders", "type": "invoice_ready", "count": len(delivered_orders)})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         result["actions"] = {"ok": True, "urgent": urgent, "action_needed": action_needed, "progress": progress_items}
     except Exception as e:
@@ -847,8 +847,8 @@ def api_dashboard_init():
                     if s == "won": won_count = row["c"]; won_value = row["t"]
                     elif s in ("pending","sent","draft"): pipeline_val += row["t"]
                 orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','test','deleted') AND po_number NOT LIKE '%TEST%'").fetchone()[0]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Include orders in won_value if orders exist without won quotes
         try:
@@ -861,8 +861,8 @@ def api_dashboard_init():
             orders_count = max(orders_count, len(real_orders))
             if order_total > won_value:
                 won_value = order_total
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         result["funnel"] = {
             "ok": True, "inbox": inbox, "priced": priced, "quoted": quoted,
@@ -904,8 +904,8 @@ def api_dashboard_init():
                                and not o.get("is_test"))
             if order_revenue > total_revenue:
                 total_revenue = order_revenue
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         result["metrics"] = {"ok": True, "total_quotes": total_quotes, "total_revenue": total_revenue, "pipeline": pipeline}
     except Exception as e:
         result["metrics"] = {"ok": False, "error": str(e)}
@@ -1044,8 +1044,8 @@ def api_activity_feed():
                 "link": f"/growth/prospect/{rdict.get('contact_id', '')}" if rdict.get("contact_id") else None,
                 "source": "crm",
             })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 1b) RFQ/PC/Quote events from crm_activity.json
     try:
@@ -1096,8 +1096,8 @@ def api_activity_feed():
                         "link": f"/quote/{q.get('id', '')}",
                         "source": "quotes",
                     })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 3) Recent orders
     try:
@@ -1115,8 +1115,8 @@ def api_activity_feed():
                     "link": f"/order/{o.get('id', '')}",
                     "source": "orders",
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 4) Growth outreach
     try:
@@ -1136,8 +1136,8 @@ def api_activity_feed():
                         "link": f"/growth/prospect/{out.get('prospect_id', '')}" if out.get("prospect_id") else None,
                         "source": "growth",
                     })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 5) Notifications (award losses, alerts, etc.)
     try:
@@ -1155,8 +1155,8 @@ def api_activity_feed():
                 ctx = {}
                 try:
                     ctx = json.loads(nd.get("context_json") or "{}")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 # Build link based on event type
                 link = None
                 if "award_loss" in etype or "quote_lost" in etype:

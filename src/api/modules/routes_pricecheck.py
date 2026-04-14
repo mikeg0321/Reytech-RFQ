@@ -472,8 +472,8 @@ def _pricecheck_detail_inner(pcid):
                 _landed_ship = _lc["shipping_per_unit"]
                 _landed_tax = _lc["tax_per_unit"]
                 _landed_note = _lc["breakdown"]
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         item["_landed_cost"] = _landed_cost
         item["_landed_ship"] = _landed_ship
         item["_landed_tax"] = _landed_tax
@@ -838,8 +838,8 @@ def _pricecheck_detail_inner(pcid):
         try:
             if _raw_num.isdigit() and 0 < int(_raw_num) <= 50:
                 _raw_num = ""
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
         mfg_display = _raw_num.replace('"', '&quot;')
 
         # Line item # from original 704 form
@@ -1011,10 +1011,10 @@ def _pricecheck_detail_inner(pcid):
                     _save_single_pc(pc_id, pc)
                     log.info("Self-healed institution: '%s' -> '%s' (via %s)",
                              _resolved.get("original", ""), institution, _resolved["source"])
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         _canonical = _resolved.get("canonical", "") or institution
         _canonical_upper = _canonical.upper()
         _resolved_agency = _resolved.get("agency", "")
@@ -1116,8 +1116,8 @@ def _pricecheck_detail_inner(pcid):
         if _resolved.get("canonical"):
             institution = _resolved["canonical"]
             inst_upper = institution.upper()
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     quote_history = []
     if institution and QUOTE_GEN_AVAILABLE:
         try:
@@ -1230,8 +1230,8 @@ def _pricecheck_detail_inner(pcid):
                         _existing_quote_url = _dl
                     elif not _existing_704_url:
                         _existing_704_url = _dl
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # SCPRS data staleness check
     _scprs_staleness = None
@@ -1252,8 +1252,8 @@ def _pricecheck_detail_inner(pcid):
                     _interval = _srow[1] or 24
                     if _age_hrs > _interval * 1.5:
                         _scprs_staleness = {"agency": _agency_key, "hours_old": round(_age_hrs, 1), "interval": _interval}
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # ── Bundle siblings for banner ──
     _bundle_siblings = []
@@ -1818,8 +1818,8 @@ def _do_save_prices(pcid):
                                                  _fb_norm(_idesc), _fb_norm(_od))
                                             )
                                         _fbc.commit()
-                                except Exception:
-                                    pass
+                                except Exception as _e:
+                                    log.debug("suppressed: %s", _e)
                     elif field_type == "markup":
                         v, _err = _validate_item_field("markup", val)
                         items[idx]["pricing"]["markup_pct"] = v
@@ -1901,8 +1901,8 @@ def _do_save_prices(pcid):
                         items[idx]["photo_url"] = _pv
                 elif field_type == "linkopen":
                     pass  # UI-only toggle, no server-side storage needed
-        except (ValueError, IndexError):
-            pass
+        except (ValueError, IndexError) as _e:
+            log.debug("suppressed: %s", _e)
 
     _sync_pc_items(pc, items)
 
@@ -2301,8 +2301,8 @@ def pricecheck_reparse(pcid):
     try:
         from src.core.utilization import record_feature_use
         record_feature_use("pc.reparse", context={"pc_id": pcid})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if not PRICE_CHECK_AVAILABLE:
         return jsonify({"ok": False, "error": "price_check.py not available"})
@@ -2922,8 +2922,8 @@ def _do_generate(pcid):
             if not result.get("passed", True):
                 resp["qa_failed"] = True
                 resp["qa_issues"] = result.get("issues", [])
-        except NameError:
-            pass  # _qa not defined if QA was skipped
+        except NameError as _e:
+            log.debug("suppressed: %s", _e)  # _qa not defined if QA was skipped
         return jsonify(resp)
     err_resp = {"ok": False, "error": result.get("error", "Unknown error")}
     for _ek in ("verification_score", "attempts", "failed_fields"):
@@ -3126,8 +3126,8 @@ def _do_generate_original(pcid):
             if not _qa.get("passed", True):
                 resp["qa_failed"] = True
                 resp["qa_issues"] = _qa.get("issues", [])
-        except NameError:
-            pass
+        except NameError as _e:
+            log.debug("suppressed: %s", _e)
         return jsonify(resp)
 
     log.error("GENERATE-ORIGINAL %s FAILED: %s", pcid, result.get("error"))

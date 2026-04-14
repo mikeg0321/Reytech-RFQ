@@ -449,8 +449,8 @@ def api_order_update_line(oid, lid):
                         log_order_event(oid, f"line_{field}_changed", field,
                                         str(old_val), str(data[field]),
                                         "user", f"Line {lid}: {it.get('description','')[:40]}")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             updated = True
             break
     if not updated:
@@ -1306,8 +1306,8 @@ def _learn_supplier_from_order_line(line_item: dict, order: dict):
                 uom="EA",
                 source="order_sourcing",
             )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     
     if product_id and cost > 0:
         # Record this supplier + price in product_suppliers
@@ -1370,8 +1370,8 @@ def learn_from_completed_order(oid: str):
                             update_supplier_reliability(matches[0]["product_id"], supplier,
                                          reliability=0.8,  # Confirmed delivery
                                          notes=f"Delivered on order {oid}")
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             except Exception as _e:
                 log.debug("Learn from order line: %s", _e)
     
@@ -2264,8 +2264,8 @@ def api_avg_deal_size():
                     total = r.get("total_price", 0)
                     if isinstance(total, (int, float)) and total > 0:
                         amounts.append(total)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         try:
             orders = _load_orders()
@@ -2273,8 +2273,8 @@ def api_avg_deal_size():
                 total = o.get("total", 0)
                 if isinstance(total, (int, float)) and total > 0:
                     amounts.append(total)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         avg = round(sum(amounts) / len(amounts), 2) if amounts else 0
         median = sorted(amounts)[len(amounts) // 2] if amounts else 0
@@ -2364,8 +2364,8 @@ def api_sales_velocity():
                         days = (d - c).days
                         if 0 < days <= 180:
                             cycle_days.append(days)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             elif status == "lost":
                 lost_deals += 1
 
@@ -2620,8 +2620,8 @@ def api_pipeline_velocity():
                 days = (s - c).days
                 if 0 <= days <= 90:
                     quote_times.append(days)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     avg_quote_days = round(sum(quote_times) / len(quote_times), 1) if quote_times else None
 
@@ -2666,8 +2666,8 @@ def api_quote_lookup():
                         "total": r.get("total_price", 0),
                         "created": r.get("created", r.get("received_date", "?")),
                     })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     return jsonify({
         "ok": True,
@@ -2882,8 +2882,8 @@ mike@reytechinc.com
                     LIMIT 10
                 """, (f"%{po}%", f"%{po}%")).fetchall()
                 recipients = [r["sender"] for r in rows if r["sender"]]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Also check order metadata for sender
         order_sender = order.get("sender_email", "") or order.get("requestor_email", "")
@@ -2904,8 +2904,8 @@ mike@reytechinc.com
                 "body": body,
             })
             draft_url = f"https://mail.google.com/mail/?view=cm&{params}"
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         log_order_event(oid, "delivery_update_sent", "email", "",
                         f"{len(selected_items)} items",
@@ -3026,8 +3026,8 @@ def api_order_timeline(oid):
                     "details": r["details"] or "",
                     "ts": r["created_at"],
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # 2. Status history from order JSON
     orders = _load_orders()
@@ -3067,8 +3067,8 @@ def api_order_timeline(oid):
                     "details": "",
                     "ts": r["received_at"] or "",
                 })
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Sort all events chronologically
     events.sort(key=lambda e: e.get("ts", ""))
@@ -3467,8 +3467,8 @@ def api_orders_kpi():
                 c = datetime.fromisoformat(order["created_at"])
                 d = datetime.fromisoformat(delivered_at)
                 fulfillment_times.append((d - c).days)
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
         # Line-item costs for margin — only count if real cost data exists
         for it in order.get("line_items", []):

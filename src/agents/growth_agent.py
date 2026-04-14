@@ -14,6 +14,7 @@ Workflow:
 import json, os, re, logging, time, threading, uuid
 from datetime import datetime, timedelta
 from collections import defaultdict
+import logging
 
 # ── Agent Context (Anthropic Skills Guide: Pattern 5 — Domain Intelligence) ──
 try:
@@ -390,8 +391,8 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
                                 prospects[em]["buyer_name"] = hdr.get("buyer_name", "") or prospects[em]["buyer_name"]
                                 prospects[em]["buyer_phone"] = hdr.get("buyer_phone", "") or prospects[em]["buyer_phone"]
                         time.sleep(0.5)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
 
         prospect_list = sorted(prospects.values(), key=lambda p: p["total_spend"], reverse=True)
         _save_json(PROSPECTS_FILE, {
@@ -869,8 +870,8 @@ def _extract_reytech_items(purchase_orders: list) -> dict:
                             items[key] = {"description": desc, "count": 0, "value": 0}
                         items[key]["count"] += 1
                         items[key]["value"] += (li.get("unit_price") or 0) * (li.get("qty") or 1)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Sort by value descending, return top items
     return dict(sorted(items.items(), key=lambda x: x[1]["value"], reverse=True)[:50])
@@ -892,8 +893,8 @@ def _extract_reytech_buyers(purchase_orders: list) -> set:
                     em = (q.get("contact_email") or "").strip().lower()
                     if em:
                         emails.add(em)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return emails
 
 
@@ -1104,8 +1105,8 @@ def get_reytech_credentials() -> dict:
                     items_count = max(int(q.get("line_count", 0)), 1)  # At least 1 item per real quote
                 total_items += items_count
                 total_pos += 1
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Source 3: Categories file
     cat_data = _load_json(CATEGORIES_FILE)
@@ -1219,8 +1220,8 @@ def score_prospect_weighted(prospect: dict, credentials: dict = None) -> float:
                 score += 20  # Haven't bought in a year+
             elif months_ago >= 6:
                 score += 10
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     # Number of matching categories
     cats = prospect.get("categories_matched", [])
@@ -1253,8 +1254,8 @@ def _get_served_agencies() -> list:
                     a = q.get("agency", "") or q.get("institution", "")
                     if a and not q.get("is_test"):
                         agencies.add(a)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     try:
         hist = _load_json(HISTORY_FILE)
         if isinstance(hist, dict):
@@ -1262,8 +1263,8 @@ def _get_served_agencies() -> list:
                 d = po.get("dept", "")
                 if d:
                     agencies.add(d)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return sorted(agencies) if agencies else _DEFAULT_SERVED_AGENCIES
 
 
@@ -1702,8 +1703,8 @@ def launch_distro_campaign(
             actor="growth_agent",
             metadata={"campaign_id": campaign_id, "staged": staged, "sent": sent, "template": template},
         )
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     log.info("launch_distro_campaign: %s — staged=%d sent=%d dry_run=%s",
              campaign_id, staged, sent, dry_run)
@@ -1838,8 +1839,8 @@ def check_follow_ups():
                     fdate = datetime.fromisoformat(o.get("voice_follow_up_date", ""))
                     if now >= fdate:
                         ready.append({"prospect_id": o["prospect_id"], "email": o["email"], "agency": o.get("agency", ""), "categories": o.get("categories", [])})
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
     return {"ok": True, "ready": ready, "count": len(ready)}
 
@@ -2207,14 +2208,14 @@ def scan_inbox_for_bounces() -> dict:
                     if part.get_content_type() == "text/plain":
                         try:
                             body = part.get_payload(decode=True).decode("utf-8", errors="replace")
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
                         break
             else:
                 try:
                     body = msg.get_payload(decode=True).decode("utf-8", errors="replace")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
 
             bounce = detect_bounceback(subject, body, sender_addr)
             if bounce.get("is_bounce") and bounce.get("recipient"):
@@ -2268,8 +2269,8 @@ def _scheduler_loop():
                                 if now >= fdate:
                                     due_count += 1
                                     _update_prospect_status(o["prospect_id"], "follow_up_due")
-                            except Exception:
-                                pass
+                            except Exception as _e:
+                                log.debug("suppressed: %s", _e)
 
             if due_count > 0:
                 log.info(f"Scheduler: {due_count} prospects now due for voice follow-up")
@@ -2277,15 +2278,15 @@ def _scheduler_loop():
             try:
                 from src.core.scheduler import heartbeat
                 heartbeat("growth-agent", success=True)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         except Exception as e:
             log.debug(f"Scheduler error: {e}")
             try:
                 from src.core.scheduler import heartbeat
                 heartbeat("growth-agent", success=False, error=str(e)[:200])
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         _scheduler_stop.wait(SCHEDULER_INTERVAL)
 
@@ -2566,8 +2567,8 @@ def get_growth_kpis() -> dict:
                 recent_sends += 1
             elif ts >= two_weeks:
                 prior_sends += 1
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     trend_pct = ((recent_sends - prior_sends) / max(prior_sends, 1)) * 100
 
     return {
@@ -2660,8 +2661,8 @@ def get_win_probability(prospect: dict, credentials: dict = None) -> dict:
             if days < 14:
                 score += 5
                 factors.append(("Recent contact (<14d)", "+5%", "blue"))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     score = max(5, min(95, score))  # Clamp 5-95%
     tier = "Hot" if score >= 75 else "Warm" if score >= 50 else "Cold"
@@ -3744,8 +3745,8 @@ def scprs_search_proxy(query: str, search_type: str = "item") -> dict:
             age_hours = (datetime.now() - cached_at).total_seconds() / 3600
             if age_hours < 24:
                 return {"ok": True, "cached": True, "results": cached.get("results", []), "query": query}
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     try:
         from src.agents.scprs_lookup import lookup_price
@@ -4002,8 +4003,8 @@ def get_quick_wins(max_results=10):
                 days = (datetime.now() - lc).days
                 if days < 7:
                     score += 10
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         scored.append({
             "id": p.get("id", ""), "agency": p.get("agency") or p.get("institution", ""),
             "buyer": p.get("buyer_name") or p.get("name", ""), "email": p.get("email", ""),

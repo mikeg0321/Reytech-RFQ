@@ -39,8 +39,8 @@ def _load_customers():
             data = json.load(f)
             if data:
                 return data
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
+    except (FileNotFoundError, json.JSONDecodeError) as _e:
+        log.debug("suppressed: %s", _e)
     return []
 
 def _save_customers(customers):
@@ -177,8 +177,8 @@ def api_buyer_lookup():
             _auto = get_ship_to_address(name)
             if _auto:
                 ship_to = _auto
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     if not ship_to:
         return jsonify({"ok": False})
     return jsonify({"ok": True, "ship_to": ship_to, "institution": institution, "agency": agency})
@@ -770,8 +770,8 @@ def api_research_status():
         active = tracker.get_active(task_type="product_research")
         if active:
             return jsonify(active[0])
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return jsonify(RESEARCH_STATUS)
 
 
@@ -894,8 +894,8 @@ def api_pricecheck_download(filename):
         if os.path.isdir(d):
             try:
                 search_dirs.extend(os.path.join(d, sub) for sub in os.listdir(d) if os.path.isdir(os.path.join(d, sub)))
-            except OSError:
-                pass
+            except OSError as _e:
+                log.debug("suppressed: %s", _e)
     for d in search_dirs:
         candidate = os.path.join(d, safe)
         if os.path.exists(candidate):
@@ -919,8 +919,8 @@ def api_pricecheck_download(filename):
                     _fw.write(row["data"])
                 mimetype = "application/pdf" if safe.lower().endswith(".pdf") else None
                 return send_file(restore_path, as_attachment=not inline, download_name=safe, mimetype=mimetype)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return jsonify({"error": "File not found"}), 404
 
 
@@ -945,8 +945,8 @@ def api_pricecheck_view_pdf(filename):
                     os.path.join(d, sub) for sub in os.listdir(d) 
                     if os.path.isdir(os.path.join(d, sub))
                 )
-            except OSError:
-                pass
+            except OSError as _e:
+                log.debug("suppressed: %s", _e)
     # Also check uploads subdirectories (one level)
     uploads_dir = os.path.join(DATA_DIR, "uploads")
     if os.path.isdir(uploads_dir):
@@ -955,8 +955,8 @@ def api_pricecheck_view_pdf(filename):
                 os.path.join(uploads_dir, sub) for sub in os.listdir(uploads_dir) 
                 if os.path.isdir(os.path.join(uploads_dir, sub))
             )
-        except OSError:
-            pass
+        except OSError as _e:
+            log.debug("suppressed: %s", _e)
     
     for d in search_dirs:
         candidate = os.path.join(d, safe)
@@ -1454,8 +1454,8 @@ def pricecheck_auto_process(pcid):
         # Catalog all items for future matching
         try:
             _enrich_catalog_from_pc(pc)
-        except Exception:
-            pass  # Don't break auto-process if enrichment fails
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)  # Don't break auto-process if enrichment fails
 
     return jsonify(json.loads(json.dumps({
         "ok": result.get("ok", False),
@@ -1489,8 +1489,8 @@ def api_email_health():
                 if "email" in t.name.lower() or "poll" in t.name.lower():
                     poll_thread_alive = t.is_alive()
                     break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Diagnostics
         diag = POLL_STATUS.get("_diag", {})
@@ -1704,8 +1704,8 @@ def quote_update_status(quote_number):
                 "institution": qt_wh.get("institution", "") or qt_wh.get("ship_to_name", ""),
                 "total": f"${qt_wh.get('total', 0):,.2f}",
             })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # Attempt QB PO creation if configured
         if QB_AVAILABLE and qb_configured():
@@ -2792,8 +2792,8 @@ def _ensure_scprs_tables():
             # Migrate: add enabled column to existing scprs_pull_schedule tables
             try:
                 conn.execute("ALTER TABLE scprs_pull_schedule ADD COLUMN enabled INTEGER DEFAULT 1")
-            except Exception:
-                pass  # Column already exists
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)  # Column already exists
     except Exception as e:
         log.debug("ensure_scprs_tables: %s", e)
 
@@ -4407,8 +4407,8 @@ def api_vendor_performance():
                         domain = url.split("/")[2] if "/" in url and len(url.split("/")) > 2 else url
                         domain = domain.replace("www.", "")
                         vendors[domain]["avg_markup"].append(markup)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     result = []
     for name, data in vendors.items():
