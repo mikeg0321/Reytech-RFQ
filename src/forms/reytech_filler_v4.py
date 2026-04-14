@@ -75,6 +75,8 @@ from pypdf.generic import NameObject, TextStringObject
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.lib.utils import ImageReader
 from PIL import Image
+import logging
+log = logging.getLogger("reytech.reytech_filler_v4")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "reytech_config.json")
@@ -374,8 +376,8 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
                 "fill_and_sign_pdf PRE-FILL: %d/%d field names not in template %s: %s",
                 len(_pre_unmatched), len(clean_values),
                 _os.path.basename(input_path), _pre_unmatched[:15])
-    except Exception:
-        pass  # TemplateProfile is best-effort — never block filling
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)  # TemplateProfile is best-effort — never block filling
 
     # Convert bool checkbox values to PDF format and track unchecked fields
     _original_clean = dict(clean_values)
@@ -400,8 +402,8 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
         except Exception:
             try:
                 writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     sig_path = sig_image or SIGNATURE_PATH
     for page in writer.pages:
@@ -473,8 +475,8 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
             _vlog.getLogger("reytech.forms").warning(
                 "fill_and_sign_pdf: %d/%d intended fields not found in output: %s",
                 len(unmatched), len(intended_keys), sorted(unmatched)[:10])
-    except Exception:
-        pass  # verification is best-effort, never block output
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)  # verification is best-effort, never block output
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -571,8 +573,8 @@ def fill_703b(input_path, rfq_data, config, output_path):
         try:
             datetime.strptime(due_date_str, fmt)
             break
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     values = {
         "703B_Business Name": company["name"],
@@ -805,8 +807,8 @@ def fill_704b(input_path, rfq_data, config, output_path):
     finally:
         try:
             _os.remove(tmp_path)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # ── 704B signature overlay — "SIGNATURE / DATE" is printed text, not a form field ──
     try:
@@ -847,8 +849,8 @@ def fill_704b(input_path, rfq_data, config, output_path):
                                         _sig_x = _line.x0
                                         break
                                 if _sig_y: break
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
                     if _sig_y:
                         # Draw signature BELOW the SIGNATURE/DATE label (in the cell)
                         _draw_h = 22
@@ -1761,8 +1763,8 @@ def fill_bidder_declaration(input_path, rfq_data, config, output_path):
     for page in writer.pages:
         try:
             writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Force-set checkboxes via direct annotation manipulation
     from pypdf.generic import NameObject
@@ -2691,8 +2693,8 @@ def fill_calrecycle_standalone(input_path, rfq_data, config, output_path):
         for ov_path in overflow_pages:
             try:
                 os.remove(ov_path)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         print(f"  ✓ CalRecycle 74 filled ({sol}, {len(items)} items, {len(overflow_pages)} overflow pages)")
     else:
@@ -3004,8 +3006,8 @@ def _bidpkg_page_skip_reason(page):
                 fn = str(annot.get_object().get("/T", ""))
                 if fn:
                     field_names.append(fn)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     field_sig = " ".join(field_names).lower()
 
     # ── Hard skip by field-name fingerprint ───────────────────────────
@@ -3120,8 +3122,8 @@ def fill_genai_708(input_path, rfq_data, config, output_path):
             values[f"NoGenAI{prefix}"] = "/Yes"
             values[f"No{prefix}"] = "/Yes"
             values[f"Check_No{prefix}"] = "/Yes"
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
     print(f"  ✓ 708 GenAI filled — No GenAI used")

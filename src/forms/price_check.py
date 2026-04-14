@@ -1241,8 +1241,8 @@ def parse_ams704(pdf_path: str) -> dict:
                 try:
                     price = float(row_data["unit_price"].replace("$", "").replace(",", ""))
                     result["existing_prices"][row_num] = price
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as _e:
+                    log.debug("suppressed: %s", _e)
 
     log.info("parse_ams704: %d items found across rows 1-%d", len(result["line_items"]), max_row_check)
     
@@ -1429,8 +1429,8 @@ def _parse_ams704_ocr(pdf_path: str, result: dict) -> dict:
                     _extract_items_from_table(table, result, page_num)
                 if result["line_items"]:
                     pdfplumber_worked = True
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
     except Exception as e:
         log.debug("pdfplumber attempt: %s", e)
 
@@ -1786,8 +1786,8 @@ def _extract_items_from_text(text: str, result: dict):
                     })
                     item_number += 1
                     continue
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
         # Pattern A: "QTY UOM QTY_PER_UOM DESCRIPTION - UPC"
         # Most common on pages 2+ of DocuSign 704s
@@ -2373,8 +2373,8 @@ def lookup_prices(parsed_pc: dict) -> dict:
                     price_check_id=pc_id,
                     notes=f"markup from {pricing.get('price_source','unknown')}",
                 )
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     parsed_pc["line_items"] = results
     return parsed_pc
@@ -2422,8 +2422,8 @@ def _detect_page_layout(pdf_fields: dict, source_pdf: str = None):
                                 pg1_unsuf.add(row_n)
                             else:
                                 pg2_unsuf.add(row_n)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             if pg1_unsuf:
                 pg1_rows = max(pg1_unsuf)
                 pg2_extra_rows = len(pg2_unsuf)
@@ -2523,8 +2523,8 @@ def fill_ams704(
             _ship_check = _ShipPR(source_pdf)
             _ship_fields = _ship_check.get_fields() or {}
             _existing_ship = str((_ship_fields.get("Ship to") or {}).get("/V", "")).strip()
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
         if not _existing_ship:
             field_values.append({
                 "field_id": "Ship to",
@@ -2973,8 +2973,8 @@ def fill_ams704(
         if _trimmed_tmp:
             try:
                 os.unlink(_trimmed_tmp.name)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # Fix shared Page/of fields: overlay correct numbers on page 2+
     if _page_fields_are_shared and _pages_with_items >= 2 and os.path.exists(output_pdf):
@@ -3057,8 +3057,8 @@ def _fix_shared_page_numbers(output_pdf: str, source_pdf: str, pages_with_items:
                 page_rect = r
             elif name == "of":
                 of_rect = r
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     if not page_rect and not of_rect:
         log.debug("_fix_shared_page_numbers: no Page/of rects found on page 2")
@@ -4371,8 +4371,8 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
                         annot = annot_ref.get_object()
                         if str(annot.get("/Subtype", "")) == "/Widget":
                             all_widgets.append(annot_ref)
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
             if all_widgets:
                 writer._root_object[NameObject("/AcroForm")] = DictionaryObject({
                     NameObject("/Fields"): ArrayObject(all_widgets),
@@ -4404,10 +4404,10 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
                         if (str(_annot.get("/Subtype", "")) == "/Widget" and
                                 str(_annot.get("/FT", "")) == "/Tx"):
                             _writable_text_fields += 1
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     if _writable_text_fields == 0:
         log.info("_fill_pdf_fields: AcroForm has 0 writable text fields (DocuSign/flat) — forcing overlay for %s",
@@ -4452,8 +4452,8 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
                 rect = annot.get("/Rect", [0, 0, 0, 0])
                 w = float(rect[2]) - float(rect[0])
                 field_widths[name] = w
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     def calc_font_size(text: str, field_width: float, max_size: float = 12.0, min_size: float = 6.0) -> float:
         if not text or field_width <= 0:
@@ -4479,8 +4479,8 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
                     # Right-align price, extension, and total fields
                     if any(k in name for k in ("PRICE PER UNIT", "EXTENSION", "fill_7")):
                         annot[NameObject("/Q")] = NumberObject(2)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     for page_num in range(len(writer.pages)):
         writer.update_page_form_field_values(
@@ -4520,8 +4520,8 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
                 if name in checkbox_fields:
                     if _set_checkbox(annot, checkbox_fields[name]):
                         _checked_fields.add(name)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     # Method 2: traverse AcroForm /Fields for parent fields with /Kids
     # DocuSign PDFs use parent/child structure where the parent has /T and /FT=/Btn
@@ -4550,8 +4550,8 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
                                 _checked_fields.add(fname)
                                 log.info("_fill_pdf_fields: checked '%s' via /Kids widget", fname)
                                 break
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug("suppressed: %s", _e)
         except Exception as e:
             log.debug("_fill_pdf_fields: AcroForm /Kids checkbox scan failed: %s", e)
 
@@ -4574,8 +4574,8 @@ def _fill_pdf_fields(source_pdf: str, field_values: list, output_pdf: str, keep_
         if _unmatched:
             log.warning("_fill_pdf_fields: %d/%d intended fields not found in output: %s",
                         len(_unmatched), len(_intended_keys), sorted(_unmatched)[:10])
-    except Exception:
-        pass  # verification is best-effort
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)  # verification is best-effort
 
     log.info(f"Filled AMS 704 saved to {output_pdf}")
 
@@ -4603,8 +4603,8 @@ def _detect_sig_field_rect(source_pdf_or_writer):
                         if r[2] - r[0] > 100 and r[3] - r[1] > 10:
                             log.info("_detect_sig_field_rect: found '%s' Rect=%s", name, r)
                             return tuple(r)
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
     except Exception as e:
         log.debug("_detect_sig_field_rect: %s", e)
     return None
@@ -4627,8 +4627,8 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
     if not sig_rect and source_pdf_path:
         try:
             sig_rect = _detect_sig_field_rect(PdfReader(source_pdf_path))
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
     # Fallback: reference coords from AMS 704 Rev 1/2019
     # Signature field: Rect=[279.144, 388.486, 602.284, 412.005]
@@ -4644,8 +4644,8 @@ def _add_signature_to_pdf(writer, source_pdf_path=None, sig_rect_override=None):
     try:
         mb = writer.pages[0].mediabox
         page_width, page_height = float(mb.width), float(mb.height)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Scale factors (reference coords are for 792×612)
     sx = page_width / 792.0

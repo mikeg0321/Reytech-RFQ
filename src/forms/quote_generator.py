@@ -281,8 +281,8 @@ def set_quote_counter(seq: int, year: int = None):
     try:
         from src.core.db import set_setting
         set_setting("quote_counter_last_good", str(seq))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     log.info("Quote counter set to seq=%d year=%d → next will be R%sQ%d",
              seq, year, str(year)[-2:], seq + 1)
 
@@ -402,8 +402,8 @@ def get_all_quotes(include_test: bool = False) -> list:
                 items = []
                 try:
                     items = json.loads(r["line_items"] or "[]")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 ship_addr = []
                 try:
                     ship_addr = json.loads(r["ship_to_address"] or "[]")
@@ -413,8 +413,8 @@ def get_all_quotes(include_test: bool = False) -> list:
                 history = []
                 try:
                     history = json.loads(r["status_history"] or "[]")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug("suppressed: %s", _e)
                 quotes.append({
                     "quote_number": r["quote_number"],
                     "status": r["status"] or "pending",
@@ -491,8 +491,8 @@ def search_quotes(query: str = "", agency: str = "", status: str = "",
                         created_dt = datetime.strptime(str(created), "%b %d, %Y")
                     if (now - created_dt).days > 45:
                         qt["status"] = "expired"
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         if agency and qt.get("agency", "").lower() != agency.lower():
             continue
@@ -678,8 +678,8 @@ def _log_quote(result: dict):
             log_blocked_save("quote", qn, violations, "_log_quote")
             log.warning("Quote %s NOT saved — contract: %s", qn, violations)
             return
-    except ImportError:
-        pass
+    except ImportError as _e:
+        log.debug("suppressed: %s", _e)
 
     if existing_idx is not None:
         # UPDATE existing — preserve status, history, and created_at
@@ -908,8 +908,8 @@ def generate_quote(
                         ship_name = f"Cal Vet {_loc}" if _loc else "Cal Vet"
                     else:
                         ship_name = _canon
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
     show_bill    = cfg["show_bill_to"]
     bill_name    = quote_data.get("bill_to_name", cfg.get("bill_to_name", ""))
@@ -1429,8 +1429,8 @@ def generate_quote(
         from src.forms.pdf_versioning import stamp_pdf_metadata
         stamp_pdf_metadata("quote", quote_number,
                            {"generator": "quote_generator", "file_path": output_path})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return result
 
 
@@ -1572,8 +1572,8 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
         if "terms" not in kwargs:
             _pc_user_terms = pc.get("payment_terms", "")
             kwargs["terms"] = _pc_user_terms or _pc_agency_cfg.get("payment_terms", "Net 45")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     kwargs.setdefault("shipping", 0.0)
     if "notes" not in kwargs and pc.get("quote_notes"):
@@ -1616,8 +1616,8 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
                     ).fetchone()
                     if _row and _row["full_body"]:
                         _all_text += " " + _row["full_body"]
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         
         # Pull text from stored PDFs
         if _rid:
@@ -1635,10 +1635,10 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
                             import io
                             for _pg in PdfReader(io.BytesIO(_pr["data"])).pages[:3]:
                                 _all_text += " " + (_pg.extract_text() or "")
-                        except Exception:
-                            pass
-            except Exception:
-                pass
+                        except Exception as _e:
+                            log.debug("suppressed: %s", _e)
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         
         # Match zip → facility
         facility, _amb = _lookup_facility_by_zip(_all_text)
@@ -1752,8 +1752,8 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
                 _d = _item.get("description", "")
                 if _d in _emap and not _item.get("intelligence"):
                     _item["intelligence"] = _emap[_d]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # Pass agency explicitly if known from RFQ — OVERRIDES facility-derived agency
     # (CCHCS facilities are inside CDCR prisons, but CCHCS bills separately)
@@ -1805,8 +1805,8 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         if "terms" not in kwargs:
             _user_terms = rfq.get("payment_terms", "")
             kwargs["terms"] = _user_terms or _agency_cfg.get("payment_terms", "Net 45")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     # No shipping line — shipping is baked into item cost/margin
     kwargs.setdefault("shipping", 0.0)

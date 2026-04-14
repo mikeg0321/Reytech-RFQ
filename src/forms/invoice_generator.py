@@ -359,6 +359,6 @@ def generate_invoice_pdf(order: dict, output_dir: str = "") -> Optional[str]:
         inv_id = inv.get("invoice_number", order.get("id", "unknown"))
         stamp_pdf_metadata("invoice", inv_id,
                            {"generator": "invoice_generator", "file_path": output_path})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
     return output_path

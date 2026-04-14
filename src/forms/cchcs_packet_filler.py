@@ -460,13 +460,13 @@ def fill_cchcs_packet(
     try:
         sub_raw = updates.get(TOTALS_FIELDS["subtotal"], "") or "0"
         subtotal = float(sub_raw.replace(",", "") or 0)
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as _e:
+        log.debug("suppressed: %s", _e)
     try:
         tot_raw = updates.get(TOTALS_FIELDS["grand_total"], "") or "0"
         grand_total = float(tot_raw.replace(",", "") or 0)
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as _e:
+        log.debug("suppressed: %s", _e)
 
     result.update({
         "ok": True,

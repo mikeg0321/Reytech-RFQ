@@ -117,6 +117,55 @@ class QuoteRequest:
                 pass
         return []
 
+    def write_items(self, items: List[Dict[str, Any]]) -> None:
+        """Canonical items writer. Every caller that mutates the item
+        list should go through this so the record converges on a
+        single storage path and legacy aliases stop drifting.
+
+        For a PC record this writes `raw["items"]`; for an RFQ it
+        writes `raw["line_items"]`. Both shapes are what the
+        `_save_single_pc` / `_save_rfq` layers persist. Stale nested
+        copies (`pc_data.items`, `data_json.items`, the opposite
+        top-level key) are normalized so a subsequent `get_items()`
+        can't pick up a stale read.
+        """
+        if items is None:
+            items = []
+        if not isinstance(items, list):
+            # Defensive — never silently coerce, but don't crash either.
+            log.debug("write_items: non-list ignored (%r)", type(items))
+            return
+
+        r = self.raw
+        if self.kind == "rfq":
+            r["line_items"] = items
+            # RFQ callers historically sometimes also set 'items';
+            # keep the shape aligned so get_items() stays stable.
+            if "items" in r:
+                r["items"] = items
+        else:
+            r["items"] = items
+            # pc_data.items is a legacy nested mirror — keep it in sync
+            # so a reader that still hits that path sees the new list.
+            pc_data = r.get("pc_data")
+            if isinstance(pc_data, dict):
+                pc_data["items"] = items
+            elif isinstance(pc_data, str) and pc_data:
+                # JSON-string form: reserialize with the new items list
+                try:
+                    pd = json.loads(pc_data)
+                    if isinstance(pd, dict):
+                        pd["items"] = items
+                        r["pc_data"] = json.dumps(pd, default=str)
+                except Exception as e:
+                    log.debug("write_items: pc_data reserialize failed: %s", e)
+
+        # data_json is a serialized snapshot of the whole record (see
+        # _save_single_pc). It's the stalest of all the aliases — just
+        # drop it so the next save writes a fresh one from the live
+        # top-level items list.
+        r.pop("data_json", None)
+
     # ── Agency + forms ─────────────────────────────────────────────
 
     def get_agency(self) -> str:

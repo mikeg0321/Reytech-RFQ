@@ -390,8 +390,8 @@ class TemplateProfile:
                     p0_text = (reader.pages[0].extract_text() or "").upper()
                     if "BIDDER INFORMATION" in p0_text and "REQUEST FOR QUOTATION" in p0_text:
                         self.has_embedded_703b = True
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
 
         # ── 8. Log summary ─────────────────────────────────────────────
         log.info("TemplateProfile: %s — %d pages, %d fields, "

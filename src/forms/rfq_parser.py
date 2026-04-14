@@ -10,6 +10,9 @@ from pypdf import PdfReader
 import re, os, json
 from datetime import datetime
 
+import logging
+log = logging.getLogger("reytech.rfq_parser")
+
 # Re-export generic parser functions for unified import path
 from src.forms.generic_rfq_parser import (  # noqa: F401
     parse_generic_rfq,
@@ -117,14 +120,14 @@ def parse_704b(pdf_path):
             qty = 0
             try:
                 qty = int(float(row["qty"]))
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             
             qty_per = 1
             try:
                 qty_per = int(float(row["qty_per_uom"])) if row["qty_per_uom"] else 1
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
             
             line_num = 0
             try:
@@ -164,8 +167,8 @@ def parse_704b(pdf_path):
         for i, e in enumerate(enriched):
             if i < len(items) and e.get("intelligence"):
                 items[i]["intelligence"] = e["intelligence"]
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     return {"header": header, "line_items": items}
 

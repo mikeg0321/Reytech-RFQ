@@ -104,8 +104,8 @@ def api_rfq_parse_screenshot(rid):
     finally:
         try:
             os.unlink(tmp_path)
-        except OSError:
-            pass
+        except OSError as _e:
+            log.debug("suppressed: %s", _e)
 
     if not result or not result.get("line_items"):
         return jsonify({"ok": False, "error": "No items extracted from screenshot"}), 400
@@ -236,8 +236,8 @@ def api_rfq_screenshot_confirm(rid):
                     markup = 25
                 line_item["markup_pct"] = markup
                 line_item["price_per_unit"] = round(cost * (1 + markup / 100), 2)
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
         existing.append(line_item)
         added += 1
 
@@ -296,8 +296,8 @@ def api_rfq_autosave(rid):
     if data.get("shipping_amount") is not None:
         try:
             r["shipping_amount"] = max(0, min(99999, float(data["shipping_amount"])))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _e:
+            log.debug("suppressed: %s", _e)
 
     # Save delivery location if provided (belt-and-suspenders with saveField)
     if data.get("delivery_location"):
@@ -1485,8 +1485,8 @@ def generate_rfq_package(rid):
                         try:
                             from src.forms.reytech_filler_v4 import fill_703c
                             _fill_fn = fill_703c
-                        except ImportError:
-                            pass
+                        except ImportError as _e:
+                            log.debug("suppressed: %s", _e)
                     _fill_fn(tmpl[_703_key], r, CONFIG, f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
                     output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
                     t.step(f"{_703_label} filled")
@@ -2211,8 +2211,8 @@ def generate_rfq_package(rid):
                 _p = float(_it.get("price_per_unit") or _it.get("unit_price") or 0)
                 _q = int(float(_it.get("qty", 1)))
                 _qtotal += _p * _q
-            except (ValueError, TypeError):
-                pass
+            except (ValueError, TypeError) as _e:
+                log.debug("suppressed: %s", _e)
 
         _items_snap = [{"desc": (_it.get("description") or "")[:60],
             "qty": _it.get("qty", 1),

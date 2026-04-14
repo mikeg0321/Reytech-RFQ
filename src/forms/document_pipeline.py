@@ -323,8 +323,8 @@ class DocumentPipeline:
                 log.info("pipeline: using learned strategy '%s' for fp=%s",
                          learned, self.fingerprint[:20])
                 return learned
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
 
         # 2. Use template profile recommendation
         if self.profile and self.profile.fill_recommendation != "form_fields":
