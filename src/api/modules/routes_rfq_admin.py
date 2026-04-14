@@ -79,8 +79,8 @@ def rfq_reopen(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in rfq_reopen: %s', _e)
 
     _log_rfq_activity(rid, "reopened",
         f"RFQ #{r.get('solicitation_number','?')} reopened for editing (was: {old_status})",
@@ -118,16 +118,16 @@ def api_rfq_update_status_json(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, new_status)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_update_status_json: %s', _e)
 
     try:
         from src.core.dal import log_lifecycle_event
         log_lifecycle_event("rfq", rid, "status_changed",
             f"Status: {old_status} → {new_status}" + (f" ({notes})" if notes else ""),
             actor="user")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_update_status_json: %s', _e)
 
     return jsonify({"ok": True, "old_status": old_status, "new_status": new_status})
 
@@ -157,8 +157,8 @@ def rfq_update_status(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, new_status)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in rfq_update_status: %s', _e)
 
     _log_rfq_activity(rid, "status_changed",
         f"RFQ #{r.get('solicitation_number','?')} status: {old_status} → {new_status}" + (f" ({notes})" if notes else ""),
@@ -370,8 +370,8 @@ def upload_sig_logo():
             img.save(buf, "PNG", optimize=True)
             data = buf.getvalue()
             mime = "image/png"
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in upload_sig_logo: %s', _e)
 
     b64 = _b64.b64encode(data).decode()
     data_uri = f"data:{mime};base64,{b64}"
@@ -381,8 +381,8 @@ def upload_sig_logo():
         save_path = os.path.join(DATA_DIR, "email_logo.png")
         with open(save_path, "wb") as _fw:
             _fw.write(data)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in upload_sig_logo: %s', _e)
 
     return jsonify({"ok": True, "data_uri": data_uri, "size": len(data)})
 
@@ -480,8 +480,8 @@ def save_gmail_draft(rid):
                         _lip.add_header("Content-Disposition", "inline", filename="reytech_logo.png")
                         related.attach(_lip)
                         break
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in save_gmail_draft: %s', _e)
             alt = MIMEMultipart("alternative")
             alt.attach(MIMEText(body, "plain"))
             alt.attach(related)
@@ -535,8 +535,8 @@ def save_gmail_draft(rid):
                                 saved = True
                                 t.ok("Draft saved", folder=_m.group(1))
                                 break
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in save_gmail_draft: %s', _e)
 
         imap.logout()
 
@@ -664,8 +664,8 @@ def send_email_enhanced(rid):
         try:
             from src.core.dal import update_rfq_status as _dal_ur
             _dal_ur(rid, "sent")
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in send_email_enhanced: %s', _e)
         
         # ── Log to email_log table ──
         sol = r.get("solicitation_number", "")
@@ -864,8 +864,8 @@ def api_generate_obs1600(rid):
                                             bid_pkg = m
                                             break
                                 if bid_pkg: break
-                        except Exception:
-                            pass
+                        except Exception as _e:
+                            log.debug('suppressed in api_generate_obs1600: %s', _e)
                         if bid_pkg: break
                     if bid_pkg: break
                 if bid_pkg: break
@@ -1285,8 +1285,8 @@ def api_rfq_price_intel(rid):
                     "last_date": latest_date,
                     "drift": drift,
                 }
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_price_intel: %s', _e)
 
         # Catalog match
         try:
@@ -1300,8 +1300,8 @@ def api_rfq_price_intel(rid):
                     "list_price": m.get("list_price", 0),
                     "category": m.get("category", ""),
                 }
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_price_intel: %s', _e)
 
         # Audit trail
         try:
@@ -1317,8 +1317,8 @@ def api_rfq_price_intel(rid):
                     "source": a.get("source", ""),
                     "ts": a.get("ts", "")[:16],
                 } for a in audits]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_price_intel: %s', _e)
 
         # Pricing recommendation
         rec = _recommend_price(item)
@@ -1338,8 +1338,8 @@ def api_rfq_price_intel(rid):
                     "confidence": loss_rec.get("confidence", 0),
                     "loss_count": loss_rec.get("sources_used", 0),
                 }
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_price_intel: %s', _e)
 
         # F6: Price conflict resolution — all known sources
         sources = {}
@@ -1379,8 +1379,8 @@ def api_rfq_price_intel(rid):
                     })
                 if dupes:
                     result["recent_quotes"] = dupes
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_price_intel: %s', _e)
 
         intel.append(result)
 
@@ -1428,8 +1428,8 @@ def api_pricing_alerts():
                         "id": rid, "sol": r.get("solicitation_number", ""),
                         "age_days": age, "items": len(items),
                     })
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_pricing_alerts: %s', _e)
 
     # Check price_history for recent drift
     try:
@@ -1445,8 +1445,8 @@ def api_pricing_alerts():
                 HAVING cnt > 1 AND (max_p - min_p) / min_p > 0.10
             """, ((now - timedelta(days=30)).isoformat(),)).fetchall()
             drift_items = len(rows)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_pricing_alerts: %s', _e)
 
     total_alerts = len(stale_rfqs) + len(unpriced_rfqs) + (1 if drift_items > 0 else 0)
     _pa_result = {
@@ -1554,8 +1554,8 @@ def api_rfq_qa_check(rid):
                 else:
                     checks.append({"check": "freshness", "status": "pass",
                                    "msg": f"{days}d ago"})
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_qa_check: %s', _e)
 
         # 6: Qty > 0
         if not qty or qty <= 0:
@@ -1600,8 +1600,8 @@ def api_rfq_qa_check(rid):
                 warnings += 1
                 if overall == "pass":
                     overall = "warn"
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_qa_check: %s', _e)
 
     return jsonify({"ok": True, "overall": overall, "failures": failures,
                     "warnings": warnings, "total": len(items), "items": results,
@@ -1683,8 +1683,8 @@ def api_nuke_rfq(rid):
                             del processed[email_uid]
                         with open(proc_file, "w") as f:
                             _json.dump(processed, f)
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in api_nuke_rfq: %s', _e)
 
         nuked.append({"id": rfq_id, "sol": sol, "uid": email_uid})
         log.info("NUKED RFQ %s (sol=%s, uid=%s)", rfq_id, sol, email_uid)
@@ -1853,8 +1853,8 @@ def api_rfq_revise_quote(rid):
             f"Quote {locked_qn} Rev {rev_num} — ${new_total:,.2f} — {reason}",
             actor="user",
             detail={"quote_number": locked_qn, "revision": rev_num, "total": new_total, "reason": reason})
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_revise_quote: %s', _e)
 
     t.ok("Quote revised", revision=rev_num, total=new_total)
     log.info("Quote %s Rev %d generated for RFQ %s — $%.2f", locked_qn, rev_num, rid, new_total)
@@ -1892,8 +1892,8 @@ def api_rfq_revision_history(rid):
             snap = []
             try:
                 snap = _jh.loads(row["snapshot_json"] or "[]")
-            except Exception:
-                pass
+            except Exception as _e:
+                log.debug('suppressed in api_rfq_revision_history: %s', _e)
             total = sum((it.get("price_per_unit", 0) or 0) * (it.get("qty", 0) or 0) for it in snap)
             revisions.append({
                 "revision_num": row["revision_num"],
@@ -2110,8 +2110,8 @@ def api_rfq_clear_generated(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_clear_generated: %s', _e)
 
     msg = f"Cleared {db_deleted} DB files + {disk_deleted} disk files. Status reset to 'ready'. Click Generate Package to rebuild."
     log.info("clear-generated %s: %s", rid, msg)
@@ -2188,15 +2188,15 @@ def api_rfq_clean_slate(rid):
         try:
             _sh2.rmtree(out_dir)
             disk_deleted += 1
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_clean_slate: %s', _e)
     tmpl_dir = os.path.join(DATA_DIR, "rfq_templates", rid)
     if os.path.exists(tmpl_dir):
         try:
             _sh2.rmtree(tmpl_dir)
             disk_deleted += 1
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_rfq_clean_slate: %s', _e)
 
     # Rebuild RFQ with clean state
     r.clear()
@@ -2211,8 +2211,8 @@ def api_rfq_clean_slate(rid):
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in api_rfq_clean_slate: %s', _e)
 
     log.info("clean-slate %s: kept %d items, cleared %d DB + %d disk",
              rid, len(preserved_items), db_deleted, disk_deleted)
@@ -2919,8 +2919,8 @@ def api_download_complete_package(rid):
                     text = ""
                     try:
                         text = page.extract_text() or ""
-                    except Exception:
-                        pass
+                    except Exception as _e:
+                        log.debug('suppressed in api_download_complete_package: %s', _e)
                     if text.strip().startswith("Please wait") and len(text.strip()) < 300:
                         continue
                     writer.add_page(page)
@@ -2941,8 +2941,8 @@ def api_download_complete_package(rid):
             from src.core.agency_config import match_agency
             _ak, _ac = match_agency(r)
             _safe_agency = (_ac.get("name", "") or "").replace(" ", "").replace("/", "")[:20]
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in api_download_complete_package: %s', _e)
 
         filename = f"Complete_RFQ_{_safe_agency}_{sol}_ReytechInc.pdf" if _safe_agency else f"Complete_RFQ_{sol}_ReytechInc.pdf"
 
