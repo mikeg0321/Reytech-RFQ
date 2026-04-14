@@ -735,8 +735,8 @@ def _apply_checkbox_updates(writer: "PdfWriter", checkbox_updates: Dict[str, Any
                     if parent is not None:
                         pobj = parent.get_object()
                         pobj[NameObject("/V")] = export
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _apply_checkbox_updates: %s', _e)
                 written += 1
             except Exception as e:
                 log.debug("checkbox update: %s", e)
@@ -762,8 +762,8 @@ def _best_on_state(annot: Any) -> Optional[str]:
             k = str(key)
             if k != "/Off":
                 return k
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _best_on_state: %s', _e)
     return None
 
 
@@ -791,14 +791,14 @@ def _find_civil_rights_template() -> Optional[str]:
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
         candidates.append(os.path.join(repo_root, "data", "templates", CIVIL_RIGHTS_TEMPLATE_NAME))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _find_civil_rights_template: %s', _e)
     candidates.append(os.path.join("/app", "data", "templates", CIVIL_RIGHTS_TEMPLATE_NAME))
     try:
         from src.core.paths import DATA_DIR
         candidates.append(os.path.join(DATA_DIR, "templates", CIVIL_RIGHTS_TEMPLATE_NAME))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _find_civil_rights_template: %s', _e)
     return next((p for p in candidates if os.path.exists(p)), None)
 
 
@@ -858,8 +858,8 @@ def _append_civil_rights_attachment(writer: "PdfWriter", reytech_info: Dict[str,
             root = sub_writer._root_object
             if "/AcroForm" in root:
                 root["/AcroForm"][_Name("/NeedAppearances")] = _Bool(True)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _append_civil_rights_attachment: %s', _e)
 
         # Serialize the filled sub-PDF in-memory so we can re-read it
         # and append its flattened page onto the main writer.
@@ -965,8 +965,8 @@ def _overlay_civil_rights_signature(writer: "PdfWriter", page_index: int) -> boo
                 sig_rect = tuple(float(x) for x in rect)
                 try:
                     annot[NameObject("/V")] = TextStringObject("")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _overlay_civil_rights_signature: %s', _e)
                 break
         except Exception:
             continue
@@ -978,8 +978,8 @@ def _overlay_civil_rights_signature(writer: "PdfWriter", page_index: int) -> boo
     try:
         mb = page.mediabox
         page_w, page_h = float(mb.width), float(mb.height)
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _overlay_civil_rights_signature: %s', _e)
     fl, fb, fr, ft = sig_rect
     pad = 2.0
     try:
@@ -1022,8 +1022,8 @@ def _find_signature_png() -> Optional[str]:
     try:
         from src.core.paths import DATA_DIR
         candidates.append(os.path.join(DATA_DIR, "signature_transparent.png"))
-    except Exception:
-        pass
+    except Exception as _e:
+        log.debug('suppressed in _find_signature_png: %s', _e)
     return next((p for p in candidates if os.path.exists(p)), None)
 
 
@@ -1088,8 +1088,8 @@ def _overlay_signature_png(
                 # Clear any typed value so it doesn't underlay the PNG
                 try:
                     annot[NameObject("/V")] = TextStringObject("")
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _overlay_signature_png: %s', _e)
             except Exception:
                 continue
 
@@ -1105,8 +1105,8 @@ def _overlay_signature_png(
         try:
             mb = page.mediabox
             page_w, page_h = float(mb.width), float(mb.height)
-        except Exception:
-            pass
+        except Exception as _e:
+            log.debug('suppressed in _overlay_signature_png: %s', _e)
         fl, fb, fr, ft = rect
         fw = fr - fl
         fh = ft - fb
@@ -1275,8 +1275,8 @@ def _splice_attachments(
                     )
                 try:
                     final.append(src_buf, pages=[page_num - 1])
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _splice_attachments: %s', _e)
                 continue
             try:
                 final.append(filled)
@@ -1298,8 +1298,8 @@ def _splice_attachments(
                 # Fall back to the placeholder
                 try:
                     final.append(src_buf, pages=[page_num - 1])
-                except Exception:
-                    pass
+                except Exception as _e:
+                    log.debug('suppressed in _splice_attachments: %s', _e)
 
     # Flush the tail run (pages after the last placeholder)
     if run_start_0 < src_page_count:
