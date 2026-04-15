@@ -1076,10 +1076,33 @@ def parse_ams704(pdf_path: str) -> dict:
 
     result["ship_to"] = str(fields.get("Ship to", {}).get("/V", "")).strip()
 
+    # Detect field naming convention. CCHCS's "704B Acquisition Quote
+    # Worksheet" ships with different form field names than the standard
+    # Price Check 704A. Both carry identical line-item data but the buyer
+    # side uses "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow1" while the PC
+    # template uses "ITEM DESCRIPTION NOUN FIRST ... Row1". The global
+    # ROW_FIELDS map is 704A; if the PDF is 704B, swap to a local map so
+    # the parser finds the real fields instead of falling through the
+    # fuzzy matcher (which mis-targets on substring row numbers like
+    # "1" → "Row10").
+    _row_fields_local = ROW_FIELDS
+    if "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow1" in fields:
+        log.info("parse_ams704: detected 704B field naming convention")
+        _row_fields_local = {
+            "item_number": "ITEM NUMBERRow{n}",
+            "qty": "QTYRow{n}",
+            "uom": "UOMRow{n}",
+            "qty_per_uom": "QTY PER UOMRow{n}",
+            "description": "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow{n}",
+            "substituted": "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{n}",
+            "unit_price": "PRICE PER UNITRow{n}",
+            "extension": "SUBTOTALRow{n}",
+        }
+
     # Extract line items — check rows 1-24 to support multi-page 704s
     # (Standard 704 has 8 rows per page, up to 3 pages = 24 items)
     max_row_check = 50
-    
+
     # Build a field lookup that handles naming variants
     # Some 704s use "SUBSTITUTED ITEM..." while others use "REPLACEMENT..." etc.
     field_map_cache = {}
@@ -1089,7 +1112,7 @@ def parse_ams704(pdf_path: str) -> dict:
         if cache_key in field_map_cache:
             return field_map_cache[cache_key]
         # Try exact match first
-        exact = ROW_FIELDS[pattern_key].format(n=row_n)
+        exact = _row_fields_local[pattern_key].format(n=row_n)
         if exact in fields:
             field_map_cache[cache_key] = exact
             return exact
@@ -1143,7 +1166,7 @@ def parse_ams704(pdf_path: str) -> dict:
         row_data = {}
         has_data = False
 
-        for key, pattern in ROW_FIELDS.items():
+        for key, pattern in _row_fields_local.items():
             # Build field name with optional page suffix
             field_name = _find_field(key, row_num)
             if row_suffix:
@@ -1264,12 +1287,26 @@ def parse_ams704(pdf_path: str) -> dict:
     # Multi-page 704s have unsuffixed rows (Row1-Row11) parsed first, then
     # _2 suffix rows (Row1_2-Row8_2) parsed after. This can put buyer items
     # out of order (e.g., 11-18, 27-29, 19-26). Sort by numeric item_number.
+    #
+    # Only sort when the item_numbers look like sequential small integers
+    # (the buyer auto-filled 1, 2, 3…). On 704B Acquisition Quote
+    # Worksheets the "ITEM NUMBER" column holds MFG#/SKU codes like
+    # "W14105" or "24354534" — sorting those as ints would scramble the
+    # buyer's intended order. When that's the case, preserve parse order.
     def _sort_key(item):
         try:
             return int(float(item.get("item_number", "9999")))
         except (ValueError, TypeError):
             return 9999
-    result["line_items"].sort(key=_sort_key)
+
+    _nums_as_int = [_sort_key(it) for it in result["line_items"]]
+    _looks_sequential = (
+        bool(_nums_as_int)
+        and all(n < 100 for n in _nums_as_int)
+        and len(set(_nums_as_int)) == len(_nums_as_int)
+    )
+    if _looks_sequential:
+        result["line_items"].sort(key=_sort_key)
 
     # Re-index: only renumber items that had NO buyer-provided item number.
     # If the buyer wrote 11, 12, 13... preserve those exactly.
