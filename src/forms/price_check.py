@@ -4036,11 +4036,11 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
     def _cell_right(c, x1, y1, x2, y2, text, fs=9, mask=True):
         """Draw RIGHT-ALIGNED text. mask=False skips white background (for empty cells).
 
-        Prices containing "." get a reinforcement dot drawn on top of the period
-        glyph. At 9pt Helvetica, "." is 2.5pt wide — at 66% zoom in Chrome's PDF
-        viewer this renders as a <1px sub-pixel that gets dropped on certain
-        y-fractions, making "29.70" appear as "29 70". A small filled circle at
-        the period position survives any zoom level. Incident 2026-04-15.
+        Prices are drawn in Helvetica-Bold at fs=10 minimum (fs floored at 8 even
+        when auto-shrinking for narrow cells — anything smaller is unreadable on
+        print). Decimal point reinforcement is handled by double-drawing the text
+        at a sub-pt offset, which survives low-zoom sub-pixel rounding in Chrome's
+        PDF viewer without creating comma-like artifacts. Incident 2026-04-15.
         """
         if not text or not text.strip():
             return
@@ -4049,42 +4049,41 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
         if w <= 0 or h <= 0:
             return
         c.saveState()
+        # Clip generously on ALL sides so tight-fit numeric text renders at a
+        # readable font size regardless of detected cell height/width. Left
+        # overflow borrows whitespace from the previous column; vertical
+        # overflow is safe because price rows are surrounded by empty cells.
+        _left_slack = 18
+        _vert_slack = 8
         p = c.beginPath()
-        p.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2)
+        p.rect(x1 + _PAD - _left_slack,
+               y1 + _PAD - _vert_slack,
+               w - _PAD * 2 + _left_slack,
+               h - _PAD * 2 + _vert_slack * 2)
         c.clipPath(p, stroke=0)
         if mask:
             c.setFillColorRGB(1, 1, 1)
             c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
-        fs = min(fs, h * 0.75)
         _font = "Helvetica-Bold"
+        _min_fs = 8.5
+        # Allow a slightly-bigger default but floor so prices are always legible.
+        fs = max(fs, _min_fs)
         c.setFont(_font, fs)
         c.setFillColorRGB(0, 0, 0)
-        while c.stringWidth(text, _font, fs) > w - _PAD * 2 - 4 and fs > 4.5:
+        # Width shrink only to the floor — never below 8.5pt for prices.
+        while c.stringWidth(text, _font, fs) > w - _PAD * 2 - 4 + _left_slack and fs > _min_fs:
             fs -= 0.5
             c.setFont(_font, fs)
         text_w = c.stringWidth(text, _font, fs)
         tx = x2 - _PAD - text_w - 1
         ty = y1 + (h - fs) / 2
         c.drawString(tx, ty, text)
-        # Compute decimal-point position while we still have the draw metrics,
-        # then stash for reinforcement OUTSIDE the clip path below.
-        _dot_pos = None
-        if "." in text:
-            idx = text.index(".")
-            pre_w = c.stringWidth(text[:idx], _font, fs)
-            dot_w = c.stringWidth(".", _font, fs)
-            _dot_pos = (tx + pre_w + dot_w * 0.5, ty + fs * 0.08)
+        # Double-draw at +0.4pt offset so the period glyph is guaranteed to hit
+        # at least one integer CSS-pixel row even at low zoom. Pure text so the
+        # final shape is still readable (no comma artifact) and all characters
+        # — not just the period — get the robustness boost.
+        c.drawString(tx + 0.4, ty, text)
         c.restoreState()
-        # Reinforce the decimal point OUTSIDE the cell clip so it survives
-        # Chrome's PDF viewer sub-pixel rounding at low zoom. 2.2pt square is
-        # visually close to a period glyph but always >= 1 CSS px.
-        if _dot_pos is not None:
-            dot_cx, dot_cy = _dot_pos
-            dot_sz = 2.2
-            c.saveState()
-            c.setFillColorRGB(0, 0, 0)
-            c.rect(dot_cx - dot_sz / 2, dot_cy - dot_sz / 2, dot_sz, dot_sz, fill=1, stroke=0)
-            c.restoreState()
 
     def _multiline(c, x1, y1, x2, y2, text, fs=8):
         if not text or not text.strip():
@@ -4300,6 +4299,16 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
             company = fv_map.get("COMPANY NAME", "")
             if company and pg_detected and pg_detected.get("supplier_name_cont"):
                 _cell(c, *pg_detected["supplier_name_cont"], company, fs=12)
+                drew = True
+            elif company and pg_detected and pg_detected.get("item_rows"):
+                # Detected layout without a calibrated supplier header — draw
+                # the company name in the top-right margin of the page so
+                # every continuation page still shows who the supplier is.
+                # Right-side placement avoids overlap with buyer-supplied
+                # text (Docusign Envelope ID, ISBN lines) that typically
+                # lives in the left/center of the top margin.
+                _cell(c, 560, 578, 790, 596,
+                      f"SUPPLIER: {company}", fs=11, mask_top_pct=0.0)
                 drew = True
             elif company and not pg_detected:
                 sp = _sc(_HC_PG2_SUPPLIER[0], _HC_PG2_SUPPLIER[1],
