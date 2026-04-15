@@ -2944,24 +2944,33 @@
     }
 
     function markSent(btn) {
-     if (!confirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.\nYou can edit it anytime from the document viewer.')) return;
-     btn.disabled=true;btn.textContent='⏳ Updating...';
-     fetch('/api/pricecheck/'+_pcid+'/mark-sent', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({notes: '704 sent to requestor'})
-     }).then(r=>r.json()).then(d=>{
-      if(d.ok){
-       showMsg('📨 Marked as Sent! Opening document...','ok');
-       if(d.doc_url) {
-        setTimeout(()=>location.href=d.doc_url,1000);
+     // Use the shared two-step rtConfirm helper so this destructive state
+     // change has the same guard-rail as Delete RFQ / Delete Order. Falls
+     // back to a plain confirm if rtConfirm isn't loaded for any reason.
+     var go = function(){
+      btn.disabled=true;btn.textContent='⏳ Updating...';
+      fetch('/api/pricecheck/'+_pcid+'/mark-sent', {
+       method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({notes: '704 sent to requestor'})
+      }).then(r=>r.json()).then(d=>{
+       if(d.ok){
+        showMsg('📨 Marked as Sent! Opening document...','ok');
+        if(d.doc_url) {
+         setTimeout(()=>location.href=d.doc_url,1000);
+        } else {
+         setTimeout(()=>location.reload(),1200);
+        }
        } else {
-        setTimeout(()=>location.reload(),1200);
+        btn.disabled=false;btn.textContent='📨 Mark Sent';
+        showMsg('❌ '+(d.error||'Failed'),'err');
        }
-      } else {
-       btn.disabled=false;btn.textContent='📨 Mark Sent';
-       showMsg('❌ '+(d.error||'Failed'),'err');
-      }
-     }).catch(e=>{btn.disabled=false;btn.textContent='📨 Mark Sent';showMsg('❌ '+e.message,'err');});
+      }).catch(e=>{btn.disabled=false;btn.textContent='📨 Mark Sent';showMsg('❌ '+e.message,'err');});
+     };
+     if (typeof window.rtConfirm === 'function') {
+      window.rtConfirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.', go, 0);
+     } else if (window.confirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.\nYou can edit it anytime from the document viewer.')) {
+      go();
+     }
     }
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
