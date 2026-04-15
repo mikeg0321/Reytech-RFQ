@@ -590,6 +590,16 @@ def _lookup_amazon(url: str) -> dict:
         # - If a discount exists, log it separately and expose a
         #   "cost_if_discount_holds" field so the pricing oracle can
         #   compute both profit scenarios downstream.
+        # When Amazon shows only a single price (no strikethrough MSRP),
+        # that price IS the MSRP — treat it as list so downstream code
+        # never warns "MSRP not found" and never pollutes the discount
+        # calculator with a fake sale. User incident 2026-04-14: paint
+        # marker B0CX1BD86P had one price and UI warned cost-not-found.
+        if _list is None and _sale is not None:
+            log.info("Amazon ASIN %s: single price $%.2f — promoting to list_price", asin, _sale)
+            _list = _sale
+            _sale = None
+
         _use_price = _list or _sale  # fall back to sale if list is missing
         discount_pct = None
         discount_amount = None
@@ -1423,8 +1433,13 @@ def claude_amazon_lookup(asin: str) -> dict:
         "put it in list_price and leave sale_price null.\n"
         "- If a price shows \"Was $X\" or \"List: $X\" with a different "
         "current price, list_price is the Was/List value.\n"
-        "- mfg_number is from the product details table (Item model "
-        "number or Manufacturer Part Number). Use empty string if missing.\n"
+        "- mfg_number: look specifically in the 'Product information', "
+        "'Product details', 'Item details', or 'Technical Details' "
+        "section of the page for fields labeled 'Item model number', "
+        "'Manufacturer Part Number', 'Part Number', or 'Model Number'. "
+        "Amazon's Rufus AI finds these in that same section — you should "
+        "too. If multiple are present, prefer 'Manufacturer Part Number' "
+        "over 'Item model number'. Use empty string only if none exist.\n"
         "- If any field is missing from the page, use null (for numbers) "
         "or empty string (for strings). Do NOT make up values."
     )

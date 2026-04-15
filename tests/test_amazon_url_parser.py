@@ -174,11 +174,14 @@ class TestPricingSemantics:
         assert result["cost"] == 20.00
         assert result["discount_pct"] is None
 
-    def test_fallback_to_sale_when_no_list(self):
-        """When MSRP isn't scraped, fall back to sale price as cost —
-        but record no discount (we don't know the real list)."""
+    def test_single_price_promoted_to_list(self):
+        """When Amazon shows ONE price (no strikethrough MSRP), promote
+        it to list_price so the quote fills without a 'MSRP not found'
+        warning. Incident 2026-04-14: paint marker B0CX1BD86P."""
         result = self._call({"title": "T", "sale_price": 15.00, "price": 15.00})
         assert result["cost"] == 15.00
+        assert result["list_price"] == 15.00
+        assert result["sale_price"] is None
         assert result["discount_pct"] is None
 
     def test_price_note_shows_both_when_discounted(self):
