@@ -97,15 +97,68 @@ function tryRenderChart(d){
 <!-- ═══ Expiring Quotes Alert ═══ -->
 <div id="expiry-alerts" style="display:none;margin-bottom:10px"></div>
 <script>
+// Sortable + dismissible expiring-quotes banner.
+// - Sort by $ value or by days remaining (default $ desc — biggest at risk first).
+// - Per-quote dismiss persists in localStorage for 24h so the banner doesn't
+//   fight the operator after they've acknowledged a row.
+window._expiringRaw = [];
+function _expiryDismissedSet(){
+  try {
+    var raw = localStorage.getItem('expiry_dismissed') || '{}';
+    var obj = JSON.parse(raw);
+    var now = Date.now();
+    Object.keys(obj).forEach(function(k){ if (obj[k] < now) delete obj[k]; });
+    return obj;
+  } catch(e) { return {}; }
+}
+function _expirySaveDismissed(obj){
+  try { localStorage.setItem('expiry_dismissed', JSON.stringify(obj)); } catch(e){}
+}
+window.dismissExpiring = function(qn){
+  var obj = _expiryDismissedSet();
+  obj[qn] = Date.now() + 24 * 3600 * 1000;
+  _expirySaveDismissed(obj);
+  renderExpiring();
+};
+function renderExpiring(){
+  var el = document.getElementById('expiry-alerts');
+  if (!el) return;
+  var sortBy = (document.getElementById('expiry-sort') || {}).value || 'value';
+  var dismissed = _expiryDismissedSet();
+  var rows = (window._expiringRaw || []).filter(function(q){ return !dismissed[q.quote_number]; });
+  if (sortBy === 'value') {
+    rows.sort(function(a,b){ return (b.total||0) - (a.total||0); });
+  } else {
+    rows.sort(function(a,b){ return (a.days_remaining||0) - (b.days_remaining||0); });
+  }
+  if (!rows.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  var head = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;color:var(--tx2)">'
+    + '<span><b>' + rows.length + '</b> expiring quote' + (rows.length===1?'':'s') + '</span>'
+    + '<span>·</span>'
+    + '<label>Sort: <select id="expiry-sort" onchange="renderExpiring()" style="font-size:12px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);border-radius:4px;padding:1px 4px">'
+    + '<option value="value"' + (sortBy==='value'?' selected':'') + '>$ desc</option>'
+    + '<option value="days"' + (sortBy==='days'?' selected':'') + '>Days asc</option>'
+    + '</select></label>'
+    + '</div>';
+  var body = rows.map(function(q){
+    var sev = q.severity === 'critical';
+    var c = sev ? 'rgba(248,113,113,.12)' : 'rgba(210,153,34,.08)';
+    var b = sev ? 'rgba(248,113,113,.3)' : 'rgba(210,153,34,.25)';
+    var t = sev ? '#f87171' : '#d29922';
+    var dollarBit = q.total ? ' <span style="color:var(--tx2)">· $' + Math.round(q.total).toLocaleString() + '</span>' : '';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;border:1px solid ' + b + ';background:' + c + ';font-size:13px;margin-bottom:6px">'
+      + '<span>' + (sev?'🔴':'🟡') + ' <span style="color:' + t + '"><b>' + q.quote_number + '</b> (' + (q.agency||'?') + ') expires in <b>' + q.days_remaining + '</b> day(s)</span>' + dollarBit + '</span>'
+      + '<button type="button" onclick="dismissExpiring(\'' + q.quote_number.replace(/\\/g,'\\\\').replace(/\'/g,"\\'") + '\')" style="margin-left:auto;background:none;border:none;color:var(--tx2);cursor:pointer;font-size:14px;padding:0 4px" title="Snooze 24h" aria-label="Snooze this expiring quote for 24 hours">✕</button>'
+      + '</div>';
+  }).join('');
+  el.innerHTML = head + body;
+}
 setTimeout(function(){
  fetch('/api/quotes/expiring').then(function(r){return r.json()}).then(function(d){
-  var el=document.getElementById('expiry-alerts');
-  if(!el||!d.ok||!d.expiring||!d.expiring.length)return;
-  el.style.display='block';var h='';
-  d.expiring.forEach(function(q){
-   var sev=q.severity==='critical',c=sev?'rgba(248,113,113,.12)':'rgba(210,153,34,.08)',b=sev?'rgba(248,113,113,.3)':'rgba(210,153,34,.25)',t=sev?'#f87171':'#d29922';
-   h+='<div style="padding:8px 14px;border-radius:8px;border:1px solid '+b+';background:'+c+';font-size:13px;margin-bottom:6px">'+(sev?'🔴':'🟡')+' <span style="color:'+t+'"><b>'+q.quote_number+'</b> ('+(q.agency||'?')+') expires in <b>'+q.days_remaining+'</b> day(s)</span></div>';
-  });el.innerHTML=h;
+  if(!d.ok||!d.expiring||!d.expiring.length)return;
+  window._expiringRaw = d.expiring;
+  renderExpiring();
  }).catch(function(){});
 },3000);
 </script>
