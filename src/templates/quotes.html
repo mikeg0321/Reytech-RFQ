@@ -8,6 +8,7 @@
       <div style="display:flex;gap:8px;align-items:center">
        <span id="award-tracker-tile" style="display:none;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);font-family:'JetBrains Mono',monospace" title="Click to refresh"></span>
        <button type="button" id="award-audit-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="runAwardAuditNow(this)" title="Run SCPRS audit now (force-check pending quotes against SCPRS for losses)">🏆 Audit Now</button>
+       <button type="button" id="reconcile-po-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="reconcilePoPrompt()" title="Manually attach a PO number to a pending quote (recovery for the markQuote silent no-op window Feb 17 → Apr 15)">📝 Reconcile PO</button>
        <a href="/pipeline" class="btn btn-s" style="font-size:14px;font-weight:600">🔄 Pipeline</a>
        <a href="/growth" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth</a>
       </div>
@@ -125,6 +126,47 @@
        refresh();
        window._refreshAwardTrackerTile = refresh;
      })();
+
+     window.reconcilePoPrompt = function(){
+       var qn = window.prompt('Quote number to mark WON\n(e.g. R26Q500):');
+       if (!qn || !qn.trim()) return;
+       qn = qn.trim();
+       var po = window.prompt('PO number for ' + qn + ':');
+       if (!po || !po.trim()) return;
+       po = po.trim();
+       var notes = window.prompt('Notes (optional):', 'manual recon — markQuote was silent no-op') || '';
+       rtConfirm('Mark ' + qn + ' as WON with PO ' + po + '?', function(){
+         var body = {po_number: po, quote_number: qn, notes: notes};
+         fetch('/api/quotes/reconcile-po', {
+           method: 'POST', credentials: 'same-origin',
+           headers: {'Content-Type': 'application/json'},
+           body: JSON.stringify(body)
+         }).then(function(r){
+           if (r.status === 409) {
+             return r.json().then(function(d){
+               if (window.confirm('Quote already ' + d.current_status + ' (PO: ' + (d.current_po_number || 'none') + '). Overwrite?')) {
+                 body.force = true;
+                 return fetch('/api/quotes/reconcile-po', {
+                   method: 'POST', credentials: 'same-origin',
+                   headers: {'Content-Type': 'application/json'},
+                   body: JSON.stringify(body)
+                 }).then(function(r2){return r2.json()});
+               }
+               return null;
+             });
+           }
+           return r.json();
+         }).then(function(d){
+           if (!d) return;
+           if (d.ok) {
+             alert('✅ Reconciled: ' + d.quote_number + ' → WON (PO ' + d.po_number + ')');
+             location.reload();
+           } else {
+             alert('❌ ' + (d.error || 'unknown error'));
+           }
+         }).catch(function(e){ alert('Network error: ' + e); });
+       }, 0);
+     };
 
      window.runAwardAuditNow = function(btn){
        if (btn) {

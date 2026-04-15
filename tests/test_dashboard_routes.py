@@ -315,6 +315,64 @@ class TestQuotesPage:
         assert body["health"] in ("ok", "stale", "dead", "not_started", "no_run_yet")
         assert "staleness_seconds" in body
 
+    def test_reconcile_po_button_present(self, client):
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert "reconcile-po-btn" in html
+        assert "/api/quotes/reconcile-po" in html
+
+
+class TestReconcilePO:
+    def test_requires_po_number(self, client):
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"quote_number": "R26Q1"})
+        assert r.status_code == 400
+        assert r.get_json()["error"] == "po_number required"
+
+    def test_requires_quote_number(self, client):
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-1"})
+        assert r.status_code == 400
+        assert r.get_json()["error"] == "quote_number required"
+
+    def test_unknown_quote_returns_404(self, client):
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-X", "quote_number": "R26Q_NOT_REAL"})
+        assert r.status_code == 404
+
+    def test_marks_pending_quote_as_won(self, client, seed_db_quote):
+        qn = "R26Q9001"
+        seed_db_quote(qn, agency="CDCR", total=1234.56)
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-RECON-1",
+                              "quote_number": qn,
+                              "notes": "test recon"})
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["status"] == "won"
+        assert body["po_number"] == "PO-RECON-1"
+
+    def test_already_won_returns_409_without_force(self, client, seed_db_quote):
+        qn = "R26Q9002"
+        seed_db_quote(qn, agency="CDCR", status="won", total=500)
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-X", "quote_number": qn})
+        assert r.status_code == 409
+        body = r.get_json()
+        assert body["ok"] is False
+        assert "already" in body["error"].lower()
+
+    def test_force_overwrites_terminal_state(self, client, seed_db_quote):
+        qn = "R26Q9003"
+        seed_db_quote(qn, agency="CDCR", status="won", total=500)
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-NEW", "quote_number": qn,
+                              "force": True})
+        assert r.status_code == 200
+        assert r.get_json()["ok"] is True
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # WIN/LOSS STATUS API
