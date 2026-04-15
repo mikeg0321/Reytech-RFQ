@@ -463,15 +463,7 @@ def _lookup_amazon(url: str) -> dict:
                  scraped.get("upc"))
 
         title = scraped.get("title", "")
-        # Filter garbage site-name titles. When Amazon's bot detection
-        # serves us a stub page, the scraper grabs the bare site name
-        # ("Amazon.com") out of <title> and that registers as truthy,
-        # short-circuiting the Claude tier below. Treat any generic
-        # site title the same as no title — forces the AI fallback.
-        _garbage_titles = {"amazon.com", "amazon", "amazon.com.",
-                            "sign-in", "sign in", "robot check",
-                            "page not found", "error"}
-        if title.strip().lower() in _garbage_titles:
+        if _is_garbage_title(title):
             log.info("Amazon ASIN %s: garbage scrape title %r → treating as empty",
                      asin, title)
             title = ""
@@ -1661,6 +1653,216 @@ def claude_semantic_match(
             "reasoning": "Max retries exceeded"}
 
 
+# ── Universal result hygiene ─────────────────────────────────────────────────
+# Bot-stub pages and login walls register as truthy <title> text ("Amazon.com",
+# "Staples | Official Online Store", "Access Denied", etc.) and short-circuit
+# the rest of the pipeline. Treat them the same as no title — forces the
+# Claude web search fallback tier to fire.
+_GARBAGE_TITLE_MARKERS = (
+    "amazon.com", "amazon",
+    "sign-in", "sign in", "log in", "login",
+    "robot check", "captcha", "are you a robot",
+    "access denied", "access to this page has been denied",
+    "page not found", "not found", "404", "error",
+    "just a moment", "cloudflare", "attention required",
+    "staples", "uline", "target", "hcl", "home depot",
+    "the home depot", "walmart.com", "costco wholesale",
+)
+
+
+_GARBAGE_EXACT_TITLES = frozenset({
+    "amazon.com. spend less. smile more.",
+    "amazon.com: online shopping for electronics, apparel, "
+    "computers, books, dvds & more",
+    "staples\u00ae official online store",
+    "staples: official online store",
+    "uline - shipping boxes, shipping supplies, packaging materials, "
+    "packing supplies",
+    "target : expect more. pay less.",
+    "target: expect more. pay less.",
+    "the home depot",
+    "robot check", "page not found", "access denied",
+})
+
+
+def _is_garbage_title(title: str) -> bool:
+    """True if the <title> looks like a bot-stub / site landing page.
+
+    Bot detection on Amazon, Staples, HCL, Target, etc. often serves a
+    generic landing page whose <title> is just the brand name. A real
+    product title is almost always longer than ~20 chars and contains
+    something product-specific (size, pack count, model number). Short
+    brand-only titles are garbage.
+    """
+    t = (title or "").strip().lower()
+    if not t:
+        return True
+    # Exact-match known stub pages
+    if t in _GARBAGE_EXACT_TITLES:
+        return True
+    # Bare brand names ("Amazon.com", "Uline", "Staples", "HCL")
+    if t in _GARBAGE_TITLE_MARKERS:
+        return True
+    # Short titles (< 30 chars) that contain a stub marker are garbage.
+    # A real product title is almost always longer AND contains product
+    # specifics (size, pack count, material) beyond the brand/stub word.
+    if len(t) < 30:
+        for m in _GARBAGE_TITLE_MARKERS:
+            if m in t:
+                return True
+    return False
+
+
+def claude_product_lookup(url: str, supplier: str = "") -> dict:
+    """Generic Claude web_search product fallback for non-Amazon URLs.
+
+    Mirrors `claude_amazon_lookup` but prompts for any supplier page so
+    datacenter-IP-blocked sites (Staples, HCL, Target, S&S, Uline when
+    Cloudflare trips) still resolve to structured data. Returns the
+    same shape (`title`, `list_price`, `sale_price`, `mfg_number`,
+    `manufacturer`, `upc`, `photo_url`, `price`, `source`) so callers
+    can merge without branching.
+
+    Returns `{}` on any error — this is a best-effort fallback, never
+    fatal.
+    """
+    if not HAS_REQUESTS:
+        return {}
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not api_key:
+        log.debug("claude_product_lookup: no ANTHROPIC_API_KEY")
+        return {}
+
+    _sup = supplier or "the retailer"
+    prompt = (
+        f"Fetch this {_sup} product page: {url}\n\n"
+        "Use the web search tool to read the actual page, then return "
+        "ONLY a JSON object with these fields (no prose, no code fence):\n"
+        "{\n"
+        '  "title": "<product title, 5-200 chars>",\n'
+        '  "list_price": <number or null, the MSRP / "List:" / strikethrough>,\n'
+        '  "sale_price": <number or null, the current displayed price>,\n'
+        '  "manufacturer": "<brand/manufacturer name>",\n'
+        '  "mfg_number": "<Item model number or Manufacturer Part Number>",\n'
+        '  "upc": "<UPC or GTIN digits only, no dashes>",\n'
+        '  "photo_url": "<main product image URL>"\n'
+        "}\n\n"
+        "Rules:\n"
+        "- list_price is the original/MSRP; if only one price is shown, "
+        "put it in list_price and leave sale_price null.\n"
+        "- If a price shows \"Was $X\" or \"List: $X\" with a different "
+        "current price, list_price is the Was/List value.\n"
+        "- mfg_number: look in the product 'Specifications', 'Product "
+        "information', 'Item details', or 'Technical Details' section. "
+        "Prefer 'Manufacturer Part Number' over 'Item model number' or "
+        "'Model Number'. Use empty string if none exist.\n"
+        "- If any field is missing from the page, use null (for numbers) "
+        "or empty string (for strings). Do NOT make up values."
+    )
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 1500,
+        "tools": [{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 2,
+        }],
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    log.info("claude_product_lookup: calling Claude web_search for %s %s",
+             _sup, url[:80])
+
+    import json as _json
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers, json=body, timeout=15,
+        )
+        if resp.status_code != 200:
+            log.debug("claude_product_lookup: HTTP %d %s",
+                      resp.status_code, resp.text[:200])
+            return {}
+        data = resp.json()
+    except Exception as e:
+        log.debug("claude_product_lookup request error: %s", e)
+        return {}
+
+    text = ""
+    for block in (data.get("content") or []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            text += block.get("text", "") or ""
+    text = text.strip()
+    if not text:
+        return {}
+
+    if text.startswith("```"):
+        import re as _re_f
+        m = _re_f.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", text, _re_f.DOTALL)
+        if m:
+            text = m.group(1).strip()
+
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        log.debug("claude_product_lookup: no JSON in %r", text[:200])
+        return {}
+    try:
+        parsed = _json.loads(text[start:end + 1])
+    except Exception as e:
+        log.debug("claude_product_lookup JSON parse error: %s", e)
+        return {}
+
+    out = {"source": "claude_web_search"}
+    for key in ("title", "manufacturer", "mfg_number", "upc", "photo_url"):
+        v = parsed.get(key)
+        if isinstance(v, str) and v.strip():
+            out[key] = v.strip()
+    for key in ("list_price", "sale_price"):
+        v = parsed.get(key)
+        if v is None:
+            continue
+        try:
+            num = float(str(v).replace("$", "").replace(",", ""))
+            if 0 < num < 100000:
+                out[key] = num
+        except (ValueError, TypeError):
+            continue
+
+    if "list_price" in out:
+        out["price"] = out["list_price"]
+    elif "sale_price" in out:
+        out["price"] = out["sale_price"]
+
+    if out.get("title") or out.get("price"):
+        log.info("claude_product_lookup %s: got title=%r price=%s",
+                 _sup, (out.get("title") or "")[:40], out.get("price"))
+    return out
+
+
+def _merge_claude_fallback(result: dict, url: str, supplier: str) -> dict:
+    """If `result` is missing title or price, try Claude web_search and
+    merge anything it finds. Never overwrites existing non-empty fields.
+    """
+    claude = claude_product_lookup(url, supplier)
+    if not claude:
+        return result
+    for k in ("title", "manufacturer", "mfg_number", "upc", "photo_url"):
+        if claude.get(k) and not result.get(k):
+            result[k] = claude[k]
+    for k in ("list_price", "sale_price", "price"):
+        if claude.get(k) and not result.get(k):
+            result[k] = claude[k]
+    if not result.get("description") and result.get("title"):
+        result["description"] = result["title"]
+    result["fallback_source"] = "claude_web_search"
+    return result
+
+
 def lookup_from_url(url: str) -> dict:
     """
     Given any supplier product URL, return structured product data.
@@ -1746,6 +1948,52 @@ def lookup_from_url(url: str) -> dict:
             result = _scrape_generic(url)
             result["supplier"] = supplier
 
+        # ── Universal garbage-title scrub ────────────────────────────
+        # Bot stubs and landing pages look like valid titles to the
+        # scraper. Treat them as empty so the Claude fallback below can
+        # fire. Amazon's own lookup already scrubs internally; this is
+        # the safety net for every other supplier.
+        if _is_garbage_title(result.get("title", "")):
+            log.info("lookup_from_url: garbage title %r from %s → clearing",
+                     (result.get("title") or "")[:60], supplier)
+            result["title"] = ""
+            if _is_garbage_title(result.get("description", "")):
+                result["description"] = ""
+
+        # ── Universal Claude web_search fallback ─────────────────────
+        # If the primary scraper came back weak (no title or no usable
+        # price) and the host isn't login-required and isn't Amazon
+        # (Amazon has its own in-line Claude tier), ask Claude to
+        # re-fetch the page via web_search. This is the tier that
+        # unblocks Staples / HCL / Target / Uline / S&S when datacenter
+        # IPs are blocked.
+        _has_title = bool(result.get("title"))
+        _has_price = bool(result.get("price") or result.get("list_price")
+                          or result.get("sale_price"))
+        _weak = not _has_title or not _has_price
+        if _weak and "amazon.com" not in host and not _is_login_required(url):
+            log.info("lookup_from_url: weak result for %s (title=%s price=%s) "
+                     "— trying Claude web_search fallback",
+                     supplier, _has_title, _has_price)
+            result = _merge_claude_fallback(result, url, supplier)
+
+        # ── Universal single-price-as-MSRP promotion ─────────────────
+        # When a page shows only one price (no strikethrough / no
+        # "Was" / no List label), that price IS the MSRP. Promote sale
+        # → list so the UI never warns "MSRP not found" and the
+        # discount calculator isn't fed a fake sale. Applied for every
+        # supplier, not just Amazon. Incident 2026-04-14.
+        if (result.get("list_price") is None
+                and result.get("sale_price") is not None):
+            log.info("lookup_from_url %s: single price $%s — promoting to list_price",
+                     supplier, result["sale_price"])
+            result["list_price"] = result["sale_price"]
+            result["sale_price"] = None
+            if not result.get("price"):
+                result["price"] = result["list_price"]
+            if not result.get("cost"):
+                result["cost"] = result["list_price"]
+
         # Normalize
         result.setdefault("supplier", supplier)
         result.setdefault("url", url)
@@ -1765,7 +2013,8 @@ def lookup_from_url(url: str) -> dict:
         if not result["description"] and result["title"]:
             result["description"] = result["title"]
 
-        result["ok"] = "error" not in result
+        result["ok"] = "error" not in result and bool(
+            result.get("title") or result.get("price"))
         log.info("item_link_lookup: %s → supplier=%s price=%s part=%s",
                  url[:60], result["supplier"], result.get("price"), result.get("part_number"))
         return result
