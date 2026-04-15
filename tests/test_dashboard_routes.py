@@ -43,6 +43,14 @@ class TestHomePage:
     def test_loads(self, client):
         r = client.get("/")
         assert r.status_code == 200
+
+    def test_rt_confirm_helper_in_base(self, client):
+        # ConfirmButton macro depends on window.rtConfirm being available
+        # globally. Verify the helper is registered by base.html on every page.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "window.rtConfirm" in html
+        assert "rt-confirm-toast" in html
         assert b"Reytech" in r.data
 
     def test_has_upload_form(self, client):
