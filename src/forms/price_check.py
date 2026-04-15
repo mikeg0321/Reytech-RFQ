@@ -2941,8 +2941,24 @@ def fill_ams704(
         json.dump(field_values, f, indent=2)
 
     # Trim source template to needed pages for form fill (max 2 — pages 3+ added by overflow)
-    # Skip trimming when keep_all_pages=True (DOCX sources need all pages preserved)
-    _fill_pages = _pdf_total_pages if keep_all_pages else min(_pages_with_items, 2)
+    # Skip trimming when keep_all_pages=True (DOCX sources need all pages preserved).
+    # ALSO skip trimming when the source has no form fields at all: the fill
+    # path will fall through to _fill_pdf_text_overlay, and the overlay uses
+    # pdfplumber to detect row positions on every original page. Trimming to
+    # 2 would discard pages 3+ before the overlay ever sees them, silently
+    # losing items 20+. Incident pc_cd41eb14 (2026-04-15): 4-page flat 704
+    # got trimmed to 2 pages, items 22-23 disappeared from the output.
+    # "Has row fields" means the template has actual row-level form fields
+    # (Row1, Row2, ..., QTYRow1, etc.) — not just any random field like a
+    # DocuSign envelope stamp. row_capacity from TemplateProfile captures
+    # exactly this: how many rows can be form-filled.
+    _source_has_row_fields = _form_capacity > 0
+    if not _source_has_row_fields and not keep_all_pages:
+        log.info("fill_ams704: source has no row form fields — preserving "
+                 "all %d pages for text overlay", _pdf_total_pages)
+    _fill_pages = (_pdf_total_pages
+                   if (keep_all_pages or not _source_has_row_fields)
+                   else min(_pages_with_items, 2))
     _fill_source = source_pdf
     _trimmed_tmp = None
     if _fill_pages < _pdf_total_pages:
@@ -3508,41 +3524,71 @@ def _detect_ams704_overlay_positions(source_pdf):
                 ext_header = w
                 break
 
+        # Continuation pages (pg 2+) on real 704 forms don't repeat the
+        # PRICE / EXTENSION column headers — they only have row cells.
+        # Inherit the column X positions from page 1 so row detection can
+        # still run. Incident pc_cd41eb14 (2026-04-15): 4-page flat 704,
+        # header detection failed on pages 2-4 → items 8-23 were silently
+        # dropped from the overlay and the PDF came out with only page 1
+        # filled. Before this fix, the function bailed with `pages.append(
+        # None); continue` on any page that lacked column headers.
+        _is_cont = pg_idx > 0 and pages and pages[0] is not None
         if not ext_header:
-            log.info("OVERLAY detect pg%d: no EXTENSION header found", pg_idx)
-            pages.append(None)
-            continue
+            if _is_cont:
+                _ref = pages[0]
+                info["price_x"] = _ref.get("price_x")
+                info["ext_x"] = _ref.get("ext_x")
+                # Fake an ext_header sentinel so downstream item-y_min
+                # filter (_item_y_min = ext_header["bottom"] + 3) still
+                # works — put it at the top of the page so nothing gets
+                # filtered out.
+                ext_header = {"top": 0.0, "bottom": 0.0,
+                              "x0": 0.0, "x1": 0.0}
+                log.info("OVERLAY detect pg%d: continuation page — "
+                         "no column headers, inheriting from pg1", pg_idx)
+            else:
+                log.info("OVERLAY detect pg%d: no EXTENSION header found", pg_idx)
+                pages.append(None)
+                continue
 
         # ── Find PRICE column header near EXTENSION but to its left ──
         # "PRICE PER UNIT" may be split as "PRICE"/"PER"/"UNIT" or even
         # "PRIC"/"E"/"PER"/"UNIT" in DOCX-converted PDFs.
         # Strategy: look for "PRIC" or "PRICE" near EXTENSION, with wider Y tolerance.
+        # On continuation pages we already inherited price_x/ext_x above
+        # and have a sentinel ext_header — skip price_header lookup too.
         price_header = None
-        for w in words:
-            wt = w["text"].upper().strip()
-            if wt in ("PRICE", "PRIC") and w["x0"] > pw * 0.6:
-                # Must be near EXTENSION Y (within 80pt for DOCX layouts) and to its left
-                if abs(w["top"] - ext_header["top"]) < 80 and w["x0"] < ext_header["x0"]:
-                    price_header = w
-                    break
+        if not (_is_cont and info.get("price_x")):
+            for w in words:
+                wt = w["text"].upper().strip()
+                if wt in ("PRICE", "PRIC") and w["x0"] > pw * 0.6:
+                    # Must be near EXTENSION Y (within 80pt for DOCX layouts) and to its left
+                    if abs(w["top"] - ext_header["top"]) < 80 and w["x0"] < ext_header["x0"]:
+                        price_header = w
+                        break
 
-        if not price_header:
-            log.info("OVERLAY detect pg%d: no PRICE header found near EXTENSION", pg_idx)
-            pages.append(None)
-            continue
+            if not price_header:
+                log.info("OVERLAY detect pg%d: no PRICE header found near EXTENSION", pg_idx)
+                pages.append(None)
+                continue
 
         # ── Column X boundaries ──
         # Best source: horizontal rects that form the PRICE/EXTENSION column headers.
         # These give exact cell boundaries. Fallback to v-edges, then text estimation.
         p_left = p_right = e_right = None
+        # Continuation pages already inherited price_x + ext_x from page 1
+        # above; skip the header-based column detection entirely in that case.
+        _skip_col_detection = bool(_is_cont and info.get("price_x") and info.get("ext_x"))
 
+        if _skip_col_detection:
+            log.info("OVERLAY detect pg%d: skipping column detection (inherited from pg1)", pg_idx)
         # Method 1: Find horizontal rects that form PRICE/EXTENSION cell boundaries.
         # These are thin horizontal rects (h<5) with width 40-80pt in the right area.
         # PRICE rects have width ~50pt, EXTENSION rects have width ~68pt, separated
         # by a small gap (the border line between columns).
         # Filter to rects near the column header Y to avoid picking up totals/other areas.
         _header_y = ext_header["top"]
-        col_rects = [r for r in page.rects
+        col_rects = [] if _skip_col_detection else [r for r in page.rects
                      if r["x0"] > pw * 0.75 and r["width"] > 30 and r["width"] < 100
                      and r["height"] < 5
                      and abs(r["top"] - _header_y) < 40]
@@ -3564,7 +3610,7 @@ def _detect_ams704_overlay_positions(source_pdf):
                          pg_idx, p_left, p_right, ext_rect["x0"], e_right)
 
         # Method 2: vertical edges
-        if p_left is None:
+        if p_left is None and not _skip_col_detection:
             v_edges_x = sorted(set(
                 round(e["x0"], 0) for e in edges
                 if abs(e["x0"] - e["x1"]) < 2 and (e["bottom"] - e["top"]) > 30
@@ -3578,16 +3624,17 @@ def _detect_ams704_overlay_positions(source_pdf):
                 e_right = min(ext_right_v) if ext_right_v else None
 
         # Method 3: text estimation (least accurate)
-        if p_left is None:
-            p_left = price_header["x0"] - 12
-        if p_right is None:
-            p_right = ext_header["x0"] - 8
-        if e_right is None:
-            e_right = ext_header["x1"] + 15
+        if not _skip_col_detection:
+            if p_left is None:
+                p_left = price_header["x0"] - 12
+            if p_right is None:
+                p_right = ext_header["x0"] - 8
+            if e_right is None:
+                e_right = ext_header["x1"] + 15
 
-        # Inset 3pt from actual borders to avoid masking border lines
-        info["price_x"] = (p_left + 3, p_right - 3)
-        info["ext_x"] = (p_right + 3, e_right - 3)
+            # Inset 3pt from actual borders to avoid masking border lines
+            info["price_x"] = (p_left + 3, p_right - 3)
+            info["ext_x"] = (p_right + 3, e_right - 3)
 
         log.info("OVERLAY detect pg%d: price_x=(%.1f,%.1f) ext_x=(%.1f,%.1f)",
                  pg_idx, info["price_x"][0], info["price_x"][1],
