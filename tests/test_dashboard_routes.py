@@ -170,6 +170,28 @@ class TestRFQRoutes:
         assert r.status_code in (301, 302, 303, 307, 308)
         assert f"/rfq/{seed_rfq}" in r.headers.get("Location", "")
 
+    def test_qa_endpoint_returns_report(self, client, seed_rfq):
+        # New endpoint reuses pc_qa_agent.run_qa via an RFQ→PC adapter.
+        r = client.get(f"/api/rfq/{seed_rfq}/qa")
+        assert r.status_code == 200
+        body = r.get_json()
+        # Either the agent returns a structured report (with issues) or
+        # an explicit ok=False on a hard error — never a crash.
+        assert isinstance(body, dict)
+        assert "issues" in body or body.get("ok") is False
+
+    def test_qa_endpoint_404_for_unknown_rfq(self, client):
+        r = client.get("/api/rfq/rfq_does_not_exist_xyz/qa")
+        assert r.status_code == 404
+
+    def test_rfq_detail_has_qa_gate_script(self, client, seed_rfq):
+        # The hard-block gate is wired via JS on rfq_detail.html.
+        r = client.get(f"/rfq/{seed_rfq}")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert "rfqQaGate" in html
+        assert 'data-qa-gated="1"' in html
+
     def test_delete(self, client, seed_rfq, temp_data_dir):
         r = client.post(f"/rfq/{seed_rfq}/delete", follow_redirects=True)
         assert r.status_code == 200

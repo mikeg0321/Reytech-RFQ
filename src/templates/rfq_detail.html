@@ -489,13 +489,14 @@
 
  <!-- ── Primary Actions ── -->
  <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" data-qa-gated="1" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:12px 20px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote" title="Opens generated PDF if available, otherwise shows HTML preview">👁 Preview</button>
-  <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
-  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
+  <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" data-qa-gated="1" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
+  <button type="button" class="btn" data-qa-gated="1" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
   <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification" aria-label="Generate food certification form">🌾 Food Cert</button>
-  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
+  <button type="button" class="btn" data-qa-gated="1" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
  </div>
+ <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
 
  <!-- ── Quote Management ── -->
  {% if r.get('reytech_quote_number') %}
@@ -908,6 +909,56 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 <script>
 const RID = {{rid|tojson}};
 var _landedSummary = {{landed_summary|default({})|tojson}};
+
+// QA hard-block: reuse the existing pc_qa_agent helper via /api/rfq/<rid>/qa.
+// Disables Finalize / Generate / Send / Fill-All buttons until blockers clear.
+// Mirrors the gate the PC review page already enforces. No new QA rules.
+(function rfqQaGate(){
+  function applyGate(report){
+    var blockers = (report && report.issues || []).filter(function(i){ return i.severity === 'blocker'; });
+    var banner = document.getElementById('rfq-qa-gate-banner');
+    var btns = document.querySelectorAll('[data-qa-gated="1"]');
+    if (!blockers.length) {
+      if (banner) banner.style.display = 'none';
+      btns.forEach(function(b){
+        if (b.dataset._qaDisabled === '1') {
+          b.disabled = false;
+          b.style.opacity = '';
+          b.style.cursor = '';
+          b.removeAttribute('data-qa-blocked');
+          b.dataset._qaDisabled = '0';
+        }
+      });
+      return;
+    }
+    if (banner) {
+      var first = blockers.slice(0, 3).map(function(i){ return '• ' + (i.message || i.field || 'blocker'); }).join('<br>');
+      var more = blockers.length > 3 ? '<br><span style="opacity:.7">+ ' + (blockers.length - 3) + ' more</span>' : '';
+      banner.innerHTML = '🚫 <b>' + blockers.length + ' QA blocker' + (blockers.length === 1 ? '' : 's') + '</b> — destructive actions disabled until cleared.<br>' + first + more;
+      banner.style.display = 'block';
+    }
+    btns.forEach(function(b){
+      b.disabled = true;
+      b.style.opacity = '0.5';
+      b.style.cursor = 'not-allowed';
+      b.setAttribute('data-qa-blocked', '1');
+      b.title = (b.title || b.getAttribute('aria-label') || '') + ' — blocked: ' + blockers.length + ' QA issue(s)';
+      b.dataset._qaDisabled = '1';
+    });
+  }
+  function fetchAndApply(){
+    fetch('/api/rfq/' + encodeURIComponent(RID) + '/qa', {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(applyGate)
+      .catch(function(e){ console.error('rfq qa gate error:', e); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fetchAndApply);
+  } else {
+    fetchAndApply();
+  }
+  window.refreshRfqQaGate = fetchAndApply;
+})();
 
 window.onerror=function(msg,src,line){
  var el=document.getElementById('globalError');
