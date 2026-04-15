@@ -2302,7 +2302,8 @@ def generate_rfq_package(rid):
     _package_complete = _completeness["complete"]
     _missing_required = _completeness["missing_required"]
     _failed_required = _completeness["failed_required"]
-    _incomplete_msg = "; ".join(_completeness["reasons"])
+    _package_incomplete_reasons = _completeness["reasons"]
+    _incomplete_msg = "; ".join(_package_incomplete_reasons)
 
     if not _package_complete:
         log.error("PACKAGE INCOMPLETE %s: %s", rid, _incomplete_msg)
