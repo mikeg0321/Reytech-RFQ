@@ -463,6 +463,18 @@ def _lookup_amazon(url: str) -> dict:
                  scraped.get("upc"))
 
         title = scraped.get("title", "")
+        # Filter garbage site-name titles. When Amazon's bot detection
+        # serves us a stub page, the scraper grabs the bare site name
+        # ("Amazon.com") out of <title> and that registers as truthy,
+        # short-circuiting the Claude tier below. Treat any generic
+        # site title the same as no title — forces the AI fallback.
+        _garbage_titles = {"amazon.com", "amazon", "amazon.com.",
+                            "sign-in", "sign in", "robot check",
+                            "page not found", "error"}
+        if title.strip().lower() in _garbage_titles:
+            log.info("Amazon ASIN %s: garbage scrape title %r → treating as empty",
+                     asin, title)
+            title = ""
         _list = scraped.get("list_price")
         _sale = scraped.get("sale_price") or scraped.get("price")
         # Real mfg and item numbers tracked separately so the fallback
@@ -1424,7 +1436,10 @@ def claude_amazon_lookup(asin: str) -> dict:
     }
     body = {
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 600,
+        # Web search tool results can be large; need headroom for tool
+        # use + final JSON block. 600 tokens was too tight and
+        # truncated the final response in production.
+        "max_tokens": 1500,
         "tools": [{
             "type": "web_search_20250305",
             "name": "web_search",
@@ -1432,6 +1447,7 @@ def claude_amazon_lookup(asin: str) -> dict:
         }],
         "messages": [{"role": "user", "content": prompt}],
     }
+    log.info("claude_amazon_lookup %s: calling Claude web_search", asin)
 
     import json as _json
     try:
