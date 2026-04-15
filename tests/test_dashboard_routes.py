@@ -132,6 +132,13 @@ class TestRFQRoutes:
                         follow_redirects=True)
         assert r.status_code == 200
 
+    def test_update_get_redirects_not_405(self, client, seed_rfq):
+        # Regression: GET /rfq/<id>/update used to 405 MethodNotAllowed.
+        # Stray GETs should redirect to the RFQ detail page.
+        r = client.get(f"/rfq/{seed_rfq}/update", follow_redirects=False)
+        assert r.status_code in (301, 302, 303, 307, 308)
+        assert f"/rfq/{seed_rfq}" in r.headers.get("Location", "")
+
     def test_delete(self, client, seed_rfq, temp_data_dir):
         r = client.post(f"/rfq/{seed_rfq}/delete", follow_redirects=True)
         assert r.status_code == 200

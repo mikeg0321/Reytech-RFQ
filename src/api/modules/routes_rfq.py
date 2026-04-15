@@ -2556,6 +2556,16 @@ def rfq_save_restore(rid):
     return jsonify({"ok": True, "saved": False})
 
 
+@bp.route("/rfq/<rid>/update", methods=["GET"])
+@auth_required
+@safe_route
+def update_get_redirect(rid):
+    """Stray GETs (browser back-button on POST form, stale bookmarks, copied
+    URL from email) used to 405. Redirect them to the RFQ detail page so
+    the user lands somewhere useful instead of an error."""
+    return redirect(f"/rfq/{rid}", code=303)
+
+
 @bp.route("/rfq/<rid>/update", methods=["POST"])
 @auth_required
 @safe_route
