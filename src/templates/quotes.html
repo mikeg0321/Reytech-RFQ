@@ -19,7 +19,7 @@
         (stat_lost, 'Lost', '#f85149'),
         (stat_pending, 'Pending', '#d29922'),
         ("${:,.0f}".format(stat_won_total), 'Won $', '#3fb950'),
-        (stat_win_rate|string + '%%', 'Win Rate', '#3fb950' if stat_win_rate >= 50 else '#d29922' if stat_win_rate >= 30 else '#f85149'),
+        (stat_win_rate|string + '%', 'Win Rate', '#3fb950' if stat_win_rate >= 50 else '#d29922' if stat_win_rate >= 30 else '#f85149'),
       ] %}
       <div class="card" style="text-align:center;padding:12px;margin:0">
        <div style="font-size:22px;font-weight:700;font-family:'JetBrains Mono',monospace;color:{{color}};line-height:1">{{val}}</div>

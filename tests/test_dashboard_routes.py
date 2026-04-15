@@ -186,6 +186,12 @@ class TestQuotesPage:
         html = r.data.decode()
         assert "Win Rate" in html
 
+    def test_win_rate_no_double_percent(self, client):
+        # Regression: stat_win_rate was rendering with literal '%%'
+        r = client.get("/quotes")
+        html = r.data.decode()
+        assert "%%" not in html
+
     def test_has_mark_buttons(self, client, seed_pc):
         # Generate a quote first so there's a row
         client.post(f"/pricecheck/{seed_pc}/generate-quote")
