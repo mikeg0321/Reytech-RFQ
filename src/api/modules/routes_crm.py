@@ -2140,6 +2140,30 @@ def api_notify_test():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/notify/snooze", methods=["POST"])
+@auth_required
+@safe_route
+def api_notify_snooze():
+    """Snooze a notification key for N hours (default 24).
+
+    POST body: {"key": "outbox_stale_drafts_waiting", "hours": 24}
+
+    The key is the cooldown_key the alert was sent with — see notify_agent
+    call sites. Snooze is in-memory only; restarts clear all snoozes.
+    """
+    try:
+        from src.agents.notify_agent import snooze_alert
+        data = request.get_json(force=True, silent=True) or {}
+        key = (data.get("key") or "").strip()
+        if not key:
+            return jsonify({"ok": False, "error": "key required"}), 400
+        hours = float(data.get("hours") or 24)
+        result = snooze_alert(key, hours=hours)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/notify/status")
 @auth_required
 @safe_route

@@ -76,15 +76,52 @@ COOLDOWN_MIN   = int(os.environ.get("ALERT_COOLDOWN_MIN", "15"))
 _cooldown: dict[str, float] = {}
 _cooldown_lock = threading.Lock()
 
-def _is_cooled_down(key: str) -> bool:
-    """Return True if this alert key is past its cooldown period."""
+def _is_cooled_down(key: str, ttl_seconds: int = None, _now_fn=time.time) -> bool:
+    """Return True if this alert key is past its cooldown period.
+
+    ttl_seconds overrides the default COOLDOWN_MIN*60 window, e.g. pass
+    86400 to dedup an alert to "once per 24h". Negative cooldown values
+    (set by snooze_alert) are honored — an alert snoozed past `now` will
+    keep returning False until the snooze expires.
+
+    `_now_fn` is injectable so unit tests can drive a fake clock.
+    """
+    ttl = int(ttl_seconds) if ttl_seconds is not None else COOLDOWN_MIN * 60
     with _cooldown_lock:
         last = _cooldown.get(key, 0)
-        now = time.time()
-        if now - last >= COOLDOWN_MIN * 60:
+        now = _now_fn()
+        if last < 0:
+            # Snooze marker: -abs(snooze_until). If we're past it, clear and fire.
+            snooze_until = -last
+            if now >= snooze_until:
+                _cooldown[key] = now
+                return True
+            return False
+        if now - last >= ttl:
             _cooldown[key] = now
             return True
         return False
+
+
+def snooze_alert(key: str, hours: float = 24.0, _now_fn=time.time) -> dict:
+    """Snooze a notification key for N hours. The next call to
+    `_is_cooled_down(key, ...)` (and therefore the next send_alert with the
+    same dedup key) will be suppressed until `now + hours*3600`.
+
+    Returns the snooze metadata so callers / tests can verify.
+    """
+    snooze_until = _now_fn() + max(0.0, float(hours)) * 3600.0
+    with _cooldown_lock:
+        # Encoded as a negative timestamp so _is_cooled_down can distinguish
+        # snooze markers from normal "last fired" values.
+        _cooldown[key] = -snooze_until
+    return {"key": key, "snoozed_until": snooze_until, "hours": hours}
+
+
+def _reset_cooldowns_for_test():
+    """Test-only: wipe the in-memory cooldown table."""
+    with _cooldown_lock:
+        _cooldown.clear()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -99,6 +136,7 @@ def send_alert(
     context: dict = None,           # {quote_number, po_number, rfq_id, contact, entity_id}
     channels: list = None,          # override: ["sms","email","bell"] — None = auto from map
     cooldown_key: str = None,       # key for dedup — defaults to event_type
+    cooldown_seconds: int = None,   # override the default cooldown window for this call
     run_async: bool = True,         # fire in background thread (default True)
 ) -> dict:
     """
@@ -116,7 +154,15 @@ def send_alert(
     context = context or {}
     dedup_key = cooldown_key or f"{event_type}:{context.get('entity_id','')}"
 
-    if not _is_cooled_down(dedup_key):
+    # Per-day bucket for long-cooldown alerts. When cooldown_seconds is at
+    # least a full day, dedup by (key, day_bucket) so the alert can fire
+    # once per calendar day per title even if the watcher hits send_alert
+    # repeatedly within the same day.
+    if cooldown_seconds is not None and cooldown_seconds >= 86400:
+        day_bucket = datetime.now().strftime("%Y%m%d")
+        dedup_key = f"{dedup_key}:{day_bucket}"
+
+    if not _is_cooled_down(dedup_key, ttl_seconds=cooldown_seconds):
         log.debug("Alert suppressed (cooldown): %s", dedup_key)
         return {"ok": False, "reason": "cooldown"}
 
@@ -567,7 +613,11 @@ def start_stale_watcher():
                         body=f"You have {', '.join(parts)} sitting unsent for 4+ hours. Tap to review.",
                         urgency="warning",
                         context={"count": len(stale), "entity_id": f"stale_{len(stale)}"},
-                        cooldown_key="outbox_stale",
+                        # Dedup by title (not entity_id) so the same banner doesn't
+                        # post 12× in a day each time the count ticks up by one.
+                        # 24h cooldown + day-bucket key = once per calendar day.
+                        cooldown_key="outbox_stale_drafts_waiting",
+                        cooldown_seconds=86400,
                         run_async=False,
                     )
                 heartbeat("stale-watcher", success=True)
