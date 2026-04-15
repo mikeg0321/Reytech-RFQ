@@ -288,11 +288,32 @@ def _scrape_generic(url: str) -> dict:
         r'"mpn"\s*:\s*"([A-Z0-9\-]{3,30})"',
         r'[Mm]anufacturer\s*(?:#|[Nn]umber|[Pp]art)\s*:?\s*([A-Z0-9\-]{3,25})',
         r'[Mm][Ff][Gg]\s*(?:#|[Nn]o\.?|[Nn]umber)\s*:?\s*([A-Z0-9\-]{3,25})',
+        # Amazon product detail table: "Item model number : ABC123" /
+        # "Manufacturer Part Number : XYZ456"
+        r'Item\s+model\s+number\s*[:\s]+([A-Z0-9\-]{3,30})',
+        r'Manufacturer\s+Part\s+Number\s*[:\s]+([A-Z0-9\-]{3,30})',
     ]
     for pat in mfg_patterns:
         m = re.search(pat, html)
         if m:
             result["mfg_number"] = m.group(1).strip()
+            break
+
+    # UPC / GTIN — JSON-LD uses "gtin8"/"gtin12"/"gtin13" and "gtin".
+    # Amazon also exposes it in the product detail table. This is the
+    # last-resort identifier when MFG# and item# are missing.
+    upc_patterns = [
+        r'"gtin13"\s*:\s*"?(\d{13})"?',
+        r'"gtin12"\s*:\s*"?(\d{12})"?',
+        r'"gtin8"\s*:\s*"?(\d{8,13})"?',
+        r'"gtin"\s*:\s*"?(\d{8,14})"?',
+        r'UPC\s*[:\s]+(\d{12,13})',
+        r'EAN\s*[:\s]+(\d{12,13})',
+    ]
+    for pat in upc_patterns:
+        m = re.search(pat, html)
+        if m:
+            result["upc"] = m.group(1).strip()
             break
 
     # Manufacturer / brand name
@@ -398,11 +419,28 @@ def _scrape_generic(url: str) -> dict:
 # ─── Supplier-specific handlers ───────────────────────────────────────────────
 
 def _lookup_amazon(url: str) -> dict:
-    """Amazon: extract ASIN, use Grok-powered product lookup.
-    Time budget: 12s total to stay within client's 15s timeout."""
+    """Amazon: extract ASIN then fetch product data.
+
+    Strategy (rewritten 2026-04-14 after regression):
+      1. Direct HTML scrape first — fast (~2s), reliable, returns
+         list_price + sale_price separately via JSON-LD / Amazon's
+         own markup, and exposes MFG# from the "Item model number"
+         row and UPC from gtin fields.
+      2. Grok ASIN lookup second — only used as enrichment if the
+         scrape came back with no title or no price. Grok became
+         unreliable after the Apr 10 SerpApi swap (timeouts on most
+         Amazon ASINs) and was the single biggest cause of user-
+         reported parser failures.
+      3. MFG fallback chain: mfg_number → part_number → upc → asin.
+         The return dict always has *something* in mfg_number so
+         downstream callers can at least store an identifier.
+
+    Time budget still 12s. Scrape-first means most lookups return
+    in under 3s, leaving plenty of budget for the enrichment hop.
+    """
     import time as _time
     _t0 = _time.monotonic()
-    _BUDGET = 12.0  # seconds — leave 3s margin for catalog write + response
+    _BUDGET = 12.0
 
     def _over_budget():
         return (_time.monotonic() - _t0) >= _BUDGET
@@ -411,112 +449,165 @@ def _lookup_amazon(url: str) -> dict:
     if not asin:
         return {"error": "Could not extract ASIN from Amazon URL", "supplier": "Amazon"}
 
-    # Detect ISBN (starts with digit, not B0-style ASIN) — use as MFG# for books
     _is_isbn = asin and asin[0].isdigit()
+    clean_url = _normalize_amazon_url(url)
 
     try:
-        from src.agents.product_research import search_amazon, lookup_amazon_product
-        # Step 1: direct product lookup (most reliable for ASIN/ISBN)
-        direct = lookup_amazon_product(asin)
-        results = []
-        if direct and (direct.get("price") or direct.get("title")):
-            results = [direct]
-        elif not _over_budget():
-            # Step 2: search fallback — only if budget remains
-            _search_q = f"ISBN {asin}" if _is_isbn else f"ASIN {asin}"
-            results = search_amazon(_search_q, max_results=1)
+        # ── Step 1: direct HTML scrape (primary path) ───────────────
+        scraped = _scrape_generic(clean_url) or {}
+        _elapsed_scrape = _time.monotonic() - _t0
+        log.info("Amazon ASIN %s: scrape %.1fs title=%r price=%s list=%s upc=%s",
+                 asin, _elapsed_scrape,
+                 (scraped.get("title") or "")[:40],
+                 scraped.get("price"), scraped.get("list_price"),
+                 scraped.get("upc"))
 
-        if results:
-            r = results[0]
-            title = r.get("title", "")
-            # Extract size from title if present (e.g., "...Scrub Set, X-Small")
-            size = ""
-            import re as _re
+        title = scraped.get("title", "")
+        _list = scraped.get("list_price")
+        _sale = scraped.get("sale_price") or scraped.get("price")
+        # Real mfg and item numbers tracked separately so the fallback
+        # chain below can label the source correctly.
+        scraped_mfg = scraped.get("mfg_number", "") or ""
+        scraped_item = scraped.get("part_number", "") or ""
+        mfg = scraped_mfg  # starts empty if scrape didn't find one
+        manufacturer = scraped.get("manufacturer", "")
+        photo_url = scraped.get("photo_url", "")
+        upc = scraped.get("upc", "")
+
+        # ── Step 2: Grok enrichment — only when scrape came back empty
+        # A successful scrape already has title + price; the Grok hop
+        # is expensive and frequently times out, so skip it when we
+        # already have what we need.
+        scrape_good = bool(title) and (bool(_list) or bool(_sale))
+        if (not scrape_good) and (not _over_budget()):
+            try:
+                from src.agents.product_research import lookup_amazon_product
+                direct = lookup_amazon_product(asin)
+                if direct:
+                    title = title or direct.get("title", "")
+                    _list = _list or direct.get("list_price") or direct.get("typical_price")
+                    _sale = _sale or direct.get("sale_price") or direct.get("price")
+                    mfg = mfg or direct.get("mfg_number", "") or direct.get("part_number", "")
+                    manufacturer = manufacturer or direct.get("manufacturer", "")
+                    photo_url = photo_url or direct.get("photo_url", "") or direct.get("thumbnail", "")
+                    log.info("Amazon ASIN %s: Grok enrichment hit (%.1fs)",
+                             asin, _time.monotonic() - _t0)
+            except Exception as _e:
+                log.debug("Amazon Grok enrichment failed: %s", _e)
+
+        # Still empty? Return a minimal error frame — but never the
+        # old "Lookup timed out" message, since we now always at
+        # least tried the scrape.
+        if not title and not _list and not _sale:
+            return {
+                "supplier": "Amazon",
+                "asin": asin,
+                "url": clean_url,
+                "error": "No product data found — paste cost manually",
+                "mfg_number": asin,  # last-resort identifier
+                "part_number": asin,
+            }
+
+        # ── Size extraction from title ──────────────────────────────
+        size = ""
+        import re as _re
+        if title:
             size_match = _re.search(
                 r',\s*(XX?-?(?:Small|Large)|(?:Small|Medium|Large|X-Large|XX-Large|XS|XL|XXL|S|M|L)\b)',
                 title, _re.IGNORECASE
             )
             if size_match:
                 size = size_match.group(1).strip()
-            # Price: always use list/typical price — never sale/coupon price
-            _list = r.get("list_price") or r.get("typical_price")
-            _sale = r.get("sale_price") or r.get("price")
 
-            _use_price = _list or _sale
-            log.info("Amazon ASIN %s: list=$%s sale=$%s use=$%s (%.1fs)",
-                     asin, _list, _sale, _use_price, _time.monotonic() - _t0)
+        # ── MFG fallback chain: MFG → Item → UPC → ASIN ─────────────
+        # User ask: "amazon should add MFG/item/or last UPC number if
+        # no MFG/Item". The normalized mfg_number is always populated
+        # so downstream catalog / quote writers never see an empty id.
+        #
+        # `mfg` at this point = scraped_mfg OR (if the Grok enrichment
+        # hop fired and found one) the Grok mfg. If that's populated
+        # the label is "mfg". Otherwise walk the chain: item → upc →
+        # asin. scraped_item captures the scraper's part_number at
+        # entry time so the Grok enrichment hop can't muddy the label.
+        if mfg:
+            mfg_source = "mfg"
+        elif scraped_item:
+            mfg = scraped_item
+            mfg_source = "item"
+        elif upc:
+            mfg = upc
+            mfg_source = "upc"
+        elif _is_isbn:
+            mfg = asin
+            mfg_source = "isbn"
+        else:
+            mfg = asin
+            mfg_source = "asin_fallback"
 
-            # MFG#: use scraped MFG#, or ISBN for books
-            mfg = r.get("mfg_number", "") or r.get("part_number", "") or ""
-            if not mfg and _is_isbn:
-                mfg = asin  # ISBN-10 serves as MFG# for books
-            structured_desc = title
+        # ── Pricing semantics (user ask §9): ────────────────────────
+        # - unit_cost should be list/MSRP (stable price you'd quote
+        #   against, not a time-limited sale).
+        # - If a discount exists, log it separately and expose a
+        #   "cost_if_discount_holds" field so the pricing oracle can
+        #   compute both profit scenarios downstream.
+        _use_price = _list or _sale  # fall back to sale if list is missing
+        discount_pct = None
+        discount_amount = None
+        cost_if_discount_holds = None
+        if _list and _sale and _list > _sale + 0.005:
+            discount_amount = round(_list - _sale, 2)
+            discount_pct = round((1 - _sale / _list) * 100, 1)
+            cost_if_discount_holds = round(_sale, 2)
+            log.info("Amazon ASIN %s: discount detected MSRP=$%.2f sale=$%.2f (%.1f%% off)",
+                     asin, _list, _sale, discount_pct)
 
-            # Step 3: scrape product page for MFG# or list price — only if budget remains
-            if not _over_budget():
-                _need_mfg = not mfg and asin and not _is_isbn
-                _need_list = not _list and _sale
-                if _need_mfg or _need_list:
-                    try:
-                        _page = _scrape_generic(f"https://www.amazon.com/dp/{asin}")
-                        if not mfg and _page:
-                            import re as _re_mfg
-                            _page_text = str(_page.get("raw_text", "") or _page.get("meta_description", ""))
-                            _model_match = _re_mfg.search(
-                                r'(?:Item model number|Part Number|Model Number|Manufacturer Part Number)'
-                                r'[:\s]+([A-Z0-9][A-Z0-9\-/]{2,25})',
-                                _page_text, _re_mfg.IGNORECASE)
-                            if _model_match:
-                                mfg = _model_match.group(1).strip()
-                        if not _list and _page and _page.get("list_price"):
-                            _list = _page["list_price"]
-                            _use_price = _list
-                            log.info("Amazon ASIN %s: list $%.2f from HTML scrape", asin, _list)
-                        if not _sale and _page:
-                            _sale = _page.get("sale_price") or _page.get("price")
-                    except Exception as _e:
-                        log.debug("suppressed: %s", _e)
+        price_note = ""
+        if discount_pct is not None:
+            price_note = (f"MSRP ${_list:.2f} (${_sale:.2f} sale, "
+                          f"{discount_pct:.0f}% off — profit shown for both)")
+        elif _list:
+            price_note = f"List: ${_list:.2f}"
 
-            clean_url = _normalize_amazon_url(url)
-            _elapsed = _time.monotonic() - _t0
-            log.info("Amazon ASIN %s: done in %.1fs", asin, _elapsed)
+        _elapsed = _time.monotonic() - _t0
+        log.info("Amazon ASIN %s: done in %.1fs mfg_source=%s",
+                 asin, _elapsed, mfg_source)
 
-            return {
-                "supplier":      "Amazon",
-                "title":         title,
-                "description":   structured_desc,
-                "price":         _use_price,
-                "list_price":    _list,
-                "sale_price":    _sale if _sale and _sale != _list else None,
-                "cost":          _use_price,
-                "part_number":   mfg,
-                "mfg_number":    mfg,
-                "manufacturer":  r.get("manufacturer", ""),
-                "url":           clean_url,
-                "original_url":  url,
-                "asin":          asin,
-                "size":          size,
-                "shipping":      0.0,
-                "shipping_note": "Prime/standard shipping — verify delivery window",
-                "source":        "amazon_asin",
-                "price_note":    f"List: ${_list:.2f}" if _list and _sale and _list != _sale else "",
-                "photo_url":     r.get("photo_url", "") or r.get("thumbnail", ""),
-            }
-        # Fallback: scrape the product page (only if budget allows)
-        if not _over_budget():
-            scraped = _scrape_generic(url)
-            scraped["supplier"] = "Amazon"
-            scraped["asin"] = asin
-            scraped["url"] = _normalize_amazon_url(url)
-            _title = scraped.get("title") or scraped.get("description") or ""
-            if _title:
-                scraped["description"] = _title
-            return scraped
-        # Budget exhausted with no results
-        return {"supplier": "Amazon", "asin": asin, "url": _normalize_amazon_url(url),
-                "error": "Lookup timed out — paste cost manually"}
+        return {
+            "supplier":      "Amazon",
+            "title":         title,
+            "description":   title,
+            # Quoting price: always MSRP when available. Pricing
+            # oracle should NOT treat this as a cost floor — Amazon
+            # retail is reference data, not supplier cost.
+            "price":         _use_price,
+            "list_price":    _list,
+            "sale_price":    _sale if (_sale and _sale != _list) else None,
+            "cost":          _use_price,
+            "cost_if_discount_holds": cost_if_discount_holds,
+            "discount_amount":        discount_amount,
+            "discount_pct":           discount_pct,
+            # MFG fallback chain populates mfg_number + part_number
+            # + upc so downstream code can pick whichever shape it
+            # needs without having to re-derive the fallback.
+            "part_number":   mfg,
+            "mfg_number":    mfg,
+            "mfg_source":    mfg_source,
+            "upc":           upc,
+            "manufacturer":  manufacturer,
+            "url":           clean_url,
+            "original_url":  url,
+            "asin":          asin,
+            "size":          size,
+            "shipping":      0.0,
+            "shipping_note": "Prime/standard shipping — verify delivery window",
+            "source":        "amazon_scrape",
+            "price_note":    price_note,
+            "photo_url":     photo_url,
+        }
     except Exception as e:
-        return {"error": str(e), "supplier": "Amazon", "asin": asin}
+        log.error("Amazon lookup failed for %s: %s", asin, e, exc_info=True)
+        return {"error": str(e), "supplier": "Amazon", "asin": asin,
+                "mfg_number": asin, "part_number": asin}
 
 
 def _lookup_grainger(url: str) -> dict:
