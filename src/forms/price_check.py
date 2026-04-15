@@ -4034,7 +4034,14 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
         c.restoreState()
 
     def _cell_right(c, x1, y1, x2, y2, text, fs=9, mask=True):
-        """Draw RIGHT-ALIGNED text. mask=False skips white background (for empty cells)."""
+        """Draw RIGHT-ALIGNED text. mask=False skips white background (for empty cells).
+
+        Prices containing "." get a reinforcement dot drawn on top of the period
+        glyph. At 9pt Helvetica, "." is 2.5pt wide — at 66% zoom in Chrome's PDF
+        viewer this renders as a <1px sub-pixel that gets dropped on certain
+        y-fractions, making "29.70" appear as "29 70". A small filled circle at
+        the period position survives any zoom level. Incident 2026-04-15.
+        """
         if not text or not text.strip():
             return
         text = text.strip()
@@ -4049,14 +4056,35 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
             c.setFillColorRGB(1, 1, 1)
             c.rect(x1 + _PAD, y1 + _PAD, w - _PAD * 2, h - _PAD * 2, fill=1, stroke=0)
         fs = min(fs, h * 0.75)
-        c.setFont("Helvetica", fs)
+        _font = "Helvetica-Bold"
+        c.setFont(_font, fs)
         c.setFillColorRGB(0, 0, 0)
-        while c.stringWidth(text, "Helvetica", fs) > w - _PAD * 2 - 4 and fs > 4.5:
+        while c.stringWidth(text, _font, fs) > w - _PAD * 2 - 4 and fs > 4.5:
             fs -= 0.5
-            c.setFont("Helvetica", fs)
-        text_w = c.stringWidth(text, "Helvetica", fs)
-        c.drawString(x2 - _PAD - text_w - 1, y1 + (h - fs) / 2, text)
+            c.setFont(_font, fs)
+        text_w = c.stringWidth(text, _font, fs)
+        tx = x2 - _PAD - text_w - 1
+        ty = y1 + (h - fs) / 2
+        c.drawString(tx, ty, text)
+        # Compute decimal-point position while we still have the draw metrics,
+        # then stash for reinforcement OUTSIDE the clip path below.
+        _dot_pos = None
+        if "." in text:
+            idx = text.index(".")
+            pre_w = c.stringWidth(text[:idx], _font, fs)
+            dot_w = c.stringWidth(".", _font, fs)
+            _dot_pos = (tx + pre_w + dot_w * 0.5, ty + fs * 0.08)
         c.restoreState()
+        # Reinforce the decimal point OUTSIDE the cell clip so it survives
+        # Chrome's PDF viewer sub-pixel rounding at low zoom. 2.2pt square is
+        # visually close to a period glyph but always >= 1 CSS px.
+        if _dot_pos is not None:
+            dot_cx, dot_cy = _dot_pos
+            dot_sz = 2.2
+            c.saveState()
+            c.setFillColorRGB(0, 0, 0)
+            c.rect(dot_cx - dot_sz / 2, dot_cy - dot_sz / 2, dot_sz, dot_sz, fill=1, stroke=0)
+            c.restoreState()
 
     def _multiline(c, x1, y1, x2, y2, text, fs=8):
         if not text or not text.strip():
@@ -4318,17 +4346,20 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
                 if qpv and qpv.strip():
                     _cell(c, qpu_x[0], y_top, qpu_x[1], _qty_top, qpv, fs=9)
                     drew = True
-            # Price
+            # Price — always transparent (mask=False). A white mask rect covers
+            # the horizontal cell borders inside the price column; since the
+            # overlay writes the price text on a blank cell anyway, the mask
+            # adds no value and breaks the visual grid.
             pf = ROW_FIELDS["unit_price"].format(n=rn)
             pv = fv_map.get(pf, "")
             if pv and pv.strip():
-                _cell_right(c, price_x[0], y_bot, price_x[1], y_top, pv, fs=9, mask=_need_mask)
+                _cell_right(c, price_x[0], y_bot, price_x[1], y_top, pv, fs=9, mask=False)
                 drew = True
             # Extension
             ef = ROW_FIELDS["extension"].format(n=rn)
             ev = fv_map.get(ef, "")
             if ev and ev.strip():
-                _cell_right(c, ext_x[0], y_bot, ext_x[1], y_top, ev, fs=9, mask=_need_mask)
+                _cell_right(c, ext_x[0], y_bot, ext_x[1], y_top, ev, fs=9, mask=False)
                 drew = True
 
         log.info("OVERLAY pg%d: %s rows=%d-%d (%d slots) drew=%s detected=%s",
