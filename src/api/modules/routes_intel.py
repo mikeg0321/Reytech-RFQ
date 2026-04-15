@@ -1710,7 +1710,22 @@ def quotes_list():
         source_rfq = qt.get("source_rfq_id", "")
         source_pc = qt.get("source_pc_id", "")
         rfq_num_val = qt.get("rfq_number", "")
-        
+
+        # Backfill the RFQ # column from the source RFQ record when the quote
+        # row itself doesn't carry one. Without this, the RFQ # column is
+        # almost always "—" even when the quote was generated from a real RFQ.
+        if not rfq_num_val and source_rfq:
+            try:
+                from src.api.modules.routes_rfq import load_rfqs as _lr
+                _src_rfq = _lr().get(source_rfq) or {}
+                rfq_num_val = (
+                    _src_rfq.get("solicitation_number")
+                    or _src_rfq.get("rfq_number")
+                    or ""
+                )
+            except Exception as _e:
+                log.debug("rfq# backfill suppressed: %s", _e)
+
         # Build link: prefer RFQ detail → PC detail → quote detail
         if source_rfq:
             qn_href = f"/rfq/{source_rfq}"
