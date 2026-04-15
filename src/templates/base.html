@@ -63,6 +63,29 @@ window.rtConfirm = function(message, onConfirm, undoSeconds){
     try { onConfirm(); } catch(e) { console.error('rtConfirm action failed:', e); }
   }, n * 1000);
 };
+
+// markQuote: mark a quote as won/lost via the /quotes/<qn>/status endpoint.
+// Used by the Mark Won / Mark Lost buttons on /quotes and /quote/<qn>.
+// Was previously referenced by templates but never defined → silent no-op.
+window.markQuote = function(qn, status){
+  var body = {status: status};
+  if (status === 'won') {
+    var po = window.prompt('PO number for ' + qn + '?\n(required — only formal POs count as wins)');
+    if (!po || !po.trim()) return;
+    body.po_number = po.trim();
+  }
+  rtConfirm('Mark quote ' + qn + ' as ' + status.toUpperCase() + '?', function(){
+    fetch('/quotes/' + encodeURIComponent(qn) + '/status', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    }).then(function(r){return r.json()}).then(function(d){
+      if (d && d.ok) location.reload();
+      else window.alert('Error: ' + ((d && d.error) || 'unknown'));
+    }).catch(function(e){ window.alert('Network error: ' + e); });
+  }, 0);
+};
 </script>
 </head>
 <body>

@@ -127,13 +127,14 @@ function bulkApproveAll(){
   });
 }
 function bulkDeleteDrafts(){
-  if(!confirm('Delete ALL draft emails? This cannot be undone.'))return;
-  document.getElementById('bulk-status').textContent='Deleting...';
-  fetch('/api/outbox/bulk-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status_filter:'draft'})})
-  .then(r=>r.json()).then(d=>{
-    document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
-    if(d.ok)setTimeout(()=>location.reload(),1500);
-  });
+  rtConfirm('Delete ALL draft emails? This cannot be undone.', function(){
+    document.getElementById('bulk-status').textContent='Deleting...';
+    fetch('/api/outbox/bulk-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status_filter:'draft'})})
+    .then(r=>r.json()).then(d=>{
+      document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
+      if(d.ok)setTimeout(()=>location.reload(),1500);
+    });
+  }, 3);
 }
 function retryFailed(){
   document.getElementById('bulk-status').textContent='Retrying...';

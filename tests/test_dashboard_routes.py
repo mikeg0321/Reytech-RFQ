@@ -51,6 +51,13 @@ class TestHomePage:
         html = r.data.decode()
         assert "window.rtConfirm" in html
         assert "rt-confirm-toast" in html
+
+    def test_mark_quote_helper_defined(self, client):
+        # Regression: markQuote() was called from quote buttons but never
+        # defined → silent no-op. Verify base.html now ships the helper.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "window.markQuote" in html
         assert b"Reytech" in r.data
 
     def test_has_upload_form(self, client):

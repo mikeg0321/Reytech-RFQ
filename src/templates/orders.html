@@ -196,15 +196,16 @@ function handlePOUpload(input) {
   });
 }
 function deleteOrder(oid) {
-  if (!confirm('Delete order ' + oid + '?')) return;
-  fetch('/api/order/' + oid + '/delete', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({reason: 'manual delete'})
-  }).then(function(r){return r.json()}).then(function(d) {
-    if (d.ok) location.reload();
-    else alert('Error: ' + (d.error || 'unknown'));
-  });
+  rtConfirm('Delete order ' + oid + '?', function(){
+    fetch('/api/order/' + oid + '/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reason: 'manual delete'})
+    }).then(function(r){return r.json()}).then(function(d) {
+      if (d.ok) location.reload();
+      else alert('Error: ' + (d.error || 'unknown'));
+    });
+  }, 3);
 }
 // F10: KPI Dashboard
 fetch('/api/orders/kpi').then(function(r){return r.json()}).then(function(d){

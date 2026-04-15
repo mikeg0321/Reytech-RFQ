@@ -4,8 +4,8 @@
 {% block content %}
 
 <a href="/" class="btn btn-s" style="margin-bottom:16px">← Queue</a>
-<form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
- <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:6px 14px;font-size:14px;font-weight:600" onclick="return confirm('Delete this RFQ?')" aria-label="Delete">Delete</button>
+<form method="POST" action="/rfq/{{rid}}/delete" id="rfqDeleteForm" style="display:inline;margin-left:8px;margin-bottom:16px">
+ <button type="button" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:6px 14px;font-size:14px;font-weight:600" onclick="rtConfirm('Delete this RFQ permanently?', function(){ document.getElementById('rfqDeleteForm').submit(); }, 3)" aria-label="Delete">Delete</button>
 </form>
 
 <!-- Preview Modal -->
