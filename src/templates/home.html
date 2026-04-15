@@ -344,7 +344,8 @@ function _refreshAgentStatus(){
    var mkd=(ps.poll_status||{})._mike_diag||{};
    if(!mkd.configured){
     mikeDot.style.background='#f85149';
-    mikeTxt.textContent='⚠️ Not configured — set GMAIL_ADDRESS_2 + GMAIL_PASSWORD_2 in Railway';
+    // Don't leak env var names to end-users; link to /agents instead.
+    mikeTxt.innerHTML='<a href="/agents" style="color:#f85149;text-decoration:underline">Connect second inbox →</a>';
    } else if(mkd.connected===false){
     mikeDot.style.background='#f85149';
     mikeTxt.textContent='IMAP connect failed — check credentials';
@@ -1200,7 +1201,8 @@ setTimeout(function(){
   document.getElementById('stale-badge').textContent=d.count;
   var html='';
   d.stale.slice(0,5).forEach(function(s){
-   var c=s.days_since>7?'#f85149':s.days_since>5?'#f0883e':'var(--yl)';
+   // SLA coloring per audit: 14d+ red, 7d+ orange, else yellow
+   var c=s.days_since>=14?'#f85149':s.days_since>=7?'#f0883e':'var(--yl)';
    html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--bd)">';
    html+='<a href="'+s.link+'" style="color:var(--tx);text-decoration:none;font-weight:600">#'+s.number+'</a>';
    html+='<span style="color:var(--tx2)">'+s.institution+'</span>';

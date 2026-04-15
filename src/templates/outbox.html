@@ -42,7 +42,7 @@
 <div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
  <span style="font-size:14px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
  {% if sales_drafts %}
- <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px" aria-label="Approve All Drafts ( sales_draftsl">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px" aria-label="Approve all sales drafts">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
  <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:14px;padding:6px 14px" aria-label="Delete All Drafts">🗑 Delete All Drafts</button>
  {% endif %}
  <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:14px;padding:6px 14px" aria-label="Retry Failed">🔄 Retry Failed</button>
