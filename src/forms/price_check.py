@@ -4178,34 +4178,46 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
                         _cell(c, *_sc(x1, y1, x2, y2), val, fs=10, mask_top_pct=mtp)
                         drew = True
 
-            # Notes
+            # Notes — skip hardcoded fallback on detected layouts.
+            # Hardcoded notes coordinates are calibrated for the blank 704
+            # template. On buyer-custom flat PDFs the notes region may be
+            # at a completely different Y position — drawing there leaks
+            # text into item rows or the totals section. If detection
+            # didn't find a notes_area, just skip.
             nf = _HC_NOTES[0]
             nval = fv_map.get(nf, "")
             if nval:
                 if pg_detected and pg_detected.get("notes_area"):
                     _multiline(c, *pg_detected["notes_area"], nval, fs=8)
-                else:
+                    drew = True
+                elif not pg_detected:
                     _multiline(c, *_sc(_HC_NOTES[1], _HC_NOTES[2], _HC_NOTES[3], _HC_NOTES[4]), nval, fs=8)
-                drew = True
+                    drew = True
 
-            # FOB Checkbox
+            # FOB Checkbox — skip hardcoded fallback on detected layouts.
+            # The stray "X on row 5" incident on pc_cd41eb14 (2026-04-15)
+            # came from _HC_CHECKBOX coordinates mis-scaling into the
+            # middle of the item table on a buyer-custom flat PDF.
             cf = _HC_CHECKBOX[0]
             if fv_map.get(cf) in ("/Yes", "Yes", True, "True"):
+                _fob_coords = None
                 if pg_detected and pg_detected.get("fob_area"):
-                    cx1, cy1, cx2, cy2 = pg_detected["fob_area"]
-                else:
-                    cx1, cy1, cx2, cy2 = _sc(_HC_CHECKBOX[1], _HC_CHECKBOX[2],
-                                             _HC_CHECKBOX[3], _HC_CHECKBOX[4])
-                c.saveState()
-                c.setFillColorRGB(1, 1, 1)
-                c.rect(cx1 + 2, cy1 + 2, cx2 - cx1 - 4, cy2 - cy1 - 4, fill=1, stroke=0)
-                c.setStrokeColorRGB(0, 0, 0)
-                c.setLineWidth(1.5)
-                _pad = 3
-                c.line(cx1 + _pad, cy1 + _pad, cx2 - _pad, cy2 - _pad)
-                c.line(cx1 + _pad, cy2 - _pad, cx2 - _pad, cy1 + _pad)
-                c.restoreState()
-                drew = True
+                    _fob_coords = pg_detected["fob_area"]
+                elif not pg_detected:
+                    _fob_coords = _sc(_HC_CHECKBOX[1], _HC_CHECKBOX[2],
+                                      _HC_CHECKBOX[3], _HC_CHECKBOX[4])
+                if _fob_coords:
+                    cx1, cy1, cx2, cy2 = _fob_coords
+                    c.saveState()
+                    c.setFillColorRGB(1, 1, 1)
+                    c.rect(cx1 + 2, cy1 + 2, cx2 - cx1 - 4, cy2 - cy1 - 4, fill=1, stroke=0)
+                    c.setStrokeColorRGB(0, 0, 0)
+                    c.setLineWidth(1.5)
+                    _pad = 3
+                    c.line(cx1 + _pad, cy1 + _pad, cx2 - _pad, cy2 - _pad)
+                    c.line(cx1 + _pad, cy2 - _pad, cx2 - _pad, cy1 + _pad)
+                    c.restoreState()
+                    drew = True
 
             # Totals — skip mask for detected layouts (empty cells in DOCX forms)
             _totals_mask = not bool(pg_detected)
@@ -4229,7 +4241,10 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
                         c.restoreState()
                         drew = True
                 # For detected layouts, do NOT fall back to hardcoded totals.
-            else:
+            elif not pg_detected:
+                # Only use hardcoded totals on hardcoded-only layouts.
+                # Skip entirely on detected buyer-custom PDFs where
+                # _HC_TOTALS coordinates would land in the item table.
                 for fname, (x1, y1, x2, y2) in _HC_TOTALS.items():
                     val = fv_map.get(fname, "")
                     if val:
@@ -4237,19 +4252,27 @@ def _fill_pdf_text_overlay(source_pdf: str, field_values: list, output_pdf: str,
                         drew = True
 
         # ── CONTINUATION HEADER (supplier name on page 2+) ──
+        # Only draw the continuation company name when we have a
+        # DETECTED position for it. Hardcoded fallback (_HC_PG2_SUPPLIER)
+        # is calibrated for the blank 704 template; on a buyer-custom
+        # multi-page flat PDF it lands in the middle of the item table
+        # (incident pc_cd41eb14 2026-04-15: stray "Reytech Inc." text
+        # bleeding into UPC cells on pages 2-3). When detection fails
+        # on continuation pages, suppress the continuation header — the
+        # buyer's supplier-name row is already in the source text.
         _page_has_items = any(
             fv_map.get(ROW_FIELDS["unit_price"].format(n=rn), "").strip()
             for rn in range(current_row, current_row + len(rows))
         ) if not is_pg1 else True
         if not is_pg1 and _page_has_items:
             company = fv_map.get("COMPANY NAME", "")
-            if company:
-                if pg_detected and pg_detected.get("supplier_name_cont"):
-                    _cell(c, *pg_detected["supplier_name_cont"], company, fs=12)
-                else:
-                    sp = _sc(_HC_PG2_SUPPLIER[0], _HC_PG2_SUPPLIER[1],
-                             _HC_PG2_SUPPLIER[2], _HC_PG2_SUPPLIER[3])
-                    _cell(c, *sp, company, fs=12)
+            if company and pg_detected and pg_detected.get("supplier_name_cont"):
+                _cell(c, *pg_detected["supplier_name_cont"], company, fs=12)
+                drew = True
+            elif company and not pg_detected:
+                sp = _sc(_HC_PG2_SUPPLIER[0], _HC_PG2_SUPPLIER[1],
+                         _HC_PG2_SUPPLIER[2], _HC_PG2_SUPPLIER[3])
+                _cell(c, *sp, company, fs=12)
                 drew = True
 
         # ── ROW PRICING: PRICE PER UNIT + EXTENSION columns ──
