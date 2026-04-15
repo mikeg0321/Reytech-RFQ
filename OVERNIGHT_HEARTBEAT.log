@@ -1,0 +1,26 @@
+2026-04-15 08:37:41  BOOT  session started, branch overnight/ui-ux-p0-batch, main HEAD 2384d7d
+2026-04-15 08:39:21  TASK-1  START  fix double-% win rate on /quotes
+2026-04-15 08:41:11  TASK-1  SHIPPED  63e8d9a
+2026-04-15 08:41:30  TASK-2  START  hide ghost quotes from /quotes list
+2026-04-15 08:45:02  TASK-2  SHIPPED  89806de
+2026-04-15 08:45:32  TASK-3  START  populate or drop RFQ# column on /quotes
+2026-04-15 08:50:21  TASK-3  SHIPPED  2915bab
+2026-04-15 08:50:34  TASK-4  START  fix /growth and /crm dead redirects
+2026-04-15 08:52:02  TASK-4  SHIPPED  2f81c94
+2026-04-15 08:52:15  TASK-5  START  fix 405 GET /rfq/<id>/update
+2026-04-15 08:53:53  TASK-5  SHIPPED  d6496d8
+2026-04-15 08:54:33  TASK-6  START  ConfirmButton macro
+2026-04-15 08:57:39  TASK-6  SHIPPED  06bd7ae
+2026-04-15 08:58:00  TASK-7  START  wire rtConfirm into 5 destructive sites
+2026-04-15 09:04:40  TASK-7  SHIPPED  0704184
+2026-04-15 09:04:58  TASK-8  START  self-host chart.js
+2026-04-15 09:06:01  TASK-8  SHIPPED  d30b8af
+2026-04-15 09:06:21  TASK-9  START  self-host DM Sans + JetBrains Mono
+2026-04-15 09:25:57  TASK-9  SHIPPED  191fea4
+2026-04-15 09:26:12  TASK-10  START  notification rate-limiter
+2026-04-15 09:30:20  TASK-10  SHIPPED  c1daac4
+2026-04-15 09:30:32  TASK-11  START  /orders/unresolved queue route
+2026-04-15 09:41:49  TASK-11  SHIPPED  bfadcce
+2026-04-15 09:42:03  TASK-12  START  extend QA gate to RFQ detail
+2026-04-15 10:05:38  TASK-12  SHIPPED  2ef528e
+2026-04-15 10:05:38  BEAT  12 tasks shipped, batches A-E complete
