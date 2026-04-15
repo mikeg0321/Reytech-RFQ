@@ -478,7 +478,10 @@ def _lookup_amazon(url: str) -> dict:
         # A successful scrape already has title + price; the Grok hop
         # is expensive and frequently times out, so skip it when we
         # already have what we need.
-        scrape_good = bool(title) and (bool(_list) or bool(_sale))
+        def _have_price():
+            return bool(_list) or bool(_sale)
+
+        scrape_good = bool(title) and _have_price()
         if (not scrape_good) and (not _over_budget()):
             try:
                 from src.agents.product_research import lookup_amazon_product
@@ -487,13 +490,38 @@ def _lookup_amazon(url: str) -> dict:
                     title = title or direct.get("title", "")
                     _list = _list or direct.get("list_price") or direct.get("typical_price")
                     _sale = _sale or direct.get("sale_price") or direct.get("price")
-                    mfg = mfg or direct.get("mfg_number", "") or direct.get("part_number", "")
+                    if not mfg:
+                        mfg = direct.get("mfg_number", "") or direct.get("part_number", "")
                     manufacturer = manufacturer or direct.get("manufacturer", "")
                     photo_url = photo_url or direct.get("photo_url", "") or direct.get("thumbnail", "")
                     log.info("Amazon ASIN %s: Grok enrichment hit (%.1fs)",
                              asin, _time.monotonic() - _t0)
             except Exception as _e:
                 log.debug("Amazon Grok enrichment failed: %s", _e)
+
+        # ── Step 3: Claude web search — final fallback when both the
+        # direct scrape and Grok came back without a price. Claude's
+        # web_search tool fetches from Anthropic's side, so it gets
+        # past Amazon's datacenter-IP block that defeats our scraper.
+        # ~4s latency so only worth it when we're still missing data.
+        if (not title or not _have_price()) and (not _over_budget()):
+            try:
+                claude_result = claude_amazon_lookup(asin)
+                if claude_result:
+                    title = title or claude_result.get("title", "")
+                    _list = _list or claude_result.get("list_price")
+                    _sale = _sale or claude_result.get("sale_price")
+                    if not mfg:
+                        mfg = claude_result.get("mfg_number", "") or ""
+                        if mfg:
+                            scraped_mfg = mfg  # upgrade the source label
+                    manufacturer = manufacturer or claude_result.get("manufacturer", "")
+                    upc = upc or claude_result.get("upc", "")
+                    photo_url = photo_url or claude_result.get("photo_url", "")
+                    log.info("Amazon ASIN %s: Claude web search hit (%.1fs)",
+                             asin, _time.monotonic() - _t0)
+            except Exception as _e:
+                log.debug("Amazon Claude lookup failed: %s", _e)
 
         # Still empty? Return a minimal error frame — but never the
         # old "Lookup timed out" message, since we now always at
@@ -503,7 +531,7 @@ def _lookup_amazon(url: str) -> dict:
                 "supplier": "Amazon",
                 "asin": asin,
                 "url": clean_url,
-                "error": "No product data found — paste cost manually",
+                "error": "No product data found — scrape blocked and AI lookups returned nothing. Paste cost manually.",
                 "mfg_number": asin,  # last-resort identifier
                 "part_number": asin,
             }
@@ -600,7 +628,7 @@ def _lookup_amazon(url: str) -> dict:
             "size":          size,
             "shipping":      0.0,
             "shipping_note": "Prime/standard shipping — verify delivery window",
-            "source":        "amazon_scrape",
+            "source":        "amazon_lookup",
             "price_note":    price_note,
             "photo_url":     photo_url,
         }
@@ -1332,6 +1360,152 @@ def _lookup_sears(url: str) -> dict:
             log.debug("Sears API error: %s", e)
 
     return result
+
+
+# ── Claude Amazon Lookup — web-search-powered product fetch ─────────────────
+
+def claude_amazon_lookup(asin: str) -> dict:
+    """Fetch Amazon product data for an ASIN using Claude + web search.
+
+    Amazon blocks our datacenter HTTP fetches (bot detection) and the
+    Grok/xAI integration is unreliable after the Apr 10 SerpApi swap.
+    Claude's web_search tool runs the fetch from Anthropic's side and
+    reads the real product page, so it produces results on URLs where
+    our own scraper comes back empty.
+
+    Used as a third-tier fallback inside `_lookup_amazon` after the
+    direct scrape and Grok enrichment both return nothing. ~$0.003
+    per call, ~4s latency (one extra round-trip vs direct scrape).
+
+    Returns the same shape as `_scrape_generic` so the caller can
+    merge results in without special-casing. Fields:
+        title, list_price, sale_price, mfg_number, manufacturer,
+        upc, photo_url, price, source="claude_web_search".
+    On any error returns an empty dict (never raises).
+    """
+    if not asin:
+        return {}
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        log.debug("claude_amazon_lookup: no ANTHROPIC_API_KEY")
+        return {}
+    if not HAS_REQUESTS:
+        return {}
+
+    url = f"https://www.amazon.com/dp/{asin}"
+    prompt = (
+        f"Fetch this Amazon product page: {url}\n\n"
+        "Use the web search tool to read the actual page, then return "
+        "ONLY a JSON object with these fields (no prose, no code fence):\n"
+        "{\n"
+        '  "title": "<product title, 5-200 chars>",\n'
+        '  "list_price": <number or null, the MSRP / "List:" price>,\n'
+        '  "sale_price": <number or null, the current displayed price>,\n'
+        '  "manufacturer": "<brand/manufacturer name>",\n'
+        '  "mfg_number": "<Item model number or Manufacturer Part Number>",\n'
+        '  "upc": "<UPC or GTIN digits only, no dashes>",\n'
+        '  "photo_url": "<main product image URL>"\n'
+        "}\n\n"
+        "Rules:\n"
+        "- list_price is the original/MSRP; if only one price is shown, "
+        "put it in list_price and leave sale_price null.\n"
+        "- If a price shows \"Was $X\" or \"List: $X\" with a different "
+        "current price, list_price is the Was/List value.\n"
+        "- mfg_number is from the product details table (Item model "
+        "number or Manufacturer Part Number). Use empty string if missing.\n"
+        "- If any field is missing from the page, use null (for numbers) "
+        "or empty string (for strings). Do NOT make up values."
+    )
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    body = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 600,
+        "tools": [{
+            "type": "web_search_20250305",
+            "name": "web_search",
+            "max_uses": 2,
+        }],
+        "messages": [{"role": "user", "content": prompt}],
+    }
+
+    import json as _json
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers=headers, json=body, timeout=10,
+        )
+        if resp.status_code != 200:
+            log.debug("claude_amazon_lookup %s: HTTP %d %s",
+                      asin, resp.status_code, resp.text[:200])
+            return {}
+        data = resp.json()
+    except Exception as e:
+        log.debug("claude_amazon_lookup %s: request error: %s", asin, e)
+        return {}
+
+    # Pull text out of assistant message blocks. With web_search, the
+    # response has tool-use and tool-result blocks interleaved with
+    # text; concatenate only the final text blocks.
+    text = ""
+    for block in (data.get("content") or []):
+        if isinstance(block, dict) and block.get("type") == "text":
+            text += block.get("text", "") or ""
+    text = text.strip()
+    if not text:
+        log.debug("claude_amazon_lookup %s: empty response", asin)
+        return {}
+
+    # Tolerate a fenced response even though we asked for none.
+    if text.startswith("```"):
+        import re as _re_f
+        m = _re_f.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", text, _re_f.DOTALL)
+        if m:
+            text = m.group(1).strip()
+
+    # First balanced JSON object — any prose outside gets discarded.
+    start = text.find("{")
+    end = text.rfind("}")
+    if start < 0 or end <= start:
+        log.debug("claude_amazon_lookup %s: no JSON in response: %r",
+                  asin, text[:200])
+        return {}
+    try:
+        parsed = _json.loads(text[start:end + 1])
+    except Exception as e:
+        log.debug("claude_amazon_lookup %s: JSON parse error: %s (raw=%r)",
+                  asin, e, text[:200])
+        return {}
+
+    out = {"source": "claude_web_search"}
+    for key in ("title", "manufacturer", "mfg_number", "upc", "photo_url"):
+        v = parsed.get(key)
+        if isinstance(v, str) and v.strip():
+            out[key] = v.strip()
+    for key in ("list_price", "sale_price"):
+        v = parsed.get(key)
+        if v is None:
+            continue
+        try:
+            num = float(str(v).replace("$", "").replace(",", ""))
+            if 0 < num < 100000:
+                out[key] = num
+        except (ValueError, TypeError):
+            continue
+
+    if "list_price" in out:
+        out["price"] = out["list_price"]
+    elif "sale_price" in out:
+        out["price"] = out["sale_price"]
+
+    if out.get("title") or out.get("price"):
+        log.info("claude_amazon_lookup %s: got title=%r price=%s",
+                 asin, (out.get("title") or "")[:40], out.get("price"))
+    return out
 
 
 # ── Claude Semantic Match — AI product comparison ────────────────────────────

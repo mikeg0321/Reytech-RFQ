@@ -68,7 +68,7 @@ class TestScrapeFirst:
         assert result["list_price"] == 19.99
         assert result["sale_price"] == 14.99
         assert result["mfg_number"] == "TBC-PM12"
-        assert result["source"] == "amazon_scrape"
+        assert result["source"] == "amazon_lookup"
 
     def test_grok_enrichment_fires_when_scrape_empty(self):
         from src.agents import item_link_lookup
@@ -189,20 +189,95 @@ class TestPricingSemantics:
         assert "14" in result["price_note"]
 
 
+class TestClaudeWebSearchTier:
+    """When scrape + Grok both come back empty, Claude's web_search
+    tool fetches the page from Anthropic's side and fills in the data."""
+
+    def test_claude_fires_when_scrape_and_grok_empty(self):
+        from src.agents import item_link_lookup
+        claude_result = {
+            "title": "TBC Best Crafts Paint Markers (via Claude)",
+            "list_price": 19.99,
+            "sale_price": 14.99,
+            "price": 19.99,
+            "mfg_number": "TBC-PM12",
+            "manufacturer": "TBC Best Crafts",
+            "upc": "123456789012",
+            "photo_url": "https://m.media-amazon.com/x.jpg",
+            "source": "claude_web_search",
+        }
+        with patch.object(item_link_lookup, "_scrape_generic", return_value={}):
+            with patch("src.agents.product_research.lookup_amazon_product",
+                       return_value=None):
+                with patch.object(item_link_lookup, "claude_amazon_lookup",
+                                   return_value=claude_result) as mock_claude:
+                    result = item_link_lookup._lookup_amazon(
+                        "https://www.amazon.com/dp/B0CX1BD86P"
+                    )
+        mock_claude.assert_called_once_with("B0CX1BD86P")
+        assert result["title"].endswith("via Claude)")
+        assert result["list_price"] == 19.99
+        assert result["sale_price"] == 14.99
+        assert result["mfg_number"] == "TBC-PM12"
+        assert result["upc"] == "123456789012"
+        assert result["discount_pct"] == 25.0
+
+    def test_claude_skipped_when_scrape_already_good(self):
+        """If the HTML scrape already returned a full record, we
+        should NOT burn a Claude round-trip."""
+        from src.agents import item_link_lookup
+        good_scrape = {
+            "title": "Full Title",
+            "list_price": 20.00,
+            "price": 20.00,
+            "mfg_number": "MFG-1",
+        }
+        with patch.object(item_link_lookup, "_scrape_generic", return_value=good_scrape):
+            with patch("src.agents.product_research.lookup_amazon_product",
+                       side_effect=AssertionError("Grok must not fire")):
+                with patch.object(item_link_lookup, "claude_amazon_lookup",
+                                   side_effect=AssertionError("Claude must not fire")):
+                    result = item_link_lookup._lookup_amazon(
+                        "https://www.amazon.com/dp/B0CX1BD86P"
+                    )
+        assert result["list_price"] == 20.00
+
+    def test_claude_fires_when_scrape_has_title_but_no_price(self):
+        """Partial scrape (title only, no price) should still trigger
+        Claude since pricing is the critical field."""
+        from src.agents import item_link_lookup
+        partial = {"title": "Some Title", "manufacturer": "Brand"}
+        claude_result = {"list_price": 25.00, "price": 25.00}
+        with patch.object(item_link_lookup, "_scrape_generic", return_value=partial):
+            with patch("src.agents.product_research.lookup_amazon_product",
+                       return_value=None):
+                with patch.object(item_link_lookup, "claude_amazon_lookup",
+                                   return_value=claude_result) as mock_claude:
+                    result = item_link_lookup._lookup_amazon(
+                        "https://www.amazon.com/dp/B0CX1BD86P"
+                    )
+        mock_claude.assert_called_once()
+        assert result["title"] == "Some Title"
+        assert result["list_price"] == 25.00
+
+
 class TestErrorPath:
-    def test_empty_scrape_and_empty_grok_returns_error(self):
+    def test_empty_all_three_tiers_returns_error(self):
         from src.agents import item_link_lookup
         with patch.object(item_link_lookup, "_scrape_generic", return_value={}):
             with patch("src.agents.product_research.lookup_amazon_product",
                        return_value=None):
-                result = item_link_lookup._lookup_amazon(
-                    "https://www.amazon.com/dp/B0CX1BD86P"
-                )
+                with patch.object(item_link_lookup, "claude_amazon_lookup",
+                                   return_value={}):
+                    result = item_link_lookup._lookup_amazon(
+                        "https://www.amazon.com/dp/B0CX1BD86P"
+                    )
         assert result["error"]
         # Even on error, ASIN becomes the last-resort identifier
         assert result["mfg_number"] == "B0CX1BD86P"
-        # No more "Lookup timed out" message
+        # No more old "Lookup timed out" message
         assert "timed out" not in result["error"].lower()
+        assert "paste" in result["error"].lower()
 
 
 class TestUpcExtractionInScraper:
