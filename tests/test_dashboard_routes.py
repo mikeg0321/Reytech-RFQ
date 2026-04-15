@@ -58,6 +58,13 @@ class TestHomePage:
         r = client.get("/")
         html = r.data.decode()
         assert "window.markQuote" in html
+
+    def test_chartjs_self_hosted(self, client):
+        # CSP fix: Chart.js must be served from /static/vendor, not jsdelivr.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "/static/vendor/chart.umd.min.js" in html
+        assert "cdn.jsdelivr.net" not in html
         assert b"Reytech" in r.data
 
     def test_has_upload_form(self, client):
