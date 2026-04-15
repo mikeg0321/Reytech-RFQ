@@ -190,7 +190,7 @@ def _build_reytech_info():
             "description_of_goods": co.get("description_of_goods", ""),
             "compliance": compliance,
             "discount": "Included",
-            "delivery": "5-7 business days",
+            "delivery": "7-14 business days",
         }
     except Exception:
         return {
@@ -202,7 +202,7 @@ def _build_reytech_info():
             "sb_mb": "2002605",
             "dvbe": "2002605",
             "discount": "Included",
-            "delivery": "5-7 business days",
+            "delivery": "7-14 business days",
         }
 
 REYTECH_INFO = _build_reytech_info()
@@ -2495,7 +2495,7 @@ def fill_ams704(
         ("EMail Address", info.get("email", "")),
         ("Certified SBMB", info.get("sb_mb", "")),
         ("Certified DVBE", info.get("dvbe", "")),
-        ("Delivery Date and Time ARO", info.get("delivery", "5-7 business days")),
+        ("Delivery Date and Time ARO", info.get("delivery", "7-14 business days")),
         ("Discount Offered", info.get("discount", "Included")),
         ("Date Price Check Expires", _expiry_date()),
     ]

@@ -1959,15 +1959,24 @@ def detail(rid):
             rfqs[rid] = r
             r["_needs_save"] = True  # Deferred to POST /rfq/{rid}/save-restore
 
-    # ── Auto-fill delivery_location from institution resolver if empty ──
-    if not r.get("delivery_location") and r.get("agency_name"):
+    # ── Auto-fill delivery_location via full priority chain ──
+    # PO history → CRM contact → institution resolver. Updated
+    # 2026-04-14 from the old institution-only path so buyers with
+    # established PO history resolve to their real delivery address.
+    if not r.get("delivery_location"):
         try:
-            from src.core.institution_resolver import get_ship_to_address
+            from src.core.ship_to_resolver import lookup_buyer_ship_to
             _inst_name = r.get("agency_name", "")
-            _auto_addr = get_ship_to_address(_inst_name)
-            if _auto_addr:
-                r["delivery_location"] = _auto_addr
-                log.info("RFQ delivery_location auto-filled for %s: %s", _inst_name, _auto_addr[:50])
+            _buyer_name = r.get("requestor_name") or r.get("buyer_name", "")
+            _buyer_email = r.get("requestor_email") or r.get("buyer_email", "")
+            _resolved = lookup_buyer_ship_to(
+                name=_buyer_name, email=_buyer_email, institution=_inst_name)
+            if _resolved.get("ship_to"):
+                r["delivery_location"] = _resolved["ship_to"]
+                log.info("RFQ delivery_location auto-filled (%s) for %s: %s",
+                         _resolved.get("source", "?"),
+                         _buyer_name or _inst_name,
+                         _resolved["ship_to"][:50])
         except Exception as _sta:
             log.debug("RFQ delivery_location auto-fill: %s", _sta)
 
