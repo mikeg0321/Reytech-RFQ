@@ -5,7 +5,9 @@
      <!-- Header -->
      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
       <h2 style="margin:0;font-size:20px;font-weight:700">📋 Quotes Database</h2>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;align-items:center">
+       <span id="award-tracker-tile" style="display:none;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);font-family:'JetBrains Mono',monospace" title="Click to refresh"></span>
+       <button type="button" id="award-audit-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="runAwardAuditNow(this)" title="Run SCPRS audit now (force-check pending quotes against SCPRS for losses)">🏆 Audit Now</button>
        <a href="/pipeline" class="btn btn-s" style="font-size:14px;font-weight:600">🔄 Pipeline</a>
        <a href="/growth" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth</a>
       </div>
@@ -66,5 +68,93 @@
 
 {% block scripts %}
      <script>
+     // Award tracker health tile + manual audit trigger.
+     // Surfaces the existing /api/intel/award-tracker/* endpoints so a
+     // silently-broken background job (cf. markQuote) shows up loudly here.
+     (function awardTrackerTile(){
+       var tile = document.getElementById('award-tracker-tile');
+       if (!tile) return;
+       var COLORS = {
+         ok:          {bg: 'rgba(63,185,80,.10)',  fg: '#3fb950', label: '🟢'},
+         stale:       {bg: 'rgba(210,153,34,.10)', fg: '#d29922', label: '🟡'},
+         dead:        {bg: 'rgba(248,113,113,.10)',fg: '#f85149', label: '🔴'},
+         not_started: {bg: 'rgba(248,113,113,.10)',fg: '#f85149', label: '🔴'},
+         no_run_yet:  {bg: 'rgba(139,148,160,.10)',fg: '#8b949e', label: '⚪'},
+       };
+       function fmtSince(sec){
+         if (sec == null) return 'never';
+         if (sec < 60) return Math.round(sec) + 's ago';
+         if (sec < 3600) return Math.round(sec/60) + 'm ago';
+         if (sec < 86400) return Math.round(sec/3600) + 'h ago';
+         return Math.round(sec/86400) + 'd ago';
+       }
+       function refresh(){
+         fetch('/api/intel/award-tracker/status', {credentials: 'same-origin'})
+           .then(function(r){return r.json()})
+           .then(function(s){
+             if (!s || s.ok === false) {
+               tile.style.display = 'inline-block';
+               tile.textContent = '🔴 award-tracker error';
+               tile.style.background = COLORS.dead.bg;
+               tile.style.color = COLORS.dead.fg;
+               return;
+             }
+             var c = COLORS[s.health] || COLORS.no_run_yet;
+             tile.style.display = 'inline-block';
+             tile.style.background = c.bg;
+             tile.style.color = c.fg;
+             var bits = [c.label, 'Award tracker: ' + s.health];
+             if (s.staleness_seconds != null) bits.push('last ' + fmtSince(s.staleness_seconds));
+             if (s.eligible_quotes != null) bits.push(s.eligible_quotes + ' eligible');
+             if (s.total_losses_detected) bits.push(s.total_losses_detected + ' losses');
+             tile.textContent = bits.join(' · ');
+             tile.title = JSON.stringify({
+               last_run: s.last_run, eligible: s.eligible_quotes,
+               wins: s.total_wins_detected, losses: s.total_losses_detected,
+               in_window: (s.schedule||{}).in_check_window,
+             }, null, 2);
+           })
+           .catch(function(e){
+             tile.style.display = 'inline-block';
+             tile.textContent = '🔴 status fetch failed';
+             tile.style.background = COLORS.dead.bg;
+             tile.style.color = COLORS.dead.fg;
+           });
+       }
+       tile.addEventListener('click', refresh);
+       refresh();
+       window._refreshAwardTrackerTile = refresh;
+     })();
+
+     window.runAwardAuditNow = function(btn){
+       if (btn) {
+         btn._origText = btn.textContent;
+         btn.textContent = '⏳ Auditing...';
+         btn.disabled = true;
+       }
+       fetch('/api/intel/award-tracker/run', {
+         method: 'POST',
+         credentials: 'same-origin',
+         headers: {'Content-Type': 'application/json'},
+         body: JSON.stringify({force: true})
+       }).then(function(r){return r.json()}).then(function(d){
+         if (btn) {
+           btn.disabled = false;
+           btn.textContent = btn._origText || '🏆 Audit Now';
+         }
+         var checked = (d && d.checked) || 0;
+         var matches = (d && d.matches) || 0;
+         var losses = (d && d.losses) || 0;
+         alert('Audit complete:\n  checked: ' + checked + '\n  matches: ' + matches + '\n  losses: ' + losses + (d && d.error ? '\n  error: ' + d.error : ''));
+         if (window._refreshAwardTrackerTile) window._refreshAwardTrackerTile();
+         if (matches > 0 || losses > 0) location.reload();
+       }).catch(function(e){
+         if (btn) {
+           btn.disabled = false;
+           btn.textContent = btn._origText || '🏆 Audit Now';
+         }
+         alert('Audit error: ' + e);
+       });
+     };
      </script>
 {% endblock %}

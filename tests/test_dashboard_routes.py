@@ -294,6 +294,27 @@ class TestQuotesPage:
         html = r.data.decode()
         assert "markQuote" in html
 
+    def test_award_tracker_tile_present(self, client):
+        # Health tile + Audit Now button surface the existing award tracker
+        # in the UI so a silently-broken background job is loud.
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert "award-tracker-tile" in html
+        assert "award-audit-btn" in html
+        assert "/api/intel/award-tracker/status" in html
+        assert "/api/intel/award-tracker/run" in html
+
+    def test_award_tracker_status_has_health(self, client):
+        # Augmented status endpoint must include a health verdict.
+        r = client.get("/api/intel/award-tracker/status")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body.get("ok") is True
+        assert "health" in body
+        assert body["health"] in ("ok", "stale", "dead", "not_started", "no_run_yet")
+        assert "staleness_seconds" in body
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # WIN/LOSS STATUS API
