@@ -261,6 +261,58 @@ class TestClaudeWebSearchTier:
         assert result["list_price"] == 25.00
 
 
+class TestGarbageTitleFilter:
+    """When Amazon serves a bot-detection stub page, the scraper grabs
+    'Amazon.com' as the <title> and that would defeat the
+    "fire Claude when title is missing" logic. Filter them."""
+
+    @pytest.mark.parametrize("title", [
+        "Amazon.com", "amazon.com", "Amazon", "Robot Check",
+        "Sign In", "Sign-in", "Page Not Found", "Error",
+    ])
+    def test_garbage_title_triggers_claude_tier(self, title):
+        from src.agents import item_link_lookup
+        garbage_scrape = {"title": title}  # no prices, no mfg
+        claude_result = {
+            "title": "Real Product Title",
+            "list_price": 29.99,
+            "sale_price": None,
+            "price": 29.99,
+            "mfg_number": "REAL-MFG",
+        }
+        with patch.object(item_link_lookup, "_scrape_generic", return_value=garbage_scrape):
+            with patch("src.agents.product_research.lookup_amazon_product",
+                       return_value=None):
+                with patch.object(item_link_lookup, "claude_amazon_lookup",
+                                   return_value=claude_result) as mock_claude:
+                    result = item_link_lookup._lookup_amazon(
+                        "https://www.amazon.com/dp/B0CX1BD86P"
+                    )
+        mock_claude.assert_called_once()
+        assert result["title"] == "Real Product Title"
+        assert result["list_price"] == 29.99
+        assert result["mfg_number"] == "REAL-MFG"
+
+    def test_real_title_is_not_filtered(self):
+        """A genuinely-scraped title (not a garbage site name) must
+        still count as success and skip the Claude tier."""
+        from src.agents import item_link_lookup
+        scrape_with_real_title = {
+            "title": "TBC Best Crafts Waterproof Non-Toxic Paint Marker",
+            "list_price": 19.99,
+            "price": 19.99,
+        }
+        with patch.object(item_link_lookup, "_scrape_generic", return_value=scrape_with_real_title):
+            with patch("src.agents.product_research.lookup_amazon_product",
+                       side_effect=AssertionError("Grok must not fire")):
+                with patch.object(item_link_lookup, "claude_amazon_lookup",
+                                   side_effect=AssertionError("Claude must not fire")):
+                    result = item_link_lookup._lookup_amazon(
+                        "https://www.amazon.com/dp/B0CX1BD86P"
+                    )
+        assert result["title"].startswith("TBC")
+
+
 class TestErrorPath:
     def test_empty_all_three_tiers_returns_error(self):
         from src.agents import item_link_lookup

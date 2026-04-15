@@ -12,7 +12,7 @@ Track all in-progress work across Claude Code context windows.
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
-| fix/amazon-scraper-reliability | Window 2 | `C:\Users\mikeg\rfq-amazon-scraper-reliability` | Active | Amazon lookup tier 3: Claude web_search fallback when scrape+Grok fail | 2026-04-14 |
+| fix/amazon-garbage-title-filter | Window 2 | `C:\Users\mikeg\rfq-amazon-garbage-title-filter` | Active | Filter garbage "Amazon.com" titles so Claude tier fires + bump max_tokens | 2026-04-15 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
