@@ -281,6 +281,87 @@ class TestReparseExistingRecord:
         pcs = _load_price_checks()
         assert pcs["pc_to_reparse"].get("_classification", {}).get("shape") == "pc_704_docx"
 
+    def test_reparse_rfq_registers_704b_template(
+        self, temp_data_dir, sample_rfq, tmp_path
+    ):
+        """Re-uploading a 704B PDF via process_buyer_request on an
+        existing RFQ must also register the file under
+        rfq["templates"]["704b"] so the package generator can find it.
+
+        Regression: the classifier_v2 ingest path previously only wrote
+        line_items, causing "Missing required templates: 704B" at
+        package generation time on 2026-04-15 for RFQ
+        20260413_215152_19d88d (CCHCS RFQ 10837703). The old
+        /rfq/<rid>/upload-templates handler registered templates via
+        identify_attachments; _update_existing_record must mirror that.
+        """
+        import shutil
+        from src.api.dashboard import _save_single_rfq, load_rfqs
+
+        rfq = dict(sample_rfq)
+        rfq["id"] = "rfq_template_register"
+        rfq["templates"] = {}
+        _save_single_rfq(rfq["id"], rfq)
+
+        # Stage a PDF under a filename identify_attachments will
+        # classify as "704b" (the helper is purely filename-based).
+        staged = tmp_path / "AMS_704B_Worksheet.pdf"
+        shutil.copy(PC_PDF_SCU_BLANK, staged)
+
+        from src.core.ingest_pipeline import process_buyer_request
+        result = process_buyer_request(
+            files=[str(staged)],
+            existing_record_id="rfq_template_register",
+            existing_record_type="rfq",
+        )
+        assert result.ok is True
+
+        saved = load_rfqs()["rfq_template_register"]
+        templates = saved.get("templates") or {}
+        assert "704b" in templates, (
+            f"704B template not registered after re-upload — package "
+            f"generator will fail with 'Missing required templates: "
+            f"704B'. templates={templates}"
+        )
+        assert templates["704b"] == str(staged)
+
+    def test_reparse_rfq_merges_templates_across_uploads(
+        self, temp_data_dir, sample_rfq, tmp_path
+    ):
+        """Two sequential uploads (703B then 704B) must both end up in
+        rfq["templates"] — the second upload must NOT overwrite the
+        first. Guards against future regressions where template
+        registration replaces instead of merges."""
+        import shutil
+        from src.api.dashboard import _save_single_rfq, load_rfqs
+
+        rfq = dict(sample_rfq)
+        rfq["id"] = "rfq_template_merge"
+        rfq["templates"] = {}
+        _save_single_rfq(rfq["id"], rfq)
+
+        staged_703 = tmp_path / "AMS_703B_RFQ.pdf"
+        staged_704 = tmp_path / "AMS_704B_Worksheet.pdf"
+        shutil.copy(PC_PDF_SCU_BLANK, staged_703)
+        shutil.copy(PC_PDF_SCU_BLANK, staged_704)
+
+        from src.core.ingest_pipeline import process_buyer_request
+        process_buyer_request(
+            files=[str(staged_703)],
+            existing_record_id="rfq_template_merge",
+            existing_record_type="rfq",
+        )
+        process_buyer_request(
+            files=[str(staged_704)],
+            existing_record_id="rfq_template_merge",
+            existing_record_type="rfq",
+        )
+
+        saved = load_rfqs()["rfq_template_merge"]
+        templates = saved.get("templates") or {}
+        assert "703b" in templates, f"703B dropped by second upload: {templates}"
+        assert "704b" in templates, f"704B missing from templates: {templates}"
+
 
 # ─── Defensive: empty / malformed input ────────────────────────────────
 

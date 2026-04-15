@@ -409,6 +409,28 @@ def _update_existing_record(
             rfq["line_items"] = items
         if primary_path:
             rfq["source_pdf"] = primary_path
+            # Register the uploaded file under rfq["templates"] so the
+            # package generator can find it. The legacy upload-templates
+            # handler did this via identify_attachments; the classifier_v2
+            # ingest path previously skipped it, so operators hit
+            # "Missing required templates: 704B" at package generation
+            # time even though they had just uploaded the 704B PDF.
+            # Merge (don't overwrite) so 703B/704B/bidpkg accumulate
+            # across multiple uploads on the same RFQ.
+            try:
+                from src.forms.rfq_parser import identify_attachments
+                new_templates = identify_attachments([primary_path])
+                if new_templates:
+                    existing = rfq.get("templates") or {}
+                    for _k, _v in new_templates.items():
+                        existing[_k] = _v
+                    rfq["templates"] = existing
+                    log.info(
+                        "ingest update: registered templates for %s: %s",
+                        record_id, list(new_templates.keys()),
+                    )
+            except Exception as _e:
+                log.warning("ingest update: template registration failed: %s", _e)
         rfq["updated_at"] = datetime.now().isoformat()
         _save_single_rfq(record_id, rfq)
     return record_id
