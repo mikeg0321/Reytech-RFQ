@@ -115,12 +115,16 @@ function _fireLinkLookup(idx, url, mode) {
   var metaId = (mode === 'rfq') ? 'rfq_link_meta_' + idx : 'link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
   if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">\u23F3 Looking up\u2026</span>';
-  // 15s client-side timeout — spinner can never hang forever
+  // 15s client-side timeout — spinner can never hang forever.
+  // On timeout we still save: the user may have typed into the link
+  // field and moved on; the link itself is worth persisting even
+  // though the enrichment never arrived.
   var _done = false;
   var _timer = setTimeout(function() {
     if (_done) return;
     _done = true;
     if (metaEl) metaEl.innerHTML = '<span style="color:#d29922">Lookup timed out \u2014 paste cost manually</span>';
+    _triggerAutosaveForMode(mode);
   }, 15000);
   // Send PC description for server-side semantic matching (Claude AI)
   var _pcDescForLookup = '';
@@ -190,11 +194,37 @@ function fmtCurrency(v) {
 }
 
 /**
+ * Mode-aware autosave trigger. PC pages expose `triggerPcAutosave`,
+ * RFQ pages expose `triggerAutosave`. Either is fine — call whichever
+ * exists so link-lookup results aren't silently dropped.
+ */
+function _triggerAutosaveForMode(mode) {
+  try {
+    if (mode === 'pc' && typeof triggerPcAutosave === 'function') {
+      triggerPcAutosave();
+    } else if (mode === 'rfq' && typeof triggerAutosave === 'function') {
+      triggerAutosave();
+    } else if (typeof triggerPcAutosave === 'function') {
+      triggerPcAutosave();
+    } else if (typeof triggerAutosave === 'function') {
+      triggerAutosave();
+    }
+  } catch (e) { console.warn('autosave trigger failed:', e); }
+}
+
+/**
  * Apply link lookup data to a row with overwrite protection.
  * mode: 'pc' or 'rfq' — determines which meta element ID to use.
+ *
+ * Preserves scroll position across all DOM mutations. Without this,
+ * growing a description textarea or expanding the meta status line
+ * shifts the viewport and causes the user's next click to land on
+ * the wrong row (incident 2026-04-14: "double-click jumps to previous
+ * item"). Save scrollY at entry, restore after layout settles.
  */
 function _applyLinkData(idx, d, mode) {
   if (!d) return;
+  var _applyScrollY = window.scrollY;
   var filled = [];
   var metaId = (mode === 'pc') ? 'link_meta_' + idx : 'rfq_link_meta_' + idx;
   var metaEl = document.getElementById(metaId);
@@ -492,13 +522,36 @@ function _applyLinkData(idx, d, mode) {
     window.scrollTo(0, _sy);
   }
 
-  // Autosave + recalc (preserve scroll position)
-  if (filled.length) {
-    var _sy2 = window.scrollY;
-    if (typeof triggerAutosave === 'function') triggerAutosave();
-    if (typeof recalcPC === 'function') recalcPC();
-    requestAnimationFrame(function(){ window.scrollTo(0, _sy2); });
-  }
+  // Recalc — may grow row height when tier badges reflow
+  if (typeof recalcPC === 'function') recalcPC();
+
+  // Autosave — always fire after a link lookup applies, even if
+  // `filled.length === 0`. Hidden inputs (saleprice_, listprice_,
+  // photo_url_, discount-cost data attrs) get written above without
+  // firing input events, so document-level listeners won't pick them
+  // up. Without this call the freshly-fetched MSRP / discount data
+  // only persists once the user happens to type into another field.
+  _triggerAutosaveForMode(mode);
+
+  // Second deferred save — catches late effects (recalc debouncers,
+  // background enrichment responses that race with this apply, quick-
+  // entry popups that paste cost after the user tabs away). User ask
+  // 2026-04-14: "autosave should save a second time after the URL
+  // link timeout in case the URL link takes more time to update".
+  setTimeout(function() {
+    _triggerAutosaveForMode(mode);
+  }, 1800);
+
+  // Scroll restore — undo any viewport shift caused by textarea
+  // auto-grow, meta innerHTML expansion, or tier-badge reflow during
+  // this apply. Two rAF ticks let layout settle before we snap back.
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      if (Math.abs(window.scrollY - _applyScrollY) > 2) {
+        window.scrollTo(0, _applyScrollY);
+      }
+    });
+  });
 }
 
 /* ── CRM Buyer Autocomplete ─────────────────────────────────────────────── */
