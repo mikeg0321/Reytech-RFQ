@@ -215,16 +215,22 @@ def identify_attachments(file_paths):
     """
     Given a list of PDF file paths from an email, identify which is 703B, 704B, and Bid Package.
     Uses filename patterns.
+
+    Order matters: check the most specific markers (703C, 704B) before
+    the generic "RFQ" fallback, because a 704B Acquisition Quote
+    Worksheet filename commonly contains "RFQ" (e.g.
+    "AMS_704B_-_CCHCS_Acquisition_Quote_Worksheet_-_RFQ_10837703.pdf")
+    and must not be mis-classified as a 703B.
     """
     templates = {}
     for path in file_paths:
         name = os.path.basename(path).upper()
         if "703C" in name or "FAIR_AND_REASONABLE" in name or "FAIR AND REASONABLE" in name:
             templates["703c"] = path
-        elif "703B" in name or "RFQ" in name:
-            templates["703b"] = path
         elif "704B" in name or "QUOTE_WORKSHEET" in name or "WORKSHEET" in name:
             templates["704b"] = path
+        elif "703B" in name or "RFQ" in name:
+            templates["703b"] = path
         elif "BID_PACKAGE" in name or "PACKAGE" in name or "FORMS" in name:
             templates["bidpkg"] = path
     return templates
