@@ -49,10 +49,14 @@
   <div class="card-t">📊 Sales Funnel</div>
   {{ funnel|safe }}
   <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--bd);display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
-   {% for label, value in [('Lead→Quote', lead_to_quote), ('Quote→Sent', quote_to_sent), ('Win Rate', sent_to_won), ('Won→Invoiced', won_to_invoiced)] %}
+   {# Renamed "Win Rate" → "Sent→Won" so the label matches the formula
+      (sent quotes that closed) and stops conflicting with the /quotes
+      page's own headline win rate. Cross-page metric reconciliation is a
+      separate piece of work — see open question #1. #}
+   {% for label, value in [('Lead→Quote', lead_to_quote), ('Quote→Sent', quote_to_sent), ('Sent→Won', sent_to_won), ('Won→Invoiced', won_to_invoiced)] %}
    <div style="text-align:center;background:var(--sf2);padding:8px;border-radius:8px">
     <div style="font-size:13px;color:var(--tx2);text-transform:uppercase">{{ label }}</div>
-    <div style="font-size:16px;font-weight:700{% if label == 'Win Rate' %};color:var(--gn){% endif %}">{{ value }}{% if value is number %}%{% endif %}</div>
+    <div style="font-size:16px;font-weight:700{% if label == 'Sent→Won' %};color:var(--gn){% endif %}">{{ value }}{% if value is number %}%{% endif %}</div>
    </div>
    {% endfor %}
   </div>
