@@ -3253,11 +3253,15 @@ def _append_overflow_pages(
     if not overflow_items:
         return
 
-    # Read the filled output and source template
+    # Read the filled output and source template.
+    # IMPORTANT: clone_from=reader preserves the AcroForm dict (including /DR
+    # default resources and /NeedAppearances). A fresh PdfWriter() + add_page()
+    # strips AcroForm, leaving page 1/2 form fields referencing an undefined
+    # "Helv" font — viewers then render prices with a fallback that mangles
+    # digits and decimals. Incident 2026-04-15: multi-page PC output showed
+    # garbled prices on pages 2+ whenever overflow (>19 items) triggered.
     reader_out = PdfReader(output_pdf)
-    writer = PdfWriter()
-    for p in reader_out.pages:
-        writer.add_page(p)
+    writer = PdfWriter(clone_from=reader_out)
 
     reader_tmpl = PdfReader(source_pdf)
     # Use last page (continuation) as template background
