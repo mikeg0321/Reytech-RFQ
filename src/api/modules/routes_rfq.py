@@ -614,8 +614,13 @@ def home():
 @auth_required
 @safe_route
 def growth_redirect():
-    """Growth page — redirects to pipeline."""
-    return redirect("/pipeline")
+    """Growth page — redirects to /growth-intel (the live module).
+
+    Was previously pointing at /pipeline, which made the home dashboard's
+    'Growth Engine' / 'Quick Wins' / nav buttons all dead-end on the wrong
+    page. /growth-intel is the actual reachable Growth Engine route.
+    """
+    return redirect("/growth-intel")
 
 
 @bp.route("/awards")

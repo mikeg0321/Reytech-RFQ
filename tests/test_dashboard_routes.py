@@ -202,6 +202,20 @@ class TestQuotesPage:
         html = r.data.decode()
         assert ghost_qn not in html
 
+    def test_growth_redirects_to_growth_intel(self, client):
+        # Regression: /growth used to redirect to /pipeline (wrong target).
+        # Home dashboard advertises Growth Engine but /growth must land on
+        # the actual Growth module page, not Pipeline.
+        r = client.get("/growth", follow_redirects=False)
+        assert r.status_code in (301, 302, 303, 307, 308)
+        assert "/growth-intel" in r.headers.get("Location", "")
+
+    def test_crm_redirects_to_contacts(self, client):
+        # Regression: nav link to /crm must follow through to /contacts.
+        r = client.get("/crm", follow_redirects=False)
+        assert r.status_code in (301, 302, 303, 307, 308)
+        assert "/contacts" in r.headers.get("Location", "")
+
     def test_real_quote_still_visible(self, client, seed_db_quote):
         # Inverse of ghost filter: a real quote with agency + total + items must
         # still render, so the filter doesn't accidentally hide everything.
