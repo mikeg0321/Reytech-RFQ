@@ -981,6 +981,8 @@ function _renderRevenue(d){
     <option value="quotes">Quotes</option>
     <option value="orders">Orders</option>
     <option value="growth">Growth</option>
+    <option value="errors">⚠️ Errors only</option>
+    <option value="notifications">🔔 Notifications</option>
    </select>
    <button onclick="loadFeed()" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer" aria-label="Refresh activity feed">🔄</button>
   </div>
@@ -1296,7 +1298,23 @@ function loadFeed(){
 }
 function renderFeed(){
  var filter=document.getElementById('feed-filter').value;
- var items=filter?_feedData.filter(function(e){return e.source===filter}):_feedData;
+ var items;
+ if (!filter) {
+  items = _feedData;
+ } else if (filter === 'errors') {
+  // Match anything that smells like an error: icon, title, or detail
+  var ERR_RE = /error|fail|❌|⚠️|⛔|🚫|exception|traceback|405|500/i;
+  items = _feedData.filter(function(e){
+   return ERR_RE.test((e.icon||'') + ' ' + (e.title||'') + ' ' + (e.detail||''));
+  });
+ } else if (filter === 'notifications') {
+  var NOTIF_RE = /notif|alert|reminder|⏰|🔔|drafts waiting/i;
+  items = _feedData.filter(function(e){
+   return NOTIF_RE.test((e.icon||'') + ' ' + (e.title||'') + ' ' + (e.detail||''));
+  });
+ } else {
+  items = _feedData.filter(function(e){return e.source===filter});
+ }
  var el=document.getElementById('activity-feed');
  if(!items.length){
   el.innerHTML='<div style="text-align:center;padding:24px;color:var(--tx2)">No recent activity</div>';
