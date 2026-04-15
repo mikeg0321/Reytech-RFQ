@@ -1660,6 +1660,13 @@
      const priceField=document.querySelector('[name=price_'+idx+']');
      if(!costEl||!markupEl||!priceField) return;
      const cost=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
+     // Don't auto-fill markup until cost has been entered. The markup
+     // field starts empty (placeholder "25") and only materializes once
+     // the user types a real cost — fixes the audit complaint that the
+     // markup column showed "25%" on every row before any cost existed.
+     if (cost > 0 && (!markupEl.value || markupEl.value.trim() === '')) {
+      markupEl.value = '25';
+     }
      const markup=parseFloat(markupEl.value.replace(/[^0-9.]/g,''))||0;
      const currentPrice=parseFloat(priceField.value.replace(/[^0-9.\-]/g,''))||0;
      const computedPrice=parseFloat((cost*(1+markup/100)).toFixed(2));
@@ -2225,7 +2232,7 @@
       +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td><span style="color:#484f58;font-size:14px">No sources</span></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
-      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
+      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="" placeholder="25" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
       +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      var tbody=table.querySelector('tbody')||table;
