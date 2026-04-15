@@ -192,6 +192,27 @@ class TestQuotesPage:
         html = r.data.decode()
         assert "%%" not in html
 
+    def test_ghost_quotes_hidden_from_list(self, client, seed_db_quote):
+        # Regression: $0 + 0 items + no agency quotes (e.g. R26Q16) were polluting
+        # the quotes list. They must be HIDDEN from the row list (not deleted).
+        ghost_qn = "R26Q9901"
+        seed_db_quote(ghost_qn, agency="", institution="", total=0.0, line_items=[])
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert ghost_qn not in html
+
+    def test_real_quote_still_visible(self, client, seed_db_quote):
+        # Inverse of ghost filter: a real quote with agency + total + items must
+        # still render, so the filter doesn't accidentally hide everything.
+        real_qn = "R26Q9902"
+        seed_db_quote(real_qn, agency="CDCR", institution="CSP-Sacramento",
+                      total=1234.56, line_items=[{"description": "Widget", "qty": 1, "unit_price": 1234.56}])
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert real_qn in html
+
     def test_has_mark_buttons(self, client, seed_pc):
         # Generate a quote first so there's a row
         client.post(f"/pricecheck/{seed_pc}/generate-quote")
