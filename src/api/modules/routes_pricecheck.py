@@ -939,15 +939,16 @@ def _pricecheck_detail_inner(pcid):
         expiry_date = (datetime.now() + timedelta(days=45)).strftime("%m/%d/%Y")
     today_date = datetime.now().strftime("%m/%d/%Y")
 
-    # Delivery dropdown state
-    saved_delivery = pc.get("delivery_option", "5-7 business days")
+    # Delivery dropdown state. Default is 7-14 business days — safe
+    # window for Amazon/Grainger/backorder scenarios. User can drop to
+    # 3-5 or 5-7 for in-stock catalog items.
+    saved_delivery = pc.get("delivery_option", "7-14 business days")
     preset_options = ("3-5 business days", "5-7 business days", "7-14 business days")
     is_custom = saved_delivery not in preset_options and saved_delivery != ""
     del_sel = {opt: ("selected" if saved_delivery == opt else "") for opt in preset_options}
     del_sel["custom"] = "selected" if is_custom else ""
-    # Default to 5-7 if nothing saved
     if not any(del_sel.values()):
-        del_sel["5-7 business days"] = "selected"
+        del_sel["7-14 business days"] = "selected"
     custom_val = saved_delivery if is_custom else ""
     custom_display = "inline-block" if is_custom else "none"
 
@@ -1155,15 +1156,27 @@ def _pricecheck_detail_inner(pcid):
         except Exception as e:
             log.debug("Quote history error: %s", e)
     
-    # ── Auto-fill ship-to from institution resolver if empty ──
-    if not pc.get("ship_to") and (pc.get("institution") or header.get("institution")):
+    # ── Auto-fill ship-to via full priority chain ──
+    # PO history → CRM contact → institution resolver. Updated
+    # 2026-04-14 from the old institution-only path so buyers with
+    # established PO history resolve to their real delivery address,
+    # not just the agency's canonical HQ.
+    if not pc.get("ship_to"):
         try:
-            from src.core.institution_resolver import get_ship_to_address
+            from src.core.ship_to_resolver import lookup_buyer_ship_to
             _inst = pc.get("institution") or header.get("institution", "")
-            _auto_addr = get_ship_to_address(_inst)
-            if _auto_addr:
-                pc["ship_to"] = _auto_addr
-                log.info("SHIP_TO auto-filled for %s: %s", _inst, _auto_addr[:50])
+            _buyer_name = (pc.get("requestor_name")
+                           or header.get("requestor_name", ""))
+            _buyer_email = (pc.get("requestor_email")
+                            or header.get("requestor_email", ""))
+            _resolved = lookup_buyer_ship_to(
+                name=_buyer_name, email=_buyer_email, institution=_inst)
+            if _resolved.get("ship_to"):
+                pc["ship_to"] = _resolved["ship_to"]
+                log.info("SHIP_TO auto-filled (%s) for %s: %s",
+                         _resolved.get("source", "?"),
+                         _buyer_name or _inst,
+                         _resolved["ship_to"][:50])
         except Exception as _sta:
             log.debug("ship_to auto-fill: %s", _sta)
 
@@ -1749,7 +1762,7 @@ def _do_save_prices(pcid):
     # Save tax state
     pc["tax_enabled"] = data.get("tax_enabled", False)
     pc["tax_rate"] = data.get("tax_rate", 0)
-    pc["delivery_option"] = data.get("delivery_option", "5-7 business days")
+    pc["delivery_option"] = data.get("delivery_option", "7-14 business days")
     pc["custom_notes"] = data.get("custom_notes", "")
     pc["price_buffer"] = data.get("price_buffer", 0)
     pc["default_markup"] = data.get("default_markup", 25)

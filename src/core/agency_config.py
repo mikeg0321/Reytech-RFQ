@@ -59,7 +59,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 25,
         "payment_terms": "Net 30",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "3-5 business days",
+        "delivery_days": "7-14 business days",
     },
     "calvet_barstow": {
         "name": "Cal Vet — Barstow",
@@ -71,7 +71,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 25,
         "payment_terms": "Net 30",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "3-5 business days",
+        "delivery_days": "7-14 business days",
     },
     "cchcs": {
         "name": "CCHCS / CDCR",
@@ -94,7 +94,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 25,
         "payment_terms": "Net 45",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "5-7 business days",
+        "delivery_days": "7-14 business days",
     },
     "dsh": {
         "name": "DSH — State Hospitals",
@@ -108,7 +108,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 25,
         "payment_terms": "Net 45",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "5-7 business days",
+        "delivery_days": "7-14 business days",
     },
     "dgs": {
         "name": "DGS",
@@ -119,7 +119,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 25,
         "payment_terms": "Net 30",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "5-7 business days",
+        "delivery_days": "7-14 business days",
     },
     "calfire": {
         "name": "CAL FIRE",
@@ -130,7 +130,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 20,
         "payment_terms": "Net 30",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "5-7 business days",
+        "delivery_days": "7-14 business days",
     },
     "other": {
         "name": "Other / Unknown",
@@ -141,7 +141,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "default_markup_pct": 25,
         "payment_terms": "Net 45",
         "shipping_terms": "FOB Destination, Freight Prepaid",
-        "delivery_days": "5-7 business days",
+        "delivery_days": "7-14 business days",
     },
 }
 
