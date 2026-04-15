@@ -165,6 +165,34 @@ def test_25_items():
     print(f"  PASS: 25 items -> {pages} page(s), overflow created")
 
 
+def test_overflow_preserves_acroform():
+    """Regression: overflow page creation must not strip the AcroForm dict.
+
+    Incident 2026-04-15: _append_overflow_pages used a fresh PdfWriter() +
+    add_page() loop, which dropped AcroForm (including /DR default resources
+    and /NeedAppearances). Viewers then rendered page 1/2 form field prices
+    with a fallback font that mangled digits and decimals — users saw garbled
+    prices like "70 77" instead of "70.77" on multi-page PCs.
+    """
+    import tempfile, os
+    from pypdf import PdfReader
+    items = [{"description": f"T{i}", "qty": 2, "uom": "EA", "qty_per_uom": 1,
+              "unit_price": 70.77 + i, "part_number": f"P{i}"} for i in range(1, 26)]
+    out = os.path.join(tempfile.mkdtemp(), "overflow.pdf")
+    r = fill_ams704(
+        source_pdf="tests/fixtures/ams_704_blank.pdf",
+        parsed_pc={"line_items": items},
+        output_pdf=out,
+    )
+    assert r["ok"]
+    reader = PdfReader(out)
+    assert len(reader.pages) >= 3, "expected overflow pages"
+    af = reader.trailer["/Root"].get("/AcroForm")
+    assert af is not None, "AcroForm stripped by overflow path"
+    assert bool(af.get("/NeedAppearances")), "NeedAppearances lost"
+    assert "/DR" in af, "default resources (/DR) lost — viewers will mangle Helv font"
+
+
 def test_all_fields_have_suffix():
     """Pricing fields for page 2 _2 suffix items have correct suffix.
 
