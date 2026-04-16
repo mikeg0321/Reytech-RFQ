@@ -389,7 +389,7 @@ def run_backup(data_dir: str = None) -> dict:
         log.info("Backup created: %s (%s)", filename, _fmt_size(size))
 
         # Rotate old backups (3 daily + 1 weekly)
-        _rotate_backups(backup_dir, keep_daily=1, keep_weekly=0)  # 577MB × 3 = 1.7GB, too much
+        _rotate_backups(backup_dir, keep_daily=3, keep_weekly=1)  # Post-VACUUM: 484MB × 4 ≈ 1.9GB
 
         heartbeat("db-backup", success=True)
         return {

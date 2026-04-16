@@ -3762,7 +3762,7 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
             "extended": round(it.get("qty", 0) * it.get("unit_price", 0), 2),
             "supplier": supplier,
             "supplier_url": supplier_url,
-            "cost": it.get("cost", 0),
+            "cost": it.get("cost") or it.get("unit_cost") or it.get("supplier_cost") or it.get("vendor_cost") or 0,
             "sourcing_status": "pending",    # pending → ordered → shipped → delivered
             "tracking_number": "",
             "carrier": "",

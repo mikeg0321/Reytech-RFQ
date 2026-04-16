@@ -300,6 +300,7 @@ def quoting_health_page():
         "margin": _build_margin(days),
         "top_errors": _build_top_errors(days),
         "recent_crashes": _build_recent_crashes(),
+        "db_health": _build_db_health(),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
 
@@ -325,4 +326,25 @@ def quoting_health_json():
         "margin": _build_margin(days),
         "top_errors": _build_top_errors(days),
         "recent_crashes": _build_recent_crashes(),
+        "db_health": _build_db_health(),
     }
+
+
+def _build_db_health():
+    """DB size + backup status for the health dashboard."""
+    import os as _dbh_os
+    data_dir = _dbh_os.environ.get("DATA_DIR", _dbh_os.path.join(
+        _dbh_os.path.dirname(_dbh_os.path.dirname(_dbh_os.path.dirname(_dbh_os.path.abspath(__file__)))), "data"))
+    db_path = _dbh_os.path.join(data_dir, "reytech.db")
+    result = {"db_size_mb": 0, "status": "unknown", "backup_count": 0}
+    try:
+        if _dbh_os.path.exists(db_path):
+            size_mb = round(_dbh_os.path.getsize(db_path) / 1024 / 1024, 1)
+            result["db_size_mb"] = size_mb
+            result["status"] = "ok" if size_mb < 500 else "warning" if size_mb < 1000 else "critical"
+        backup_dir = _dbh_os.path.join(data_dir, "backups")
+        if _dbh_os.path.isdir(backup_dir):
+            result["backup_count"] = len([f for f in _dbh_os.listdir(backup_dir) if f.endswith((".db", ".db.gz"))])
+    except Exception:
+        pass
+    return result
