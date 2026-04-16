@@ -1641,7 +1641,16 @@ def quotes_list():
     quotes = [q for q in quotes if not _is_ghost_quote(q)]
 
     next_num = peek_next_quote_number()
-    stats = get_quote_stats()
+    # P0.12 fix: use unified metrics instead of get_quote_stats() so
+    # /quotes and /pipeline show the same numbers.
+    from src.core.metrics import get_win_rate as _unified_wr
+    _uwr = _unified_wr()
+    stats = {
+        "total": _uwr["total"], "won": _uwr["won"], "lost": _uwr["lost"],
+        "pending": _uwr["pending"], "sent": _uwr.get("sent", 0),
+        "won_total": _uwr["won_total"], "pending_total": _uwr["pending_total"],
+        "win_rate": _uwr["rate"],
+    }
 
     # Check if logo exists
     logo_exists = any(os.path.exists(os.path.join(DATA_DIR, f"reytech_logo.{e}"))
@@ -2133,22 +2142,25 @@ def pipeline_page():
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
-    # ── Funnel Counts ──
+    # ── Funnel Counts (P0.12 fix: unified metrics) ──
     total_leads = len(leads)
-    total_quotes = len(quotes)
-    sent = sum(1 for q in quotes if q.get("status") in ("sent",))
-    pending = sum(1 for q in quotes if q.get("status") in ("pending",))
-    won = sum(1 for q in quotes if q.get("status") == "won")
-    lost = sum(1 for q in quotes if q.get("status") == "lost")
-    expired = sum(1 for q in quotes if q.get("status") == "expired")
-    total_orders = len(orders)
-    invoiced = sum(1 for o in orders.values() if o.get("status") in ("invoiced", "closed"))
+    from src.core.metrics import get_win_rate as _pipe_wr, get_active_orders as _pipe_ao
+    _pwr = _pipe_wr()
+    _pao = _pipe_ao()
+    total_quotes = _pwr["total"]
+    sent = _pwr.get("sent", 0)
+    pending = _pwr["pending"]
+    won = _pwr["won"]
+    lost = _pwr["lost"]
+    expired = _pwr.get("expired", 0)
+    total_orders = _pao["total"]
+    invoiced = _pao["closed"]  # closed includes invoiced per unified def
 
-    # ── Revenue ──
-    total_quoted = sum(q.get("total", 0) for q in quotes)
-    total_won = sum(q.get("total", 0) for q in quotes if q.get("status") == "won")
-    total_pending = sum(q.get("total", 0) for q in quotes if q.get("status") in ("pending", "sent"))
-    total_invoiced = sum(o.get("invoice_total", 0) for o in orders.values())
+    # ── Revenue (from unified stats) ──
+    total_quoted = _pwr["won_total"] + _pwr["lost_total"] + _pwr["pending_total"]
+    total_won = _pwr["won_total"]
+    total_pending = _pwr["pending_total"]
+    total_invoiced = _pao["invoiced_value"]
 
     # ── Conversion Rates ──
     def rate(a, b): return round(a/b*100) if b > 0 else 0

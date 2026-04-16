@@ -837,32 +837,19 @@ def api_dashboard_init():
         sent = sum(1 for pc in user_pcs.values() if pc.get("status") in ("sent","completed")) + \
                sum(1 for r in rfqs_nt.values() if r.get("status") == "sent")
 
-        # Quick quote stats from DB
-        won_count = 0; won_value = 0; orders_count = 0; pipeline_val = 0
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                for row in conn.execute("SELECT status, COUNT(*) as c, COALESCE(SUM(total),0) as t FROM quotes WHERE is_test=0 GROUP BY status").fetchall():
-                    s = row["status"]
-                    if s == "won": won_count = row["c"]; won_value = row["t"]
-                    elif s in ("pending","sent","draft"): pipeline_val += row["t"]
-                orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','test','deleted') AND po_number NOT LIKE '%TEST%'").fetchone()[0]
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
-
-        # Include orders in won_value if orders exist without won quotes
-        try:
-            all_orders = _load_orders()
-            real_orders = {k: o for k, o in all_orders.items()
-                           if o.get("status") not in ("cancelled", "test", "deleted")
-                           and "TEST" not in (o.get("po_number", "") or "").upper()
-                           and not o.get("is_test")}
-            order_total = sum(o.get("total", 0) for o in real_orders.values())
-            orders_count = max(orders_count, len(real_orders))
-            if order_total > won_value:
-                won_value = order_total
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
+        # Unified metrics (P0.12 fix — single source of truth)
+        from src.core.metrics import get_win_rate, get_pipeline_value, get_active_orders
+        _wr = get_win_rate()
+        _pv = get_pipeline_value()
+        _ao = get_active_orders()
+        won_count = _wr["won"]
+        won_value = _wr["won_total"]
+        # Include orders revenue if it exceeds won-quote revenue
+        # (POs may arrive without a corresponding won-quote record)
+        if _ao["total_value"] > won_value:
+            won_value = _ao["total_value"]
+        orders_count = _ao["total"]
+        pipeline_val = _pv["pipeline_value"]
 
         result["funnel"] = {
             "ok": True, "inbox": inbox, "priced": priced, "quoted": quoted,
@@ -888,24 +875,24 @@ def api_dashboard_init():
     except Exception:
         result["qa"] = {"status": "none"}
 
-    # ── 5. Manager metrics (skip the heavy agent calls, use cached data) ──
+    # ── 5. Manager metrics (unified — same source as funnel above) ──
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            total_quotes = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
-            total_revenue = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
-            pipeline = conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('pending','sent')").fetchone()[0]
-        # Also include orders revenue (POs may exist without won quotes)
+        # Reuse the same _wr / _pv / _ao computed above if still in scope,
+        # otherwise re-fetch (defensive — they're cheap cached queries).
         try:
-            all_orders = _load_orders()
-            order_revenue = sum(o.get("total", 0) for o in all_orders.values()
-                               if o.get("status") not in ("cancelled", "test", "deleted")
-                               and "TEST" not in (o.get("po_number", "") or "").upper()
-                               and not o.get("is_test"))
-            if order_revenue > total_revenue:
-                total_revenue = order_revenue
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
+            _wr_m = _wr
+            _pv_m = _pv
+            _ao_m = _ao
+        except NameError:
+            from src.core.metrics import get_win_rate, get_pipeline_value, get_active_orders
+            _wr_m = get_win_rate()
+            _pv_m = get_pipeline_value()
+            _ao_m = get_active_orders()
+        total_quotes = _wr_m["total"]
+        total_revenue = _wr_m["won_total"]
+        if _ao_m["total_value"] > total_revenue:
+            total_revenue = _ao_m["total_value"]
+        pipeline = _pv_m["pipeline_value"]
         result["metrics"] = {"ok": True, "total_quotes": total_quotes, "total_revenue": total_revenue, "pipeline": pipeline}
     except Exception as e:
         result["metrics"] = {"ok": False, "error": str(e)}
