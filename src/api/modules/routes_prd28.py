@@ -134,10 +134,10 @@ def api_outbox_retry_failed():
 def api_outbox_pending_count():
     """Return count of draft emails in outbox for notification bell."""
     try:
-        from src.core.db import get_db
-        with get_db() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM email_outbox WHERE status='draft'").fetchone()[0]
-        return jsonify({"ok": True, "count": count})
+        from src.core.metrics import get_pending_drafts
+        d = get_pending_drafts()
+        return jsonify({"ok": True, "count": d["total"],
+                        "sales": d["sales_drafts"], "cs": d["cs_drafts"]})
     except Exception as e:
         log.debug("outbox pending-count: %s", e)
         return jsonify({"ok": True, "count": 0})
