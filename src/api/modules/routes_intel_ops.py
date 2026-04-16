@@ -3982,6 +3982,25 @@ def api_award_tracker_run():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/oracle/backfill-all", methods=["POST"])
+@auth_required
+@safe_route
+def api_oracle_backfill_all():
+    """Feed all historical won/lost quotes + award-tracker losses through
+    oracle calibration. Idempotent — safe to re-run.
+
+    Body: {"dry_run": true} to preview without writing.
+    """
+    try:
+        from src.core.oracle_backfill import backfill_all
+        dry_run = (request.json or {}).get("dry_run", False)
+        result = backfill_all(dry_run=dry_run)
+        return jsonify(result)
+    except Exception as e:
+        log.exception("oracle-backfill-all")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/intel/win-rate-trends")
 @auth_required
 @safe_route

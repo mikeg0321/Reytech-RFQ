@@ -67,3 +67,20 @@ class TestBuildDraftSkipsNotificationSenders:
         assert result["ok"] is True
         assert result.get("skipped") is not True
         assert result["draft"] is not None
+
+    def test_general_draft_references_inbound_subject(self, tmp_path, monkeypatch):
+        # Audit fix: general-intent drafts must reference the inbound
+        # subject so the customer knows we read their email.
+        monkeypatch.chdir(tmp_path)
+        result = build_cs_response_draft(
+            classification={"intent": "general",
+                            "sender_email": "grace.pfost@cdcr.ca.gov",
+                            "sender_name": "Grace Pfost"},
+            subject="Need pricing for ergonomic chairs — 50 units",
+            body="Hi Mike, we need 50 ergonomic office chairs for SAC.\nCan you send a quote by Friday?",
+            sender="grace.pfost@cdcr.ca.gov",
+        )
+        assert result["ok"] is True
+        draft_body = result["draft"]["body"]
+        assert "ergonomic chairs" in draft_body
+        assert "I received your message and will follow up shortly" not in draft_body

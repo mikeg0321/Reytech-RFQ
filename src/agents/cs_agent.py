@@ -562,10 +562,29 @@ def build_cs_response_draft(
             )
 
     # ── GENERAL ─────────────────────────────────────────────────────────────
+    # Audit fix: the generic fallback used to be identical boilerplate for
+    # every email ("I received your message and will follow up shortly").
+    # Now references the inbound subject + first meaningful line so the
+    # customer knows we actually read what they wrote.
     else:
+        inbound_ref = ""
+        if subject:
+            clean_subj = subject.replace("Re: ", "").replace("RE: ", "").replace("Fwd: ", "")[:80]
+            inbound_ref = f"regarding \"{clean_subj}\""
+            # Extract first non-quote, non-empty line from the body
+            if body:
+                for _line in body.strip().split("\n"):
+                    _cl = _line.strip()
+                    if (_cl and len(_cl) > 15 and not _cl.startswith(">")
+                            and not _cl.startswith("From:") and not _cl.startswith("Sent:")):
+                        inbound_ref += f" — you mentioned: \"{_cl[:120]}...\""
+                        break
+
         body_text = (
             f"Hi {first_name},\n\n"
-            f"Thank you for reaching out to Reytech. I received your message and will follow up shortly.\n\n"
+            f"Thank you for reaching out to Reytech"
+            + (f" {inbound_ref}.\n\n" if inbound_ref else ".\n\n")
+            + f"I've reviewed your message and will follow up with a detailed response shortly.\n\n"
             f"For immediate assistance:\n"
             f"  Phone: 949-229-1575\n"
             f"  Email: sales@reytechinc.com\n\n"
