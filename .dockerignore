@@ -1,9 +1,14 @@
-# Docker build context — exclude everything not needed for the build.
-# The data/ directory lives on Railway's persistent volume, NOT in the image.
-# Without this file, Docker uploads the entire repo (4GB+) on every build.
+# Docker build context — exclude heavy runtime artifacts, keep seed data.
+# data/ seed files (23MB) MUST stay in the image for _seed_volume() boot.
+# Without seed data, the app crashes with FileNotFoundError on first boot.
 
-# Data directory (persistent volume on Railway — 4GB+)
-data/
+# Heavy runtime-only artifacts (NOT in git, only exist on Railway volume)
+data/email_corpus/
+data/shadow_outputs/
+data/pc_pdfs/
+data/reytech.db
+data/reytech.db-wal
+data/reytech.db-shm
 output/
 
 # Git
