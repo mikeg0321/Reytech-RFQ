@@ -101,12 +101,22 @@ function approveAward(idx) {
 }
 
 function dismissAward(idx) {
+ var btn = event && event.target;
+ if (btn) { btn.disabled = true; btn.textContent = 'Dismissing...'; }
  var reason = prompt('Reason for dismissing? (not a real PO, duplicate, etc)', '');
- if (reason === null) return;
+ if (reason === null) { if (btn) { btn.disabled = false; btn.textContent = '🗑 Dismiss'; } return; }
  fetch('/api/award/' + idx + '/dismiss', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({reason:reason})})
- .then(r => r.json()).then(d => {
-  if (d.ok) location.reload();
- });
+ .then(function(r) { return r.json(); }).then(function(d) {
+  if (d.ok) {
+   // Remove the card from DOM instead of reloading (prevents reload→prompt loop)
+   var cards = document.querySelectorAll('.card');
+   if (cards[idx]) cards[idx].style.display = 'none';
+   if (btn) { btn.textContent = '✅ Dismissed'; }
+  } else {
+   if (btn) { btn.disabled = false; btn.textContent = '🗑 Dismiss'; }
+   alert('Dismiss failed: ' + (d.error || 'unknown'));
+  }
+ }).catch(function(e) { if (btn) { btn.disabled = false; btn.textContent = '🗑 Dismiss'; } alert('Error: ' + e); });
 }
 </script>
 {% endblock %}
