@@ -42,6 +42,12 @@ def temp_data_dir(tmp_path, monkeypatch):
     data = str(tmp_path / "data")
     os.makedirs(data, exist_ok=True)
 
+    # Kill background agents early — BEFORE any dashboard module import.
+    # dashboard.py checks this env var at MODULE level (line ~5400), so it
+    # must be set before the first `from src.api import dashboard`.
+    monkeypatch.setenv("ENABLE_BACKGROUND_AGENTS", "false")
+    monkeypatch.setenv("TESTING", "1")
+
     # Seed minimal customers.json for CRM tests
     _write_json(os.path.join(data, "customers.json"), [
         {"qb_name": "Folsom State Prison", "display_name": "Folsom State Prison",
@@ -243,7 +249,24 @@ def app(temp_data_dir, monkeypatch):
     except (ImportError, AttributeError):
         pass
 
-    return _app
+    yield _app
+
+    # ── Teardown: stop daemon threads so they release DB locks before the
+    #    next test creates a new app + DB. Without this, background threads
+    #    (scheduler, award-tracker, follow-up-engine, etc.) hold SQLite WAL
+    #    locks across test boundaries → "database is locked" flakiness.
+    try:
+        from src.core.scheduler import request_shutdown
+        request_shutdown()
+    except Exception:
+        pass
+    try:
+        from src.core.db import close_thread_db
+        close_thread_db()
+    except Exception:
+        pass
+    import time as _t
+    _t.sleep(0.1)  # brief yield for daemon threads to exit
 
 
 @pytest.fixture
