@@ -5359,6 +5359,7 @@ _ROUTE_MODULES = [
     "routes_classifier_debug", # Followup: POST /api/admin/classifier/classify debug endpoint
     "routes_health",          # Quoting Health Dashboard: /health/quoting + /api/health/quoting
     "routes_simple_submit",   # Phase 0: Simple Submit — fast-path quoting for PCs + RFQs
+    "routes_deadlines",       # Phase 0.5: Deadline tracking API + hard alerts
 ]
 
 for _mod in _ROUTE_MODULES:
