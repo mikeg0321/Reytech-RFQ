@@ -227,36 +227,67 @@ def api_simple_submit_generate():
 
         results = {"ok": True, "files": []}
 
-        # Generate filled 704 on clean Reytech template
+        # Generate filled 704 via the new fill engine (Quote model + profile)
+        output_dir = os.path.join("output", "simple_submit", doc_id)
+        os.makedirs(output_dir, exist_ok=True)
+        output_704 = os.path.join(output_dir, f"704_filled_{doc_id}.pdf")
+
         try:
-            from src.forms.price_check import fill_ams704
-            blank_704 = os.path.join("tests", "fixtures", "ams_704_blank.pdf")
-            if not os.path.exists(blank_704):
-                blank_704 = os.path.join("src", "forms", "templates", "ams_704_blank.pdf")
+            from src.core.quote_model import Quote
+            from src.forms.profile_registry import load_profiles
+            from src.forms.fill_engine import fill as fill_v2
 
-            output_dir = os.path.join("output", "simple_submit", doc_id)
-            os.makedirs(output_dir, exist_ok=True)
-            output_704 = os.path.join(output_dir, f"704_filled_{doc_id}.pdf")
+            quote = Quote.from_legacy_dict(doc, doc_type=doc_type)
+            # Apply operator-reviewed pricing to the Quote
+            for submitted in items_data:
+                idx = int(submitted.get("line_no", 0))
+                cost = submitted.get("unit_cost", 0)
+                mkp = submitted.get("markup_pct", markup_pct)
+                if idx > 0 and float(cost) > 0:
+                    from decimal import Decimal
+                    try:
+                        quote.set_price(idx, Decimal(str(cost)), Decimal(str(mkp)))
+                    except ValueError:
+                        pass  # Line not found — skip
 
-            fill_result = fill_ams704(
-                source_pdf=blank_704,
-                parsed_pc=doc,
-                output_pdf=output_704,
-                tax_rate=tax_rate,
-                custom_notes=notes,
-                delivery_option=delivery,
-            )
-            if fill_result.get("ok"):
+            profiles = load_profiles()
+            profile = profiles.get("704a_reytech_standard")
+            if profile:
+                pdf_bytes = fill_v2(quote, profile)
+                with open(output_704, "wb") as f:
+                    f.write(pdf_bytes)
                 results["files"].append({
                     "type": "704",
                     "path": output_704,
                     "name": f"AMS_704_{doc_id}.pdf",
                 })
+                log.info("Simple submit: fill_v2 produced %d bytes for %s", len(pdf_bytes), doc_id)
             else:
-                results["704_error"] = fill_result.get("error", "Unknown fill error")
+                results["704_error"] = "No profile found for 704A template"
         except Exception as e:
-            log.error("Simple submit 704 fill error: %s", e, exc_info=True)
-            results["704_error"] = str(e)
+            log.error("Simple submit fill_v2 error: %s — falling back to legacy", e, exc_info=True)
+            # Fallback to legacy fill_ams704
+            try:
+                from src.forms.price_check import fill_ams704
+                blank_704 = os.path.join("tests", "fixtures", "ams_704_blank.pdf")
+                if not os.path.exists(blank_704):
+                    blank_704 = os.path.join("src", "forms", "templates", "ams_704_blank.pdf")
+                fill_result = fill_ams704(
+                    source_pdf=blank_704, parsed_pc=doc, output_pdf=output_704,
+                    tax_rate=tax_rate, custom_notes=notes, delivery_option=delivery,
+                )
+                if fill_result.get("ok"):
+                    results["files"].append({
+                        "type": "704",
+                        "path": output_704,
+                        "name": f"AMS_704_{doc_id}.pdf",
+                    })
+                    results["704_fallback"] = True
+                else:
+                    results["704_error"] = fill_result.get("error", "Unknown fill error")
+            except Exception as e2:
+                log.error("Simple submit legacy fallback also failed: %s", e2)
+                results["704_error"] = str(e)
 
         # Generate Reytech quote PDF
         try:
