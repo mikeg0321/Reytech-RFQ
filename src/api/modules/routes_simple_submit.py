@@ -397,3 +397,46 @@ def api_simple_submit_download(filepath):
         mimetype="application/pdf",
         as_attachment=not inline,
     )
+
+
+@bp.route("/api/simple-submit/approve", methods=["POST"])
+@auth_required
+def api_simple_submit_approve():
+    """Sign a draft 704 PDF — adds PNG signature + date, locks the PDF.
+
+    Called AFTER the operator reviews the draft. This is the final step
+    before sending to the buyer.
+    """
+    try:
+        data = request.get_json(force=True)
+        doc_id = data.get("doc_id", "")
+        file_path = data.get("file_path", "")
+
+        if not file_path or not os.path.exists(file_path):
+            # Try to find the 704 in the output directory
+            file_path = os.path.join("output", "simple_submit", doc_id,
+                                     f"704_filled_{doc_id}.pdf")
+        if not os.path.exists(file_path):
+            return jsonify({"ok": False, "error": "Draft PDF not found"}), 404
+
+        with open(file_path, "rb") as f:
+            draft_bytes = f.read()
+
+        from src.forms.fill_engine import approve_and_sign
+        signed_bytes = approve_and_sign(draft_bytes)
+
+        # Save signed version with _SIGNED suffix
+        signed_path = file_path.replace(".pdf", "_SIGNED.pdf")
+        with open(signed_path, "wb") as f:
+            f.write(signed_bytes)
+
+        return jsonify({
+            "ok": True,
+            "signed_path": signed_path,
+            "name": os.path.basename(signed_path),
+            "size": len(signed_bytes),
+        })
+
+    except Exception as e:
+        log.error("Simple submit approve error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500

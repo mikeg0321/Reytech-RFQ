@@ -328,14 +328,23 @@
       div.className = 'ss-result-item';
       var icon = f.type === '704' ? '📄' : '📋';
       var previewUrl = '/api/simple-submit/download/' + docId + '/' + f.name + '?inline=1';
+      var downloadUrl = '/api/simple-submit/download/' + docId + '/' + f.name;
       div.innerHTML = '<span class="ss-result-icon">' + icon + '</span>'
         + '<div class="ss-result-info">'
         + '<div class="ss-result-name">' + f.name + '</div>'
         + '<div class="ss-result-meta">' + f.type.toUpperCase() + (f.quote_number ? ' — #' + f.quote_number : '') + '</div>'
         + '</div>'
-        + '<a href="' + previewUrl + '" target="_blank" class="ss-btn ss-btn-secondary" style="font-size:12px;padding:4px 10px">Preview</a>';
+        + '<a href="' + previewUrl + '" target="_blank" class="ss-btn ss-btn-secondary" style="font-size:12px;padding:4px 10px">Preview</a>'
+        + '<a href="' + downloadUrl + '" class="ss-btn ss-btn-secondary" style="font-size:12px;padding:4px 10px" download>Download</a>';
       list.appendChild(div);
     });
+
+    // Add Approve & Sign button (stamps signature + date, locks PDF)
+    var approveDiv = document.createElement('div');
+    approveDiv.style.cssText = 'margin-top:12px;display:flex;gap:10px;align-items:center';
+    approveDiv.innerHTML = '<button class="ss-btn ss-btn-success" onclick="approveAndSign()" id="btnApprove" style="font-size:15px;padding:10px 24px">Approve &amp; Sign</button>'
+      + '<span id="approveStatus" style="font-size:13px;color:var(--tx2)">Review the draft above, then approve to add signature + date</span>';
+    list.appendChild(approveDiv);
 
     if (data['704_error']) {
       var errDiv = document.createElement('div');
@@ -380,6 +389,31 @@
     var body = encodeURIComponent('Please see attached quote and completed AMS 704 form.\n\nThank you,\nMichael Guadan\nReytech Inc.');
     var url = 'https://mail.google.com/mail/?view=cm&fs=1&to=' + encodeURIComponent(to) + '&su=' + subj + '&body=' + body;
     window.open(url, '_blank');
+  };
+
+  window.approveAndSign = function(){
+    var btn = document.getElementById('btnApprove');
+    var status = document.getElementById('approveStatus');
+    if (!btn) return;
+    btn.disabled = true;
+    status.textContent = 'Signing...';
+    fetch('/api/simple-submit/approve', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({doc_id: docId})
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.ok) {
+        status.innerHTML = 'Signed! <a href="/api/simple-submit/download/' + docId + '/' + d.name + '" class="ss-btn ss-btn-success" style="font-size:13px;padding:4px 12px" download>Download Signed PDF</a>';
+        btn.textContent = 'Signed';
+      } else {
+        btn.disabled = false;
+        status.textContent = 'Error: ' + (d.error || 'Unknown');
+      }
+    })
+    .catch(function(e){ btn.disabled = false; status.textContent = 'Error: ' + e; });
   };
 
   // Initial calculation
