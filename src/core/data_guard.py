@@ -305,6 +305,18 @@ def boot_health_check():
                         log.error("BOOT CHECK: MISMATCH — SQLite %s=%d but %s=0", table, count, json_fname)
                 except Exception as e:
                     checks["stats"][f"sqlite_{table}"] = {"error": str(e)}
+            # DB size monitoring — alert if > 500MB (was 1.27GB before VACUUM)
+            db_size_mb = round(os.path.getsize(db_path) / 1024 / 1024, 1)
+            checks["stats"]["db_size_mb"] = db_size_mb
+            if db_size_mb > 500:
+                checks["issues"].append(
+                    f"DATABASE BLOAT: reytech.db is {db_size_mb}MB (threshold: 500MB). "
+                    f"Run VACUUM via /api/disk-cleanup?action=vacuum"
+                )
+                log.warning("BOOT CHECK: DB BLOAT — %sMB (threshold 500MB)", db_size_mb)
+            else:
+                log.info("BOOT CHECK: DB size OK — %sMB", db_size_mb)
+
             conn.close()
         else:
             checks["issues"].append("reytech.db: MISSING")

@@ -2095,10 +2095,28 @@ def audit_trail_page():
                     metadata TEXT
                 )
             """)
+            # Pull from audit_trail first
             rows = conn.execute(
                 "SELECT * FROM audit_trail ORDER BY timestamp DESC LIMIT 200"
             ).fetchall()
             entries = [dict(r) for r in rows]
+
+            # Also pull from activity_log (the table that actually has data)
+            # activity_log uses different column names — normalize them
+            try:
+                al_rows = conn.execute("""
+                    SELECT id, created_at as timestamp, action, detail as details,
+                           '' as ip_address, '' as user_agent, '' as metadata
+                    FROM activity_log
+                    ORDER BY created_at DESC LIMIT 200
+                """).fetchall()
+                entries.extend([dict(r) for r in al_rows])
+            except Exception:
+                pass  # activity_log may not exist on fresh installs
+
+            # Sort combined entries by timestamp descending, keep top 200
+            entries.sort(key=lambda e: e.get("timestamp") or "", reverse=True)
+            entries = entries[:200]
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
