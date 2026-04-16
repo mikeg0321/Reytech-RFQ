@@ -1,0 +1,122 @@
+# AMS 704 — Reytech Standard Blank Template (704A field convention)
+# Source: tests/fixtures/ams_704_blank.pdf
+# 187 fields, 11 rows page 1 (unsuffixed), 8 rows page 2 (_2 suffix)
+# Total capacity: 19 items
+id: 704a_reytech_standard
+form_type: 704a
+blank_pdf: tests/fixtures/ams_704_blank.pdf
+fill_mode: acroform
+page_row_capacities: [11, 8]
+
+# ── Header fields ──
+fields:
+  header.solicitation_number:
+    pdf_field: "Text1"
+  header.due_date:
+    pdf_field: "Text2"
+  header.due_time:
+    pdf_field: "Time"
+  header.am_pst:
+    pdf_field: "AM PST"
+    type: checkbox
+  header.pm_pst:
+    pdf_field: "PM PST"
+    type: checkbox
+  header.price_check:
+    pdf_field: "PRICE CHECK"
+    type: checkbox
+
+  # ── Buyer fields ──
+  buyer.requestor_name:
+    pdf_field: "Requestor"
+  buyer.institution:
+    pdf_field: "Institution or HQ Program"
+  buyer.phone:
+    pdf_field: "Phone Number"
+  buyer.date_of_request:
+    pdf_field: "Date of Request"
+  ship_to.address:
+    pdf_field: "Ship to"
+  ship_to.zip_code:
+    pdf_field: "Delivery Zip Code"
+
+  # ── Vendor (Reytech) fields ──
+  vendor.name:
+    pdf_field: "COMPANY NAME"
+  vendor.supplier_name:
+    pdf_field: "SUPPLIER NAME"
+  vendor.representative:
+    pdf_field: "COMPANY REPRESENTATIVE print name"
+  vendor.address:
+    pdf_field: "Address"
+  vendor.phone:
+    pdf_field: "Phone Number_2"
+  vendor.email:
+    pdf_field: "EMail Address"
+  vendor.sb_cert:
+    pdf_field: "Certified SBMB"
+  vendor.dvbe_cert:
+    pdf_field: "Certified DVBE"
+  vendor.delivery:
+    pdf_field: "Delivery Date and Time ARO"
+  vendor.discount:
+    pdf_field: "Discount Offered"
+  vendor.expires:
+    pdf_field: "Date Price Check Expires"
+  vendor.signature:
+    pdf_field: "Signature and Date"
+
+  # ── Shipping terms checkboxes ──
+  shipping.fob_prepaid:
+    pdf_field: "FOB Destination Freight Prepaid"
+    type: checkbox
+  shipping.fob_ppadd:
+    pdf_field: "FOB Destination PPADD"
+    type: checkbox
+  shipping.fob_collect:
+    pdf_field: "FOB Origin Freight Collect"
+    type: checkbox
+
+  # ── Totals ──
+  totals.subtotal:
+    pdf_field: "fill_70"
+  totals.freight:
+    pdf_field: "fill_71"
+  totals.tax:
+    pdf_field: "fill_72"
+  totals.total:
+    pdf_field: "fill_73"
+  totals.notes:
+    pdf_field: "Supplier andor Requestor Notes"
+
+  # ── Page metadata ──
+  page.number:
+    pdf_field: "Page"
+  page.of:
+    pdf_field: "of"
+
+  # ── Row item fields (templated) ──
+  # Page 1: Row1–Row11 (unsuffixed)
+  # Page 2: Row1_2–Row8_2 (_2 suffix)
+  items[n].item_no:
+    pdf_field: "ITEM Row{n}"
+  items[n].description:
+    pdf_field: "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow{n}"
+  items[n].qty:
+    pdf_field: "QTYRow{n}"
+  items[n].uom:
+    pdf_field: "UNIT OF MEASURE UOMRow{n}"
+  items[n].qty_per_uom:
+    pdf_field: "QTY PER UOMRow{n}"
+  items[n].unit_price:
+    pdf_field: "PRICE PER UNITRow{n}"
+  items[n].extension:
+    pdf_field: "EXTENSIONRow{n}"
+  items[n].substituted:
+    pdf_field: "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow{n}"
+
+# ── Signature ──
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Signature and Date"
