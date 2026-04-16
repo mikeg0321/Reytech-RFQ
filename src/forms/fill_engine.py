@@ -98,9 +98,49 @@ def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
         if "/AcroForm" in writer._root_object:
             writer._root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
 
+        # Clear signature field (will be stamped as image overlay on approval)
+        field_values["Signature and Date"] = " "
+
         # Fill text fields
         for page in writer.pages:
             writer.update_page_form_field_values(page, field_values)
+
+        # Fill checkboxes — pypdf doesn't handle these in update_page_form_field_values
+        cb_values = {
+            "shipping.fob_prepaid": quote.header.shipping_terms == "FOB Destination",
+            "shipping.fob_ppadd": False,
+            "shipping.fob_collect": False,
+            "header.price_check": quote.doc_type.value == "pc",
+            "header.am_pst": quote.header.due_time is not None and quote.header.due_time.hour < 12,
+            "header.pm_pst": quote.header.due_time is not None and quote.header.due_time.hour >= 12,
+        }
+        checkbox_map = {}
+        for fm in profile.fields:
+            if "[n]" in fm.semantic:
+                continue
+            if fm.semantic in cb_values and cb_values[fm.semantic]:
+                checkbox_map[fm.pdf_field] = True
+
+        for page in writer.pages:
+            for annot_ref in (page.get("/Annots") or []):
+                try:
+                    annot = annot_ref.get_object()
+                    name = str(annot.get("/T", ""))
+                    if name in checkbox_map:
+                        # Find the "on" state from /AP/N keys
+                        ap = annot.get("/AP", {})
+                        if hasattr(ap, 'get_object'):
+                            ap = ap.get_object()
+                        ap_n = ap.get("/N", {}) if isinstance(ap, dict) else {}
+                        if hasattr(ap_n, 'get_object'):
+                            ap_n = ap_n.get_object()
+                        on_states = [str(k).lstrip("/") for k in (ap_n.keys() if isinstance(ap_n, dict) else []) if str(k) != "/Off"]
+                        if on_states:
+                            on = on_states[0]
+                            annot[NameObject("/V")] = NameObject(f"/{on}")
+                            annot[NameObject("/AS")] = NameObject(f"/{on}")
+                except Exception:
+                    pass
 
         # Signature is NOT applied at generate time — it's applied on approval.
         # The generate step produces an editable draft. The approve/send step
@@ -173,11 +213,11 @@ def _build_static_field_map(quote: Quote, profile: FormProfile) -> dict[str, str
         "ship_to.address": quote.ship_to.display(),
         "ship_to.zip_code": quote.ship_to.zip_code,
 
-        # Totals
-        "totals.subtotal": _fmt_money(quote.subtotal),
-        "totals.freight": "",
-        "totals.tax": "",
-        "totals.total": _fmt_money(quote.subtotal),
+        # Totals — always write values (never blank, even if $0)
+        "totals.subtotal": _fmt_money(quote.subtotal) or "0.00",
+        "totals.freight": "0.00",
+        "totals.tax": "0.00",
+        "totals.total": _fmt_money(quote.subtotal) or "0.00",
         "totals.notes": quote.buyer.notes,
     }
 
@@ -287,3 +327,89 @@ def _fmt_money(val: Decimal) -> str:
 def _expiry_date(days: int = 45) -> str:
     """Price check expiry date (45 days from today in PST)."""
     return (datetime.now(_PST) + timedelta(days=days)).strftime("%m/%d/%Y")
+
+
+def approve_and_sign(draft_pdf_bytes: bytes, signature_image_path: str = "") -> bytes:
+    """Apply PNG signature stamp + date to a draft PDF, then flatten (lock).
+
+    Called on operator approval — NOT during generate. The generate step
+    produces an editable draft. This function locks it for sending.
+
+    Args:
+        draft_pdf_bytes: The editable draft PDF from fill()
+        signature_image_path: Path to PNG signature image. If empty, uses
+            the default Reytech signature from data/reytech_logo.png or
+            the vendor config.
+
+    Returns:
+        Signed + flattened PDF as bytes
+    """
+    from pypdf import PdfReader, PdfWriter
+    from pypdf.generic import NameObject
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    reader = PdfReader(io.BytesIO(draft_pdf_bytes))
+    writer = PdfWriter(clone_from=reader)
+
+    # Find handwritten signature PNG (transparent background)
+    if not signature_image_path:
+        for candidate in [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "signature_transparent.png"),
+            "src/forms/signature_transparent.png",
+            "signature_transparent.png",
+            os.path.join(os.environ.get("DATA_DIR", "data"), "signature_transparent.png"),
+        ]:
+            if os.path.exists(candidate):
+                signature_image_path = candidate
+                break
+
+    # Create a reportlab overlay with signature + date on page 1
+    page_w = float(reader.pages[0].mediabox.width)
+    page_h = float(reader.pages[0].mediabox.height)
+    sig_overlay = io.BytesIO()
+    c = rl_canvas.Canvas(sig_overlay, pagesize=(page_w, page_h))
+
+    # "Signature and Date" field rect: [280, 390, 602, 412] (PDF coords, bottom-left origin)
+    # Layout: SIGNATURE on left, DATE on right
+    # Keep signature INSIDE the field — don't bleed into Phone Number row below
+    field_x0, field_y0, field_x1, field_y1 = 285, 393, 600, 411
+
+    # White-out the old "R. Michael Guadan" text that's baked into the template
+    c.setFillColorRGB(1, 1, 1)
+    c.rect(field_x0 - 5, field_y0 - 4, field_x1 - field_x0 + 10, field_y1 - field_y0 + 4, fill=1, stroke=0)
+    c.setFillColorRGB(0, 0, 0)
+
+    # Signature image on the LEFT side
+    sig_w = 210
+    sig_h = 20
+
+    if signature_image_path and os.path.exists(signature_image_path):
+        try:
+            # mask='auto' uses the alpha channel for transparency
+            c.drawImage(signature_image_path, field_x0 + 20, field_y0, sig_w, sig_h,
+                        preserveAspectRatio=True, anchor='sw', mask='auto')
+        except Exception as e:
+            log.warning("Signature image failed: %s — writing text instead", e)
+            c.setFont("Helvetica-Oblique", 12)
+            c.drawString(field_x0 + 5, field_y0 + 5, "R. Michael Guadan")
+
+    # Date on the RIGHT side of the field
+    date_str = datetime.now(_PST).strftime("%m/%d/%Y")
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica", 11)
+    c.drawString(field_x1 - 80, field_y0 + 5, date_str)
+
+    c.save()
+    sig_overlay.seek(0)
+
+    # Merge signature overlay onto page 1
+    sig_reader = PdfReader(sig_overlay)
+    writer.pages[0].merge_page(sig_reader.pages[0])
+
+    # Write result
+    result_buf = io.BytesIO()
+    writer.write(result_buf)
+    result = result_buf.getvalue()
+    log.info("approve_and_sign: %d bytes (signature + date stamped)", len(result))
+    return result
