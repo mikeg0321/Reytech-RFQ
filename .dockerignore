@@ -1,0 +1,43 @@
+# Docker build context — exclude everything not needed for the build.
+# The data/ directory lives on Railway's persistent volume, NOT in the image.
+# Without this file, Docker uploads the entire repo (4GB+) on every build.
+
+# Data directory (persistent volume on Railway — 4GB+)
+data/
+output/
+
+# Git
+.git/
+.github/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dev artifacts
+_overnight_review/
+_diag/
+audit_screenshots/
+tasks/
+*.log
+
+# Large docs not needed at runtime
+OVERNIGHT_*.md
+PRD-*.md
+SESSION_RESUME.md
+SHIP_IT.md
+AUDIT.md
+coveragerc
