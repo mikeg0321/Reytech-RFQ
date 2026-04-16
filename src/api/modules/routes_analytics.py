@@ -3966,34 +3966,45 @@ def api_diagnostic_sweep():
 def api_dashboard_kpis():
     """Key performance indicators -- single-call business health."""
     try:
-        import sqlite3 as _sq; from src.core.db import DB_PATH as _dbp; conn = _sq.connect(_dbp, timeout=30); conn.row_factory = _sq.Row
-        kpis = {}
-        kpis["total_quotes"] = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0").fetchone()[0]
-        kpis["quotes_this_month"] = conn.execute(
-            "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_at >= date('now','start of month')").fetchone()[0]
-        won = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
-        kpis["revenue_won"] = float(won or 0)
-        pipeline = conn.execute("SELECT SUM(total) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced','quoted')").fetchone()[0]
-        kpis["pipeline_value"] = float(pipeline or 0)
-        kpis["total_orders"] = conn.execute("SELECT COUNT(*) FROM orders").fetchone()[0]
-        kpis["total_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
-        kpis["open_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks WHERE status NOT IN ('priced','completed','cancelled')").fetchone()[0]
+        # P0.12 fix: aggregate metrics from unified module so analytics
+        # agrees with home / quotes / pipeline.
+        from src.core.metrics import get_win_rate, get_pipeline_value, get_active_orders, get_inbox_counts
+        _wr = get_win_rate()
+        _pv = get_pipeline_value()
+        _ao = get_active_orders()
+        _ic = get_inbox_counts()
+
+        kpis = {
+            "total_quotes": _wr["total"],
+            "revenue_won": _wr["won_total"],
+            "pipeline_value": _pv["pipeline_value"],
+            "total_orders": _ao["total"],
+            "win_rate": _wr["rate"],
+            "$2m_goal_pct": round(_wr["won_total"] / 2000000 * 100, 2),
+        }
+
+        # Supplemental counts that aren't in the unified module (page-specific)
         try:
-            kpis["total_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
-            kpis["new_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs WHERE status='new'").fetchone()[0]
-        except Exception:
-            kpis["total_rfqs"] = 0
-            kpis["new_rfqs"] = 0
-        try:
-            kpis["crm_contacts"] = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
-        except Exception:
-            kpis["crm_contacts"] = 0
-        won_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='won'").fetchone()[0]
-        lost_count = conn.execute("SELECT COUNT(*) FROM quotes WHERE is_test=0 AND status='lost'").fetchone()[0]
-        total_decided = (won_count or 0) + (lost_count or 0)
-        kpis["win_rate"] = round((won_count or 0) / total_decided * 100, 1) if total_decided > 0 else 0
-        kpis["$2m_goal_pct"] = round(kpis["revenue_won"] / 2000000 * 100, 2)
-        conn.close()
+            from src.core.db import get_db
+            with get_db() as conn:
+                kpis["quotes_this_month"] = conn.execute(
+                    "SELECT COUNT(*) FROM quotes WHERE is_test=0 AND created_at >= date('now','start of month')"
+                ).fetchone()[0]
+                kpis["total_pcs"] = conn.execute("SELECT COUNT(*) FROM price_checks").fetchone()[0]
+                kpis["open_pcs"] = _ic["inbox"] + _ic["priced"]  # inbox + priced = "open"
+                try:
+                    kpis["total_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs").fetchone()[0]
+                    kpis["new_rfqs"] = conn.execute("SELECT COUNT(*) FROM rfqs WHERE status='new'").fetchone()[0]
+                except Exception:
+                    kpis["total_rfqs"] = 0
+                    kpis["new_rfqs"] = 0
+                try:
+                    kpis["crm_contacts"] = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
+                except Exception:
+                    kpis["crm_contacts"] = 0
+        except Exception as _e:
+            log.debug("analytics kpi supplemental: %s", _e)
+
         return jsonify({"ok": True, **kpis})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
