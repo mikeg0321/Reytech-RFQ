@@ -1,11 +1,20 @@
+# ╔══════════════════════════════════════════════════════════════════════╗
+# ║ DEPLOY RULES — DO NOT CHANGE WITHOUT READING                       ║
+# ║                                                                    ║
+# ║ 1. NEVER change [phases.setup] unless you understand Docker layer  ║
+# ║    caching. Changing aptPkgs or nixPkgs invalidates the cache and  ║
+# ║    forces a full re-download (40+ min on slow mirrors).            ║
+# ║ 2. aptPkgs are cached as a Docker layer. Nix pkgs have their own  ║
+# ║    binary cache (cache.nixos.org). Both are fast on cache hit.     ║
+# ║ 3. If Ubuntu mirrors are broken, the retry in aptPkgs handles it. ║
+# ║ 4. Test deploy changes in a Railway preview environment first.     ║
+# ╚══════════════════════════════════════════════════════════════════════╝
+
 [phases.setup]
-# apt-get update can fail when Ubuntu mirrors are mid-sync (transient size
-# mismatches on Packages.gz). Retry up to 3 times with a fallback to stale
-# indices so the build doesn't die on infrastructure issues we can't control.
-cmds = [
-    "for i in 1 2 3; do sudo apt-get update && break || echo \"apt-get update attempt $i failed, retrying...\"; sleep 5; done || true",
-    "sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils libreoffice-writer"
-]
+# Heavy system packages via apt — cached as a Docker layer.
+# libreoffice-writer is ~200MB. On cache hit: <1s. On cache miss: 10-40 min
+# depending on Ubuntu mirror speed. DO NOT bust this cache unnecessarily.
+aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils", "libreoffice-writer"]
 nixPkgs = ["python3", "poppler_utils", "gcc"]
 
 [phases.install]

@@ -459,6 +459,37 @@ Server runs UTC (Railway). Use `_pst_now()` for any user-facing date:
 Use `?inline=1` query parameter on download URLs for iframe preview.
 Without it, browser downloads the PDF instead of rendering it.
 
+## Deploy Guard Rails (Production Incident 2026-04-16)
+
+### Never Bust the Docker Layer Cache
+`nixpacks.toml` controls the Railway build. The `[phases.setup]` section
+(aptPkgs, nixPkgs) is cached as a Docker layer. **Changing it forces a
+full re-download of all system packages.** libreoffice-writer alone is
+~200MB — on a slow mirror day, that's a 40+ minute deploy.
+
+**Rules:**
+- **NEVER change `[phases.setup]` in `nixpacks.toml` without confirming
+  the impact on Docker layer caching.** Read the comments in the file.
+- **NEVER switch from `aptPkgs` to `cmds`** for package installation — it
+  changes the Dockerfile structure and invalidates the entire apt cache layer.
+- **If Ubuntu mirrors are broken** (transient `apt-get update` failures), wait
+  and retry. Do NOT restructure nixpacks.toml to "fix" it — that makes it worse.
+- **If you must add a new system package**, add it to the existing `aptPkgs` list.
+  That preserves the cache for all previously-installed packages.
+- **Test deploy changes in a Railway preview environment first**, not production.
+
+Incident: On 2026-04-16, switching from `aptPkgs` to `cmds` in nixpacks.toml
+to add apt-get retry logic busted the Docker cache. Combined with slow Ubuntu
+mirrors (59kB/s), this caused 3 failed deploys and one 40-minute deploy.
+The retry logic was correct but the cache-busting cost was not worth it.
+
+### Deploy Time Budget
+- **Normal deploy: 5-8 minutes** (Docker cache hit on apt layer, pip cache hit)
+- **After nixpacks.toml change: 15-40 minutes** (full apt re-download)
+- **If deploy exceeds 15 minutes**: check Railway dashboard for build progress.
+  Likely a cache miss or slow mirror. Do NOT cancel and retry — that restarts
+  the download from zero.
+
 ## Core Principles
 
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
