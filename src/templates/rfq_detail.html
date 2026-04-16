@@ -4,8 +4,8 @@
 {% block content %}
 
 <a href="/" class="btn btn-s" style="margin-bottom:16px">← Queue</a>
-<form method="POST" action="/rfq/{{rid}}/delete" style="display:inline;margin-left:8px;margin-bottom:16px">
- <button type="submit" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:6px 14px;font-size:14px;font-weight:600" onclick="return confirm('Delete this RFQ?')" aria-label="Delete">Delete</button>
+<form method="POST" action="/rfq/{{rid}}/delete" id="rfqDeleteForm" style="display:inline;margin-left:8px;margin-bottom:16px">
+ <button type="button" class="btn btn-sm" style="background:var(--rd);color:#fff;padding:6px 14px;font-size:14px;font-weight:600" onclick="rtConfirm('Delete this RFQ permanently?', function(){ document.getElementById('rfqDeleteForm').submit(); }, 3)" aria-label="Delete">Delete</button>
 </form>
 
 <!-- Preview Modal -->
@@ -316,8 +316,8 @@
   {% endif %}
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
-   <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number}}" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px" title="Line #"></td>
-   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity"></td>
+   <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number or (loop.index0 + 1)}}" readonly ondblclick="this.removeAttribute('readonly');this.select()" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;cursor:default" title="Line # (double-click to edit)"></td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" max="999999" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity"></td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
@@ -331,7 +331,7 @@
     </div>
    </td>
    <td>
-    <input type="number" step="0.01" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromMarkup({{loop.index0}})">
+    <input type="number" step="0.01" min="0" max="999999.99" name="cost_{{loop.index0}}" value="{{i.supplier_cost or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromMarkup({{loop.index0}})" aria-label="Supplier cost">
     <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px">
      {% if i.scprs_last_price %}{% if i.get('scprs_po') %}<a href="/api/v1/harvest/po-screenshot/{{i.scprs_po}}" target="_blank" style="text-decoration:none">{% endif %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(88,166,255,.15);color:#58a6ff;cursor:{% if i.get('scprs_po') %}pointer{% else %}help{% endif %}" title="SCPRS{% if i.scprs_vendor %} · {{i.scprs_vendor}}{% endif %}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %} · PO Total (not per-unit){% endif %}{% if i.get('scprs_po') %} · PO {{i.scprs_po}} — click to view{% endif %}">SCPRS ${{'{:.2f}'.format(i.scprs_last_price)}}{% if i.get('scprs_source') == 'fiscal_scprs_summary' %}<span style="font-size:9px;opacity:.7"> (PO total)</span>{% endif %}</span>{% if i.get('scprs_po') %}</a>{% endif %}{% endif %}
      {% if i.get('amazon_price') %}<span style="font-size:11px;padding:1px 6px;border-radius:3px;background:rgba(251,146,60,.15);color:#fb923c;cursor:help" title="Amazon price">AMZ ${{'{:.2f}'.format(i.amazon_price)}}</span>{% endif %}
@@ -357,7 +357,7 @@
      <span style="color:#58a6ff;font-size:14px;font-weight:600">%</span>
     </div>
    </td>
-   <td><input type="number" step="0.01" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})">
+   <td><input type="number" step="0.01" min="0" max="999999.99" name="price_{{loop.index0}}" value="{{i.price_per_unit or ''}}" placeholder="0.00" class="num-in" style="width:110px;font-size:17px;font-weight:700;padding:8px 10px" oninput="recalcFromBid({{loop.index0}})" aria-label="Bid price per unit">
     {% if i.get('oracle_price') and i.get('oracle_price')|float > 0 %}
     {# Phase 4: auto-surface Oracle recommendation on every item row — no click required #}
     <div style="margin-top:3px">
@@ -489,13 +489,14 @@
 
  <!-- ── Primary Actions ── -->
  <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
-  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
+  <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" data-qa-gated="1" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:12px 20px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote" title="Opens generated PDF if available, otherwise shows HTML preview">👁 Preview</button>
-  <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
-  <button type="button" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
-  <button type="button" class="btn" style="background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification" aria-label="Generate food certification form">🌾 Food Cert</button>
-  <button type="button" class="btn" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
+  <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" data-qa-gated="1" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
+  <button type="button" class="btn" data-qa-gated="1" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
+  <button type="button" id="rfq-food-cert-btn" class="btn" style="display:none;background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (auto-shown when food items detected)" aria-label="Generate food certification form">🌾 Food Cert</button>
+  <button type="button" class="btn" data-qa-gated="1" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
  </div>
+ <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
 
  <!-- ── Quote Management ── -->
  {% if r.get('reytech_quote_number') %}
@@ -908,6 +909,80 @@ td:hover .desc-expand-btn { opacity: 1 !important; }
 <script>
 const RID = {{rid|tojson}};
 var _landedSummary = {{landed_summary|default({})|tojson}};
+
+// QA hard-block: reuse the existing pc_qa_agent helper via /api/rfq/<rid>/qa.
+// Disables Finalize / Generate / Send / Fill-All buttons until blockers clear.
+// Mirrors the gate the PC review page already enforces. No new QA rules.
+(function rfqQaGate(){
+  function applyGate(report){
+    var blockers = (report && report.issues || []).filter(function(i){ return i.severity === 'blocker'; });
+    var banner = document.getElementById('rfq-qa-gate-banner');
+    var btns = document.querySelectorAll('[data-qa-gated="1"]');
+    if (!blockers.length) {
+      if (banner) banner.style.display = 'none';
+      btns.forEach(function(b){
+        if (b.dataset._qaDisabled === '1') {
+          b.disabled = false;
+          b.style.opacity = '';
+          b.style.cursor = '';
+          b.removeAttribute('data-qa-blocked');
+          b.dataset._qaDisabled = '0';
+        }
+      });
+      return;
+    }
+    if (banner) {
+      var first = blockers.slice(0, 3).map(function(i){ return '• ' + (i.message || i.field || 'blocker'); }).join('<br>');
+      var more = blockers.length > 3 ? '<br><span style="opacity:.7">+ ' + (blockers.length - 3) + ' more</span>' : '';
+      banner.innerHTML = '🚫 <b>' + blockers.length + ' QA blocker' + (blockers.length === 1 ? '' : 's') + '</b> — destructive actions disabled until cleared.<br>' + first + more;
+      banner.style.display = 'block';
+    }
+    btns.forEach(function(b){
+      b.disabled = true;
+      b.style.opacity = '0.5';
+      b.style.cursor = 'not-allowed';
+      b.setAttribute('data-qa-blocked', '1');
+      b.title = (b.title || b.getAttribute('aria-label') || '') + ' — blocked: ' + blockers.length + ' QA issue(s)';
+      b.dataset._qaDisabled = '1';
+    });
+  }
+  function fetchAndApply(){
+    fetch('/api/rfq/' + encodeURIComponent(RID) + '/qa', {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(applyGate)
+      .catch(function(e){ console.error('rfq qa gate error:', e); });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fetchAndApply);
+  } else {
+    fetchAndApply();
+  }
+  window.refreshRfqQaGate = fetchAndApply;
+})();
+
+// Food cert button is only relevant for food RFQs. Hide by default, reveal
+// when any line description matches a food keyword. Errs on the side of
+// showing — false positives are harmless (the OBS 1600 fill is no-op on
+// non-food items per the existing handler).
+(function rfqFoodCertVisibility(){
+  function check(){
+    var btn = document.getElementById('rfq-food-cert-btn');
+    if (!btn) return;
+    var FOOD_RE = /\b(food|meal|snack|milk|juice|bread|cereal|fruit|vegetable|meat|poultry|beverage|drink|coffee|tea|soup|sauce|spice|oil|grain|rice|pasta|sugar|salt|flour|dairy|cheese|yogurt|egg|butter|breakfast|lunch|dinner|nutrition|edible|beverages|protein|kitchen|culinary|grocery)\b/i;
+    var descs = document.querySelectorAll('textarea[name^="desc_"]');
+    var matched = false;
+    for (var i = 0; i < descs.length; i++) {
+      if (FOOD_RE.test(descs[i].value || '')) { matched = true; break; }
+    }
+    btn.style.display = matched ? '' : 'none';
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', check);
+  } else {
+    check();
+  }
+  window.refreshRfqFoodCertVisibility = check;
+})();
 
 window.onerror=function(msg,src,line){
  var el=document.getElementById('globalError');

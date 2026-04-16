@@ -90,6 +90,53 @@ def rfq_reopen(rid):
     return redirect(f"/rfq/{rid}")
 
 
+def _rfq_to_pc_for_qa(rfq: dict) -> dict:
+    """Adapter: shape an RFQ dict into the form pc_qa_agent.run_qa expects.
+
+    The audit task is "extend the existing Form QA hard-block to the RFQ
+    page and REUSE the existing QA helper". The PC QA agent reads items
+    via `pc.get("items")` while RFQ data uses `line_items`, so this is a
+    pure rename + passthrough — no new QA rules introduced.
+    """
+    if not isinstance(rfq, dict):
+        return {"items": []}
+    pc_view = dict(rfq)
+    items = rfq.get("line_items") or rfq.get("items") or []
+    pc_view["items"] = items
+    pc_view.setdefault("agency", rfq.get("agency", ""))
+    pc_view.setdefault("ship_to", rfq.get("ship_to") or rfq.get("ship_to_name", ""))
+    pc_view.setdefault("total", rfq.get("total") or rfq.get("total_price", 0))
+    pc_view.setdefault("subtotal", rfq.get("subtotal", 0))
+    pc_view.setdefault("tax", rfq.get("tax", 0))
+    return pc_view
+
+
+@bp.route("/api/rfq/<rid>/qa", methods=["GET", "POST"])
+@auth_required
+@safe_route
+def api_rfq_qa(rid):
+    """Run the existing PC QA helper against an RFQ. Same rules — no new
+    QA logic — so the RFQ page can hard-block destructive actions until
+    blockers clear, mirroring the PC review page gate.
+    """
+    try:
+        rfqs = load_rfqs()
+        rfq = rfqs.get(rid)
+        if not rfq:
+            return jsonify({"ok": False, "error": "RFQ not found"}), 404
+        pc_view = _rfq_to_pc_for_qa(rfq)
+        # Default to skip-LLM on the RFQ side: the gate is meant to be fast
+        # and reproducible. Caller can opt in with ?llm=1.
+        use_llm = request.args.get("llm", "0") == "1"
+        from src.agents.pc_qa_agent import run_qa
+        import copy as _copy
+        report = run_qa(_copy.deepcopy(pc_view), use_llm=use_llm)
+        return jsonify(report)
+    except Exception as e:
+        log.error("RFQ QA error for %s: %s", rid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/rfq/<rid>/update-status", methods=["POST"])
 @auth_required
 @safe_route

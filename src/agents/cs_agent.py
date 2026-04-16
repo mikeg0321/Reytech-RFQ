@@ -279,6 +279,39 @@ CS_SIGNATURE = (
 )
 
 
+# Auto-reject list: senders whose mail is notification-only / lead-gen /
+# bounce-loop and which must NEVER receive an auto-CS-draft. The audit
+# flagged admin@govspendemail.com as a notification mailbox where any reply
+# vanishes, so drafting a CS response to it is pure noise. Add new entries
+# here when more bounce/notification addresses turn up.
+CS_AUTO_REJECT_SENDERS = frozenset({
+    "admin@govspendemail.com",
+    "noreply@govspendemail.com",
+    "no-reply@govspendemail.com",
+    "donotreply@govspendemail.com",
+    "mailer-daemon@googlemail.com",
+    "postmaster@googlemail.com",
+})
+
+CS_AUTO_REJECT_DOMAINS = frozenset({
+    "govspendemail.com",  # GovSpend lead-gen pings, never CS
+})
+
+
+def _should_skip_cs_draft(sender_email: str) -> tuple:
+    """Return (skip: bool, reason: str) for whether to suppress a CS draft."""
+    addr = (sender_email or "").strip().lower()
+    if not addr:
+        return False, ""
+    if addr in CS_AUTO_REJECT_SENDERS:
+        return True, f"sender on CS auto-reject list ({addr})"
+    if "@" in addr:
+        domain = addr.split("@", 1)[1]
+        if domain in CS_AUTO_REJECT_DOMAINS:
+            return True, f"sender domain on CS auto-reject list ({domain})"
+    return False, ""
+
+
 def build_cs_response_draft(
     classification: dict,
     subject: str,
@@ -301,6 +334,19 @@ def build_cs_response_draft(
     entities = classification.get("entities", {})
     sender_email = classification.get("sender_email", "")
     sender_name = classification.get("sender_name", "") or "there"
+
+    # Audit fix: never CS-draft to notification-only / lead-gen mailboxes.
+    skip, skip_reason = _should_skip_cs_draft(sender_email or sender)
+    if skip:
+        log.info("CS draft skipped: %s (subject=%s)", skip_reason, subject[:60])
+        return {
+            "ok": True,
+            "draft": None,
+            "auto_saved": False,
+            "skipped": True,
+            "skip_reason": skip_reason,
+            "note": f"CS draft suppressed — {skip_reason}",
+        }
 
     first_name = sender_name.split()[0] if sender_name and sender_name != "there" else "there"
 

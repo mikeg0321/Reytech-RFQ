@@ -335,14 +335,30 @@
       {% endif %}
      </div>
      {% else %}
-     <div style="display:flex;gap:6px;margin-top:10px;margin-bottom:4px">
-      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25)"
-        onclick="linkToRFQ()" aria-label="Link to Existing RFQ">🔗 Link to Existing RFQ</button>
-      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25)"
-        onclick="convertPCToRFQ()" aria-label="Convert to New RFQ">🔄 Convert to New RFQ</button>
-      <button class="btn btn-sm" style="font-size:14px;padding:4px 10px;background:rgba(251,191,36,.08);color:#f59e0b;border:1px solid rgba(251,191,36,.25)"
-        onclick="reclassifyAsRFQ()" aria-label="Reclassify as RFQ">⚠️ Reclassify as RFQ</button>
-     </div>
+     {# Audit consolidation: three near-identical "make this an RFQ" actions
+        ("Link to Existing RFQ", "Convert to New RFQ", "Reclassify as RFQ")
+        used to sit side-by-side with no hierarchy. Now collapsed under a
+        single "Change type…" disclosure with sublabels explaining the diff. #}
+     <details style="margin-top:10px;margin-bottom:4px">
+      <summary class="btn btn-sm" style="display:inline-block;font-size:14px;padding:4px 12px;background:rgba(139,148,160,.08);color:var(--tx);border:1px solid var(--bd);cursor:pointer;list-style:none" aria-label="Change type — RFQ linkage actions">🔁 Change type…</summary>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px;max-width:520px">
+       <button type="button" class="btn btn-sm" style="font-size:13px;padding:6px 10px;background:rgba(167,139,250,.08);color:#a78bfa;border:1px solid rgba(167,139,250,.25);text-align:left"
+         onclick="linkToRFQ()" aria-label="Link to Existing RFQ">
+         🔗 <b>Link to Existing RFQ</b>
+         <div style="font-size:12px;color:var(--tx2);margin-top:2px;font-weight:400">This PC pairs with an RFQ that already exists in the queue.</div>
+       </button>
+       <button type="button" class="btn btn-sm" style="font-size:13px;padding:6px 10px;background:rgba(52,211,153,.08);color:#3fb950;border:1px solid rgba(52,211,153,.25);text-align:left"
+         onclick="convertPCToRFQ()" aria-label="Convert to New RFQ">
+         🔄 <b>Convert to New RFQ</b>
+         <div style="font-size:12px;color:var(--tx2);margin-top:2px;font-weight:400">Create a brand-new RFQ from this PC's items + email context.</div>
+       </button>
+       <button type="button" class="btn btn-sm" style="font-size:13px;padding:6px 10px;background:rgba(251,191,36,.08);color:#f59e0b;border:1px solid rgba(251,191,36,.25);text-align:left"
+         onclick="reclassifyAsRFQ()" aria-label="Reclassify as RFQ">
+         ⚠️ <b>Reclassify as RFQ</b>
+         <div style="font-size:12px;color:var(--tx2);margin-top:2px;font-weight:400">This was never a Price Check — archive it from the PC queue and treat the original email as an RFQ.</div>
+       </button>
+      </div>
+     </details>
      {% endif %}
 
      <div id="crmPanel" style="margin-top:10px;display:flex;gap:12px;flex-wrap:wrap">
@@ -1660,6 +1676,13 @@
      const priceField=document.querySelector('[name=price_'+idx+']');
      if(!costEl||!markupEl||!priceField) return;
      const cost=parseFloat(costEl.value.replace(/[^0-9.\-]/g,''))||0;
+     // Don't auto-fill markup until cost has been entered. The markup
+     // field starts empty (placeholder "25") and only materializes once
+     // the user types a real cost — fixes the audit complaint that the
+     // markup column showed "25%" on every row before any cost existed.
+     if (cost > 0 && (!markupEl.value || markupEl.value.trim() === '')) {
+      markupEl.value = '25';
+     }
      const markup=parseFloat(markupEl.value.replace(/[^0-9.]/g,''))||0;
      const currentPrice=parseFloat(priceField.value.replace(/[^0-9.\-]/g,''))||0;
      const computedPrice=parseFloat((cost*(1+markup/100)).toFixed(2));
@@ -2218,15 +2241,15 @@
      const tr=document.createElement('tr');
      tr.setAttribute('data-row',idx);
      tr.innerHTML='<td style="text-align:center;position:relative;overflow:visible"><input type="checkbox" name="bid_'+idx+'" checked style="display:none"><input type="checkbox" name="substitute_'+idx+'" style="display:none"><span style="font-weight:700;font-size:15px;color:#8b949e;font-family:JetBrains Mono,monospace">'+(idx+1)+'</span><details class="row-actions" onclick="event.stopPropagation()"><summary class="row-actions-btn" title="Row actions">&#8942;</summary><div class="row-actions-menu"><button type="button" class="skip-toggle-btn" onclick="toggleSkip('+idx+');this.closest(\'details\').open=false">&#10060; Skip Item</button><button type="button" class="sub-toggle-btn" onclick="toggleSubstitute('+idx+');this.closest(\'details\').open=false">&#8644; Substitute</button><button type="button" onclick="toggleRowNotes('+idx+');this.closest(\'details\').open=false">&#128221; Notes</button>'+(idx>0?'<button type="button" onclick="mergeUp('+idx+');this.closest(\'details\').open=false">&#11014; Merge Up</button>':'')+'</div></details></td>'
-      +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:14px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" onblur="handleMfgInput('+idx+',this)"></td>'
-      +'<td><input type="number" name="qty_'+idx+'" value="1" class="num-in sm" style="width:55px" onchange="recalcPC()"><input type="hidden" name="qpu_'+idx+'" value="1"></td>'
-      +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600"></td>'
-      +'<td style="position:relative"><textarea name="desc_'+idx+'" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" placeholder="Enter description or paste URL" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl('+idx+',this)"></textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">\u2922</button><button type="button" class="amazon-match-btn" onclick="matchAmazon('+idx+')" title="Search Amazon for exact product match">\uD83D\uDD0D Amazon</button><span id="amz_status_'+idx+'" style="display:none;font-size:11px;margin-left:4px"></span></td>'
-      +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
+      +'<td><input type="text" name="itemnum_'+idx+'" value="" class="text-in" style="width:100%;box-sizing:border-box;text-align:center;font-weight:600;font-size:14px;font-family:JetBrains Mono,monospace;padding:6px 4px" placeholder="MFG#" aria-label="Manufacturer part number" onblur="handleMfgInput('+idx+',this)"></td>'
+      +'<td><input type="number" name="qty_'+idx+'" value="1" min="1" max="999999" class="num-in sm" style="width:55px" aria-label="Quantity" onchange="recalcPC()"><input type="hidden" name="qpu_'+idx+'" value="1"></td>'
+      +'<td><input type="text" name="uom_'+idx+'" value="EA" class="text-in" style="width:45px;text-transform:uppercase;text-align:center;font-weight:600" aria-label="Unit of measure" maxlength="6"></td>'
+      +'<td style="position:relative"><textarea name="desc_'+idx+'" class="text-in desc-area" style="width:100%;font-size:13px;padding:6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s;box-sizing:border-box" placeholder="Enter description or paste URL" aria-label="Item description" onclick="expandDesc(this)" onblur="collapseDesc(this)" oninput="detectDescUrl('+idx+',this)"></textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" aria-label="Expand description field" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">\u2922</button><button type="button" class="amazon-match-btn" onclick="matchAmazon('+idx+')" title="Search Amazon for exact product match" aria-label="Search Amazon for product match">\uD83D\uDD0D Amazon</button><span id="amz_status_'+idx+'" style="display:none;font-size:11px;margin-left:4px"></span></td>'
+      +'<td><div style="display:flex;flex-direction:column;gap:3px"><div style="display:flex;gap:2px;align-items:center"><input type="text" name="link_'+idx+'" value="" placeholder="Paste supplier URL\u2026" aria-label="Supplier URL" class="text-in" style="flex:1;font-size:14px;color:#58a6ff;padding:5px 7px" oninput="handleLinkInput('+idx+',this)" onpaste="setTimeout(()=>handleLinkInput('+idx+',this),50)"><a href="" target="_blank" id="linkopen_'+idx+'" style="display:none;align-items:center;justify-content:center;width:28px;height:28px;border-radius:4px;background:#21262d;border:1px solid #30363d;color:#58a6ff;font-size:14px;text-decoration:none;flex-shrink:0" title="Open link" aria-label="Open supplier link in new tab">\u2197</a></div><div id="link_meta_'+idx+'" style="font-size:13px;color:#8b949e"></div></div></td>'
       +'<td><span style="color:#484f58;font-size:14px">No sources</span></td>'
-      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
-      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="25" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
-      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
+      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_'+idx+'" value="" class="num-in" placeholder="0.00" aria-label="Supplier cost" oninput="sanitizePrice(this)" onchange="recalcRow('+idx+',true)" onblur="fmtCurrency(this)"></div></td>'
+      +'<td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_'+idx+'" value="" placeholder="25" aria-label="Markup percent" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow('+idx+',true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>'
+      +'<td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_'+idx+'" value="" class="num-in price-out" placeholder="0.00" aria-label="Bid price per unit" oninput="sanitizePrice(this)" onchange="reverseMarkup('+idx+');recalcPC()" onblur="fmtCurrency(this)"></div></td>'
       +'<td class="ext">\u2014</td><td class="profit">\u2014</td>';
      var tbody=table.querySelector('tbody')||table;
      tbody.appendChild(tr);
@@ -2235,7 +2258,7 @@
      ntr.className='notes-row';
      ntr.setAttribute('data-row',idx);
      ntr.style.display='none';
-     ntr.innerHTML='<td colspan="12" style="padding:0 8px 6px 120px;border-top:none"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;color:#8b949e">\uD83D\uDCDD</span><input type="text" name="notes_'+idx+'" value="" placeholder="Add note (prints on quote)\u2026" class="text-in" style="flex:1;font-size:14px;padding:3px 8px;color:#d2a8ff"></div></td>';
+     ntr.innerHTML='<td colspan="12" style="padding:0 8px 6px 120px;border-top:none"><div style="display:flex;align-items:center;gap:6px"><span style="font-size:13px;color:#8b949e">\uD83D\uDCDD</span><input type="text" name="notes_'+idx+'" value="" placeholder="Add note (prints on quote)\u2026" aria-label="Notes for this line item (printed on quote)" class="text-in" style="flex:1;font-size:14px;padding:3px 8px;color:#d2a8ff"></div></td>';
      tbody.appendChild(ntr);
      recalcPC();
     }
@@ -2937,24 +2960,33 @@
     }
 
     function markSent(btn) {
-     if (!confirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.\nYou can edit it anytime from the document viewer.')) return;
-     btn.disabled=true;btn.textContent='⏳ Updating...';
-     fetch('/api/pricecheck/'+_pcid+'/mark-sent', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({notes: '704 sent to requestor'})
-     }).then(r=>r.json()).then(d=>{
-      if(d.ok){
-       showMsg('📨 Marked as Sent! Opening document...','ok');
-       if(d.doc_url) {
-        setTimeout(()=>location.href=d.doc_url,1000);
+     // Use the shared two-step rtConfirm helper so this destructive state
+     // change has the same guard-rail as Delete RFQ / Delete Order. Falls
+     // back to a plain confirm if rtConfirm isn't loaded for any reason.
+     var go = function(){
+      btn.disabled=true;btn.textContent='⏳ Updating...';
+      fetch('/api/pricecheck/'+_pcid+'/mark-sent', {
+       method:'POST', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({notes: '704 sent to requestor'})
+      }).then(r=>r.json()).then(d=>{
+       if(d.ok){
+        showMsg('📨 Marked as Sent! Opening document...','ok');
+        if(d.doc_url) {
+         setTimeout(()=>location.href=d.doc_url,1000);
+        } else {
+         setTimeout(()=>location.reload(),1200);
+        }
        } else {
-        setTimeout(()=>location.reload(),1200);
+        btn.disabled=false;btn.textContent='📨 Mark Sent';
+        showMsg('❌ '+(d.error||'Failed'),'err');
        }
-      } else {
-       btn.disabled=false;btn.textContent='📨 Mark Sent';
-       showMsg('❌ '+(d.error||'Failed'),'err');
-      }
-     }).catch(e=>{btn.disabled=false;btn.textContent='📨 Mark Sent';showMsg('❌ '+e.message,'err');});
+      }).catch(e=>{btn.disabled=false;btn.textContent='📨 Mark Sent';showMsg('❌ '+e.message,'err');});
+     };
+     if (typeof window.rtConfirm === 'function') {
+      window.rtConfirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.', go, 0);
+     } else if (window.confirm('Mark this PC as SENT to the requestor?\n\nA versioned copy of the 704 will be saved.\nYou can edit it anytime from the document viewer.')) {
+      go();
+     }
     }
 
     function escHtml(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}

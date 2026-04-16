@@ -34,6 +34,21 @@ except ImportError:
 
 DB_PATH = os.path.join(DATA_DIR, "reytech.db")
 
+
+def _resolve_db_path() -> str:
+    """Resolve the DB path dynamically so monkeypatched test data dirs work.
+
+    The module-level DB_PATH snapshot is fine for prod (where DATA_DIR
+    never changes) but tests patch src.core.paths.DATA_DIR per-test, and
+    the snapshot misses the patch. Falls back to the snapshot if the
+    paths module isn't importable.
+    """
+    try:
+        import src.core.paths as _p
+        return os.path.join(_p.DATA_DIR, "reytech.db")
+    except Exception:
+        return DB_PATH
+
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 POLL_INTERVAL_SEC = 8 * 60 * 60      # 8 hours = 3x/day
@@ -52,7 +67,7 @@ _last_result = None
 # ── Database Setup ────────────────────────────────────────────────────────────
 
 def _db():
-    conn = sqlite3.connect(DB_PATH, timeout=15, check_same_thread=False)
+    conn = sqlite3.connect(_resolve_db_path(), timeout=15, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
@@ -1542,34 +1557,98 @@ def start_award_tracker(interval_seconds: int = POLL_INTERVAL_SEC):
 # ── Status / Manual API ──────────────────────────────────────────────────────
 
 def get_status() -> dict:
-    """Return current tracker status for API/dashboard."""
-    _ensure_tables()
+    """Return current tracker status for API/dashboard.
+
+    Defensive: any individual SQL probe that hits a missing table falls
+    back to a sentinel (None / 0) rather than 500ing the endpoint. The
+    health verdict at the bottom is always populated.
+    """
+    try:
+        _ensure_tables()
+    except Exception as _e:
+        log.debug("get_status _ensure_tables suppressed: %s", _e)
     conn = _db()
+
+    def _scalar(sql, params=()):
+        try:
+            row = conn.execute(sql, params).fetchone()
+            return row[0] if row else 0
+        except Exception as _e:
+            log.debug("get_status scalar probe failed (%s): %s", sql[:60], _e)
+            return None
+
+    def _rows(sql, params=()):
+        try:
+            return conn.execute(sql, params).fetchall()
+        except Exception as _e:
+            log.debug("get_status rows probe failed (%s): %s", sql[:60], _e)
+            return []
 
     # Eligible quotes count
     cutoff = (datetime.now(timezone.utc) - timedelta(days=MIN_DAYS_AFTER_SENT)).isoformat()
-    eligible = conn.execute("""
+    eligible = _scalar("""
         SELECT COUNT(*) FROM quotes
         WHERE is_test=0 AND status='sent' AND total > 0
           AND ((sent_at IS NOT NULL AND sent_at != '' AND sent_at <= ?)
                OR (sent_at IS NULL OR sent_at = '') AND created_at <= ?)
-    """, (cutoff, cutoff)).fetchone()[0]
+    """, (cutoff, cutoff))
 
     # Recent checks
-    recent = conn.execute("""
+    recent = _rows("""
         SELECT checked_at, quote_number, outcome, notes
         FROM award_tracker_log ORDER BY checked_at DESC LIMIT 10
-    """).fetchall()
+    """)
 
     # Total matches/losses
-    total_losses = conn.execute(
+    total_losses = _scalar(
         "SELECT COUNT(*) FROM quote_po_matches WHERE outcome='lost_to_competitor'"
-    ).fetchone()[0]
-    total_wins = conn.execute(
+    ) or 0
+    total_wins = _scalar(
         "SELECT COUNT(*) FROM quote_po_matches WHERE outcome='we_won'"
-    ).fetchone()[0]
+    ) or 0
 
-    conn.close()
+    # Health verdict — added 2026-04-15 because markQuote was silently broken
+    # for ~2 months and Mike wants loud failure if any background job stops.
+    # Cross-check with scheduler_heartbeats so we still get a verdict even if
+    # _last_run isn't populated yet (e.g. after a process restart).
+    last_run_iso = _last_run
+    try:
+        hb_row = conn.execute(
+            "SELECT last_heartbeat, status FROM scheduler_heartbeats WHERE job_name=?",
+            ("award-tracker",)
+        ).fetchone() if _scheduler_started else None
+        if hb_row and hb_row[0] and (not last_run_iso or hb_row[0] > last_run_iso):
+            last_run_iso = hb_row[0]
+    except Exception as _e:
+        log.debug("scheduler_heartbeats read failed: %s", _e)
+
+    staleness_seconds = None
+    if last_run_iso:
+        try:
+            _last_dt = datetime.fromisoformat(last_run_iso.replace("Z", "+00:00"))
+            if _last_dt.tzinfo is None:
+                _last_dt = _last_dt.replace(tzinfo=timezone.utc)
+            staleness_seconds = (datetime.now(timezone.utc) - _last_dt).total_seconds()
+        except Exception as _e:
+            log.debug("staleness calc failed: %s", _e)
+
+    # Healthy if it's run within ~13h (poll interval is 8h, allow one-cycle slack
+    # for SCPRS quiet windows). Stale if no run in 13–48h. Dead if 48h+ or never.
+    if not _scheduler_started:
+        health = "not_started"
+    elif staleness_seconds is None:
+        health = "no_run_yet"
+    elif staleness_seconds < 13 * 3600:
+        health = "ok"
+    elif staleness_seconds < 48 * 3600:
+        health = "stale"
+    else:
+        health = "dead"
+
+    try:
+        conn.close()
+    except Exception:
+        pass
 
     return {
         "ok": True,
@@ -1577,11 +1656,13 @@ def get_status() -> dict:
         "poll_interval_hours": POLL_INTERVAL_SEC / 3600,
         "min_days_after_sent": MIN_DAYS_AFTER_SENT,
         "eligible_quotes": eligible,
-        "last_run": _last_run,
+        "last_run": last_run_iso,
         "last_result": _last_result,
         "total_losses_detected": total_losses,
         "total_wins_detected": total_wins,
         "recent_checks": [dict(r) for r in recent],
+        "health": health,
+        "staleness_seconds": staleness_seconds,
     }
 
 

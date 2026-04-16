@@ -1,0 +1,38 @@
+{# Reusable destructive-action confirm button.
+
+   Single source of truth for "are you sure?" prompts so every dangerous
+   action gets the same two-step + optional undo treatment, instead of the
+   previous patchwork of bare `if(confirm(...))` calls.
+
+   The `rtConfirm` JS helper is registered once in base.html. This partial
+   only emits the macro definition; including this file in a template gives
+   you `confirm_button(...)`.
+
+   Usage:
+       {% from 'partials/_confirm_button.html' import confirm_button %}
+       {{ confirm_button(
+            label='🗑️ Delete RFQ',
+            message='Delete this RFQ permanently?',
+            onclick_js="fetch('/api/rfq/'+RID+'/delete',{method:'POST'}).then(()=>location.href='/')",
+            undo_seconds=3,
+            class_='btn btn-s',
+            style='color:#f85149') }}
+
+   Args:
+     label         visible button text (HTML allowed; caller is responsible for escaping)
+     message       prompt shown in the first confirm() — caller should keep it short
+     onclick_js    raw JS executed after the user confirms (and the undo window expires)
+     undo_seconds  if > 0, show an undo toast for N seconds before running onclick_js (default 0)
+     class_        button class (default 'btn btn-s')
+     style         inline style passthrough
+     title         optional aria/title text
+     id            optional DOM id
+#}
+{% macro confirm_button(label, message, onclick_js, undo_seconds=0, class_='btn btn-s', style='', title='', id='') -%}
+<button type="button"
+        class="{{ class_ }}"
+        {% if id %}id="{{ id }}"{% endif %}
+        {% if title %}title="{{ title|e }}" aria-label="{{ title|e }}"{% endif %}
+        {% if style %}style="{{ style }}"{% endif %}
+        onclick="rtConfirm({{ message|tojson }}, function(){ {{ onclick_js }} }, {{ undo_seconds|int }})">{{ label }}</button>
+{%- endmacro %}

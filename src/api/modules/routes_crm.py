@@ -2140,6 +2140,95 @@ def api_notify_test():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/quotes/reconcile-po", methods=["POST"])
+@auth_required
+@safe_route
+def api_quotes_reconcile_po():
+    """Manually mark a quote as won by attaching a PO number.
+
+    Built specifically to clean up the 3 known POs that came in while the
+    markQuote() JS button was a silent no-op (broken Feb 17 → Apr 15 2026).
+
+    Body: {"po_number": "PO-12345", "quote_number": "R26Q500", "notes": "..."}
+
+    Returns:
+      - 200 ok=true on success
+      - 400 if po_number / quote_number missing
+      - 404 if quote_number doesn't exist
+      - 409 if the quote is already in a terminal state (won/lost) — caller
+        must explicitly pass force=true to overwrite
+    """
+    if not QUOTE_GEN_AVAILABLE:
+        return jsonify({"ok": False, "error": "Quote generator not available"}), 503
+    data = request.get_json(force=True, silent=True) or {}
+    po_number = (data.get("po_number") or "").strip()
+    quote_number = (data.get("quote_number") or "").strip()
+    notes = (data.get("notes") or "manual reconciliation (markQuote silent no-op recovery)").strip()
+    force = bool(data.get("force"))
+    if not po_number:
+        return jsonify({"ok": False, "error": "po_number required"}), 400
+    if not quote_number:
+        return jsonify({"ok": False, "error": "quote_number required"}), 400
+
+    # Pre-flight: check existing state so we don't silently overwrite a
+    # genuine 'lost' decision someone made (rare but possible).
+    try:
+        from src.forms.quote_generator import get_all_quotes
+        existing = None
+        for qt in get_all_quotes(include_test=True):
+            if qt.get("quote_number") == quote_number:
+                existing = qt
+                break
+        if not existing:
+            return jsonify({"ok": False, "error": f"Quote {quote_number} not found"}), 404
+        cur_status = (existing.get("status") or "").lower()
+        if cur_status in ("won", "lost") and not force:
+            return jsonify({
+                "ok": False,
+                "error": f"Quote {quote_number} is already {cur_status} — pass force=true to overwrite",
+                "current_status": cur_status,
+                "current_po_number": existing.get("po_number", ""),
+            }), 409
+    except Exception as e:
+        log.warning("reconcile-po pre-flight failed: %s", e)
+
+    found = update_quote_status(quote_number, "won",
+                                po_number=po_number,
+                                notes=notes, actor="reconcile_po")
+    if not found:
+        return jsonify({"ok": False, "error": f"Quote {quote_number} not found or update failed"}), 404
+    log.info("RECONCILE: marked %s as WON via PO %s (manual)", quote_number, po_number)
+    return jsonify({
+        "ok": True, "quote_number": quote_number,
+        "po_number": po_number, "status": "won",
+        "notes": notes,
+    })
+
+
+@bp.route("/api/notify/snooze", methods=["POST"])
+@auth_required
+@safe_route
+def api_notify_snooze():
+    """Snooze a notification key for N hours (default 24).
+
+    POST body: {"key": "outbox_stale_drafts_waiting", "hours": 24}
+
+    The key is the cooldown_key the alert was sent with — see notify_agent
+    call sites. Snooze is in-memory only; restarts clear all snoozes.
+    """
+    try:
+        from src.agents.notify_agent import snooze_alert
+        data = request.get_json(force=True, silent=True) or {}
+        key = (data.get("key") or "").strip()
+        if not key:
+            return jsonify({"ok": False, "error": "key required"}), 400
+        hours = float(data.get("hours") or 24)
+        result = snooze_alert(key, hours=hours)
+        return jsonify({"ok": True, **result})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/notify/status")
 @auth_required
 @safe_route

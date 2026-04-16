@@ -42,11 +42,19 @@
 <div style="display:flex;gap:8px;margin-bottom:16px;padding:12px;background:var(--sf2);border-radius:8px;align-items:center;flex-wrap:wrap">
  <span style="font-size:14px;font-weight:600;color:var(--tx2);margin-right:8px">Bulk Actions:</span>
  {% if sales_drafts %}
- <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px" aria-label="Approve All Drafts ( sales_draftsl">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
+ <button class="btn btn-sm" onclick="bulkApproveAll()" style="background:rgba(52,211,153,.15);color:var(--gn);font-size:14px;padding:6px 14px" aria-label="Approve all sales drafts">✅ Approve All Drafts ({{ sales_drafts|length }})</button>
  <button class="btn btn-sm" onclick="bulkDeleteDrafts()" style="background:rgba(248,113,113,.1);color:var(--rd);font-size:14px;padding:6px 14px" aria-label="Delete All Drafts">🗑 Delete All Drafts</button>
  {% endif %}
  <button class="btn btn-sm" onclick="retryFailed()" style="background:rgba(251,191,36,.1);color:var(--yl);font-size:14px;padding:6px 14px" aria-label="Retry Failed">🔄 Retry Failed</button>
- <div style="flex:1"></div>
+ <input type="search" id="outbox-filter" placeholder="🔍 Filter by sender, subject, or category..." oninput="filterOutbox()" aria-label="Filter outbox" style="flex:1;min-width:220px;padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+ <select id="outbox-age-filter" onchange="filterOutbox()" aria-label="Filter by age" style="padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px">
+  <option value="">Any age</option>
+  <option value="1">≤ 1 day old</option>
+  <option value="7">≤ 7 days old</option>
+  <option value="30">≤ 30 days old</option>
+  <option value="999">Older than 7 days</option>
+ </select>
+ <span id="outbox-filter-count" style="font-size:13px;color:var(--tx2)"></span>
  <span id="bulk-status" style="font-size:14px;color:var(--tx2)"></span>
 </div>
 {% endif %}
@@ -57,7 +65,7 @@
 <p style="color:var(--tx2);font-size:13px;padding:20px 0">No CS drafts pending. 👍</p>
 {% else %}
 {% for d in cs_drafts %}
-<div class="card" style="margin-bottom:10px;border-left:3px solid var(--ac)">
+<div class="card outbox-card" data-category="cs" data-search="{{ ((d.intent or '') ~ ' ' ~ (d.subject or '') ~ ' ' ~ (d.to or '') ~ ' ' ~ (d.body or '')[:200])|e|lower }}" data-created="{{ (d.created_at or '')[:10] }}" style="margin-bottom:10px;border-left:3px solid var(--ac)">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
@@ -83,7 +91,7 @@
 <p style="color:var(--tx2);font-size:13px;padding:20px 0">No sales drafts pending.</p>
 {% else %}
 {% for d in sales_drafts %}
-<div class="card" style="margin-bottom:10px">
+<div class="card outbox-card" data-category="sales" data-search="{{ ((d.subject or '') ~ ' ' ~ (d.to or '') ~ ' ' ~ (d.body or '')[:200])|e|lower }}" data-created="{{ (d.created_at or '')[:10] }}" style="margin-bottom:10px">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
    <div style="flex:1">
     <div style="font-size:13px;font-weight:600;color:var(--tx)">{{ d.subject or '' }}</div>
@@ -101,6 +109,36 @@
 {% endif %}
 
 <script>
+function filterOutbox(){
+  var q = (document.getElementById('outbox-filter').value || '').trim().toLowerCase();
+  var ageOpt = document.getElementById('outbox-age-filter').value;
+  var maxAgeDays = ageOpt ? parseInt(ageOpt, 10) : null;
+  var cards = document.querySelectorAll('.outbox-card');
+  var visible = 0;
+  var now = Date.now();
+  cards.forEach(function(card){
+    var hay = card.getAttribute('data-search') || '';
+    var textOk = !q || hay.indexOf(q) !== -1;
+    var ageOk = true;
+    if (maxAgeDays != null) {
+      var created = card.getAttribute('data-created') || '';
+      if (created) {
+        var ts = Date.parse(created + 'T00:00:00Z');
+        if (!isNaN(ts)) {
+          var ageDays = (now - ts) / (1000 * 60 * 60 * 24);
+          if (ageOpt === '999') ageOk = ageDays > 7;
+          else ageOk = ageDays <= maxAgeDays;
+        }
+      }
+    }
+    var show = textOk && ageOk;
+    card.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  var counter = document.getElementById('outbox-filter-count');
+  if (counter) counter.textContent = (q || maxAgeDays != null) ? (visible + ' shown') : '';
+}
+
 function approveDraft(id,btn){
   btn.disabled=true;btn.textContent='Sending...';
   fetch('/api/outbox/'+id+'/approve',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({})})
@@ -127,13 +165,14 @@ function bulkApproveAll(){
   });
 }
 function bulkDeleteDrafts(){
-  if(!confirm('Delete ALL draft emails? This cannot be undone.'))return;
-  document.getElementById('bulk-status').textContent='Deleting...';
-  fetch('/api/outbox/bulk-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status_filter:'draft'})})
-  .then(r=>r.json()).then(d=>{
-    document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
-    if(d.ok)setTimeout(()=>location.reload(),1500);
-  });
+  rtConfirm('Delete ALL draft emails? This cannot be undone.', function(){
+    document.getElementById('bulk-status').textContent='Deleting...';
+    fetch('/api/outbox/bulk-delete',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({status_filter:'draft'})})
+    .then(r=>r.json()).then(d=>{
+      document.getElementById('bulk-status').textContent=d.ok?'🗑 Deleted '+d.deleted+' drafts':'❌ Failed';
+      if(d.ok)setTimeout(()=>location.reload(),1500);
+    });
+  }, 3);
 }
 function retryFailed(){
   document.getElementById('bulk-status').textContent='Retrying...';

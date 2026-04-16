@@ -11,6 +11,7 @@
    <a href="/recurring" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">🔄 Recurring</a>
    <a href="/analytics?tab=pricing" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">💰 Pricing Intel</a>
    <a href="/audit" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)">📋 Audit Trail</a>
+   <a href="/orders/unresolved" style="font-size:15px;color:var(--ac);text-decoration:none;background:var(--sf2);padding:6px 14px;border-radius:12px;border:1px solid var(--bd)" title="POs that failed to match a quote">⚠️ Unresolved POs</a>
  </div>
  <div style="display:flex;gap:10px;align-items:center">
   <button onclick="createFromPO()" class="btn btn-g" style="font-size:16px;white-space:nowrap;padding:8px 18px" aria-label="Import PO PDF">📄 Import PO PDF</button>
@@ -196,15 +197,16 @@ function handlePOUpload(input) {
   });
 }
 function deleteOrder(oid) {
-  if (!confirm('Delete order ' + oid + '?')) return;
-  fetch('/api/order/' + oid + '/delete', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({reason: 'manual delete'})
-  }).then(function(r){return r.json()}).then(function(d) {
-    if (d.ok) location.reload();
-    else alert('Error: ' + (d.error || 'unknown'));
-  });
+  rtConfirm('Delete order ' + oid + '?', function(){
+    fetch('/api/order/' + oid + '/delete', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reason: 'manual delete'})
+    }).then(function(r){return r.json()}).then(function(d) {
+      if (d.ok) location.reload();
+      else alert('Error: ' + (d.error || 'unknown'));
+    });
+  }, 3);
 }
 // F10: KPI Dashboard
 fetch('/api/orders/kpi').then(function(r){return r.json()}).then(function(d){

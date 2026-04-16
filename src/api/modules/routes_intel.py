@@ -1622,6 +1622,24 @@ def quotes_list():
     agency_filter = request.args.get("agency", "")
     status_filter = request.args.get("status", "")
     quotes = search_quotes(query=q, agency=agency_filter, status=status_filter, limit=100)
+
+    # Hide ghost quotes from the list view (HIDE, not delete — data stays in DB).
+    # A ghost quote has $0 total AND 0 items AND no real agency. Stats bar still
+    # reflects the underlying DB so we don't silently swallow data; the filter
+    # only suppresses these from the visible row list.
+    def _is_ghost_quote(_qt):
+        try:
+            _total = float(_qt.get("total") or 0)
+        except (TypeError, ValueError):
+            _total = 0.0
+        try:
+            _items_count = int(_qt.get("items_count") or 0)
+        except (TypeError, ValueError):
+            _items_count = 0
+        _raw_agency = (_qt.get("agency") or "").strip()
+        return _total == 0.0 and _items_count == 0 and _raw_agency in ("", "DEFAULT")
+    quotes = [q for q in quotes if not _is_ghost_quote(q)]
+
     next_num = peek_next_quote_number()
     stats = get_quote_stats()
 
@@ -1692,7 +1710,22 @@ def quotes_list():
         source_rfq = qt.get("source_rfq_id", "")
         source_pc = qt.get("source_pc_id", "")
         rfq_num_val = qt.get("rfq_number", "")
-        
+
+        # Backfill the RFQ # column from the source RFQ record when the quote
+        # row itself doesn't carry one. Without this, the RFQ # column is
+        # almost always "—" even when the quote was generated from a real RFQ.
+        if not rfq_num_val and source_rfq:
+            try:
+                from src.api.modules.routes_rfq import load_rfqs as _lr
+                _src_rfq = _lr().get(source_rfq) or {}
+                rfq_num_val = (
+                    _src_rfq.get("solicitation_number")
+                    or _src_rfq.get("rfq_number")
+                    or ""
+                )
+            except Exception as _e:
+                log.debug("rfq# backfill suppressed: %s", _e)
+
         # Build link: prefer RFQ detail → PC detail → quote detail
         if source_rfq:
             qn_href = f"/rfq/{source_rfq}"

@@ -100,6 +100,171 @@ def orders_page():
         filter_agency=filter_agency, search_q=request.args.get("q", ""))
 
 
+def _load_rfqs_from_json():
+    """Read rfqs.json from the data dir. Empty dict on any failure.
+
+    Resolves DATA_DIR through src.core.paths each call so monkeypatched
+    test data dirs are honored (the module-level `from ... import DATA_DIR`
+    captures a snapshot at import time and is not patched per-test).
+    """
+    import json as _json
+    import src.core.paths as _paths
+    rfqs_path = os.path.join(_paths.DATA_DIR, "rfqs.json")
+    try:
+        with open(rfqs_path) as _f:
+            return _json.load(_f) or {}
+    except Exception:
+        return {}
+
+
+def _find_unresolved_orders():
+    """Return the list of orders that have no quote_number linkage to any
+    known RFQ. The orders table doesn't carry rfq_id, so we link by
+    quote_number — the field that order_dal.save_order persists.
+
+    "Unresolved" = order has no quote_number set, OR its quote_number
+    doesn't appear in the loaded RFQs. Matches the audit observation of
+    "4 $0.00 award POs sitting on the home banner".
+    """
+    rfqs = _load_rfqs_from_json()
+    known_qns = {(r.get("quote_number") or "").strip()
+                 for r in rfqs.values()
+                 if (r.get("quote_number") or "").strip()}
+    orders = _load_orders()
+    out = []
+    for oid, o in orders.items():
+        order_qn = (o.get("quote_number") or "").strip()
+        if order_qn and order_qn in known_qns:
+            continue
+        out.append({
+            "order_id": oid,
+            "po_number": o.get("po_number", oid),
+            "total": o.get("total", 0),
+            "agency": o.get("institution", o.get("agency", "?")),
+            "created_at": o.get("created_at", ""),
+        })
+    out.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+    return out
+
+
+@bp.route("/orders/unresolved")
+@auth_required
+@safe_page
+def orders_unresolved_page():
+    """Queue of POs that failed to match a quote — reach via home banner."""
+    unresolved = _find_unresolved_orders()
+    rows_html = ""
+    for u in unresolved:
+        oid = (u.get("order_id") or "").replace("'", "&#39;")
+        rows_html += (
+            "<tr>"
+            f'<td><a href="/order/{oid}" style="color:var(--ac);text-decoration:none">{oid}</a></td>'
+            f'<td>{(u.get("po_number") or "").replace("<","&lt;")}</td>'
+            f'<td>{(u.get("agency") or "").replace("<","&lt;")}</td>'
+            f'<td style="text-align:right;font-family:JetBrains Mono,monospace">${(u.get("total") or 0):,.2f}</td>'
+            f'<td class="mono" style="font-size:13px;color:var(--tx2)">{(u.get("created_at") or "")[:16]}</td>'
+            f'<td style="text-align:center"><button type="button" class="btn btn-s" '
+            f'onclick="retryMatch(this, \'{oid}\')">🔁 Retry match</button></td>'
+            "</tr>"
+        )
+    if not rows_html:
+        rows_html = '<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--tx2)">🎉 All POs matched to quotes.</td></tr>'
+    body = f"""
+     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+      <h2 style="margin:0;font-size:20px;font-weight:700">📦 Unresolved POs</h2>
+      <a href="/orders" class="btn btn-s">← All Orders</a>
+     </div>
+     <div class="card" style="padding:0;overflow-x:auto">
+      <table class="home-tbl" style="min-width:780px">
+       <thead><tr>
+        <th>Order ID</th><th>PO #</th><th>Agency</th>
+        <th style="text-align:right">Total</th><th>Created</th>
+        <th style="text-align:center">Action</th>
+       </tr></thead>
+       <tbody id="unresolved-tbody">{rows_html}</tbody>
+      </table>
+     </div>
+     <script>
+     function retryMatch(btn, oid){{
+       btn.disabled = true;
+       btn.textContent = '...';
+       fetch('/api/orders/' + encodeURIComponent(oid) + '/retry-match', {{
+         method: 'POST', credentials: 'same-origin'
+       }}).then(function(r){{return r.json()}}).then(function(d){{
+         if (d && d.ok && d.matched) {{
+           btn.textContent = '✅ Matched';
+           setTimeout(function(){{ location.reload(); }}, 800);
+         }} else {{
+           btn.disabled = false;
+           btn.textContent = '🔁 Retry match';
+           if (d && d.error) alert('No match: ' + d.error);
+           else alert('Still no match for ' + oid);
+         }}
+       }}).catch(function(e){{
+         btn.disabled = false;
+         btn.textContent = '🔁 Retry match';
+         alert('Error: ' + e);
+       }});
+     }}
+     </script>
+    """
+    return _wrap_page(body)
+
+
+@bp.route("/api/orders/<oid>/retry-match", methods=["POST"])
+@auth_required
+@safe_route
+def api_orders_retry_match(oid):
+    """Re-run the simple PO→quote match for a single order.
+
+    Looks the order's PO number up against rfqs.json (matching either
+    `solicitation_number` or the rfq id), and on a hit copies the matched
+    RFQ's `quote_number` onto the order so it stops appearing on the
+    unresolved list. Pure lookup — no parser code is touched. Idempotent.
+    """
+    try:
+        rfqs = _load_rfqs_from_json()
+        orders = _load_orders()
+        o = orders.get(oid)
+        if not o:
+            return jsonify({"ok": False, "error": "order not found"}), 404
+        # Already linked? Idempotent OK.
+        order_qn = (o.get("quote_number") or "").strip()
+        known_qns = {(r.get("quote_number") or "").strip(): rid
+                     for rid, r in rfqs.items()
+                     if (r.get("quote_number") or "").strip()}
+        if order_qn and order_qn in known_qns:
+            return jsonify({"ok": True, "matched": True,
+                            "rfq_id": known_qns[order_qn],
+                            "quote_number": order_qn,
+                            "already": True})
+        # Try by PO number → solicitation number / rfq id
+        po = (o.get("po_number") or "").strip()
+        match_rid = None
+        match_qn = ""
+        for rid, r in rfqs.items():
+            sol = (r.get("solicitation_number") or "").strip()
+            if po and (po == sol or po == rid):
+                match_rid = rid
+                match_qn = (r.get("quote_number") or "").strip()
+                break
+        if not match_rid:
+            return jsonify({"ok": True, "matched": False})
+        # Persist the linkage on the order.
+        if match_qn:
+            o["quote_number"] = match_qn
+        try:
+            from src.core.order_dal import save_order as _save_order
+            _save_order(oid, o, actor="retry_match")
+        except Exception as _e:
+            log.warning("retry-match: could not persist link: %s", _e)
+        return jsonify({"ok": True, "matched": True,
+                        "rfq_id": match_rid, "quote_number": match_qn})
+    except Exception as e:
+        log.error("orders retry-match error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/order/<oid>")
 @auth_required
 @safe_page

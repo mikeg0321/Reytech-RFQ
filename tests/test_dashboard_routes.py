@@ -43,6 +43,37 @@ class TestHomePage:
     def test_loads(self, client):
         r = client.get("/")
         assert r.status_code == 200
+
+    def test_rt_confirm_helper_in_base(self, client):
+        # ConfirmButton macro depends on window.rtConfirm being available
+        # globally. Verify the helper is registered by base.html on every page.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "window.rtConfirm" in html
+        assert "rt-confirm-toast" in html
+
+    def test_mark_quote_helper_defined(self, client):
+        # Regression: markQuote() was called from quote buttons but never
+        # defined → silent no-op. Verify base.html now ships the helper.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "window.markQuote" in html
+
+    def test_chartjs_self_hosted(self, client):
+        # CSP fix: Chart.js must be served from /static/vendor, not jsdelivr.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "/static/vendor/chart.umd.min.js" in html
+        assert "cdn.jsdelivr.net" not in html
+
+    def test_fonts_self_hosted(self, client):
+        # CSP fix: DM Sans + JetBrains Mono must come from /static/fonts,
+        # not fonts.googleapis.com / fonts.gstatic.com.
+        r = client.get("/")
+        html = r.data.decode()
+        assert "/static/fonts/fonts.css" in html
+        assert "fonts.googleapis.com" not in html
+        assert "fonts.gstatic.com" not in html
         assert b"Reytech" in r.data
 
     def test_has_upload_form(self, client):
@@ -132,6 +163,35 @@ class TestRFQRoutes:
                         follow_redirects=True)
         assert r.status_code == 200
 
+    def test_update_get_redirects_not_405(self, client, seed_rfq):
+        # Regression: GET /rfq/<id>/update used to 405 MethodNotAllowed.
+        # Stray GETs should redirect to the RFQ detail page.
+        r = client.get(f"/rfq/{seed_rfq}/update", follow_redirects=False)
+        assert r.status_code in (301, 302, 303, 307, 308)
+        assert f"/rfq/{seed_rfq}" in r.headers.get("Location", "")
+
+    def test_qa_endpoint_returns_report(self, client, seed_rfq):
+        # New endpoint reuses pc_qa_agent.run_qa via an RFQ→PC adapter.
+        r = client.get(f"/api/rfq/{seed_rfq}/qa")
+        assert r.status_code == 200
+        body = r.get_json()
+        # Either the agent returns a structured report (with issues) or
+        # an explicit ok=False on a hard error — never a crash.
+        assert isinstance(body, dict)
+        assert "issues" in body or body.get("ok") is False
+
+    def test_qa_endpoint_404_for_unknown_rfq(self, client):
+        r = client.get("/api/rfq/rfq_does_not_exist_xyz/qa")
+        assert r.status_code == 404
+
+    def test_rfq_detail_has_qa_gate_script(self, client, seed_rfq):
+        # The hard-block gate is wired via JS on rfq_detail.html.
+        r = client.get(f"/rfq/{seed_rfq}")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert "rfqQaGate" in html
+        assert 'data-qa-gated="1"' in html
+
     def test_delete(self, client, seed_rfq, temp_data_dir):
         r = client.post(f"/rfq/{seed_rfq}/delete", follow_redirects=True)
         assert r.status_code == 200
@@ -186,12 +246,132 @@ class TestQuotesPage:
         html = r.data.decode()
         assert "Win Rate" in html
 
+    def test_win_rate_no_double_percent(self, client):
+        # Regression: stat_win_rate was rendering with literal '%%'
+        r = client.get("/quotes")
+        html = r.data.decode()
+        assert "%%" not in html
+
+    def test_ghost_quotes_hidden_from_list(self, client, seed_db_quote):
+        # Regression: $0 + 0 items + no agency quotes (e.g. R26Q16) were polluting
+        # the quotes list. They must be HIDDEN from the row list (not deleted).
+        ghost_qn = "R26Q9901"
+        seed_db_quote(ghost_qn, agency="", institution="", total=0.0, line_items=[])
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert ghost_qn not in html
+
+    def test_growth_redirects_to_growth_intel(self, client):
+        # Regression: /growth used to redirect to /pipeline (wrong target).
+        # Home dashboard advertises Growth Engine but /growth must land on
+        # the actual Growth module page, not Pipeline.
+        r = client.get("/growth", follow_redirects=False)
+        assert r.status_code in (301, 302, 303, 307, 308)
+        assert "/growth-intel" in r.headers.get("Location", "")
+
+    def test_crm_redirects_to_contacts(self, client):
+        # Regression: nav link to /crm must follow through to /contacts.
+        r = client.get("/crm", follow_redirects=False)
+        assert r.status_code in (301, 302, 303, 307, 308)
+        assert "/contacts" in r.headers.get("Location", "")
+
+    def test_real_quote_still_visible(self, client, seed_db_quote):
+        # Inverse of ghost filter: a real quote with agency + total + items must
+        # still render, so the filter doesn't accidentally hide everything.
+        real_qn = "R26Q9902"
+        seed_db_quote(real_qn, agency="CDCR", institution="CSP-Sacramento",
+                      total=1234.56, line_items=[{"description": "Widget", "qty": 1, "unit_price": 1234.56}])
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert real_qn in html
+
     def test_has_mark_buttons(self, client, seed_pc):
         # Generate a quote first so there's a row
         client.post(f"/pricecheck/{seed_pc}/generate-quote")
         r = client.get("/quotes")
         html = r.data.decode()
         assert "markQuote" in html
+
+    def test_award_tracker_tile_present(self, client):
+        # Health tile + Audit Now button surface the existing award tracker
+        # in the UI so a silently-broken background job is loud.
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert "award-tracker-tile" in html
+        assert "award-audit-btn" in html
+        assert "/api/intel/award-tracker/status" in html
+        assert "/api/intel/award-tracker/run" in html
+
+    def test_award_tracker_status_has_health(self, client):
+        # Augmented status endpoint must include a health verdict.
+        r = client.get("/api/intel/award-tracker/status")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body.get("ok") is True
+        assert "health" in body
+        assert body["health"] in ("ok", "stale", "dead", "not_started", "no_run_yet")
+        assert "staleness_seconds" in body
+
+    def test_reconcile_po_button_present(self, client):
+        r = client.get("/quotes")
+        assert r.status_code == 200
+        html = r.data.decode()
+        assert "reconcile-po-btn" in html
+        assert "/api/quotes/reconcile-po" in html
+
+
+class TestReconcilePO:
+    def test_requires_po_number(self, client):
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"quote_number": "R26Q1"})
+        assert r.status_code == 400
+        assert r.get_json()["error"] == "po_number required"
+
+    def test_requires_quote_number(self, client):
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-1"})
+        assert r.status_code == 400
+        assert r.get_json()["error"] == "quote_number required"
+
+    def test_unknown_quote_returns_404(self, client):
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-X", "quote_number": "R26Q_NOT_REAL"})
+        assert r.status_code == 404
+
+    def test_marks_pending_quote_as_won(self, client, seed_db_quote):
+        qn = "R26Q9001"
+        seed_db_quote(qn, agency="CDCR", total=1234.56)
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-RECON-1",
+                              "quote_number": qn,
+                              "notes": "test recon"})
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["status"] == "won"
+        assert body["po_number"] == "PO-RECON-1"
+
+    def test_already_won_returns_409_without_force(self, client, seed_db_quote):
+        qn = "R26Q9002"
+        seed_db_quote(qn, agency="CDCR", status="won", total=500)
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-X", "quote_number": qn})
+        assert r.status_code == 409
+        body = r.get_json()
+        assert body["ok"] is False
+        assert "already" in body["error"].lower()
+
+    def test_force_overwrites_terminal_state(self, client, seed_db_quote):
+        qn = "R26Q9003"
+        seed_db_quote(qn, agency="CDCR", status="won", total=500)
+        r = client.post("/api/quotes/reconcile-po",
+                        json={"po_number": "PO-NEW", "quote_number": qn,
+                              "force": True})
+        assert r.status_code == 200
+        assert r.get_json()["ok"] is True
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
