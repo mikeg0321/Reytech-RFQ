@@ -9,6 +9,7 @@
        <span id="award-tracker-tile" style="display:none;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--sf2);font-family:'JetBrains Mono',monospace" title="Click to refresh"></span>
        <button type="button" id="award-audit-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="runAwardAuditNow(this)" title="Run SCPRS audit now (force-check pending quotes against SCPRS for losses)">🏆 Audit Now</button>
        <button type="button" id="reconcile-po-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="reconcilePoPrompt()" title="Manually attach a PO number to a pending quote (recovery for the markQuote silent no-op window Feb 17 → Apr 15)">📝 Reconcile PO</button>
+       <button type="button" id="oracle-backfill-btn" class="btn btn-s" style="font-size:14px;font-weight:600" onclick="runOracleBackfill(this)" title="Feed all historical won/lost data through oracle calibration — makes future pricing smarter">🧠 Backfill Oracle</button>
        <a href="/pipeline" class="btn btn-s" style="font-size:14px;font-weight:600">🔄 Pipeline</a>
        <a href="/growth" class="btn btn-s" style="font-size:14px;font-weight:600">🚀 Growth</a>
       </div>
@@ -166,6 +167,26 @@
            }
          }).catch(function(e){ alert('Network error: ' + e); });
        }, 0);
+     };
+
+     window.runOracleBackfill = function(btn){
+       if (btn) { btn._origText = btn.textContent; btn.textContent = '⏳ Backfilling...'; btn.disabled = true; }
+       fetch('/api/oracle/backfill-all', {
+         method: 'POST', credentials: 'same-origin',
+         headers: {'Content-Type': 'application/json'},
+         body: JSON.stringify({})
+       }).then(function(r){return r.json()}).then(function(d){
+         if (btn) { btn.disabled = false; btn.textContent = btn._origText || '🧠 Backfill Oracle'; }
+         var won = (d && d.quotes_won) || 0;
+         var lost = (d && d.quotes_lost) || 0;
+         var cal = (d && d.calibrations_written) || 0;
+         var errs = (d && d.errors) ? d.errors.length : 0;
+         alert('Oracle backfill complete:\n  Won quotes: ' + won + '\n  Lost quotes: ' + lost + '\n  Calibrations written: ' + cal + (errs ? '\n  Errors: ' + errs : ''));
+         if (window._refreshAwardTrackerTile) window._refreshAwardTrackerTile();
+       }).catch(function(e){
+         if (btn) { btn.disabled = false; btn.textContent = btn._origText || '🧠 Backfill Oracle'; }
+         alert('Backfill error: ' + e);
+       });
      };
 
      window.runAwardAuditNow = function(btn){
