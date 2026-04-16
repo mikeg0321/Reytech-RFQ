@@ -1,5 +1,12 @@
 [phases.setup]
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils", "libreoffice-writer"]
+# apt-get update can fail when Ubuntu mirrors are mid-sync (transient size
+# mismatches on Packages.gz). Retry up to 3 times with a fallback to stale
+# indices so the build doesn't die on infrastructure issues we can't control.
+cmds = [
+    "for i in 1 2 3; do sudo apt-get update && break || echo \"apt-get update attempt $i failed, retrying...\"; sleep 5; done || true",
+    "sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils libreoffice-writer"
+]
+nixPkgs = ["python3", "poppler_utils", "gcc"]
 
 [phases.install]
 cmds = ["python -m venv --copies /opt/venv", "/opt/venv/bin/pip install -r requirements.txt -c constraints.txt"]
