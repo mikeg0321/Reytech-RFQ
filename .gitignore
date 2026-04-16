@@ -24,6 +24,9 @@ data/qb_tokens.json
 data/qb_vendors.json
 data/.write_test
 
+# ── Email corpus (PII, buyer names, prices — never commit raw data) ──────────
+data/email_corpus/
+
 # ── High-volume transient logs (too large / rebuilt at runtime) ───────────────
 data/processed_emails.json
 data/email_outbox.json
