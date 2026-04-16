@@ -66,6 +66,17 @@
        <tbody>{% if rows_html %}{{ rows_html|safe }}{% else %}<tr><td colspan="9" style="text-align:center;padding:24px;color:var(--tx2)">No quotes yet — generate your first from a Price Check or RFQ</td></tr>{% endif %}</tbody>
       </table>
      </div>
+     {% if total_pages|default(1) > 1 %}
+     <div style="display:flex;justify-content:center;align-items:center;gap:8px;padding:12px;font-size:14px">
+      {% if page|default(1) > 1 %}
+      <a href="?page={{ page - 1 }}&q={{ q|default('') }}&agency={{ agency_filter|default('') }}&status={{ status_filter|default('') }}" class="btn" style="padding:6px 14px;font-size:13px">Previous</a>
+      {% endif %}
+      <span style="color:var(--tx2)">Page {{ page|default(1) }} of {{ total_pages|default(1) }} ({{ total_quotes|default(0) }} quotes)</span>
+      {% if page|default(1) < total_pages|default(1) %}
+      <a href="?page={{ page + 1 }}&q={{ q|default('') }}&agency={{ agency_filter|default('') }}&status={{ status_filter|default('') }}" class="btn" style="padding:6px 14px;font-size:13px">Next</a>
+      {% endif %}
+     </div>
+     {% endif %}
 {% endblock %}
 
 {% block scripts %}

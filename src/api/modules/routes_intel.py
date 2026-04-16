@@ -1621,7 +1621,9 @@ def quotes_list():
     q = request.args.get("q", "")
     agency_filter = request.args.get("agency", "")
     status_filter = request.args.get("status", "")
-    quotes = search_quotes(query=q, agency=agency_filter, status=status_filter, limit=100)
+    page = max(1, int(request.args.get("page", 1)))
+    per_page = min(100, max(10, int(request.args.get("per_page", 50))))
+    all_quotes = search_quotes(query=q, agency=agency_filter, status=status_filter, limit=500)
 
     # Hide ghost quotes from the list view (HIDE, not delete — data stays in DB).
     # A ghost quote has $0 total AND 0 items AND no real agency. Stats bar still
@@ -1638,7 +1640,14 @@ def quotes_list():
             _items_count = 0
         _raw_agency = (_qt.get("agency") or "").strip()
         return _total == 0.0 and _items_count == 0 and _raw_agency in ("", "DEFAULT")
-    quotes = [q for q in quotes if not _is_ghost_quote(q)]
+    all_quotes = [q for q in all_quotes if not _is_ghost_quote(q)]
+
+    # Paginate
+    total_quotes = len(all_quotes)
+    total_pages = max(1, (total_quotes + per_page - 1) // per_page)
+    page = min(page, total_pages)
+    start = (page - 1) * per_page
+    quotes = all_quotes[start:start + per_page]
 
     next_num = peek_next_quote_number()
     # P0.12 fix: use unified metrics instead of get_quote_stats() so
@@ -1805,6 +1814,7 @@ def quotes_list():
         stat_pending=stats['pending'], stat_sent=stats.get('sent', 0),
         stat_won_total=stats['won_total'], stat_pending_total=stats.get('pending_total', 0),
         stat_win_rate=wr, stat_expired=expired_count,
+        page=page, per_page=per_page, total_pages=total_pages, total_quotes=total_quotes,
     )
 
 
