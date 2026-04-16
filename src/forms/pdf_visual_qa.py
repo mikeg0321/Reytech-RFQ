@@ -261,7 +261,7 @@ def _call_vision_api(api_key: str, page_images: list, user_prompt: str) -> str:
     content.append({"type": "text", "text": user_prompt})
 
     payload = {
-        "model": "claude-haiku-4-5-20251001",  # Haiku for cost — layout check doesn't need Sonnet
+        "model": "claude-opus-4-7",  # Opus for accuracy — catching rendering bugs before they ship is worth the cost
         "max_tokens": 1024,
         "system": [
             {
@@ -311,7 +311,7 @@ def _parse_response(raw_text: str, pages_inspected: int) -> VisualQAResult:
         log.warning("pdf_visual_qa: Failed to parse response as JSON: %s", text[:200])
         return VisualQAResult(
             passed=True, pages_inspected=pages_inspected,
-            model="claude-haiku-4-5-20251001", raw_response=raw_text,
+            model="claude-opus-4-7", raw_response=raw_text,
         )
 
     issues = []
@@ -331,6 +331,6 @@ def _parse_response(raw_text: str, pages_inspected: int) -> VisualQAResult:
         passed=passed,
         issues=issues,
         pages_inspected=pages_inspected,
-        model="claude-haiku-4-5-20251001",
+        model="claude-opus-4-7",
         raw_response=raw_text,
     )

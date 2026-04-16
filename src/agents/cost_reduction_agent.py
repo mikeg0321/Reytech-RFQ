@@ -132,7 +132,7 @@ Respond in this exact JSON format:
         _wait_rate_limit()
 
         body = {
-            "model": "claude-haiku-4-5-20251001",
+            "model": "claude-opus-4-7",  # Opus for accuracy — cost reduction directly impacts margins
             "max_tokens": 2048,
             "tools": [{
                 "type": "web_search_20250305",

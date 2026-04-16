@@ -171,7 +171,7 @@ def _parse_supplier_quote_vision(pdf_path: str) -> Optional[List[Dict]]:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-6",
+                "model": "claude-opus-4-7",
                 "max_tokens": 4096,
                 "system": [{"type": "text", "text": "You are a precise data extractor. Return ONLY valid JSON arrays. No explanation.", "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": content}],
