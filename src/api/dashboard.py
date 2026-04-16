@@ -5360,6 +5360,7 @@ _ROUTE_MODULES = [
     "routes_health",          # Quoting Health Dashboard: /health/quoting + /api/health/quoting
     "routes_simple_submit",   # Phase 0: Simple Submit — fast-path quoting for PCs + RFQs
     "routes_deadlines",       # Phase 0.5: Deadline tracking API + hard alerts
+    "routes_shadow",          # Phase 2: Shadow mode admin dashboard + diff API
 ]
 
 for _mod in _ROUTE_MODULES:

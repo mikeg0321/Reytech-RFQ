@@ -1503,6 +1503,13 @@ def generate_rfq_package(rid):
                     fill_704b(tmpl["704b"], r, CONFIG, f"{out_dir}/{sol}_704B_Reytech.pdf")
                     output_files.append(f"{sol}_704B_Reytech.pdf")
                     t.step("704B filled")
+                    # Shadow-mode: run new fill engine in background
+                    try:
+                        from src.forms.shadow_mode import shadow_fill
+                        shadow_fill(pc_or_rfq_dict=r, doc_type="rfq", doc_id=rid,
+                                    legacy_output_path=f"{out_dir}/{sol}_704B_Reytech.pdf")
+                    except Exception as _shadow_e:
+                        log.debug("Shadow fill setup failed: %s", _shadow_e)
                 except Exception as e:
                     errors.append(f"704B: {e}")
                     t.warn("704B fill failed", error=str(e))

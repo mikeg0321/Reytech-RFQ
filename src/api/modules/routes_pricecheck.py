@@ -2894,6 +2894,14 @@ def _generate_pc_pdf(pcid):
 
         # Visual QA now runs INSIDE the pipeline verify step (V2).
 
+        # Shadow-mode: run new fill engine in background, diff against legacy output
+        try:
+            from src.forms.shadow_mode import shadow_fill
+            shadow_fill(pc_or_rfq_dict=pc, doc_type="pc", doc_id=pcid,
+                        legacy_output_path=pipe_result.output_path)
+        except Exception as _shadow_e:
+            log.debug("Shadow fill setup failed: %s", _shadow_e)
+
         # Ingest completed prices into Won Quotes KB for future reference
         _ingest_pc_to_won_quotes(pc)
 
