@@ -109,7 +109,7 @@ Pygments==2.20.0
 PyJWT==2.12.1
 pylatexenc==2.10
 pyparsing==3.3.2
-pypdf==5.9.0
+pypdf==6.10.2
 pypdfium2==5.7.0
 pytest==9.0.3
 pytest-cov==7.1.0
