@@ -1905,6 +1905,14 @@ def detail(rid):
                 break
     if not _r_orig: flash("Not found", "error"); return redirect("/")
 
+    # Quote Model V2 adapter: when flag is on, round-trip through pydantic
+    # for validation + computed fields. Falls back to raw dict if flag is off.
+    try:
+        from src.core.quote_adapter import adapt_rfq
+        _r_orig = adapt_rfq(_r_orig, rid)
+    except Exception as _adapt_e:
+        log.debug("Quote adapter skipped: %s", _adapt_e)
+
     # CRITICAL: deep copy for rendering — never mutate cached objects.
     # load_rfqs() has in-memory cache. Mutating r here (item mapping, intelligence
     # trimming) would persist in cache and corrupt data on next save.
