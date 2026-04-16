@@ -84,10 +84,32 @@ def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
              profile.id, len(field_values), len(quote.line_items))
 
     try:
-        wrapper = PdfWrapper(profile.blank_pdf)
-        filled = wrapper.fill(field_values)
-        result = filled.read()
-        log.info("fill_acroform: success, %d bytes", len(result))
+        from pypdf import PdfReader, PdfWriter
+        from pypdf.generic import BooleanObject, NameObject, TextStringObject, NumberObject
+
+        reader = PdfReader(profile.blank_pdf)
+        # clone_from preserves AcroForm + /DR (default resources) end-to-end.
+        # This is the approach from PR #88 confirmed working on 2026-04-15.
+        # Fields remain EDITABLE — buyer can still open in Adobe and sign.
+        writer = PdfWriter(clone_from=reader)
+
+        # NeedAppearances tells the viewer to generate appearance streams on open.
+        # Chrome, Edge, Acrobat all honor this. Fields render AND stay editable.
+        if "/AcroForm" in writer._root_object:
+            writer._root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
+
+        # Fill text fields
+        for page in writer.pages:
+            writer.update_page_form_field_values(page, field_values)
+
+        # Signature is NOT applied at generate time — it's applied on approval.
+        # The generate step produces an editable draft. The approve/send step
+        # adds the PNG signature stamp + date and locks the PDF.
+
+        result_buf = io.BytesIO()
+        writer.write(result_buf)
+        result = result_buf.getvalue()
+        log.info("fill_acroform: success, %d bytes (clone_from + NeedAppearances + sig stamp)", len(result))
         return result
     except Exception as e:
         log.error("fill_acroform failed for %s: %s", profile.id, e, exc_info=True)

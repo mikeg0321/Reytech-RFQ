@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import os
+import re
 import tempfile
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -256,10 +257,14 @@ def api_simple_submit_generate():
                 pdf_bytes = fill_v2(quote, profile)
                 with open(output_704, "wb") as f:
                     f.write(pdf_bytes)
+                # Filename matches agency's naming + _Reytech
+                header = _get_header(doc)
+                pc_num = header.get("pc_number") or doc_id[:12]
+                safe_pc = re.sub(r'[^\w\s\-.]', '', pc_num).strip().replace(' ', '_')
                 results["files"].append({
                     "type": "704",
                     "path": output_704,
-                    "name": f"AMS_704_{doc_id}.pdf",
+                    "name": f"{safe_pc}_Reytech.pdf",
                 })
                 log.info("Simple submit: fill_v2 produced %d bytes for %s", len(pdf_bytes), doc_id)
             else:

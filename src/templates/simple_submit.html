@@ -179,6 +179,7 @@
     <div class="ss-totals">
       <div class="ss-totals-box">
         <div class="ss-totals-row"><span>Subtotal</span><span id="subtotalVal">$0.00</span></div>
+        <div class="ss-totals-row"><span>Shipping</span><span>$0.00</span></div>
         <div class="ss-totals-row"><span>Tax (<input type="number" id="taxRate" value="0" min="0" max="15" step="0.01" style="width:50px;text-align:center;font-size:13px;padding:2px 4px;border:1px solid var(--bd);border-radius:4px;background:var(--bg);color:var(--tx)">%)</span><span id="taxVal">$0.00</span></div>
         <div class="ss-totals-row total"><span>Total</span><span id="totalVal">$0.00</span></div>
       </div>
@@ -191,9 +192,6 @@
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <button class="ss-btn ss-btn-primary" id="btnGenerate" onclick="generateAll()">
         Generate 704 + Quote PDF
-      </button>
-      <button class="ss-btn ss-btn-success" id="btnDownload" onclick="downloadBundle()" disabled>
-        Download Bundle (.zip)
       </button>
       <button class="ss-btn ss-btn-secondary" id="btnGmail" onclick="openGmail()" disabled>
         Open Gmail (prefilled)
