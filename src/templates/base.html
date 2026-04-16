@@ -442,5 +442,138 @@ document.addEventListener('submit',function(e){
 // Fetch wrapper removed — too risky to override window.fetch globally
 </script>
 <script>document.addEventListener('click',function(e){var b=e.target.closest('button,a.btn,[role="button"],[data-action]');if(!b)return;var a=b.getAttribute('data-action')||b.textContent.trim().substring(0,50);navigator.sendBeacon('/api/v1/usage/track',JSON.stringify({page:location.pathname,action:a,type:'click'}))});</script>
+
+<!-- ═══ DEADLINE SIDEBAR + HARD ALERT (Phase 0.5) ═══ -->
+<style>
+#deadline-sidebar{position:fixed;bottom:0;left:0;right:0;z-index:900;background:#161b22;border-top:2px solid #30363d;padding:8px 20px;display:none;font-size:13px;transition:all .2s}
+#deadline-sidebar.show{display:flex;align-items:center;gap:14px}
+#deadline-sidebar .dl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+#deadline-sidebar .dl-dot.overdue{background:#f85149;animation:dl-pulse 1s infinite}
+#deadline-sidebar .dl-dot.critical{background:#f85149;animation:dl-pulse 1.5s infinite}
+#deadline-sidebar .dl-dot.urgent{background:#d29922}
+#deadline-sidebar .dl-dot.soon{background:#3fb950}
+#deadline-sidebar .dl-dot.normal{background:#8b949e}
+#deadline-sidebar .dl-label{color:#e6edf3;font-weight:600}
+#deadline-sidebar .dl-countdown{color:#58a6ff;font-variant-numeric:tabular-nums;font-weight:700}
+#deadline-sidebar .dl-meta{color:#8b949e;font-size:12px}
+#deadline-sidebar a{color:#58a6ff;text-decoration:none;font-weight:600}
+#deadline-sidebar a:hover{text-decoration:underline}
+@keyframes dl-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+#deadline-alert-overlay{position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center}
+#deadline-alert-overlay.show{display:flex}
+#deadline-alert-box{background:#161b22;border:2px solid #f85149;border-radius:14px;padding:28px 32px;max-width:500px;width:90%;box-shadow:0 8px 32px rgba(248,81,73,.3)}
+#deadline-alert-box h3{color:#f85149;font-size:18px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+#deadline-alert-box .dl-alert-items{max-height:300px;overflow-y:auto}
+#deadline-alert-box .dl-alert-item{display:flex;align-items:center;gap:12px;padding:10px;background:#21262d;border-radius:8px;margin-bottom:8px}
+#deadline-alert-box .dl-alert-item .dl-time{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;min-width:80px;text-align:center}
+#deadline-alert-box .dl-alert-item .dl-time.overdue{color:#f85149}
+#deadline-alert-box .dl-alert-item .dl-time.critical{color:#d29922}
+#deadline-alert-box .dl-alert-info{flex:1}
+#deadline-alert-box .dl-alert-info .name{font-weight:600;color:#e6edf3;font-size:14px}
+#deadline-alert-box .dl-alert-info .meta{color:#8b949e;font-size:12px}
+#deadline-alert-box .dl-alert-actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end}
+#deadline-alert-box .dl-btn{padding:8px 18px;border-radius:6px;font-weight:600;font-size:13px;cursor:pointer;border:none}
+#deadline-alert-box .dl-btn-dismiss{background:#21262d;color:#8b949e}
+#deadline-alert-box .dl-btn-go{background:#f85149;color:#fff}
+</style>
+
+<div id="deadline-sidebar">
+  <span class="dl-dot" id="dl-sidebar-dot"></span>
+  <span class="dl-label" id="dl-sidebar-label">Loading...</span>
+  <span class="dl-countdown" id="dl-sidebar-countdown"></span>
+  <span class="dl-meta" id="dl-sidebar-meta"></span>
+  <a href="#" id="dl-sidebar-link">Go</a>
+</div>
+
+<div id="deadline-alert-overlay">
+  <div id="deadline-alert-box">
+    <h3>Deadline Alert</h3>
+    <div class="dl-alert-items" id="dl-alert-items"></div>
+    <div class="dl-alert-actions">
+      <button class="dl-btn dl-btn-dismiss" onclick="dismissDeadlineAlert()">Dismiss (1h)</button>
+      <button class="dl-btn dl-btn-go" id="dl-alert-go-btn" onclick="goToUrgent()">Open Most Urgent</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var _dlDismissedUntil = 0;
+  var _dlMostUrgentUrl = '/';
+
+  function fetchDeadlines(){
+    fetch('/api/deadlines',{credentials:'same-origin'})
+    .then(function(r){return r.json()})
+    .then(function(d){
+      if(!d.ok||!d.deadlines||!d.deadlines.length){
+        document.getElementById('deadline-sidebar').className='';
+        return;
+      }
+      var top=d.deadlines[0];
+      var sb=document.getElementById('deadline-sidebar');
+      sb.className='show';
+      document.getElementById('dl-sidebar-dot').className='dl-dot '+top.urgency;
+      document.getElementById('dl-sidebar-label').textContent=top.doc_type.toUpperCase()+' #'+top.pc_number;
+      document.getElementById('dl-sidebar-countdown').textContent=top.countdown_text;
+      document.getElementById('dl-sidebar-meta').textContent=top.institution+(top.time_explicit?'':' (time assumed 2pm)');
+      var link=document.getElementById('dl-sidebar-link');
+      link.href=top.url;
+      link.textContent='Open';
+      _dlMostUrgentUrl=top.url;
+
+      // Hard alert check
+      var criticals=d.deadlines.filter(function(dl){return dl.urgency==='overdue'||dl.urgency==='critical'});
+      if(criticals.length>0&&Date.now()>_dlDismissedUntil){
+        showDeadlineAlert(criticals);
+      }
+
+      // Update page bottom padding so content isn't hidden behind sidebar
+      document.body.style.paddingBottom='44px';
+    })
+    .catch(function(){});
+  }
+
+  function showDeadlineAlert(items){
+    var overlay=document.getElementById('deadline-alert-overlay');
+    var list=document.getElementById('dl-alert-items');
+    list.innerHTML='';
+    items.forEach(function(dl){
+      var div=document.createElement('div');
+      div.className='dl-alert-item';
+      var timeClass=dl.urgency==='overdue'?'overdue':'critical';
+      div.innerHTML='<div class="dl-time '+timeClass+'">'+dl.countdown_text.split(' ')[0]+'</div>'
+        +'<div class="dl-alert-info">'
+        +'<div class="name">'+dl.doc_type.toUpperCase()+' #'+dl.pc_number+'</div>'
+        +'<div class="meta">'+dl.institution+' — '+dl.item_count+' items — '+dl.due_date+' '+(dl.due_time||'2:00 PM')+'</div>'
+        +'</div>'
+        +'<a href="'+dl.url+'" style="color:#58a6ff;font-size:13px;font-weight:600;text-decoration:none">Open</a>';
+      list.appendChild(div);
+    });
+    if(items.length>0)_dlMostUrgentUrl=items[0].url;
+    overlay.className='show';
+  }
+
+  window.dismissDeadlineAlert=function(){
+    document.getElementById('deadline-alert-overlay').className='';
+    _dlDismissedUntil=Date.now()+3600000; // 1 hour
+  };
+  window.goToUrgent=function(){
+    document.getElementById('deadline-alert-overlay').className='';
+    window.location.href=_dlMostUrgentUrl;
+  };
+
+  // Initial fetch + refresh every 60 seconds
+  fetchDeadlines();
+  setInterval(fetchDeadlines,60000);
+
+  // Live countdown ticker (updates the sidebar countdown every second)
+  setInterval(function(){
+    var el=document.getElementById('dl-sidebar-countdown');
+    if(!el||!el.textContent)return;
+    // Just trigger a re-fetch every 60s, the ticker shows server-computed text
+  },1000);
+})();
+</script>
 </body>
 </html>
