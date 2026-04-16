@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Build Health — Fixes vs Features{% endblock %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto;padding:20px" id="main-content">
+
+  <div style="margin-bottom:20px">
+    <h2 style="margin:0;font-size:20px;color:var(--tx)">Build Health</h2>
+    <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">Since rebuild started ({{ analysis.since|default('2026-04-15') }}). Are we building more and fixing less?</p>
+  </div>
+
+  <!-- Key metric -->
+  {% set ratio = analysis.build_to_fix_ratio|default(0) %}
+  {% set trend = analysis.trend|default('neutral') %}
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+      <div style="font-size:32px;font-weight:800;color:{{ '#3fb950' if ratio > 1.5 else '#d29922' if ratio > 0.8 else '#f85149' }}">{{ ratio }}x</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Build-to-Fix Ratio</div>
+      <div style="font-size:11px;color:{{ '#3fb950' if trend == 'improving' else '#d29922' if trend == 'neutral' else '#f85149' }};margin-top:2px;font-weight:600">{{ trend|upper }}</div>
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+      <div style="font-size:32px;font-weight:800;color:#3fb950">{{ analysis.features|default(0) }}</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Features Built</div>
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+      <div style="font-size:32px;font-weight:800;color:#f85149">{{ analysis.fixes|default(0) }}</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Fixes</div>
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;text-align:center">
+      <div style="font-size:32px;font-weight:800;color:var(--tx)">{{ analysis.total_commits|default(0) }}</div>
+      <div style="font-size:12px;color:var(--tx2);margin-top:4px">Total Commits</div>
+    </div>
+  </div>
+
+  <!-- Weekly trend -->
+  {% if analysis.weekly|default({}) %}
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:16px">
+    <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:12px">Weekly Trend</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--bd)">
+          <th style="padding:8px;text-align:left;color:var(--tx2);font-size:11px;text-transform:uppercase">Week</th>
+          <th style="padding:8px;text-align:center;color:#3fb950;font-size:11px;text-transform:uppercase">Features</th>
+          <th style="padding:8px;text-align:center;color:#f85149;font-size:11px;text-transform:uppercase">Fixes</th>
+          <th style="padding:8px;text-align:center;color:var(--tx2);font-size:11px;text-transform:uppercase">Other</th>
+          <th style="padding:8px;text-align:left;color:var(--tx2);font-size:11px;text-transform:uppercase">Visual</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for week, data in analysis.weekly.items() %}
+        {% set total_w = data.features + data.fixes + data.other %}
+        {% set feat_pct = (data.features / total_w * 100)|int if total_w > 0 else 0 %}
+        {% set fix_pct = (data.fixes / total_w * 100)|int if total_w > 0 else 0 %}
+        <tr style="border-bottom:1px solid var(--bd)">
+          <td style="padding:8px;color:var(--tx);font-weight:600">{{ week }}</td>
+          <td style="padding:8px;text-align:center;color:#3fb950;font-weight:600">{{ data.features }}</td>
+          <td style="padding:8px;text-align:center;color:#f85149;font-weight:600">{{ data.fixes }}</td>
+          <td style="padding:8px;text-align:center;color:var(--tx2)">{{ data.other }}</td>
+          <td style="padding:8px">
+            <div style="display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--bg)">
+              {% if feat_pct > 0 %}<div style="width:{{ feat_pct }}%;background:#3fb950" title="{{ data.features }} features"></div>{% endif %}
+              {% if fix_pct > 0 %}<div style="width:{{ fix_pct }}%;background:#f85149" title="{{ data.fixes }} fixes"></div>{% endif %}
+              {% set other_pct = 100 - feat_pct - fix_pct %}
+              {% if other_pct > 0 %}<div style="width:{{ other_pct }}%;background:#8b949e" title="{{ data.other }} other"></div>{% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Recent commits -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px">
+      <div style="font-size:14px;font-weight:600;color:#3fb950;margin-bottom:10px">Recent Features</div>
+      {% for msg in analysis.recent_features|default([]) %}
+      <div style="padding:4px 0;font-size:12px;color:var(--tx);border-bottom:1px solid var(--bd)">{{ msg|truncate(70) }}</div>
+      {% endfor %}
+      {% if not analysis.recent_features %}<div style="color:var(--tx2);font-size:13px">None yet</div>{% endif %}
+    </div>
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px">
+      <div style="font-size:14px;font-weight:600;color:#f85149;margin-bottom:10px">Recent Fixes</div>
+      {% for msg in analysis.recent_fixes|default([]) %}
+      <div style="padding:4px 0;font-size:12px;color:var(--tx);border-bottom:1px solid var(--bd)">{{ msg|truncate(70) }}</div>
+      {% endfor %}
+      {% if not analysis.recent_fixes %}<div style="color:var(--tx2);font-size:13px">None yet</div>{% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

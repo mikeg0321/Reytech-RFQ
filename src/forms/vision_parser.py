@@ -228,7 +228,7 @@ def _call_vision_api(page_images: list, system_prompt: str = None) -> Optional[d
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-opus-4-7",
                 "max_tokens": 4096,
                 "system": _system_blocks,
                 "messages": [{"role": "user", "content": content}],
@@ -387,7 +387,7 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-opus-4-7",
                 "max_tokens": 4096,
                 "system": [{"type": "text", "text": _VISION_SYSTEM, "cache_control": {"type": "ephemeral"}}],
                 "messages": [{"role": "user", "content": [

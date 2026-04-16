@@ -24,7 +24,8 @@ import pytest
 # ═══════════════════════════════════════════════════════════════════════════
 
 VALID_HAIKU_MODELS = {"claude-haiku-4-5-20251001"}
-VALID_SONNET_MODELS = {"claude-sonnet-4-20250514"}
+VALID_SONNET_MODELS = {"claude-sonnet-4-6", "claude-sonnet-4-20250514"}
+VALID_OPUS_MODELS = {"claude-opus-4-7", "claude-opus-4-6"}
 VALID_GROK_MODELS = {"grok-3-mini"}
 
 # Fields that Grok JSON responses MUST contain

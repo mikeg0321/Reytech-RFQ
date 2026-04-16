@@ -383,6 +383,14 @@ def _pricecheck_detail_inner(pcid):
     if not pc:
         flash("Price Check not found", "error"); return redirect("/")
 
+    # Quote Model V2 adapter: when flag is on, round-trip through pydantic
+    # for validation + computed fields. Falls back to raw dict if flag is off.
+    try:
+        from src.core.quote_adapter import adapt_pc
+        pc = adapt_pc(pc, pcid)
+    except Exception as _adapt_e:
+        log.debug("Quote adapter skipped: %s", _adapt_e)
+
     import copy as _copy
     # CRITICAL: deep copy for rendering — never mutate cached objects.
     # _load_price_checks() has a 30s in-memory cache. If we mutate items here
