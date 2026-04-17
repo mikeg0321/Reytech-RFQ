@@ -871,6 +871,56 @@ def api_catalog_import_quotewerks():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/catalog/import-mckesson", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_catalog_import_mckesson():
+    """Import a McKesson Items XLSX into the product catalog.
+
+    Accepts either a multipart file upload (form field 'file') OR a
+    JSON body with {"path": "...", "supplier": "optional override"}
+    pointing at a file already on disk (useful for scheduled re-imports
+    after the ops team drops an updated sheet in /data).
+
+    Returns import stats or 500 + ok:false on failure.
+    """
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog module not available"})
+
+    # Resolve source path: uploaded file takes precedence over JSON path
+    f = request.files.get("file")
+    supplier_override = None
+    xlsx_path = None
+
+    if f:
+        safe = re.sub(r"[^\w.\-]", "_", f.filename or "mckesson.xlsx")
+        xlsx_path = os.path.join(DATA_DIR, f"mckesson_import_{safe}")
+        f.save(xlsx_path)
+        supplier_override = (request.form.get("supplier") or "").strip() or None
+    else:
+        body = request.get_json(silent=True) or {}
+        xlsx_path = body.get("path") or request.args.get("path")
+        supplier_override = (body.get("supplier") or request.args.get("supplier") or "").strip() or None
+        if not xlsx_path:
+            return jsonify({
+                "ok": False,
+                "error": "Provide either an uploaded file (form field 'file') "
+                         "or a JSON body with 'path' pointing to a server-side xlsx",
+            }), 400
+        if not os.path.exists(xlsx_path):
+            return jsonify({"ok": False, "error": f"Path not found: {xlsx_path}"}), 404
+
+    try:
+        from src.agents.mckesson_import import import_mckesson_xlsx
+        result = import_mckesson_xlsx(xlsx_path, supplier_override=supplier_override)
+        status = 200 if result.get("ok") else 500
+        return jsonify(result), status
+    except Exception as e:
+        log.exception("McKesson import failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/catalog/refresh-web-prices", methods=["POST"])
 @auth_required
 @safe_route
