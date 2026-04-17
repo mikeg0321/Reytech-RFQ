@@ -1,21 +1,44 @@
 # ╔══════════════════════════════════════════════════════════════════════╗
 # ║ DEPLOY RULES — DO NOT CHANGE WITHOUT READING                       ║
 # ║                                                                    ║
-# ║ 1. NEVER change [phases.setup] unless you understand Docker layer  ║
-# ║    caching. Changing aptPkgs or nixPkgs invalidates the cache and  ║
-# ║    forces a full re-download (40+ min on slow mirrors).            ║
-# ║ 2. aptPkgs are cached as a Docker layer. Nix pkgs have their own  ║
-# ║    binary cache (cache.nixos.org). Both are fast on cache hit.     ║
-# ║ 3. If Ubuntu mirrors are broken, the retry in aptPkgs handles it. ║
-# ║ 4. Test deploy changes in a Railway preview environment first.     ║
+# ║ 1. Package sources are all Nix (cache.nixos.org / Fastly CDN).     ║
+# ║    apt was removed on 2026-04-17 after archive.ubuntu.com became   ║
+# ║    unreachable from Railway's build network for 30+ min, blocking  ║
+# ║    every deploy. Nix's binary cache is on a different CDN and      ║
+# ║    does not share that failure mode. See CLAUDE.md Deploy Guard    ║
+# ║    Rails — the 2026-04-16 "don't touch nixpacks" guidance assumed  ║
+# ║    apt mirrors would recover; they didn't.                         ║
+# ║                                                                    ║
+# ║ 2. Changing nixPkgs invalidates the Docker layer cache. Expect a  ║
+# ║    one-time long deploy (~10 min) after any change here; subsequent║
+# ║    deploys are fast because Nix has its own binary cache.          ║
+# ║                                                                    ║
+# ║ 3. DO NOT add aptPkgs back unless Ubuntu archive connectivity is   ║
+# ║    confirmed stable. If you need a package not in nixpkgs, search  ║
+# ║    https://search.nixos.org first.                                 ║
+# ║                                                                    ║
+# ║ 4. Binary names to be aware of:                                    ║
+# ║    - Nix `tesseract` attribute includes English traineddata by     ║
+# ║      default — separate tesseract-ocr-eng is not needed.           ║
+# ║    - Nix `libreoffice-still` exposes both `soffice` and            ║
+# ║      `libreoffice` binaries on PATH. src/forms/doc_converter.py    ║
+# ║      already tries `soffice` first then falls back to              ║
+# ║      `libreoffice`, so the name switch is transparent to callers.  ║
+# ║    - Nix `poppler_utils` provides pdftotext, pdftoppm, pdfinfo     ║
+# ║      (underscore in the nix attr, dash in the apt package name).   ║
 # ╚══════════════════════════════════════════════════════════════════════╝
 
 [phases.setup]
-# Heavy system packages via apt — cached as a Docker layer.
-# libreoffice-writer is ~200MB. On cache hit: <1s. On cache miss: 10-40 min
-# depending on Ubuntu mirror speed. DO NOT bust this cache unnecessarily.
-aptPkgs = ["tesseract-ocr", "tesseract-ocr-eng", "poppler-utils", "libreoffice-writer"]
-nixPkgs = ["python3", "poppler_utils", "gcc"]
+# All system packages via Nix. Served from cache.nixos.org (Fastly CDN),
+# which is not subject to the archive.ubuntu.com outages that blocked
+# builds on 2026-04-17.
+nixPkgs = [
+    "python3",
+    "gcc",
+    "tesseract",         # OCR CLI; includes English traineddata by default
+    "poppler_utils",     # pdftotext, pdftoppm, pdfinfo — used by email_poller OCR fallback
+    "libreoffice-still", # LTS branch; provides soffice + libreoffice for DOCX→PDF conversion
+]
 
 [phases.install]
 cmds = ["python -m venv --copies /opt/venv", "/opt/venv/bin/pip install -r requirements.txt -c constraints.txt"]
