@@ -5384,6 +5384,7 @@ _ROUTE_MODULES = [
     "routes_pricecheck_gen",   # PC bundle generation, email pipeline, SCPRS, polling
     "routes_pricecheck_pricing",  # Pricing oracle, PC lifecycle, award monitor, competitors
     "routes_pricecheck_admin",    # Auto-enrich, match feedback, email QA, bulk scrape, diagnostics
+    "routes_pricecheck_v2",       # V2 pipeline: Quote model + fill engine + profile registry (PC generate-v2)
     "routes_crm",              # CRM, pricing oracle, auto-processor
     "routes_intel",            # SCPRS, CCHCS, vendors, funnel, forecasting
     "routes_intel_ops",        # Operations, admin, test mode, scheduler, pipeline API (split from routes_intel)
