@@ -55,6 +55,65 @@ class TestSyncQuotewerksFromDrive:
         assert result["ok"] is False
         assert "empty" in result["error"].lower()
 
+    def test_sync_auto_dedups_after_import(self, monkeypatch, tmp_path):
+        # After 2026-04-17 incident: a QW Drive sync left 218 dup groups
+        # because dedup_catalog() wasn't called after import. Now it is.
+        import src.core.gdrive as _gd
+        import src.core.paths as _paths
+        import src.agents.product_catalog as _pc
+        monkeypatch.setattr(_paths, "DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(_gd, "is_configured", lambda: True)
+
+        def _fake_download(fid, path):
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("Description,UnitList\nA,1.0\n")
+            return True
+
+        monkeypatch.setattr(_gd, "download_file", _fake_download)
+        monkeypatch.setattr(_pc, "init_catalog_db", lambda: None)
+        monkeypatch.setattr(_pc, "import_quotewerks_csv",
+                            lambda path, replace=False: {"imported": 5, "total_rows": 5})
+
+        # Spy on dedup to confirm it's called post-import
+        dedup_calls = {"count": 0}
+
+        def _dedup_spy():
+            dedup_calls["count"] += 1
+            return {"groups_merged": 3, "products_deleted": 5, "products_remaining": 100}
+
+        monkeypatch.setattr(_pc, "dedup_catalog", _dedup_spy)
+
+        result = _pc.sync_quotewerks_from_drive(file_id="dedup-test")
+        assert result["ok"] is True
+        assert dedup_calls["count"] == 1, "dedup_catalog must run after import"
+        assert result["dupes_merged"] == 3
+        assert result["dupes_deleted"] == 5
+        assert result["products_after_dedup"] == 100
+
+    def test_sync_tolerates_dedup_failure(self, monkeypatch, tmp_path):
+        # Dedup is non-fatal — a crashing dedup shouldn't fail the whole sync
+        import src.core.gdrive as _gd
+        import src.core.paths as _paths
+        import src.agents.product_catalog as _pc
+        monkeypatch.setattr(_paths, "DATA_DIR", str(tmp_path))
+        monkeypatch.setattr(_gd, "is_configured", lambda: True)
+        monkeypatch.setattr(_gd, "download_file",
+                            lambda f, p: open(p, "w").write("Description\nX\n") or True)
+        monkeypatch.setattr(_pc, "init_catalog_db", lambda: None)
+        monkeypatch.setattr(_pc, "import_quotewerks_csv",
+                            lambda path, replace=False: {"imported": 1, "total_rows": 1})
+
+        def _boom():
+            raise RuntimeError("simulated dedup crash")
+
+        monkeypatch.setattr(_pc, "dedup_catalog", _boom)
+
+        result = _pc.sync_quotewerks_from_drive(file_id="dedup-boom")
+        # Sync should still report ok:true because the core import succeeded
+        assert result["ok"] is True
+        assert result["imported"] == 1
+        assert result["dupes_merged"] == 0  # no dedup credit when it crashed
+
     def test_happy_path_data_manager_format(self, monkeypatch, tmp_path):
         import src.core.gdrive as _gd
         import src.core.paths as _paths
