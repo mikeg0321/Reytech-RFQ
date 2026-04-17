@@ -1353,6 +1353,29 @@ CREATE TABLE IF NOT EXISTS utilization_events (
 );
 CREATE INDEX IF NOT EXISTS idx_util_feature ON utilization_events(feature);
 CREATE INDEX IF NOT EXISTS idx_util_created ON utilization_events(created_at);
+
+-- ═════════════════════════════════════════════════════════════════════
+-- Agency Rules (Phase C — Gmail-derived per-buyer guidance)
+-- Claude-extracted rules from 2y of buyer emails. Consumed by
+-- Form QA gate to produce agency-specific warnings before send.
+-- rule_type: forms, delivery, packaging, signature, contact,
+--            quote_format, rejection_reason, misc
+-- confidence: 0-1 Claude self-scored + n-sample-reinforced
+-- ═════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS agency_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agency TEXT NOT NULL,
+    rule_type TEXT NOT NULL,
+    rule_text TEXT NOT NULL,
+    source_email_ids TEXT DEFAULT '[]',
+    confidence REAL DEFAULT 0.5,
+    sample_count INTEGER DEFAULT 1,
+    first_seen TEXT DEFAULT (datetime('now')),
+    last_seen TEXT DEFAULT (datetime('now')),
+    active INTEGER DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_agency_rules_agency ON agency_rules(agency, active);
+CREATE INDEX IF NOT EXISTS idx_agency_rules_type ON agency_rules(rule_type);
 """
 
 def init_db():

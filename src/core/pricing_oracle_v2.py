@@ -87,6 +87,22 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     result["tiers"] = rec.pop("tiers", [])
     result["recommendation"] = rec
 
+    # Step 6b: Volume-Aware band (Phase B). Historical line-margin band
+    # for this (agency, qty_bucket). Surfaced as supplementary signal;
+    # becomes a ceiling constraint when flag is on and sample is dense.
+    try:
+        from src.core.volume_aware_pricing import volume_aware_ceiling, get_volume_band
+        va_cost = (cost if cost and cost > 0
+                   else (result.get("cost", {}) or {}).get("locked_cost") or 0)
+        va_band = get_volume_band(department or "", quantity)
+        if va_band:
+            result["volume_aware_band"] = va_band
+        va = volume_aware_ceiling(va_cost, department or "", quantity) if va_cost else None
+        if va:
+            result["volume_aware"] = va
+    except Exception as _vae:
+        log.debug("volume_aware: %s", _vae)
+
     # Step 7: Cross-sell
     result["cross_sell"] = _get_cross_sell(db, description)
 
@@ -629,6 +645,34 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                        "rationale": f"Won {win_times}x at ${ceiling:.2f} ({ceiling_m:.0f}% on ${cost:.2f})"})
         return result
 
+    # Phase B: Volume-Aware band (agency × qty_bucket historical median margin).
+    # When the flag is on and we have ≥ 10 historical line samples for this
+    # (agency, qty_bucket), cap the ceiling at the p75 margin — this
+    # reflects what has *historically* won for the same buyer+size combo.
+    # Skipped silently when data is thin or flag is off.
+    va_ceiling = None
+    va_band_info = None
+    try:
+        from src.core.flags import get_flag
+        from src.core.volume_aware_pricing import get_volume_band
+        if has_cost and get_flag("oracle.volume_aware", True):
+            vb = get_volume_band(agency or "", qty)
+            if vb and vb.get("sample_size", 0) >= 10 and vb.get("p75_margin") is not None:
+                va_ceiling = round(cost * (1 + float(vb["p75_margin"])), 2)
+                va_band_info = {
+                    "agency": vb["agency"],
+                    "qty_bucket": vb["qty_bucket"],
+                    "sample_size": vb["sample_size"],
+                    "p25_margin_pct": round(float(vb["p25_margin"]) * 100, 1) if vb.get("p25_margin") is not None else None,
+                    "p50_margin_pct": round(float(vb["p50_margin"]) * 100, 1) if vb.get("p50_margin") is not None else None,
+                    "p75_margin_pct": round(float(vb["p75_margin"]) * 100, 1) if vb.get("p75_margin") is not None else None,
+                    "used_fallback": vb.get("used_fallback", False),
+                    "ceiling_price": va_ceiling,
+                }
+                result["volume_aware"] = va_band_info
+    except Exception as _vae:
+        log.debug("volume_aware ceiling: %s", _vae)
+
     if has_cost and has_market:
         # V5 Phase 5: Confidence-weighted pricing tiers based on data density
         dp = market.get("data_points", 0)
@@ -656,6 +700,15 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
             ceiling = min(cal_ceiling, market_ceiling)
         else:
             ceiling = round(comp_avg * market_mult, 2)
+
+        # Phase B: Volume-Aware ceiling cap — prevents overpricing large orders
+        # at small-order margins. Only applied when historical sample is dense
+        # (≥10 lines for this agency × qty_bucket). Never raises the ceiling,
+        # only caps it.
+        if va_ceiling is not None and va_ceiling < ceiling:
+            ceiling = va_ceiling
+            if va_band_info:
+                va_band_info["applied"] = True
 
         # For sparse data, enforce minimum markup of 25%
         if data_tier == "sparse" and cost > 0:
@@ -696,8 +749,21 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
     elif has_cost:
         # V5: "blind" tier — no market data at all, conservative 30% markup
         result["data_confidence"] = "blind"
-        result.update({"quote_price": round(cost * 1.30, 2), "markup_pct": 30, "confidence": "low",
-                       "rationale": f"No market data. 30% on ${cost:.2f} [blind]"})
+        # Phase B: if we have a dense volume-aware band for this agency+qty,
+        # use the p50 margin instead of a blind 30% — this is still more
+        # principled than a flat default.
+        if va_ceiling is not None and va_band_info and va_band_info.get("p50_margin_pct") is not None:
+            p50_price = round(cost * (1 + va_band_info["p50_margin_pct"] / 100), 2)
+            va_band_info["applied"] = True
+            result.update({
+                "quote_price": p50_price,
+                "markup_pct": va_band_info["p50_margin_pct"],
+                "confidence": "medium",
+                "rationale": f"No market; volume-aware p50 for {va_band_info['agency']}/{va_band_info['qty_bucket']} (n={va_band_info['sample_size']})",
+            })
+        else:
+            result.update({"quote_price": round(cost * 1.30, 2), "markup_pct": 30, "confidence": "low",
+                           "rationale": f"No market data. 30% on ${cost:.2f} [blind]"})
     elif has_market:
         result["data_confidence"] = "moderate" if market.get("data_points", 0) >= 10 else "sparse"
         result.update({"quote_price": round(comp_avg * 0.92, 2), "confidence": "medium",
