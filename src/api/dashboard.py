@@ -4677,11 +4677,25 @@ def api_cleanup_queue():
         results["rfq_deleted"].append({"id": rid[:12], "sol": sol, "buyer": r.get("requestor_name", "")[:20], "status": status, "items": items_count, "reason": "no real sol or no items"})
 
     # ── Execute deletes ──
+    # raise_on_error=True on the bulk save calls: if the write fails silently
+    # after the in-memory pop, the UI shows "deleted N" while the DB still
+    # holds stale data — next load resurrects the PCs/RFQs the admin thought
+    # they cleaned. Fail loud instead.
     if execute:
         if pc_delete_ids:
             for pid in pc_delete_ids:
                 pcs.pop(pid, None)
-            _save_price_checks(pcs)
+            try:
+                _save_price_checks(pcs, raise_on_error=True)
+            except Exception as _save_e:
+                log.error("cleanup-queue PC save failed (%d pending deletes): %s",
+                          len(pc_delete_ids), _save_e)
+                return jsonify({
+                    "ok": False,
+                    "error": f"PC cleanup state write failed: {_save_e}. "
+                             f"{len(pc_delete_ids)} PCs may be partially deleted.",
+                    "partial_state": "pc_save_failed",
+                }), 500
             try:
                 from src.core.db import get_db
                 with get_db() as conn:
@@ -4693,7 +4707,17 @@ def api_cleanup_queue():
         if rfq_delete_ids:
             for rid in rfq_delete_ids:
                 rfqs.pop(rid, None)
-            save_rfqs(rfqs)
+            try:
+                save_rfqs(rfqs, raise_on_error=True)
+            except Exception as _save_e:
+                log.error("cleanup-queue RFQ save failed (%d pending deletes): %s",
+                          len(rfq_delete_ids), _save_e)
+                return jsonify({
+                    "ok": False,
+                    "error": f"RFQ cleanup state write failed: {_save_e}. "
+                             f"{len(rfq_delete_ids)} RFQs may be partially deleted.",
+                    "partial_state": "rfq_save_failed",
+                }), 500
             try:
                 from src.core.db import get_db
                 with get_db() as conn:
@@ -4832,14 +4856,35 @@ def api_hard_cleanup():
             pc_delete[pid] = pc_keep.pop(pid)
             pc_delete[pid]["reason"] = f"duplicates sent RFQ sol#{sol}"
 
+    # raise_on_error=True: admin dedupe deletes duplicates from BOTH queues.
+    # Silent save failure after in-memory pop leaves the UI reporting "deleted
+    # N" while DB still has the duplicates — next load brings them back.
     if execute:
         for rid in rfq_delete:
             rfqs.pop(rid, None)
-        save_rfqs(rfqs)
+        try:
+            save_rfqs(rfqs, raise_on_error=True)
+        except Exception as _save_e:
+            log.error("dedupe RFQ save failed (%d pending deletes): %s",
+                      len(rfq_delete), _save_e)
+            return jsonify({
+                "ok": False,
+                "error": f"RFQ dedupe state write failed: {_save_e}",
+                "partial_state": "rfq_save_failed",
+            }), 500
 
         for pid in pc_delete:
             pcs.pop(pid, None)
-        _save_price_checks(pcs)
+        try:
+            _save_price_checks(pcs, raise_on_error=True)
+        except Exception as _save_e:
+            log.error("dedupe PC save failed (%d pending deletes): %s",
+                      len(pc_delete), _save_e)
+            return jsonify({
+                "ok": False,
+                "error": f"PC dedupe state write failed: {_save_e}",
+                "partial_state": "pc_save_failed",
+            }), 500
 
         try:
             from src.core.db import get_db

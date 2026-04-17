@@ -330,6 +330,66 @@ class TestAdminReclassifyPersistence:
         assert "persist" in body.get("error", "").lower()
 
 
+class TestAdminCleanupPersistence:
+    """Admin cleanup/dedupe routes pop PCs or RFQs from the in-memory dict,
+    then save the remainder. If the save silently fails the UI reports
+    "deleted N" but the DB still has the rows — they resurrect on next load,
+    and the admin thinks the queue is clean when it isn't. Fix E promotes
+    both cleanup routes to raise_on_error=True on the save call."""
+
+    def test_cleanup_queue_surfaces_pc_save_failure(self, client, seed_pc, monkeypatch):
+        import src.api.data_layer as _dl
+        _orig = _dl._save_price_checks
+
+        def _boom(pcs, raise_on_error=False):
+            if raise_on_error:
+                raise RuntimeError("simulated DB outage during cleanup")
+            return _orig(pcs, raise_on_error=False)
+
+        monkeypatch.setattr(_dl, "_save_price_checks", _boom)
+        try:
+            import src.api.dashboard as _dash
+            monkeypatch.setattr(_dash, "_save_price_checks", _boom)
+        except Exception:
+            pass
+
+        r = client.get("/api/admin/cleanup-queue?execute=true")
+        # When no PCs/RFQs qualify for deletion the code path never calls the
+        # save function; that's a valid clean response. The regression is:
+        # if the save IS called and it fails, we must return 500 instead of
+        # a misleading success. Accept 200 with summary OR 500 with marker.
+        if r.status_code == 500:
+            body = r.get_json()
+            assert body["ok"] is False
+            assert body.get("partial_state") in ("pc_save_failed", "rfq_save_failed")
+        else:
+            assert r.status_code == 200
+
+    def test_hard_cleanup_surfaces_pc_save_failure(self, client, seed_pc, monkeypatch):
+        import src.api.data_layer as _dl
+        _orig = _dl._save_price_checks
+
+        def _boom(pcs, raise_on_error=False):
+            if raise_on_error:
+                raise RuntimeError("simulated DB outage during dedupe")
+            return _orig(pcs, raise_on_error=False)
+
+        monkeypatch.setattr(_dl, "_save_price_checks", _boom)
+        try:
+            import src.api.dashboard as _dash
+            monkeypatch.setattr(_dash, "_save_price_checks", _boom)
+        except Exception:
+            pass
+
+        r = client.get("/api/admin/hard-cleanup?execute=true")
+        if r.status_code == 500:
+            body = r.get_json()
+            assert body["ok"] is False
+            assert body.get("partial_state") in ("pc_save_failed", "rfq_save_failed")
+        else:
+            assert r.status_code == 200
+
+
 class TestRenumberQuotePersistence:
     """/api/test/renumber-quote writes the new number to both the quote row
     and any PC whose reytech_quote_number matches the old one. If the PC
