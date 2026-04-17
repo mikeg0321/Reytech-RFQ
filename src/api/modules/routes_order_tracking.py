@@ -226,7 +226,29 @@ def _extract_email_body(msg):
 
 
 def _process_po_email(subject, sender, body, email_uid):
-    """Process a single PO-related email and extract updates."""
+    """Dispatch to V2 or legacy path based on `orders_v2.poller_unified` flag.
+
+    Hard cut: when the flag is on, ALL writes go to V2 (orders + order_line_items
+    + order_audit_log). When off, the legacy purchase_orders / po_line_items /
+    po_emails / po_status_history tables get the writes (pre-migration behavior).
+
+    Flip via `/api/admin/flags` — see docs/PRD_ORDERS_V2_POLLER_MIGRATION.md.
+    """
+    try:
+        from src.core.flags import get_flag
+        if get_flag("orders_v2.poller_unified", False):
+            return _process_po_email_v2(subject, sender, body, email_uid)
+    except Exception as e:
+        log.warning("poller flag read failed, falling back to legacy: %s", e)
+    return _process_po_email_legacy(subject, sender, body, email_uid)
+
+
+def _process_po_email_legacy(subject, sender, body, email_uid):
+    """Legacy poller — writes to purchase_orders + po_line_items + po_emails.
+
+    Kept verbatim from pre-migration code so flipping the FF off resumes the
+    exact prior behavior. Will be deleted with the legacy tables in a future PR.
+    """
     result = {"matched": False, "po_id": None, "updates": []}
 
     # Extract PO number from subject or body
@@ -273,6 +295,17 @@ def _process_po_email(subject, sender, body, email_uid):
             break
 
     return result
+
+
+def _process_po_email_v2(subject, sender, body, email_uid):
+    """V2 poller — delegates to src.core.po_email_v2.process_email.
+
+    Lives here so the FF dispatcher can call it; real logic is in the
+    pure module so tests can import without dragging in dashboard's exec()
+    namespace.
+    """
+    from src.core import po_email_v2
+    return po_email_v2.process_email(subject, sender, body, email_uid)
 
 
 def _extract_po_numbers(text):
