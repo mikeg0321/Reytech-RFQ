@@ -1913,7 +1913,11 @@ def _api_diag_inner():
             "GMAIL_PASSWORD_set": bool(os.environ.get("GMAIL_PASSWORD")),
             "GMAIL_ADDRESS_value": os.environ.get("GMAIL_ADDRESS", "NOT SET"),
         },
-        "poll_status": POLL_STATUS,
+        # Filter out underscore-prefixed keys — they hold live objects like
+        # the EmailPoller instance (_poller_instance) which aren't JSON
+        # serializable. UI walkthrough on 2026-04-17 caught a 500 firing on
+        # every home-page load because of this.
+        "poll_status": {k: v for k, v in POLL_STATUS.items() if not k.startswith("_")},
         "connection_test": None,
         "inbox_test": None,
     }
