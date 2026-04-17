@@ -2018,13 +2018,20 @@ def _do_save_prices(pcid):
     else:
         pc["parsed"]["line_items"] = items
 
-    # Save ONLY this PC — prevents background agents from overwriting user edits on other PCs
+    # Save ONLY this PC — prevents background agents from overwriting user edits on other PCs.
+    # raise_on_error=True is critical here: this is the user-facing autosave path. If the DB
+    # write fails, the response MUST return ok:false so the frontend keeps the localStorage
+    # backup banner up and the user knows their prices didn't land. Silent failure here is
+    # how prices get lost between autosave and page reload (incident: 2026-04-16 PC session).
+    from src.api.dashboard import _save_single_pc
     try:
-        from src.api.dashboard import _save_single_pc
-        _save_single_pc(pcid, pc)
-    except Exception as _single_e:
-        log.warning("Single-PC save failed, falling back to full save: %s", _single_e)
-        _save_price_checks(pcs)
+        _save_single_pc(pcid, pc, raise_on_error=True)
+    except Exception as _save_e:
+        log.error("PC save-prices persistence failed for %s: %s", pcid, _save_e)
+        return jsonify({
+            "ok": False,
+            "error": f"Prices could not be saved: {_save_e}. Your edits are in the browser backup — retry or use the Restore button.",
+        }), 500
 
     # ── Save items to product catalog — only when items are priced ──
     _priced_count = sum(1 for it in items if not it.get("no_bid") and (it.get("unit_price") or it.get("pricing", {}).get("recommended_price")))
