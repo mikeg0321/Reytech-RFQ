@@ -871,6 +871,36 @@ def api_catalog_import_quotewerks():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/catalog/sync-quotewerks-drive", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_catalog_sync_quotewerks_drive():
+    """Sync QuoteWerks export from Google Drive into the product catalog.
+
+    Pulls the file identified by QUOTEWERKS_DRIVE_FILE_ID (or ?file_id= param),
+    runs the existing QuoteWerks importer, and returns the ingest stats.
+    Idempotent — safe to re-run; dedup is handled by the importer.
+
+    Mode: POST body { "file_id": "...", "replace": false }
+          or GET/POST ?file_id=...&replace=true
+    """
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog module not available"})
+    data = request.get_json(silent=True) or {}
+    file_id = data.get("file_id") or request.args.get("file_id") or None
+    replace = bool(data.get("replace") or
+                   (request.args.get("replace", "").lower() in ("1", "true", "yes")))
+    try:
+        from src.agents.product_catalog import sync_quotewerks_from_drive
+        result = sync_quotewerks_from_drive(file_id=file_id, replace=replace)
+        status = 200 if result.get("ok") else 500
+        return jsonify(result), status
+    except Exception as e:
+        log.exception("sync-quotewerks-drive failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/catalog/run-fixes", methods=["POST"])
 @auth_required
 @safe_route

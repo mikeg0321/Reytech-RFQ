@@ -1465,6 +1465,123 @@ def import_qw_documents_report(csv_path: str, replace: bool = False) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# QuoteWerks Google Drive sync
+# ═══════════════════════════════════════════════════════════════════════
+
+def sync_quotewerks_from_drive(
+    file_id: Optional[str] = None,
+    replace: bool = False,
+) -> dict:
+    """Download the QuoteWerks export from Google Drive and ingest into catalog.
+
+    Contract: the QuoteWerks historical export lives as a canonical file in
+    Drive. This function pulls it down and feeds it through the existing
+    import_quotewerks_csv / import_qw_documents_report pipeline. It's idempotent
+    — running it re-downloads the latest Drive version and re-ingests. Items
+    are deduplicated by part number + description tokens inside the importer.
+
+    Args:
+        file_id: Drive file ID. Falls back to QUOTEWERKS_DRIVE_FILE_ID env var.
+        replace: If True, wipe existing catalog before import (same semantics
+                 as the existing manual-upload endpoint).
+
+    Returns a dict with:
+        ok: bool
+        error: str (when ok=False)
+        drive_file_id: str
+        downloaded_bytes: int
+        format: "documents_report" | "data_manager"
+        imported/updated/skipped/urls_stored/etc. (passthrough from importer)
+    """
+    fid = file_id or os.environ.get("QUOTEWERKS_DRIVE_FILE_ID", "").strip()
+    if not fid:
+        return {
+            "ok": False,
+            "error": "No file_id provided and QUOTEWERKS_DRIVE_FILE_ID env var is empty",
+        }
+
+    try:
+        from src.core import gdrive
+    except ImportError as e:
+        return {"ok": False, "error": f"gdrive module not available: {e}"}
+
+    if not gdrive.is_configured():
+        return {
+            "ok": False,
+            "error": "Google Drive is not configured — set GOOGLE_DRIVE_CREDENTIALS "
+                     "and GOOGLE_DRIVE_ROOT_FOLDER_ID env vars",
+        }
+
+    # Download to the canonical local path that the manual upload also writes to,
+    # so downstream code (re-imports, recovery) finds the same file regardless
+    # of which entry point populated it.
+    try:
+        from src.core.paths import DATA_DIR as _DD
+    except ImportError:
+        _DD = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))), "data")
+    local_path = os.path.join(_DD, "quotewerks_import_latest.csv")
+    os.makedirs(_DD, exist_ok=True)
+
+    ok = gdrive.download_file(fid, local_path)
+    if not ok or not os.path.exists(local_path):
+        return {
+            "ok": False,
+            "error": f"Download from Drive failed for file_id={fid} — check service "
+                     f"account permissions and that the file is shared with the app",
+            "drive_file_id": fid,
+        }
+
+    size = os.path.getsize(local_path)
+    if size == 0:
+        return {"ok": False, "error": "Downloaded file is empty", "drive_file_id": fid}
+
+    # Detect format (Documents Report has DocumentItems_/DocumentHeaders_ prefixed cols)
+    try:
+        with open(local_path, "r", encoding="utf-8-sig") as _f:
+            header_line = _f.readline()
+    except Exception as e:
+        return {"ok": False, "error": f"Could not read downloaded file: {e}",
+                "drive_file_id": fid, "downloaded_bytes": size}
+
+    is_documents_report = "DocumentItems_" in header_line or "DocumentHeaders_" in header_line
+
+    try:
+        init_catalog_db()
+        if is_documents_report:
+            result = import_qw_documents_report(local_path, replace=replace)
+            fmt = "documents_report"
+        else:
+            result = import_quotewerks_csv(local_path, replace=replace)
+            fmt = "data_manager"
+    except Exception as e:
+        log.exception("QuoteWerks Drive sync: ingest failed")
+        return {
+            "ok": False,
+            "error": f"Ingest failed after successful download: {e}",
+            "drive_file_id": fid,
+            "downloaded_bytes": size,
+            "format": fmt if "fmt" in dir() else "unknown",
+        }
+
+    log.info(
+        "QW Drive sync: %d bytes from file_id=%s, format=%s, imported=%d updated=%d skipped=%d",
+        size, fid, fmt,
+        result.get("imported", 0),
+        result.get("updated", 0),
+        result.get("skipped", 0),
+    )
+
+    return {
+        "ok": True,
+        "drive_file_id": fid,
+        "downloaded_bytes": size,
+        "format": fmt,
+        **result,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Search & Lookup
 # ═══════════════════════════════════════════════════════════════════════
 
