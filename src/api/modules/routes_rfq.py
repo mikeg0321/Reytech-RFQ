@@ -1881,6 +1881,16 @@ def _handle_price_check_upload(pdf_path, pc_id, from_email=False):
 # and creates circular imports (routes_rfq wrapper → dashboard import → gets wrapper back).
 
 
+@bp.route("/rfqs")
+@auth_required
+def rfqs_redirect():
+    """/rfqs is a natural URL operators try (there's /pricechecks, /quotes, /orders).
+    There's no dedicated RFQ list page — RFQs surface on the home dashboard
+    alongside PCs. Redirect there instead of returning 404. UI walkthrough
+    on 2026-04-17 hit this 404."""
+    return redirect("/")
+
+
 @bp.route("/rfq/<rid>")
 @auth_required
 @safe_route
