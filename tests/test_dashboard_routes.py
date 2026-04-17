@@ -284,6 +284,53 @@ class TestRFQRoutes:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN RECLASSIFY (silent-save regression)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestAdminReclassifyPersistence:
+    """/api/admin/reclassify-to-pc deletes source RFQs and creates PCs. If the
+    DB write silently fails the RFQs disappear mid-move — classic silent-save
+    data loss. Fix C promotes save_rfqs + _save_price_checks to raise on that
+    route; these tests pin the new behavior."""
+
+    def test_reclassify_happy_path_ok(self, client, seed_rfq):
+        r = client.post("/api/admin/reclassify-to-pc",
+                        json={"rfq_ids": [seed_rfq]},
+                        content_type="application/json")
+        assert r.status_code == 200
+        body = r.get_json()
+        assert body.get("ok") is True
+        assert body.get("moved", 0) >= 1
+
+    def test_reclassify_surfaces_db_failure(self, client, seed_rfq, monkeypatch):
+        # When save_rfqs hits a real DB failure during reclassify the response
+        # MUST be ok:false with 500. Before Fix C the route swallowed the
+        # exception, returned {"ok": true, "moved": N}, and the RFQ was left
+        # in an indeterminate state (possibly deleted from rfqs table but not
+        # written to price_checks).
+        import src.api.data_layer as _dl
+
+        def _boom(rfqs, raise_on_error=False):
+            if raise_on_error:
+                raise RuntimeError("simulated DB outage during reclassify")
+
+        monkeypatch.setattr(_dl, "save_rfqs", _boom)
+        try:
+            import src.api.dashboard as _dash
+            monkeypatch.setattr(_dash, "save_rfqs", _boom)
+        except Exception:
+            pass
+
+        r = client.post("/api/admin/reclassify-to-pc",
+                        json={"rfq_ids": [seed_rfq]},
+                        content_type="application/json")
+        assert r.status_code == 500, r.data
+        body = r.get_json()
+        assert body["ok"] is False
+        assert "persist" in body.get("error", "").lower()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # QUOTES PAGE
 # ═══════════════════════════════════════════════════════════════════════════════
 
