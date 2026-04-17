@@ -1428,7 +1428,27 @@ def api_qb_auto_invoice():
         if result and result.get("Id"):
             pc["qb_invoice_id"] = result["Id"]
             pc["qb_invoice_number"] = result.get("DocNumber", "")
-            _save_price_checks(pcs)
+            # raise_on_error=True: the QB invoice already exists in QuickBooks
+            # at this point (external call succeeded above). If we fail to
+            # persist qb_invoice_id back to the PC silently, the next
+            # auto-invoice call will NOT see the existing QB id and will
+            # create a duplicate invoice. Surface the failure so the operator
+            # knows to manually reconcile — the QB ID is in the response body
+            # as a paper trail.
+            try:
+                _save_price_checks(pcs, raise_on_error=True)
+            except Exception as _save_e:
+                log.error("QB invoice persistence failed for PC %s (QB id=%s): %s",
+                          pc_id, result["Id"], _save_e)
+                return jsonify({
+                    "ok": False,
+                    "error": f"QB invoice {result.get('DocNumber', '')} was created "
+                             f"(id={result['Id']}) but could not be saved to PC record: {_save_e}. "
+                             f"Record this QB id manually to prevent duplicate invoicing.",
+                    "invoice_id": result["Id"],
+                    "invoice_number": result.get("DocNumber", ""),
+                    "needs_manual_reconcile": True,
+                }), 500
             return jsonify({"ok": True, "invoice_id": result["Id"],
                           "invoice_number": result.get("DocNumber", "")})
         return jsonify({"ok": False, "error": "QB returned empty result"})
@@ -3356,8 +3376,27 @@ def api_renumber_quote():
     if not dry_run:
         from src.forms.quote_generator import _save_all_quotes
         _save_all_quotes(quotes)
+        # raise_on_error=True: renumber writes the new number to BOTH the
+        # quote and the linked PC. If the PC save silently fails, the PC
+        # keeps the old quote_number while the quote has the new one —
+        # creating a mismatch that breaks downstream lookups (JSON fallback
+        # per memory feedback_quote_number_rules.md) and state compliance
+        # reporting (quote numbers are business-critical identifiers).
         if pc_updated:
-            _save_price_checks(pcs)
+            try:
+                _save_price_checks(pcs, raise_on_error=True)
+            except Exception as _save_e:
+                log.error("Renumber PC save failed for %s (%s→%s): %s",
+                          pc_updated, old, new, _save_e)
+                return jsonify({
+                    "ok": False,
+                    "error": f"Quote renumbered {old}→{new} in quotes_log but PC "
+                             f"{pc_updated} save failed: {_save_e}. PC still shows {old}; "
+                             f"quote shows {new}. Fix the PC manually to resync.",
+                    "old": old,
+                    "new": new,
+                    "pc_out_of_sync": pc_updated,
+                }), 500
         if new_num > 0:
             set_quote_counter(new_num)
         log.info("RENUMBER: %s → %s (PC: %s, counter: %d)", old, new, pc_updated or "none", new_num)
