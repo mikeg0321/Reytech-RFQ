@@ -1582,6 +1582,159 @@ def sync_quotewerks_from_drive(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Web price refresh — keep MSRP / list prices current for recently-quoted items
+# ═══════════════════════════════════════════════════════════════════════
+
+def refresh_catalog_web_prices(
+    max_age_days: int = 7,
+    lookback_days: int = 730,
+    limit: int = 50,
+) -> dict:
+    """Refresh web_lowest_price for catalog items using web_price_research.
+
+    Scope (honors the business rule "URLs in the data for each item quoted
+    last ~2 years"):
+      - Only items touched in the last `lookback_days` (default 730 = 2y).
+      - Only items whose web_lowest_date is older than `max_age_days`
+        (or has never been checked).
+      - Rate-limited by web_price_research itself (~12s between calls), so
+        `limit` is the batch size per call — the caller schedules how often.
+
+    For each eligible item, calls search_product_price(description, mfg_number)
+    and writes the result to web_lowest_price, web_lowest_source,
+    web_lowest_date. Cost: ~$0.001-0.003 per item (Haiku + web_search).
+
+    Returns a dict with:
+        ok: bool
+        checked: int           — items we hit the web for
+        updated: int           — items whose price changed
+        cached_hits: int       — items served from the 7-day local cache
+        not_found: int         — web search returned nothing
+        errors: list[str]
+        scanned: int           — total eligible candidates (may exceed limit)
+        limit: int             — the batch cap applied
+    """
+    try:
+        from src.agents.web_price_research import search_product_price
+    except ImportError as e:
+        return {"ok": False, "error": f"web_price_research not available: {e}"}
+
+    init_catalog_db()
+    conn = _get_conn()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    cutoff_lookback = (now - timedelta(days=lookback_days)).isoformat()
+    cutoff_stale = (now - timedelta(days=max_age_days)).isoformat()
+
+    # Candidates: recently touched, price never checked OR check is stale.
+    # ORDER BY oldest-check first so repeated runs drift the whole catalog
+    # forward instead of re-hitting the same few rows.
+    rows = conn.execute(
+        """
+        SELECT id, name, description, mfg_number, manufacturer, web_lowest_price
+        FROM product_catalog
+        WHERE updated_at > ?
+          AND (web_lowest_date IS NULL OR web_lowest_date = '' OR web_lowest_date < ?)
+        ORDER BY COALESCE(web_lowest_date, '') ASC, updated_at DESC
+        LIMIT ?
+        """,
+        (cutoff_lookback, cutoff_stale, max(limit, 1)),
+    ).fetchall()
+
+    # Also count the full eligible pool for scheduling visibility
+    scanned_row = conn.execute(
+        """
+        SELECT COUNT(*) FROM product_catalog
+        WHERE updated_at > ?
+          AND (web_lowest_date IS NULL OR web_lowest_date = '' OR web_lowest_date < ?)
+        """,
+        (cutoff_lookback, cutoff_stale),
+    ).fetchone()
+    scanned = int(scanned_row[0]) if scanned_row else 0
+
+    stats = {
+        "ok": True,
+        "checked": 0,
+        "updated": 0,
+        "cached_hits": 0,
+        "not_found": 0,
+        "errors": [],
+        "scanned": scanned,
+        "limit": limit,
+    }
+
+    for row in rows:
+        pid = row["id"]
+        desc = row["description"] or row["name"] or ""
+        mfg_num = row["mfg_number"] or ""
+        prev_price = row["web_lowest_price"] or 0
+
+        if not desc and not mfg_num:
+            continue  # nothing to search with
+
+        try:
+            result = search_product_price(description=desc, part_number=mfg_num)
+        except Exception as e:
+            stats["errors"].append(f"product {pid}: {str(e)[:120]}")
+            continue
+
+        stats["checked"] += 1
+        if result.get("cached"):
+            stats["cached_hits"] += 1
+
+        if not result.get("found"):
+            stats["not_found"] += 1
+            # Still stamp the check date so we don't re-hammer the same miss
+            conn.execute(
+                "UPDATE product_catalog SET web_lowest_date=? WHERE id=?",
+                (now_iso, pid),
+            )
+            continue
+
+        new_price = float(result.get("price") or 0)
+        source = (result.get("source") or "")[:120]
+
+        if new_price <= 0:
+            stats["not_found"] += 1
+            conn.execute(
+                "UPDATE product_catalog SET web_lowest_date=? WHERE id=?",
+                (now_iso, pid),
+            )
+            continue
+
+        conn.execute(
+            """UPDATE product_catalog
+               SET web_lowest_price=?, web_lowest_source=?, web_lowest_date=?,
+                   updated_at=?
+               WHERE id=?""",
+            (new_price, source, now_iso, now_iso, pid),
+        )
+        # Log history so we can track drift over time (per-unit MSRP trail)
+        try:
+            conn.execute(
+                """INSERT INTO catalog_price_history
+                   (product_id, price_type, price, source, recorded_at)
+                   VALUES (?, 'web_lowest', ?, ?, ?)""",
+                (pid, new_price, source, now_iso),
+            )
+        except Exception as _e:
+            log.debug("price_history insert skipped: %s", _e)
+
+        if abs(new_price - prev_price) > 0.01:
+            stats["updated"] += 1
+
+    conn.commit()
+    conn.close()
+
+    log.info(
+        "refresh_catalog_web_prices: scanned=%d checked=%d updated=%d cached=%d not_found=%d errors=%d",
+        scanned, stats["checked"], stats["updated"],
+        stats["cached_hits"], stats["not_found"], len(stats["errors"]),
+    )
+    return stats
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Search & Lookup
 # ═══════════════════════════════════════════════════════════════════════
 

@@ -871,6 +871,56 @@ def api_catalog_import_quotewerks():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/catalog/refresh-web-prices", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_catalog_refresh_web_prices():
+    """Refresh web_lowest_price for catalog items via web_price_research.
+
+    Honors the business rule: items quoted in the last ~2 years carry URLs
+    and we want MSRP/list kept current (45-day quote validity window means
+    stale prices directly hurt bids).
+
+    Params (body JSON or query):
+        max_age_days: only re-check items whose web_lowest_date is older
+                      than this (default 7 — cache TTL)
+        lookback_days: only consider items touched in the last N days
+                       (default 730 = 2 years)
+        limit: batch cap per call (default 50). Rate-limited to ~5 web calls
+               per minute inside search_product_price.
+
+    Returns ingest stats. 500 + ok:false on failure.
+    """
+    if not CATALOG_AVAILABLE:
+        return jsonify({"ok": False, "error": "Catalog module not available"})
+    data = request.get_json(silent=True) or {}
+
+    def _int_arg(key, default):
+        val = data.get(key) if data.get(key) is not None else request.args.get(key)
+        if val is None or val == "":
+            return default
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+
+    max_age = _int_arg("max_age_days", 7)
+    lookback = _int_arg("lookback_days", 730)
+    limit = _int_arg("limit", 50)
+
+    try:
+        from src.agents.product_catalog import refresh_catalog_web_prices
+        result = refresh_catalog_web_prices(
+            max_age_days=max_age, lookback_days=lookback, limit=limit,
+        )
+        status = 200 if result.get("ok") else 500
+        return jsonify(result), status
+    except Exception as e:
+        log.exception("refresh-web-prices failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/catalog/sync-quotewerks-drive", methods=["POST"])
 @auth_required
 @safe_route
