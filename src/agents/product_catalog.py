@@ -1735,6 +1735,174 @@ def refresh_catalog_web_prices(
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# On-demand refresh — scoped to items being quoted (no scheduled cron)
+# ═══════════════════════════════════════════════════════════════════════
+
+def refresh_prices_for_items(items: list, max_age_days: int = 7) -> dict:
+    """Refresh web_lowest_price for items that are about to be quoted.
+
+    Per the user's "quoting-only" framing: we don't run a background cron
+    refreshing every catalog item. Instead, whenever a PC or RFQ's items
+    are identified (parse step), this fires a targeted refresh for JUST
+    those items — but only if their catalog match has a stale
+    web_lowest_date (> max_age_days). Items not in the catalog are left
+    alone (the usual catalog-enrichment path will add them).
+
+    Args:
+        items: list of dicts with at least 'description' and optionally
+               'mfg_number' / 'part_number' / 'item_number'
+        max_age_days: skip items checked within this window (default 7)
+
+    Returns:
+        {
+          ok: bool,
+          total: int             — items we attempted to look up
+          checked: int           — items we actually hit the web for
+          updated: int           — items whose web_lowest_price changed
+          not_in_catalog: int    — items with no catalog match (skipped)
+          already_fresh: int     — matched but check date within window
+          errors: list[str]
+        }
+
+    Safe to call in a background thread; each search_product_price call
+    self-rate-limits to ~5 calls/min, and catalog writes use their own
+    connection.
+    """
+    try:
+        from src.agents.web_price_research import search_product_price
+    except ImportError as e:
+        return {"ok": False, "error": f"web_price_research not available: {e}"}
+
+    init_catalog_db()
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    cutoff_stale = (now - timedelta(days=max_age_days)).isoformat()
+
+    stats = {
+        "ok": True,
+        "total": 0,
+        "checked": 0,
+        "updated": 0,
+        "not_in_catalog": 0,
+        "already_fresh": 0,
+        "errors": [],
+    }
+
+    for item in items or []:
+        stats["total"] += 1
+        desc = (item.get("description") or "").strip()
+        mpn = (item.get("mfg_number") or item.get("part_number")
+               or item.get("item_number") or "").strip()
+        if not desc and not mpn:
+            continue
+
+        # Find catalog match. Uses the existing fuzzy matcher.
+        try:
+            matches = match_item(desc, str(mpn), top_n=1)
+        except Exception as e:
+            stats["errors"].append(f"match failed for {desc[:40]!r}: {str(e)[:80]}")
+            continue
+
+        if not matches or matches[0].get("match_confidence", 0) < 0.5:
+            stats["not_in_catalog"] += 1
+            continue
+
+        pid = matches[0]["id"]
+
+        # Check staleness directly on this one row (avoids a full-catalog query)
+        conn = _get_conn()
+        row = conn.execute(
+            "SELECT web_lowest_date, web_lowest_price FROM product_catalog WHERE id=?",
+            (pid,),
+        ).fetchone()
+        if row and row["web_lowest_date"] and row["web_lowest_date"] >= cutoff_stale:
+            stats["already_fresh"] += 1
+            conn.close()
+            continue
+
+        # Stale or never checked — refresh
+        stats["checked"] += 1
+        try:
+            result = search_product_price(description=desc, part_number=str(mpn))
+        except Exception as e:
+            stats["errors"].append(f"search failed for product {pid}: {str(e)[:80]}")
+            conn.close()
+            continue
+
+        # Stamp the date regardless of result so we don't re-hammer this item
+        if not result.get("found") or float(result.get("price") or 0) <= 0:
+            conn.execute(
+                "UPDATE product_catalog SET web_lowest_date=? WHERE id=?",
+                (now_iso, pid),
+            )
+            conn.commit()
+            conn.close()
+            continue
+
+        new_price = float(result["price"])
+        source = (result.get("source") or "")[:120]
+        prev_price = row["web_lowest_price"] or 0
+
+        conn.execute(
+            """UPDATE product_catalog
+               SET web_lowest_price=?, web_lowest_source=?, web_lowest_date=?,
+                   updated_at=?
+               WHERE id=?""",
+            (new_price, source, now_iso, now_iso, pid),
+        )
+        try:
+            conn.execute(
+                """INSERT INTO catalog_price_history
+                   (product_id, price_type, price, source, recorded_at)
+                   VALUES (?, 'web_lowest', ?, ?, ?)""",
+                (pid, new_price, source, now_iso),
+            )
+        except Exception as _e:
+            log.debug("price_history insert skipped: %s", _e)
+        conn.commit()
+        conn.close()
+
+        if abs(new_price - prev_price) > 0.01:
+            stats["updated"] += 1
+
+    log.info(
+        "refresh_prices_for_items: total=%d checked=%d updated=%d stale_skipped=%d not_in_catalog=%d errors=%d",
+        stats["total"], stats["checked"], stats["updated"],
+        stats["already_fresh"], stats["not_in_catalog"], len(stats["errors"]),
+    )
+    return stats
+
+
+def refresh_prices_for_items_async(items: list, max_age_days: int = 7, context: str = "pc_parse"):
+    """Fire-and-forget version: spawns a daemon thread and returns immediately.
+
+    Call this from request handlers (PC parse, RFQ parse) when you want
+    the refresh to happen behind the user's current workflow without
+    blocking the response. Errors are logged, never raised.
+
+    context: a short string written to logs so operators can tell which
+    code path triggered the refresh.
+    """
+    import threading
+
+    def _worker():
+        try:
+            log.info("refresh_prices_for_items_async starting: context=%s items=%d",
+                     context, len(items or []))
+            refresh_prices_for_items(items, max_age_days=max_age_days)
+        except Exception as e:
+            log.warning("refresh_prices_for_items_async failed: context=%s err=%s",
+                        context, e)
+
+    t = threading.Thread(
+        target=_worker,
+        daemon=True,
+        name=f"catalog-refresh-{context}",
+    )
+    t.start()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Search & Lookup
 # ═══════════════════════════════════════════════════════════════════════
 

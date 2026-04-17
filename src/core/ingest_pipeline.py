@@ -374,6 +374,18 @@ def _create_record(
         from src.api.dashboard import _save_single_rfq
         _save_single_rfq(record["id"], record)
 
+    # Fire-and-forget: refresh web MSRP for any catalog-matched items
+    # whose price is stale. Scoped to just THIS record's items — no full-
+    # catalog sweep, no scheduled cron. By the time the operator opens
+    # the PC/RFQ to price it, the catalog reflects current market MSRP.
+    # Rule honored: "MSRP/list price always used as cost, because quotes
+    # are 45 days valid and discounts could expire."
+    try:
+        from src.agents.product_catalog import refresh_prices_for_items_async
+        refresh_prices_for_items_async(items, context=f"ingest_{record_type}_{record['id'][:8]}")
+    except Exception as _e:
+        log.debug("refresh_prices_for_items_async skipped: %s", _e)
+
     log.info("ingest created %s %s with %d items", record_type, record["id"], len(items))
     return record["id"]
 
@@ -400,6 +412,13 @@ def _update_existing_record(
             pc["source_pdf"] = primary_path
         pc["updated_at"] = datetime.now().isoformat()
         _save_single_pc(record_id, pc)
+        # Re-parse replaces items — refresh catalog MSRP for the new set too
+        if items:
+            try:
+                from src.agents.product_catalog import refresh_prices_for_items_async
+                refresh_prices_for_items_async(items, context=f"reparse_pc_{record_id[:8]}")
+            except Exception as _e:
+                log.debug("refresh_prices_for_items_async skipped on reparse: %s", _e)
     else:  # rfq
         from src.api.dashboard import _save_single_rfq, load_rfqs
         rfqs = load_rfqs()
@@ -433,6 +452,12 @@ def _update_existing_record(
                 log.warning("ingest update: template registration failed: %s", _e)
         rfq["updated_at"] = datetime.now().isoformat()
         _save_single_rfq(record_id, rfq)
+        if items:
+            try:
+                from src.agents.product_catalog import refresh_prices_for_items_async
+                refresh_prices_for_items_async(items, context=f"reparse_rfq_{record_id[:8]}")
+            except Exception as _e:
+                log.debug("refresh_prices_for_items_async skipped on reparse: %s", _e)
     return record_id
 
 
