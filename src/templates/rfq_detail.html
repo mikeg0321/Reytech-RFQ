@@ -496,8 +496,36 @@
   <button type="button" id="rfq-food-cert-btn" class="btn" style="display:none;background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (auto-shown when food items detected)" aria-label="Generate food certification form">🌾 Food Cert</button>
   <button type="button" class="btn" data-qa-gated="1" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
   <a href="/simple-submit/rfq/{{rid}}" class="btn" style="background:rgba(240,136,62,.1);color:#f0883e;border:1px solid rgba(240,136,62,.25);font-size:14px;padding:12px 16px;font-weight:600;text-decoration:none" title="Simple Submit — fast path quoting, skip complex pipeline" aria-label="Simple Submit">⚡ Simple Submit</a>
+  <button type="button" id="rfq-refresh-prices-btn" class="btn" style="background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="refreshCatalogPrices(this)" title="Pull fresh web MSRP for items that lack cost. Runs in background; reload in ~1 min to see updates." aria-label="Refresh catalog prices for this RFQ's items">🔄 Refresh Prices</button>
  </div>
  <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
+ <script>
+ // Manual catalog refresh — unblocks QA "No cost" gate by pulling fresh MSRP
+ // for the RFQ's items. Non-blocking: returns immediately; prices land in
+ // catalog over the next minute via background thread.
+ async function refreshCatalogPrices(btn) {
+   var orig = btn.innerHTML;
+   btn.disabled = true;
+   btn.innerHTML = '⏳ Starting...';
+   try {
+     var r = await fetch('/api/catalog/refresh-for-rfq/{{rid}}', {method: 'POST', credentials: 'include'});
+     var d = await r.json();
+     if (d.ok) {
+       btn.innerHTML = '✅ Refreshing ' + d.items + ' items';
+       showMsg('Refresh started for ' + d.items + ' items. Prices will update in a few minutes — reload to see.', 'ok');
+       setTimeout(function() { btn.innerHTML = orig; btn.disabled = false; }, 8000);
+     } else {
+       btn.innerHTML = '⚠️ ' + (d.error || 'Failed');
+       showMsg('Refresh failed: ' + (d.error || 'unknown'), 'error');
+       setTimeout(function() { btn.innerHTML = orig; btn.disabled = false; }, 6000);
+     }
+   } catch(e) {
+     btn.innerHTML = '⚠️ Error';
+     showMsg('Network error: ' + e.message, 'error');
+     setTimeout(function() { btn.innerHTML = orig; btn.disabled = false; }, 6000);
+   }
+ }
+ </script>
 
  <!-- ── Quote Management ── -->
  {% if r.get('reytech_quote_number') %}

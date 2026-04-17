@@ -527,9 +527,39 @@
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';openBulkPaste()" style="display:block;padding:8px 16px;font-size:13px;color:#d2a8ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Bulk Paste URLs</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';rescrapeUnpriced(this)" style="display:block;padding:8px 16px;font-size:13px;color:#d29922;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Re-scrape Missing Prices</a>
        <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';reconcileMfg(this)" style="display:block;padding:8px 16px;font-size:13px;color:#79c0ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'">Fix MFG# from Descriptions</a>
+       <a href="#" onclick="event.preventDefault();document.getElementById('pricingToolsMenu').style.display='none';refreshCatalogPricesForPc(this)" style="display:block;padding:8px 16px;font-size:13px;color:#58a6ff;text-decoration:none" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" title="Pull fresh web MSRP for items in the catalog. Runs in background — reload in ~1 min to see updates.">🔄 Refresh Catalog MSRP</a>
       </div>
      </div>
     </div>
+
+    <script>
+    // Manual catalog refresh — unblocks QA "No cost" gate by pulling fresh
+    // MSRP for this PC's items. Non-blocking: returns immediately; the
+    // refresh runs in a background thread on the server and prices land
+    // over the next minute (search_product_price self-rate-limits).
+    async function refreshCatalogPricesForPc(anchor) {
+      try {
+        var r = await fetch('/api/catalog/refresh-for-pc/{{ pc.id }}', {
+          method: 'POST', credentials: 'include',
+        });
+        var d = await r.json();
+        if (d.ok) {
+          if (typeof showMsg === 'function') {
+            showMsg('Refresh started for ' + d.items + ' items — reload in ~1 min to see updates.', 'ok');
+          } else {
+            alert('Refresh started for ' + d.items + ' items. Reload in ~1 min.');
+          }
+        } else {
+          var err = d.error || 'unknown';
+          if (typeof showMsg === 'function') showMsg('Refresh failed: ' + err, 'error');
+          else alert('Refresh failed: ' + err);
+        }
+      } catch(e) {
+        if (typeof showMsg === 'function') showMsg('Network error: ' + e.message, 'error');
+        else alert('Network error: ' + e.message);
+      }
+    }
+    </script>
 
     <!-- ═══ UNIFIED MARKUP & SETTINGS BAR ═══ -->
     <div class="card" style="padding:20px 24px">
