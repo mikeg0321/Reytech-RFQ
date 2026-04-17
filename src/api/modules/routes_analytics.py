@@ -941,10 +941,10 @@ def _load_settings():
                         settings[k] = v.lower() in ("true", "1", "yes")
                     elif isinstance(orig, int):
                         try: settings[k] = int(v)
-                        except Exception: pass
+                        except (ValueError, TypeError) as e: log.debug("settings int coerce %s=%r: %s", k, v, e)
                     elif isinstance(orig, float):
                         try: settings[k] = float(v)
-                        except Exception: pass
+                        except (ValueError, TypeError) as e: log.debug("settings float coerce %s=%r: %s", k, v, e)
                     else:
                         settings[k] = v
                 else:
@@ -4605,7 +4605,8 @@ def api_daily_wins():
             if (o.get("created_at") or o.get("created", "")).startswith(today):
                 wins.append({"type": "New Order", "detail": f"PO {o.get('po_number', oid)}",
                             "value": o.get("total", 0), "time": o.get("created_at") or o.get("created", "")})
-    except Exception: pass
+    except Exception as e:
+        log.debug("daily_wins orders load: %s", e)
 
     wl_path = os.path.join(DATA_DIR, "win_loss_log.json")
     if os.path.exists(wl_path):
@@ -4616,7 +4617,8 @@ def api_daily_wins():
                 if entry.get("outcome") == "won" and entry.get("date", "").startswith(today):
                     wins.append({"type": "Won Quote", "detail": entry.get("rfq_id", "?"),
                                 "value": entry.get("amount", 0), "time": entry.get("date", "")})
-        except Exception: pass
+        except (json.JSONDecodeError, OSError, TypeError) as e:
+            log.debug("daily_wins win_loss_log read: %s", e)
 
     rfqs_path = os.path.join(DATA_DIR, "rfqs.json")
     if os.path.exists(rfqs_path):
@@ -4627,7 +4629,8 @@ def api_daily_wins():
                 if r.get("status") == "sent" and r.get("sent_date", "").startswith(today):
                     wins.append({"type": "Sent Quote", "detail": f"Sol# {r.get('solicitation_number', rid)[:20]}",
                                 "value": r.get("total_price", 0), "time": r.get("sent_date", "")})
-        except Exception: pass
+        except (json.JSONDecodeError, OSError, TypeError) as e:
+            log.debug("daily_wins rfqs read: %s", e)
 
     total_value = sum(w.get("value", 0) for w in wins if isinstance(w.get("value"), (int, float)))
 
@@ -4791,7 +4794,8 @@ def api_smart_notifications():
                     "action_url": f"/rfq/{rid}",
                     "action_label": "Open RFQ"
                 })
-    except Exception: pass
+    except (json.JSONDecodeError, OSError, TypeError) as e:
+        log.debug("notifications rfqs read: %s", e)
 
     outbox_path = os.path.join(DATA_DIR, "outbox.json")
     try:
@@ -4807,7 +4811,8 @@ def api_smart_notifications():
                 "action_url": "/outbox",
                 "action_label": "Review Drafts"
             })
-    except Exception: pass
+    except (json.JSONDecodeError, OSError, TypeError) as e:
+        log.debug("notifications outbox read: %s", e)
 
     fu_path = os.path.join(DATA_DIR, "follow_up_state.json")
     try:
@@ -4823,7 +4828,8 @@ def api_smart_notifications():
                 "action_url": "/follow-up",
                 "action_label": "View Follow-Ups"
             })
-    except Exception: pass
+    except (json.JSONDecodeError, OSError, TypeError) as e:
+        log.debug("notifications follow_up read: %s", e)
 
     sev_order = {"high": 0, "medium": 1, "low": 2}
     notifs.sort(key=lambda n: sev_order.get(n.get("severity"), 9))

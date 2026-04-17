@@ -218,7 +218,7 @@ def _pc_pricing_node(state: PCPipelineState) -> PCPipelineState:
         except Exception:
             if _HAS_DB_DAL:
                 try: upsert_price_check(pc_id, pcs[pc_id])
-                except Exception: pass
+                except Exception as e: log.debug("upsert_price_check fallback: %s", e)
 
     return _step(state, "pricing")
 
@@ -262,7 +262,7 @@ def _pc_generate_node(state: PCPipelineState) -> PCPipelineState:
             except Exception:
                 if _HAS_DB_DAL:
                     try: upsert_price_check(pc_id, pcs[pc_id])
-                    except Exception: pass
+                    except Exception as e: log.debug("upsert_price_check fallback: %s", e)
         else:
             state["error"] = result.get("error", "PDF generation failed")
         return _step(state, "generate_704")

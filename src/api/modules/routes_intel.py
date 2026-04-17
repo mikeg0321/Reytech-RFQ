@@ -191,7 +191,8 @@ def api_scprs_health():
                             if now > next_dt + timedelta(hours=6):
                                 hours_late = (now - next_dt).total_seconds() / 3600
                                 overdue.append({"agency": d["agency_key"], "hours_late": round(hours_late)})
-                        except Exception: pass
+                        except (ValueError, TypeError) as e:
+                            log.debug("pull_schedule next_pull parse: %s", e)
 
                 if not schedule:
                     health["checks"].append({"check": "pull_schedule", "status": "critical",
@@ -231,7 +232,8 @@ def api_scprs_health():
                     if latest:
                         try:
                             days_old = (now - datetime.fromisoformat(latest.replace("Z","+00:00"))).days
-                        except Exception: pass
+                        except (ValueError, TypeError) as e:
+                            log.debug("po_data latest pulled_at parse: %s", e)
                     health["checks"].append({"check": "po_data", "status": "ok" if days_old < 7 else "warning",
                         "message": f"{po_count} POs, {line_count} line items, last pull {days_old}d ago"})
                     if days_old > 7: health["score"] -= 10

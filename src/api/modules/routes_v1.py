@@ -4729,7 +4729,7 @@ def api_v1_email_diagnose(uid):
         for part in msg.walk():
             if part.get_content_type() == "text/plain":
                 try: body = part.get_payload(decode=True).decode(errors="replace")
-                except Exception: pass
+                except (AttributeError, UnicodeDecodeError) as e: log.debug("email body decode: %s", e)
                 break
         has_fwd_body = any(m in body.lower() for m in ["forwarded message", "begin forwarded", "---------- forwarded"])
         has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())

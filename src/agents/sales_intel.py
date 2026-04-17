@@ -435,7 +435,8 @@ def _score_buyers(buyers):
                 if days < 90: score += 5
                 elif days < 180: score += 3
                 elif days < 365: score += 1
-            except Exception: pass
+            except (ValueError, TypeError) as e:
+                log.debug("recency parse for last_purchase=%r: %s", lp, e)
 
         b["opportunity_score"] = score
 
