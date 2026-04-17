@@ -799,7 +799,15 @@ def bulk_action():
                 # Queue for background lookup
                 pass
             results["applied"] += 1
-        save_rfqs(rfqs)
+        # raise_on_error=True: bulk action reports "applied: N" to the admin.
+        # Silent save failure means the status changes (dismiss/archive) or
+        # markup prices are lost while the UI says they succeeded.
+        try:
+            save_rfqs(rfqs, raise_on_error=True)
+        except Exception as _save_e:
+            return jsonify({"ok": False,
+                "error": f"Bulk RFQ action save failed: {_save_e}",
+                "attempted": results["applied"]}), 500
 
     elif entity_type == "pc":
         pcs = _load_price_checks()
@@ -820,7 +828,12 @@ def bulk_action():
                         item["pricing"]["recommended_price"] = round(cost * (1 + pct), 2)
                 pc["status"] = "priced"
             results["applied"] += 1
-        _save_price_checks(pcs)
+        try:
+            _save_price_checks(pcs, raise_on_error=True)
+        except Exception as _save_e:
+            return jsonify({"ok": False,
+                "error": f"Bulk PC action save failed: {_save_e}",
+                "attempted": results["applied"]}), 500
 
     return jsonify({"ok": True, **results})
 
@@ -2640,8 +2653,15 @@ def rfqs_relink_all():
             details.append(f"❌ {rid[:20]}: {e}")
     
     if linked > 0:
-        save_rfqs(rfqs)
-    
+        # raise_on_error=True: reports N RFQs linked to PCs. If save fails
+        # silently the links are lost and the user thinks they succeeded.
+        try:
+            save_rfqs(rfqs, raise_on_error=True)
+        except Exception as _save_e:
+            return jsonify({"ok": False,
+                "error": f"RFQ-PC link save failed: {_save_e}",
+                "attempted_links": linked}), 500
+
     return jsonify({
         "ok": True,
         "linked": linked,

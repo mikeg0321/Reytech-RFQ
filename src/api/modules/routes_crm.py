@@ -1415,7 +1415,15 @@ def pricecheck_auto_process(pcid):
         pc["timing"] = result.get("timing", {})
         _transition_status(pc, "completed", actor="auto", notes="Auto-processed")
         pc["summary"] = result.get("summary", {})
-        _save_price_checks(pcs)
+        # raise_on_error=True: auto-process ran the full pipeline (parse →
+        # enrich → draft email). Silent save failure = pipeline wasted.
+        try:
+            _save_price_checks(pcs, raise_on_error=True)
+        except Exception as _save_e:
+            log.error("auto-process PC save failed for %s: %s", pcid, _save_e)
+            return jsonify({"ok": False,
+                "error": f"Auto-process completed but PC save failed: {_save_e}",
+                "pipeline_result": result}), 500
         # Ingest into KB
         _ingest_pc_to_won_quotes(pc)
         # Catalog all items for future matching
@@ -1910,7 +1918,26 @@ def api_quote_from_price_check():
     pc["quote_generated_at"] = datetime.now().isoformat()
     pc["quote_generated_via"] = "1click_feature_321"
     _transition_status(pc, "completed", actor="user", notes=f"1-click quote {qn}")
-    _save_price_checks(pcs)
+    # raise_on_error=True: the quote PDF has been generated and the counter
+    # bumped (qn is locked). If _save_price_checks silently fails, the PC
+    # doesn't track qn → the user can't find their own quote, and a second
+    # 1-click run burns another quote number (per memory
+    # feedback_quote_number_rules.md). Surface the failure so the operator
+    # can manually record the qn and PDF path from the response.
+    try:
+        _save_price_checks(pcs, raise_on_error=True)
+    except Exception as _save_e:
+        log.error("1-click quote PC persistence failed for %s (qn=%s): %s",
+                  pc_id, qn, _save_e)
+        return jsonify({
+            "ok": False,
+            "error": f"Quote {qn} PDF generated but PC record save failed: {_save_e}. "
+                     f"Record qn={qn} and pdf={output_path} manually to prevent "
+                     f"duplicate quote number allocation.",
+            "quote_number": qn,
+            "quote_pdf": output_path,
+            "needs_manual_reconcile": True,
+        }), 500
     logs.append(f"PC {pc_id} status → completed, reytech_quote_number={qn}")
 
     next_qn = peek_next_quote_number() if QUOTE_GEN_AVAILABLE else ""
@@ -3316,7 +3343,13 @@ def api_expansion_outreach():
         from src.api.dashboard import _load_price_checks, _save_price_checks
         pcs = _load_price_checks()
         pcs[pc_id] = pc
-        _save_price_checks(pcs)
+        try:
+            _save_price_checks(pcs, raise_on_error=True)
+        except Exception as _save_e:
+            log.error("expansion PC save failed for %s: %s", pc_id, _save_e)
+            return jsonify({"ok": False,
+                "error": f"Expansion PC save failed: {_save_e}",
+                "pc_id_attempted": pc_id}), 500
         results["pc_id"] = pc_id; results["items_count"] = len(items); results["total"] = round(total, 2)
 
     # Email
