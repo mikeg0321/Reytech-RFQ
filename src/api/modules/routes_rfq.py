@@ -2626,8 +2626,15 @@ def update(rid):
     r["quote_notes"] = quote_notes_val
 
     _transition_status(r, "ready", actor="user", notes="Pricing updated")
+    # raise_on_error=True: user-facing pricing save. Silent persistence failure
+    # on this path was the 2026-04-16 PC incident; keep RFQ symmetric.
     from src.api.dashboard import _save_single_rfq
-    _save_single_rfq(rid, r)
+    try:
+        _save_single_rfq(rid, r, raise_on_error=True)
+    except Exception as _save_e:
+        log.error("RFQ update persistence failed for %s: %s", rid, _save_e)
+        flash(f"Save failed — your pricing edits did NOT persist: {_save_e}", "error")
+        return redirect(f"/rfq/{rid}")
     try:
         from src.core.dal import update_rfq_status as _dal_ur
         _dal_ur(rid, "ready")
@@ -2771,7 +2778,15 @@ def rfq_update_field(rid):
                         log.debug('suppressed in rfq_update_field: %s', _e)
     if changed:
         from src.api.dashboard import _save_single_rfq
-        _save_single_rfq(rid, r)
+        try:
+            _save_single_rfq(rid, r, raise_on_error=True)
+        except Exception as _save_e:
+            log.error("RFQ update-field persistence failed for %s: %s", rid, _save_e)
+            return jsonify({
+                "ok": False,
+                "error": f"Could not save field changes: {_save_e}",
+                "attempted": changed,
+            }), 500
         _log_rfq_activity(rid, "field_updated",
             "; ".join(changed), actor="user")
 

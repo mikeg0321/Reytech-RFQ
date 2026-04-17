@@ -127,6 +127,54 @@ class TestPriceCheckRoutes:
         assert r.status_code == 200
         assert r.get_json()["ok"] is True
 
+    def test_save_prices_actually_persists(self, client, seed_pc):
+        # Regression for 2026-04-16 PC session: save-prices returned ok:true
+        # but _save_single_pc silently swallowed DB errors, so reload showed
+        # stale data. This test writes a unique price then reads it back via
+        # the canonical load path to prove the write landed in storage. If
+        # persistence silently fails again, _load_price_checks() will return
+        # the old price and this test will fail.
+        unique_price = 99.99
+        r = client.post(f"/pricecheck/{seed_pc}/save-prices",
+                        json={"price_0": unique_price, "cost_0": 42.00,
+                              "markup_0": 25, "qty_0": 22,
+                              "tax_enabled": False},
+                        content_type="application/json")
+        assert r.status_code == 200, r.data
+        assert r.get_json()["ok"] is True
+
+        # Read back via the authoritative data layer (bypasses cache via direct
+        # call — cache is invalidated by _save_single_pc, but we read fresh).
+        from src.api.data_layer import _load_price_checks
+        pcs = _load_price_checks()
+        assert seed_pc in pcs, "PC disappeared from storage after save"
+        item0 = pcs[seed_pc]["items"][0]
+        assert item0.get("unit_price") == unique_price, \
+            f"save-prices returned ok:true but unit_price did not persist: got {item0.get('unit_price')!r}"
+        assert item0.get("pricing", {}).get("recommended_price") == unique_price, \
+            f"recommended_price did not persist: got {item0.get('pricing', {}).get('recommended_price')!r}"
+
+    def test_save_prices_surfaces_db_failure(self, client, seed_pc, monkeypatch):
+        # Regression: when the DB write genuinely fails, the response must be
+        # ok:false with 500. Previously this path swallowed the exception
+        # inside _save_single_pc and returned {"ok": true} anyway — the root
+        # cause of the 2026-04-16 "prices disappeared on refresh" incident.
+        import src.core.db as _db_mod
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("simulated DB outage")
+
+        monkeypatch.setattr(_db_mod, "db_retry", _boom)
+        r = client.post(f"/pricecheck/{seed_pc}/save-prices",
+                        json={"price_0": 77.77, "cost_0": 55.00,
+                              "markup_0": 25, "qty_0": 1,
+                              "tax_enabled": False},
+                        content_type="application/json")
+        assert r.status_code == 500, f"expected 500 on DB failure, got {r.status_code}"
+        body = r.get_json()
+        assert body["ok"] is False
+        assert "could not be saved" in body.get("error", "").lower()
+
     def test_generate_quote(self, client, seed_pc):
         r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         assert r.status_code == 200
@@ -162,6 +210,37 @@ class TestRFQRoutes:
                         data={"cost_0": "350.00", "price_0": "454.40"},
                         follow_redirects=True)
         assert r.status_code == 200
+
+    def test_update_pricing_surfaces_db_failure(self, client, seed_rfq, monkeypatch):
+        # Symmetric to PC save-prices: when the RFQ save hits a real DB
+        # failure, the user must see a flash error instead of a silent
+        # "nothing happened" redirect. Before this fix, _save_single_rfq
+        # logged the exception and swallowed it — the user got a success
+        # redirect and lost their pricing edits.
+        import src.api.data_layer as _dl
+
+        _original = _dl._save_single_rfq
+
+        def _boom(rfq_id, r, raise_on_error=False):
+            if raise_on_error:
+                raise RuntimeError("simulated DB outage")
+            return _original(rfq_id, r, raise_on_error=False)
+
+        monkeypatch.setattr(_dl, "_save_single_rfq", _boom)
+        try:
+            import src.api.dashboard as _dash
+            monkeypatch.setattr(_dash, "_save_single_rfq", _boom)
+        except Exception:
+            pass
+
+        r = client.post(f"/rfq/{seed_rfq}/update",
+                        data={"cost_0": "350.00", "price_0": "454.40"},
+                        follow_redirects=True)
+        # Route flashes the error and redirects to /rfq/<id>, which renders 200.
+        # The key assertion: the user sees a "Save failed" message so they don't
+        # walk away thinking their prices landed.
+        assert r.status_code == 200
+        assert b"Save failed" in r.data or b"did NOT persist" in r.data
 
     def test_update_get_redirects_not_405(self, client, seed_rfq):
         # Regression: GET /rfq/<id>/update used to 405 MethodNotAllowed.

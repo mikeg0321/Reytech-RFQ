@@ -243,8 +243,15 @@ def load_rfqs():
     return _normalize_rfq_fields({})
 
 
-def _save_single_rfq(rfq_id, r):
-    """Save a SINGLE RFQ to SQLite."""
+def _save_single_rfq(rfq_id, r, raise_on_error=False):
+    """Save a SINGLE RFQ to SQLite.
+
+    raise_on_error: when True, propagate DB failures to the caller instead of
+    logging and swallowing. User-facing save endpoints must set this so they
+    can surface failures to the UI — otherwise the response lies about
+    persistence and data is silently lost (same failure mode as the 2026-04-16
+    PC session).
+    """
     with _save_rfqs_lock:
         p = rfq_db_path()
         _invalidate_cache(p)
@@ -280,6 +287,8 @@ def _save_single_rfq(rfq_id, r):
                 ))
         except Exception as e:
             log.error("DB save_single_rfq failed for %s: %s", rfq_id, e)
+            if raise_on_error:
+                raise
 
 
 def save_rfqs(rfqs):
@@ -401,7 +410,7 @@ def _load_price_checks(include_items=True):
     return data
 
 
-def _save_single_pc(pc_id, pc):
+def _save_single_pc(pc_id, pc, raise_on_error=False):
     """Save a SINGLE price check to SQLite.
 
     Auto-tags CCHCS Non-IT RFQ packets with packet_type=cchcs_non_it
@@ -410,6 +419,11 @@ def _save_single_pc(pc_id, pc):
     created it (email poller, manual upload, REST admin, test harness).
     tag_pc_if_packet is idempotent and defensive (returns False on any
     error) so it cannot break the save path.
+
+    raise_on_error: when True, propagate DB failures to the caller instead
+    of logging and swallowing. User-facing save endpoints must set this so
+    they can surface failures to the UI — otherwise the response lies about
+    persistence and data is silently lost.
     """
     try:
         from src.agents.cchcs_packet_detector import tag_pc_if_packet
@@ -459,6 +473,8 @@ def _save_single_pc(pc_id, pc):
             db_retry(_do, max_retries=5, delay=2.0)
         except Exception as e:
             log.error("DB save_single_pc failed for %s: %s", pc_id, e)
+            if raise_on_error:
+                raise
 
 
 def _save_price_checks(pcs):
