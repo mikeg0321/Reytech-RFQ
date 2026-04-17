@@ -392,7 +392,8 @@ def api_pricecheck_mark_lost(pcid):
                        for it in pc.get("items", []))
         log_competitor(pc, {"supplier": pc["competitor_name"], "total": pc["competitor_price"],
             "po_number": pc.get("competitor_po", "")}, our_total)
-    except Exception: pass
+    except Exception as e:
+        log.debug("award_monitor.log_competitor: %s", e)
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_lost",
         f"LOST: PC #{pc.get('pc_number','')} to {pc['competitor_name']}", actor="user")
     # ── Feed loss data back to product catalog ──
@@ -4082,7 +4083,8 @@ def api_disk_emergency():
                 os.remove(fp)
                 freed += sz
                 deleted.append(f"{f} ({sz//1048576}MB)")
-            except OSError: pass
+            except OSError as e:
+                log.debug("emergency_cleanup backup rm %s: %s", fp, e)
 
     # Delete temp/cache files
     for pattern in ["*.pyc", "auto_price_status.json", "growth_outreach_cache.json"]:
@@ -4094,7 +4096,8 @@ def api_disk_emergency():
                         sz = os.path.getsize(fp)
                         os.remove(fp)
                         freed += sz
-                    except OSError: pass
+                    except OSError as e:
+                        log.debug("emergency_cleanup temp rm: %s", e)
     
     return jsonify({
         "ok": True,

@@ -2761,7 +2761,8 @@ sales@reytechinc.com"""
             """, (contact_id, _dt2.now().isoformat(), "outreach_drafted",
                   f"Outreach draft: {agency}", f"Draft created for {name} ({buyer_email})",
                   "system", _json.dumps({"draft_id": draft_id, "agency": agency, "spend": spend})))
-    except Exception: pass
+    except Exception as e:
+        log.debug("outreach activity_log insert: %s", e)
 
     try:
         from src.agents.notify_agent import send_alert
@@ -2769,7 +2770,8 @@ sales@reytechinc.com"""
             "type": "outreach_draft", "agency": agency, "email": buyer_email,
             "draft_id": draft_id, "link": "/outbox"
         })
-    except Exception: pass
+    except Exception as e:
+        log.debug("outreach send_alert: %s", e)
 
     log.info("Outreach draft created: %s | %s | draft_id=%s", agency, buyer_email, draft_id)
     return jsonify({"ok": True, "draft_id": draft_id, "to": buyer_email, "agency": agency,
@@ -3322,7 +3324,8 @@ def api_expansion_outreach():
                     "unit_price": round(d.get("recommended_price") or d["sell_price"], 2),
                     "cost": round(d["cost"], 2)})
         conn.close()
-    except Exception: pass
+    except Exception as e:
+        log.debug("outreach catalog sample pick: %s", e)
     if not items:
         items = [{"description": "Nitrile Exam Gloves, Medium, Box/100", "qty": 50, "unit_price": 12.99, "cost": 9.50}]
     total = sum(it["qty"] * it["unit_price"] for it in items)
@@ -3383,11 +3386,13 @@ def api_expansion_outreach():
             "agency_type": agency_type, "action": action, "email": contact_email,
             "timestamp": datetime.now().isoformat(), "total": round(total, 2)})
         with open(act_path, "w") as f: _json.dump(acts, f, indent=2, default=str)
-    except Exception: pass
+    except (ValueError, OSError, TypeError) as e:
+        log.debug("expansion crm_activity write: %s", e)
     try:
         from src.agents.notify_agent import send_alert
         send_alert("bell", f"Outreach: {facility_name} ({agency_type})", {"type": "expansion_target"})
-    except Exception: pass
+    except Exception as e:
+        log.debug("expansion send_alert: %s", e)
     return jsonify(results)
 
 
@@ -3473,7 +3478,8 @@ def api_vendor_registration_update():
             send_alert("bell", f"Vendor account activated: {vendor_name}", {
                 "type":"vendor_activated","vendor_key":vendor_key,"vendor":vendor_name,"link":"/catalog?tab=vendors"
             })
-        except Exception: pass
+        except Exception as e:
+            log.debug("vendor activation send_alert: %s", e)
     active_count = sum(1 for v in reg.values() if v.get("status")=="active")
     return jsonify({"ok":True,"vendor_key":vendor_key,"status":status,"active_total":active_count})
 

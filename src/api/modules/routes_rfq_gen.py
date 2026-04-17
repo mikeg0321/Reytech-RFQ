@@ -1275,7 +1275,7 @@ def generate_rfq_package(rid):
         qty_val = request.form.get(f"qty_{i}")
         if qty_val:
             try: item["qty"] = int(float(qty_val))
-            except Exception: pass
+            except (ValueError, TypeError) as e: log.debug("qty coerce %r: %s", qty_val, e)
         uom_val = request.form.get(f"uom_{i}")
         if uom_val is not None:
             item["uom"] = uom_val.strip().upper()

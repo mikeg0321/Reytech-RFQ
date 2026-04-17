@@ -2531,7 +2531,8 @@ def api_rfq_ready_to_quote():
                 try:
                     dd = datetime.strptime(due[:10], "%Y-%m-%d")
                     days_left = (dd - datetime.now()).days
-                except Exception: pass
+                except (ValueError, TypeError) as e:
+                    log.debug("due_date parse %r: %s", due, e)
 
             ready.append({
                 "id": rid,

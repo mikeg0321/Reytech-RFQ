@@ -3140,7 +3140,8 @@ def api_qb_reorder_alerts():
             if last_seen:
                 try:
                     days_since = (datetime.now() - datetime.fromisoformat(last_seen[:19])).days
-                except Exception: pass
+                except (ValueError, TypeError) as e:
+                    log.debug("last_seen parse %r: %s", last_seen, e)
 
             # Frequently quoted but not seen recently = may need re-quote
             if days_since > 30 and quoted >= 3:
@@ -3265,7 +3266,8 @@ def api_pricing_suggestion():
                 })
 
         suggestions.sort(key=lambda x: x.get("current_margin", 50))
-    except Exception: pass
+    except Exception as e:
+        log.debug("margin optimizer suggestions build: %s", e)
 
     return jsonify({
         "ok": True,

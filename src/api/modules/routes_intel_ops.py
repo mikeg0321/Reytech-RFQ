@@ -3549,7 +3549,8 @@ def api_agency_leaderboard():
             agencies[agency]["rfqs"] += 1
             if (r.get("status") or "").lower() in ("sent", "quoted"):
                 agencies[agency]["quotes"] += 1
-    except Exception: pass
+    except (ValueError, OSError, TypeError) as e:
+        log.debug("agency_leaderboard rfqs read: %s", e)
 
     try:
         orders = _load_orders()
@@ -3557,7 +3558,8 @@ def api_agency_leaderboard():
             agency = o.get("institution") or o.get("agency") or "Unknown"
             agencies[agency]["orders"] += 1
             agencies[agency]["revenue"] += o.get("total", 0)
-    except Exception: pass
+    except Exception as e:
+        log.debug("agency_leaderboard orders: %s", e)
 
     result = [{"agency": k, **v} for k, v in agencies.items()]
     result.sort(key=lambda x: x["revenue"], reverse=True)
@@ -3601,7 +3603,8 @@ def api_product_search():
                     "times_quoted": p.get("times_quoted", 0),
                     "category": p.get("category", ""),
                 })
-    except Exception: pass
+    except (ValueError, OSError, TypeError) as e:
+        log.debug("product_search catalog read: %s", e)
 
     results.sort(key=lambda x: x.get("times_quoted", 0), reverse=True)
 

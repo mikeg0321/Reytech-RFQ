@@ -2541,7 +2541,7 @@ def api_search_packages():
                 for f in ("generated_forms", "missing_forms", "required_forms"):
                     if d.get(f):
                         try: d[f] = _jsearch.loads(d[f])
-                        except Exception: pass
+                        except (ValueError, TypeError) as e: log.debug("packet_search json field %s: %s", f, e)
                 results.append(d)
             return jsonify({"ok": True, "results": results, "count": len(results)})
     except Exception as e:
