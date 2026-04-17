@@ -1435,6 +1435,40 @@ def run_form_qa(
             report["warnings"].extend(comp_result.get("warnings", []))
         report["warnings"].extend(range_result.get("warnings", []))
 
+    # Phase C: Agency rules reminder. If we have Claude-extracted rules
+    # for this agency, surface them as warnings so the operator is
+    # reminded of durable buyer-specific expectations (signature ink
+    # color, cover-letter format, etc.) before sending. Never blocks —
+    # these are advisory. Filtered to high-confidence + rejection_reason
+    # types since those are the highest-value reminders.
+    try:
+        from src.core.agency_rules import get_rules_for_agency
+        if agency_key:
+            agency_rules = get_rules_for_agency(agency_key, min_confidence=0.7)
+            # Always include rejection_reason rules regardless of confidence
+            rejection_rules = [r for r in get_rules_for_agency(agency_key, min_confidence=0.4)
+                               if r["rule_type"] == "rejection_reason"]
+            all_rules = {r["id"]: r for r in (agency_rules + rejection_rules)}.values()
+            if all_rules:
+                report["agency_rules"] = {
+                    "count": len(all_rules),
+                    "by_type": {},
+                }
+                for r in all_rules:
+                    report["agency_rules"]["by_type"].setdefault(r["rule_type"], []).append({
+                        "rule": r["rule_text"],
+                        "confidence": round(r["confidence"], 2),
+                        "samples": r["sample_count"],
+                    })
+                    # Rejection reasons promoted to warnings
+                    if r["rule_type"] == "rejection_reason":
+                        report["warnings"].append(
+                            f"[agency_rule] {agency_key}: {r['rule_text']} "
+                            f"(seen {r['sample_count']}x)"
+                        )
+    except Exception as e:
+        log.debug("agency_rules hook: %s", e)
+
     report["duration_ms"] = int((time.time() - start) * 1000)
 
     # Log summary
