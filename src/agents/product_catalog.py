@@ -1564,12 +1564,28 @@ def sync_quotewerks_from_drive(
             "format": fmt if "fmt" in dir() else "unknown",
         }
 
+    # Post-import cleanup: dedup + sanity fixes. The manual upload endpoint
+    # already does this; the Drive-sync path did NOT, which left 218 dup
+    # groups after the 2026-04-17 sync. Running both here closes the gap
+    # and keeps future syncs self-healing. Errors are non-fatal — the
+    # import itself succeeded and is more important than the post-fix.
+    try:
+        dedup_result = dedup_catalog()
+        result["dupes_merged"] = dedup_result.get("groups_merged", 0)
+        result["dupes_deleted"] = dedup_result.get("products_deleted", 0)
+        result["products_after_dedup"] = dedup_result.get("products_remaining", 0)
+    except Exception as _e:
+        log.warning("QW Drive sync: dedup step failed (non-fatal): %s", _e)
+        result["dupes_merged"] = 0
+        result["dupes_deleted"] = 0
+
     log.info(
-        "QW Drive sync: %d bytes from file_id=%s, format=%s, imported=%d updated=%d skipped=%d",
+        "QW Drive sync: %d bytes from file_id=%s, format=%s, imported=%d updated=%d skipped=%d dupes_merged=%d",
         size, fid, fmt,
         result.get("imported", 0),
         result.get("updated", 0),
         result.get("skipped", 0),
+        result.get("dupes_merged", 0),
     )
 
     return {
