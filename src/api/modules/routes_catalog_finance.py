@@ -871,6 +871,86 @@ def api_catalog_import_quotewerks():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@bp.route("/api/catalog/refresh-for-pc/<pcid>", methods=["POST"])
+@auth_required
+@safe_route
+def api_catalog_refresh_for_pc(pcid):
+    """Manually trigger web MSRP refresh for an existing PC's items.
+
+    Why this exists: the ingest pipeline auto-fires refresh on NEW PCs
+    (src/core/ingest_pipeline.py). But existing records carry stale or
+    missing catalog prices — operators hit a QA blocker on "No cost —
+    item cannot be priced" and need a one-click way to pull fresh MSRP
+    for the items on the PC in front of them.
+
+    Returns immediately with {ok: true, items: N, context: "..."}. The
+    refresh runs in a background thread — prices settle into the catalog
+    within ~items * 12s (rate-limited by search_product_price).
+    """
+    try:
+        from src.api.data_layer import _load_price_checks
+        pcs = _load_price_checks()
+        pc = pcs.get(pcid)
+        if not pc:
+            return jsonify({"ok": False, "error": f"PC {pcid} not found"}), 404
+
+        items = pc.get("items") or pc.get("parsed", {}).get("line_items") or []
+        if not items:
+            return jsonify({
+                "ok": False,
+                "error": "PC has no items to refresh. Parse the source PDF first.",
+            }), 400
+
+        from src.agents.product_catalog import refresh_prices_for_items_async
+        refresh_prices_for_items_async(items, context=f"manual_pc_{pcid[:8]}")
+
+        return jsonify({
+            "ok": True,
+            "items": len(items),
+            "context": f"manual_pc_{pcid[:8]}",
+            "message": f"Refresh started for {len(items)} items. Prices settle in a few minutes.",
+        })
+    except Exception as e:
+        log.exception("refresh-for-pc failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/catalog/refresh-for-rfq/<rid>", methods=["POST"])
+@auth_required
+@safe_route
+def api_catalog_refresh_for_rfq(rid):
+    """Manually trigger web MSRP refresh for an existing RFQ's line items.
+
+    Same contract as refresh-for-pc. Targets the RFQ's line_items list.
+    """
+    try:
+        from src.api.data_layer import load_rfqs
+        rfqs = load_rfqs()
+        r = rfqs.get(rid)
+        if not r:
+            return jsonify({"ok": False, "error": f"RFQ {rid} not found"}), 404
+
+        items = r.get("line_items") or r.get("items") or []
+        if not items:
+            return jsonify({
+                "ok": False,
+                "error": "RFQ has no items to refresh. Parse the source PDF first.",
+            }), 400
+
+        from src.agents.product_catalog import refresh_prices_for_items_async
+        refresh_prices_for_items_async(items, context=f"manual_rfq_{rid[:8]}")
+
+        return jsonify({
+            "ok": True,
+            "items": len(items),
+            "context": f"manual_rfq_{rid[:8]}",
+            "message": f"Refresh started for {len(items)} items. Prices settle in a few minutes.",
+        })
+    except Exception as e:
+        log.exception("refresh-for-rfq failed")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/catalog/import-mckesson", methods=["POST"])
 @auth_required
 @safe_route
