@@ -291,8 +291,14 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
                 raise
 
 
-def save_rfqs(rfqs):
-    """Save ALL RFQs."""
+def save_rfqs(rfqs, raise_on_error=False):
+    """Save ALL RFQs.
+
+    raise_on_error: when True, propagate DB failures so user-facing routes can
+    return ok:false instead of pretending success. Default preserves legacy
+    log-and-swallow for background agents (email poller, intake, etc.) that
+    don't have a user waiting on the response.
+    """
     with _save_rfqs_lock:
         p = rfq_db_path()
         _invalidate_cache(p)
@@ -329,6 +335,8 @@ def save_rfqs(rfqs):
                     ))
         except Exception as e:
             log.error("SQLite write failed for rfqs: %s", str(e)[:200])
+            if raise_on_error:
+                raise
 
 
 def _load_price_checks(include_items=True):
@@ -477,8 +485,13 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
                 raise
 
 
-def _save_price_checks(pcs):
-    """Save ALL price checks to SQLite."""
+def _save_price_checks(pcs, raise_on_error=False):
+    """Save ALL price checks to SQLite.
+
+    raise_on_error: when True, propagate DB failures so user-facing routes can
+    return ok:false. Default preserves legacy log-and-swallow for background
+    callers.
+    """
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
         _pc_cache = None
@@ -517,6 +530,8 @@ def _save_price_checks(pcs):
                     ))
         except Exception as e:
             log.error("DB save failed for price_checks: %s", e)
+            if raise_on_error:
+                raise
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):

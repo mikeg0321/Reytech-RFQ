@@ -1107,9 +1107,24 @@ def api_reclassify_to_pc():
             moved.append({"rfq_id": rid, "pc_id": pc_id, "subject": r.get("email_subject", "")})
     
         if moved:
-            save_rfqs(rfqs)
-            _save_price_checks(pcs)
-    
+            # raise_on_error=True: admin reclassify deletes source RFQs AND
+            # writes them as PCs. If either save silently fails we get data
+            # loss (RFQs gone from rfqs table, PCs never landed). Force loud
+            # failure so the user knows to retry rather than walking away
+            # thinking the move succeeded.
+            try:
+                save_rfqs(rfqs, raise_on_error=True)
+                _save_price_checks(pcs, raise_on_error=True)
+            except Exception as _save_e:
+                log.error("reclassify-to-pc persistence failed mid-move: %s", _save_e)
+                return jsonify({
+                    "ok": False,
+                    "error": f"Reclassify failed to persist: {_save_e}. "
+                             f"Check /api/admin/reclassify-to-pc-status for current state — "
+                             f"{len(moved)} items were staged in memory but the DB write did not complete.",
+                    "attempted_moves": len(moved),
+                }), 500
+
         return jsonify({
             "ok": True,
             "moved": len(moved),
