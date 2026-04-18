@@ -491,7 +491,9 @@ document.addEventListener('submit',function(e){
     <h3>Deadline Alert</h3>
     <div class="dl-alert-items" id="dl-alert-items"></div>
     <div class="dl-alert-actions">
-      <button class="dl-btn dl-btn-dismiss" onclick="dismissDeadlineAlert()">Dismiss (1h)</button>
+      <button class="dl-btn dl-btn-dismiss" onclick="snoozeDeadlineAlert(30)">Pause 30m</button>
+      <button class="dl-btn dl-btn-dismiss" onclick="snoozeDeadlineAlert(60)">Pause 1h</button>
+      <button class="dl-btn dl-btn-dismiss" onclick="bypassDeadlineAlert()">Bypass today</button>
       <button class="dl-btn dl-btn-go" id="dl-alert-go-btn" onclick="goToUrgent()">Open Most Urgent</button>
     </div>
   </div>
@@ -499,8 +501,21 @@ document.addEventListener('submit',function(e){
 
 <script>
 (function(){
-  var _dlDismissedUntil = 0;
+  // Dismissal persists across page nav via localStorage. Without this, the
+  // module-level var resets on every navigation, so dismissals lasted ~0s and
+  // the modal blocked the app.
+  var DL_KEY = 'reytech_dl_dismissed_until';
   var _dlMostUrgentUrl = '/';
+
+  function getDismissedUntil(){
+    try {
+      var v = parseInt(localStorage.getItem(DL_KEY) || '0', 10);
+      return isNaN(v) ? 0 : v;
+    } catch(e) { return 0; }
+  }
+  function setDismissedUntil(ts){
+    try { localStorage.setItem(DL_KEY, String(ts)); } catch(e) {}
+  }
 
   function fetchDeadlines(){
     fetch('/api/deadlines',{credentials:'same-origin'})
@@ -522,9 +537,9 @@ document.addEventListener('submit',function(e){
       link.textContent='Open';
       _dlMostUrgentUrl=top.url;
 
-      // Hard alert check
+      // Hard alert check — only if we're past any active dismissal
       var criticals=d.deadlines.filter(function(dl){return dl.urgency==='overdue'||dl.urgency==='critical'});
-      if(criticals.length>0&&Date.now()>_dlDismissedUntil){
+      if(criticals.length>0&&Date.now()>getDismissedUntil()){
         showDeadlineAlert(criticals);
       }
 
@@ -554,10 +569,19 @@ document.addEventListener('submit',function(e){
     overlay.className='show';
   }
 
-  window.dismissDeadlineAlert=function(){
+  window.snoozeDeadlineAlert=function(minutes){
     document.getElementById('deadline-alert-overlay').className='';
-    _dlDismissedUntil=Date.now()+3600000; // 1 hour
+    setDismissedUntil(Date.now()+minutes*60000);
   };
+  window.bypassDeadlineAlert=function(){
+    document.getElementById('deadline-alert-overlay').className='';
+    // Until end of local day (midnight)
+    var eod=new Date(); eod.setHours(23,59,59,999);
+    setDismissedUntil(eod.getTime());
+  };
+  // Back-compat: keep dismissDeadlineAlert as a 1h snooze in case any other
+  // template still references it.
+  window.dismissDeadlineAlert=function(){ window.snoozeDeadlineAlert(60); };
   window.goToUrgent=function(){
     document.getElementById('deadline-alert-overlay').className='';
     window.location.href=_dlMostUrgentUrl;
