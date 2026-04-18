@@ -1,0 +1,70 @@
+# STD 1000 GenAI Reporting & FactSheet (Reytech standard)
+# Source blank: tests/fixtures/std1000_blank.pdf
+# 19 AcroForm fields, 3 pages. State-mandated disclosure of any
+# Generative AI used in a product or service bid. Fields are
+# long human-readable strings (some with doubled spaces — preserve
+# verbatim). CalVet required_forms.
+id: std1000_reytech_standard
+form_type: std1000
+blank_pdf: tests/fixtures/std1000_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Vendor identity (header block) ──
+  vendor.business_name:
+    pdf_field: "Business Name"
+  vendor.address:
+    pdf_field: "Business Address"
+  vendor.city:
+    pdf_field: "City"
+  vendor.state:
+    pdf_field: "State"
+  vendor.zip:
+    pdf_field: "Zip Code"
+  vendor.phone:
+    pdf_field: "Business Telephone Number"
+  vendor.bidder_id:
+    pdf_field: "Number Bidder ID  Vendor ID optional"
+
+  # ── Solicitation / contract identification ──
+  quote.solicitation_number:
+    pdf_field: "Solicitation  Contract Number"
+  quote.description:
+    pdf_field: "Contract / Description of Purchase"
+
+  # ── GenAI use radio toggle ──
+  # "Yes" = product uses GenAI → must complete sections 1-6
+  # "No"  = skip to signature
+  genai.uses_yes:
+    pdf_field: "Yes"
+    type: checkbox
+  genai.uses_no:
+    pdf_field: "No If no skip to Signature section of this form"
+    type: checkbox
+
+  # ── GenAI disclosure questions 1-6 (only required if uses_yes) ──
+  genai.q1_model_name_version:
+    pdf_field: "1 GenAI Model Name LLM Version including number of parameters  list ALL model namesowners for the solution or offering"
+  genai.q2_product_owner:
+    pdf_field: "2 GenAI powered or driven applications  product owner"
+  genai.q3_product_description:
+    pdf_field: "3 Product Description"
+  genai.q4_use_cases:
+    pdf_field: "4 Use Cases"
+  genai.q5_intended_domain:
+    pdf_field: "5 Intended Information Domain"
+  genai.q6_non_adverse_impact:
+    pdf_field: "6 Explain how the GenAI system is not adversely affecting decisions that materially impact access to or approval for housing or accommodations education employment credit health care and criminal justice"
+
+  # ── Signature block ──
+  signer.date:
+    pdf_field: "Date"
+  signatures.primary:
+    pdf_field: "Signature"
+    type: signature
+
+signature:
+  mode: image_stamp
+  page: 3
+  field: "Signature"
