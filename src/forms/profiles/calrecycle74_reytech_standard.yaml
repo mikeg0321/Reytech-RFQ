@@ -1,0 +1,131 @@
+# CalRecycle Form 74 — Postconsumer Recycled-Content Certificate (Reytech standard)
+# Source blank: tests/fixtures/calrecycle74_blank.pdf
+# 176 AcroForm fields total — the bulk are pre-printed SABRC reference-table
+# labels that stay as-is. Vendor fills: contact block, 6 line-item rows,
+# and the signature. State agency pre-fills the header block.
+# Required for CalVet and many CA agencies purchasing SABRC-covered products.
+id: calrecycle74_reytech_standard
+form_type: calrecycle74
+blank_pdf: tests/fixtures/calrecycle74_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── State agency header (pre-filled by buyer; we mirror if known) ──
+  buyer.state_agency:
+    pdf_field: "State Agency"
+  buyer.purchasing_agent:
+    pdf_field: "Purchasing Agent"
+  quote.purchase_order:
+    pdf_field: "PO"
+
+  # ── Contractor / vendor contact block ──
+  vendor.business_name:
+    pdf_field: "ContractorCompany Name"
+  vendor.address:
+    pdf_field: "Address"
+  vendor.phone:
+    pdf_field: "Phone"
+  vendor.email:
+    pdf_field: "Email"
+
+  # ── Certification signer block ──
+  signer.printed_name:
+    pdf_field: "Print Name"
+  signer.title:
+    pdf_field: "Title"
+  signer.date:
+    pdf_field: "Date"
+  signatures.primary:
+    pdf_field: "Signature"
+    type: signature
+
+  # ── Line items (6 rows) ──
+  items[1].item_number:
+    pdf_field: "Item Row1"
+  items[1].description:
+    pdf_field: "Product or Services DescriptionRow1"
+  items[1].sabrc_category_code:
+    pdf_field: "2SABRC Product Category CodeRow1"
+  items[1].postconsumer_percent:
+    pdf_field: "1Percent Postconsumer Recycled Content MaterialRow1"
+  items[1].order_reference:
+    pdf_field: "Purchase Order  RFQ  RFP  IFB  Cal Card Order Row1"
+  items[1].sabrc_compliant:
+    pdf_field: "SABRC compliant1"
+    type: checkbox
+
+  items[2].item_number:
+    pdf_field: "Item Row2"
+  items[2].description:
+    pdf_field: "Product or Services DescriptionRow2"
+  items[2].sabrc_category_code:
+    pdf_field: "2SABRC Product Category CodeRow2"
+  items[2].postconsumer_percent:
+    pdf_field: "1Percent Postconsumer Recycled Content MaterialRow2"
+  items[2].order_reference:
+    pdf_field: "Purchase Order  RFQ  RFP  IFB  Cal Card Order Row2"
+  items[2].sabrc_compliant:
+    pdf_field: "SABRC compliant2"
+    type: checkbox
+
+  items[3].item_number:
+    pdf_field: "Item Row3"
+  items[3].description:
+    pdf_field: "Product or Services DescriptionRow3"
+  items[3].sabrc_category_code:
+    pdf_field: "2SABRC Product Category CodeRow3"
+  items[3].postconsumer_percent:
+    pdf_field: "1Percent Postconsumer Recycled Content MaterialRow3"
+  items[3].order_reference:
+    pdf_field: "Purchase Order  RFQ  RFP  IFB  Cal Card Order Row3"
+  items[3].sabrc_compliant:
+    pdf_field: "SABRC compliant3"
+    type: checkbox
+
+  items[4].item_number:
+    pdf_field: "Item Row4"
+  items[4].description:
+    pdf_field: "Product or Services DescriptionRow4"
+  items[4].sabrc_category_code:
+    pdf_field: "2SABRC Product Category CodeRow4"
+  items[4].postconsumer_percent:
+    pdf_field: "1Percent Postconsumer Recycled Content MaterialRow4"
+  items[4].order_reference:
+    pdf_field: "Purchase Order  RFQ  RFP  IFB  Cal Card Order Row4"
+  items[4].sabrc_compliant:
+    pdf_field: "SABRC compliant4"
+    type: checkbox
+
+  items[5].item_number:
+    pdf_field: "Item Row5"
+  items[5].description:
+    pdf_field: "Product or Services DescriptionRow5"
+  items[5].sabrc_category_code:
+    pdf_field: "2SABRC Product Category CodeRow5"
+  items[5].postconsumer_percent:
+    pdf_field: "1Percent Postconsumer Recycled Content MaterialRow5"
+  items[5].order_reference:
+    pdf_field: "Purchase Order  RFQ  RFP  IFB  Cal Card Order Row5"
+  items[5].sabrc_compliant:
+    pdf_field: "SABRC compliant5"
+    type: checkbox
+
+  items[6].item_number:
+    pdf_field: "Item Row6"
+  items[6].description:
+    pdf_field: "Product or Services DescriptionRow6"
+  items[6].sabrc_category_code:
+    pdf_field: "2SABRC Product Category CodeRow6"
+  items[6].postconsumer_percent:
+    pdf_field: "1Percent Postconsumer Recycled Content MaterialRow6"
+  items[6].order_reference:
+    pdf_field: "Purchase Order  RFQ  RFP  IFB  Cal Card Order Row6"
+  items[6].sabrc_compliant:
+    pdf_field: "SABRC compliant6"
+    type: checkbox
+
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Signature"

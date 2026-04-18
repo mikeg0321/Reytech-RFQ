@@ -399,6 +399,51 @@ class TestDrugFreeProfile:
         assert issues == [], f"Drug Free validation issues: {issues}"
 
 
+class TestCalRecycle74Profile:
+    """CalRecycle Form 74 Postconsumer Recycled-Content Certificate."""
+
+    def test_calrecycle74_loads(self):
+        profiles = load_profiles()
+        assert "calrecycle74_reytech_standard" in profiles
+        p = profiles["calrecycle74_reytech_standard"]
+        assert p.form_type == "calrecycle74"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []
+
+    def test_calrecycle74_vendor_and_signer(self):
+        p = load_profiles()["calrecycle74_reytech_standard"]
+        assert p.get_field("vendor.business_name") is not None
+        assert p.get_field("vendor.address") is not None
+        assert p.get_field("vendor.phone") is not None
+        assert p.get_field("vendor.email") is not None
+        assert p.get_field("signer.printed_name") is not None
+        assert p.get_field("signer.title") is not None
+        assert p.get_field("signer.date") is not None
+
+    def test_calrecycle74_six_item_rows(self):
+        p = load_profiles()["calrecycle74_reytech_standard"]
+        for i in (1, 2, 3, 4, 5, 6):
+            assert p.get_field(f"items[{i}].description") is not None, f"row {i} desc missing"
+            assert p.get_field(f"items[{i}].sabrc_category_code") is not None
+            assert p.get_field(f"items[{i}].postconsumer_percent") is not None
+            assert p.get_field(f"items[{i}].order_reference") is not None
+            cb = p.get_field(f"items[{i}].sabrc_compliant")
+            assert cb is not None and cb.field_type == "checkbox"
+
+    def test_calrecycle74_signature(self):
+        p = load_profiles()["calrecycle74_reytech_standard"]
+        sig = p.get_field("signatures.primary")
+        assert sig is not None and sig.field_type == "signature"
+        assert p.signature_field == "Signature"
+        assert p.signature_page == 1
+        assert p.signature_mode == "image_stamp"
+
+    def test_calrecycle74_validates_against_blank(self):
+        p = load_profiles()["calrecycle74_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"CalRecycle 74 validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 
