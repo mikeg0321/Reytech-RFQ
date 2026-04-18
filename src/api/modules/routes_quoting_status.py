@@ -6,6 +6,7 @@ Routes:
     GET  /api/quoting/status                — JSON: recent quotes summary
     GET  /api/quoting/status/<doc_id>       — JSON: single quote trail
     POST /api/quoting/override/<doc_id>     — record an operator override
+    POST /api/quoting/backfill              — drive existing PCs through orchestrator
 
 Data source: `quote_audit_log` (migration 21). Rows are written by
 `QuoteOrchestrator._persist_audit` on every stage transition attempt —
@@ -204,6 +205,103 @@ def api_quoting_override(doc_id: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
     return jsonify({"ok": True, "recorded_at": at})
+
+
+# ── Backfill ────────────────────────────────────────────────────────────────
+
+@bp.route("/api/quoting/backfill", methods=["POST"])
+@auth_required
+def api_quoting_backfill():
+    """Drive existing PCs through the orchestrator to populate audit log.
+
+    Safe default: pulls PCs from the live store, runs each through the
+    orchestrator with target_stage="priced". The orchestrator persists an
+    audit row per stage transition, which lights up /quoting/status.
+
+    POST body:
+        mode         "all" (default) | "ids"
+        ids          list[str] — required when mode=="ids"
+        target_stage default "priced" (catalog-priced PCs are safe)
+        limit        default 25, cap 100 — per-call safety bound
+        actor        default "backfill"
+        skip_filled  default true — skip PCs already in audit log
+    """
+    body = request.get_json(silent=True) or {}
+    mode = (body.get("mode") or "all").strip()
+    target_stage = (body.get("target_stage") or "priced").strip()
+    actor = (body.get("actor") or "backfill").strip() or "backfill"
+    skip_filled = bool(body.get("skip_filled", True))
+    try:
+        limit = max(1, min(int(body.get("limit", 25)), 100))
+    except (TypeError, ValueError):
+        limit = 25
+
+    try:
+        from src.core.db import get_all_price_checks, get_db
+        from src.core.quote_orchestrator import QuoteOrchestrator, QuoteRequest
+    except Exception as e:
+        log.error("backfill import failed: %s", e)
+        return jsonify({"ok": False, "error": f"import failed: {e}"}), 500
+
+    pcs = get_all_price_checks(include_test=False)
+
+    if mode == "ids":
+        ids = body.get("ids") or []
+        if not isinstance(ids, list) or not ids:
+            return jsonify({"ok": False, "error": "ids list required when mode=ids"}), 400
+        candidates = [(pid, pcs[pid]) for pid in ids if pid in pcs]
+    else:
+        candidates = list(pcs.items())
+
+    if skip_filled:
+        try:
+            with get_db() as conn:
+                existing = {
+                    row[0] for row in conn.execute(
+                        "SELECT DISTINCT quote_doc_id FROM quote_audit_log"
+                    ).fetchall()
+                }
+            candidates = [(pid, pc) for pid, pc in candidates if pid not in existing]
+        except Exception as e:
+            log.warning("skip_filled query failed (proceeding without skip): %s", e)
+
+    candidates = candidates[:limit]
+    orchestrator = QuoteOrchestrator()
+    results: list[dict] = []
+
+    for pid, pc in candidates:
+        try:
+            req = QuoteRequest(
+                source=pc,
+                doc_type="pc",
+                agency_key=(pc.get("agency") or "").strip(),
+                solicitation_number=(pc.get("pc_number") or "").strip(),
+                target_stage=target_stage,
+                actor=actor,
+            )
+            res = orchestrator.run(req)
+            results.append({
+                "pc_id": pid,
+                "ok": res.ok,
+                "final_stage": res.final_stage,
+                "blockers": res.blockers,
+                "warnings": res.warnings[:3],
+                "profiles_used": res.profiles_used,
+            })
+        except Exception as e:
+            log.error("backfill run failed for %s: %s", pid, e, exc_info=True)
+            results.append({"pc_id": pid, "ok": False, "error": str(e)})
+
+    advanced = sum(1 for r in results if r.get("ok"))
+    blocked = sum(1 for r in results if not r.get("ok"))
+    return jsonify({
+        "ok": True,
+        "processed": len(results),
+        "advanced": advanced,
+        "blocked": blocked,
+        "target_stage": target_stage,
+        "results": results,
+    })
 
 
 # ── HTML pages ──────────────────────────────────────────────────────────────
