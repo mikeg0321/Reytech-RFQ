@@ -191,6 +191,17 @@ def run_all_checks():
         return True, "Pricing modules importable"
     _check("Auto-price imports", check_auto_price_imports)
 
+    # 11. Form profile registry — every YAML profile must validate against its blank PDF
+    def check_form_profiles():
+        from src.core.quote_engine import boot_validate_profiles
+        results = boot_validate_profiles(strict=False)
+        bad = {pid: issues for pid, issues in results.items() if issues}
+        if bad:
+            first = next(iter(bad.items()))
+            return False, f"{len(bad)}/{len(results)} profiles invalid; {first[0]}: {first[1][0]}"
+        return True, f"All {len(results)} profiles valid"
+    _check("Form profiles", check_form_profiles)
+
     # Summary + auto-alert
     total = _results["passed"] + _results["failed"]
     failed_names = [c["name"] for c in _results["checks"] if c["status"] != "PASS"]

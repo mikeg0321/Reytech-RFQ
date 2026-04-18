@@ -98,8 +98,6 @@ def parse(pdf_path: str, profiles: dict[str, FormProfile] | None = None) -> tupl
         if fm.semantic == "header.solicitation_number":
             header.solicitation_number = val
         elif fm.semantic == "header.due_date":
-            header.solicitation_number = header.solicitation_number  # keep
-            # Parse due date
             from datetime import datetime
             for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
                 try:
