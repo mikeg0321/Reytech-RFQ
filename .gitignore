@@ -68,3 +68,4 @@ data/*.migrated
 !.github/workflows
 _diag/
 _overnight_review/
+deadline_snooze_screenshot.png
