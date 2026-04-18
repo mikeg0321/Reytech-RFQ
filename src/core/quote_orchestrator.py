@@ -566,7 +566,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "704b": "704b_reytech_standard",
     "quote": "quote_reytech_letterhead", # not yet built
     "calrecycle74": "calrecycle74_reytech_standard",  # not yet built
-    "dvbe843": "dvbe843_reytech_standard",            # not yet built
+    "dvbe843": "dvbe843_reytech_standard",
     "std204": "std204_reytech_standard",
     "std205": "std205_reytech_standard",              # not yet built
     "std1000": "std1000_reytech_standard",            # not yet built

@@ -1,0 +1,99 @@
+# PD 843 — DVBE Declarations (Reytech standard)
+# Source blank: tests/fixtures/dvbe843_blank.pdf
+# 30 AcroForm fields: solicitation header, DVBE company/manager, up to three
+# owner blocks with signatures, principal block, contract description, and
+# two ownership checkboxes. Non-line-item form.
+id: dvbe843_reytech_standard
+form_type: dvbe843
+blank_pdf: tests/fixtures/dvbe843_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Solicitation / pagination header ──
+  header.dvbe_reference_no:
+    pdf_field: "DVBErefno"
+  header.scprs_reference_number:
+    pdf_field: "SCPRS Reference Number"
+  header.sc_number:
+    pdf_field: "SCno"
+  header.page_no:
+    pdf_field: "PageNo"
+  header.total_pages:
+    pdf_field: "TotalPages"
+
+  # ── Contract / equipment description ──
+  header.description:
+    pdf_field: "description"
+
+  # ── DVBE company + manager block ──
+  dvbe.company_name:
+    pdf_field: "DVBEname"
+  dvbe.manager_name:
+    pdf_field: "DVBEmgr"
+  dvbe.manager_date:
+    pdf_field: "DVBEmanagerDate"
+
+  # ── Principal bidder block ──
+  principal.name:
+    pdf_field: "Principal"
+  principal.address:
+    pdf_field: "PrincipalAddress"
+  principal.phone:
+    pdf_field: "PrincipalPhone"
+
+  # ── Ownership attestation checkboxes ──
+  attestation.owns_business:
+    pdf_field: "OwnBusiness"
+    type: checkbox
+  attestation.owns_equipment:
+    pdf_field: "OwnEquipment"
+    type: checkbox
+  attestation.yn_agent:
+    pdf_field: "YNagent"
+    type: checkbox
+
+  # ── DVBE owner 1 ──
+  owner1.name:
+    pdf_field: "DVBEowner1"
+  owner1.date:
+    pdf_field: "DVBEowner1date"
+
+  # ── DVBE owner 2 ──
+  owner2.name:
+    pdf_field: "DVBEowner2"
+  owner2.date:
+    pdf_field: "DVBEowner2date"
+
+  # ── DVBE owner 3 (full detail) ──
+  owner3.name:
+    pdf_field: "DVBEowner3"
+  owner3.date:
+    pdf_field: "DVBEowner3Date"
+  owner3.address:
+    pdf_field: "DVBEowner3Address"
+  owner3.phone:
+    pdf_field: "DVBEowner3Phone"
+  owner3.tax_id:
+    pdf_field: "DVBEowner3TaxID"
+
+  # ── Signatures (per owner + manager) ──
+  signatures.manager:
+    pdf_field: "DVBEmgrSignature"
+    type: signature
+  signatures.owner1:
+    pdf_field: "DVBEowner1signature"
+    type: signature
+  signatures.owner2:
+    pdf_field: "DVBEowner2signature"
+    type: signature
+  signatures.owner3:
+    pdf_field: "DVBEowner3Signature"
+    type: signature
+
+# ── Primary signature block (manager) ──
+# Additional per-owner sig fields are filled via `signatures.owner{N}`.
+signature:
+  mode: image_stamp
+  page: 1
+  field: "DVBEmgrSignature"

@@ -97,6 +97,50 @@ class TestStd204Profile:
         assert issues == [], f"STD204 validation issues: {issues}"
 
 
+class TestDvbe843Profile:
+    """PD 843 DVBE Declarations (CalVet-shared)."""
+
+    def test_dvbe843_loads(self):
+        profiles = load_profiles()
+        assert "dvbe843_reytech_standard" in profiles
+        p = profiles["dvbe843_reytech_standard"]
+        assert p.form_type == "dvbe843"
+        assert p.page_row_capacities == []
+
+    def test_dvbe843_owner_blocks(self):
+        p = load_profiles()["dvbe843_reytech_standard"]
+        for i in (1, 2, 3):
+            assert p.get_field(f"owner{i}.name") is not None
+            assert p.get_field(f"owner{i}.date") is not None
+        # owner3 gets the full detail block
+        assert p.get_field("owner3.address") is not None
+        assert p.get_field("owner3.phone") is not None
+        assert p.get_field("owner3.tax_id") is not None
+
+    def test_dvbe843_signatures_per_owner(self):
+        p = load_profiles()["dvbe843_reytech_standard"]
+        for sem in ("signatures.manager", "signatures.owner1",
+                    "signatures.owner2", "signatures.owner3"):
+            fm = p.get_field(sem)
+            assert fm is not None, f"missing {sem}"
+            assert fm.field_type == "signature"
+        # Primary signature block defaults to manager
+        assert p.signature_field == "DVBEmgrSignature"
+
+    def test_dvbe843_attestation_checkboxes(self):
+        p = load_profiles()["dvbe843_reytech_standard"]
+        for sem in ("attestation.owns_business", "attestation.owns_equipment",
+                    "attestation.yn_agent"):
+            fm = p.get_field(sem)
+            assert fm is not None
+            assert fm.field_type == "checkbox"
+
+    def test_dvbe843_validates_against_blank(self):
+        p = load_profiles()["dvbe843_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"DVBE 843 validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 
