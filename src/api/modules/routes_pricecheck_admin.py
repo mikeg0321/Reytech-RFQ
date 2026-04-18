@@ -3509,15 +3509,11 @@ def api_admin_system_reset():
     except Exception as e:
         results["rfqs_error"] = str(e)
     
-    # Step 4: Reset quote counter
+    # Step 4: Reset quote counter (SQLite is source of truth — no JSON write)
     try:
-        counter_path = os.path.join(DATA_DIR, 'quote_counter.json')
-        if os.path.exists(counter_path):
-            with open(counter_path) as f:
-                counter = json.load(f)
-            results["counter_before"] = counter.get("seq", 0)
-        
-        # Find highest kept quote number, or default to 15 (next = R26Q16)
+        from src.forms.quote_generator import _load_counter, set_quote_counter
+        results["counter_before"] = _load_counter().get("seq", 0)
+
         highest = 15  # default: next quote will be R26Q16
         if keep_quotes:
             import re as _re
@@ -3525,11 +3521,10 @@ def api_admin_system_reset():
                 m = _re.search(r'Q(\d+)', qn)
                 if m:
                     highest = max(highest, int(m.group(1)))
-        
+
         results["counter_after"] = highest
         if not dry_run:
-            with open(counter_path, "w") as f:
-                json.dump({"year": 2026, "seq": highest}, f)
+            set_quote_counter(highest, year=2026)
     except Exception as e:
         results["counter_error"] = str(e)
     
@@ -3683,10 +3678,9 @@ def api_admin_reset_and_poll():
             log.warning("RESET+POLL: Cache invalidation failed: %s", ce)
         steps["rfqs_cleared"] = True
         
-        # Set counter
-        counter_path = os.path.join(DATA_DIR, 'quote_counter.json')
-        with open(counter_path, "w") as f:
-            json.dump({"year": 2026, "seq": counter}, f)
+        # Set counter (SQLite is source of truth — no JSON write)
+        from src.forms.quote_generator import set_quote_counter
+        set_quote_counter(counter, year=2026)
         steps["counter"] = counter
         steps["next_quote"] = f"R26Q{counter + 1}"
         

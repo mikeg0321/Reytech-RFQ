@@ -3271,36 +3271,32 @@ def api_data_sync_clean():
                 log.debug("Suppressed: %s", _e)
 
     # 5. Ensure quote counter matches highest quote number
-    # ?counter=16 to force a specific value
+    # ?counter=16 to force a specific value (SQLite is source of truth)
     try:
-        cpath = os.path.join(DATA_DIR, "quote_counter.json")
+        from src.forms.quote_generator import _load_counter, set_quote_counter
         qpath2 = os.path.join(DATA_DIR, "quotes_log.json")
-        if os.path.exists(cpath):
-            with open(cpath) as f:
-                counter = json.load(f)
-            force_counter = request.args.get("counter", type=int)
-            if force_counter:
-                target = force_counter
-            elif os.path.exists(qpath2):
-                with open(qpath2) as f:
-                    all_q = json.load(f)
-                max_num = 0
-                for q in all_q:
-                    qn = q.get("quote_number", "")
-                    import re
-                    m = re.search(r'(\d+)$', qn)
-                    if m:
-                        max_num = max(max_num, int(m.group(1)))
-                target = max_num
-            else:
-                target = 0
-            current = counter.get("counter", 0)
-            if current != target and target > 0:
-                report["actions"].append(f"Sync quote counter: {current} → {target}")
-                if not dry_run:
-                    counter["counter"] = target
-                    with open(cpath, "w") as f:
-                        json.dump(counter, f, indent=2)
+        current_data = _load_counter()
+        force_counter = request.args.get("counter", type=int)
+        if force_counter:
+            target = force_counter
+        elif os.path.exists(qpath2):
+            with open(qpath2) as f:
+                all_q = json.load(f)
+            max_num = 0
+            for q in all_q:
+                qn = q.get("quote_number", "")
+                import re
+                m = re.search(r'(\d+)$', qn)
+                if m:
+                    max_num = max(max_num, int(m.group(1)))
+            target = max_num
+        else:
+            target = 0
+        current = current_data.get("seq", 0)
+        if current != target and target > 0:
+            report["actions"].append(f"Sync quote counter: {current} → {target}")
+            if not dry_run:
+                set_quote_counter(target)
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
