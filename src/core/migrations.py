@@ -790,12 +790,56 @@ def _run_migration_13(conn):
     """)
 
 
+def _heal_workflow_runs_schema(conn):
+    """Backfill missing columns on legacy workflow_runs before migrations 19+.
+
+    `src/core/db.py` boot DDL creates a LEGACY workflow_runs (id/started_at/
+    finished_at/type/status/run_at/score/grade/passed/failed/warned/...). That
+    DDL runs before migrations. Migration 19 then does
+    `CREATE TABLE IF NOT EXISTS workflow_runs (...task_type NOT NULL, ...)`,
+    which is a no-op because the table exists, then tries
+    `CREATE INDEX ... ON workflow_runs(task_type)` which raises because the
+    column doesn't exist. That abort cascades — migrations 20, 21, ... never
+    apply. Migration 21 is what creates `quote_audit_log`, so /quoting/status
+    stays empty and orchestrator audit inserts fail silently.
+
+    This helper is idempotent: if a column already exists, ALTER TABLE ADD
+    COLUMN raises and we swallow it. Runs unconditionally on every boot so
+    prod DBs that already advanced past this point stay unaffected.
+    """
+    def _add_col(col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE workflow_runs ADD COLUMN {col} {coltype}")
+        except Exception as _e:
+            log.debug("workflow_runs column %s: %s", col, _e)
+
+    try:
+        conn.execute("SELECT 1 FROM workflow_runs LIMIT 0")
+    except Exception:
+        return  # Table doesn't exist yet — migration 19's CREATE TABLE handles it.
+
+    _add_col("task_type",     "TEXT DEFAULT ''")
+    _add_col("phase",         "TEXT DEFAULT ''")
+    _add_col("progress",      "TEXT DEFAULT ''")
+    _add_col("running",       "INTEGER DEFAULT 0")
+    _add_col("items_done",    "INTEGER DEFAULT 0")
+    _add_col("items_total",   "INTEGER DEFAULT 0")
+    _add_col("results_count", "INTEGER DEFAULT 0")
+    _add_col("errors_json",   "TEXT DEFAULT '[]'")
+    _add_col("last_updated",  "TEXT DEFAULT ''")
+
+
 def run_migrations():
     """Apply any pending migrations. Safe to call on every startup."""
     try:
         with _get_db() as conn:
             _ensure_migration_table(conn)
             current = _get_current_version(conn)
+
+            # Heal legacy workflow_runs BEFORE the migration loop so that
+            # migrations 19 (indexes) and 20 (triggers referencing errors_json)
+            # don't abort the loop. Idempotent on already-healed DBs.
+            _heal_workflow_runs_schema(conn)
 
             applied = 0
             for version, name, sql in MIGRATIONS:
