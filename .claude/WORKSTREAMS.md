@@ -21,7 +21,8 @@ Track all in-progress work across Claude Code context windows.
 | feat/704b-profile | (merged) | `C:\Users\mikeg\rfq-704b-profile` | Merged PR #140 | Add 704b_reytech_standard profile + blank fixture | 2026-04-18 |
 | feat/strict-boot-validator | (merged) | `C:\Users\mikeg\rfq-strict-boot-validator` | Merged PR #141 | Flip boot validator to strict — bad profile blocks app boot in prod | 2026-04-18 |
 | feat/703a-profile | (merged) | `C:\Users\mikeg\rfq-703a-profile` | Merged PR #142 | Add 703a_reytech_standard profile + blank fixture | 2026-04-18 |
-| feat/golden-test-fixture | This window | `C:\Users\mikeg\rfq-golden-test-fixture` | Active | Test0321/R26Q0321 golden fixture + 28 real CCHCS items + seed script | 2026-04-18 |
+| feat/golden-test-fixture | (merged) | `C:\Users\mikeg\rfq-golden-test-fixture` | Merged PR #143 | Test0321/R26Q0321 golden fixture + 28 real CCHCS items + seed script | 2026-04-18 |
+| feat/quote-orchestrator | This window | `C:\Users\mikeg\rfq-quote-orchestrator` | Ready to ship | Platform build: QuoteOrchestrator state machine + FormProfiler agent + ComplianceValidator + /quoting/status dashboard + playbook (`docs/PLATFORM_QUOTING.md`). 46/46 platform tests green. Makes every new agency a data task, not code. | 2026-04-18 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

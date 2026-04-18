@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Quoting Status — Orchestrator Audit{% endblock %}
+{% block content %}
+
+{% set outcome_colors = {
+  'advanced': '#3fb950',
+  'blocked':  '#f85149',
+  'error':    '#f85149',
+  'skipped':  '#8b949e',
+  'override': '#d29922',
+} %}
+
+<div style="max-width:1200px;margin:0 auto;padding:20px" id="main-content">
+
+  <div style="margin-bottom:16px">
+    <h2 style="margin:0;font-size:20px;color:var(--tx)">Quoting Status</h2>
+    <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+      Latest state machine transition per quote (newest first, up to 50).
+      Data source: <code>quote_audit_log</code>.
+    </p>
+  </div>
+
+  <!-- KPI tiles -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+    {% for label, key, color in [
+      ('Total', 'total', 'var(--tx)'),
+      ('Advanced', 'advanced', '#3fb950'),
+      ('Blocked', 'blocked', '#f85149'),
+      ('Error', 'error', '#f85149'),
+      ('Override', 'override', '#d29922'),
+    ] %}
+      {% set count = (rows|length) if key == 'total' else outcome_counts.get(key, 0) %}
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center">
+        <div style="font-size:28px;font-weight:800;color:{{ color }}">{{ count }}</div>
+        <div style="font-size:12px;color:var(--tx2);margin-top:4px">{{ label }}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Quote list -->
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px">
+    <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:10px">Recent Quotes</div>
+    {% if rows %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--bd);color:var(--tx2);text-align:left">
+          <th style="padding:6px 8px">Doc ID</th>
+          <th style="padding:6px 8px">Type</th>
+          <th style="padding:6px 8px">Agency</th>
+          <th style="padding:6px 8px">From → To</th>
+          <th style="padding:6px 8px">Outcome</th>
+          <th style="padding:6px 8px">Reasons</th>
+          <th style="padding:6px 8px">At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set color = outcome_colors.get(r.outcome, 'var(--tx2)') %}
+        <tr style="border-bottom:1px solid var(--bd)">
+          <td style="padding:6px 8px">
+            <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff">{{ r.doc_id or '(blank)' }}</a>
+          </td>
+          <td style="padding:6px 8px">{{ r.doc_type }}</td>
+          <td style="padding:6px 8px">{{ r.agency_key or '—' }}</td>
+          <td style="padding:6px 8px;font-family:monospace;font-size:12px">
+            {{ r.stage_from or '·' }} → {{ r.stage_to }}
+          </td>
+          <td style="padding:6px 8px">
+            <span style="color:{{ color }};font-weight:600">{{ r.outcome }}</span>
+          </td>
+          <td style="padding:6px 8px;max-width:380px;color:var(--tx2)">
+            {% if r.reasons %}
+              <span title="{{ r.reasons|join(' | ') }}">
+                {{ r.reasons[0]|truncate(80) }}
+                {% if r.reasons|length > 1 %}<span style="color:var(--tx2)">(+{{ r.reasons|length - 1 }})</span>{% endif %}
+              </span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td style="padding:6px 8px;color:var(--tx2);font-size:12px">{{ r.at|truncate(19, true, '') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="color:var(--tx2);font-size:13px;padding:20px 0">
+      No audit log rows yet. Run the orchestrator to populate.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

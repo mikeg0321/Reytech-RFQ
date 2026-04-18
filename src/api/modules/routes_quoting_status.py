@@ -1,0 +1,237 @@
+"""Quoting Status Dashboard — single pane of glass for the orchestrator.
+
+Routes:
+    GET  /quoting/status                    — list recent quotes + stage
+    GET  /quoting/status/<doc_id>           — full audit trail for one quote
+    GET  /api/quoting/status                — JSON: recent quotes summary
+    GET  /api/quoting/status/<doc_id>       — JSON: single quote trail
+    POST /api/quoting/override/<doc_id>     — record an operator override
+
+Data source: `quote_audit_log` (migration 21). Rows are written by
+`QuoteOrchestrator._persist_audit` on every stage transition attempt —
+advanced, blocked, error, or skipped.
+
+An override is itself an audit log row with outcome="override" and the
+operator's ID as actor. It is purely informational — advancing a quote
+still has to go through the orchestrator's normal transition.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from datetime import datetime, timezone
+
+from flask import jsonify, request
+
+from src.api.shared import bp, auth_required
+
+log = logging.getLogger(__name__)
+
+
+def _fetch_recent_summary(limit: int = 50) -> list[dict]:
+    """Return the most-recent audit row per quote_doc_id, up to `limit`."""
+    try:
+        from src.core.db import get_db
+    except Exception as e:
+        log.warning("db unavailable: %s", e)
+        return []
+
+    rows: list[dict] = []
+    try:
+        with get_db() as conn:
+            conn.row_factory = None
+            # Per-quote latest row via a self-join on MAX(at).
+            cur = conn.execute(
+                """SELECT q.quote_doc_id, q.doc_type, q.agency_key,
+                          q.stage_from, q.stage_to, q.outcome,
+                          q.reasons_json, q.actor, q.at
+                     FROM quote_audit_log q
+                     JOIN (
+                       SELECT quote_doc_id, MAX(at) AS max_at
+                         FROM quote_audit_log
+                        GROUP BY quote_doc_id
+                     ) m
+                       ON q.quote_doc_id = m.quote_doc_id
+                      AND q.at = m.max_at
+                    ORDER BY q.at DESC
+                    LIMIT ?""",
+                (limit,),
+            )
+            for r in cur.fetchall():
+                try:
+                    reasons = json.loads(r[6] or "[]")
+                except Exception:
+                    reasons = []
+                rows.append({
+                    "doc_id": r[0],
+                    "doc_type": r[1],
+                    "agency_key": r[2],
+                    "stage_from": r[3],
+                    "stage_to": r[4],
+                    "outcome": r[5],
+                    "reasons": reasons,
+                    "actor": r[7],
+                    "at": r[8],
+                })
+    except Exception as e:
+        log.error("fetch_recent_summary error: %s", e)
+    return rows
+
+
+def _fetch_trail(doc_id: str) -> list[dict]:
+    """Return the full chronological trail for one quote_doc_id."""
+    if not doc_id:
+        return []
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.row_factory = None
+            cur = conn.execute(
+                """SELECT stage_from, stage_to, outcome, reasons_json,
+                          actor, at, doc_type, agency_key
+                     FROM quote_audit_log
+                    WHERE quote_doc_id = ?
+                    ORDER BY at ASC""",
+                (doc_id,),
+            )
+            rows = cur.fetchall()
+    except Exception as e:
+        log.error("fetch_trail error for %s: %s", doc_id, e)
+        return []
+
+    out = []
+    for r in rows:
+        try:
+            reasons = json.loads(r[3] or "[]")
+        except Exception:
+            reasons = []
+        out.append({
+            "stage_from": r[0],
+            "stage_to": r[1],
+            "outcome": r[2],
+            "reasons": reasons,
+            "actor": r[4],
+            "at": r[5],
+            "doc_type": r[6],
+            "agency_key": r[7],
+        })
+    return out
+
+
+# ── JSON API ────────────────────────────────────────────────────────────────
+
+@bp.route("/api/quoting/status")
+@auth_required
+def api_quoting_status():
+    """Recent quotes with their latest stage. Caps at 200."""
+    try:
+        limit = max(1, min(int(request.args.get("limit", "50")), 200))
+    except ValueError:
+        limit = 50
+    rows = _fetch_recent_summary(limit=limit)
+
+    # Group counts by final outcome for dashboard KPIs.
+    outcome_counts: dict[str, int] = {}
+    blocked: list[dict] = []
+    for r in rows:
+        outcome_counts[r["outcome"]] = outcome_counts.get(r["outcome"], 0) + 1
+        if r["outcome"] in ("blocked", "error"):
+            blocked.append(r)
+    return jsonify({
+        "ok": True,
+        "total": len(rows),
+        "outcome_counts": outcome_counts,
+        "blocked_now": blocked,
+        "rows": rows,
+    })
+
+
+@bp.route("/api/quoting/status/<doc_id>")
+@auth_required
+def api_quoting_status_detail(doc_id: str):
+    trail = _fetch_trail(doc_id)
+    if not trail:
+        return jsonify({"ok": False, "error": "no audit trail for that doc_id"}), 404
+    return jsonify({
+        "ok": True,
+        "doc_id": doc_id,
+        "trail": trail,
+        "latest_stage": trail[-1]["stage_to"],
+        "latest_outcome": trail[-1]["outcome"],
+    })
+
+
+@bp.route("/api/quoting/override/<doc_id>", methods=["POST"])
+@auth_required
+def api_quoting_override(doc_id: str):
+    """Record an operator override decision on a blocked quote.
+
+    This does NOT advance the quote — it records the reason so the audit
+    trail shows a human accepted the blocker. Re-running the orchestrator
+    with the same blocker will still fail; the operator must fix the root
+    cause (e.g., fill the missing form) or adjust scope.
+    """
+    body = request.get_json(silent=True) or {}
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"ok": False, "error": "reason is required"}), 400
+
+    actor = (body.get("actor") or "operator").strip() or "operator"
+    at = datetime.now(timezone.utc).isoformat()
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Look up the last row for this doc to carry forward doc_type/agency.
+            last = conn.execute(
+                "SELECT doc_type, agency_key, stage_to FROM quote_audit_log "
+                "WHERE quote_doc_id = ? ORDER BY at DESC LIMIT 1",
+                (doc_id,),
+            ).fetchone()
+            if not last:
+                return jsonify({"ok": False, "error": "doc_id not found in audit log"}), 404
+            doc_type, agency_key, stage_to = last
+            conn.execute(
+                """INSERT INTO quote_audit_log
+                   (quote_doc_id, doc_type, agency_key, stage_from, stage_to,
+                    outcome, reasons_json, actor, at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (doc_id, doc_type, agency_key, stage_to, stage_to,
+                 "override", json.dumps([reason[:500]]), actor, at),
+            )
+    except Exception as e:
+        log.error("override write failed for %s: %s", doc_id, e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    return jsonify({"ok": True, "recorded_at": at})
+
+
+# ── HTML pages ──────────────────────────────────────────────────────────────
+
+@bp.route("/quoting/status")
+@auth_required
+def quoting_status_page():
+    from src.api.render import render_page
+    rows = _fetch_recent_summary(limit=50)
+    outcome_counts: dict[str, int] = {}
+    for r in rows:
+        outcome_counts[r["outcome"]] = outcome_counts.get(r["outcome"], 0) + 1
+    return render_page(
+        "quoting_status.html",
+        active_page="Quoting",
+        rows=rows,
+        outcome_counts=outcome_counts,
+    )
+
+
+@bp.route("/quoting/status/<doc_id>")
+@auth_required
+def quoting_status_detail_page(doc_id: str):
+    from src.api.render import render_page
+    trail = _fetch_trail(doc_id)
+    return render_page(
+        "quoting_status_detail.html",
+        active_page="Quoting",
+        doc_id=doc_id,
+        trail=trail,
+    )
