@@ -176,6 +176,58 @@ class TestDarfurProfile:
         assert issues == [], f"Darfur validation issues: {issues}"
 
 
+class TestBidderDeclProfile:
+    """Bidder Declaration GSPD-05-106 (CCHCS + CalVet shared)."""
+
+    def test_bidder_decl_loads(self):
+        profiles = load_profiles()
+        assert "bidder_decl_reytech_standard" in profiles
+        p = profiles["bidder_decl_reytech_standard"]
+        assert p.form_type == "bidder_decl"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []
+
+    def test_bidder_decl_prime_and_subcontractor_rows(self):
+        p = load_profiles()["bidder_decl_reytech_standard"]
+        # Prime bidder
+        assert p.get_field("vendor.certification_type") is not None
+        assert p.get_field("vendor.work_description") is not None
+        # 3 subcontractor rows (unsuffixed / "... 2" / "... 3")
+        for i in (1, 2, 3):
+            assert p.get_field(f"subcontractors[{i}].name_phone_fax") is not None, f"row {i} missing"
+            assert p.get_field(f"subcontractors[{i}].work_or_goods") is not None
+            assert p.get_field(f"subcontractors[{i}].percent_of_bid") is not None
+
+    def test_bidder_decl_checkbox_typing(self):
+        p = load_profiles()["bidder_decl_reytech_standard"]
+        # Yes/No + DVBE broker + DVBE equipment checkboxes
+        for sem in ("subcontractors.uses_yes", "subcontractors.uses_no",
+                    "dvbe.broker_yes", "dvbe.broker_no",
+                    "dvbe.equipment_yes", "dvbe.equipment_no", "dvbe.equipment_na"):
+            fm = p.get_field(sem)
+            assert fm is not None, f"missing {sem}"
+            assert fm.field_type == "checkbox", f"{sem} should be type=checkbox"
+        # Per-row good_standing + rental checkboxes
+        for i in (1, 2, 3):
+            gs = p.get_field(f"subcontractors[{i}].good_standing")
+            rt = p.get_field(f"subcontractors[{i}].is_rental_51pct")
+            assert gs is not None and gs.field_type == "checkbox"
+            assert rt is not None and rt.field_type == "checkbox"
+
+    def test_bidder_decl_signature(self):
+        p = load_profiles()["bidder_decl_reytech_standard"]
+        sig = p.get_field("signatures.primary")
+        assert sig is not None and sig.field_type == "signature"
+        assert p.signature_field == "Signature2"
+        assert p.signature_page == 1
+        assert p.signature_mode == "image_stamp"
+
+    def test_bidder_decl_validates_against_blank(self):
+        p = load_profiles()["bidder_decl_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"Bidder Decl validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 
