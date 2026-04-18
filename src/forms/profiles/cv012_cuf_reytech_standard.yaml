@@ -1,0 +1,65 @@
+# CV 012 Commercially Useful Function Certification (Reytech standard)
+# Source blank: tests/fixtures/cv012_cuf_blank.pdf
+# 18 AcroForm fields (XFA/LiveCycle-style hierarchical names), 2 pages.
+# Required from every certified SB / MB / DVBE that will perform part
+# of the work. CalVet required_forms.
+#
+# Note: field names include LiveCycle hierarchy — preserve verbatim.
+# "RadioButtonList[0..5]" correspond to the 6 Yes/No CUF questions on
+# page 1 in document order:
+#   q1 = execute a distinct element of resulting work
+#   q2 = carry out obligations by actually performing/managing/supervising
+#   q3 = work is normal for your business/services/functions
+#   q4 = subcontract a portion greater than normal industry practice
+#   q5 = role limited to pass-through or broker
+#   q6 = (reserved — read the filled form to confirm intent)
+id: cv012_cuf_reytech_standard
+form_type: cv012_cuf
+blank_pdf: tests/fixtures/cv012_cuf_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Header / solicitation ──
+  quote.solicitation_number:
+    pdf_field: "form1[0].#subform[0].SolicitationNumber[0]"
+  vendor.dba:
+    pdf_field: "form1[0].#subform[0].DoingBusinessAs[0]"
+  vendor.osds_ref:
+    pdf_field: "form1[0].#subform[0].OSDSRefNumber[0]"
+  vendor.certification_expiration:
+    pdf_field: "form1[0].#subform[0].ExpirationDate[0]"
+
+  # ── CUF questions (radio Yes/No per question) ──
+  cuf.q1_distinct_element:
+    pdf_field: "form1[0].#subform[0].RadioButtonList[0]"
+  cuf.q2_perform_manage_supervise:
+    pdf_field: "form1[0].#subform[0].RadioButtonList[1]"
+  cuf.q3_normal_work_for_business:
+    pdf_field: "form1[0].#subform[0].RadioButtonList[2]"
+  cuf.q4_subcontract_over_normal:
+    pdf_field: "form1[0].#subform[0].RadioButtonList[3]"
+  cuf.q5_role_limited:
+    pdf_field: "form1[0].#subform[0].RadioButtonList[4]"
+  cuf.q6_additional:
+    pdf_field: "form1[0].#subform[0].RadioButtonList[5]"
+
+  # ── Written statement (required if Q4 answered Yes) ──
+  cuf.written_statement:
+    pdf_field: "form1[0].#subform[0].ProvideAWrittenStatement[0]"
+
+  # ── Signature block (page 2) ──
+  signer.printed_name:
+    pdf_field: "form1[0].#subform[1].PrintedName[0]"
+  signer.title:
+    pdf_field: "form1[0].#subform[1].Title[0]"
+  signer.date:
+    pdf_field: "form1[0].#subform[1].Date[0]"
+  signatures.primary:
+    pdf_field: "form1[0].#subform[1].AuthorizedRepresentative[0]"
+    type: signature
+
+signature:
+  mode: image_stamp
+  page: 2
+  field: "form1[0].#subform[1].AuthorizedRepresentative[0]"
