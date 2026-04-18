@@ -319,6 +319,49 @@ class TestStd1000Profile:
         assert issues == [], f"STD1000 validation issues: {issues}"
 
 
+class TestCv012CufProfile:
+    """CV 012 Commercially Useful Function Certification (CalVet-shared, XFA)."""
+
+    def test_cv012_loads(self):
+        profiles = load_profiles()
+        assert "cv012_cuf_reytech_standard" in profiles
+        p = profiles["cv012_cuf_reytech_standard"]
+        assert p.form_type == "cv012_cuf"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []
+
+    def test_cv012_header_and_vendor(self):
+        p = load_profiles()["cv012_cuf_reytech_standard"]
+        assert p.get_field("quote.solicitation_number") is not None
+        assert p.get_field("vendor.dba") is not None
+        assert p.get_field("vendor.osds_ref") is not None
+        assert p.get_field("vendor.certification_expiration") is not None
+
+    def test_cv012_six_cuf_questions(self):
+        p = load_profiles()["cv012_cuf_reytech_standard"]
+        for i in (1, 2, 3, 4, 5, 6):
+            found = any(fm.semantic.startswith(f"cuf.q{i}_") for fm in p.fields)
+            assert found, f"cuf.q{i}_* missing"
+
+    def test_cv012_xfa_field_names_preserved(self):
+        """LiveCycle/XFA hierarchical field paths must survive loading."""
+        p = load_profiles()["cv012_cuf_reytech_standard"]
+        fm = p.get_field("quote.solicitation_number")
+        assert fm.pdf_field == "form1[0].#subform[0].SolicitationNumber[0]"
+
+    def test_cv012_signature(self):
+        p = load_profiles()["cv012_cuf_reytech_standard"]
+        sig = p.get_field("signatures.primary")
+        assert sig is not None and sig.field_type == "signature"
+        assert p.signature_page == 2
+        assert p.signature_mode == "image_stamp"
+
+    def test_cv012_validates_against_blank(self):
+        p = load_profiles()["cv012_cuf_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"CV 012 validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 

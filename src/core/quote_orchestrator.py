@@ -572,7 +572,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "std1000": "std1000_reytech_standard",
     "bidder_decl": "bidder_decl_reytech_standard",
     "darfur_act": "darfur_reytech_standard",
-    "cv012_cuf": "cv012_cuf_reytech_standard",        # not yet built
+    "cv012_cuf": "cv012_cuf_reytech_standard",
     "barstow_cuf": "barstow_cuf_reytech_standard",    # not yet built
     "sellers_permit": "sellers_permit_reytech",       # not yet built
     "drug_free": "drug_free_reytech_standard",        # not yet built
