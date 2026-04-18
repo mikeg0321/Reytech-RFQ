@@ -228,50 +228,40 @@ def api_simple_submit_generate():
 
         results = {"ok": True, "files": []}
 
-        # Generate filled 704 via the new fill engine (Quote model + profile)
+        # Generate filled 704 via the unified quote engine (Quote model + profile + QA)
         output_dir = os.path.join("output", "simple_submit", doc_id)
         os.makedirs(output_dir, exist_ok=True)
         output_704 = os.path.join(output_dir, f"704_filled_{doc_id}.pdf")
 
         try:
-            from src.core.quote_model import Quote
-            from src.forms.profile_registry import load_profiles
-            from src.forms.fill_engine import fill as fill_v2
+            from src.core.quote_engine import draft, ingest
 
-            quote = Quote.from_legacy_dict(doc, doc_type=doc_type)
-            # Apply operator-reviewed pricing to the Quote
-            for submitted in items_data:
-                idx = int(submitted.get("line_no", 0))
-                cost = submitted.get("unit_cost", 0)
-                mkp = submitted.get("markup_pct", markup_pct)
-                if idx > 0 and float(cost) > 0:
-                    from decimal import Decimal
-                    try:
-                        quote.set_price(idx, Decimal(str(cost)), Decimal(str(mkp)))
-                    except ValueError:
-                        pass  # Line not found — skip
+            # Operator-reviewed pricing was already written to doc at lines 194-212;
+            # ingest() picks it up via Quote.from_legacy_dict.
+            quote, _warnings = ingest(doc, doc_type=doc_type)
+            draft_result = draft(quote)
 
-            profiles = load_profiles()
-            profile = profiles.get("704a_reytech_standard")
-            if profile:
-                pdf_bytes = fill_v2(quote, profile)
-                with open(output_704, "wb") as f:
-                    f.write(pdf_bytes)
-                # Filename matches agency's naming + _Reytech
-                header = _get_header(doc)
-                pc_num = header.get("pc_number") or doc_id[:12]
-                safe_pc = re.sub(r'[^\w\s\-.]', '', pc_num).strip().replace(' ', '_')
-                results["files"].append({
-                    "type": "704",
-                    "path": output_704,
-                    "name": f"{safe_pc}_Reytech.pdf",
-                })
-                log.info("Simple submit: fill_v2 produced %d bytes for %s", len(pdf_bytes), doc_id)
-            else:
-                results["704_error"] = "No profile found for 704A template"
+            with open(output_704, "wb") as f:
+                f.write(draft_result.pdf_bytes)
+
+            header = _get_header(doc)
+            pc_num = header.get("pc_number") or doc_id[:12]
+            safe_pc = re.sub(r'[^\w\s\-.]', '', pc_num).strip().replace(' ', '_')
+            results["files"].append({
+                "type": "704",
+                "path": output_704,
+                "name": f"{safe_pc}_Reytech.pdf",
+            })
+            if not draft_result.ok:
+                results["704_qa_warnings"] = draft_result.qa_report.summary
+            log.info(
+                "Simple submit: quote_engine.draft produced %d bytes for %s (profile=%s, QA=%s)",
+                len(draft_result.pdf_bytes), doc_id,
+                draft_result.profile_id, draft_result.qa_report.summary,
+            )
         except Exception as e:
-            log.error("Simple submit fill_v2 error: %s — falling back to legacy", e, exc_info=True)
-            # Fallback to legacy fill_ams704
+            log.error("Simple submit quote_engine error: %s — falling back to legacy", e, exc_info=True)
+            # Fallback to legacy fill_ams704 (kept until shadow-mode parity is confirmed)
             try:
                 from src.forms.price_check import fill_ams704
                 blank_704 = os.path.join("tests", "fixtures", "ams_704_blank.pdf")

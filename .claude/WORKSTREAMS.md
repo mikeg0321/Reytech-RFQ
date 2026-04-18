@@ -13,7 +13,8 @@ Track all in-progress work across Claude Code context windows.
 |--------|---------|----------|--------|-------------|---------|
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
 | fix/amazon-garbage-title-filter | Window 2 | `C:\Users\mikeg\rfq-amazon-garbage-title-filter` | Active | Filter garbage "Amazon.com" titles so Claude tier fires + bump max_tokens | 2026-04-15 |
-| feat/quote-engine-unified | This window | `C:\Users\mikeg\rfq-quote-engine-unified` | Active | Unified quote_engine orchestrator + boot profile validator + parse_engine fix | 2026-04-17 |
+| feat/quote-engine-unified | (merged) | `C:\Users\mikeg\rfq-quote-engine-unified` | Merged PR #135 | Unified quote_engine orchestrator + boot profile validator + parse_engine fix | 2026-04-17 |
+| feat/simple-submit-quote-engine | This window | `C:\Users\mikeg\rfq-simple-submit-quote-engine` | Active | Migrate routes_simple_submit.py to call quote_engine.draft (Phase 3 first route) | 2026-04-18 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
