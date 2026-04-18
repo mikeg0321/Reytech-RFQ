@@ -1,0 +1,34 @@
+id: 703a_reytech_standard
+form_type: 703a
+blank_pdf: tests/fixtures/703a_blank.pdf
+fill_mode: acroform
+
+fields:
+  buyer.name:                  {pdf_field: "703A_Name"}
+  buyer.phone:                 {pdf_field: "703A_Phone_2"}
+  buyer.email:                 {pdf_field: "703A_Email_2"}
+  buyer.solicitation_number:   {pdf_field: "703A_Solicitation Number"}
+  buyer.release_date:          {pdf_field: "703A_Release Date"}
+  buyer.due_date:              {pdf_field: "703A_Due Date"}
+  buyer.institution:           {pdf_field: "703A_Dropdown2"}
+
+  vendor.business_name:        {pdf_field: "703A_Business Name"}
+  vendor.address:              {pdf_field: "703A_Address"}
+  vendor.contact_person:       {pdf_field: "703A_Contact Person"}
+  vendor.title:                {pdf_field: "703A_Title"}
+  vendor.phone:                {pdf_field: "703A_Phone"}
+  vendor.fax:                  {pdf_field: "703A_Fax"}
+  vendor.email:                {pdf_field: "703A_Email"}
+  vendor.fein:                 {pdf_field: "703A_Federal Employer Identification Number FEIN"}
+  vendor.sellers_permit:       {pdf_field: "703A_Retailers CA Sellers Permit Number"}
+  vendor.cert_expiration:      {pdf_field: "703A_Certification Expiration Date"}
+  vendor.delivery_days:        {pdf_field: "703A_Deliveries must be completed within"}
+  vendor.payment_terms_days:   {pdf_field: "703A_days of receipt"}
+  vendor.payment_discount_pct: {pdf_field: "703A_Payment discount offered on invoices to be paid within"}
+  vendor.bid_expiration_date:  {pdf_field: "703A_BidExpirationDate"}
+  vendor.signature_date:       {pdf_field: "703A_Date"}
+
+signature:
+  mode: image_stamp
+  page: 9
+  field: "703A_Signature"
