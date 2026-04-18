@@ -1,0 +1,49 @@
+# STD 21 Drug-Free Workplace Certification (Reytech standard)
+# Source blank: tests/fixtures/drug_free_blank.pdf
+# 12 AcroForm fields (10 usable + 2 JS buttons), 1 page. Required by
+# CCHCS/CDCR when listed in optional_forms, and by the calvet package
+# fallback when drug_free is specified.
+#
+# Field naming pattern: everything suffixed "1", with phone split into
+# ph1 (area code) and ph2 (number). date1 = signer today, date2 = cert
+# expiration (the state contract's anniversary date).
+id: drug_free_reytech_standard
+form_type: drug_free
+blank_pdf: tests/fixtures/drug_free_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Vendor identity ──
+  vendor.business_name:
+    pdf_field: "ctrct1"
+  vendor.address:
+    pdf_field: "address1"
+  vendor.fein:
+    pdf_field: "fedid1"
+  vendor.phone_area_code:
+    pdf_field: "ph1"
+  vendor.phone_number:
+    pdf_field: "ph2"
+
+  # ── Signer block ──
+  signer.name:
+    pdf_field: "name1"
+  signer.title:
+    pdf_field: "title1"
+  signer.date:
+    pdf_field: "date1"
+
+  # ── Certification expiration (state contract anniversary) ──
+  cert.expiration_date:
+    pdf_field: "date2"
+
+  # ── Signature ──
+  signatures.primary:
+    pdf_field: "Signature1"
+    type: signature
+
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Signature1"
