@@ -1,0 +1,120 @@
+# Bidder Declaration GSPD-05-106 Rev 08/09 Verbal Version (Reytech standard)
+# Source blank: tests/fixtures/bidder_decl_blank.pdf
+# 36 AcroForm fields, 2 pages. Prime bidder block + 3 subcontractor rows
+# (row 1 unsuffixed; rows 2-3 use "... 2" / "... 3" suffix pattern).
+# Shared by CCHCS (required_forms) and CalVet (required_forms).
+id: bidder_decl_reytech_standard
+form_type: bidder_decl
+blank_pdf: tests/fixtures/bidder_decl_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Prime bidder (Item 1.a) ──
+  vendor.certification_type:
+    pdf_field: "Certification ( mb,sb,nvsa,dvbe or none)"
+
+  # ── Item 1.b — subcontractors used checkboxes ──
+  subcontractors.uses_yes:
+    pdf_field: "Check Box1"
+    type: checkbox
+  subcontractors.uses_no:
+    pdf_field: "Check Box2"
+    type: checkbox
+
+  # ── Item 1.b — prime bidder's work/goods description (multi-line) ──
+  vendor.work_description:
+    pdf_field: "Product list"
+
+  # ── Item 1.c — DVBE broker / agent ──
+  dvbe.broker_yes:
+    pdf_field: "Check Box3"
+    type: checkbox
+  dvbe.broker_no:
+    pdf_field: "Check Box4"
+    type: checkbox
+
+  # ── Item 1.c — DVBE ≥51% equipment ownership on rentals ──
+  dvbe.equipment_yes:
+    pdf_field: "Check Box5"
+    type: checkbox
+  dvbe.equipment_no:
+    pdf_field: "Check Box6"
+    type: checkbox
+  dvbe.equipment_na:
+    pdf_field: "Check Box7"
+    type: checkbox
+
+  # ── Subcontractor row 1 (unsuffixed) ──
+  subcontractors[1].name_phone_fax:
+    pdf_field: "Subcontractors Name, phone, fax"
+  subcontractors[1].address_email:
+    pdf_field: "subcontractor Address, email"
+  subcontractors[1].certification:
+    pdf_field: "Certification #"
+  subcontractors[1].work_or_goods:
+    pdf_field: "Work or goods1"
+  subcontractors[1].percent_of_bid:
+    pdf_field: "%"
+  subcontractors[1].good_standing:
+    pdf_field: "Good standing"
+    type: checkbox
+  subcontractors[1].is_rental_51pct:
+    pdf_field: "51% rental"
+    type: checkbox
+
+  # ── Subcontractor row 2 ( "... 2" suffix ) ──
+  subcontractors[2].name_phone_fax:
+    pdf_field: "Name, phone, fax 2"
+  subcontractors[2].address_email:
+    pdf_field: "Address, email 2"
+  subcontractors[2].certification:
+    pdf_field: "Certification 2"
+  subcontractors[2].work_or_goods:
+    pdf_field: "Work or goods2"
+  subcontractors[2].percent_of_bid:
+    pdf_field: "% 2"
+  subcontractors[2].good_standing:
+    pdf_field: "Good standing 2"
+    type: checkbox
+  subcontractors[2].is_rental_51pct:
+    pdf_field: "51% rental 2"
+    type: checkbox
+
+  # ── Subcontractor row 3 ( "... 3" suffix; note "work or goods3" lowercase ) ──
+  subcontractors[3].name_phone_fax:
+    pdf_field: "Name, phone, fax 3"
+  subcontractors[3].address_email:
+    pdf_field: "Address, email 3"
+  subcontractors[3].certification:
+    pdf_field: "Certification 3"
+  subcontractors[3].work_or_goods:
+    pdf_field: "work or goods3"
+  subcontractors[3].percent_of_bid:
+    pdf_field: "% 3"
+  subcontractors[3].good_standing:
+    pdf_field: "Good standing 3"
+    type: checkbox
+  subcontractors[3].is_rental_51pct:
+    pdf_field: "51% rental 3"
+    type: checkbox
+
+  # ── Certification block (Item 3) ──
+  signer.printed_name:
+    pdf_field: "Text1"
+  signer.date:
+    pdf_field: "Date Signed"
+  signatures.primary:
+    pdf_field: "Signature2"
+    type: signature
+
+  # ── Page counter ──
+  page.current:
+    pdf_field: "page"
+  page.total:
+    pdf_field: "of #"
+
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Signature2"
