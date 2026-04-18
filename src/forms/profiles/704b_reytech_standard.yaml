@@ -1,0 +1,66 @@
+# AMS 704B — Reytech Standard RFQ Response Template
+# Source: AMS 704B - RFQ - SB-DVBE Option - 03-25.pdf (CCHCS AMS PS standard)
+# 362 fields, 2 pages.
+#   Page 1 row indices: 1-15, 17-24 (no Row16 on page 1) → 23 row capacity
+#   Page 2 row indices: 1-16 with _2 suffix → 16 row capacity
+# Total capacity: 39 items
+id: 704b_reytech_standard
+form_type: 704b
+blank_pdf: tests/fixtures/704b_blank.pdf
+fill_mode: acroform
+page_row_capacities: [23, 16]
+
+fields:
+  # ── Header fields ──
+  header.solicitation_number:
+    pdf_field: "SOLICITATION"
+  header.contract_number:
+    pdf_field: "Contract_Number"
+  header.date:
+    pdf_field: "Date1_af_date"
+
+  # ── Buyer / agency fields ──
+  buyer.requestor_name:
+    pdf_field: "REQUESTOR"
+  buyer.department:
+    pdf_field: "DEPARTMENT"
+  buyer.phone_email:
+    pdf_field: "PHONEEMAIL"
+
+  # ── Vendor (Reytech) fields ──
+  vendor.name:
+    pdf_field: "COMPANY NAME"
+  vendor.representative:
+    pdf_field: "PERSON PROVIDING QUOTE"
+
+  # ── Totals ──
+  totals.total:
+    pdf_field: "fill_154"
+
+  # ── Row item fields (templated) ──
+  # Page 1: Row1–Row15, Row17–Row24 (Row16 absent)
+  # Page 2: Row1_2–Row16_2
+  items[n].item_no:
+    pdf_field: "Row{n}"
+  items[n].qty:
+    pdf_field: "QTYRow{n}"
+  items[n].uom:
+    pdf_field: "UOMRow{n}"
+  items[n].qty_per_uom:
+    pdf_field: "QTY PER UOMRow{n}"
+  items[n].unspsc:
+    pdf_field: "UNSPSCRow{n}"
+  items[n].description:
+    pdf_field: "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow{n}"
+  items[n].part_number:
+    pdf_field: "ITEM NUMBERRow{n}"
+  items[n].unit_price:
+    pdf_field: "PRICE PER UNITRow{n}"
+  items[n].extension:
+    pdf_field: "SUBTOTALRow{n}"
+
+# ── Signature ──
+signature:
+  mode: image_stamp
+  page: 2
+  field: "Signature1"
