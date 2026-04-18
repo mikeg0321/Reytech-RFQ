@@ -693,6 +693,33 @@ MIGRATIONS = [
           WHERE NOT json_valid(NEW.errors_json);
         END;
     """),
+
+    (21, "quote_audit_log", """
+        CREATE TABLE IF NOT EXISTS quote_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_doc_id TEXT NOT NULL,
+            doc_type TEXT NOT NULL,
+            agency_key TEXT DEFAULT '',
+            stage_from TEXT DEFAULT '',
+            stage_to TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            reasons_json TEXT DEFAULT '[]',
+            actor TEXT DEFAULT 'system',
+            at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_qal_doc ON quote_audit_log(quote_doc_id);
+        CREATE INDEX IF NOT EXISTS idx_qal_agency ON quote_audit_log(agency_key);
+        CREATE INDEX IF NOT EXISTS idx_qal_outcome ON quote_audit_log(outcome);
+        CREATE INDEX IF NOT EXISTS idx_qal_at ON quote_audit_log(at);
+
+        CREATE TRIGGER IF NOT EXISTS validate_qal_reasons_insert
+        BEFORE INSERT ON quote_audit_log FOR EACH ROW
+        WHEN NEW.reasons_json IS NOT NULL AND NEW.reasons_json != ''
+        BEGIN
+          SELECT RAISE(ABORT, 'Invalid JSON in quote_audit_log.reasons_json')
+          WHERE NOT json_valid(NEW.reasons_json);
+        END;
+    """),
 ]
 
 

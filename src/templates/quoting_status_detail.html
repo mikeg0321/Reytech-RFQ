@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Quote Trail — {{ doc_id }}{% endblock %}
+{% block content %}
+
+{% set outcome_colors = {
+  'advanced': '#3fb950',
+  'blocked':  '#f85149',
+  'error':    '#f85149',
+  'skipped':  '#8b949e',
+  'override': '#d29922',
+} %}
+
+<div style="max-width:1000px;margin:0 auto;padding:20px" id="main-content">
+
+  <div style="margin-bottom:16px">
+    <a href="/quoting/status" style="color:#58a6ff;font-size:13px;text-decoration:none">&larr; Back to list</a>
+    <h2 style="margin:6px 0 0;font-size:20px;color:var(--tx)">{{ doc_id }}</h2>
+    {% if trail %}
+    <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+      {{ trail[0].doc_type }} · agency: <code>{{ trail[0].agency_key or 'unresolved' }}</code> · {{ trail|length }} transition(s)
+    </p>
+    {% endif %}
+  </div>
+
+  {% if not trail %}
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:20px;color:var(--tx2)">
+      No audit trail found for this doc_id. It may never have been run through the orchestrator,
+      or the doc_id may be wrong.
+    </div>
+  {% else %}
+
+  <!-- Timeline -->
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px">
+    <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:12px">Stage Timeline</div>
+    {% for t in trail %}
+    {% set color = outcome_colors.get(t.outcome, 'var(--tx2)') %}
+    <div style="border-left:3px solid {{ color }};padding:8px 0 8px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <div style="font-family:monospace;font-size:13px;color:var(--tx)">
+          {{ t.stage_from or '·' }} &rarr; {{ t.stage_to }}
+          &nbsp;<span style="color:{{ color }};font-weight:600">{{ t.outcome }}</span>
+        </div>
+        <div style="font-size:12px;color:var(--tx2)">{{ t.at }}</div>
+      </div>
+      {% if t.reasons %}
+        <ul style="margin:6px 0 0 12px;padding:0;color:var(--tx2);font-size:12px">
+          {% for r in t.reasons %}
+            <li>{{ r }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      <div style="font-size:11px;color:var(--tx2);margin-top:4px">actor: {{ t.actor }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Override form -->
+  {% set latest = trail[-1] %}
+  {% if latest.outcome in ('blocked', 'error') %}
+  <div style="background:var(--sf);border:1px solid #d29922;border-radius:10px;padding:16px">
+    <div style="font-size:14px;font-weight:600;color:#d29922;margin-bottom:6px">Operator Override</div>
+    <p style="color:var(--tx2);font-size:12px;margin:0 0 10px">
+      Recording an override does NOT advance the quote — fix the root cause, then rerun the orchestrator.
+      This only documents that you accepted the current blocker.
+    </p>
+    <textarea id="override-reason" rows="3" style="width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px"
+              placeholder="Why is the blocker acceptable? (required)"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="override-btn" type="button"
+              style="background:#d29922;border:0;color:#000;font-weight:600;padding:8px 14px;border-radius:6px;cursor:pointer">
+        Record Override
+      </button>
+      <div id="override-status" style="color:var(--tx2);font-size:12px;align-self:center"></div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var btn = document.getElementById('override-btn');
+      var reason = document.getElementById('override-reason');
+      var status = document.getElementById('override-status');
+      if (!btn || !reason || !status) return;
+      btn.addEventListener('click', function() {
+        var r = (reason.value || '').trim();
+        if (!r) { status.textContent = 'Reason is required.'; status.style.color = '#f85149'; return; }
+        btn.disabled = true;
+        status.textContent = 'Recording…'; status.style.color = 'var(--tx2)';
+        fetch('/api/quoting/override/{{ doc_id }}', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({reason: r})
+        }).then(function(resp) {
+          return resp.json().then(function(j) { return {ok: resp.ok && j.ok, data: j}; });
+        }).then(function(out) {
+          if (out.ok) {
+            status.textContent = 'Override recorded. Reloading…';
+            status.style.color = '#3fb950';
+            setTimeout(function() { window.location.reload(); }, 700);
+          } else {
+            status.textContent = 'Error: ' + (out.data && out.data.error ? out.data.error : 'unknown');
+            status.style.color = '#f85149';
+            btn.disabled = false;
+          }
+        }).catch(function(e) {
+          status.textContent = 'Network error: ' + e;
+          status.style.color = '#f85149';
+          btn.disabled = false;
+        });
+      });
+    })();
+  </script>
+  {% endif %}
+
+  {% endif %}
+
+</div>
+{% endblock %}
