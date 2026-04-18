@@ -125,6 +125,51 @@ class TestOverride:
         assert resp.status_code == 404
 
 
+class TestBackfill:
+    """POST /api/quoting/backfill — drive existing PCs through orchestrator."""
+
+    def test_backfill_requires_auth(self, anon_client):
+        resp = anon_client.post("/api/quoting/backfill", json={})
+        assert resp.status_code in (401, 403)
+
+    def test_backfill_mode_ids_requires_ids(self, auth_client):
+        resp = auth_client.post("/api/quoting/backfill", json={"mode": "ids"})
+        assert resp.status_code == 400
+        assert "ids list required" in resp.get_json()["error"]
+
+    def test_backfill_with_no_pcs_returns_empty(self, auth_client, seeded_audit):
+        # seeded_audit installs the audit log schema; no PCs seeded here.
+        resp = auth_client.post("/api/quoting/backfill", json={"limit": 5})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["ok"] is True
+        assert body["processed"] == 0
+        assert body["results"] == []
+
+    def test_backfill_runs_orchestrator_and_writes_audit(
+        self, auth_client, seeded_audit, seed_db_price_check
+    ):
+        # seeded_audit already has rows for pc_aaa/pc_bbb/pc_ccc — so new PCs
+        # with different IDs will not be skipped by skip_filled.
+        seed_db_price_check(
+            "pc_backfill_1",
+            agency="CDCR",
+            items=[{"description": "Gauze 4x4", "qty": 10, "uom": "BX"}],
+        )
+
+        resp = auth_client.post(
+            "/api/quoting/backfill",
+            json={"mode": "all", "limit": 10, "target_stage": "priced"},
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert body["ok"] is True
+        assert body["target_stage"] == "priced"
+        # The seeded PC should have been processed.
+        processed_ids = {r["pc_id"] for r in body["results"]}
+        assert "pc_backfill_1" in processed_ids
+
+
 class TestHtmlPages:
     def test_status_page_renders(self, auth_client, seeded_audit):
         resp = auth_client.get("/quoting/status")
