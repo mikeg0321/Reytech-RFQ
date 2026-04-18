@@ -157,3 +157,27 @@ class TestGetProfile:
         direct = TemplateProfile(BLANK_704)
         assert cached.pg1_row_count == direct.pg1_row_count
         assert cached.row_capacity == direct.row_capacity
+
+
+class TestBootProfileValidation:
+    """Strict-boot regression: every YAML profile in src/forms/profiles/ must
+    validate against its blank PDF. If this fails, app boot will fail in prod
+    (STRICT_PROFILE_BOOT=1 in app.py)."""
+
+    def test_all_profiles_valid(self):
+        from src.forms.profile_registry import validate_all_profiles
+        results = validate_all_profiles()
+        bad = {pid: issues for pid, issues in results.items() if issues}
+        assert not bad, (
+            "Profile validation failures (would block boot in prod):\n"
+            + "\n".join(f"  {pid}: {issues[0]}" for pid, issues in bad.items())
+        )
+
+    def test_at_least_two_profiles_loaded(self):
+        """Sanity check that profile loading is finding the YAML files."""
+        from src.forms.profile_registry import load_profiles
+        profiles = load_profiles()
+        assert len(profiles) >= 2, (
+            f"Expected at least 2 profiles (704a + 704b), found {len(profiles)}: "
+            f"{list(profiles.keys())}"
+        )

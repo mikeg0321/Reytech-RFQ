@@ -18,7 +18,8 @@ Track all in-progress work across Claude Code context windows.
 | feat/quote-counter-unique | (merged) | `C:\Users\mikeg\rfq-quote-counter-unique` | Merged PR #137 | Quote-counter audit + UNIQUE constraint installer + JSON drift fix | 2026-04-18 |
 | feat/deadline-alert-snooze | (merged) | `C:\Users\mikeg\rfq-deadline-alert-snooze` | Merged PR #138 | Deadline-alert snooze: localStorage persistence + Pause 30m / Pause 1h / Bypass today | 2026-04-18 |
 | fix/health-startup-shadow | (merged) | `C:\Users\mikeg\rfq-health-startup-shadow` | Merged PR #139 | Delete dashboard.py shadow of /api/health/startup so app.py rich handler wins | 2026-04-18 |
-| feat/704b-profile | This window | `C:\Users\mikeg\rfq-704b-profile` | Active | Add 704b_reytech_standard profile + blank fixture (unblocks strict boot validator) | 2026-04-18 |
+| feat/704b-profile | (merged) | `C:\Users\mikeg\rfq-704b-profile` | Merged PR #140 | Add 704b_reytech_standard profile + blank fixture | 2026-04-18 |
+| feat/strict-boot-validator | This window | `C:\Users\mikeg\rfq-strict-boot-validator` | Active | Flip boot validator to strict — bad profile blocks app boot in prod | 2026-04-18 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

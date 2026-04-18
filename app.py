@@ -525,6 +525,14 @@ def create_app():
             os.environ.get("ENABLE_EMAIL_POLLING", "(not set)")
         )
 
+    # ── Strict form-profile validation (synchronous, blocks boot on failure) ──
+    # Any profile/blank-PDF mismatch raises RuntimeError -> gunicorn worker exits
+    # -> Railway deploy fails -> bad profile never serves traffic.
+    # Opt-out only for local dev: STRICT_PROFILE_BOOT=0
+    if os.environ.get("STRICT_PROFILE_BOOT", "1") != "0":
+        from src.core.quote_engine import boot_validate_profiles
+        boot_validate_profiles(strict=True)
+
     elapsed = time.time() - t0
     try:
         print(f"[BOOT] create_app() complete \u2705 ({elapsed:.1f}s)", flush=True)
