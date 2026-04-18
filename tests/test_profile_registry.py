@@ -141,6 +141,41 @@ class TestDvbe843Profile:
         assert issues == [], f"DVBE 843 validation issues: {issues}"
 
 
+class TestDarfurProfile:
+    """Darfur Contracting Act Certification (CalVet-shared)."""
+
+    def test_darfur_loads(self):
+        profiles = load_profiles()
+        assert "darfur_reytech_standard" in profiles
+        p = profiles["darfur_reytech_standard"]
+        assert p.form_type == "darfur_act"
+        assert p.page_row_capacities == []
+
+    def test_darfur_two_certifier_blocks(self):
+        p = load_profiles()["darfur_reytech_standard"]
+        # Primary signer
+        assert p.get_field("vendor.company_name") is not None
+        assert p.get_field("signer.printed_name_and_title") is not None
+        assert p.get_field("signer.date") is not None
+        # Secondary initialing signer
+        assert p.get_field("vendor.company_name_2") is not None
+        assert p.get_field("signer.printed_name_and_title_2") is not None
+        assert p.get_field("signer.date_2") is not None
+
+    def test_darfur_two_signatures(self):
+        p = load_profiles()["darfur_reytech_standard"]
+        primary = p.get_field("signatures.primary")
+        initialing = p.get_field("signatures.initialing")
+        assert primary is not None and primary.field_type == "signature"
+        assert initialing is not None and initialing.field_type == "signature"
+        assert p.signature_field == "Authorized Signature"
+
+    def test_darfur_validates_against_blank(self):
+        p = load_profiles()["darfur_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"Darfur validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 

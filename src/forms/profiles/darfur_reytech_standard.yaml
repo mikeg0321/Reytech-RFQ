@@ -1,0 +1,48 @@
+# Darfur Contracting Act Certification (Reytech standard)
+# Source blank: tests/fixtures/darfur_blank.pdf
+# 11 AcroForm fields: ADA boilerplate text, two certifier blocks
+# (primary signer + initialing/countersign), two signature images.
+id: darfur_reytech_standard
+form_type: darfur_act
+blank_pdf: tests/fixtures/darfur_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Boilerplate ──
+  header.ada_instructions:
+    pdf_field: "ADA Instructions"
+
+  # ── Primary certifier ──
+  vendor.company_name:
+    pdf_field: "CompanyVendor Name"
+  vendor.fein:
+    pdf_field: "Federal ID Number"
+  signer.printed_name_and_title:
+    pdf_field: "Printed Name and Title of Person Signing"
+  signer.date:
+    pdf_field: "Date of signature"
+
+  # ── Secondary certifier (initials block) ──
+  vendor.company_name_2:
+    pdf_field: "CompanyVendor Name Printed_2"
+  vendor.fein_2:
+    pdf_field: "Federal ID Number_2"
+  signer.printed_name_and_title_2:
+    pdf_field: "Printed Name and Title of Person Initialing"
+  signer.date_2:
+    pdf_field: "Date of signature 2"
+
+  # ── Signatures (two independent sig fields) ──
+  signatures.primary:
+    pdf_field: "Authorized Signature"
+    type: signature
+  signatures.initialing:
+    pdf_field: "Authorized signature 2"
+    type: signature
+
+# Primary signature block; secondary is filled via `signatures.initialing`.
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Authorized Signature"
