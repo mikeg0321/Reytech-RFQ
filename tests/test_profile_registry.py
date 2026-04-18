@@ -362,6 +362,43 @@ class TestCv012CufProfile:
         assert issues == [], f"CV 012 validation issues: {issues}"
 
 
+class TestDrugFreeProfile:
+    """STD 21 Drug-Free Workplace Certification (CCHCS/CDCR optional)."""
+
+    def test_drug_free_loads(self):
+        profiles = load_profiles()
+        assert "drug_free_reytech_standard" in profiles
+        p = profiles["drug_free_reytech_standard"]
+        assert p.form_type == "drug_free"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []
+
+    def test_drug_free_vendor_and_signer(self):
+        p = load_profiles()["drug_free_reytech_standard"]
+        assert p.get_field("vendor.business_name") is not None
+        assert p.get_field("vendor.address") is not None
+        assert p.get_field("vendor.fein") is not None
+        # Phone split into two fields
+        assert p.get_field("vendor.phone_area_code") is not None
+        assert p.get_field("vendor.phone_number") is not None
+        assert p.get_field("signer.name") is not None
+        assert p.get_field("signer.title") is not None
+        assert p.get_field("signer.date") is not None
+
+    def test_drug_free_signature(self):
+        p = load_profiles()["drug_free_reytech_standard"]
+        sig = p.get_field("signatures.primary")
+        assert sig is not None and sig.field_type == "signature"
+        assert p.signature_field == "Signature1"
+        assert p.signature_page == 1
+        assert p.signature_mode == "image_stamp"
+
+    def test_drug_free_validates_against_blank(self):
+        p = load_profiles()["drug_free_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"Drug Free validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 

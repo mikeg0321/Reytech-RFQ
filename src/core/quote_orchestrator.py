@@ -575,7 +575,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "cv012_cuf": "cv012_cuf_reytech_standard",
     "barstow_cuf": "barstow_cuf_reytech_standard",    # not yet built
     "sellers_permit": "sellers_permit_reytech",       # not yet built
-    "drug_free": "drug_free_reytech_standard",        # not yet built
+    "drug_free": "drug_free_reytech_standard",
     "obs_1600": "obs_1600_reytech_standard",          # not yet built
     "w9": "w9_reytech",                               # not yet built
     "bidpkg": "",  # Bid package is a container — handled by package_engine, not a profile
