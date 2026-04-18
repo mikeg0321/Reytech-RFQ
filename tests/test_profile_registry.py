@@ -272,6 +272,53 @@ class TestBidderDeclProfile:
         assert issues == [], f"Bidder Decl validation issues: {issues}"
 
 
+class TestStd1000Profile:
+    """STD 1000 GenAI Reporting & FactSheet (CalVet-shared, CA GenAI disclosure)."""
+
+    def test_std1000_loads(self):
+        profiles = load_profiles()
+        assert "std1000_reytech_standard" in profiles
+        p = profiles["std1000_reytech_standard"]
+        assert p.form_type == "std1000"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []
+
+    def test_std1000_vendor_and_solicitation(self):
+        p = load_profiles()["std1000_reytech_standard"]
+        assert p.get_field("vendor.business_name") is not None
+        assert p.get_field("vendor.address") is not None
+        assert p.get_field("vendor.phone") is not None
+        assert p.get_field("quote.solicitation_number") is not None
+        assert p.get_field("quote.description") is not None
+
+    def test_std1000_genai_questions(self):
+        p = load_profiles()["std1000_reytech_standard"]
+        # 6 disclosure questions (only required when uses_yes)
+        for i in (1, 2, 3, 4, 5, 6):
+            found = any(fm.semantic.startswith(f"genai.q{i}_") for fm in p.fields)
+            assert found, f"genai.q{i}_* missing"
+
+    def test_std1000_yes_no_checkboxes(self):
+        p = load_profiles()["std1000_reytech_standard"]
+        yes = p.get_field("genai.uses_yes")
+        no = p.get_field("genai.uses_no")
+        assert yes is not None and yes.field_type == "checkbox"
+        assert no is not None and no.field_type == "checkbox"
+
+    def test_std1000_signature(self):
+        p = load_profiles()["std1000_reytech_standard"]
+        sig = p.get_field("signatures.primary")
+        assert sig is not None and sig.field_type == "signature"
+        assert p.signature_field == "Signature"
+        assert p.signature_page == 3
+        assert p.signature_mode == "image_stamp"
+
+    def test_std1000_validates_against_blank(self):
+        p = load_profiles()["std1000_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"STD1000 validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 

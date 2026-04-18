@@ -569,7 +569,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "dvbe843": "dvbe843_reytech_standard",
     "std204": "std204_reytech_standard",
     "std205": "std205_reytech_standard",
-    "std1000": "std1000_reytech_standard",            # not yet built
+    "std1000": "std1000_reytech_standard",
     "bidder_decl": "bidder_decl_reytech_standard",
     "darfur_act": "darfur_reytech_standard",
     "cv012_cuf": "cv012_cuf_reytech_standard",        # not yet built
