@@ -1,0 +1,114 @@
+# STD 204 — Payee Data Record (Reytech standard)
+# Source blank: tests/fixtures/std204_blank.pdf
+# Non-line-item form (page_row_capacities=[]).
+# Fills Reytech corporate identity + CA-resident + "other corp" entity type.
+#
+# All text-field pdf_field names below were verified against the blank's
+# AcroForm field list on 2026-04-18 and will fail the strict boot
+# validator if any become stale.
+id: std204_reytech_standard
+form_type: std204
+blank_pdf: tests/fixtures/std204_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Payee identity (Reytech Inc.) ──
+  vendor.representative_name:
+    pdf_field: "NAME (This is required. Do not leave this line blank. Must match the payee\u2019s federal tax return)"
+  vendor.business_name:
+    pdf_field: "BUSINESS NAME, DBA NAME or DISREGARDED SINGLE MEMBER LLC NAME (If different from above)"
+  vendor.fein:
+    pdf_field: "Federal Employer Identification Number (FEIN)"
+  vendor.ssn:
+    pdf_field: "Social Security Number (SSN) or"
+
+  # ── Mailing address ──
+  vendor.mailing_address:
+    pdf_field: "MAILING ADDRESS (number, street, apt. or suite no.) (See instructions on Page 2)"
+  vendor.mailing_address_line2:
+    pdf_field: "MAILING ADDRESS"
+  vendor.city:
+    pdf_field: "CITY"
+  vendor.state:
+    pdf_field: "STATE"
+  vendor.zip:
+    pdf_field: "ZIP CODE"
+  vendor.city_state_zip_combined:
+    pdf_field: "CITY STATE ZIP CODE"
+
+  # ── Contact ──
+  vendor.phone:
+    pdf_field: "TELEPHONE include area code"
+  vendor.phone_alt:
+    pdf_field: "TELEPHONE include area code_2"
+  vendor.fax:
+    pdf_field: "FAX"
+  vendor.email:
+    pdf_field: "EMAIL ADDRESS"
+  vendor.email_alt:
+    pdf_field: "EMAIL ADDRESS_2"
+  vendor.email_third:
+    pdf_field: "EMAIL ADDRESS_3"
+
+  # ── Authorized representative (signer block) ──
+  signer.name:
+    pdf_field: "NAME OF AUTHORIZED PAYEE REPRESENTATIVE"
+  signer.title:
+    pdf_field: "TITLE"
+  signer.date:
+    pdf_field: "DATE"
+
+  # ── Agency block (filled per submission) ──
+  agency.state_agency:
+    pdf_field: "STATE AGENCYDEPARTMENT OFFICE"
+  agency.unit_section:
+    pdf_field: "UNITSECTION"
+
+  # ── Entity type checkboxes (mutually exclusive group) ──
+  # Reytech = corp_other.
+  entity.sole_proprietor:
+    pdf_field: "sole"
+    type: checkbox
+  entity.single_member_llc:
+    pdf_field: "single"
+    type: checkbox
+  entity.partnership:
+    pdf_field: "partnership"
+    type: checkbox
+  entity.estate_or_trust:
+    pdf_field: "estate"
+    type: checkbox
+  entity.corp_medical:
+    pdf_field: "corpMedical"
+    type: checkbox
+  entity.corp_legal:
+    pdf_field: "corpLegal"
+    type: checkbox
+  entity.corp_exempt:
+    pdf_field: "corpExempt"
+    type: checkbox
+  entity.corp_other:
+    pdf_field: "corpOthers"
+    type: checkbox
+
+  # ── CA residency checkboxes (mutually exclusive group) ──
+  # Reytech = ca_resident.
+  residency.ca_resident:
+    pdf_field: "calRes"
+    type: checkbox
+  residency.ca_nonresident:
+    pdf_field: "calNonRes"
+    type: checkbox
+  residency.ca_nonres_waiver_copy:
+    pdf_field: "calNonResCopy"
+    type: checkbox
+  residency.ca_nonres_no_waiver:
+    pdf_field: "calNonResNo"
+    type: checkbox
+
+# ── Signature ──
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Signature4"

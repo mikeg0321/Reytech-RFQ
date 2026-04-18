@@ -57,6 +57,46 @@ class TestProfileLoading:
         assert "Row1_2" in row1_pg2["items[1].description"]
 
 
+class TestStd204Profile:
+    """STD 204 Payee Data Record (non-line-item CalVet-shared form)."""
+
+    def test_std204_loads(self):
+        profiles = load_profiles()
+        assert "std204_reytech_standard" in profiles
+        p = profiles["std204_reytech_standard"]
+        assert p.form_type == "std204"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []  # flat form, no line items
+        assert p.total_row_capacity == 0
+
+    def test_std204_has_identity_fields(self):
+        p = load_profiles()["std204_reytech_standard"]
+        assert p.get_field("vendor.business_name") is not None
+        assert p.get_field("vendor.fein") is not None
+        assert p.get_field("vendor.email") is not None
+        assert p.get_field("signer.name") is not None
+        assert p.get_field("signer.title") is not None
+
+    def test_std204_checkbox_fields_typed(self):
+        p = load_profiles()["std204_reytech_standard"]
+        for sem in ("entity.corp_other", "residency.ca_resident",
+                    "entity.sole_proprietor", "residency.ca_nonresident"):
+            fm = p.get_field(sem)
+            assert fm is not None, f"missing {sem}"
+            assert fm.field_type == "checkbox", f"{sem} should be type=checkbox"
+
+    def test_std204_signature(self):
+        p = load_profiles()["std204_reytech_standard"]
+        assert p.signature_field == "Signature4"
+        assert p.signature_page == 1
+        assert p.signature_mode == "image_stamp"
+
+    def test_std204_validates_against_blank(self):
+        p = load_profiles()["std204_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"STD204 validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 
