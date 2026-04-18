@@ -97,6 +97,50 @@ class TestStd204Profile:
         assert issues == [], f"STD204 validation issues: {issues}"
 
 
+class TestStd205Profile:
+    """STD 205 Payee Data Record Supplement (CalVet-shared, multi-remit)."""
+
+    def test_std205_loads(self):
+        profiles = load_profiles()
+        assert "std205_reytech_standard" in profiles
+        p = profiles["std205_reytech_standard"]
+        assert p.form_type == "std205"
+        assert p.fill_mode == "acroform"
+        assert p.page_row_capacities == []
+        assert p.total_row_capacity == 0
+
+    def test_std205_identity_and_remit_blocks(self):
+        p = load_profiles()["std205_reytech_standard"]
+        assert p.get_field("vendor.business_name") is not None
+        assert p.get_field("vendor.tax_id") is not None
+        # 5 remittance blocks — row 1 unsuffixed, rows 2-5 use _N suffix
+        for i in (1, 2, 3, 4, 5):
+            assert p.get_field(f"remittance[{i}].address") is not None, f"remit {i} missing"
+            assert p.get_field(f"remittance[{i}].city") is not None
+            assert p.get_field(f"remittance[{i}].state") is not None
+            assert p.get_field(f"remittance[{i}].zip") is not None
+
+    def test_std205_contact_blocks(self):
+        p = load_profiles()["std205_reytech_standard"]
+        for i in (1, 2, 3):
+            assert p.get_field(f"contacts[{i}].name") is not None, f"contact {i} missing"
+            assert p.get_field(f"contacts[{i}].phone") is not None
+            assert p.get_field(f"contacts[{i}].email") is not None
+
+    def test_std205_signature(self):
+        p = load_profiles()["std205_reytech_standard"]
+        sig = p.get_field("signatures.primary")
+        assert sig is not None and sig.field_type == "signature"
+        assert p.signature_field == "Signature3"
+        assert p.signature_page == 2
+        assert p.signature_mode == "image_stamp"
+
+    def test_std205_validates_against_blank(self):
+        p = load_profiles()["std205_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"STD205 validation issues: {issues}"
+
+
 class TestDvbe843Profile:
     """PD 843 DVBE Declarations (CalVet-shared)."""
 

@@ -1,0 +1,114 @@
+# STD 205 Payee Data Record Supplement (Reytech standard)
+# Source blank: tests/fixtures/std205_blank.pdf
+# 40 AcroForm fields, 2 pages. Supplements STD 204 when a vendor has
+# multiple remittance addresses or multiple contacts. Field naming mixes
+# unsuffixed (row 1) with `_2`.._5 suffixes for remittance blocks and
+# `_2`/`_3` for contact blocks. CalVet required_forms.
+id: std205_reytech_standard
+form_type: std205
+blank_pdf: tests/fixtures/std205_blank.pdf
+fill_mode: acroform
+page_row_capacities: []
+
+fields:
+  # ── Vendor identity (top of form) ──
+  vendor.business_name:
+    pdf_field: "nameReq1"
+  vendor.name_different:
+    pdf_field: "nameDiffAbove1"
+  vendor.tax_id:
+    pdf_field: "taxIDNumber"
+  vendor.email:
+    pdf_field: "EMAIL ADDRESS"
+
+  # ── Remittance address 1 (unsuffixed ZIPCODE1 / CITY1 / STATE1) ──
+  remittance[1].address:
+    pdf_field: "remAddress1"
+  remittance[1].city:
+    pdf_field: "CITY1"
+  remittance[1].state:
+    pdf_field: "STATE1"
+  remittance[1].zip:
+    pdf_field: "ZIPCODE1"
+
+  # ── Remittance address 2 ( _2 suffix; note "ZIP CODE_2" has space ) ──
+  remittance[2].address:
+    pdf_field: "remAddress2"
+  remittance[2].city:
+    pdf_field: "CITY_2"
+  remittance[2].state:
+    pdf_field: "STATE_2"
+  remittance[2].zip:
+    pdf_field: "ZIP CODE_2"
+
+  # ── Remittance address 3 ──
+  remittance[3].address:
+    pdf_field: "remAddress3"
+  remittance[3].city:
+    pdf_field: "CITY_3"
+  remittance[3].state:
+    pdf_field: "STATE_3"
+  remittance[3].zip:
+    pdf_field: "ZIP CODE_3"
+
+  # ── Remittance address 4 ──
+  remittance[4].address:
+    pdf_field: "remAddress4"
+  remittance[4].city:
+    pdf_field: "CITY_4"
+  remittance[4].state:
+    pdf_field: "STATE_4"
+  remittance[4].zip:
+    pdf_field: "ZIP CODE_4"
+
+  # ── Remittance address 5 ──
+  remittance[5].address:
+    pdf_field: "remAddress5"
+  remittance[5].city:
+    pdf_field: "CITY_5"
+  remittance[5].state:
+    pdf_field: "STATE_5"
+  remittance[5].zip:
+    pdf_field: "ZIP CODE_5"
+
+  # ── Contact 1 ( EMAIL breaks the pattern — no _1 suffix ) ──
+  contacts[1].name:
+    pdf_field: "contactName1"
+  contacts[1].phone:
+    pdf_field: "TELEPHONE_1"
+  contacts[1].email:
+    pdf_field: "EMAIL"
+
+  # ── Contact 2 ──
+  contacts[2].name:
+    pdf_field: "contactName2"
+  contacts[2].phone:
+    pdf_field: "TELEPHONE_2"
+  contacts[2].email:
+    pdf_field: "EMAIL_2"
+
+  # ── Contact 3 ──
+  contacts[3].name:
+    pdf_field: "contactName3"
+  contacts[3].phone:
+    pdf_field: "TELEPHONE_3"
+  contacts[3].email:
+    pdf_field: "EMAIL_3"
+
+  # ── Certification block ──
+  signer.name:
+    pdf_field: "certName"
+  signer.title:
+    pdf_field: "TITLE"
+  signer.phone:
+    pdf_field: "certTelephone"
+  signer.date:
+    pdf_field: "DATE"
+  signatures.primary:
+    pdf_field: "Signature3"
+    type: signature
+
+signature:
+  mode: image_stamp
+  page: 2
+  field: "Signature3"
