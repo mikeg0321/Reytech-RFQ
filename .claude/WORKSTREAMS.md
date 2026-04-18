@@ -15,7 +15,10 @@ Track all in-progress work across Claude Code context windows.
 | fix/amazon-garbage-title-filter | Window 2 | `C:\Users\mikeg\rfq-amazon-garbage-title-filter` | Active | Filter garbage "Amazon.com" titles so Claude tier fires + bump max_tokens | 2026-04-15 |
 | feat/quote-engine-unified | (merged) | `C:\Users\mikeg\rfq-quote-engine-unified` | Merged PR #135 | Unified quote_engine orchestrator + boot profile validator + parse_engine fix | 2026-04-17 |
 | feat/simple-submit-quote-engine | (merged) | `C:\Users\mikeg\rfq-simple-submit-quote-engine` | Merged PR #136 | Migrate routes_simple_submit.py to call quote_engine.draft (Phase 3 first route) | 2026-04-18 |
-| feat/quote-counter-unique | This window | `C:\Users\mikeg\rfq-quote-counter-unique` | PR #137 open | Quote-counter audit + UNIQUE constraint installer + JSON drift fix | 2026-04-18 |
+| feat/quote-counter-unique | (merged) | `C:\Users\mikeg\rfq-quote-counter-unique` | Merged PR #137 | Quote-counter audit + UNIQUE constraint installer + JSON drift fix | 2026-04-18 |
+| feat/deadline-alert-snooze | (merged) | `C:\Users\mikeg\rfq-deadline-alert-snooze` | Merged PR #138 | Deadline-alert snooze: localStorage persistence + Pause 30m / Pause 1h / Bypass today | 2026-04-18 |
+| fix/health-startup-shadow | (merged) | `C:\Users\mikeg\rfq-health-startup-shadow` | Merged PR #139 | Delete dashboard.py shadow of /api/health/startup so app.py rich handler wins | 2026-04-18 |
+| feat/704b-profile | This window | `C:\Users\mikeg\rfq-704b-profile` | Active | Add 704b_reytech_standard profile + blank fixture (unblocks strict boot validator) | 2026-04-18 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
