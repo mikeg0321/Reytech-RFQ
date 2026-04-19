@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional, Union
@@ -459,16 +460,115 @@ class QuoteOrchestrator:
                 merge=True,
             )
             result.package = pkg
+
+            # Strict completeness gate. finalize() warns on missing profiles
+            # but proceeds — that path silently shipped incomplete packages
+            # to operators. Block here unless every requested profile produced
+            # bytes > 0 and there are no fill errors.
+            expected = {p.id for p in profiles}
+            produced = {a.profile_id for a in pkg.artifacts if a.pdf_bytes and len(a.pdf_bytes) > 0}
+            missing_artifacts = expected - produced
+            problems: list[str] = []
+            if pkg.errors:
+                problems.extend(f"fill error: {e}" for e in pkg.errors)
+            if missing_artifacts:
+                problems.append(
+                    f"missing or empty artifacts for required profiles: {sorted(missing_artifacts)}"
+                )
+            if not pkg.merged_pdf:
+                problems.append("merged_pdf is empty (nothing to send)")
+            if problems:
+                # Raise so _try_advance records outcome="error" with reasons.
+                raise RuntimeError("generated incomplete: " + " ; ".join(problems))
+
             quote.transition(QuoteStatus.GENERATED)
             return
 
         if to_stage == "sent":
-            # The orchestrator does not send email itself — callers do that.
-            # They advance to SENT explicitly after the send succeeds.
+            send_info = self._send_package(quote, request, result)
+            # Stash send metadata so the audit row carries it.
+            result.warnings.append(
+                f"sent to {send_info['to']} ({send_info['bytes']} bytes)"
+            )
             quote.transition(QuoteStatus.SENT)
             return
 
         raise ValueError(f"No transition handler for stage: {to_stage}")
+
+    # ── Email send (sent stage) ──
+
+    def _send_package(
+        self,
+        quote: Quote,
+        request: QuoteRequest,
+        result: OrchestratorResult,
+    ) -> dict:
+        """Email the merged package to the buyer.
+
+        Idempotency: callers should not invoke this once status is SENT — the
+        orchestrator's stage-advancement guard already prevents re-entry.
+
+        Raises RuntimeError with a clear reason on any blocker so _try_advance
+        records outcome="error" with the message in the audit row.
+        """
+        to_addr = (quote.buyer.requestor_email or "").strip()
+        if not to_addr:
+            raise RuntimeError("sent: quote.buyer.requestor_email is empty")
+        pkg = result.package
+        if not pkg or not getattr(pkg, "merged_pdf", None):
+            raise RuntimeError("sent: no merged package available (run generated first)")
+        if not os.environ.get("GMAIL_PASSWORD") or not os.environ.get("GMAIL_ADDRESS"):
+            raise RuntimeError("sent: GMAIL_ADDRESS/GMAIL_PASSWORD not configured")
+
+        # Lazy imports — keep the orchestrator startable in environments
+        # that don't ship the email transport (tests, CI).
+        try:
+            from src.agents.email_poller import EmailSender
+        except Exception as e:
+            raise RuntimeError(f"sent: EmailSender unavailable: {e}")
+
+        # Persist the merged PDF to a tmp path so EmailSender (file-based) can attach it.
+        import tempfile
+        sol = (quote.header.solicitation_number or "quote").strip()
+        # Sanitize filename — solicitation numbers are operator-controlled.
+        safe_sol = re.sub(r"[^A-Za-z0-9_.-]+", "_", sol)[:40] or "quote"
+        with tempfile.NamedTemporaryFile(
+            prefix=f"reytech_pkg_{safe_sol}_", suffix=".pdf", delete=False,
+        ) as tmp:
+            tmp.write(pkg.merged_pdf)
+            attachment_path = tmp.name
+
+        agency = (quote.header.agency_key or "buyer").strip().upper()
+        first_name = (quote.buyer.requestor_name or "there").split(" ")[0] if hasattr(quote.buyer, "requestor_name") else "there"
+        subject = f"Reytech Inc. - Quote Response - Solicitation #{sol}"
+        body = (
+            f"Dear {first_name},\n\n"
+            f"Please find attached our quote response for {agency} Solicitation #{sol}.\n\n"
+            "All items are quoted F.O.B. Destination, freight prepaid and included. "
+            "Pricing is valid for 45 calendar days from the due date.\n\n"
+            "Please let us know if you have any questions.\n\n"
+            "Respectfully,"
+        )
+        draft = {
+            "to": to_addr,
+            "subject": subject,
+            "body": body,
+            "attachments": [attachment_path],
+            "solicitation": sol,
+        }
+
+        sender = EmailSender({})
+        try:
+            sender.send(draft)
+        except Exception as e:
+            raise RuntimeError(f"sent: SMTP send failed: {e}")
+
+        return {
+            "to": to_addr,
+            "subject": subject,
+            "bytes": len(pkg.merged_pdf),
+            "attachment_path": attachment_path,
+        }
 
     # ── Audit log persistence ──
 
