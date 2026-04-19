@@ -4021,6 +4021,22 @@
      const profitColor = ps.gross_profit > 0 ? '#3fb950' : (ps.gross_profit < 0 ? '#f85149' : '#8b949e');
      const marginColor = ps.margin_pct >= 20 ? '#3fb950' : (ps.margin_pct >= 10 ? '#d29922' : '#f85149');
      const panel = document.getElementById('server-profit-panel');
+     // Dual profit: when any item has a discount price, show the
+     // upside scenario right under MSRP profit so Mike can see both
+     // numbers before approving the quote.
+     let discountRow = '';
+     if (ps.discount_gross_profit !== undefined && ps.discount_gross_profit !== ps.gross_profit) {
+      const dpColor = ps.discount_gross_profit > 0 ? '#3fb950' : '#f85149';
+      const dmColor = ps.discount_margin_pct >= 20 ? '#3fb950' : (ps.discount_margin_pct >= 10 ? '#d29922' : '#f85149');
+      discountRow =
+       '<div style="font-size:14px;margin-top:6px;padding-top:6px;border-top:1px dashed #30363d">' +
+       '<span style="color:#8b949e">Discount Profit:</span> ' +
+       '<b style="color:' + dpColor + '">$' + ps.discount_gross_profit.toFixed(2) + '</b>' +
+       ' <span style="color:' + dmColor + ';font-size:13px">(' + ps.discount_margin_pct.toFixed(1) + '% margin)</span>' +
+       '<div style="font-size:11px;color:#8b949e;font-style:italic;margin-top:2px">' +
+       (ps.discount_profit_note || 'if discount holds for profit calculation') +
+       ' · ' + (ps.discount_items || 0) + ' discounted item(s)</div></div>';
+     }
      if (panel) {
       panel.innerHTML =
        '<div style="font-size:14px;text-transform:uppercase;color:#8b949e;margin-bottom:6px;letter-spacing:0.5px;font-weight:600">Saved Profit Summary</div>' +
@@ -4029,6 +4045,7 @@
        '<div style="font-size:15px;margin-top:4px"><span style="color:#8b949e">Gross Profit:</span> ' +
        '<b style="color:' + profitColor + '">$' + ps.gross_profit.toFixed(2) + '</b>' +
        ' <span style="color:' + marginColor + ';font-size:13px">(' + ps.margin_pct.toFixed(1) + '% margin)</span></div>' +
+       discountRow +
        (ps.true_margin_pct !== undefined && ps.true_margin_pct !== ps.margin_pct
          ? '<div style="font-size:13px;margin-top:2px;color:#d29922">True Margin (after ship+tax): <b>' + ps.true_margin_pct.toFixed(1) + '%</b> · Landed Cost: $' + (ps.total_landed_cost||0).toFixed(2) + ' · True Profit: $' + (ps.true_profit||0).toFixed(2) + '</div>'
          : '') +

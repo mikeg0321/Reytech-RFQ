@@ -1976,6 +1976,14 @@ def _do_save_prices(pcid):
     total_profit = 0
     total_landed_cost = 0
     costed_items = 0
+    # Discount-scenario aggregates: when an item has a sale price < MSRP, the
+    # MSRP is the conservative cost basis but the discount profit shows what
+    # we'd actually clear if the discount holds at PO time. Mike's directive
+    # 2026-04-19: surface both numbers so we don't accidentally bid against
+    # an MSRP and lose the discount upside.
+    total_discount_cost = 0
+    total_discount_profit = 0
+    discount_items = 0
     for it in items:
         if it.get("no_bid"):
             continue
@@ -1998,8 +2006,20 @@ def _do_save_prices(pcid):
                     total_landed_cost += vc * qty
             else:
                 total_landed_cost += vc * qty
+        # Discount scenario — only items where lookup_prices() recorded a
+        # distinct sale_price. Falls back to MSRP cost if no discount.
+        _pricing = it.get("pricing", {}) or {}
+        _sale = _pricing.get("amazon_sale_price")
+        _list = _pricing.get("amazon_list_price")
+        if up and _sale and _list and _sale < _list:
+            total_discount_cost += _sale * qty
+            total_discount_profit += (up - _sale) * qty
+            discount_items += 1
+        elif up and vc:
+            total_discount_cost += vc * qty
+            total_discount_profit += (up - vc) * qty
     true_profit = total_revenue - total_landed_cost
-    pc["profit_summary"] = {
+    _summary = {
         "total_revenue":    round(total_revenue, 2),
         "total_cost":       round(total_cost, 2),
         "gross_profit":     round(total_profit, 2),
@@ -2011,6 +2031,15 @@ def _do_save_prices(pcid):
         "total_items":      len([i for i in items if not i.get("no_bid")]),
         "fully_costed":     costed_items == len([i for i in items if not i.get("no_bid")]),
     }
+    if discount_items > 0:
+        _summary["discount_items"] = discount_items
+        _summary["discount_total_cost"] = round(total_discount_cost, 2)
+        _summary["discount_gross_profit"] = round(total_discount_profit, 2)
+        _summary["discount_margin_pct"] = (
+            round(total_discount_profit / total_revenue * 100, 1) if total_revenue else 0
+        )
+        _summary["discount_profit_note"] = "if discount holds for profit calculation"
+    pc["profit_summary"] = _summary
 
     # Keep parsed.line_items in sync with items (source of truth)
     if "parsed" not in pc:
