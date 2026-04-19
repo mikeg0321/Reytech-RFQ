@@ -305,6 +305,42 @@ def quoting_health_page():
     return render_page("quoting_health.html", active_page="Health", **data)
 
 
+@bp.route("/api/feature-status")
+@auth_required
+def feature_status_json():
+    """Currently-degraded features as recorded by the silent-skip rollout
+    (PRs #181-#188). Backs the dashboard banner — operators see "Claude
+    amazon lookup: degraded since 14m ago (37 hits)" without waiting for
+    the next quote run.
+
+    Stale rows (>14 days) are pruned on read so the banner doesn't carry
+    forgotten transient hits forever.
+    """
+    try:
+        from src.core import feature_status
+        days = request.args.get("prune_days", "14")
+        try:
+            prune = max(1, min(90, int(days)))
+        except (TypeError, ValueError):
+            prune = 14
+        rows = feature_status.current_status(prune_older_than_days=prune)
+        return {
+            "ok": True,
+            "count": len(rows),
+            "by_severity": {
+                "blocker": sum(1 for r in rows if r["severity"] == "blocker"),
+                "warning": sum(1 for r in rows if r["severity"] == "warning"),
+                "info":    sum(1 for r in rows if r["severity"] == "info"),
+            },
+            "rows": rows,
+        }
+    except Exception as e:
+        log.warning("feature_status read failed: %s", e)
+        # Observability failures must not break the dashboard.
+        return {"ok": False, "error": str(e), "count": 0,
+                "by_severity": {}, "rows": []}, 200
+
+
 @bp.route("/api/health/quoting")
 @auth_required
 def quoting_health_json():
