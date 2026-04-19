@@ -768,7 +768,7 @@ def sync_from_scprs_tables() -> dict:
                     record_id, po_num, item_num, desc,
                     normalize_text(desc),
                     ",".join(tokenize(desc)),
-                    r[8] or classify_category(desc),
+                    r[9] or classify_category(desc),
                     supplier, dept, price, qty,
                     round(price * qty, 2),
                     award_date, "scprs_sync", 1.0, now,
