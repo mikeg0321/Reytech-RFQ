@@ -191,6 +191,16 @@ class QuoteOrchestrator:
             return result  # blockers already populated
         result.quote = quote
 
+        # If _ingest returned a quote BUT populated blockers (terminal-legacy
+        # WON/LOST refusal — see _ingest line ~262), short-circuit. The dict
+        # source path returns the quote for inspection rather than None, so
+        # without this guard run() would proceed to _resolve_agency,
+        # _resolve_profiles, and the stage loop — adding cascading
+        # "cannot skip stages" rows on top of the real ingest blocker.
+        if result.blockers:
+            result.final_stage = quote.status.value
+            return result
+
         if target_idx < 1:
             result.final_stage = quote.status.value
             result.ok = True
