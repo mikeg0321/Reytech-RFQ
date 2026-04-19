@@ -1686,7 +1686,65 @@ def generate_rfq_package(rid):
             except Exception as e:
                 log.error("FORM FAILED calrecycle74: %s", e, exc_info=True)
                 t.warn("CalRecycle 74 failed", error=str(e))
-        
+
+        # ── DSH packet attachments (per-solicitation flat PDFs from buyer) ──
+        # AttA = bidder identity, AttB = pricing, AttC = forms checklist.
+        # Source PDFs come from the buyer (tmpl["dsh_attA"]/B/C registered by
+        # identify_attachments at upload time). Each filler returns BytesIO;
+        # we write to disk under out_dir like every other form here.
+        _dsh_specs = (
+            ("dsh_attA", "AttachmentA", "fill_dsh_attachment_a"),
+            ("dsh_attB", "AttachmentB", "fill_dsh_attachment_b"),
+            ("dsh_attC", "AttachmentC", "fill_dsh_attachment_c"),
+        )
+        if any(_include(k) or k in tmpl for k, _, _ in _dsh_specs):
+            try:
+                from src.forms.dsh_attachment_fillers import FILLERS as _DSH_FILLERS
+                _dsh_parsed = {
+                    "header": {"solicitation_number": sol},
+                    "sol_expires": r.get("due_date", "") or r.get("sol_expires", ""),
+                    "lead_time": r.get("lead_time", "") or "5-7 business days",
+                    "warranty": r.get("warranty", "") or "Per manufacturer",
+                    "dvbe_pct": r.get("dvbe_pct", "") or "100%",
+                    "items": [
+                        {
+                            "qty": it.get("qty", 0),
+                            "unit_price": it.get("price_per_unit") or it.get("unit_price") or 0,
+                        }
+                        for it in r.get("line_items", []) or []
+                    ],
+                    "other_charges": r.get("other_charges", 0) or 0,
+                }
+                for _key, _label, _fn_name in _dsh_specs:
+                    if not (_include(_key) or _key in tmpl):
+                        continue
+                    _src = tmpl.get(_key)
+                    if not _src or not os.path.exists(_src):
+                        errors.append(f"DSH {_label}: source PDF missing — buyer's {_label}.pdf must be uploaded with the RFQ")
+                        t.step(f"DSH {_label} skipped — no source PDF")
+                        continue
+                    try:
+                        _filler = _DSH_FILLERS.get(_fn_name)
+                        if _filler is None:
+                            errors.append(f"DSH {_label}: filler {_fn_name} not found")
+                            continue
+                        _buf = _filler(CONFIG, _dsh_parsed, src_pdf=_src)
+                        if _buf is None:
+                            errors.append(f"DSH {_label}: filler returned None")
+                            continue
+                        _out = f"{out_dir}/{sol}_{_label}_Reytech.pdf"
+                        with open(_out, "wb") as _df:
+                            _df.write(_buf.getvalue())
+                        output_files.append(f"{sol}_{_label}_Reytech.pdf")
+                        t.step(f"DSH {_label} filled")
+                    except Exception as _de:
+                        log.error("FORM FAILED %s: %s", _key, _de, exc_info=True)
+                        errors.append(f"DSH {_label}: {_de}")
+                        t.warn(f"DSH {_label} failed", error=str(_de))
+            except ImportError as _ie:
+                log.error("dsh_attachment_fillers import failed: %s", _ie)
+                errors.append(f"DSH attachments: filler module unavailable ({_ie})")
+
         # STD 1000 GenAI
         if _include("std1000"):
             try:

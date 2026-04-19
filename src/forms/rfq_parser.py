@@ -225,7 +225,21 @@ def identify_attachments(file_paths):
     templates = {}
     for path in file_paths:
         name = os.path.basename(path).upper()
-        if "703C" in name or "FAIR_AND_REASONABLE" in name or "FAIR AND REASONABLE" in name:
+        # DSH packet attachments — check before bidpkg ("FORMS" overlaps AttC).
+        # DSH filenames vary: "ATTACHMENT_A", "ATTACH_A", "ATTACHA", or just
+        # the role keyword (BIDDER for A, PRICING for B, FORMS+ATTACHMENT for C).
+        if ("ATTACHMENT_A" in name or "ATTACHMENT A" in name
+                or "ATTACH_A" in name or "ATTACHA" in name
+                or ("BIDDER" in name and "DSH" in name)):
+            templates["dsh_attA"] = path
+        elif ("ATTACHMENT_B" in name or "ATTACHMENT B" in name
+                or "ATTACH_B" in name or "ATTACHB" in name
+                or ("PRICING" in name and "DSH" in name)):
+            templates["dsh_attB"] = path
+        elif ("ATTACHMENT_C" in name or "ATTACHMENT C" in name
+                or "ATTACH_C" in name or "ATTACHC" in name):
+            templates["dsh_attC"] = path
+        elif "703C" in name or "FAIR_AND_REASONABLE" in name or "FAIR AND REASONABLE" in name:
             templates["703c"] = path
         elif "704B" in name or "QUOTE_WORKSHEET" in name or "WORKSHEET" in name:
             templates["704b"] = path
