@@ -558,6 +558,13 @@ class QuoteOrchestrator:
         to_addr = (quote.buyer.requestor_email or "").strip()
         if not to_addr:
             raise RuntimeError("sent: quote.buyer.requestor_email is empty")
+        # Both header fields fed the email subject/body via fallback ("quote",
+        # "buyer") — refuse to ship a real email with placeholder text.
+        sol_check = (quote.header.solicitation_number or "").strip()
+        if not sol_check:
+            raise RuntimeError("sent: quote.header.solicitation_number is empty")
+        if not (quote.header.agency_key or "").strip():
+            raise RuntimeError("sent: quote.header.agency_key is empty")
         pkg = result.package
         if not pkg or not getattr(pkg, "merged_pdf", None):
             raise RuntimeError("sent: no merged package available (run generated first)")
