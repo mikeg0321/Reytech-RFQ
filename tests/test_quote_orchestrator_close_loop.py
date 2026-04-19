@@ -180,10 +180,15 @@ class TestSentStageRealSend:
         orch = QuoteOrchestrator(persist_audit=False)
 
         sent_drafts: list = []
+        captured_bytes: list = []
 
         class FakeSender:
             def __init__(self, _config): pass
             def send(self, draft):
+                # Read the attachment now — orchestrator unlinks the tmp file
+                # in its `finally` after we return.
+                with open(draft["attachments"][0], "rb") as f:
+                    captured_bytes.append(f.read())
                 sent_drafts.append(draft)
 
         with patch.dict(os.environ, {"GMAIL_ADDRESS": "sales@reytechinc.com", "GMAIL_PASSWORD": "x"}):
@@ -197,9 +202,7 @@ class TestSentStageRealSend:
         assert draft["to"] == "buyer@cchcs.ca.gov"
         assert "R26Q0042" in draft["subject"]
         assert len(draft["attachments"]) == 1
-        # The attachment must be a real file with the merged PDF bytes.
-        with open(draft["attachments"][0], "rb") as f:
-            assert f.read() == b"%PDF-1.4 merged-fake"
+        assert captured_bytes[0] == b"%PDF-1.4 merged-fake"
 
     def test_sent_propagates_smtp_failure_as_error(self):
         quote, result = self._generated_quote_with_package()

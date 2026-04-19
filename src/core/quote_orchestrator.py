@@ -572,47 +572,53 @@ class QuoteOrchestrator:
             raise RuntimeError(f"sent: EmailSender unavailable: {e}")
 
         # Persist the merged PDF to a tmp path so EmailSender (file-based) can attach it.
+        # Cleaned up in finally — long-running prod processes were leaking ~PDF/quote.
         import tempfile
         sol = (quote.header.solicitation_number or "quote").strip()
         # Sanitize filename — solicitation numbers are operator-controlled.
         safe_sol = re.sub(r"[^A-Za-z0-9_.-]+", "_", sol)[:40] or "quote"
-        with tempfile.NamedTemporaryFile(
-            prefix=f"reytech_pkg_{safe_sol}_", suffix=".pdf", delete=False,
-        ) as tmp:
-            tmp.write(pkg.merged_pdf)
-            attachment_path = tmp.name
-
-        agency = (quote.header.agency_key or "buyer").strip().upper()
-        first_name = (quote.buyer.requestor_name or "there").split(" ")[0] if hasattr(quote.buyer, "requestor_name") else "there"
-        subject = f"Reytech Inc. - Quote Response - Solicitation #{sol}"
-        body = (
-            f"Dear {first_name},\n\n"
-            f"Please find attached our quote response for {agency} Solicitation #{sol}.\n\n"
-            "All items are quoted F.O.B. Destination, freight prepaid and included. "
-            "Pricing is valid for 45 calendar days from the due date.\n\n"
-            "Please let us know if you have any questions.\n\n"
-            "Respectfully,"
+        fd, attachment_path = tempfile.mkstemp(
+            prefix=f"reytech_pkg_{safe_sol}_", suffix=".pdf",
         )
-        draft = {
-            "to": to_addr,
-            "subject": subject,
-            "body": body,
-            "attachments": [attachment_path],
-            "solicitation": sol,
-        }
-
-        sender = EmailSender({})
         try:
-            sender.send(draft)
-        except Exception as e:
-            raise RuntimeError(f"sent: SMTP send failed: {e}")
+            with os.fdopen(fd, "wb") as tmp:
+                tmp.write(pkg.merged_pdf)
 
-        return {
-            "to": to_addr,
-            "subject": subject,
-            "bytes": len(pkg.merged_pdf),
-            "attachment_path": attachment_path,
-        }
+            agency = (quote.header.agency_key or "buyer").strip().upper()
+            first_name = (quote.buyer.requestor_name or "there").split(" ")[0] if hasattr(quote.buyer, "requestor_name") else "there"
+            subject = f"Reytech Inc. - Quote Response - Solicitation #{sol}"
+            body = (
+                f"Dear {first_name},\n\n"
+                f"Please find attached our quote response for {agency} Solicitation #{sol}.\n\n"
+                "All items are quoted F.O.B. Destination, freight prepaid and included. "
+                "Pricing is valid for 45 calendar days from the due date.\n\n"
+                "Please let us know if you have any questions.\n\n"
+                "Respectfully,"
+            )
+            draft = {
+                "to": to_addr,
+                "subject": subject,
+                "body": body,
+                "attachments": [attachment_path],
+                "solicitation": sol,
+            }
+
+            sender = EmailSender({})
+            try:
+                sender.send(draft)
+            except Exception as e:
+                raise RuntimeError(f"sent: SMTP send failed: {e}")
+
+            return {
+                "to": to_addr,
+                "subject": subject,
+                "bytes": len(pkg.merged_pdf),
+            }
+        finally:
+            try:
+                os.unlink(attachment_path)
+            except OSError:
+                pass
 
     # ── Audit log persistence ──
 
