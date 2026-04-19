@@ -1,0 +1,39 @@
+id: 703b_reytech_standard
+form_type: 703b
+blank_pdf: tests/fixtures/703b_blank.pdf
+fill_mode: acroform
+
+fields:
+  buyer.name:                  {pdf_field: "703B_Name"}
+  buyer.phone:                 {pdf_field: "703B_Phone_2"}
+  buyer.email:                 {pdf_field: "703B_Email_2"}
+  buyer.solicitation_number:   {pdf_field: "703B_Solicitation Number"}
+  buyer.release_date:          {pdf_field: "703B_Release Date"}
+  buyer.due_date:              {pdf_field: "703B_Due Date"}
+  buyer.institution:           {pdf_field: "703B_Dropdown2"}
+
+  vendor.business_name:        {pdf_field: "703B_Business Name"}
+  vendor.address:              {pdf_field: "703B_Address"}
+  vendor.contact_person:       {pdf_field: "703B_Contact Person"}
+  vendor.title:                {pdf_field: "703B_Title"}
+  vendor.phone:                {pdf_field: "703B_Phone"}
+  vendor.fax:                  {pdf_field: "703B_Fax"}
+  vendor.email:                {pdf_field: "703B_Email"}
+  vendor.fein:                 {pdf_field: "703B_Federal Employer Identification Number FEIN"}
+  vendor.sellers_permit:       {pdf_field: "703B_Retailers CA Sellers Permit Number"}
+  vendor.cert_number:          {pdf_field: "703B_SBMBDVBE Certification.0"}
+  vendor.cert_expiration:      {pdf_field: "703B_Certification Expiration Date"}
+  vendor.delivery_days:        {pdf_field: "703B_Deliveries must be completed within"}
+  vendor.payment_terms_days:   {pdf_field: "703B_days of receipt"}
+  vendor.payment_discount_pct: {pdf_field: "703B_Payment discount offered on invoices to be paid within"}
+  vendor.bid_expiration_date:  {pdf_field: "703B_BidExpirationDate"}
+  vendor.signature_date:       {pdf_field: "703B_Sign_Date"}
+
+# 703B Rev 03/2025 has no /Sig AcroForm field — signature is placed via
+# positional overlay at the "Bidder Signature" line. See
+# src/forms/reytech_filler_v4.py::_703b_overlay_signature. The profile
+# declares the logical slot; the legacy overlay handles placement.
+signature:
+  mode: overlay
+  page: 1
+  field: ""

@@ -444,6 +444,47 @@ class TestCalRecycle74Profile:
         assert issues == [], f"CalRecycle 74 validation issues: {issues}"
 
 
+class Test703bProfile:
+    """CCHCS 703B (bidder certification / sub-contracting response)."""
+
+    def test_703b_loads(self):
+        profiles = load_profiles()
+        assert "703b_reytech_standard" in profiles, (
+            "CCHCS 703b profile missing — backfill warnings will show "
+            "'missing profile: 703b_reytech_standard' in the orchestrator"
+        )
+        p = profiles["703b_reytech_standard"]
+        assert p.form_type == "703b"
+        assert p.fill_mode == "acroform"
+
+    def test_703b_vendor_and_buyer_fields(self):
+        p = load_profiles()["703b_reytech_standard"]
+        for key in (
+            "vendor.business_name", "vendor.address", "vendor.contact_person",
+            "vendor.fein", "vendor.sellers_permit", "vendor.cert_number",
+            "vendor.cert_expiration", "vendor.signature_date",
+            "buyer.name", "buyer.solicitation_number", "buyer.due_date",
+        ):
+            assert p.get_field(key) is not None, f"703B missing {key}"
+
+    def test_703b_field_names_match_blank(self):
+        """Ground-truth field names from the blank must match the YAML."""
+        from pypdf import PdfReader
+        p = load_profiles()["703b_reytech_standard"]
+        reader = PdfReader(p.blank_pdf)
+        pdf_fields = set((reader.get_fields() or {}).keys())
+        for fm in p.fields:
+            assert fm.pdf_field in pdf_fields, (
+                f"703B YAML references '{fm.pdf_field}' (semantic {fm.semantic}) "
+                f"but that field doesn't exist in {p.blank_pdf}"
+            )
+
+    def test_703b_validates_against_blank(self):
+        p = load_profiles()["703b_reytech_standard"]
+        issues = validate_profile(p)
+        assert issues == [], f"703B validation issues: {issues}"
+
+
 class TestProfileValidation:
     """Profile validation against blank PDFs."""
 
