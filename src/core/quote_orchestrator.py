@@ -224,7 +224,15 @@ class QuoteOrchestrator:
 
         # Dict source: legacy round-trip via Quote.from_legacy_dict
         if isinstance(request.source, dict):
-            quote = Quote.from_legacy_dict(request.source, doc_type=request.doc_type)
+            try:
+                quote = Quote.from_legacy_dict(request.source, doc_type=request.doc_type)
+            except Exception as e:
+                # Honor the run() docstring contract: never raise on bad
+                # business input. Surface as a blocker so the route gets a
+                # clean OrchestratorResult instead of a 500.
+                result.blockers.append(f"ingest: legacy dict parse failed: {type(e).__name__}: {e}")
+                log.error("orchestrator ingest: from_legacy_dict raised", exc_info=True)
+                return None
             if request.solicitation_number:
                 quote.header.solicitation_number = request.solicitation_number
             if request.agency_key:
@@ -237,7 +245,12 @@ class QuoteOrchestrator:
 
         # PDF source: delegate to quote_engine.ingest (wraps parse_engine)
         if isinstance(request.source, str):
-            quote, warnings = quote_engine.ingest(request.source, doc_type=request.doc_type)
+            try:
+                quote, warnings = quote_engine.ingest(request.source, doc_type=request.doc_type)
+            except Exception as e:
+                result.blockers.append(f"ingest: PDF parse failed: {type(e).__name__}: {e}")
+                log.error("orchestrator ingest: quote_engine.ingest raised", exc_info=True)
+                return None
             if request.solicitation_number and not quote.header.solicitation_number:
                 quote.header.solicitation_number = request.solicitation_number
             if request.agency_key and not quote.header.agency_key:
