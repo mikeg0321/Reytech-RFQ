@@ -1959,6 +1959,39 @@
       }
       html+='</div></div>';
 
+      // Intelligence Signals — V3/V5 features (win anchor, calibration,
+      // institution profile, buyer curve, volume-aware band). All optional;
+      // each block only renders when the engine populated it.
+      var intel = '';
+      if(rec.win_anchor){
+        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#a78bfa">⚓ Win Anchor</span><b style="color:#a78bfa">'+_p(rec.win_anchor.price)+' ('+rec.win_anchor.times+'× won)</b></div>';
+      }
+      if(rec.calibration){
+        var cal=rec.calibration;
+        var calColor=cal.win_rate>=60?'#3fb950':cal.win_rate>=40?'#d29922':'#f85149';
+        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">📊 '+(cal.category||'Category')+' calibration</span><b style="color:'+calColor+'">'+cal.win_rate+'% win · max '+cal.recommended_max_markup+'% markup</b></div>';
+        intel+='<div style="font-size:11px;color:#484f58;margin-left:14px">'+cal.sample_size+' samples'+(cal.source==='buyer_curve_v5_5'?' · buyer-curve override':'')+(cal.blended_with_institution?' · blended w/ institution':'')+'</div>';
+      }
+      if(rec.institution_profile){
+        var ip=rec.institution_profile;
+        var sensColor=ip.price_sensitivity==='high'?'#f85149':ip.price_sensitivity==='medium'?'#d29922':'#3fb950';
+        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">🏛️ '+ip.institution+' profile</span><b style="color:'+sensColor+'">'+ip.price_sensitivity+' sensitivity · '+ip.win_rate+'% win</b></div>';
+        intel+='<div style="font-size:11px;color:#484f58;margin-left:14px">avg winning markup '+ip.avg_winning_markup+'% · '+ip.sample_size+' quotes</div>';
+      }
+      if(rec.buyer_curve){
+        var bc=rec.buyer_curve;
+        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">📈 EV-optimal markup</span><b style="color:#58a6ff">'+bc.optimal_markup_pct+'% · P(win) '+Math.round(bc.win_probability*100)+'%</b></div>';
+        intel+='<div style="font-size:11px;color:#484f58;margin-left:14px">'+bc.won+' won / '+bc.lost+' lost · expected value '+bc.expected_value.toFixed(2)+'</div>';
+      }
+      if(d.volume_aware_band){
+        var vb=d.volume_aware_band;
+        intel+='<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="color:#8b949e">📦 Volume band ('+(vb.qty_bucket||'qty')+')</span><b style="color:#c9d1d9">'+(vb.p25_markup||0).toFixed(0)+'% – '+(vb.p75_markup||0).toFixed(0)+'%</b></div>';
+        if(vb.sample_size)intel+='<div style="font-size:11px;color:#484f58;margin-left:14px">'+vb.sample_size+' historical lines</div>';
+      }
+      if(intel){
+        html+='<div style="margin-top:12px;padding:10px 12px;border:1px solid #30363d;border-radius:6px;background:#0d1117"><div style="font-weight:700;color:#a78bfa;margin-bottom:6px">🧠 Intelligence Signals</div>'+intel+'</div>';
+      }
+
       // Competitors table
       if(d.competitors&&d.competitors.length){
        html+='<div style="margin-top:12px;padding-top:10px;border-top:1px solid #30363d"><div style="font-weight:700;color:#f0883e;margin-bottom:6px">Competitor Prices ('+d.competitors.length+')</div>';
