@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_components.html" as ui %}
 {% block title %}Reytech RFQ Dashboard{% endblock %}
 
 {% block content %}
@@ -1038,14 +1039,21 @@ function _renderRevenue(d){
  <div class="bento bento-2e" style="margin-bottom:14px">
   <div class="card kpi-panel" style="padding:16px;margin:0">
    <div class="kpi-panel-title">Monthly Revenue Goal</div>
-   <div style="display:flex;align-items:flex-end;gap:12px;margin:12px 0 8px">
-    <span id="goal-current" class="kpi-big" style="color:var(--gn)">$0</span>
-    <span style="font-size:13px;color:var(--tx2)">of <span id="goal-target">$25,000</span></span>
-   </div>
-   <div class="progress-track"><div class="progress-fill" id="goal-bar" style="width:0%"></div></div>
-   <div style="display:flex;justify-content:space-between;margin-top:6px">
-    <span class="kpi-sub" id="goal-pct">0%</span>
-    <span class="kpi-sub" id="goal-remaining">$25,000 remaining</span>
+   <div class="tw-flex tw-items-center tw-gap-4" style="margin:12px 0 8px">
+    {{ ui.progress_ring(value=0, max=100, size=72,
+                        color='var(--gn)', label='0%',
+                        sublabel='of goal', id='goal-ring') }}
+    <div class="tw-grow">
+     <div style="display:flex;align-items:flex-end;gap:12px">
+      <span id="goal-current" class="kpi-big" style="color:var(--gn)">$0</span>
+      <span style="font-size:13px;color:var(--tx2)">of <span id="goal-target">$25,000</span></span>
+     </div>
+     <div class="progress-track" style="margin-top:8px"><div class="progress-fill" id="goal-bar" style="width:0%"></div></div>
+     <div style="display:flex;justify-content:space-between;margin-top:6px">
+      <span class="kpi-sub" id="goal-pct">0%</span>
+      <span class="kpi-sub" id="goal-remaining">$25,000 remaining</span>
+     </div>
+    </div>
    </div>
   </div>
   <div class="card kpi-panel" style="padding:16px;margin:0">
@@ -1255,8 +1263,23 @@ function _renderMetrics(data){
  var remaining=Math.max((rev.monthly_goal||25000)-(rev.this_month||0),0);
  document.getElementById('goal-remaining').textContent='$'+remaining.toLocaleString(undefined,{maximumFractionDigits:0})+' remaining';
  var bar=document.getElementById('goal-bar');
- bar.style.width=Math.min(rev.goal_pct||0,100)+'%';
- bar.style.background=rev.goal_pct>=100?'var(--gn)':rev.goal_pct>=50?'var(--ac)':'var(--yl)';
+ var pct=Math.min(rev.goal_pct||0,100);
+ bar.style.width=pct+'%';
+ var goalColor=rev.goal_pct>=100?'var(--gn)':rev.goal_pct>=50?'var(--ac)':'var(--yl)';
+ bar.style.background=goalColor;
+ // Sync the SVG progress ring next to the bar.
+ var ringWrap=document.getElementById('goal-ring');
+ if(ringWrap){
+  var ringFill=ringWrap.querySelector('.ring-fill');
+  if(ringFill){
+   var dash=parseFloat(ringFill.getAttribute('stroke-dasharray'))||0;
+   ringFill.setAttribute('stroke-dashoffset',(dash*(1-pct/100)).toFixed(2));
+   ringFill.setAttribute('stroke',goalColor);
+  }
+  var lbl=ringWrap.querySelector('.ring-label');
+  if(lbl) lbl.textContent=Math.round(pct)+'%';
+  ringWrap.setAttribute('aria-valuenow',Math.round(rev.this_month||0));
+ }
 
  // Funnel — clean business pipeline
  var fn=data.funnel||{};

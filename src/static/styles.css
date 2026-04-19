@@ -343,5 +343,39 @@ textarea:focus-visible,
  .progress-fill{transition:none}
  .rfq-i:hover{transform:none}
  .btn,.hdr-btn,.notif-bell{transition:none}
+ .ring-fill{transition:none!important}
  *{transition-duration:0s!important;animation-duration:0s!important}
 }
+
+/* ═══ Batch H: SVG progress ring + Tailwind-style utilities ═════════════════
+   Used by src/templates/_components.html. Centre overlay text is positioned
+   absolutely so the SVG rotation (-90deg, to start the arc at 12 o'clock)
+   doesn't drag the label with it. */
+.ring-center{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;line-height:1;
+  pointer-events:none}
+.ring-label{font-size:13px;font-weight:700;color:var(--tx);
+  font-family:'JetBrains Mono',monospace}
+.ring-sub{font-size:10px;color:var(--tx2);margin-top:2px;letter-spacing:.3px}
+
+/* Compact, additive Tailwind-equivalent utility set. Names use the tw-
+   prefix so they never collide with existing classes — and so a future
+   Tailwind build (real, with PurgeCSS) can shadow them by removing the
+   prefix. Limited to the subset templates actually need. */
+.tw-card{background:var(--sf);border:1px solid var(--bd);border-radius:8px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.tw-stat-label{font-size:12px;font-weight:600;color:var(--tx2);
+  text-transform:uppercase;letter-spacing:.5px}
+.tw-stat-value{font-size:22px;font-weight:700;
+  font-family:'JetBrains Mono',monospace;color:var(--tx);line-height:1.1}
+.tw-stat-sub{font-size:12px;color:var(--tx2)}
+.tw-flex{display:flex}
+.tw-flex-col{display:flex;flex-direction:column}
+.tw-items-center{align-items:center}
+.tw-justify-between{justify-content:space-between}
+.tw-gap-2{gap:8px}
+.tw-gap-3{gap:12px}
+.tw-gap-4{gap:16px}
+.tw-mt-2{margin-top:8px}
+.tw-mt-3{margin-top:12px}
+.tw-grow{flex:1 1 auto;min-width:0}
