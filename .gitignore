@@ -19,6 +19,7 @@ Thumbs.db
 uploads/
 output/
 artifacts/
+tmp/
 
 # ── Sensitive / auth tokens (never commit) ───────────────────────────────────
 data/qb_tokens.json
