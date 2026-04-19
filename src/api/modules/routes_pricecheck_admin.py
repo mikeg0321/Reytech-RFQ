@@ -2556,6 +2556,50 @@ def api_find_better_pricing(pcid, idx):
     return jsonify(result)
 
 
+@bp.route("/api/pricecheck/<pcid>/competitor-scan/<int:idx>", methods=["POST"])
+@auth_required
+@safe_route
+def api_competitor_scan(pcid, idx):
+    """Quick competitor price scan for a single item — returns top results from web search."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+    items = pc.get("items") or []
+    if idx < 0 or idx >= len(items):
+        return jsonify({"ok": False, "error": "Item not found"}), 404
+    item = items[idx]
+    p = item.get("pricing") or {}
+    desc = (item.get("description") or "").strip()
+    mfg = (item.get("mfg_number") or p.get("mfg_number") or "").strip()
+    qty = item.get("qty", 1) or 1
+    uom = (item.get("uom") or "EA").upper()
+    if not desc and not mfg:
+        return jsonify({"ok": False, "error": "No description or MFG#"}), 400
+
+    try:
+        from src.agents.web_price_research import search_product_price
+        res = search_product_price(description=desc, part_number=mfg, qty=qty, uom=uom)
+    except Exception as e:
+        log.error("competitor-scan error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    if not res.get("found"):
+        return jsonify({"ok": True, "found": False, "competitors": [],
+                        "reason": res.get("error") or "No competitor prices found"})
+
+    competitors = (res.get("options") or [])[:3]
+    return jsonify({
+        "ok": True,
+        "found": True,
+        "competitors": competitors,
+        "best_price": res.get("price"),
+        "best_source": res.get("source"),
+        "best_url": res.get("url"),
+        "cached": bool(res.get("cached")),
+    })
+
+
 @bp.route("/api/pc/health-check", methods=["POST"])
 @auth_required
 @safe_route
