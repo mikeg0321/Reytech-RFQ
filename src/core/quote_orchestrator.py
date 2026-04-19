@@ -489,8 +489,26 @@ class QuoteOrchestrator:
             compliance_blocked = compliance_gap.get("blockers", []) if isinstance(compliance_gap, dict) else []
 
             if any_fill_error or any_qa_fail or compliance_blocked:
-                # Stay in PRICED — don't advance. Caller sees the report.
-                return
+                # Surface concrete reasons via the audit row instead of a
+                # silent return. Previously this produced a useless generic
+                # "transition ran but status is priced, expected qa_pass"
+                # blocker — operators had to dig into result.compliance_report
+                # to find out which form/check actually failed.
+                problems: list[str] = []
+                for r in per_form:
+                    pid = r.get("profile_id", "?")
+                    if not r.get("filled", False):
+                        problems.append(f"{pid}: fill failed: {r.get('error', 'unknown')}")
+                    elif not r.get("qa_passed", False):
+                        errs = r.get("errors") or ["qa failed (no errors reported)"]
+                        for e in errs:
+                            problems.append(f"{pid}: qa: {e}")
+                for b in compliance_blocked:
+                    problems.append(f"compliance: {b}")
+                # result.compliance_report is already populated above —
+                # raise lets _try_advance record outcome="error" with the
+                # specific reasons, while preserving the structured report.
+                raise RuntimeError("qa_pass incomplete: " + " ; ".join(problems))
             quote.transition(QuoteStatus.QA_PASS)
             return
 
