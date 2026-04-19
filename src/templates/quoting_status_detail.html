@@ -23,10 +23,22 @@
       {% endif %}
     </div>
     {% if trail %}
-    <a href="/api/quoting/status/{{ doc_id }}/export.csv"
-       style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
-      Export trail CSV
-    </a>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <a href="/api/quoting/status/{{ doc_id }}/export.csv"
+         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
+        Export CSV
+      </a>
+      <a href="/api/quoting/status/{{ doc_id }}"
+         target="_blank" rel="noopener"
+         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
+        Export JSON
+      </a>
+      <button id="qs-copy-trail" type="button"
+              title="Copy trail as plain text (for email/tickets)"
+              style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap">
+        Copy trail
+      </button>
+    </div>
     {% endif %}
   </div>
 
@@ -331,6 +343,39 @@
   })();
   </script>
   {% endif %}
+
+  <script>
+  (function() {
+    var btn = document.getElementById('qs-copy-trail');
+    if (!btn) return;
+    var docId = {{ doc_id|tojson }};
+    var trail = {{ trail|tojson }};
+    btn.addEventListener('click', function() {
+      var lines = [];
+      lines.push('Quote trail: ' + docId);
+      lines.push('='.repeat(50));
+      (trail || []).forEach(function(t, i) {
+        lines.push((i + 1) + '. [' + (t.at || '?') + '] ' +
+                   (t.stage_from || '·') + ' -> ' + (t.stage_to || '?') +
+                   '  (' + t.outcome + ')');
+        (t.reasons || []).forEach(function(r) { lines.push('   - ' + r); });
+      });
+      var text = lines.join('\n');
+      var done = function() {
+        var orig = btn.textContent;
+        btn.textContent = 'Copied ✓';
+        setTimeout(function() { btn.textContent = orig; }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function() {
+          prompt('Copy manually:', text);
+        });
+      } else {
+        prompt('Copy manually:', text);
+      }
+    });
+  })();
+  </script>
 
   {% endif %}
 
