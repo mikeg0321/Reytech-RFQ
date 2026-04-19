@@ -197,6 +197,15 @@ def _scrape_generic(url: str) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+    # 4xx/5xx pages still have a <title> ("404 Not Found", "Whoops, we
+    # couldn't find that") that the parser would happily lift as a
+    # product name. Empirical incident 2026-04-19: Grainger and Waxie
+    # 404 pages were returning verdict=TITLE_ONLY with the 404 string
+    # as the product title. Refuse to parse non-200 responses.
+    if resp.status_code != 200:
+        return {"error": f"HTTP {resp.status_code} from {url}",
+                "status_code": resp.status_code}
+
     result = {}
 
     # Title
@@ -1707,6 +1716,17 @@ _GARBAGE_TITLE_MARKERS = (
     "just a moment", "cloudflare", "attention required",
     "staples", "uline", "target", "hcl", "home depot",
     "the home depot", "walmart.com", "costco wholesale",
+    # Empirical finds 2026-04-19 — bot-stub / 404 / footer titles
+    # that the generic scraper was passing through as product names.
+    "whoops", "we couldn't find", "we cannot find", "we can't find",
+    "follow us", "follow us on facebook", "follow us on instagram",
+    "accessibility menu", "accessibility statement",
+    "dialog, popup", "dialog popup",
+    "mcmaster-carr", "mcmaster",
+    "fisher scientific", "thermo fisher",
+    "grainger", "concordance", "waxie",
+    "henry schein", "medline", "bound tree",
+    "file or directory not found",
 )
 
 
@@ -1743,6 +1763,19 @@ def _is_garbage_title(title: str) -> bool:
     # Bare brand names ("Amazon.com", "Uline", "Staples", "HCL")
     if t in _GARBAGE_TITLE_MARKERS:
         return True
+    # Phrases that ALWAYS mean "not a product page", regardless of length.
+    # Empirical 2026-04-19: Grainger 404 returns "Whoops, we couldn't find
+    # that." (31 chars) which was bypassing the len<30 gate below.
+    _ALWAYS_GARBAGE = (
+        "whoops", "we couldn't find", "we cannot find", "we can't find",
+        "page not found", "not found", "404", "file or directory",
+        "access denied", "robot check", "captcha", "are you a robot",
+        "just a moment", "attention required", "follow us on",
+        "accessibility menu", "dialog, popup", "dialog popup",
+    )
+    for m in _ALWAYS_GARBAGE:
+        if m in t:
+            return True
     # Short titles (< 30 chars) that contain a stub marker are garbage.
     # A real product title is almost always longer AND contains product
     # specifics (size, pack count, material) beyond the brand/stub word.
@@ -1913,6 +1946,35 @@ def _merge_claude_fallback(result: dict, url: str, supplier: str) -> dict:
     return result
 
 
+def _stamp_ref_identifier(desc: str, asin: str = "", upc: str = "") -> str:
+    """Append `REF ASIN:<x>` or `REF UPC:<x>` to a description, idempotent.
+
+    Mike's rule (feedback_item_identity): every catalog/quote line that
+    has a known canonical identifier should carry it on the description
+    so operators can spot the link back to the source product even when
+    the supplier URL is gone (rotated, expired, blocked).
+
+    ASIN preferred over UPC (Amazon is the dominant lookup path).
+    Returns the description unchanged when no identifier is available
+    or when the same identifier is already stamped on the description.
+    """
+    desc = (desc or "").strip()
+    asin = (asin or "").strip()
+    upc = (upc or "").strip()
+    if not desc:
+        return desc
+    # Idempotency — don't re-stamp on repeat lookups
+    if asin and (f"REF ASIN:{asin}" in desc or f"REF:ASIN:{asin}" in desc):
+        return desc
+    if upc and (f"REF UPC:{upc}" in desc or f"REF:UPC:{upc}" in desc):
+        return desc
+    if asin:
+        return f"{desc} (REF ASIN:{asin})"
+    if upc:
+        return f"{desc} (REF UPC:{upc})"
+    return desc
+
+
 def lookup_from_url(url: str) -> dict:
     """
     Given any supplier product URL, return structured product data.
@@ -2062,6 +2124,18 @@ def lookup_from_url(url: str) -> dict:
         # Fall back to title if still empty
         if not result["description"] and result["title"]:
             result["description"] = result["title"]
+
+        # ── Stamp REF: ASIN/UPC onto the description ─────────────────
+        # Mike 2026-04-19: "for catalog, URL should add REF: ASIN or
+        # UPC when known". Stamping at lookup time means every
+        # downstream writer (catalog, PC item, RFQ line) inherits the
+        # canonical identifier without each call site having to
+        # remember. Idempotent — won't re-stamp if already present.
+        result["description"] = _stamp_ref_identifier(
+            result.get("description", ""),
+            asin=result.get("asin", ""),
+            upc=result.get("upc", ""),
+        )
 
         result["ok"] = "error" not in result and bool(
             result.get("title") or result.get("price"))
