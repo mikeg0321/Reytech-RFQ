@@ -2313,6 +2313,9 @@ def lookup_prices(parsed_pc: dict) -> dict:
         desc = item["description"]
         pricing = {
             "amazon_price": None,
+            "amazon_list_price": None,    # MSRP — stable, used as cost basis
+            "amazon_sale_price": None,    # current discount, may expire
+            "amazon_discount_pct": None,
             "amazon_title": "",
             "amazon_url": "",
             "amazon_asin": "",
@@ -2321,12 +2324,32 @@ def lookup_prices(parsed_pc: dict) -> dict:
             "price_source": None,
         }
 
-        # 1. Search Amazon
+        # 1. Search Amazon — capture list_price + sale_price separately
+        # Mike 2026-04-19: "should bring in MSRP/list price BEFORE
+        # discount price. if discount, log it as 'if discount holds for
+        # profit calculation'". Using list_price as the canonical
+        # `amazon_price` means downstream Oracle / markup calcs default
+        # to the stable MSRP; sale_price is preserved on the side so
+        # the UI can render the discount-profit indicator separately.
         if HAS_RESEARCH:
             try:
                 research = research_product(description=desc)
                 if research.get("found"):
-                    pricing["amazon_price"] = research["price"]
+                    _list = research.get("list_price")
+                    _sale = research.get("sale_price")
+                    _generic = research.get("price")
+                    # Prefer list (MSRP) over sale; fall back to generic
+                    # 'price' field (older callers don't split list/sale)
+                    pricing["amazon_list_price"] = _list or _generic
+                    pricing["amazon_sale_price"] = _sale if (_sale and _list and _sale != _list) else None
+                    pricing["amazon_price"] = pricing["amazon_list_price"]  # MSRP-first cost basis
+                    if pricing["amazon_list_price"] and pricing["amazon_sale_price"]:
+                        try:
+                            pricing["amazon_discount_pct"] = round(
+                                (1 - pricing["amazon_sale_price"] / pricing["amazon_list_price"]) * 100, 1
+                            )
+                        except (TypeError, ZeroDivisionError):
+                            pricing["amazon_discount_pct"] = None
                     pricing["amazon_title"] = research.get("title", "")
                     pricing["amazon_url"] = research.get("url", "")
                     pricing["amazon_asin"] = research.get("asin", "")
@@ -2350,7 +2373,7 @@ def lookup_prices(parsed_pc: dict) -> dict:
             except Exception as e:
                 log.error(f"SCPRS lookup error for '{desc[:50]}': {e}")
 
-        # 3. Run Pricing Oracle V2
+        # 3. Run Pricing Oracle V2 — uses MSRP (list_price) as cost
         supplier_cost = pricing["amazon_price"]
         if supplier_cost:
             try:
@@ -2370,6 +2393,34 @@ def lookup_prices(parsed_pc: dict) -> dict:
         # Fallback: if oracle didn't run, use cost + 25% markup
         if not pricing["recommended_price"] and supplier_cost:
             pricing["recommended_price"] = round(supplier_cost * 1.25, 2)
+
+        # ── Dual profit indicators ──────────────────────────────────
+        # Mike 2026-04-19: "two profit indicators profit and discount
+        # profit". Standard profit uses MSRP (list_price) as cost;
+        # discount profit assumes the discount holds and uses the
+        # sale_price as cost — this is the operator's "if discount
+        # holds for profit calculation" indicator.
+        _qty = item.get("qty", 1) or 1
+        _rec = pricing.get("recommended_price")
+        _list = pricing.get("amazon_list_price")
+        _sale = pricing.get("amazon_sale_price")
+        if _rec and _list:
+            try:
+                _profit_unit = round(_rec - _list, 2)
+                pricing["profit_unit"] = _profit_unit
+                pricing["profit_total"] = round(_profit_unit * _qty, 2)
+                pricing["margin_pct"] = round((_profit_unit / _rec) * 100, 1) if _rec else 0
+            except (TypeError, ZeroDivisionError):
+                pass
+        if _rec and _sale and _sale != _list:
+            try:
+                _disc_profit_unit = round(_rec - _sale, 2)
+                pricing["discount_profit_unit"] = _disc_profit_unit
+                pricing["discount_profit_total"] = round(_disc_profit_unit * _qty, 2)
+                pricing["discount_margin_pct"] = round((_disc_profit_unit / _rec) * 100, 1) if _rec else 0
+                pricing["discount_profit_note"] = "if discount holds for profit calculation"
+            except (TypeError, ZeroDivisionError):
+                pass
 
         item["pricing"] = pricing
         results.append(item)

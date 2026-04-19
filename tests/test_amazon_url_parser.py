@@ -343,6 +343,7 @@ class TestUpcExtractionInScraper:
         html = '<script>{"@type":"Product","gtin13":"0123456789012"}</script>'
         with patch("src.agents.item_link_lookup.requests") as mock_req:
             mock_req.get.return_value.text = html
+            mock_req.get.return_value.status_code = 200  # 2026-04-19: scraper now refuses non-200
             # HAS_REQUESTS must be truthy for the scrape to run
             with patch.object(item_link_lookup, "HAS_REQUESTS", True):
                 result = item_link_lookup._scrape_generic("https://example.com/p")
@@ -353,6 +354,7 @@ class TestUpcExtractionInScraper:
         html = '<script>"gtin12":"123456789012"</script>'
         with patch("src.agents.item_link_lookup.requests") as mock_req:
             mock_req.get.return_value.text = html
+            mock_req.get.return_value.status_code = 200
             with patch.object(item_link_lookup, "HAS_REQUESTS", True):
                 result = item_link_lookup._scrape_generic("https://example.com/p")
         assert result.get("upc") == "123456789012"
