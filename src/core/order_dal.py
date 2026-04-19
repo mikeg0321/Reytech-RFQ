@@ -524,6 +524,39 @@ def update_line_status(order_id: str, line_id: str, field: str, value,
                 (value, _now_iso(), item_db_id)
             )
 
+            # Auto-promote sourcing_status + carrier when a tracking number
+            # is attached. The row already has the new tracking_number
+            # written above; we read its current sourcing_status/carrier
+            # and bump them in the same transaction so the operator never
+            # sees a "tracking but still pending" state.
+            if field == "tracking_number" and value:
+                from src.core.carrier_tracking import auto_promote_status_for_tracking
+                cur = conn.execute(
+                    "SELECT sourcing_status, carrier, ship_date FROM order_line_items WHERE id=?",
+                    (item_db_id,)
+                ).fetchone()
+                if cur:
+                    new_status, carrier = auto_promote_status_for_tracking(
+                        cur["sourcing_status"], str(value), cur["carrier"]
+                    )
+                    if carrier and not cur["carrier"]:
+                        conn.execute(
+                            "UPDATE order_line_items SET carrier=?, updated_at=? WHERE id=?",
+                            (carrier, _now_iso(), item_db_id)
+                        )
+                    if new_status:
+                        ship_date = cur["ship_date"] or _now_iso()
+                        conn.execute(
+                            "UPDATE order_line_items SET sourcing_status=?, ship_date=?, updated_at=? WHERE id=?",
+                            (new_status, ship_date, _now_iso(), item_db_id)
+                        )
+                        conn.execute("""
+                            INSERT INTO order_audit_log
+                            (order_id, action, field, old_value, new_value, actor, created_at)
+                            VALUES (?, 'auto_promote', 'sourcing_status', ?, ?, ?, ?)
+                        """, (order_id, cur["sourcing_status"] or "", new_status,
+                              "carrier_tracking_auto", _now_iso()))
+
             # Recompute extended if price/cost/qty changed
             if field in ("unit_price", "unit_cost", "qty_ordered"):
                 updated = conn.execute(

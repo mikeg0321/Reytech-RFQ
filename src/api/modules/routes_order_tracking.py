@@ -615,26 +615,49 @@ def create_po():
 @auth_required
 @safe_route
 def update_po_item(po_id):
-    """Update a single PO line item status."""
+    """Update a single PO line item status.
+
+    If a tracking_number is supplied without an explicit status, the
+    line is auto-promoted to ``shipped`` (with detected carrier and a
+    fresh ``ship_date``). This keeps the operator from having to make
+    two separate clicks every time a vendor sends a tracking link.
+    """
     data = request.get_json(silent=True) or {}
     item_id = data.get("item_id")
     new_status = data.get("status")
     tracking = data.get("tracking_number")
 
-    if not item_id or not new_status:
-        return jsonify({"ok": False, "error": "item_id and status required"}), 400
+    if not item_id:
+        return jsonify({"ok": False, "error": "item_id required"}), 400
 
     now = datetime.now().isoformat()
     from src.core.db import get_db
     with get_db() as conn:
         conn.row_factory = _sqlite3.Row
-        old = conn.execute("SELECT status FROM po_line_items WHERE id = ? AND po_id = ?", (item_id, po_id)).fetchone()
+        old = conn.execute(
+            "SELECT status, carrier FROM po_line_items WHERE id = ? AND po_id = ?",
+            (item_id, po_id)
+        ).fetchone()
         if not old:
             return jsonify({"ok": False, "error": "Item not found"}), 404
+
+        carrier = None
+        if tracking and not new_status:
+            from src.core.carrier_tracking import auto_promote_status_for_tracking
+            promoted, carrier = auto_promote_status_for_tracking(
+                old["status"], tracking, old["carrier"] or ""
+            )
+            if promoted:
+                new_status = promoted
+
+        if not new_status:
+            return jsonify({"ok": False, "error": "status required (or send tracking_number to auto-promote)"}), 400
 
         updates = {"status": new_status, "updated_at": now}
         if tracking:
             updates["tracking_number"] = tracking
+            if carrier and not old["carrier"]:
+                updates["carrier"] = carrier
         if new_status == "shipped":
             updates["ship_date"] = now
         elif new_status == "delivered":
