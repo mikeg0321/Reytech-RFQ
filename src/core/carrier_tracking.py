@@ -202,9 +202,41 @@ def check_tracking_status(order_id: str, line_id: int) -> dict:
     }
 
 
+# ── Auto status promotion ────────────────────────────────────────────────
+
+def auto_promote_status_for_tracking(
+    current_status: Optional[str],
+    tracking_number: str,
+    current_carrier: Optional[str] = "",
+) -> Tuple[Optional[str], Optional[str]]:
+    """Given a row's current status + a newly-attached tracking number,
+    return ``(new_status, carrier)`` describing the auto-promotion that
+    should be applied to the row.
+
+    - ``new_status`` is ``"shipped"`` when the row is in a pre-ship state
+      (``pending``/``ordered``/``confirmed``/empty), and ``None`` when the
+      status should not change (already ``shipped`` or ``delivered``).
+    - ``carrier`` is the detected carrier name. Returned even when the
+      status is unchanged, so callers can backfill a missing carrier
+      column without bumping the lifecycle.
+
+    The promotion is intentionally one-way: a tracking number never
+    downgrades a row from ``delivered`` back to ``shipped``. That keeps
+    the operator's manual delivery confirmation authoritative.
+    """
+    if not tracking_number:
+        return None, None
+    carrier = current_carrier or detect_carrier(tracking_number)
+    cs = (current_status or "").strip().lower()
+    if cs in ("delivered", "shipped"):
+        return None, carrier
+    return "shipped", carrier
+
+
 __all__ = [
     "detect_carrier",
     "tracking_url",
     "carrier_and_url",
     "check_tracking_status",
+    "auto_promote_status_for_tracking",
 ]
