@@ -2067,6 +2067,42 @@
      }).catch(function(e){console.error('Find better pricing error:',e);showMsg('❌ Error: '+e.message,'err')});
     }
 
+    function competitorScan(idx) {
+     showMsg('📊 Scanning competitor prices for item '+(idx+1)+'...','ok');
+     fetch('/api/pricecheck/'+_pcid+'/competitor-scan/'+idx,{method:'POST',credentials:'same-origin'})
+     .then(function(r){return r.json()}).then(function(d){
+      if(!d.ok){showMsg('❌ '+(d.error||'Scan failed'),'err');return;}
+      var comps=d.competitors||[];
+      var row=document.querySelector('tr[data-row="'+idx+'"]:not(.notes-row)');
+      if(!row)return;
+      var existing=document.getElementById('comp-panel-'+idx);
+      if(existing)existing.remove();
+      var panel=document.createElement('tr');
+      panel.id='comp-panel-'+idx;
+      var html='<td colspan="12" style="padding:12px 20px;background:#161b22;border:1px solid #30363d">';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><b style="color:#58a6ff;font-size:14px">📊 Competitor Price Scan'+(d.cached?' <span style=\"color:#8b949e;font-size:11px;font-weight:400\">(cached)</span>':'')+'</b><button onclick="this.closest(\'tr\').remove()" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px">&times;</button></div>';
+      if(!comps.length){
+        html+='<div style="color:#8b949e;font-size:13px">'+(d.reason||'No competitor results')+'</div>';
+      } else {
+        comps.forEach(function(c,i){
+          var medal=i===0?'🥇':i===1?'🥈':'🥉';
+          html+='<div style="padding:6px 10px;margin-bottom:4px;background:#21262d;border-radius:6px;display:flex;justify-content:space-between;align-items:center">';
+          html+='<div style="flex:1;min-width:0"><span style="margin-right:6px">'+medal+'</span><b style="color:#e6edf3">'+(c.source||'Web')+'</b>';
+          if(c.title)html+=' <span style="color:#8b949e;font-size:12px">— '+(c.title||'').replace(/[<>]/g,'')+'</span>';
+          html+='</div>';
+          html+='<div style="display:flex;gap:10px;align-items:center;flex-shrink:0">';
+          if(c.price)html+='<span style="color:#3fb950;font-weight:600;font-family:JetBrains Mono,monospace">$'+(+c.price).toFixed(2)+'</span>';
+          if(c.url)html+='<a href="'+c.url+'" target="_blank" rel="noopener" style="color:#58a6ff;font-size:12px">Open ↗</a>';
+          html+='</div></div>';
+        });
+      }
+      html+='</td>';
+      panel.innerHTML=html;
+      row.insertAdjacentElement('afterend',panel);
+      showMsg(comps.length?'✅ Found '+comps.length+' competitor prices':'No competitors found','ok');
+     }).catch(function(e){console.error('Competitor scan error:',e);showMsg('❌ Error: '+e.message,'err')});
+    }
+
     function rejectMatch(idx, source, btn) {
      var chip = btn.previousElementSibling || btn.parentElement;
      var matchDesc = chip ? (chip.getAttribute('title') || '') : '';
