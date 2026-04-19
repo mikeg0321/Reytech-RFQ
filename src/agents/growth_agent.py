@@ -117,11 +117,17 @@ def _save_json(path, data):
 
 
 def _load_prospects_list():
-    """Load prospects as a flat list, handling both dict and list formats."""
+    """Load prospects as a flat list, handling both dict and list formats.
+
+    Defensive: a corrupt file where `prospects` decodes to a non-list value
+    (e.g. a string) would cause downstream `for p in ...` loops to iterate
+    over characters. Explicitly validate the returned type.
+    """
     data = _load_json(PROSPECTS_FILE) or []
     if isinstance(data, dict):
-        return data.get("prospects", [])
-    return data
+        lst = data.get("prospects", [])
+        return lst if isinstance(lst, list) else []
+    return data if isinstance(data, list) else []
 
 
 # ─── Item Category Mapping ───────────────────────────────────────────────
