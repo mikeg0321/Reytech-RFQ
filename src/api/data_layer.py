@@ -441,8 +441,6 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
 
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
-        _pc_cache = None
-        _pc_cache_time = 0
 
         def _do():
             from src.core.db import get_db
@@ -483,6 +481,13 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
             log.error("DB save_single_pc failed for %s: %s", pc_id, e)
             if raise_on_error:
                 raise
+        finally:
+            # Invalidate AFTER write commits. Invalidating before lets a
+            # concurrent reader populate the cache with pre-write state and
+            # serve stale data for 30s — banner-missing race seen in prod
+            # smoke 2026-04-19.
+            _pc_cache = None
+            _pc_cache_time = 0
 
 
 def _save_price_checks(pcs, raise_on_error=False):
@@ -494,8 +499,6 @@ def _save_price_checks(pcs, raise_on_error=False):
     """
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
-        _pc_cache = None
-        _pc_cache_time = 0
         try:
             from src.core.db import get_db
             with get_db() as conn:
@@ -532,6 +535,10 @@ def _save_price_checks(pcs, raise_on_error=False):
             log.error("DB save failed for price_checks: %s", e)
             if raise_on_error:
                 raise
+        finally:
+            # Invalidate AFTER write commits (see _save_single_pc note).
+            _pc_cache = None
+            _pc_cache_time = 0
 
 
 def _merge_save_pc(pc_id: str, pc_data: dict):
