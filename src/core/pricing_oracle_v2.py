@@ -611,6 +611,7 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                 "win_rate": round(inst_profile["win_rate"] * 100),
                 "avg_winning_markup": round(inst_profile["avg_winning_markup"], 1),
                 "sample_size": inst_profile["total_quotes"],
+                "source": "history",
             }
             # Blend institution markup with category calibration (50/50)
             if cal and cal.get("sample_size", 0) >= _CAL_MIN_SAMPLES:
@@ -618,6 +619,19 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                 cal["recommended_max_markup"] = blended
                 result["calibration"]["blended_with_institution"] = True
                 result["calibration"]["recommended_max_markup"] = round(blended, 1)
+
+    # Fallback: if no real history surfaced, use agency_config defaults so
+    # the panel shows *something* (sensitivity, target markup, payment terms)
+    # instead of being silently blank. This was the 2026-04-18 CalVet gap —
+    # only CCHCS had enough quote history to populate the V5 block.
+    if "institution_profile" not in result and agency:
+        try:
+            from src.core.agency_quote_profile import resolve_agency_profile
+            fallback = resolve_agency_profile(agency)
+            if fallback:
+                result["institution_profile"] = fallback
+        except Exception as e:
+            log.debug("agency_quote_profile fallback skipped: %s", e)
 
     # V5.5: Per-buyer win-rate curve. When we have ≥ _CURVE_MIN_SAMPLES
     # won+lost quotes for this institution, fit a bucketed response
