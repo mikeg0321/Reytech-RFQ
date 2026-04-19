@@ -110,6 +110,7 @@
           <th style="padding:6px 8px">Outcome</th>
           <th style="padding:6px 8px">Reasons</th>
           <th style="padding:6px 8px">At</th>
+          <th style="padding:6px 8px;width:40px"></th>
         </tr>
       </thead>
       <tbody id="qs-tbody">
@@ -139,14 +140,44 @@
               {% endif %}
             </td>
             <td style="padding:6px 8px;color:var(--tx2);font-size:12px">{{ r.at|truncate(19, true, '') }}</td>
+            <td style="padding:6px 8px;text-align:center">
+              <button type="button" class="qs-preview-btn" data-doc-id="{{ r.doc_id }}"
+                      title="Preview PDF"
+                      style="background:transparent;border:none;color:var(--tx2);cursor:pointer;padding:2px 6px;font-size:14px">👁</button>
+            </td>
           </tr>
           {% endfor %}
         {% endif %}
       </tbody>
     </table>
-    <div id="qs-empty" style="color:var(--tx2);font-size:13px;padding:20px 0;{% if rows %}display:none{% endif %}">
-      No audit log rows yet. Run the orchestrator to populate.
+  </div>
+
+  <!-- Preview modal (hidden by default) -->
+  <div id="qs-preview-modal" role="dialog" aria-modal="true" aria-hidden="true"
+       style="display:none;position:fixed;inset:0;z-index:2000;background:rgba(0,0,0,.7);align-items:center;justify-content:center">
+    <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;width:min(90vw,1000px);height:90vh;display:flex;flex-direction:column;overflow:hidden">
+      <div style="padding:10px 14px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div style="font-size:13px;color:var(--tx)">
+          <span id="qs-preview-title">Preview</span>
+          <span id="qs-preview-label" style="margin-left:8px;font-size:11px;color:var(--tx2)"></span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <a id="qs-preview-open" href="#" target="_blank" rel="noopener"
+             style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:6px;text-decoration:none;font-size:12px">
+            Open in new tab
+          </a>
+          <button type="button" id="qs-preview-close"
+                  style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:3px 12px;border-radius:6px;cursor:pointer;font-size:12px">
+            Close (Esc)
+          </button>
+        </div>
+      </div>
+      <iframe id="qs-preview-frame" src="about:blank" style="flex:1;border:0;background:#1a1a1a" title="PDF preview"></iframe>
     </div>
+  </div>
+
+  <div id="qs-empty" style="color:var(--tx2);font-size:13px;padding:20px 0;{% if rows %}display:none{% endif %}">
+    No audit log rows yet. Run the orchestrator to populate.
   </div>
 
 </div>
@@ -229,6 +260,11 @@
       reasonsHtml = '<span title="' + titleAttr + '">' + first + more + '</span>';
     }
     var at = r.at ? escapeHtml(String(r.at).slice(0, 19)) : '—';
+    var previewBtn = r.doc_id
+      ? '<button type="button" class="qs-preview-btn" data-doc-id="' + escapeHtml(r.doc_id) + '"'
+        + ' title="Preview PDF"'
+        + ' style="background:transparent;border:none;color:var(--tx2);cursor:pointer;padding:2px 6px;font-size:14px">👁</button>'
+      : '';
     return '<tr style="border-bottom:1px solid var(--bd)">'
       +   '<td style="padding:6px 8px">' + docLink + '</td>'
       +   '<td style="padding:6px 8px">' + escapeHtml(r.doc_type || '—') + '</td>'
@@ -241,6 +277,7 @@
       +   '</td>'
       +   '<td style="padding:6px 8px;max-width:380px;color:var(--tx2)">' + reasonsHtml + '</td>'
       +   '<td style="padding:6px 8px;color:var(--tx2);font-size:12px">' + at + '</td>'
+      +   '<td style="padding:6px 8px;text-align:center">' + previewBtn + '</td>'
       + '</tr>';
   }
 
@@ -446,6 +483,66 @@
       .catch(function() { setStale(true); })
       .then(function() { inFlight = false; });
   }
+
+  // Preview modal wiring
+  var previewModal = document.getElementById('qs-preview-modal');
+  var previewFrame = document.getElementById('qs-preview-frame');
+  var previewTitle = document.getElementById('qs-preview-title');
+  var previewLabel = document.getElementById('qs-preview-label');
+  var previewOpen = document.getElementById('qs-preview-open');
+  var previewClose = document.getElementById('qs-preview-close');
+
+  function openPreview(docId) {
+    if (!previewModal || !docId) return;
+    var previewUrl = '/api/quoting/preview/' + encodeURIComponent(docId);
+    var metaUrl = previewUrl + '/meta';
+    if (previewTitle) previewTitle.textContent = docId;
+    if (previewLabel) previewLabel.textContent = 'loading…';
+    if (previewOpen) previewOpen.href = previewUrl;
+    if (previewFrame) previewFrame.src = 'about:blank';
+    previewModal.style.display = 'flex';
+    previewModal.setAttribute('aria-hidden', 'false');
+    fetch(metaUrl, {credentials: 'same-origin'})
+      .then(function(resp) { return resp.ok ? resp.json() : null; })
+      .then(function(j) {
+        if (j && j.ok && j.available) {
+          if (previewLabel) previewLabel.textContent = j.label || '';
+          if (previewFrame) previewFrame.src = previewUrl + '#toolbar=1&view=FitH';
+        } else {
+          if (previewLabel) previewLabel.textContent = 'no PDF available for this doc';
+        }
+      })
+      .catch(function() {
+        if (previewLabel) previewLabel.textContent = 'preview unavailable';
+      });
+  }
+
+  function closePreview() {
+    if (!previewModal) return;
+    previewModal.style.display = 'none';
+    previewModal.setAttribute('aria-hidden', 'true');
+    if (previewFrame) previewFrame.src = 'about:blank';
+  }
+
+  if (tbody) {
+    tbody.addEventListener('click', function(e) {
+      var btn = e.target.closest('.qs-preview-btn');
+      if (!btn) return;
+      e.preventDefault();
+      openPreview(btn.getAttribute('data-doc-id'));
+    });
+  }
+  if (previewClose) previewClose.addEventListener('click', closePreview);
+  if (previewModal) {
+    previewModal.addEventListener('click', function(e) {
+      if (e.target === previewModal) closePreview();
+    });
+  }
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && previewModal && previewModal.style.display === 'flex') {
+      closePreview();
+    }
+  });
 
   if (refreshBtn) refreshBtn.addEventListener('click', refresh);
 
