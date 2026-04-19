@@ -5,6 +5,30 @@ Standalone module (no Flask imports) so it can be imported from anywhere.
 import logging
 log = logging.getLogger("reytech.agency_config")
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# DB-backed overrides (agency_package_configs, agency_form_history) and
+# their JSON columns previously failed silently with `log.debug("suppressed: %s")`,
+# leaving operators on the hardcoded DEFAULT_AGENCY_CONFIGS without any signal
+# that the override layer was unreadable. The ledger lets the orchestrator
+# surface those skips through the OrchestratorResult 3-channel envelope.
+from src.core.dependency_check import Severity, SkipReason  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip to the module ledger; the orchestrator drains it later."""
+    _SKIP_LEDGER.append(skip)
+    log.warning(skip.format_for_log())
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every skip recorded since the last drain. Destructive
+    so two consecutive calls do not double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
 AVAILABLE_FORMS = [
     {"id": "703b", "name": "AMS 703B", "desc": "RFQ Pricing Form"},
     {"id": "703c", "name": "AMS 703C", "desc": "Fair & Reasonable Form"},
@@ -193,7 +217,13 @@ def extract_required_forms_from_text(text):
 
 
 def load_agency_configs():
-    """Load agency configs — defaults merged with DB overrides and learned data."""
+    """Load agency configs — defaults merged with DB overrides and learned data.
+
+    DB-load failures and per-row JSON parse failures emit SkipReasons via
+    `_record_skip` so operators see when the override layer is degraded.
+    Defaults are still returned so callers don't have to special-case
+    a missing DB.
+    """
     configs = dict(DEFAULT_AGENCY_CONFIGS)
     # Merge DB customizations if available
     try:
@@ -214,9 +244,19 @@ def load_agency_configs():
                         if opt:
                             configs[key]["optional_forms"] = opt
                     except Exception as _e:
-                        log.debug("suppressed: %s", _e)
+                        _record_skip(SkipReason(
+                            name="agency_package_configs",
+                            reason=f"row '{key}' JSON parse: {type(_e).__name__}: {_e}",
+                            severity=Severity.INFO,
+                            where="load_agency_configs",
+                        ))
     except Exception as _e:
-        log.debug("suppressed: %s", _e)
+        _record_skip(SkipReason(
+            name="agency_package_configs",
+            reason=f"DB load failed: {type(_e).__name__}: {_e}",
+            severity=Severity.WARNING,
+            where="load_agency_configs",
+        ))
     return configs
 
 
@@ -277,7 +317,12 @@ def match_agency(rfq_data):
                 if row and row[0] in configs:
                     return _matched(row[0], configs[row[0]], buyer_email, "buyer_history")
         except Exception as _e:
-            log.debug("suppressed: %s", _e)
+            _record_skip(SkipReason(
+                name="rfqs.buyer_history",
+                reason=f"DB query failed: {type(_e).__name__}: {_e}",
+                severity=Severity.WARNING,
+                where="match_agency.buyer_history",
+            ))
 
     log.warning("AGENCY_MATCH: No match for '%s' — falling back to 'other' (minimal forms)",
                 (rfq_data.get("institution") or rfq_data.get("agency") or "?")[:40])
@@ -341,7 +386,12 @@ def get_buyer_form_preferences(buyer_email):
             try:
                 all_forms.update(json.loads(r[1]))
             except Exception as _e:
-                log.debug("suppressed: %s", _e)
+                _record_skip(SkipReason(
+                    name="agency_form_history",
+                    reason=f"forms_used JSON parse: {type(_e).__name__}: {_e}",
+                    severity=Severity.INFO,
+                    where="get_buyer_form_preferences",
+                ))
         return {
             "forms": sorted(all_forms),
             "agency": top_agency,
