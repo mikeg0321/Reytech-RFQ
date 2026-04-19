@@ -65,3 +65,49 @@ class TestIdentifyAttachmentsOrdering:
         assert result["704b"] == files[0]
         assert result["703b"] == files[1]
         assert result["bidpkg"] == files[2]
+
+
+class TestIdentifyDshAttachments:
+    """DSH packets ship 3 flat per-solicitation PDFs (Attachment A/B/C).
+    These must be detected BEFORE the generic 'FORMS' bidpkg fallback —
+    AttC's Required Forms checklist would otherwise be mis-classified
+    as a bid package and the dsh_attC slot would stay empty.
+    """
+
+    def test_dsh_attA_bidder(self):
+        path = "dsh_25CB020_attachA_bidder.pdf"
+        result = identify_attachments([path])
+        assert result == {"dsh_attA": path}
+
+    def test_dsh_attB_pricing(self):
+        path = "dsh_25CB020_attachB_pricing.pdf"
+        result = identify_attachments([path])
+        assert result == {"dsh_attB": path}
+
+    def test_dsh_attC_forms_not_misclassified_as_bidpkg(self):
+        """AttC contains 'forms' in the filename — the DSH-specific
+        dsh_attC branch must beat the generic 'FORMS' → bidpkg branch."""
+        path = "dsh_25CB020_attachC_forms.pdf"
+        result = identify_attachments([path])
+        assert result == {"dsh_attC": path}
+
+    def test_attachment_word_variants(self):
+        for fn in (
+            "Attachment_A_Bidders_Information.pdf",
+            "ATTACHMENT A — BIDDER.pdf",
+            "attach_a.pdf",
+        ):
+            result = identify_attachments([fn])
+            assert "dsh_attA" in result, f"Failed to classify {fn!r} as dsh_attA: {result}"
+
+    def test_full_dsh_packet_classifies_all_three(self):
+        files = [
+            "dsh_25CB020_attachA_bidder.pdf",
+            "dsh_25CB020_attachB_pricing.pdf",
+            "dsh_25CB020_attachC_forms.pdf",
+        ]
+        result = identify_attachments(files)
+        assert result["dsh_attA"] == files[0]
+        assert result["dsh_attB"] == files[1]
+        assert result["dsh_attC"] == files[2]
+        assert "bidpkg" not in result
