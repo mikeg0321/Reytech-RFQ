@@ -5409,6 +5409,7 @@ _ROUTE_MODULES = [
     "routes_shadow",          # Phase 2: Shadow mode admin dashboard + diff API
     "routes_build_health",    # Build health: fixes vs features tracking
     "routes_quoting_status",  # QuoteOrchestrator audit dashboard: /quoting/status + override API
+    "routes_locked_costs",    # Admin: locked supplier costs panel + unlock/extend
 ]
 
 for _mod in _ROUTE_MODULES:
