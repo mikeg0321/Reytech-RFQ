@@ -59,9 +59,13 @@ def _check_required_forms(quote: Any, per_form_reports: list[dict]) -> list[str]
     if not required:
         return blockers
 
+    # A profile is only "filled" if it actually produced bytes. Earlier this
+    # check accepted filled=True/qa_passed=True even when bytes=0, which let
+    # pass-through profiles with a missing source PDF (e.g. sellers_permit)
+    # silently advance to GENERATED with an incomplete package.
     filled_profile_ids = {
         r.get("profile_id", "") for r in per_form_reports
-        if r.get("filled") and r.get("qa_passed")
+        if r.get("filled") and r.get("qa_passed") and int(r.get("bytes") or 0) > 0
     }
 
     # Translate required form_ids to profile_ids via the orchestrator map.
