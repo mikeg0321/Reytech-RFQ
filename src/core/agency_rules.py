@@ -42,7 +42,9 @@ def get_rules_for_agency(agency: str,
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            conn.row_factory = None
+            # Never mutate the shared thread-local row_factory — it leaks to
+            # every subsequent caller on the same thread (incident: PR #215).
+            # Index access r[0]..r[N] works on sqlite3.Row.
             q = """SELECT id, agency, rule_type, rule_text, source_email_ids,
                           confidence, sample_count, first_seen, last_seen, active
                      FROM agency_rules
