@@ -170,11 +170,25 @@ class QuoteOrchestrator:
         # override by setting request.agency_key explicitly.
         qa_pass_idx = _stage_index("qa_pass")
         if not quote.header.agency_key and target_idx >= qa_pass_idx:
-            result.blockers.append(
+            reason = (
                 f"agency unresolved — cannot advance past 'priced' to "
                 f"'{request.target_stage}' without an agency. Set "
                 "request.agency_key explicitly to override."
             )
+            result.blockers.append(reason)
+            # Record a synthetic stage-attempt so the persistent audit log
+            # and the dashboard timeline both show WHERE the quote stopped.
+            # Previously the gate fired silently — operators saw a quote
+            # stuck at PRICED with no audit row explaining it.
+            gate_attempt = StageAttempt(
+                stage_from=quote.status.value,
+                stage_to="qa_pass",
+                outcome="blocked",
+                reasons=[reason],
+                at=datetime.now(_PST).isoformat(),
+            )
+            result.stage_history.append(gate_attempt)
+            self._persist_audit(quote, gate_attempt, request.actor, result)
             result.final_stage = quote.status.value
             return result
 
