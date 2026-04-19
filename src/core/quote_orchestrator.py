@@ -412,6 +412,13 @@ class QuoteOrchestrator:
         matched: list[FormProfile] = []
         missing: list[str] = []
         for form_id in required_form_ids:
+            # An empty mapping value (e.g. _FORM_ID_TO_PROFILE_ID["bidpkg"] = "")
+            # encodes "intentionally not a profile — handled by package_engine".
+            # Skip silently; surfacing it in the missing-profile warning misled
+            # operators into thinking they needed to build a profile that
+            # doesn't exist by design.
+            if _FORM_ID_TO_PROFILE_ID.get(form_id, None) == "":
+                continue
             profile = _best_profile_for_form(form_id, profiles_registry)
             if profile:
                 matched.append(profile)
