@@ -564,7 +564,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "703c": "703c_reytech_standard",     # not yet built
     "704a": "704a_reytech_standard",
     "704b": "704b_reytech_standard",
-    "quote": "quote_reytech_letterhead", # not yet built
+    "quote": "quote_reytech_letterhead",
     "calrecycle74": "calrecycle74_reytech_standard",
     "dvbe843": "dvbe843_reytech_standard",
     "std204": "std204_reytech_standard",
@@ -574,7 +574,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "darfur_act": "darfur_reytech_standard",
     "cv012_cuf": "cv012_cuf_reytech_standard",
     "barstow_cuf": "barstow_cuf_reytech_standard",    # not yet built
-    "sellers_permit": "sellers_permit_reytech",       # not yet built
+    "sellers_permit": "sellers_permit_reytech",
     "drug_free": "drug_free_reytech_standard",
     "obs_1600": "obs_1600_reytech_standard",          # not yet built
     "w9": "w9_reytech",                               # not yet built

@@ -1,0 +1,16 @@
+# Reytech Formal Quote — agency-agnostic letterhead
+# No source blank — the PDF is synthesized from scratch by reportlab.
+# The To:/Ship To:/Bill To: blocks change per agency (CCHCS, CalVet, CDCR…)
+# but the letterhead, layout, color palette, and pagination are identical
+# across every agency. The generator paginates with line items.
+#
+# fill_mode: generated dispatches to `generator:` (module:function form).
+# The function takes a Quote and returns PDF bytes — see
+# src/forms/quote_generator.py:generate_quote_pdf
+id: quote_reytech_letterhead
+form_type: quote
+blank_pdf: ""
+fill_mode: generated
+generator: src.forms.quote_generator:generate_quote_pdf
+page_row_capacities: []
+fields: {}

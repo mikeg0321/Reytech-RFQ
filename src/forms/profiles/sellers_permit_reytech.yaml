@@ -1,0 +1,11 @@
+# Reytech Seller's Permit (CDTFA — pass-through attachment)
+# Source blank: data/templates/sellers_permit_reytech.pdf (state-issued scan)
+# 0 AcroForm fields. The bid package needs this document included verbatim;
+# nothing on it is filled. Used by CalVet, CDCR, CCHCS, etc. as required
+# proof of California seller's permit.
+id: sellers_permit_reytech
+form_type: sellers_permit
+blank_pdf: data/templates/sellers_permit_reytech.pdf
+fill_mode: pass_through
+page_row_capacities: []
+fields: {}

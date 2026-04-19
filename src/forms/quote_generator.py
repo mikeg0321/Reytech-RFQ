@@ -1819,6 +1819,52 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# fill_engine entry point — generated fill_mode
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def generate_quote_pdf(quote) -> bytes:
+    """Render the Reytech quote letterhead PDF for a Quote object.
+
+    Used by `fill_engine._fill_generated()` when a profile has
+    `fill_mode: generated` and `generator: src.forms.quote_generator:generate_quote_pdf`.
+
+    Agency-agnostic — the same letterhead template is used for every agency
+    (CCHCS, CalVet, CDCR, …). The agency only changes the To:/Ship To:/Bill To:
+    blocks, which come from the Quote's header and ship_to.
+    """
+    import tempfile
+    from src.core.quote_model import Quote
+
+    if not isinstance(quote, Quote):
+        raise TypeError(f"generate_quote_pdf requires a Quote, got {type(quote).__name__}")
+
+    legacy = quote.to_legacy_dict()
+
+    # Reuse the RFQ branch — it already handles facility lookup, agency mapping,
+    # tax resolution, and ship-to parsing. The legacy dict from Quote includes
+    # both PC and RFQ field conventions, so this works for both doc types.
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
+        tmp_path = tf.name
+    try:
+        kwargs = {}
+        # Honor a pre-allocated quote number if the Quote carries one.
+        qno = (quote.header.solicitation_number or "").strip()
+        if qno:
+            kwargs["quote_number"] = qno
+        agency = (quote.header.agency_key or "").strip()
+        if agency:
+            kwargs["agency"] = agency
+        generate_quote_from_rfq(legacy, tmp_path, **kwargs)
+        with open(tmp_path, "rb") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SELF-TEST
 # ═══════════════════════════════════════════════════════════════════════════════
 

@@ -197,12 +197,26 @@ def validate_profile(profile: FormProfile) -> list[str]:
     """
     issues = []
 
+    # generated mode synthesizes the PDF from scratch — no blank, no AcroForm.
+    # Validate the generator spec instead and return.
+    if profile.fill_mode == "generated":
+        spec = (profile.raw_yaml or {}).get("generator", "")
+        if not spec or ":" not in spec:
+            issues.append(
+                f"{profile.id}: fill_mode=generated requires a 'generator: module:function' entry"
+            )
+        return issues
+
     if not profile.blank_pdf:
         issues.append(f"{profile.id}: blank_pdf not specified")
         return issues
 
     if not os.path.exists(profile.blank_pdf):
         issues.append(f"{profile.id}: blank_pdf not found: {profile.blank_pdf}")
+        return issues
+
+    # pass_through mode just emits the blank verbatim — no field map needed.
+    if profile.fill_mode == "pass_through":
         return issues
 
     try:
