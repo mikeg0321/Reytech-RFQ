@@ -545,6 +545,78 @@ def po_detail(po_id):
         po=po, line_items=line_items, emails=emails, history=history)
 
 
+def _mirror_po_to_orders_v2(po_id, po_number, vendor_name, buyer_name, buyer_email,
+                            institution, total, status, rfq_id, quote_number,
+                            line_items, now):
+    """Eagerly mirror a newly-created PO into the Orders V2 schema.
+
+    The boot migration already does this on deploy; this writes the same row
+    immediately so the V2 tables don't go stale until the next restart. Idempotent
+    via INSERT OR IGNORE on the deterministic id `ORD-PO-<po_number>`. Failures
+    here MUST NOT break the legacy write (best-effort propagation).
+    """
+    try:
+        from src.core.db import get_db
+        oid = f"ORD-PO-{po_number}"
+        with get_db() as conn:
+            existing = conn.execute("SELECT id FROM orders WHERE id=?", (oid,)).fetchone()
+            if existing:
+                return False  # boot migration or prior call already covered it
+            conn.execute("""
+                INSERT OR IGNORE INTO orders
+                (id, quote_number, po_number, agency, institution, total, status,
+                 buyer_name, buyer_email, created_at, updated_at, notes)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (oid, quote_number or "", po_number, "", institution or "",
+                  total or 0, status or "received",
+                  buyer_name or "", buyer_email or "", now, now, ""))
+            for li in line_items:
+                qty = li.get("qty_ordered", 0) or 0
+                price = li.get("unit_price", 0) or 0
+                conn.execute("""
+                    INSERT INTO order_line_items
+                    (order_id, line_number, description, part_number, mfg_number,
+                     uom, qty_ordered, unit_price, extended_price,
+                     sourcing_status, created_at, updated_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (oid, li.get("line_number", 1),
+                      li.get("description", ""), li.get("item_number", ""),
+                      li.get("mfg_number", ""), li.get("uom", "EA"),
+                      qty, price, round(qty * price, 2),
+                      li.get("status", "pending"), now, now))
+        log.info("Orders V2 mirror: %s (%d items) → %s", po_number, len(line_items), oid)
+        return True
+    except Exception as e:
+        log.warning("V2 mirror failed for %s (legacy write still succeeded): %s", po_number, e)
+        return False
+
+
+def _mirror_status_to_orders_v2(po_number, new_status, now):
+    """Mirror an overall PO status change to the Orders V2 row.
+
+    Looks up the order by po_number first, then falls back to the deterministic
+    id `ORD-PO-<po_number>`. Best-effort — never raises.
+    """
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM orders WHERE po_number=? LIMIT 1", (po_number,)
+            ).fetchone()
+            oid = row["id"] if row else f"ORD-PO-{po_number}"
+            cur = conn.execute(
+                "UPDATE orders SET status=?, updated_at=? WHERE id=?",
+                (new_status, now, oid),
+            )
+            if cur.rowcount == 0:
+                log.debug("V2 mirror: no orders row for po_number=%s", po_number)
+                return False
+        return True
+    except Exception as e:
+        log.warning("V2 status mirror failed for %s: %s", po_number, e)
+        return False
+
+
 @bp.route("/api/po/create", methods=["POST"])
 @auth_required
 @safe_route
@@ -606,6 +678,25 @@ def create_po():
 
         conn.execute("""INSERT INTO po_status_history (po_id, new_status, changed_by, change_reason, created_at)
             VALUES (?, 'received', 'user', 'PO created', ?)""", (po_id, now))
+
+    # Eagerly propagate to Orders V2 so the new PO is visible in /orders
+    # without waiting for the next deploy's boot migration to run.
+    # Best-effort: mirror failure must NEVER fail the legacy write — the
+    # caller has already received their PO id and the boot migration will
+    # backfill on next deploy.
+    try:
+        _mirror_po_to_orders_v2(
+            po_id=po_id, po_number=po_number,
+            vendor_name=data.get("vendor_name", ""),
+            buyer_name=rfq_data.get("requestor_name", data.get("buyer_name", "")),
+            buyer_email=rfq_data.get("requestor_email", data.get("buyer_email", "")),
+            institution=rfq_data.get("delivery_location", data.get("institution", "")),
+            total=total, status="received", rfq_id=rfq_id,
+            quote_number=data.get("quote_number", rfq_data.get("reytech_quote_number", "")),
+            line_items=line_items, now=now,
+        )
+    except Exception as _e:
+        log.warning("V2 mirror raised for %s — legacy write succeeded: %s", po_number, _e)
 
     log.info("PO created: %s (%s) with %d items", po_number, po_id, len(line_items))
     return jsonify({"ok": True, "po_id": po_id, "items": len(line_items)})
@@ -677,8 +768,57 @@ def update_po_status(po_id):
             (po_id, old_status, new_status, changed_by, change_reason, created_at)
             VALUES (?,?,?,?,?,?)""",
             (po_id, old[0], new_status, "user", data.get("reason", "Manual update"), now))
+        # Look up po_number while we still hold the connection
+        po_num_row = conn.execute(
+            "SELECT po_number FROM purchase_orders WHERE id = ?", (po_id,)
+        ).fetchone()
+        po_num = po_num_row[0] if po_num_row else ""
+
+    if po_num:
+        try:
+            _mirror_status_to_orders_v2(po_num, new_status, now)
+        except Exception as _e:
+            log.warning("V2 status mirror raised for %s — legacy write succeeded: %s",
+                        po_num, _e)
 
     return jsonify({"ok": True})
+
+
+@bp.route("/api/po/migration-parity")
+@auth_required
+@safe_route
+def po_migration_parity():
+    """Report parity between legacy purchase_orders and Orders V2 rows.
+
+    Used to monitor the user-CRUD V2 mirror and decide when it is safe to
+    drop the legacy tables. `unmirrored` is the count of legacy POs whose
+    po_number is not present as an order — those are the rows the boot
+    migration will pick up on next deploy (or that the new mirror has
+    failed to write).
+    """
+    from src.core.db import get_db
+    with get_db() as conn:
+        try:
+            legacy = conn.execute("SELECT COUNT(*) FROM purchase_orders").fetchone()[0]
+        except Exception:
+            legacy = 0
+        v2 = conn.execute(
+            "SELECT COUNT(*) FROM orders WHERE po_number != '' AND po_number IS NOT NULL"
+        ).fetchone()[0]
+        try:
+            unmirrored = conn.execute("""
+                SELECT COUNT(*) FROM purchase_orders
+                WHERE po_number NOT IN (SELECT po_number FROM orders WHERE po_number != '')
+            """).fetchone()[0]
+        except Exception:
+            unmirrored = 0
+    return jsonify({
+        "ok": True,
+        "legacy_count": legacy,
+        "v2_count": v2,
+        "unmirrored": unmirrored,
+        "parity": legacy == 0 or unmirrored == 0,
+    })
 
 
 @bp.route("/api/po/poll", methods=["POST"])
