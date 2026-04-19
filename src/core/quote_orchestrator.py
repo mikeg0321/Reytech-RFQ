@@ -249,10 +249,19 @@ class QuoteOrchestrator:
                 quote.header.solicitation_number = request.solicitation_number
             if request.agency_key:
                 quote.header.agency_key = request.agency_key
-            if quote.line_items:
-                quote.transition(QuoteStatus.PARSED)
-            else:
-                quote.transition(QuoteStatus.DRAFT)
+            target_status = QuoteStatus.PARSED if quote.line_items else QuoteStatus.DRAFT
+            try:
+                quote.transition(target_status)
+            except ValueError as e:
+                # The quote came in at a terminal status (WON/LOST) — the
+                # transition validator (PR #169) refused to re-open it.
+                # That's the right call, but _ingest must surface it as a
+                # blocker, not let it propagate and 500 the caller.
+                result.blockers.append(
+                    f"ingest: cannot reuse {quote.status.value} quote "
+                    f"(closed quotes are immutable; clone instead): {e}"
+                )
+                return quote
             return quote
 
         # PDF source: delegate to quote_engine.ingest (wraps parse_engine)
@@ -272,7 +281,13 @@ class QuoteOrchestrator:
                 if getattr(w, "severity", "") == "error":
                     result.blockers.append(f"parse error on {w.field}: {w.message}")
             if quote.line_items:
-                quote.transition(QuoteStatus.PARSED)
+                try:
+                    quote.transition(QuoteStatus.PARSED)
+                except ValueError as e:
+                    result.blockers.append(
+                        f"ingest: cannot reuse {quote.status.value} quote "
+                        f"(closed quotes are immutable; clone instead): {e}"
+                    )
             return quote if not result.blockers else None
 
         # No source: a blank Quote (for tests or operator-started drafts)
