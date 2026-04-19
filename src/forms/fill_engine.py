@@ -59,6 +59,8 @@ def fill(quote: Quote, profile: FormProfile) -> bytes:
         return _fill_hybrid(quote, profile)
     elif profile.fill_mode == "pass_through":
         return _fill_pass_through(profile)
+    elif profile.fill_mode == "static_attach":
+        return _fill_static_attach(profile)
     else:
         raise ValueError(f"Unknown fill_mode: {profile.fill_mode}")
 
@@ -73,6 +75,30 @@ def _fill_pass_through(profile: FormProfile) -> bytes:
     with open(profile.blank_pdf, "rb") as fh:
         data = fh.read()
     log.info("fill_pass_through: %s, %d bytes", profile.id, len(data))
+    return data
+
+
+def _fill_static_attach(profile: FormProfile) -> bytes:
+    """Return a pre-existing artifact PDF bytes verbatim.
+
+    Distinct from pass_through: the source is a final artifact (scanned
+    seller's permit, signed W-9, reference letter), not a "blank template
+    that happens to need no filling." Semantic split so operators reading
+    profile YAMLs can tell at a glance whether a form is a static
+    attachment vs an intentionally-empty form.
+
+    Raises if the source PDF is missing — a required attachment can never
+    be silently skipped.
+    """
+    if not profile.blank_pdf or not os.path.exists(profile.blank_pdf):
+        raise RuntimeError(
+            f"static_attach: artifact missing for {profile.id} at {profile.blank_pdf}"
+        )
+    with open(profile.blank_pdf, "rb") as fh:
+        data = fh.read()
+    if not data:
+        raise RuntimeError(f"static_attach: artifact is empty: {profile.blank_pdf}")
+    log.info("fill_static_attach: %s, %d bytes", profile.id, len(data))
     return data
 
 

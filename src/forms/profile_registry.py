@@ -215,8 +215,9 @@ def validate_profile(profile: FormProfile) -> list[str]:
         issues.append(f"{profile.id}: blank_pdf not found: {profile.blank_pdf}")
         return issues
 
-    # pass_through mode just emits the blank verbatim — no field map needed.
-    if profile.fill_mode == "pass_through":
+    # pass_through and static_attach both emit the source PDF verbatim —
+    # no field map to validate.
+    if profile.fill_mode in ("pass_through", "static_attach"):
         return issues
 
     try:
