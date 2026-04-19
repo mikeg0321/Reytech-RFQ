@@ -16,6 +16,7 @@ Background threads respect scheduler.should_run() for graceful shutdown.
 import collections
 import logging
 import os
+import shutil
 import sqlite3
 import statistics
 import threading
