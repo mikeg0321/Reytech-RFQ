@@ -39,6 +39,50 @@
 
   {% set latest = trail[-1] %}
   {% set is_blocked = latest.outcome in ('blocked', 'error') %}
+  {% set override_count = trail|selectattr('outcome', 'equalto', 'override')|list|length %}
+  {% set advanced_count = trail|selectattr('outcome', 'equalto', 'advanced')|list|length %}
+
+  <!-- Status Summary Pills -->
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;
+                 background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.3)">
+      {{ advanced_count }} advanced
+    </span>
+    {% if override_count > 0 %}
+    <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;
+                 background:rgba(210,153,34,.12);color:#d29922;border:1px solid rgba(210,153,34,.3)"
+          title="Operator override(s) recorded in trail">
+      {{ override_count }} override{% if override_count != 1 %}s{% endif %}
+    </span>
+    {% endif %}
+    <span style="padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;
+                 background:rgba(139,148,158,.12);color:var(--tx2);border:1px solid var(--bd)">
+      latest: <code style="background:none;color:var(--tx)">{{ latest.stage_to }}</code>
+    </span>
+  </div>
+
+  {% if is_blocked and latest.reasons %}
+  <!-- Hero blocker banner: surface the actual last reason without making the operator hunt -->
+  <div role="alert" aria-label="Latest blocker reason"
+       style="background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.4);
+              border-radius:10px;padding:14px 18px;margin-bottom:14px;
+              display:flex;gap:12px;align-items:flex-start">
+    <span aria-hidden="true" style="font-size:18px;line-height:1">🚫</span>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:12px;font-weight:700;color:#f85149;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+        Latest blocker — {{ latest.outcome }}
+      </div>
+      <div style="font-size:13px;color:var(--tx);line-height:1.5">
+        {% for r in latest.reasons[:3] %}
+        <div style="margin:2px 0">{{ r }}</div>
+        {% endfor %}
+        {% if latest.reasons|length > 3 %}
+        <div style="color:var(--tx2);font-size:12px;margin-top:4px">+{{ latest.reasons|length - 3 }} more — see timeline</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <!-- Stage Timeline (vertical stepper) -->
   <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:16px">
