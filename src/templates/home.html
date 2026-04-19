@@ -15,6 +15,7 @@
  <a href="/orders" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📦 Orders</a>
  <a href="/growth" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
  <a href="/agents" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🤖 Agents</a>
+ <a href="/quoting/status" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap" title="Live quoting orchestrator audit">📡 Quoting</a>
  <a href="/qa/workflow" id="qa-nav-btn" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;display:none" title="QA Score">🔬 <span id="qa-nav-score">—</span></a>
  {% if docling_intake|default(false) %}<a href="#" onclick="document.getElementById('doc-upload-modal').style.display='flex';return false" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📄 Documents</a>{% endif %}
 </div>
@@ -408,6 +409,11 @@ setTimeout(function(){ fetch('/api/v1/tenant/compliance').then(r=>r.json()).then
   <span style="color:var(--tx2)">Award Tracker:</span>
   <span id="as-award-txt" style="color:var(--tx)">loading...</span>
  </div>
+ <a href="/quoting/status" id="as-quoting" style="display:flex;align-items:center;gap:6px;font-size:14px;text-decoration:none;color:inherit" title="Click to open live quoting status audit">
+  <span id="as-quoting-dot" style="width:8px;height:8px;border-radius:50%;background:#484f58"></span>
+  <span style="color:var(--tx2)">Quoting:</span>
+  <span id="as-quoting-txt" style="color:var(--tx)">loading...</span>
+ </a>
  <button onclick="_runAwardTracker(this)" style="margin-left:auto;padding:5px 12px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px;cursor:pointer" title="Run award tracker now">Run Now</button>
  <button onclick="_recoverMissedEmails(this)" style="padding:5px 12px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.3);border-radius:6px;color:#d29922;font-size:13px;cursor:pointer;margin-left:6px" title="Scan last 7 days for emails that were missed or stuck in processing">🔄 Recover Missed</button>
 </div>
@@ -451,6 +457,22 @@ function _refreshAgentStatus(){
 }
 setTimeout(_refreshAgentStatus,4000);
 setInterval(_refreshAgentStatus,300000); // 5 min (was 60s)
+function _refreshQuotingPulse(){
+ var dot=document.getElementById('as-quoting-dot');
+ var txt=document.getElementById('as-quoting-txt');
+ if(!dot||!txt)return;
+ fetch('/api/quoting/status?limit=50',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+  if(!d||!d.ok){dot.style.background='#484f58';txt.textContent='unknown';return;}
+  var counts=d.outcome_counts||{};
+  var blocked=(counts.blocked||0)+(counts.error||0);
+  var advanced=counts.advanced||0;
+  if(blocked>0){dot.style.background='#f85149';txt.innerHTML='<span style="color:#f87171">'+blocked+' blocked</span> · '+advanced+' advanced';}
+  else if(advanced>0){dot.style.background='#3fb950';txt.textContent=advanced+' advanced (last 50)';}
+  else{dot.style.background='#8b949e';txt.textContent='idle';}
+ }).catch(function(){dot.style.background='#484f58';txt.textContent='offline';});
+}
+setTimeout(_refreshQuotingPulse,4500);
+setInterval(_refreshQuotingPulse,30000); // 30s — orchestrator transitions are quick
 function _recoverMissedEmails(btn){
  btn.disabled=true;btn.textContent='⏳ Scanning...';
  fetch('/api/v1/email/reprocess-all-missed?days=7',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
