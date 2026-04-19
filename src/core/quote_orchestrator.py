@@ -185,7 +185,7 @@ class QuoteOrchestrator:
         for next_stage in _STAGE_ORDER[1:target_idx + 1]:
             attempt = self._try_advance(quote, next_stage, request, profiles, result)
             result.stage_history.append(attempt)
-            self._persist_audit(quote, attempt, request.actor)
+            self._persist_audit(quote, attempt, request.actor, result)
 
             # "skipped" = already at/past this stage (e.g. ingest already
             # transitioned to PARSED) — that's a no-op, not a failure.
@@ -616,17 +616,32 @@ class QuoteOrchestrator:
 
     # ── Audit log persistence ──
 
-    def _persist_audit(self, quote: Quote, attempt: StageAttempt, actor: str) -> None:
-        """Write one row to quote_audit_log. Failures are logged, never raised.
+    def _persist_audit(
+        self,
+        quote: Quote,
+        attempt: StageAttempt,
+        actor: str,
+        result: Optional["OrchestratorResult"] = None,
+    ) -> None:
+        """Write one row to quote_audit_log. Failures are logged + surfaced
+        as a warning on `result` (when passed), never raised.
 
         Best-effort — the DB may not be initialized in test contexts. The
         in-memory audit trail on `quote.provenance` is the always-on log.
+
+        Failure visibility: previously failures were `log.debug`, which made
+        a broken DB silently drop every audit row. Now they're `log.error`
+        and (when `result` is passed) appended to `result.warnings` so the
+        operator sees "audit row dropped" in the response and can chase the
+        underlying DB issue instead of trusting an empty dashboard.
         """
         if not self.persist_audit:
             return
         try:
             from src.core.db import get_db
         except Exception:
+            # DB module not available (test context, partial install). The
+            # in-memory provenance trail on the Quote is still authoritative.
             return
         try:
             with get_db() as conn:
@@ -648,7 +663,14 @@ class QuoteOrchestrator:
                     ),
                 )
         except Exception as e:
-            log.debug("audit persist skipped: %s", e)
+            log.error(
+                "audit row dropped (stage_from=%s stage_to=%s outcome=%s): %s",
+                attempt.stage_from, attempt.stage_to, attempt.outcome, e,
+            )
+            if result is not None:
+                result.warnings.append(
+                    f"audit row dropped for {attempt.stage_from}→{attempt.stage_to} ({attempt.outcome}): {e}"
+                )
 
 
 # ── Preconditions per stage ─────────────────────────────────────────────────
