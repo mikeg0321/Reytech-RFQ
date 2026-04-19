@@ -50,6 +50,80 @@ from contextlib import contextmanager
 
 log = logging.getLogger("reytech.db")
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# Per-row JSON column decoding (`items_detail`, `ship_to_address`, `metadata`,
+# `tags`, `categories`, `purchase_orders`, …) previously fell back to `[]`/
+# `{}`/`None` with `try: …; except: pass`, silently dropping the structured
+# data of any row whose JSON had been corrupted (truncated by a crashed
+# writer, double-encoded, etc.). Callers got an "empty-but-valid" row and
+# downstream loss-analysis / restore flows then operated on missing items.
+#
+# The ledger lets routes/orchestrator drain skips after a row-loading call
+# and surface the corruption count via the standard 3-channel envelope.
+# Severity is INFO — one corrupt row is graceful degradation, not an outage.
+from src.core.dependency_check import Severity, SkipReason  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+# JSON columns whose decoded value should be a list — used to pick the right
+# typed-empty fallback so callers iterating it never crash on a dict/None.
+_LIST_TYPED_JSON_FIELDS = frozenset({
+    "items_detail", "line_items", "tags", "items_purchased",
+    "purchase_orders", "items",
+})
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip to the module ledger; routes/orchestrator drain later."""
+    _SKIP_LEDGER.append(skip)
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every skip recorded since the last drain. Destructive
+    so two consecutive calls do not double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
+
+def _decode_json_field(value, *, field: str, where: str):
+    """Decode a JSON-typed SQLite column to its native Python type.
+
+    - None / empty string → return as-is (newly-created rows; not corruption).
+    - Already a list/dict → passthrough (joined queries pre-decode).
+    - Valid JSON string → decoded value.
+    - Malformed JSON → typed empty (`[]` for list-typed fields, `{}` else)
+      plus an INFO skip recorded to the module ledger.
+
+    The single seam means every row decoder (`_row_to_quote`, the batch
+    loaders, the metadata loaders, the contact-list builder) emits the
+    same corruption telemetry.
+    """
+    if value is None or value == "":
+        return value
+    if isinstance(value, (list, dict)):
+        return value
+    if not isinstance(value, str):
+        # Unexpected type — treat as corruption so callers don't crash.
+        _record_skip(SkipReason(
+            name=f"{field}_json",
+            reason=f"unsupported raw type {type(value).__name__}",
+            severity=Severity.INFO,
+            where=where,
+        ))
+        return [] if field in _LIST_TYPED_JSON_FIELDS else {}
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        _record_skip(SkipReason(
+            name=f"{field}_json",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.INFO,
+            where=where,
+        ))
+        return [] if field in _LIST_TYPED_JSON_FIELDS else {}
+
+
 # ── Path resolution ───────────────────────────────────────────────────────────
 # Use the centralized DATA_DIR from paths.py (handles Railway volume detection)
 from src.core.paths import DATA_DIR, _USING_VOLUME
@@ -1869,10 +1943,13 @@ def upsert_quote(q: dict, actor: str = "system") -> bool:
     now = datetime.now().isoformat()
 
     # Compute profit from line items — use first-class fields if available
-    line_items = q.get("line_items") or q.get("items_detail") or []
-    if isinstance(line_items, str):
-        try: line_items = json.loads(line_items)
-        except Exception: line_items = []
+    line_items = _decode_json_field(
+        q.get("line_items") or q.get("items_detail") or [],
+        field="line_items",
+        where="db.profit_compute",
+    )
+    if line_items is None:
+        line_items = []
     total_cost = 0.0
     gross_profit = 0.0
     items_costed = 0
@@ -1958,8 +2035,7 @@ def get_quote(quote_number: str) -> dict | None:
     d = dict(row)
     for field in ("items_detail", "ship_to_address"):
         if d.get(field):
-            try: d[field] = json.loads(d[field])
-            except Exception: pass
+            d[field] = _decode_json_field(d[field], field=field, where="db.get_quote")
     return d
 
 
@@ -1980,8 +2056,7 @@ def get_all_quotes_db(status: str = None, limit: int = 500, include_test: bool =
         d = dict(row)
         for field in ("items_detail", "ship_to_address"):
             if d.get(field):
-                try: d[field] = json.loads(d[field])
-                except Exception: pass
+                d[field] = _decode_json_field(d[field], field=field, where="db.get_all_quotes_db")
         result.append(d)
     return result
 
@@ -2251,8 +2326,7 @@ def get_contact_activity(contact_id: str, limit: int = 100) -> list:
     for r in rows:
         d = dict(r)
         if d.get("metadata"):
-            try: d["metadata"] = json.loads(d["metadata"])
-            except Exception: pass
+            d["metadata"] = _decode_json_field(d["metadata"], field="metadata", where="db.get_activity_log")
         result.append(d)
     return result
 
@@ -2514,11 +2588,9 @@ def _boot_sync_pcs():
             for row in rows:
                 r = dict(row)
                 pc_id = r["id"]
-                items = []
-                try:
-                    items = json.loads(r["items"] or "[]")
-                except Exception as _e:
-                    log.debug("suppressed: %s", _e)
+                items = _decode_json_field(
+                    r["items"], field="items", where="db.restore_pcs_from_quotes",
+                ) or []
                 restored[pc_id] = {
                     "id": pc_id,
                     "pc_number": r.get("pc_number") or r.get("quote_number") or pc_id,

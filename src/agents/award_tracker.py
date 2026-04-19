@@ -27,6 +27,78 @@ from typing import Optional
 
 log = logging.getLogger("award_tracker")
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# Per-row JSON parsing previously fell back to `[]`/`{}` with `log.debug`,
+# silently dropping the line items of any quote whose `line_items` column
+# was malformed (truncated by a crashed writer, double-encoded, etc.).
+# The award-tracker pipeline kept marching with an empty item list — every
+# loss-analysis bug rooted in this fallback. The ledger lets the orchestrator
+# / scheduler drain skips and surface the row-corruption count via the
+# standard 3-channel envelope.
+from src.core.dependency_check import Severity, SkipReason  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip to the module ledger; the scheduler drains it later."""
+    _SKIP_LEDGER.append(skip)
+    # INFO-level skips don't need a re-log line — the scheduler surfaces them.
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every skip recorded since the last drain. Destructive
+    so two consecutive calls do not double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
+
+def _parse_line_items_safely(raw, *, where: str) -> list:
+    """Decode a `line_items` JSON column to a list. Returns `[]` on:
+      - None / empty string (newly-created rows; not a corruption signal)
+      - parse failure (malformed JSON; INFO skip emitted)
+      - decoded-but-not-a-list (writer bug; INFO skip emitted)
+
+    The single seam means both the solicitation extractor and the award-
+    check item-pull get the same corruption telemetry.
+    """
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        if raw.strip() in ("", "[]"):
+            return []
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
+            _record_skip(SkipReason(
+                name="line_items_json",
+                reason=f"{type(e).__name__}: {e}",
+                severity=Severity.INFO,
+                where=where,
+            ))
+            return []
+        if not isinstance(parsed, list):
+            _record_skip(SkipReason(
+                name="line_items_json",
+                reason=f"decoded type {type(parsed).__name__} != list",
+                severity=Severity.INFO,
+                where=where,
+            ))
+            return []
+        return parsed
+    # Unknown type (number, etc.) — treat as corruption.
+    _record_skip(SkipReason(
+        name="line_items_json",
+        reason=f"unsupported raw type {type(raw).__name__}",
+        severity=Severity.INFO,
+        where=where,
+    ))
+    return []
+
+
 try:
     from src.core.paths import DATA_DIR
 except ImportError:
@@ -192,14 +264,12 @@ def run_award_check(force: bool = False) -> dict:
             q = dict(q)
             # Try to extract solicitation from various fields
             sol = ""
-            try:
-                items_raw = q.get("line_items") or "[]"
-                if isinstance(items_raw, str):
-                    parsed = json.loads(items_raw)
-                    if parsed and isinstance(parsed, list):
-                        sol = parsed[0].get("solicitation", "") if isinstance(parsed[0], dict) else ""
-            except Exception as _e:
-                log.debug('suppressed in run_award_check: %s', _e)
+            parsed = _parse_line_items_safely(
+                q.get("line_items"),
+                where="run_award_check.solicitation_extract",
+            )
+            if parsed and isinstance(parsed[0], dict):
+                sol = parsed[0].get("solicitation", "")
             if not sol:
                 sol = q.get("quote_number", "")
 
@@ -366,11 +436,10 @@ def run_award_check(force: bool = False) -> dict:
         our_total = q.get("total", 0) or 0
 
         # Parse line items from JSON
-        our_items = []
-        try:
-            our_items = json.loads(q.get("line_items") or "[]")
-        except Exception as _e:
-            log.debug('suppressed in run_award_check: %s', _e)
+        our_items = _parse_line_items_safely(
+            q.get("line_items"),
+            where="run_award_check.line_items",
+        )
 
         # Extract search keywords from items
         keywords = _extract_search_keywords(our_items, q.get("items_text", ""))
