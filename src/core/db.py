@@ -176,6 +176,15 @@ def get_db():
     if conn is None:
         conn = _make_connection()
         _local.conn = conn
+    # Defensive reset: a previous caller on this thread may have set
+    # `conn.row_factory = None` (or to something custom). Because the
+    # connection is shared per-thread, that mutation persists and the next
+    # caller's `dict(row)` blows up with "dictionary update sequence element
+    # #0 has length N; 2 is required". Incident 2026-04-19: this took down
+    # the 1-click banner smoke check for two PRs (#213, #215, both wrong-
+    # theory fixes). Restore Row before every yield so each caller gets the
+    # documented contract regardless of what siblings did.
+    conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()

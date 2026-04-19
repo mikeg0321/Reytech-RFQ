@@ -45,7 +45,12 @@ def _fetch_recent_summary(limit: int = 50) -> list[dict]:
     rows: list[dict] = []
     try:
         with get_db() as conn:
-            conn.row_factory = None
+            # Don't mutate row_factory — this is the shared thread-local
+            # connection from get_db(). Setting it to None here breaks every
+            # subsequent caller in the same thread that does dict(row) on the
+            # connection (e.g. _load_price_checks → "dictionary update sequence
+            # element #0 has length N; 2 is required" → empty result → 1-click
+            # banner smoke 302). Index access r[0]..r[8] works on sqlite3.Row.
             # Per-quote latest row via a self-join on MAX(at).
             cur = conn.execute(
                 """SELECT q.quote_doc_id, q.doc_type, q.agency_key,
@@ -91,7 +96,8 @@ def _fetch_trail(doc_id: str) -> list[dict]:
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            conn.row_factory = None
+            # See _fetch_recent_summary note — never mutate the shared
+            # thread-local row_factory. Index access works on sqlite3.Row.
             cur = conn.execute(
                 """SELECT stage_from, stage_to, outcome, reasons_json,
                           actor, at, doc_type, agency_key
