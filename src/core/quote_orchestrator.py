@@ -332,7 +332,14 @@ class QuoteOrchestrator:
         """
         from src.core import quote_engine
 
-        profiles_registry = quote_engine.get_profiles()
+        try:
+            profiles_registry = quote_engine.get_profiles()
+        except Exception as e:
+            # Honor the no-raise contract — surface as a blocker so the
+            # caller gets a clean OrchestratorResult, not a 500.
+            result.blockers.append(f"profile registry load failed: {type(e).__name__}: {e}")
+            log.error("orchestrator: get_profiles raised", exc_info=True)
+            return []
 
         # 1. Explicit override
         if request.profile_ids:
