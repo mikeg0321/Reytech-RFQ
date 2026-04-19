@@ -40,9 +40,14 @@ def fill(quote: Quote, profile: FormProfile) -> bytes:
         Filled PDF as bytes (ready to write to disk or serve)
 
     Raises:
-        ValueError: if profile.blank_pdf doesn't exist
+        ValueError: if profile.blank_pdf doesn't exist (modes that need it)
         RuntimeError: if fill fails
     """
+    # generated mode synthesizes the PDF from scratch (e.g. Reytech quote
+    # letterhead via reportlab) — no blank_pdf input required.
+    if profile.fill_mode == "generated":
+        return _fill_generated(quote, profile)
+
     if not profile.blank_pdf or not os.path.exists(profile.blank_pdf):
         raise ValueError(f"Blank PDF not found: {profile.blank_pdf}")
 
@@ -52,8 +57,50 @@ def fill(quote: Quote, profile: FormProfile) -> bytes:
         return _fill_overlay(quote, profile)
     elif profile.fill_mode == "hybrid":
         return _fill_hybrid(quote, profile)
+    elif profile.fill_mode == "pass_through":
+        return _fill_pass_through(profile)
     else:
         raise ValueError(f"Unknown fill_mode: {profile.fill_mode}")
+
+
+def _fill_pass_through(profile: FormProfile) -> bytes:
+    """Return the blank PDF bytes verbatim.
+
+    For state-issued attachments (e.g. seller's permit) that ship as flat,
+    field-less scans. The bid package needs the document included as-is;
+    there is nothing to fill.
+    """
+    with open(profile.blank_pdf, "rb") as fh:
+        data = fh.read()
+    log.info("fill_pass_through: %s, %d bytes", profile.id, len(data))
+    return data
+
+
+def _fill_generated(quote: Quote, profile: FormProfile) -> bytes:
+    """Delegate to a generator function declared in the profile YAML.
+
+    The profile must declare a `generator:` key in `module:function` form,
+    e.g. `src.forms.quote_generator:generate_quote_pdf`. The function takes
+    a Quote and returns PDF bytes.
+    """
+    spec = (profile.raw_yaml or {}).get("generator", "")
+    if not spec or ":" not in spec:
+        raise ValueError(
+            f"{profile.id}: fill_mode=generated requires a 'generator: module:function' entry"
+        )
+    module_path, func_name = spec.split(":", 1)
+    import importlib
+    module = importlib.import_module(module_path)
+    func = getattr(module, func_name, None)
+    if not callable(func):
+        raise ValueError(f"{profile.id}: generator '{spec}' is not callable")
+    data = func(quote)
+    if not isinstance(data, (bytes, bytearray)):
+        raise RuntimeError(
+            f"{profile.id}: generator returned {type(data).__name__}, expected bytes"
+        )
+    log.info("fill_generated: %s via %s, %d bytes", profile.id, spec, len(data))
+    return bytes(data)
 
 
 def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
