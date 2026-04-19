@@ -63,11 +63,50 @@ except ImportError:
     HAS_SCPRS = False
 
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# 42 call sites in this module loaded JSON state files via `_load_json(...) or []`.
+# The helper itself swallowed FileNotFoundError AND JSONDecodeError identically,
+# returning `[]` either way — so a corrupted prospects file (truncated by a
+# crashed writer, manual edit gone wrong) silently looked like "no data yet"
+# and the operator never knew their data had been thrown away.
+# This ledger separates the two cases: missing file is silent (legitimate
+# first-run state), parse failure records an INFO skip that the orchestrator
+# end-of-run sweep persists into feature_status.
+from src.core.dependency_check import Severity, SkipReason  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip; INFO-level state-file corruption stays quiet in logs
+    because the orchestrator surfaces it via feature_status."""
+    _SKIP_LEDGER.append(skip)
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every recorded skip. Destructive — two consecutive
+    drains do not double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
+
 def _load_json(path):
+    """Load a JSON state file. Returns [] on missing-file (first-run case)
+    or on parse failure. Parse failures emit an INFO skip so the dashboard
+    shows the corruption — missing files don't, because that's normal."""
     try:
         with open(path) as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except FileNotFoundError:
+        return []
+    except (json.JSONDecodeError, ValueError) as e:
+        _record_skip(SkipReason(
+            name="json_corruption",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.INFO,
+            where=f"growth_agent._load_json({os.path.basename(path)})",
+        ))
         return []
 
 def _save_json(path, data):
