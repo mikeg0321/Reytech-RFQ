@@ -386,9 +386,10 @@ price and show a warning badge.
 - When price unavailable: show quick-entry field, not $0.00 silently
 
 ### Catalog Match Threshold
-Token matching threshold = 0.50 (raised from 0.35 after cross-category garbage
-matches — shoes matching medical items). Final output filter also 0.50.
-Never lower these without testing cross-category accuracy.
+Token matching threshold = 0.65 (raised from 0.35 → 0.50 → 0.65 across two
+audits because cross-category near-misses kept slipping through at 0.50).
+Final output filter also follows this threshold.
+Never lower it without testing cross-category accuracy.
 
 ## PDF Parsing Guard Rails (Production Incidents 2026-03-31)
 

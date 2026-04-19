@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS product_catalog (
     photo_url TEXT,
     manufacturer TEXT,
     mfg_number TEXT,
+    upc TEXT,
     search_tokens TEXT,
 
     tags TEXT DEFAULT '',
@@ -92,6 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_catalog_category ON product_catalog(category);
 CREATE INDEX IF NOT EXISTS idx_catalog_name ON product_catalog(name);
 CREATE INDEX IF NOT EXISTS idx_catalog_tokens ON product_catalog(search_tokens);
 CREATE INDEX IF NOT EXISTS idx_catalog_mfg ON product_catalog(mfg_number);
+CREATE INDEX IF NOT EXISTS idx_catalog_upc ON product_catalog(upc);
 """
 
 PRICE_HISTORY_SCHEMA = """
@@ -373,6 +375,7 @@ def init_catalog_db():
         ("photo_url", "TEXT"),
         ("manufacturer", "TEXT"),
         ("mfg_number", "TEXT"),
+        ("upc", "TEXT"),
         ("search_tokens", "TEXT"),
     ]:
         try:
@@ -404,12 +407,28 @@ def init_catalog_db():
             "CREATE INDEX IF NOT EXISTS idx_catalog_name ON product_catalog(name)",
             "CREATE INDEX IF NOT EXISTS idx_catalog_tokens ON product_catalog(search_tokens)",
             "CREATE INDEX IF NOT EXISTS idx_catalog_mfg ON product_catalog(mfg_number)",
+            "CREATE INDEX IF NOT EXISTS idx_catalog_upc ON product_catalog(upc)",
         ]:
             try:
                 conn.execute(idx_sql)
             except sqlite3.OperationalError as _e:
                 log.debug("suppressed: %s", _e)
         conn.commit()
+
+    # Enforce UNIQUE(name) on existing DBs via a UNIQUE INDEX. The table-level
+    # UNIQUE only binds on newly-created tables; older production DBs need this
+    # belt-and-suspenders. If duplicates exist, the index fails — log WARNING
+    # so ops can dedupe manually rather than silently swallowing the error.
+    try:
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_catalog_name_unique "
+            "ON product_catalog(name)"
+        )
+        conn.commit()
+    except sqlite3.IntegrityError as _e:
+        log.warning("Catalog UNIQUE(name) enforcement blocked — duplicates exist: %s", _e)
+    except sqlite3.OperationalError as _e:
+        log.warning("Catalog UNIQUE(name) index creation failed: %s", _e)
 
     conn.close()
     log.info("Product catalog DB initialized (with product_suppliers + search_tokens)")
@@ -2166,6 +2185,18 @@ def _score_product(product: dict, tokens: list) -> tuple:
     hits = {}
     fields = {f: (product.get(f) or "").lower() for f in _SMART_SEARCH_WEIGHTS}
     matched_tokens = set()
+    # Exact-identity bonus: if ANY token exactly matches the full sku/mfg_number
+    # value, award +100. Beats the general short-circuit in smart_search for
+    # noisy multi-token queries where the tokenizer doesn't trigger the pure
+    # literal-string path (e.g. "GLV-NIT-L-100 nitrile").
+    _sku_exact = fields.get("sku", "")
+    _mfg_exact = fields.get("mfg_number", "")
+    for t in tokens:
+        if t and (t == _sku_exact or t == _mfg_exact):
+            score += 100.0
+            hits.setdefault("exact_id", []).append(t)
+            matched_tokens.add(t)
+            break
     for t in tokens:
         for field, weight in _SMART_SEARCH_WEIGHTS.items():
             if t in fields[field]:
@@ -2313,7 +2344,7 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
                     intersection = desc_tokens & prod_tokens
                     union = desc_tokens | prod_tokens
                     similarity = len(intersection) / len(union) if union else 0
-                    if similarity >= 0.50:  # raised from 0.35 — too many cross-category garbage matches
+                    if similarity >= 0.65:  # raised 0.50→0.65 after catalog audit — still getting near-miss cross-category matches
                         m = dict(r)
                         m["match_confidence"] = round(min(similarity * 1.3, 0.95), 2)
                         m["match_reason"] = f"Token match: {len(intersection)} shared ({similarity:.0%})"
@@ -2888,7 +2919,7 @@ def enrich_catalog_product(product_id: int, **fields):
                 if conn.total_changes:
                     updated.append(col_name)
             except Exception as _e:
-                log.debug("suppressed: %s", _e)
+                log.warning("enrich_catalog_product #%d %s=%r failed: %s", product_id, col_name, val, _e)
 
     # Cost update (only if better/newer)
     _cost = fields.get("best_cost") or fields.get("cost")
@@ -2900,7 +2931,7 @@ def enrich_catalog_product(product_id: int, **fields):
                 (float(_cost), float(_cost), now, product_id, float(_cost))
             )
         except Exception as _e:
-            log.debug("suppressed: %s", _e)
+            log.warning("enrich_catalog_product #%d best_cost=%r failed: %s", product_id, _cost, _e)
 
     # Photo URL update (always update if we have one and current is empty)
     _photo = fields.get("photo_url", "")
@@ -2912,7 +2943,7 @@ def enrich_catalog_product(product_id: int, **fields):
                 (_photo, now, product_id)
             )
         except Exception as _e:
-            log.debug("suppressed: %s", _e)
+            log.warning("enrich_catalog_product #%d photo_url failed: %s", product_id, _e)
 
     conn.commit()
     conn.close()
