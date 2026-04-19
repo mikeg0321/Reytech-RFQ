@@ -109,23 +109,13 @@ def _check_vendor_identity(per_form_reports: list[dict]) -> list[str]:
     return []
 
 
-def _run_llm_gap_check(quote: Any, per_form_reports: list[dict], buyer_email_text: str) -> list[str]:
-    """Ask Claude what the buyer asked for that the package may not address.
-
-    Returns warnings (never blockers). Any failure → [] so we never block
-    a legitimate quote on an LLM outage.
-    """
-    if not (buyer_email_text or "").strip():
-        return []
-    try:
-        import anthropic
-    except Exception:
-        return []
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return []
-
-    filled_profiles = [r.get("profile_id", "") for r in per_form_reports if r.get("filled")]
+def _invoke_llm_gap_check(
+    *, api_key: str, buyer_email_text: str, filled_profiles: list[str], quote: Any
+) -> list[str]:
+    """Make the actual Anthropic call. Split out so tests can patch just this
+    boundary while letting the surrounding setup checks (buyer_email, api_key)
+    run normally."""
+    import anthropic
 
     user = json.dumps({
         "buyer_email": buyer_email_text[:8000],
@@ -164,28 +154,59 @@ def _run_llm_gap_check(quote: Any, per_form_reports: list[dict], buyer_email_tex
         "If nothing concerning, return gaps=[]."
     )
 
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            system=system,
-            tools=[tool],
-            tool_choice={"type": "tool", "name": "record_gaps"},
-            messages=[{"role": "user", "content": user}],
-        )
-    except Exception as e:
-        log.debug("LLM gap check failed: %s", e)
-        return []
+    client = anthropic.Anthropic(api_key=api_key)
+    resp = client.messages.create(
+        model=MODEL,
+        max_tokens=1024,
+        system=system,
+        tools=[tool],
+        tool_choice={"type": "tool", "name": "record_gaps"},
+        messages=[{"role": "user", "content": user}],
+    )
 
-    warnings: list[str] = []
+    gaps: list[str] = []
     for block in resp.content:
         if getattr(block, "type", None) == "tool_use" and block.name == "record_gaps":
             for gap in (block.input or {}).get("gaps", []) or []:
                 concern = (gap.get("concern") or "").strip()
                 if concern:
-                    warnings.append(concern[:240])
-    return warnings
+                    gaps.append(concern[:240])
+    return gaps
+
+
+def _run_llm_gap_check(
+    quote: Any, per_form_reports: list[dict], buyer_email_text: str
+) -> tuple[list[str], str | None]:
+    """Ask Claude what the buyer asked for that the package may not address.
+
+    Returns `(gaps, skipped_reason)`. `skipped_reason` is None when the LLM
+    actually ran; otherwise it carries a short human-readable reason so the
+    operator sees that the LLM portion was not exercised. Returning a real
+    reason instead of silently producing `[]` is what lets validate_package()
+    surface the skip as a warning.
+    """
+    if not (buyer_email_text or "").strip():
+        return [], "no buyer email text available"
+    try:
+        import anthropic  # noqa: F401
+    except Exception:
+        return [], "anthropic SDK not installed"
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return [], "ANTHROPIC_API_KEY not set"
+
+    filled_profiles = [r.get("profile_id", "") for r in per_form_reports if r.get("filled")]
+    try:
+        gaps = _invoke_llm_gap_check(
+            api_key=api_key,
+            buyer_email_text=buyer_email_text,
+            filled_profiles=filled_profiles,
+            quote=quote,
+        )
+    except Exception as e:
+        log.debug("LLM gap check failed: %s", e)
+        return [], f"LLM call failed: {type(e).__name__}: {e}"
+    return gaps, None
 
 
 def validate_package(
@@ -226,9 +247,15 @@ def validate_package(
     checks.append({"name": "vendor_identity", "ok": not vi, "detail": "; ".join(vi) or "OK"})
     blockers.extend(vi)
 
-    # 4) LLM gap check — warnings only
-    gaps = _run_llm_gap_check(quote, per_form_reports, buyer_email_text)
-    checks.append({"name": "llm_gap", "ok": True, "detail": f"{len(gaps)} gap(s)"})
+    # 4) LLM gap check — warnings only. A skipped LLM run is itself a
+    #    warning so the dashboard reflects when this layer didn't actually
+    #    weigh in (no buyer email, no API key, SDK not installed, LLM 5xx).
+    gaps, skipped_reason = _run_llm_gap_check(quote, per_form_reports, buyer_email_text)
+    if skipped_reason:
+        checks.append({"name": "llm_gap", "ok": False, "detail": f"skipped: {skipped_reason}"})
+        warnings.append(f"LLM gap check skipped: {skipped_reason}")
+    else:
+        checks.append({"name": "llm_gap", "ok": True, "detail": f"{len(gaps)} gap(s)"})
     warnings.extend(gaps)
 
     return {
