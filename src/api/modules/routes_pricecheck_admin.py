@@ -2161,13 +2161,19 @@ def api_pc_item_oracle(pcid, item_idx):
         item_num = item.get("mfg_number", "") or item.get("item_number", "")
         qty = item.get("qty", 1) or 1
         qpu = item.get("qty_per_uom", 1) or 1
+        # Pass institution as `department` so V3 calibration, V5 institution
+        # profile, and V5.5 buyer curve all key off this PC's agency. Without
+        # this, the rich agency-specific signals never populate even though
+        # the engine computes them.
+        agency = pc.get("institution") or pc.get("agency") or ""
         from src.core.pricing_oracle_v2 import get_pricing
         result = get_pricing(
             description=desc, quantity=qty, cost=cost if cost > 0 else None,
-            item_number=item_num, qty_per_uom=qpu
+            item_number=item_num, qty_per_uom=qpu, department=agency,
         )
         result["ok"] = True
         result["item_idx"] = item_idx
+        result["agency"] = agency
         return jsonify(result)
     except Exception as e:
         log.error("Oracle lookup for %s item %d: %s", pcid, item_idx, e)
