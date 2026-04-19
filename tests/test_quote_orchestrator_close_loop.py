@@ -239,7 +239,7 @@ class TestComplianceBytesGate:
         per_form = [
             {"profile_id": "704b_reytech_standard", "filled": True, "qa_passed": True, "bytes": 0},
         ]
-        blockers = _check_required_forms(_Q(), per_form)
+        blockers, _skips = _check_required_forms(_Q(), per_form)
         # CCHCS requires 704b — the 0-byte profile must not satisfy it.
         assert any("704b" in b for b in blockers), blockers
 
@@ -256,6 +256,6 @@ class TestComplianceBytesGate:
         per_form = [
             {"profile_id": "704b_reytech_standard", "filled": True, "qa_passed": True, "bytes": 12345},
         ]
-        blockers = _check_required_forms(_Q(), per_form)
+        blockers, _skips = _check_required_forms(_Q(), per_form)
         # 704b satisfied; only other CCHCS-required forms (if any) might block.
         assert not any("704b" in b for b in blockers), blockers

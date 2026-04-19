@@ -37,27 +37,39 @@ REYTECH_EMAIL = "sales@reytechinc.com"
 _QUOTE_NUM_RE = re.compile(r"^R\d{2}Q\d{4}$")
 
 
-def _check_required_forms(quote: Any, per_form_reports: list[dict]) -> list[str]:
+def _check_required_forms(
+    quote: Any, per_form_reports: list[dict]
+) -> tuple[list[str], list]:
     """Every `agency_config.required_forms` entry must show up filled.
 
-    A profile is considered 'filled' if its per_form_report has filled=True
-    and qa_passed=True. Bid-package containers are skipped — they're merged,
-    not filled directly.
+    Returns `(blockers, skips)`. Skips carry SkipReason objects for any
+    dependency the check needed but couldn't reach (failed import of
+    agency_config or the orchestrator's _FORM_ID_TO_PROFILE_ID map). A
+    BLOCKER skip means the check did NOT run truthfully — the orchestrator
+    routes it via add_skip() so the operator sees the import failure
+    instead of a silently-empty blockers list.
     """
-    try:
-        from src.core import agency_config
-    except Exception:
-        return []
+    from src.core.dependency_check import Severity, try_import
+
+    skips: list = []
+    where = "compliance_validator._check_required_forms"
+
+    agency_config, ac_skip = try_import(
+        "src.core.agency_config", severity=Severity.BLOCKER, where=where,
+    )
+    if ac_skip is not None:
+        skips.append(ac_skip)
+        return [], skips
 
     blockers: list[str] = []
     agency_key = getattr(quote.header, "agency_key", "") or ""
     if not agency_key:
-        return blockers
+        return blockers, skips
 
     cfg = agency_config.DEFAULT_AGENCY_CONFIGS.get(agency_key, {})
     required = cfg.get("required_forms") or []
     if not required:
-        return blockers
+        return blockers, skips
 
     # A profile is only "filled" if it actually produced bytes. Earlier this
     # check accepted filled=True/qa_passed=True even when bytes=0, which let
@@ -69,10 +81,13 @@ def _check_required_forms(quote: Any, per_form_reports: list[dict]) -> list[str]
     }
 
     # Translate required form_ids to profile_ids via the orchestrator map.
-    try:
-        from src.core.quote_orchestrator import _FORM_ID_TO_PROFILE_ID
-    except Exception:
-        _FORM_ID_TO_PROFILE_ID = {}
+    qo_mod, qo_skip = try_import(
+        "src.core.quote_orchestrator", severity=Severity.BLOCKER, where=where,
+    )
+    if qo_skip is not None:
+        skips.append(qo_skip)
+        return blockers, skips
+    _FORM_ID_TO_PROFILE_ID = getattr(qo_mod, "_FORM_ID_TO_PROFILE_ID", {})
 
     for form_id in required:
         if form_id == "bidpkg":
@@ -85,7 +100,7 @@ def _check_required_forms(quote: Any, per_form_reports: list[dict]) -> list[str]
             blockers.append(
                 f"required form '{form_id}' (profile {expected_pid}) not filled/qa_passed for agency '{agency_key}'"
             )
-    return blockers
+    return blockers, skips
 
 
 def _check_quote_number(quote: Any) -> list[str]:
@@ -220,9 +235,10 @@ def validate_package(
     Shape:
         {
             "checked": bool,
-            "blockers": [str],  # if non-empty, qa_pass is refused
-            "warnings": [str],  # advisory only
-            "checks": [         # per-check trace for the dashboard
+            "blockers": [str],          # if non-empty, qa_pass is refused
+            "warnings": [str],          # advisory only
+            "skips":    [SkipReason],   # routed by orchestrator.add_skip()
+            "checks": [                 # per-check trace for the dashboard
                 {"name": ..., "ok": bool, "detail": str},
                 ...
             ],
@@ -230,11 +246,14 @@ def validate_package(
     """
     blockers: list[str] = []
     warnings: list[str] = []
+    skips: list = []
     checks: list[dict] = []
 
     # 1) Required forms all filled + QA-passed
-    rf = _check_required_forms(quote, per_form_reports)
-    checks.append({"name": "required_forms", "ok": not rf, "detail": "; ".join(rf) or "OK"})
+    rf, rf_skips = _check_required_forms(quote, per_form_reports)
+    skips.extend(rf_skips)
+    rf_problems = rf + [f"{s.name}: {s.reason}" for s in rf_skips]
+    checks.append({"name": "required_forms", "ok": not rf_problems, "detail": "; ".join(rf_problems) or "OK"})
     blockers.extend(rf)
 
     # 2) Quote number shape
@@ -262,5 +281,6 @@ def validate_package(
         "checked": True,
         "blockers": blockers,
         "warnings": warnings,
+        "skips": skips,
         "checks": checks,
     }
