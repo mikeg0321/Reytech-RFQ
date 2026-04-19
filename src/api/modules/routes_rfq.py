@@ -1062,6 +1062,107 @@ def api_rfq_create_manual():
     return jsonify({"ok": True, "rfq_id": rid, "sol": sol})
 
 
+# ── Manual RFQ upload (DSH Proofpoint, hand-typed buyers, etc.) ─────────────
+# DSH ships RFQs through a Proofpoint secure-mail portal that Gmail can't
+# poll. Mike downloads the attachments + copies the email body, drops them
+# both into one screen, and we run the same `process_buyer_request`
+# pipeline the Gmail poller uses — single source of truth for ingest.
+
+@bp.route("/rfq/upload-manual")
+@auth_required
+@safe_page
+def rfq_upload_manual_page():
+    """Render the +RFQ manual upload page (multi-file dropzone + email paste)."""
+    return render_page("rfq_manual_upload.html", active_page="RFQs")
+
+
+@bp.route("/api/rfq/upload-manual", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_rfq_upload_manual():
+    """Ingest a manually-uploaded RFQ packet.
+
+    Form fields:
+      files (multi):   one or more PDFs (cover + Attachments + supporting forms)
+      email_subject:   subject line from the source email (string)
+      email_sender:    from-address (string)
+      email_body:      pasted plain-text email body (string)
+
+    Returns the IngestResult.to_dict() shape so the page JS can link to
+    the created PC/RFQ detail page.
+    """
+    import re as _re_fn
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"ok": False, "error": "Drop at least one PDF."}), 400
+
+    upload_dir = os.path.join(DATA_DIR, "uploads", "manual_rfq")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    saved_paths = []
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    for idx, f in enumerate(files):
+        if not f or not f.filename:
+            continue
+        if not f.filename.lower().endswith(".pdf"):
+            return jsonify({
+                "ok": False,
+                "error": f"File {f.filename!r} is not a PDF.",
+            }), 400
+        safe_fn = _re_fn.sub(r'[^a-zA-Z0-9._-]', '_', os.path.basename(f.filename))
+        dest = os.path.join(upload_dir, f"{ts}_{idx:02d}_{safe_fn}")
+        f.save(dest)
+        saved_paths.append(dest)
+
+    if not saved_paths:
+        return jsonify({"ok": False, "error": "No valid PDF uploads."}), 400
+
+    email_subject = (request.form.get("email_subject") or "").strip()
+    email_sender = (request.form.get("email_sender") or "").strip()
+    email_body = request.form.get("email_body") or ""
+
+    try:
+        from src.core.ingest_pipeline import process_buyer_request
+    except Exception as e:
+        log.error("ingest_pipeline import failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": f"ingest pipeline unavailable: {e}"}), 500
+
+    # Stable email_uid keeps re-uploads idempotent (dedup will catch dupes)
+    import hashlib
+    uid_seed = (
+        (email_subject or "no-subject")
+        + "|" + (email_sender or "no-sender")
+        + "|" + "|".join(os.path.basename(p) for p in saved_paths)
+    )
+    email_uid = "manual-" + hashlib.sha1(uid_seed.encode("utf-8")).hexdigest()[:12]
+
+    try:
+        result = process_buyer_request(
+            files=saved_paths,
+            email_body=email_body,
+            email_subject=email_subject,
+            email_sender=email_sender,
+            email_uid=email_uid,
+        )
+    except Exception as e:
+        log.error("manual RFQ ingest crashed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": f"ingest crashed: {e}"}), 500
+
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("rfq.upload_manual", context={
+            "files": len(saved_paths),
+            "agency": (result.classification or {}).get("agency", ""),
+            "shape": (result.classification or {}).get("shape", ""),
+            "ok": result.ok,
+        })
+    except Exception as _e:
+        log.debug("manual upload telemetry suppressed: %s", _e)
+
+    return jsonify(result.to_dict())
+
+
 @bp.route("/api/rfq/<rid>/upload-parse-doc", methods=["POST"])
 @auth_required
 @safe_route

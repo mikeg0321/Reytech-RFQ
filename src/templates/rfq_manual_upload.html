@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% import "_components.html" as ui %}
+{% block title %}+ RFQ — Manual Upload — Reytech{% endblock %}
+
+{% block content %}
+<div style="max-width:960px;margin:0 auto">
+ <h2 style="margin:0 0 6px;font-size:22px;font-weight:700">➕ RFQ Manual Upload</h2>
+ <div style="color:var(--tx2);font-size:13px;margin-bottom:18px">
+  For RFQs that arrive outside Gmail (DSH Proofpoint secure mail, hand-typed
+  buyer notes, etc.). Drop the PDF attachments + paste the email body — the
+  app classifies, parses line items, and extracts the deadline / contact in
+  one shot, exactly like an inbound poll.
+ </div>
+
+ <!-- Step 1: file dropzone -->
+ <div class="card" style="margin-bottom:16px">
+  <div class="card-t">Step 1: Drop attachments (PDFs)</div>
+  <div id="drop" style="margin-top:12px;padding:24px;border:2px dashed var(--bd);
+       border-radius:8px;text-align:center;color:var(--tx2);background:var(--sf2);
+       cursor:pointer;transition:border-color .15s"
+       ondragover="event.preventDefault();this.style.borderColor='var(--ac)'"
+       ondragleave="this.style.borderColor='var(--bd)'"
+       ondrop="event.preventDefault();this.style.borderColor='var(--bd)';onDrop(event)"
+       onclick="document.getElementById('rfqFiles').click()">
+   <div style="font-size:32px;margin-bottom:6px">📎</div>
+   <div style="font-size:14px;color:var(--tx)">Drop PDF files here, or click to browse</div>
+   <div style="font-size:12px;margin-top:4px">
+    Accepts the full DSH packet: cover, Attachment A/B/C, supporting forms.
+   </div>
+   <input type="file" id="rfqFiles" multiple accept=".pdf"
+          style="display:none" onchange="onFiles(this.files)">
+  </div>
+  <div id="fileList" style="margin-top:10px"></div>
+ </div>
+
+ <!-- Step 2: email body -->
+ <div class="card" style="margin-bottom:16px">
+  <div class="card-t">Step 2: Paste the email body
+   <span style="font-weight:400;color:var(--tx2);font-size:12px">
+    — feeds the requirements extractor (deadline, contact, "lowest cost wins", etc.)
+   </span>
+  </div>
+  <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+   <div>
+    <label style="font-size:12px;color:var(--tx2)">Subject</label>
+    <input type="text" id="emailSubject" class="text-in" style="width:100%;margin-top:4px"
+           placeholder="FW: Please find attached quote request 25CB020">
+   </div>
+   <div>
+    <label style="font-size:12px;color:var(--tx2)">From (email)</label>
+    <input type="text" id="emailSender" class="text-in" style="width:100%;margin-top:4px"
+           placeholder="Corneliu.Butuza@dsh.ca.gov">
+   </div>
+  </div>
+  <textarea id="emailBody" class="text-in"
+            style="width:100%;margin-top:10px;min-height:160px;font-family:'JetBrains Mono',monospace;font-size:12px"
+            placeholder="Hello,&#10;The Department of State Hospitals would like to request a quote...&#10;Deadline for submission is 3/30/2026 at 1:30 pm&#10;..."></textarea>
+ </div>
+
+ <!-- Submit + result panel -->
+ <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:14px">
+  <a href="/" class="btn" style="padding:10px 20px;font-size:14px">Cancel</a>
+  <button onclick="submitUpload()" id="submitBtn" class="btn"
+          style="background:var(--ac);color:#fff;padding:10px 24px;font-size:14px;font-weight:600">
+   Ingest RFQ
+  </button>
+ </div>
+
+ <div id="resultCard" class="card" style="display:none;margin-bottom:16px">
+  <div class="card-t">Ingest Result</div>
+  <div id="resultBody" style="margin-top:10px;font-size:14px"></div>
+ </div>
+</div>
+
+<script>
+var _files = [];
+
+function onDrop(e){
+ var dt = e.dataTransfer;
+ if (!dt || !dt.files) return;
+ onFiles(dt.files);
+}
+
+function onFiles(fl){
+ for (var i=0;i<fl.length;i++){
+  if ((fl[i].name||'').toLowerCase().endsWith('.pdf')) _files.push(fl[i]);
+ }
+ renderFiles();
+}
+
+function renderFiles(){
+ var box = document.getElementById('fileList');
+ if (!_files.length){ box.innerHTML=''; return; }
+ var html = '<div style="font-size:13px;color:var(--tx2);margin-bottom:6px">'
+            + _files.length + ' file(s) staged:</div>';
+ _files.forEach(function(f, i){
+  var kb = (f.size/1024).toFixed(0);
+  html += '<div style="display:flex;justify-content:space-between;'
+       + 'padding:6px 10px;border:1px solid var(--bd);border-radius:6px;'
+       + 'margin-bottom:4px;font-size:13px;align-items:center">'
+       + '<span>📄 ' + escapeHtml(f.name) + ' <span style="color:var(--tx2)">(' + kb + ' KB)</span></span>'
+       + '<button onclick="removeFile(' + i + ')" style="background:none;border:none;'
+       + 'color:var(--tx2);cursor:pointer;font-size:16px">✕</button>'
+       + '</div>';
+ });
+ box.innerHTML = html;
+}
+
+function removeFile(i){ _files.splice(i,1); renderFiles(); }
+
+function escapeHtml(s){
+ return String(s||'').replace(/[&<>"']/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+ });
+}
+
+function submitUpload(){
+ if (!_files.length){ alert('Drop at least one PDF first.'); return; }
+ var btn = document.getElementById('submitBtn');
+ btn.disabled = true; btn.textContent = 'Ingesting...';
+
+ var fd = new FormData();
+ _files.forEach(function(f){ fd.append('files', f); });
+ fd.append('email_subject', document.getElementById('emailSubject').value || '');
+ fd.append('email_sender',  document.getElementById('emailSender').value || '');
+ fd.append('email_body',    document.getElementById('emailBody').value || '');
+
+ fetch('/api/rfq/upload-manual', {method:'POST', credentials:'same-origin', body:fd})
+  .then(function(r){ return r.json().then(function(d){ d._http=r.status; return d; }); })
+  .then(function(d){
+   btn.disabled = false; btn.textContent = 'Ingest RFQ';
+   var card = document.getElementById('resultCard');
+   var body = document.getElementById('resultBody');
+   card.style.display = 'block';
+   if (!d.ok){
+    body.innerHTML = '<div style="color:#f85149">'
+                    + '<strong>Failed.</strong> ' + escapeHtml(d.error || 'unknown error')
+                    + (d.errors && d.errors.length ? '<ul>' + d.errors.map(function(x){
+                       return '<li>' + escapeHtml(x) + '</li>'; }).join('') + '</ul>' : '')
+                    + '</div>';
+    return;
+   }
+   var cls = d.classification || {};
+   var rec = d.record_type || '';
+   var rid = d.record_id || '';
+   var detailUrl = rec === 'rfq' ? '/rfq/' + rid : (rec === 'pc' ? '/pricecheck/' + rid : '');
+   body.innerHTML = '<div style="color:#3fb950"><strong>Ingested.</strong></div>'
+    + '<table style="margin-top:10px;font-size:13px;width:100%">'
+    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Record type</td><td>' + escapeHtml(rec) + '</td></tr>'
+    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Record ID</td><td>'
+    + (detailUrl ? '<a href="' + detailUrl + '">' + escapeHtml(rid) + '</a>' : escapeHtml(rid))
+    + '</td></tr>'
+    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Classification</td><td>'
+    + escapeHtml(cls.shape || '?') + ' (agency: ' + escapeHtml(cls.agency || '?') + ')</td></tr>'
+    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Items parsed</td><td>' + (d.items_parsed || 0) + '</td></tr>'
+    + '<tr><td style="padding:4px 8px;color:var(--tx2)">Linked PC</td><td>'
+    + escapeHtml(d.linked_pc_id || '—') + '</td></tr>'
+    + '</table>'
+    + (d.warnings && d.warnings.length ? '<div style="color:var(--yl);margin-top:8px;font-size:12px">'
+       + 'Warnings: ' + d.warnings.map(escapeHtml).join('; ') + '</div>' : '')
+    + (detailUrl ? '<div style="margin-top:10px"><a href="' + detailUrl + '" class="btn" '
+       + 'style="background:var(--ac);color:#fff;padding:8px 16px;font-size:13px">Open ' + escapeHtml(rec.toUpperCase()) + '</a></div>' : '');
+  })
+  .catch(function(e){
+   btn.disabled = false; btn.textContent = 'Ingest RFQ';
+   var card = document.getElementById('resultCard');
+   var body = document.getElementById('resultBody');
+   card.style.display = 'block';
+   body.innerHTML = '<div style="color:#f85149">Network error: ' + escapeHtml(String(e)) + '</div>';
+  });
+}
+</script>
+{% endblock %}
