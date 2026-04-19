@@ -54,6 +54,10 @@ python -m pytest \
     tests/test_api_contracts.py \
     tests/test_pricing_math.py \
     tests/test_golden_path.py \
+    tests/test_carrier_auto_status.py \
+    tests/test_orders_v2_user_crud_mirror.py \
+    tests/test_golden_path_pc_to_rfq_roundtrip.py \
+    tests/test_email_pipeline_e2e.py \
     -n auto -q --tb=short 2>&1
 
 RESULT=$?
