@@ -587,6 +587,16 @@ class QuoteOrchestrator:
                 "gap": compliance_gap,
             }
 
+            # Bubble compliance warnings into result.warnings so the dashboard
+            # surfaces LLM gap findings ("buyer requested 90-day terms; quote
+            # shows 45-day") in the same channel as every other warning.
+            # Previously these were stored only in result.compliance_report
+            # and the warnings panel showed nothing — operators missed real
+            # buyer-asked-for-X concerns until they manually inspected.
+            if isinstance(compliance_gap, dict):
+                for cw in compliance_gap.get("warnings", []) or []:
+                    result.warnings.append(f"compliance: {cw}")
+
             any_fill_error = any(not r.get("filled", False) for r in per_form)
             any_qa_fail = any(r.get("filled") and not r.get("qa_passed", False) for r in per_form)
             compliance_blocked = compliance_gap.get("blockers", []) if isinstance(compliance_gap, dict) else []
