@@ -640,10 +640,28 @@ class QuoteOrchestrator:
             if isinstance(compliance_gap, dict):
                 for cw in compliance_gap.get("warnings", []) or []:
                     result.warnings.append(f"compliance: {cw}")
+                # Route structured SkipReasons (PR #183 onward) through the
+                # severity-aware add_skip path so import failures of the
+                # validator's deps surface in result.blockers and the
+                # feature_status table can count them across runs.
+                for s in compliance_gap.get("skips", []) or []:
+                    result.add_skip(s)
 
             any_fill_error = any(not r.get("filled", False) for r in per_form)
             any_qa_fail = any(r.get("filled") and not r.get("qa_passed", False) for r in per_form)
             compliance_blocked = compliance_gap.get("blockers", []) if isinstance(compliance_gap, dict) else []
+            # Skip events with severity=BLOCKER (e.g. agency_config import
+            # failed) ALSO refuse qa_pass — the deterministic check did not
+            # run truthfully so we cannot claim compliance passed. add_skip
+            # already routed them into result.blockers; we re-derive them
+            # here so the audit row records them under "compliance:" with
+            # the rest of the failures.
+            from src.core.dependency_check import Severity as _Sev
+            compliance_skip_blockers = [
+                f"{s.name}: {s.reason}"
+                for s in (compliance_gap.get("skips", []) if isinstance(compliance_gap, dict) else [])
+                if s.severity is _Sev.BLOCKER
+            ]
 
             # If validate_package crashed (DB down, LLM timeout, malformed
             # buyer_email_text) it returns {"checked": False, "error": ...}
@@ -664,7 +682,7 @@ class QuoteOrchestrator:
                         "compliance check did not run (validator returned checked=False)"
                     )
 
-            if any_fill_error or any_qa_fail or compliance_blocked or compliance_unchecked:
+            if any_fill_error or any_qa_fail or compliance_blocked or compliance_unchecked or compliance_skip_blockers:
                 # Surface concrete reasons via the audit row instead of a
                 # silent return. Previously this produced a useless generic
                 # "transition ran but status is priced, expected qa_pass"

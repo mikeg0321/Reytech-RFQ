@@ -24,19 +24,19 @@ def _quote(*, agency_key: str = "cchcs", quote_number: str = "R26Q0321"):
 class TestQuoteNumberCheck:
     def test_missing_quote_number_blocks(self):
         q = _quote(quote_number="")
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=[])
         assert any("quote_number is empty" in b for b in r["blockers"])
 
     def test_malformed_quote_number_blocks(self):
         q = _quote(quote_number="12345")
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=[])
         assert any("does not match" in b for b in r["blockers"])
 
     def test_valid_quote_number_passes(self):
         q = _quote(quote_number="R26Q0321")
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=[
                 # CCHCS requires a bunch of forms — pass them all so quote_number
                 # check is isolated from required-forms blockers.
@@ -54,7 +54,7 @@ class TestRequiredForms:
         per_form = [
             {"profile_id": "704b_reytech_standard", "filled": True, "qa_passed": True},
         ]
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=per_form)
 
         rf_blockers = [b for b in r["blockers"] if "703b" in b]
@@ -62,7 +62,7 @@ class TestRequiredForms:
 
     def test_unknown_agency_skips_required_forms_check(self):
         q = _quote(agency_key="agency_that_does_not_exist")
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=[])
         rf_check = next(c for c in r["checks"] if c["name"] == "required_forms")
         assert rf_check["ok"] is True, "no required_forms → no blockers"
@@ -73,7 +73,7 @@ class TestRequiredForms:
         per_form = [
             {"profile_id": "704b_reytech_standard", "filled": True, "qa_passed": False},
         ]
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=per_form)
         # 704b should show up in blockers because qa_passed=False means it
         # wasn't actually validated.
@@ -91,7 +91,7 @@ class TestLLMGate:
             {"profile_id": "quote_reytech_letterhead", "filled": True, "qa_passed": True},
         ]
         with patch("src.agents.compliance_validator._run_llm_gap_check",
-                   return_value=["buyer asked for DVBE declaration but none filed"]):
+                   return_value=(["buyer asked for DVBE declaration but none filed"], None)):
             r = validate_package(
                 quote=q,
                 per_form_reports=per_form,
@@ -108,11 +108,14 @@ class TestLLMGate:
             {"profile_id": "703b_reytech_standard", "filled": True, "qa_passed": True},
             {"profile_id": "quote_reytech_letterhead", "filled": True, "qa_passed": True},
         ]
-        with patch("src.agents.compliance_validator._run_llm_gap_check") as mocked:
+        with patch("src.agents.compliance_validator._run_llm_gap_check",
+                   return_value=([], None)) as mocked:
             r = validate_package(quote=q, per_form_reports=per_form, buyer_email_text="")
         assert r["checked"] is True
-        # We still call it — the function itself short-circuits on empty text,
-        # so it's called but returns []. Verify the shape.
+        # The wrapper short-circuits on empty buyer email and returns
+        # ([], "no buyer email text available"); patched here to ([], None)
+        # to isolate the result-shape assertion from the skip-warning path
+        # already covered in test_compliance_validator_llm_skip_warning.
         assert r["warnings"] == []
 
 
@@ -120,7 +123,7 @@ class TestResultShape:
     def test_result_is_always_a_dict_with_blockers_list(self):
         """Orchestrator reads `compliance_gap.get('blockers', [])` — shape must hold."""
         q = _quote(quote_number="R26Q0321", agency_key="cchcs")
-        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=[]):
+        with patch("src.agents.compliance_validator._run_llm_gap_check", return_value=([], None)):
             r = validate_package(quote=q, per_form_reports=[])
         assert isinstance(r, dict)
         assert isinstance(r.get("blockers"), list)
