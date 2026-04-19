@@ -413,6 +413,16 @@ class QuoteOrchestrator:
                     result.warnings.append(f"profile override missing from registry: {pid}")
             if out:
                 return out
+            # Operator explicitly asked for these profiles. None matched.
+            # Falling through to agency-driven resolution would silently
+            # build a different package than the operator requested — exactly
+            # the kind of "looks like it worked" failure this orchestrator
+            # exists to eliminate. Block instead.
+            result.blockers.append(
+                f"no requested profile_ids matched the registry: "
+                f"{request.profile_ids}"
+            )
+            return []
 
         # 2. Agency-driven
         agency_key = quote.header.agency_key or ""
