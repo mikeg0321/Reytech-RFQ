@@ -36,9 +36,21 @@
     </div>
   </div>
 
-  <!-- Filter chips -->
+  <!-- Search + date toggle -->
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center">
+    <input id="qs-search" type="search" placeholder="Search doc id, agency, reason…"
+           aria-label="Search quoting status rows"
+           style="flex:1;min-width:220px;padding:6px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:8px;color:var(--tx);font-size:12px">
+    <button type="button" id="qs-last24h" class="qs-chip"
+            style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 12px;border-radius:999px;cursor:pointer;font-size:12px"
+            title="Show only transitions in the last 24 hours">
+      ⏱ Last 24h
+    </button>
+  </div>
+
+  <!-- Outcome chips -->
   <div id="qs-filters" role="group" aria-label="Filter by outcome"
-       style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+       style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
     {% for key, label in [
       ('all', 'All'),
       ('advanced', 'Advanced'),
@@ -53,6 +65,18 @@
         {{ label }}
       </button>
     {% endfor %}
+  </div>
+
+  <!-- Agency chips (populated from rows) -->
+  <div id="qs-agency-filters" role="group" aria-label="Filter by agency"
+       style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center">
+    <span style="font-size:11px;color:var(--tx2);margin-right:4px">Agency:</span>
+  </div>
+
+  <!-- Stage chips (populated from rows) -->
+  <div id="qs-stage-filters" role="group" aria-label="Filter by stage"
+       style="display:none;flex-wrap:wrap;gap:6px;margin-bottom:12px;align-items:center">
+    <span style="font-size:11px;color:var(--tx2);margin-right:4px">Stage:</span>
   </div>
 
   <!-- KPI tiles -->
@@ -160,9 +184,17 @@
   var refreshBtn = document.getElementById('qs-refresh-btn');
   var kpiContainer = document.getElementById('qs-kpis');
   var filtersEl = document.getElementById('qs-filters');
+  var agencyFiltersEl = document.getElementById('qs-agency-filters');
+  var stageFiltersEl = document.getElementById('qs-stage-filters');
+  var searchEl = document.getElementById('qs-search');
+  var last24hBtn = document.getElementById('qs-last24h');
   var exportLink = document.getElementById('qs-export-csv');
   var allRows = [];
   var activeFilter = 'all';
+  var activeAgency = 'all';
+  var activeStage = 'all';
+  var last24hOn = false;
+  var searchTerm = '';
 
   if (!tbody || !lastUpdated || !liveDot || !kpiContainer) return;
 
@@ -212,17 +244,79 @@
       + '</tr>';
   }
 
+  function parseAt(at) {
+    if (!at) return 0;
+    var t = Date.parse(String(at).replace(' ', 'T'));
+    return isNaN(t) ? 0 : t;
+  }
+
+  function applyFilters(rows) {
+    var cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    var q = searchTerm.trim().toLowerCase();
+    return rows.filter(function(r) {
+      if (activeFilter !== 'all' && (r.outcome || '') !== activeFilter) return false;
+      if (activeAgency !== 'all' && (r.agency_key || '(none)') !== activeAgency) return false;
+      if (activeStage !== 'all' && (r.stage_to || '') !== activeStage) return false;
+      if (last24hOn && parseAt(r.at) < cutoff) return false;
+      if (q) {
+        var hay = [r.doc_id, r.agency_key, r.stage_to, r.stage_from,
+                   (r.reasons || []).join(' ')].join(' ').toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function emptyMessage() {
+    var parts = [];
+    if (activeFilter !== 'all') parts.push('outcome=' + activeFilter);
+    if (activeAgency !== 'all') parts.push('agency=' + activeAgency);
+    if (activeStage !== 'all') parts.push('stage=' + activeStage);
+    if (last24hOn) parts.push('last 24h');
+    if (searchTerm.trim()) parts.push('"' + searchTerm.trim() + '"');
+    if (!parts.length) return 'No audit log rows yet. Run the orchestrator to populate.';
+    return 'No rows match: ' + parts.join(', ') + '.';
+  }
+
+  function renderChips(el, values, activeKey, prefix) {
+    // Preserve the leading label span (first child)
+    var label = el.firstElementChild;
+    el.innerHTML = '';
+    if (label) el.appendChild(label);
+    if (!values.length) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    var all = ['all'].concat(values);
+    all.forEach(function(v) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'qs-chip' + (v === activeKey ? ' qs-chip-active' : '');
+      btn.setAttribute('data-' + prefix, v);
+      btn.style.cssText = 'background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:3px 10px;border-radius:999px;cursor:pointer;font-size:11px';
+      btn.textContent = v === 'all' ? 'All' : v;
+      el.appendChild(btn);
+    });
+  }
+
+  function rebuildDimChips() {
+    var agencies = {};
+    var stages = {};
+    allRows.forEach(function(r) {
+      agencies[r.agency_key || '(none)'] = true;
+      if (r.stage_to) stages[r.stage_to] = true;
+    });
+    if (activeAgency !== 'all') agencies[activeAgency] = true;
+    if (activeStage !== 'all') stages[activeStage] = true;
+    renderChips(agencyFiltersEl, Object.keys(agencies).sort(), activeAgency, 'agency');
+    renderChips(stageFiltersEl, Object.keys(stages).sort(), activeStage, 'stage');
+  }
+
   function renderTable() {
-    var visible = (activeFilter === 'all')
-      ? allRows
-      : allRows.filter(function(r) { return (r.outcome || '') === activeFilter; });
+    var visible = applyFilters(allRows);
     if (!visible.length) {
       tbody.innerHTML = '';
       if (emptyEl) {
         emptyEl.style.display = '';
-        emptyEl.textContent = (activeFilter === 'all')
-          ? 'No audit log rows yet. Run the orchestrator to populate.'
-          : 'No rows match filter: ' + activeFilter + '.';
+        emptyEl.textContent = emptyMessage();
       }
       return;
     }
@@ -253,6 +347,7 @@
     });
 
     allRows = rows;
+    rebuildDimChips();
     renderTable();
   }
 
@@ -267,6 +362,49 @@
       });
       renderTable();
       syncExportLink();
+    });
+  }
+
+  if (agencyFiltersEl) {
+    agencyFiltersEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('.qs-chip');
+      if (!btn) return;
+      activeAgency = btn.getAttribute('data-agency') || 'all';
+      agencyFiltersEl.querySelectorAll('.qs-chip').forEach(function(b) {
+        b.classList.toggle('qs-chip-active', b === btn);
+      });
+      renderTable();
+    });
+  }
+
+  if (stageFiltersEl) {
+    stageFiltersEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('.qs-chip');
+      if (!btn) return;
+      activeStage = btn.getAttribute('data-stage') || 'all';
+      stageFiltersEl.querySelectorAll('.qs-chip').forEach(function(b) {
+        b.classList.toggle('qs-chip-active', b === btn);
+      });
+      renderTable();
+    });
+  }
+
+  if (last24hBtn) {
+    last24hBtn.addEventListener('click', function() {
+      last24hOn = !last24hOn;
+      last24hBtn.classList.toggle('qs-chip-active', last24hOn);
+      renderTable();
+    });
+  }
+
+  if (searchEl) {
+    var searchTimer = null;
+    searchEl.addEventListener('input', function() {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function() {
+        searchTerm = searchEl.value || '';
+        renderTable();
+      }, 120);
     });
   }
 
