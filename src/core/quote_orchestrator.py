@@ -162,6 +162,22 @@ class QuoteOrchestrator:
         # Resolve agency + profiles BEFORE advancing stages. Many preconditions
         # depend on knowing which agency we're building for.
         self._resolve_agency(quote, request, result)
+
+        # Hard gate: if the operator is targeting qa_pass or beyond and we
+        # could not resolve an agency, refuse to advance. Otherwise the quote
+        # falls back to a generic doc-type profile and ships without anyone
+        # noticing it's missing the agency-specific package. Operator can
+        # override by setting request.agency_key explicitly.
+        qa_pass_idx = _stage_index("qa_pass")
+        if not quote.header.agency_key and target_idx >= qa_pass_idx:
+            result.blockers.append(
+                f"agency unresolved — cannot advance past 'priced' to "
+                f"'{request.target_stage}' without an agency. Set "
+                "request.agency_key explicitly to override."
+            )
+            result.final_stage = quote.status.value
+            return result
+
         profiles = self._resolve_profiles(quote, request, result)
         result.profiles_used = [p.id for p in profiles]
 
@@ -258,11 +274,21 @@ class QuoteOrchestrator:
 
         try:
             key, _cfg = agency_config.match_agency(rfq_data)
-            if key:
+            # match_agency falls back to "other" (a real config with minimal
+            # forms) instead of returning empty — so a hit on "other" actually
+            # means "I gave up". Don't claim that as a resolution; leave
+            # agency_key empty so the qa_pass+ gate in run() fires. If an
+            # operator legitimately wants to ship as "other", they pass
+            # request.agency_key="other" explicitly and _resolve_agency
+            # returns at the top.
+            if key and key != "other":
                 quote.header.agency_key = key
                 log.info("orchestrator: resolved agency=%s", key)
             else:
-                result.warnings.append("agency: no match from agency_config")
+                result.warnings.append(
+                    f"agency: no confident match from agency_config "
+                    f"(fell back to '{key or 'none'}')"
+                )
         except Exception as e:
             result.warnings.append(f"agency match failed: {e}")
 
