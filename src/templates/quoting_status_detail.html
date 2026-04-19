@@ -12,13 +12,21 @@
 
 <div style="max-width:1000px;margin:0 auto;padding:20px" id="main-content">
 
-  <div style="margin-bottom:16px">
-    <a href="/quoting/status" style="color:#58a6ff;font-size:13px;text-decoration:none">&larr; Back to list</a>
-    <h2 style="margin:6px 0 0;font-size:20px;color:var(--tx)">{{ doc_id }}</h2>
+  <div style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div>
+      <a href="/quoting/status" style="color:#58a6ff;font-size:13px;text-decoration:none">&larr; Back to list</a>
+      <h2 style="margin:6px 0 0;font-size:20px;color:var(--tx)">{{ doc_id }}</h2>
+      {% if trail %}
+      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+        {{ trail[0].doc_type }} · agency: <code>{{ trail[0].agency_key or 'unresolved' }}</code> · {{ trail|length }} transition(s)
+      </p>
+      {% endif %}
+    </div>
     {% if trail %}
-    <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
-      {{ trail[0].doc_type }} · agency: <code>{{ trail[0].agency_key or 'unresolved' }}</code> · {{ trail|length }} transition(s)
-    </p>
+    <a href="/api/quoting/status/{{ doc_id }}/export.csv"
+       style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:6px 14px;border-radius:6px;text-decoration:none;font-size:12px;white-space:nowrap">
+      Export trail CSV
+    </a>
     {% endif %}
   </div>
 
