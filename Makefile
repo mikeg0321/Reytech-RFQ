@@ -31,7 +31,7 @@ SMOKE_PASS := $(or $(REYTECH_PASS),$(DASH_PASS))
 
 # ── Testing ─────────────────────────────────────────────────────────────────
 
-test:  ## Run critical test suite (pre-push gate)
+test:  ## Run critical test suite (pre-push gate) — parallelized via pytest-xdist
 	@echo "Running critical tests..."
 	@SECRET_KEY=test DASH_USER=test DASH_PASS=test FLASK_ENV=testing \
 		python -m pytest tests/test_ams704_helpers.py \
@@ -42,20 +42,20 @@ test:  ## Run critical test suite (pre-push gate)
 		tests/test_compile_safety.py \
 		tests/test_api_contracts.py \
 		tests/test_pricing_math.py \
-		-x -q --tb=short
+		-n auto -q --tb=short
 
 test-quick:  ## Run fast subset (compile + imports only)
 	@echo "Running quick checks..."
 	@SECRET_KEY=test DASH_USER=test DASH_PASS=test FLASK_ENV=testing \
 		python -m pytest tests/test_compile_safety.py tests/test_api_contracts.py -x -q --tb=short
 
-test-full:  ## Run ALL tests (49 files, comprehensive)
+test-full:  ## Run ALL tests (49 files, comprehensive) — parallelized via pytest-xdist
 	@echo "Running full test suite..."
 	@SECRET_KEY=test DASH_USER=test DASH_PASS=test FLASK_ENV=testing \
 		python -m pytest tests/ \
 		--ignore=tests/test_award_intelligence.py \
 		--ignore=tests/smoke_test.py \
-		-v --tb=short
+		-n auto -q --tb=short
 
 # ── Pre-deploy ──────────────────────────────────────────────────────────────
 
@@ -148,7 +148,7 @@ worktree-remove:  ## Remove a worktree: make worktree-remove name=feat/my-topic
 worktree-list:  ## List all active worktrees
 	@git worktree list
 
-ship: test check  ## Test + push branch + create PR (the safe way to deploy)
+ship: check  ## Push branch + create PR (pre-push hook runs tests; pass auto=1 to auto-merge on green)
 	@if [ "$(BRANCH)" = "main" ]; then \
 		echo ""; \
 		echo "ERROR: Cannot ship directly from main."; \
@@ -161,8 +161,6 @@ ship: test check  ## Test + push branch + create PR (the safe way to deploy)
 		echo ""; \
 		exit 1; \
 	fi
-	@echo ""
-	@echo "Tests passed. Pushing branch..."
 	@if [ -n "$$(git status --porcelain | grep -v '^.. data/')" ]; then \
 		echo ""; \
 		echo "WARNING: Uncommitted code changes detected:"; \
@@ -174,13 +172,23 @@ ship: test check  ## Test + push branch + create PR (the safe way to deploy)
 		echo "  make ship"; \
 		exit 1; \
 	fi
+	@echo ""
+	@echo "Pushing branch (pre-push hook runs critical tests)..."
 	git push origin HEAD -u
 	@echo ""
 	@echo "Creating pull request..."
 	@gh pr create --fill 2>/dev/null || echo "PR may already exist. Check: gh pr view"
-	@echo ""
-	@echo "Branch pushed + PR created."
-	@echo "CI will run automatically. When green, run: make promote"
+	@if [ "$(auto)" = "1" ]; then \
+		echo ""; \
+		echo "Enabling auto-merge (squash) — PR merges the moment CI goes green..."; \
+		gh pr merge --squash --auto --delete-branch && \
+		echo "Auto-merge armed. Watch with: gh pr checks --watch"; \
+	else \
+		echo ""; \
+		echo "Branch pushed + PR created."; \
+		echo "CI will run automatically. When green, run: make promote"; \
+		echo "(Or re-run with auto=1 next time to skip the manual promote step)"; \
+	fi
 
 promote: require-smoke-creds  ## Merge current PR after CI passes, then smoke test production
 	@if [ "$(BRANCH)" = "main" ]; then \
