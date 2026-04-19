@@ -396,6 +396,24 @@ class QuoteOrchestrator:
 
         if to_stage == "priced":
             quote_engine.enrich_pricing(quote, apply=True)
+
+            # Strict completeness gate — mirrors the generated stage. PRICED
+            # is supposed to mean "every non-no_bid item has unit_cost > 0"
+            # (see _STAGE_ORDER comment). Previously this was only enforced
+            # at the qa_pass precondition, so a quote with $0 items would
+            # show priced=advanced in the audit log and only fail when the
+            # operator clicked through to qa_pass — wasted click + misleading
+            # audit row. Refuse to enter PRICED unless every line is priced.
+            unpriced = [
+                it.line_no for it in quote.line_items
+                if not it.no_bid and float(it.unit_cost or 0) <= 0
+            ]
+            if unpriced:
+                raise RuntimeError(
+                    f"priced incomplete: {len(unpriced)}/{len(quote.line_items)} "
+                    f"items have no price (lines: {unpriced[:10]})"
+                )
+
             quote.transition(QuoteStatus.PRICED)
             return
 
