@@ -1680,7 +1680,13 @@ def quotes_list():
     rows_html = ""
     for qt in quotes:
         fname = os.path.basename(qt.get("pdf_path") or "")
-        dl = f'<a href="/api/pricecheck/download/{fname}" title="Download PDF" style="font-size:14px">📥</a>' if fname else ""
+        if fname:
+            dl = (f'<button type="button" class="quote-preview-btn" data-pdf-url="/api/pricecheck/view-pdf/{fname}"'
+                  f' data-quote-num="{esc(qt.get("quote_number",""))}" title="Preview PDF"'
+                  f' style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 2px">👁️</button>'
+                  f'<a href="/api/pricecheck/download/{fname}" title="Download PDF" style="font-size:14px">📥</a>')
+        else:
+            dl = ""
         st = qt.get("status", "pending")
 
         # Derive institution from ship_to if empty/missing
