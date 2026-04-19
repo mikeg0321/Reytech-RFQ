@@ -188,16 +188,61 @@ class QuoteOrchestrator:
         """
         result = OrchestratorResult()
         try:
-            return self._run_unguarded(request, result)
-        except Exception as e:
-            log.exception("orchestrator run aborted by unexpected exception")
-            result.blockers.append(
-                f"orchestrator run aborted: {type(e).__name__}: {e}"
-            )
-            result.ok = False
-            if result.quote is not None:
-                result.final_stage = result.quote.status.value
-            return result
+            try:
+                return self._run_unguarded(request, result)
+            except Exception as e:
+                log.exception("orchestrator run aborted by unexpected exception")
+                result.blockers.append(
+                    f"orchestrator run aborted: {type(e).__name__}: {e}"
+                )
+                result.ok = False
+                if result.quote is not None:
+                    result.final_stage = result.quote.status.value
+                return result
+        finally:
+            # Single drain point for every return path (success, blocked,
+            # crashed). Degraded features don't become healthy because the
+            # run failed, so feature_status must always be updated.
+            self._sweep_module_skips(result)
+
+    # Modules that expose `drain_skips()` per the silent-skip rollout
+    # (PRs #184-#187). Listed here so end-of-run sweep stays in one place.
+    _SKIP_LEDGER_MODULES = (
+        "src.agents.item_link_lookup",
+        "src.core.agency_config",
+        "src.core.pricing_oracle_v2",
+        "src.agents.award_tracker",
+        "src.core.db",
+    )
+
+    def _sweep_module_skips(self, result: "OrchestratorResult") -> None:
+        """Drain every module-level skip ledger and route each skip through
+        `result.add_skip` so it lands in the right channel + result.skips.
+
+        Then persist the union into `feature_status` so the dashboard banner
+        sees current degradations even when no quote is running.
+
+        Failures here are non-fatal — feature_status is observability, not
+        a critical path. We log and move on rather than aborting the run.
+        """
+        import importlib
+        drained = []
+        for mod_path in self._SKIP_LEDGER_MODULES:
+            try:
+                mod = importlib.import_module(mod_path)
+                drainer = getattr(mod, "drain_skips", None)
+                if drainer:
+                    drained.extend(drainer())
+            except Exception as e:
+                log.warning("feature_status: drain failed for %s: %s", mod_path, e)
+        for s in drained:
+            result.add_skip(s)
+        if result.skips:
+            try:
+                from src.core import feature_status
+                feature_status.record_skips(list(result.skips))
+            except Exception as e:
+                log.warning("feature_status: persist failed: %s", e)
 
     def _run_unguarded(
         self, request: QuoteRequest, result: OrchestratorResult
