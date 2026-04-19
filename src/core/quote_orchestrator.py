@@ -148,6 +148,18 @@ class QuoteOrchestrator:
             result.blockers.append(f"Unknown target_stage: {request.target_stage}")
             return result
 
+        # Validate doc_type up-front. Three downstream paths
+        # (Quote(doc_type=DocType(...)), from_legacy_dict, quote_engine.ingest)
+        # all crash on an unknown value and previously a routing typo turned
+        # into a 500 instead of a clean blocker on the result envelope.
+        valid_doc_types = {dt.value for dt in DocType}
+        if request.doc_type not in valid_doc_types:
+            result.blockers.append(
+                f"Unknown doc_type: {request.doc_type!r} "
+                f"(valid: {sorted(valid_doc_types)})"
+            )
+            return result
+
         # Stage 0 → 1: ingest
         quote = self._ingest(request, result)
         if quote is None:
