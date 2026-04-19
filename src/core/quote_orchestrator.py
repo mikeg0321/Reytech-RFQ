@@ -147,11 +147,27 @@ class QuoteOrchestrator:
         """Drive a quote from its current stage up to `request.target_stage`.
 
         Never raises on business-logic failure — returns an OrchestratorResult
-        with blockers/warnings populated so callers can surface them. Only
-        programming errors (e.g. ImportError) propagate.
+        with blockers/warnings populated so callers can surface them. The
+        top-level guard also catches unexpected programming errors (renamed
+        attributes, unhandled KeyError from a malformed dict, etc.) and turns
+        them into a clean blocker so a route caller never sees a 500.
         """
         result = OrchestratorResult()
+        try:
+            return self._run_unguarded(request, result)
+        except Exception as e:
+            log.exception("orchestrator run aborted by unexpected exception")
+            result.blockers.append(
+                f"orchestrator run aborted: {type(e).__name__}: {e}"
+            )
+            result.ok = False
+            if result.quote is not None:
+                result.final_stage = result.quote.status.value
+            return result
 
+    def _run_unguarded(
+        self, request: QuoteRequest, result: OrchestratorResult
+    ) -> OrchestratorResult:
         target_idx = _stage_index(request.target_stage)
         if target_idx < 0:
             result.blockers.append(f"Unknown target_stage: {request.target_stage}")
