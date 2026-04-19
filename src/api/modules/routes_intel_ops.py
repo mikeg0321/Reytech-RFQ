@@ -81,6 +81,7 @@ def api_test_create_pc():
         "parsed": fixture,
         "reytech_quote_number": draft_qn,
         "is_test": True,
+        "is_quote_request": True,
     }
     pcs[pc_id] = pc_record
     _save_price_checks(pcs)
