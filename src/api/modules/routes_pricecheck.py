@@ -557,18 +557,27 @@ def _pricecheck_detail_inner(pcid):
         # sale_price is the discounted cost; if it's less than unit_cost, it's the discount cost
         discount_cost = _sale_price if (_sale_price > 0 and _sale_price < unit_cost) else 0
 
-        # Per-item profit
+        # Per-item profit. Dual-pill rendering when the item has a discount cost
+        # below MSRP — operators need to see "what we'd actually clear" alongside
+        # the conservative MSRP-based number, not buried in a tooltip.
         item_profit = round((final_price - unit_cost) * qty, 2) if (final_price and unit_cost) else 0
         profit_color = "#3fb950" if item_profit > 0 else ("#f85149" if item_profit < 0 else "#8b949e")
         profit_str = f'<span style="color:{profit_color}">${item_profit:.2f}</span>' if (final_price and unit_cost) else "—"
-        # Discount profit badge
         if discount_cost > 0 and final_price > 0:
             disc_profit = round((final_price - discount_cost) * qty, 2)
             extra = round(disc_profit - item_profit, 2)
-            profit_str += (
-                f'<div style="font-size:10px;color:#34d399;margin-top:1px" '
-                f'title="If discount holds: cost ${discount_cost:.2f} → profit ${disc_profit:.2f}">'
-                f'+${extra:.2f} if disc</div>'
+            profit_str = (
+                f'<div style="display:flex;flex-direction:column;gap:2px;align-items:flex-end">'
+                f'<span class="profit-pill profit-pill-msrp" '
+                f'style="padding:1px 6px;border-radius:999px;background:rgba(139,148,158,.15);'
+                f'color:{profit_color};font-size:12px;font-weight:600" '
+                f'title="MSRP-based profit: cost ${unit_cost:.2f}/ea">${item_profit:.2f}</span>'
+                f'<span class="profit-pill profit-pill-disc" '
+                f'style="padding:1px 6px;border-radius:999px;background:rgba(52,211,153,.18);'
+                f'color:#34d399;font-size:12px;font-weight:600" '
+                f'title="If discount holds: cost ${discount_cost:.2f}/ea → profit ${disc_profit:.2f} (+${extra:.2f})">'
+                f'${disc_profit:.2f} disc</span>'
+                f'</div>'
             )
         
         # Item link — check item_link first, then pricing sub-fields
@@ -884,8 +893,25 @@ def _pricecheck_detail_inner(pcid):
         _coo = item.get("country_of_origin", "")
         _taa = item.get("taa_compliant", -1)
         _intel_badges = ""
-        if _unspsc or _coo:
+        # Inline catalog chips: at-a-glance proof of what enrichment exists.
+        # Each chip = one stable signal the catalog has captured for this item.
+        # Operators can spot a thin row (no chips) immediately and request a re-enrich.
+        _cat_chip_specs = [
+            ("📷", "Image stored", bool(item.get("photo_url"))),
+            ("🔗", "Supplier URL", bool(item.get("item_link") or p.get("web_url") or p.get("amazon_url"))),
+            ("📦", "UPC captured", bool(item.get("upc") or p.get("upc"))),
+            ("🆔", "ASIN captured", bool(asin or item.get("asin"))),
+            ("🏷️", "MFG# present", bool((item.get("mfg_number") or "").strip())),
+        ]
+        _cat_chips = "".join(
+            f'<span style="padding:1px 5px;border-radius:3px;background:rgba(63,185,80,.10);'
+            f'font-size:11px;color:#3fb950" title="{_label}">{_icon}</span>'
+            for _icon, _label, _have in _cat_chip_specs if _have
+        )
+        if _unspsc or _coo or _cat_chips:
             _parts = []
+            if _cat_chips:
+                _parts.append(_cat_chips)
             if _unspsc:
                 _tip = f' title="{_unspsc_desc}"' if _unspsc_desc else ""
                 _parts.append(f'<span style="padding:1px 5px;border-radius:3px;background:rgba(139,148,158,.12);font-size:11px;color:#8b949e"{_tip}>{_unspsc}</span>')
