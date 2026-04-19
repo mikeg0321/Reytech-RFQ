@@ -529,3 +529,70 @@ def quoting_status_detail_page(doc_id: str):
         doc_id=doc_id,
         trail=trail,
     )
+
+
+# ── Approval queue ──────────────────────────────────────────────────────────
+
+# Stages where the orchestrator stops and a human decides what's next.
+# qa_pass = ready to generate package; priced = ready for QA review.
+_APPROVAL_STAGES = {"qa_pass", "priced"}
+
+
+def _fetch_approval_queue(limit: int = 100) -> list[dict]:
+    """Latest audit row per doc, filtered to docs sitting at an approval stage.
+
+    A doc is "awaiting approval" when its most-recent stage_to is in
+    _APPROVAL_STAGES AND its outcome is "advanced" (i.e., the orchestrator
+    completed cleanly and is yielding control to the operator).
+    """
+    rows = _fetch_recent_summary(limit=max(limit, 200))
+    out = []
+    for r in rows:
+        if (r.get("stage_to") in _APPROVAL_STAGES
+                and (r.get("outcome") or "") == "advanced"):
+            out.append(r)
+        if len(out) >= limit:
+            break
+    return out
+
+
+@bp.route("/api/quoting/approval-queue")
+@auth_required
+def api_quoting_approval_queue():
+    """JSON: docs sitting at qa_pass or priced, awaiting operator action."""
+    try:
+        limit = max(1, min(int(request.args.get("limit", "50")), 200))
+    except ValueError:
+        limit = 50
+    rows = _fetch_approval_queue(limit=limit)
+    by_stage: dict[str, int] = {}
+    for r in rows:
+        by_stage[r["stage_to"]] = by_stage.get(r["stage_to"], 0) + 1
+    return jsonify({
+        "ok": True,
+        "total": len(rows),
+        "by_stage": by_stage,
+        "rows": rows,
+    })
+
+
+@bp.route("/quoting/approval-queue")
+@auth_required
+def quoting_approval_queue_page():
+    """Operator approval queue — quotes ready for human decision.
+
+    Shows quotes that finished orchestration cleanly (outcome=advanced) and
+    landed at qa_pass (ready to generate) or priced (ready for QA). Action
+    links route operators back to the source doc for the actual decision.
+    """
+    from src.api.render import render_page
+    rows = _fetch_approval_queue(limit=100)
+    by_stage: dict[str, int] = {}
+    for r in rows:
+        by_stage[r["stage_to"]] = by_stage.get(r["stage_to"], 0) + 1
+    return render_page(
+        "approval_queue.html",
+        active_page="Quoting",
+        rows=rows,
+        by_stage=by_stage,
+    )
