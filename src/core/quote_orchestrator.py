@@ -107,7 +107,15 @@ class StageAttempt:
 
 @dataclass
 class OrchestratorResult:
-    """Output envelope — everything a caller needs to decide what to do next."""
+    """Output envelope — everything a caller needs to decide what to do next.
+
+    blockers / warnings / notes are three distinct channels:
+      * blockers — fatal: the run did not produce the requested target stage
+      * warnings — non-fatal but operator-relevant problems (missing optional
+        profile, audit row dropped, agency fell back, etc.)
+      * notes    — operational success metadata (e.g., "sent to X (N bytes)")
+        that dashboards should NOT count as warning signal
+    """
     ok: bool = False
     quote: Optional[Quote] = None
     package: Any = None                          # PackageResult from package_engine
@@ -115,6 +123,7 @@ class OrchestratorResult:
     profiles_used: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
     stage_history: list[StageAttempt] = field(default_factory=list)
     final_stage: str = "draft"
 
@@ -582,8 +591,10 @@ class QuoteOrchestrator:
 
         if to_stage == "sent":
             send_info = self._send_package(quote, request, result)
-            # Stash send metadata so the audit row carries it.
-            result.warnings.append(
+            # Success metadata goes to notes — warnings is for problems.
+            # Putting "sent to X" in warnings polluted any dashboard
+            # counting warnings to flag problematic runs.
+            result.notes.append(
                 f"sent to {send_info['to']} ({send_info['bytes']} bytes)"
             )
             quote.transition(QuoteStatus.SENT)
