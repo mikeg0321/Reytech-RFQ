@@ -611,7 +611,26 @@ class QuoteOrchestrator:
             any_qa_fail = any(r.get("filled") and not r.get("qa_passed", False) for r in per_form)
             compliance_blocked = compliance_gap.get("blockers", []) if isinstance(compliance_gap, dict) else []
 
-            if any_fill_error or any_qa_fail or compliance_blocked:
+            # If validate_package crashed (DB down, LLM timeout, malformed
+            # buyer_email_text) it returns {"checked": False, "error": ...}
+            # — `compliance_blocked` is then [] (no "blockers" key) and the
+            # stage previously advanced as if compliance had passed. We
+            # cannot truthfully claim qa_pass without a real check; surface
+            # the validator failure as a hard blocker. Same treatment for
+            # checked=False with no error (validator gave up silently).
+            compliance_unchecked: list[str] = []
+            if isinstance(compliance_gap, dict) and not compliance_gap.get("checked", False):
+                err = compliance_gap.get("error")
+                if err:
+                    compliance_unchecked.append(
+                        f"compliance validator failed: {err}"
+                    )
+                else:
+                    compliance_unchecked.append(
+                        "compliance check did not run (validator returned checked=False)"
+                    )
+
+            if any_fill_error or any_qa_fail or compliance_blocked or compliance_unchecked:
                 # Surface concrete reasons via the audit row instead of a
                 # silent return. Previously this produced a useless generic
                 # "transition ran but status is priced, expected qa_pass"
@@ -628,6 +647,7 @@ class QuoteOrchestrator:
                             problems.append(f"{pid}: qa: {e}")
                 for b in compliance_blocked:
                     problems.append(f"compliance: {b}")
+                problems.extend(compliance_unchecked)
                 # result.compliance_report is already populated above —
                 # raise lets _try_advance record outcome="error" with the
                 # specific reasons, while preserving the structured report.
