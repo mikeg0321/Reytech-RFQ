@@ -1,0 +1,97 @@
+{
+  "_about": "Golden test fixture — REAL items from DSH 25CB020 (Department of State Hospitals — Atascadero, March 2026). 7-line nitrile glove RFQ, exercises Attachment A/B/C overlay fillers end-to-end. Subtotal sums to $25,777.50 to pin AttB math.",
+  "_source_solicitation": "25CB020",
+  "_source_packet": "tests/fixtures/dsh/dsh_25CB020_attach{A,B,C}_*.pdf",
+  "_extracted_at": "2026-04-19",
+  "test_rfq_id": "test_dsh_25CB020",
+  "header": {
+    "agency": "dsh",
+    "institution": "DSH — Atascadero State Hospital",
+    "solicitation_number": "25CB020",
+    "soliciting_office": "Central Medical Services",
+    "buyer_name": "Corneliu Butuza",
+    "buyer_email": "Corneliu.Butuza@dsh.ca.gov",
+    "due_date": "03/30/2026",
+    "ship_to": "DSH — Atascadero State Hospital, 10333 El Camino Real, Atascadero, CA 93422"
+  },
+  "lead_time": "5-7 business days",
+  "warranty": "Per manufacturer (1-year limited)",
+  "dvbe_pct": "100%",
+  "totals": {
+    "subtotal": 25777.50,
+    "other_charges": 0.0,
+    "total": 25777.50
+  },
+  "line_items": [
+    {
+      "item_number": "1",
+      "row_index": 1,
+      "qty": 50,
+      "uom": "CS",
+      "description": "MEDICAL EXAM GLOVES, NITRILE, POWDER FREE, XX-LARGE, MINIMUM 4.5MIL THICKNESS, BLUE 90EA/BX/10BX/CS (REF: SKINTX #50025)",
+      "mfg_number": "SKINTX 50025",
+      "price_per_unit": 25.50,
+      "extension": 1275.00
+    },
+    {
+      "item_number": "2",
+      "row_index": 2,
+      "qty": 300,
+      "uom": "CS",
+      "description": "MEDICAL EXAM GLOVES, NITRILE, POWDER FREE, X-LARGE, MINIMUM 4.5MIL THICKNESS, BLUE 90EA/BX/10BX/CS (REF: SKINTX #50020)",
+      "mfg_number": "SKINTX 50020",
+      "price_per_unit": 24.10,
+      "extension": 7230.00
+    },
+    {
+      "item_number": "3",
+      "row_index": 3,
+      "qty": 300,
+      "uom": "CS",
+      "description": "MEDICAL EXAM GLOVES, NITRILE, POWDER FREE, LARGE, MINIMUM 4.5MIL THICKNESS, BLUE 100EA/BX/10BX/CS (REF: SKINTX #50015)",
+      "mfg_number": "SKINTX 50015",
+      "price_per_unit": 24.10,
+      "extension": 7230.00
+    },
+    {
+      "item_number": "4",
+      "row_index": 4,
+      "qty": 300,
+      "uom": "CS",
+      "description": "MEDICAL EXAM GLOVES, NITRILE, POWDER FREE, MEDIUM, MINIMUM 4.5MIL THICKNESS, BLUE 100EA/BX/10BX/CS (REF: SKINTX #50010)",
+      "mfg_number": "SKINTX 50010",
+      "price_per_unit": 24.10,
+      "extension": 7230.00
+    },
+    {
+      "item_number": "5",
+      "row_index": 5,
+      "qty": 50,
+      "uom": "CS",
+      "description": "NITRILE EXAMINATION GLOVES, CARE SOFT, POWDER FREE, 3.5MIL, LARGE (100EA/BX/10BX/CS) (SKINTX #CS515)",
+      "mfg_number": "SKINTX CS515",
+      "price_per_unit": 18.75,
+      "extension": 937.50
+    },
+    {
+      "item_number": "6",
+      "row_index": 6,
+      "qty": 50,
+      "uom": "CS",
+      "description": "NITRILE EXAMINATION GLOVES, CARE SOFT, POWDER FREE, 3.5MIL, MEDIUM (100EA/BX/10BX/CS) (SKINTX #CS510)",
+      "mfg_number": "SKINTX CS510",
+      "price_per_unit": 18.75,
+      "extension": 937.50
+    },
+    {
+      "item_number": "7",
+      "row_index": 7,
+      "qty": 50,
+      "uom": "CS",
+      "description": "NITRILE EXAMINATION GLOVES, CARE SOFT, POWDER FREE, 3.5MIL, SMALL (100EA/BX/10BX/CS) (SKINTX #CS505)",
+      "mfg_number": "SKINTX CS505",
+      "price_per_unit": 18.75,
+      "extension": 937.50
+    }
+  ]
+}
