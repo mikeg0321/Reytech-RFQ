@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Approval Queue — Reytech{% endblock %}
+{% block content %}
+
+{% set stage_meta = {
+  'qa_pass': ('Ready to Generate', '#3fb950', 'Forms filled, compliance OK — generate the package and send.'),
+  'priced':  ('Ready for QA',      '#d29922', 'Catalog priced — open the doc to review pricing then advance.'),
+} %}
+
+<div style="max-width:1200px;margin:0 auto;padding:20px" id="main-content">
+
+  <div style="margin-bottom:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0;font-size:20px;color:var(--tx)">📥 Approval Queue</h2>
+      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+        Quotes the orchestrator has handed back to you. Sorted newest first.
+        See <a href="/quoting/status" style="color:#58a6ff">Quoting Status</a> for the full audit.
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--tx2)">
+      <span>{{ rows|length }} pending decision{{ '' if rows|length == 1 else 's' }}</span>
+      <a href="/api/quoting/approval-queue?limit=100"
+         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">
+        JSON
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI tiles by stage -->
+  <div style="display:grid;grid-template-columns:repeat({{ stage_meta|length }},1fr);gap:12px;margin-bottom:16px">
+    {% for stage_key, meta in stage_meta.items() %}
+      {% set count = by_stage.get(stage_key, 0) %}
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px">
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <div style="font-size:28px;font-weight:800;color:{{ meta[1] }}">{{ count }}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--tx)">{{ meta[0] }}</div>
+        </div>
+        <div style="font-size:12px;color:var(--tx2);margin-top:6px">{{ meta[2] }}</div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Queue table -->
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px">
+    {% if rows %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--bd);color:var(--tx2);text-align:left">
+          <th style="padding:6px 8px">Doc ID</th>
+          <th style="padding:6px 8px">Type</th>
+          <th style="padding:6px 8px">Agency</th>
+          <th style="padding:6px 8px">Stage</th>
+          <th style="padding:6px 8px">At</th>
+          <th style="padding:6px 8px;text-align:right">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set meta = stage_meta.get(r.stage_to, ('—', 'var(--tx2)', '')) %}
+        {% set source_url = ('/pricecheck/' ~ r.doc_id) if r.doc_type == 'pc' else ('/rfq/' ~ r.doc_id) %}
+        <tr style="border-bottom:1px solid var(--bd)">
+          <td style="padding:6px 8px">
+            <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace">{{ r.doc_id or '(blank)' }}</a>
+          </td>
+          <td style="padding:6px 8px;text-transform:uppercase;font-size:12px;color:var(--tx2)">{{ r.doc_type or '—' }}</td>
+          <td style="padding:6px 8px">{{ r.agency_key or '—' }}</td>
+          <td style="padding:6px 8px">
+            <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;color:{{ meta[1] }};background:{{ meta[1] }}1a">
+              {{ meta[0] }}
+            </span>
+          </td>
+          <td style="padding:6px 8px;font-family:'JetBrains Mono',monospace;color:var(--tx2);font-size:12px">{{ r.at }}</td>
+          <td style="padding:6px 8px;text-align:right;white-space:nowrap">
+            <a href="{{ source_url }}"
+               style="color:var(--ac);text-decoration:none;border:1px solid var(--bd);padding:3px 10px;border-radius:6px;font-size:12px">Open →</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div style="padding:32px;text-align:center;color:var(--tx2)">
+      <div style="font-size:36px;margin-bottom:10px">✨</div>
+      <div style="font-size:14px;color:var(--tx);font-weight:600">Queue clear</div>
+      <div style="font-size:13px;margin-top:4px">Nothing waiting on you. Generate a new PC or RFQ to start.</div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}
