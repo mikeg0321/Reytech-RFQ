@@ -27,7 +27,9 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from flask import Response, jsonify, request
+import os
+
+from flask import Response, jsonify, request, send_file
 
 from src.api.shared import bp, auth_required
 
@@ -242,6 +244,76 @@ def api_quoting_trail_export_csv(doc_id: str):
          "doc_type", "agency_key"],
         f"quoting_trail_{safe_id}.csv",
     )
+
+
+def _resolve_preview_pdf(doc_id: str) -> tuple[str | None, str | None]:
+    """Pick the best PDF to show for a doc_id. Returns (path, label) or (None, None).
+
+    Priority: reytech_quote_pdf (operator-facing quote) > output_pdf (filled 704)
+    > source_pdf (original buyer packet). Checks PCs first, then RFQs.
+    """
+    try:
+        from src.api.data_layer import _load_price_checks, load_rfqs
+    except Exception as e:
+        log.debug("preview: loader import failed: %s", e)
+        return None, None
+
+    candidates = []
+    try:
+        pcs = _load_price_checks(include_items=False) or {}
+        pc = pcs.get(doc_id)
+        if pc:
+            candidates = [
+                (pc.get("reytech_quote_pdf"), "Quote"),
+                (pc.get("output_pdf"), "704"),
+                (pc.get("source_pdf"), "Source"),
+            ]
+    except Exception as e:
+        log.debug("preview: pc load failed: %s", e)
+
+    if not candidates:
+        try:
+            rfqs = load_rfqs() or {}
+            rfq = rfqs.get(doc_id) if isinstance(rfqs, dict) else None
+            if rfq:
+                candidates = [
+                    (rfq.get("reytech_quote_pdf"), "Quote"),
+                    (rfq.get("output_pdf"), "704B"),
+                    (rfq.get("source_pdf"), "Source"),
+                ]
+        except Exception as e:
+            log.debug("preview: rfq load failed: %s", e)
+
+    for path, label in candidates:
+        if path and os.path.exists(path):
+            return path, label
+    return None, None
+
+
+@bp.route("/api/quoting/preview/<doc_id>")
+@auth_required
+def api_quoting_preview(doc_id: str):
+    """Inline-serve the best available PDF for a doc_id (for modal preview)."""
+    path, label = _resolve_preview_pdf(doc_id)
+    if not path:
+        return jsonify({"ok": False, "error": "no preview-able PDF for that doc_id"}), 404
+    return send_file(
+        path,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=f"{doc_id}_{(label or 'preview').lower()}.pdf",
+    )
+
+
+@bp.route("/api/quoting/preview/<doc_id>/meta")
+@auth_required
+def api_quoting_preview_meta(doc_id: str):
+    """Quick probe: is a preview available? Used by UI to gate the modal button."""
+    path, label = _resolve_preview_pdf(doc_id)
+    if not path:
+        return jsonify({"ok": True, "available": False})
+    return jsonify({"ok": True, "available": True, "label": label,
+                    "size_bytes": os.path.getsize(path)})
 
 
 @bp.route("/api/quoting/override/<doc_id>", methods=["POST"])
