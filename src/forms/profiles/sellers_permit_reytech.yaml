@@ -1,11 +1,16 @@
-# Reytech Seller's Permit (CDTFA — pass-through attachment)
-# Source blank: data/templates/sellers_permit_reytech.pdf (state-issued scan)
-# 0 AcroForm fields. The bid package needs this document included verbatim;
+# Reytech Seller's Permit (CDTFA — static attachment)
+# Source artifact: data/templates/sellers_permit_reytech.pdf (state-issued scan)
+# 0 AcroForm fields. The bid package needs this artifact included verbatim;
 # nothing on it is filled. Used by CalVet, CDCR, CCHCS, etc. as required
 # proof of California seller's permit.
+#
+# fill_mode=static_attach (vs pass_through): static_attach is for
+# pre-existing final artifacts that must never be silently skipped.
+# The filler raises RuntimeError if the source PDF is missing or empty —
+# a missing seller's permit should hard-fail, not quietly produce 0 bytes.
 id: sellers_permit_reytech
 form_type: sellers_permit
 blank_pdf: data/templates/sellers_permit_reytech.pdf
-fill_mode: pass_through
+fill_mode: static_attach
 page_row_capacities: []
 fields: {}

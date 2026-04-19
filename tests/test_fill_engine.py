@@ -142,6 +142,38 @@ class TestFillEdgeCases:
             fill(sample_quote, profile)
 
 
+class TestStaticAttach:
+    """static_attach mode: final-artifact PDFs served verbatim, hard-fail on missing source."""
+
+    def test_sellers_permit_uses_static_attach(self):
+        profiles = load_profiles()
+        sp = profiles["sellers_permit_reytech"]
+        assert sp.fill_mode == "static_attach", (
+            "sellers_permit_reytech must use static_attach — missing the scan should "
+            "hard-fail, not silently produce 0 bytes. See _fill_static_attach()."
+        )
+
+    def test_static_attach_returns_artifact_bytes(self, sample_quote):
+        profiles = load_profiles()
+        sp = profiles["sellers_permit_reytech"]
+        result = fill(sample_quote, sp)
+        assert isinstance(result, bytes)
+        assert len(result) > 1000, "seller's permit artifact should be a real PDF"
+        assert result.startswith(b"%PDF"), "output must be a valid PDF header"
+
+    def test_static_attach_raises_when_source_missing(self, sample_quote, tmp_path):
+        from src.forms.profile_registry import FormProfile
+        missing = str(tmp_path / "does_not_exist.pdf")
+        profile = FormProfile(
+            id="test_missing",
+            form_type="test",
+            blank_pdf=missing,
+            fill_mode="static_attach",
+        )
+        with pytest.raises((RuntimeError, ValueError), match="static_attach|Blank PDF"):
+            fill(sample_quote, profile)
+
+
 class TestHelpers:
     """Helper function tests."""
 
