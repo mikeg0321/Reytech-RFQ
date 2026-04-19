@@ -206,13 +206,14 @@ class QuoteOrchestrator:
             self._sweep_module_skips(result)
 
     # Modules that expose `drain_skips()` per the silent-skip rollout
-    # (PRs #184-#187). Listed here so end-of-run sweep stays in one place.
+    # (PRs #184-#189). Listed here so end-of-run sweep stays in one place.
     _SKIP_LEDGER_MODULES = (
         "src.agents.item_link_lookup",
         "src.core.agency_config",
         "src.core.pricing_oracle_v2",
         "src.agents.award_tracker",
         "src.core.db",
+        "src.forms.cchcs_packet_filler",
     )
 
     def _sweep_module_skips(self, result: "OrchestratorResult") -> None:

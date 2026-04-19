@@ -54,6 +54,58 @@ try:
 except ImportError:
     HAS_PYPDF = False
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# CCHCS packets are ~60% of Reytech's quote volume. Several silent-skip sites
+# in this module can produce a packet that LOOKS valid but is quietly wrong:
+# bad totals on the cover page, missing civil-rights declaration page, or a
+# placeholder surviving in place of an attachment. The ledger lets the
+# orchestrator end-of-run sweep (PR #188) drain these and persist them into
+# `feature_status` so the dashboard banner reflects degraded packet build.
+from src.core.dependency_check import Severity, SkipReason  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip to the module ledger.
+    Whole-feature WARNING skips re-log because they affect deliverable
+    correctness; per-row INFO skips stay quiet so a malformed money string
+    in one row doesn't spam the build log."""
+    _SKIP_LEDGER.append(skip)
+    if skip.severity in (Severity.BLOCKER, Severity.WARNING):
+        log.warning(skip.format_for_log())
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every skip recorded since the last drain. Destructive
+    so two consecutive calls do not double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
+
+def _parse_money_safely(raw, *, field: str, where: str) -> float:
+    """Parse a money string from a filled PDF text field. Returns 0.0 on:
+      - None / empty (the field was never filled — not a corruption signal,
+        no skip emitted)
+      - malformed string (the field had non-numeric content; INFO skip)
+
+    Used for subtotal / grand_total roll-ups that drive the cover-page
+    summary the operator inspects before sending the packet."""
+    if raw in (None, ""):
+        return 0.0
+    try:
+        cleaned = str(raw).replace(",", "").replace("$", "").strip() or "0"
+        return float(cleaned)
+    except (ValueError, TypeError) as e:
+        _record_skip(SkipReason(
+            name="totals_parse",
+            reason=f"{field} parse failed: {type(e).__name__}: {e} (raw={raw!r})",
+            severity=Severity.INFO,
+            where=where,
+        ))
+        return 0.0
+
 from src.forms.cchcs_packet_parser import (
     HEADER_FIELDS,
     LINE_ITEM_TEMPLATES,
@@ -455,18 +507,16 @@ def fill_cchcs_packet(
         1 for r in range(1, MAX_ROWS + 1)
         if updates.get(LINE_ITEM_TEMPLATES["price_per_unit"].format(n=r))
     )
-    subtotal = 0.0
-    grand_total = 0.0
-    try:
-        sub_raw = updates.get(TOTALS_FIELDS["subtotal"], "") or "0"
-        subtotal = float(sub_raw.replace(",", "") or 0)
-    except (ValueError, TypeError) as _e:
-        log.debug("suppressed: %s", _e)
-    try:
-        tot_raw = updates.get(TOTALS_FIELDS["grand_total"], "") or "0"
-        grand_total = float(tot_raw.replace(",", "") or 0)
-    except (ValueError, TypeError) as _e:
-        log.debug("suppressed: %s", _e)
+    subtotal = _parse_money_safely(
+        updates.get(TOTALS_FIELDS["subtotal"], ""),
+        field="subtotal",
+        where="fill_cchcs_packet.totals",
+    )
+    grand_total = _parse_money_safely(
+        updates.get(TOTALS_FIELDS["grand_total"], ""),
+        field="grand_total",
+        where="fill_cchcs_packet.totals",
+    )
 
     result.update({
         "ok": True,
@@ -816,7 +866,12 @@ def _append_civil_rights_attachment(writer: "PdfWriter", reytech_info: Dict[str,
 
     template_path = _find_civil_rights_template()
     if not template_path:
-        log.warning("civil rights: template not found in data/templates/")
+        _record_skip(SkipReason(
+            name="civil_rights_template",
+            reason=f"template {CIVIL_RIGHTS_TEMPLATE_NAME} not found in data/templates/",
+            severity=Severity.WARNING,
+            where="cchcs_packet_filler._append_civil_rights_attachment",
+        ))
         return False
 
     # Parse Reytech address for county/state — the CCHCS form expects the
@@ -919,7 +974,12 @@ def _append_civil_rights_attachment(writer: "PdfWriter", reytech_info: Dict[str,
             log.debug("civil rights signature overlay: %s", e)
         return True
     except Exception as e:
-        log.error("civil rights append failed: %s", e)
+        _record_skip(SkipReason(
+            name="civil_rights_append",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="cchcs_packet_filler._append_civil_rights_attachment",
+        ))
         return False
 
 
@@ -1223,7 +1283,12 @@ def _splice_attachments(
     try:
         writer.write(src_buf)
     except Exception as e:
-        log.error("splice serialize failed: %s", e)
+        _record_skip(SkipReason(
+            name="splice_serialize",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="cchcs_packet_filler._splice_attachments",
+        ))
         return writer
     src_buf.seek(0)
     src_reader = PdfReader(src_buf)
@@ -1264,11 +1329,12 @@ def _splice_attachments(
                 # Fall back to keeping the placeholder so the page count
                 # stays predictable and the operator still sees the
                 # section the state expected.
-                log.warning(
-                    "splice: filler %s returned None for page %d; "
-                    "keeping placeholder",
-                    spec["filler"], page_num,
-                )
+                _record_skip(SkipReason(
+                    name=f"splice_filler:{spec['filler']}",
+                    reason=f"filler returned None for page {page_num} ({spec['description']}); placeholder kept",
+                    severity=Severity.WARNING,
+                    where="cchcs_packet_filler._splice_attachments",
+                ))
                 if splice_log is not None:
                     splice_log["failed"].append(
                         (spec["num"], spec["description"], "filler returned None")
@@ -1287,10 +1353,12 @@ def _splice_attachments(
                     page_num, spec["template"], spec["description"],
                 )
             except Exception as e:
-                log.error(
-                    "splice: failed to append filled %s for page %d: %s",
-                    spec["template"], page_num, e,
-                )
+                _record_skip(SkipReason(
+                    name=f"splice_append:{spec['filler']}",
+                    reason=f"append filled {spec['template']} for page {page_num} failed: {type(e).__name__}: {e}",
+                    severity=Severity.WARNING,
+                    where="cchcs_packet_filler._splice_attachments",
+                ))
                 if splice_log is not None:
                     splice_log["failed"].append(
                         (spec["num"], spec["description"], f"append error: {e}")
