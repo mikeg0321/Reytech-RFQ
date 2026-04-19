@@ -1925,57 +1925,15 @@ def refresh_prices_for_items_async(items: list, max_age_days: int = 7, context: 
 def search_products(query: str, limit: int = 20, category: str = "",
                     min_margin: float = None, max_margin: float = None,
                     strategy: str = "") -> list:
+    """Predictive search across name/SKU/description/MFG#/manufacturer.
+
+    Uses smart_search() for token-rank scoring (replaces the original naive
+    LIKE %query% which lost recall when query tokens were rearranged or
+    split across fields). See smart_search docstring for ranking details.
     """
-    Predictive search across name, SKU, description.
-    Returns list of product dicts sorted by relevance.
-    """
-    init_catalog_db()
-    conn = _get_conn()
-    
-    conditions = []
-    params = []
-    
-    if query:
-        # Split into terms for AND matching
-        terms = query.strip().split()
-        for term in terms:
-            conditions.append(
-                "(name LIKE ? OR sku LIKE ? OR description LIKE ? OR category LIKE ?)"
-            )
-            wild = f"%{term}%"
-            params.extend([wild, wild, wild, wild])
-    
-    if category:
-        conditions.append("category = ?")
-        params.append(category)
-    
-    if min_margin is not None:
-        conditions.append("margin_pct >= ?")
-        params.append(min_margin)
-    
-    if max_margin is not None:
-        conditions.append("margin_pct <= ?")
-        params.append(max_margin)
-    
-    if strategy:
-        conditions.append("price_strategy = ?")
-        params.append(strategy)
-    
-    where = " AND ".join(conditions) if conditions else "1=1"
-    
-    rows = conn.execute("""
-        SELECT *, 
-               CASE WHEN name LIKE ? THEN 3
-                    WHEN sku LIKE ? THEN 2
-                    ELSE 1 END as relevance
-        FROM product_catalog
-        WHERE """ + where + """
-        ORDER BY relevance DESC, times_quoted DESC, sell_price DESC
-        LIMIT ?
-    """, [f"%{query}%", f"%{query}%"] + params + [limit]).fetchall()
-    
-    conn.close()
-    return [dict(r) for r in rows]
+    return smart_search(query, limit=limit, category=category,
+                        min_margin=min_margin, max_margin=max_margin,
+                        strategy=strategy)
 
 
 def get_product(product_id: int) -> Optional[dict]:
@@ -2027,19 +1985,212 @@ def get_product_by_name(name: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def predictive_lookup(partial: str, limit: int = 10) -> list:
-    """Fast prefix search for typeahead/autocomplete."""
+# ═══════════════════════════════════════════════════════════════════════
+# Smart Search — Token-Rank Scoring
+# ═══════════════════════════════════════════════════════════════════════
+# Background: the original predictive_lookup did a single LIKE %query%
+# across name|sku|description and ranked by times_quoted desc. That meant
+# a 3-token query like "nitrile gloves large" only matched products whose
+# name/sku/desc contained the literal "nitrile gloves large" substring —
+# missing every product where the tokens were rearranged or split across
+# fields. Mike pain #3, 2026-04-19: "unsearchable catalog".
+#
+# smart_search() tokenizes the query, fans out candidates with OR-joined
+# token LIKEs, then scores in Python with field weights. Heavier weight
+# on SKU/MFG# since those are exact-identity fields; lighter on category.
+# Exact SKU/MFG# match always wins. Times-quoted is a tie-break boost.
+
+# Tokens shorter than this are dropped (e.g. "of", "a", "x"). Numbers stay.
+_SMART_SEARCH_MIN_TOKEN_LEN = 2
+
+# Field weights — tuned for catalog where SKU and MFG# are identity fields.
+_SMART_SEARCH_WEIGHTS = {
+    "sku":          5.0,
+    "mfg_number":   5.0,
+    "name":         3.0,
+    "manufacturer": 2.0,
+    "description":  1.5,
+    "category":     0.5,
+    "tags":         0.5,
+}
+
+
+def _smart_tokenize(query: str) -> list:
+    """Lowercase, split on non-alphanumeric, drop stopwords/short tokens.
+    Numbers are kept (often pack sizes / part #s)."""
+    if not query:
+        return []
+    raw = re.split(r"[^a-zA-Z0-9]+", query.lower())
+    stop = {"the", "and", "for", "with", "of", "to", "in", "on", "at", "x"}
+    return [t for t in raw if t and len(t) >= _SMART_SEARCH_MIN_TOKEN_LEN and t not in stop]
+
+
+def smart_search(query: str, limit: int = 20, category: str = "",
+                 min_margin: float = None, max_margin: float = None,
+                 strategy: str = "") -> list:
+    """Token-rank search across the catalog.
+
+    - Empty query → falls through to popularity sort (times_quoted desc).
+    - Single token that looks like a SKU/MFG# (alphanumeric, ≥4 chars)
+      → exact-match short-circuit returns the matching product first.
+    - Multi-token query → fan-out OR LIKE across weighted fields, score
+      each candidate by per-field token hits, return top-N.
+
+    Returns same dict shape as search_products / predictive_lookup so
+    callers can swap freely.
+    """
     init_catalog_db()
     conn = _get_conn()
-    rows = conn.execute("""
-        SELECT id, name, sku, sell_price, cost, margin_pct, category, description, uom
-        FROM product_catalog
-        WHERE name LIKE ? OR sku LIKE ? OR description LIKE ?
-        ORDER BY times_quoted DESC, sell_price DESC
-        LIMIT ?
-    """, (f"%{partial}%", f"%{partial}%", f"%{partial}%", limit)).fetchall()
+
+    # Literal-string SKU / MFG# / UPC short-circuit. Run BEFORE tokenizing
+    # because the tokenizer splits on hyphens — "GLV-NIT-L-100" would
+    # become ["glv","nit","100"] and miss the exact-id branch entirely.
+    _q = (query or "").strip()
+    if _q and len(_q) >= 4 and re.search(r"[A-Za-z]", _q) and re.search(r"\d|-", _q):
+        exact = conn.execute(
+            "SELECT * FROM product_catalog "
+            "WHERE LOWER(sku)=LOWER(?) OR LOWER(mfg_number)=LOWER(?) OR upc=? "
+            "LIMIT 1",
+            (_q, _q, _q),
+        ).fetchone()
+        if exact:
+            d = dict(exact); d["_match_score"] = 1000.0; d["_match_reason"] = "exact SKU/MFG#/UPC"
+            tokens_for_alts = _smart_tokenize(query)
+            results = [d]
+            seen = {d["id"]}
+            if tokens_for_alts:
+                ranked = _smart_rank(conn, tokens_for_alts, limit - 1, category, min_margin, max_margin, strategy, exclude_ids=seen)
+                results.extend(ranked)
+            conn.close()
+            return results
+
+    tokens = _smart_tokenize(query)
+
+    # Empty/garbage query → popularity sort with optional filters
+    if not tokens:
+        where, params = ["1=1"], []
+        if category:
+            where.append("category = ?"); params.append(category)
+        if min_margin is not None:
+            where.append("margin_pct >= ?"); params.append(min_margin)
+        if max_margin is not None:
+            where.append("margin_pct <= ?"); params.append(max_margin)
+        if strategy:
+            where.append("price_strategy = ?"); params.append(strategy)
+        rows = conn.execute(
+            "SELECT * FROM product_catalog WHERE " + " AND ".join(where) +
+            " ORDER BY times_quoted DESC, sell_price DESC LIMIT ?",
+            params + [limit],
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    # Exact SKU / MFG# short-circuit
+    if len(tokens) == 1 and len(tokens[0]) >= 4 and not tokens[0].isdigit():
+        t = tokens[0]
+        exact = conn.execute(
+            "SELECT * FROM product_catalog "
+            "WHERE LOWER(sku)=? OR LOWER(mfg_number)=? LIMIT 1",
+            (t, t),
+        ).fetchone()
+        if exact:
+            d = dict(exact); d["_match_score"] = 1000.0; d["_match_reason"] = "exact SKU/MFG#"
+            # Don't return *only* the exact match — surface it on top of
+            # the regular ranked list so the user sees alternatives too.
+            results = [d]
+            seen = {d["id"]}
+            ranked = _smart_rank(conn, tokens, limit - 1, category, min_margin, max_margin, strategy, exclude_ids=seen)
+            results.extend(ranked)
+            conn.close()
+            return results
+
+    results = _smart_rank(conn, tokens, limit, category, min_margin, max_margin, strategy)
     conn.close()
-    return [dict(r) for r in rows]
+    return results
+
+
+def _smart_rank(conn, tokens: list, limit: int, category: str = "",
+                min_margin: float = None, max_margin: float = None,
+                strategy: str = "", exclude_ids: set = None) -> list:
+    """Internal: fetch candidates by OR-joined token LIKEs, score in Python."""
+    exclude_ids = exclude_ids or set()
+    # OR-joined LIKE per token across the weighted fields. Limits the
+    # candidate set without requiring FTS — for catalogs <100k rows this
+    # stays under 50ms.
+    token_clauses = []
+    token_params = []
+    for t in tokens:
+        wild = f"%{t}%"
+        token_clauses.append(
+            "(LOWER(name) LIKE ? OR LOWER(sku) LIKE ? OR LOWER(description) LIKE ? "
+            "OR LOWER(category) LIKE ? OR LOWER(manufacturer) LIKE ? "
+            "OR LOWER(mfg_number) LIKE ? OR LOWER(tags) LIKE ?)"
+        )
+        token_params.extend([wild] * 7)
+    where = ["(" + " OR ".join(token_clauses) + ")"]
+    params = list(token_params)
+    if category:
+        where.append("category = ?"); params.append(category)
+    if min_margin is not None:
+        where.append("margin_pct >= ?"); params.append(min_margin)
+    if max_margin is not None:
+        where.append("margin_pct <= ?"); params.append(max_margin)
+    if strategy:
+        where.append("price_strategy = ?"); params.append(strategy)
+    # Pull a wider candidate set than `limit` so we can rank then slice.
+    fetch_n = max(limit * 5, 50)
+    rows = conn.execute(
+        "SELECT * FROM product_catalog WHERE " + " AND ".join(where) +
+        " ORDER BY times_quoted DESC LIMIT ?",
+        params + [fetch_n],
+    ).fetchall()
+
+    scored = []
+    for r in rows:
+        d = dict(r)
+        if d["id"] in exclude_ids:
+            continue
+        score, hits = _score_product(d, tokens)
+        if score <= 0:
+            continue
+        d["_match_score"] = round(score, 2)
+        d["_match_hits"] = hits
+        scored.append(d)
+    scored.sort(key=lambda x: (-x["_match_score"], -(x.get("times_quoted") or 0)))
+    return scored[:limit]
+
+
+def _score_product(product: dict, tokens: list) -> tuple:
+    """Return (score, {field: tokens_matched}) for a product against tokens."""
+    score = 0.0
+    hits = {}
+    fields = {f: (product.get(f) or "").lower() for f in _SMART_SEARCH_WEIGHTS}
+    matched_tokens = set()
+    for t in tokens:
+        for field, weight in _SMART_SEARCH_WEIGHTS.items():
+            if t in fields[field]:
+                score += weight
+                hits.setdefault(field, []).append(t)
+                matched_tokens.add(t)
+                break  # don't double-credit same token across fields
+    # Coverage bonus — quote that hits every token wins over a quote
+    # that hits only one even if that one was on a heavier field.
+    if tokens and len(matched_tokens) == len(tokens):
+        score += 10.0
+    elif tokens:
+        score *= len(matched_tokens) / len(tokens)
+    # Light times_quoted boost (log-scaled so a 100x-quoted item doesn't
+    # dominate a perfect text match on a less-frequent product).
+    tq = product.get("times_quoted") or 0
+    if tq > 0:
+        import math
+        score += math.log1p(tq) * 0.3
+    return score, hits
+
+
+def predictive_lookup(partial: str, limit: int = 10) -> list:
+    """Fast typeahead — now backed by smart_search so token-rank applies."""
+    return smart_search(partial, limit=limit)
 
 
 # ═══════════════════════════════════════════════════════════════════════
