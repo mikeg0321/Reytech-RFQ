@@ -183,10 +183,65 @@ class TestHtmlPages:
         assert resp.status_code == 200
         html = resp.get_data(as_text=True)
         assert "Stage Timeline" in html
-        # Override UI only shows when latest outcome is blocked/error
-        assert "Operator Override" in html
+        # Action UI (override + retry modal) only shows when latest outcome is blocked/error
+        assert "Override or Retry" in html
+        assert "action-modal-backdrop" in html
 
-    def test_detail_page_hides_override_when_advanced(self, auth_client, seeded_audit):
+    def test_detail_page_hides_action_when_advanced(self, auth_client, seeded_audit):
         resp = auth_client.get("/quoting/status/pc_bbb")
         html = resp.get_data(as_text=True)
-        assert "Operator Override" not in html
+        assert "Override or Retry" not in html
+        assert "action-modal-backdrop" not in html
+
+
+class TestRetry:
+    """POST /api/quoting/retry/<doc_id> — re-run orchestrator on a single doc."""
+
+    def test_retry_requires_auth(self, anon_client):
+        resp = anon_client.post("/api/quoting/retry/pc_aaa", json={"reason": "x"})
+        assert resp.status_code in (401, 403)
+
+    def test_retry_rejects_invalid_target_stage(self, auth_client, seeded_audit):
+        resp = auth_client.post(
+            "/api/quoting/retry/pc_aaa",
+            json={"reason": "fixed", "target_stage": "sent"},  # not in allowed set
+        )
+        assert resp.status_code == 400
+        assert "target_stage" in resp.get_json()["error"]
+
+    def test_retry_404s_for_unknown_doc(self, auth_client, seeded_audit):
+        resp = auth_client.post(
+            "/api/quoting/retry/pc_does_not_exist",
+            json={"reason": "fixed", "target_stage": "priced"},
+        )
+        assert resp.status_code == 404
+
+    def test_retry_runs_orchestrator_for_seeded_pc(
+        self, auth_client, seeded_audit, seed_db_price_check
+    ):
+        seed_db_price_check(
+            "pc_retry_1",
+            agency="CDCR",
+            items=[{"description": "Bandage roll 2in", "qty": 5, "uom": "BX"}],
+        )
+        resp = auth_client.post(
+            "/api/quoting/retry/pc_retry_1",
+            json={"reason": "[price_error] re-priced after catalog refresh",
+                  "target_stage": "priced"},
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert body["doc_id"] == "pc_retry_1"
+        assert body["target_stage"] == "priced"
+        # Orchestrator may or may not advance depending on seed quality; what we
+        # care about is that it ran without crashing and recorded the reason note.
+        from src.core.db import get_db
+        with get_db() as conn:
+            override_rows = conn.execute(
+                "SELECT reasons_json FROM quote_audit_log "
+                "WHERE quote_doc_id='pc_retry_1' AND outcome='override' "
+                "ORDER BY id DESC LIMIT 1"
+            ).fetchall()
+        assert override_rows, "expected retry-note row recorded as override outcome"
+        assert "retry-note" in override_rows[0][0]
+        assert "price_error" in override_rows[0][0]

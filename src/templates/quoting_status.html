@@ -12,16 +12,28 @@
 
 <div style="max-width:1200px;margin:0 auto;padding:20px" id="main-content">
 
-  <div style="margin-bottom:16px">
-    <h2 style="margin:0;font-size:20px;color:var(--tx)">Quoting Status</h2>
-    <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
-      Latest state machine transition per quote (newest first, up to 50).
-      Data source: <code>quote_audit_log</code>.
-    </p>
+  <div style="margin-bottom:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0;font-size:20px;color:var(--tx)">Quoting Status</h2>
+      <p style="color:var(--tx2);font-size:13px;margin:4px 0 0">
+        Latest state machine transition per quote (newest first, up to 50).
+        Data source: <code>quote_audit_log</code>.
+      </p>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:var(--tx2)">
+      <span id="qs-live-dot" title="Live updates enabled"
+            style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#3fb950;box-shadow:0 0 0 0 rgba(63,185,80,.6);animation:qsPulse 2s infinite"></span>
+      <span>Live</span>
+      <span id="qs-last-updated">just now</span>
+      <button id="qs-refresh-btn" type="button"
+              style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">
+        Refresh now
+      </button>
+    </div>
   </div>
 
   <!-- KPI tiles -->
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px">
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px" id="qs-kpis">
     {% for label, key, color in [
       ('Total', 'total', 'var(--tx)'),
       ('Advanced', 'advanced', '#3fb950'),
@@ -30,8 +42,9 @@
       ('Override', 'override', '#d29922'),
     ] %}
       {% set count = (rows|length) if key == 'total' else outcome_counts.get(key, 0) %}
-      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center">
-        <div style="font-size:28px;font-weight:800;color:{{ color }}">{{ count }}</div>
+      <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:14px;text-align:center"
+           data-kpi="{{ key }}">
+        <div style="font-size:28px;font-weight:800;color:{{ color }}" data-kpi-value>{{ count }}</div>
         <div style="font-size:12px;color:var(--tx2);margin-top:4px">{{ label }}</div>
       </div>
     {% endfor %}
@@ -40,8 +53,7 @@
   <!-- Quote list -->
   <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px">
     <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:10px">Recent Quotes</div>
-    {% if rows %}
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <table style="width:100%;border-collapse:collapse;font-size:13px" id="qs-table">
       <thead>
         <tr style="border-bottom:2px solid var(--bd);color:var(--tx2);text-align:left">
           <th style="padding:6px 8px">Doc ID</th>
@@ -53,42 +65,202 @@
           <th style="padding:6px 8px">At</th>
         </tr>
       </thead>
-      <tbody>
-        {% for r in rows %}
-        {% set color = outcome_colors.get(r.outcome, 'var(--tx2)') %}
-        <tr style="border-bottom:1px solid var(--bd)">
-          <td style="padding:6px 8px">
-            <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff">{{ r.doc_id or '(blank)' }}</a>
-          </td>
-          <td style="padding:6px 8px">{{ r.doc_type }}</td>
-          <td style="padding:6px 8px">{{ r.agency_key or '—' }}</td>
-          <td style="padding:6px 8px;font-family:monospace;font-size:12px">
-            {{ r.stage_from or '·' }} → {{ r.stage_to }}
-          </td>
-          <td style="padding:6px 8px">
-            <span style="color:{{ color }};font-weight:600">{{ r.outcome }}</span>
-          </td>
-          <td style="padding:6px 8px;max-width:380px;color:var(--tx2)">
-            {% if r.reasons %}
-              <span title="{{ r.reasons|join(' | ') }}">
-                {{ r.reasons[0]|truncate(80) }}
-                {% if r.reasons|length > 1 %}<span style="color:var(--tx2)">(+{{ r.reasons|length - 1 }})</span>{% endif %}
-              </span>
-            {% else %}
-              —
-            {% endif %}
-          </td>
-          <td style="padding:6px 8px;color:var(--tx2);font-size:12px">{{ r.at|truncate(19, true, '') }}</td>
-        </tr>
-        {% endfor %}
+      <tbody id="qs-tbody">
+        {% if rows %}
+          {% for r in rows %}
+          {% set color = outcome_colors.get(r.outcome, 'var(--tx2)') %}
+          <tr style="border-bottom:1px solid var(--bd)">
+            <td style="padding:6px 8px">
+              <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff">{{ r.doc_id or '(blank)' }}</a>
+            </td>
+            <td style="padding:6px 8px">{{ r.doc_type }}</td>
+            <td style="padding:6px 8px">{{ r.agency_key or '—' }}</td>
+            <td style="padding:6px 8px;font-family:monospace;font-size:12px">
+              {{ r.stage_from or '·' }} → {{ r.stage_to }}
+            </td>
+            <td style="padding:6px 8px">
+              <span style="color:{{ color }};font-weight:600">{{ r.outcome }}</span>
+            </td>
+            <td style="padding:6px 8px;max-width:380px;color:var(--tx2)">
+              {% if r.reasons %}
+                <span title="{{ r.reasons|join(' | ') }}">
+                  {{ r.reasons[0]|truncate(80) }}
+                  {% if r.reasons|length > 1 %}<span style="color:var(--tx2)">(+{{ r.reasons|length - 1 }})</span>{% endif %}
+                </span>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td style="padding:6px 8px;color:var(--tx2);font-size:12px">{{ r.at|truncate(19, true, '') }}</td>
+          </tr>
+          {% endfor %}
+        {% endif %}
       </tbody>
     </table>
-    {% else %}
-    <div style="color:var(--tx2);font-size:13px;padding:20px 0">
+    <div id="qs-empty" style="color:var(--tx2);font-size:13px;padding:20px 0;{% if rows %}display:none{% endif %}">
       No audit log rows yet. Run the orchestrator to populate.
     </div>
-    {% endif %}
   </div>
 
 </div>
+
+<style>
+  @keyframes qsPulse {
+    0%   { box-shadow: 0 0 0 0 rgba(63,185,80,.6); }
+    70%  { box-shadow: 0 0 0 8px rgba(63,185,80,0); }
+    100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); }
+  }
+  #qs-live-dot.qs-stale { background:#8b949e; animation:none; }
+</style>
+
+<script>
+(function() {
+  var REFRESH_MS = 15000;
+
+  var OUTCOME_COLORS = {
+    advanced: '#3fb950',
+    blocked:  '#f85149',
+    error:    '#f85149',
+    skipped:  '#8b949e',
+    override: '#d29922'
+  };
+
+  var KPI_KEYS = ['total', 'advanced', 'blocked', 'error', 'override'];
+  var KPI_FALLBACK_COLOR = 'var(--tx)';
+
+  var tbody = document.getElementById('qs-tbody');
+  var emptyEl = document.getElementById('qs-empty');
+  var lastUpdated = document.getElementById('qs-last-updated');
+  var liveDot = document.getElementById('qs-live-dot');
+  var refreshBtn = document.getElementById('qs-refresh-btn');
+  var kpiContainer = document.getElementById('qs-kpis');
+
+  if (!tbody || !lastUpdated || !liveDot || !kpiContainer) return;
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function truncate(s, n) {
+    if (s == null) return '';
+    s = String(s);
+    return s.length <= n ? s : s.slice(0, n) + '…';
+  }
+
+  function renderRow(r) {
+    var color = OUTCOME_COLORS[r.outcome] || 'var(--tx2)';
+    var docLink = r.doc_id
+      ? '<a href="/quoting/status/' + encodeURIComponent(r.doc_id) + '" style="color:#58a6ff">' + escapeHtml(r.doc_id) + '</a>'
+      : '<span style="color:var(--tx2)">(blank)</span>';
+    var reasonsHtml = '—';
+    if (r.reasons && r.reasons.length) {
+      var first = escapeHtml(truncate(r.reasons[0], 80));
+      var more = r.reasons.length > 1
+        ? ' <span style="color:var(--tx2)">(+' + (r.reasons.length - 1) + ')</span>'
+        : '';
+      var titleAttr = escapeHtml(r.reasons.join(' | '));
+      reasonsHtml = '<span title="' + titleAttr + '">' + first + more + '</span>';
+    }
+    var at = r.at ? escapeHtml(String(r.at).slice(0, 19)) : '—';
+    return '<tr style="border-bottom:1px solid var(--bd)">'
+      +   '<td style="padding:6px 8px">' + docLink + '</td>'
+      +   '<td style="padding:6px 8px">' + escapeHtml(r.doc_type || '—') + '</td>'
+      +   '<td style="padding:6px 8px">' + escapeHtml(r.agency_key || '—') + '</td>'
+      +   '<td style="padding:6px 8px;font-family:monospace;font-size:12px">'
+      +     escapeHtml(r.stage_from || '·') + ' → ' + escapeHtml(r.stage_to || '?')
+      +   '</td>'
+      +   '<td style="padding:6px 8px">'
+      +     '<span style="color:' + color + ';font-weight:600">' + escapeHtml(r.outcome || '—') + '</span>'
+      +   '</td>'
+      +   '<td style="padding:6px 8px;max-width:380px;color:var(--tx2)">' + reasonsHtml + '</td>'
+      +   '<td style="padding:6px 8px;color:var(--tx2);font-size:12px">' + at + '</td>'
+      + '</tr>';
+  }
+
+  function applyData(data) {
+    var rows = (data && data.rows) || [];
+    var counts = (data && data.outcome_counts) || {};
+    var kpiValues = {
+      total: rows.length,
+      advanced: counts.advanced || 0,
+      blocked: counts.blocked || 0,
+      error: counts.error || 0,
+      override: counts.override || 0
+    };
+    KPI_KEYS.forEach(function(key) {
+      var tile = kpiContainer.querySelector('[data-kpi="' + key + '"] [data-kpi-value]');
+      if (tile) tile.textContent = String(kpiValues[key] || 0);
+    });
+
+    if (!rows.length) {
+      tbody.innerHTML = '';
+      if (emptyEl) emptyEl.style.display = '';
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    tbody.innerHTML = rows.map(renderRow).join('');
+  }
+
+  function setStale(stale) {
+    if (stale) {
+      liveDot.classList.add('qs-stale');
+      liveDot.title = 'Live updates paused (network or tab hidden)';
+    } else {
+      liveDot.classList.remove('qs-stale');
+      liveDot.title = 'Live updates enabled';
+    }
+  }
+
+  function fmtTime(d) {
+    var hh = String(d.getHours()).padStart(2, '0');
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    var ss = String(d.getSeconds()).padStart(2, '0');
+    return hh + ':' + mm + ':' + ss;
+  }
+
+  var inFlight = false;
+  function refresh() {
+    if (inFlight) return;
+    inFlight = true;
+    fetch('/api/quoting/status?limit=50', {credentials: 'same-origin'})
+      .then(function(resp) {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.json();
+      })
+      .then(function(j) {
+        if (j && j.ok) {
+          applyData(j);
+          lastUpdated.textContent = 'updated ' + fmtTime(new Date());
+          setStale(false);
+        } else {
+          setStale(true);
+        }
+      })
+      .catch(function() { setStale(true); })
+      .then(function() { inFlight = false; });
+  }
+
+  if (refreshBtn) refreshBtn.addEventListener('click', refresh);
+
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden) {
+      setStale(true);
+    } else {
+      setStale(false);
+      refresh();
+    }
+  });
+
+  setInterval(function() {
+    if (!document.hidden) refresh();
+  }, REFRESH_MS);
+})();
+</script>
+
 {% endblock %}
