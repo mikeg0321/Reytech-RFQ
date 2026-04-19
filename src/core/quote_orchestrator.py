@@ -573,6 +573,21 @@ class QuoteOrchestrator:
                 )
             if not pkg.merged_pdf:
                 problems.append("merged_pdf is empty (nothing to send)")
+            # finalize() flips ok=False on signing failures but leaves the
+            # UNSIGNED merged_pdf populated. Without this gate the orchestrator
+            # silently advanced and the sent stage emailed an unsigned package.
+            # Surface the specific warning(s) so the operator sees WHY.
+            if not getattr(pkg, "ok", True):
+                signing_warnings = [
+                    w for w in (getattr(pkg, "warnings", []) or [])
+                    if "sign" in w.lower()
+                ]
+                if signing_warnings:
+                    problems.extend(f"package not ok: {w}" for w in signing_warnings)
+                else:
+                    problems.append(
+                        f"package not ok (warnings: {getattr(pkg, 'warnings', [])})"
+                    )
             if problems:
                 # Raise so _try_advance records outcome="error" with reasons.
                 raise RuntimeError("generated incomplete: " + " ; ".join(problems))
