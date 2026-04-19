@@ -29,7 +29,30 @@
               style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:6px;cursor:pointer;font-size:12px">
         Refresh now
       </button>
+      <a id="qs-export-csv" href="/api/quoting/status/export.csv"
+         style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">
+        Export CSV
+      </a>
     </div>
+  </div>
+
+  <!-- Filter chips -->
+  <div id="qs-filters" role="group" aria-label="Filter by outcome"
+       style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">
+    {% for key, label in [
+      ('all', 'All'),
+      ('advanced', 'Advanced'),
+      ('blocked', 'Blocked'),
+      ('error', 'Error'),
+      ('skipped', 'Skipped'),
+      ('override', 'Override'),
+    ] %}
+      <button type="button" data-filter="{{ key }}"
+              class="qs-chip{% if key == 'all' %} qs-chip-active{% endif %}"
+              style="background:transparent;border:1px solid var(--bd);color:var(--tx2);padding:4px 12px;border-radius:999px;cursor:pointer;font-size:12px">
+        {{ label }}
+      </button>
+    {% endfor %}
   </div>
 
   <!-- KPI tiles -->
@@ -111,6 +134,8 @@
     100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); }
   }
   #qs-live-dot.qs-stale { background:#8b949e; animation:none; }
+  .qs-chip-active { background:var(--tx) !important; color:var(--bg) !important; border-color:var(--tx) !important; font-weight:600; }
+  .qs-chip:hover { border-color:var(--tx2); }
 </style>
 
 <script>
@@ -134,6 +159,10 @@
   var liveDot = document.getElementById('qs-live-dot');
   var refreshBtn = document.getElementById('qs-refresh-btn');
   var kpiContainer = document.getElementById('qs-kpis');
+  var filtersEl = document.getElementById('qs-filters');
+  var exportLink = document.getElementById('qs-export-csv');
+  var allRows = [];
+  var activeFilter = 'all';
 
   if (!tbody || !lastUpdated || !liveDot || !kpiContainer) return;
 
@@ -183,6 +212,31 @@
       + '</tr>';
   }
 
+  function renderTable() {
+    var visible = (activeFilter === 'all')
+      ? allRows
+      : allRows.filter(function(r) { return (r.outcome || '') === activeFilter; });
+    if (!visible.length) {
+      tbody.innerHTML = '';
+      if (emptyEl) {
+        emptyEl.style.display = '';
+        emptyEl.textContent = (activeFilter === 'all')
+          ? 'No audit log rows yet. Run the orchestrator to populate.'
+          : 'No rows match filter: ' + activeFilter + '.';
+      }
+      return;
+    }
+    if (emptyEl) emptyEl.style.display = 'none';
+    tbody.innerHTML = visible.map(renderRow).join('');
+  }
+
+  function syncExportLink() {
+    if (!exportLink) return;
+    exportLink.href = (activeFilter === 'all')
+      ? '/api/quoting/status/export.csv'
+      : '/api/quoting/status/export.csv?outcome=' + encodeURIComponent(activeFilter);
+  }
+
   function applyData(data) {
     var rows = (data && data.rows) || [];
     var counts = (data && data.outcome_counts) || {};
@@ -198,13 +252,22 @@
       if (tile) tile.textContent = String(kpiValues[key] || 0);
     });
 
-    if (!rows.length) {
-      tbody.innerHTML = '';
-      if (emptyEl) emptyEl.style.display = '';
-      return;
-    }
-    if (emptyEl) emptyEl.style.display = 'none';
-    tbody.innerHTML = rows.map(renderRow).join('');
+    allRows = rows;
+    renderTable();
+  }
+
+  if (filtersEl) {
+    filtersEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('.qs-chip');
+      if (!btn) return;
+      var key = btn.getAttribute('data-filter') || 'all';
+      activeFilter = key;
+      filtersEl.querySelectorAll('.qs-chip').forEach(function(b) {
+        b.classList.toggle('qs-chip-active', b === btn);
+      });
+      renderTable();
+      syncExportLink();
+    });
   }
 
   function setStale(stale) {
@@ -260,6 +323,9 @@
   setInterval(function() {
     if (!document.hidden) refresh();
   }, REFRESH_MS);
+
+  // Seed allRows from the initial fetch so chip filtering works without waiting 15s.
+  refresh();
 })();
 </script>
 

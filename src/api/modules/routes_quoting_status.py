@@ -5,6 +5,8 @@ Routes:
     GET  /quoting/status/<doc_id>           — full audit trail for one quote
     GET  /api/quoting/status                — JSON: recent quotes summary
     GET  /api/quoting/status/<doc_id>       — JSON: single quote trail
+    GET  /api/quoting/status/export.csv     — CSV: latest row per doc
+    GET  /api/quoting/status/<doc_id>/export.csv — CSV: full trail for one doc
     POST /api/quoting/override/<doc_id>     — record an operator override
     POST /api/quoting/retry/<doc_id>        — re-run orchestrator on one doc
     POST /api/quoting/backfill              — drive existing PCs through orchestrator
@@ -19,11 +21,13 @@ still has to go through the orchestrator's normal transition.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 from datetime import datetime, timezone
 
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
 from src.api.shared import bp, auth_required
 
@@ -161,6 +165,77 @@ def api_quoting_status_detail(doc_id: str):
         "latest_stage": trail[-1]["stage_to"],
         "latest_outcome": trail[-1]["outcome"],
     })
+
+
+# ── CSV exports ─────────────────────────────────────────────────────────────
+
+def _csv_response(rows: list[list[str]], header: list[str], filename: str) -> Response:
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _parse_outcome_filter(raw: str) -> set[str]:
+    if not raw:
+        return set()
+    return {o.strip().lower() for o in raw.split(",") if o.strip()}
+
+
+@bp.route("/api/quoting/status/export.csv")
+@auth_required
+def api_quoting_status_export_csv():
+    """Export the latest-per-doc summary as CSV. Optional ?outcome=blocked,error."""
+    try:
+        limit = max(1, min(int(request.args.get("limit", "200")), 1000))
+    except ValueError:
+        limit = 200
+    outcomes = _parse_outcome_filter(request.args.get("outcome", ""))
+
+    rows = _fetch_recent_summary(limit=limit)
+    if outcomes:
+        rows = [r for r in rows if (r.get("outcome") or "").lower() in outcomes]
+
+    out = [
+        [r.get("doc_id") or "", r.get("doc_type") or "", r.get("agency_key") or "",
+         r.get("stage_from") or "", r.get("stage_to") or "", r.get("outcome") or "",
+         " | ".join(r.get("reasons") or []), r.get("actor") or "", r.get("at") or ""]
+        for r in rows
+    ]
+    return _csv_response(
+        out,
+        ["doc_id", "doc_type", "agency_key", "stage_from", "stage_to",
+         "outcome", "reasons", "actor", "at"],
+        "quoting_status.csv",
+    )
+
+
+@bp.route("/api/quoting/status/<doc_id>/export.csv")
+@auth_required
+def api_quoting_trail_export_csv(doc_id: str):
+    """Export the full audit trail for one doc_id as CSV."""
+    trail = _fetch_trail(doc_id)
+    if not trail:
+        return jsonify({"ok": False, "error": "no audit trail for that doc_id"}), 404
+
+    safe_id = "".join(c for c in doc_id if c.isalnum() or c in ("-", "_")) or "trail"
+    out = [
+        [t.get("stage_from") or "", t.get("stage_to") or "", t.get("outcome") or "",
+         " | ".join(t.get("reasons") or []), t.get("actor") or "",
+         t.get("at") or "", t.get("doc_type") or "", t.get("agency_key") or ""]
+        for t in trail
+    ]
+    return _csv_response(
+        out,
+        ["stage_from", "stage_to", "outcome", "reasons", "actor", "at",
+         "doc_type", "agency_key"],
+        f"quoting_trail_{safe_id}.csv",
+    )
 
 
 @bp.route("/api/quoting/override/<doc_id>", methods=["POST"])

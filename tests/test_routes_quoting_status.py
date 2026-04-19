@@ -245,3 +245,109 @@ class TestRetry:
         assert override_rows, "expected retry-note row recorded as override outcome"
         assert "retry-note" in override_rows[0][0]
         assert "price_error" in override_rows[0][0]
+
+
+class TestSummaryCsvExport:
+    """GET /api/quoting/status/export.csv — operator dumps the dashboard for triage.
+
+    The point: an operator looking at a wall of blocked rows wants to grab the
+    list, paste it into a notebook, and work through it offline. CSV is the
+    universal "I need this in a spreadsheet" format. Anything fancier (xlsx,
+    JSON-to-pivot) is yak-shaving for a feature operators will use once a week.
+    """
+
+    def test_export_returns_csv_mime_and_disposition(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/export.csv")
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/csv"
+        assert "attachment" in resp.headers.get("Content-Disposition", "")
+        assert "quoting_status.csv" in resp.headers.get("Content-Disposition", "")
+
+    def test_export_header_and_one_row_per_doc(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/export.csv")
+        text = resp.get_data(as_text=True)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        # Header + 3 distinct doc_ids (pc_aaa latest, pc_bbb, pc_ccc).
+        assert lines[0].startswith("doc_id,doc_type,agency_key,stage_from,stage_to,outcome,reasons,actor,at")
+        assert len(lines) == 1 + 3
+
+    def test_export_outcome_filter_subsets_rows(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/export.csv?outcome=blocked,error")
+        text = resp.get_data(as_text=True)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        # Header + pc_aaa (blocked) + pc_ccc (error). pc_bbb (advanced) excluded.
+        assert len(lines) == 1 + 2
+        assert "pc_aaa" in text
+        assert "pc_ccc" in text
+        assert "pc_bbb" not in text
+
+    def test_export_unknown_outcome_returns_only_header(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/export.csv?outcome=nonexistent")
+        text = resp.get_data(as_text=True)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        assert len(lines) == 1  # header only
+
+    def test_export_reasons_pipe_joined(self, auth_client, seeded_audit):
+        # pc_aaa's blocked row carries reason "missing 703b" — must appear verbatim.
+        resp = auth_client.get("/api/quoting/status/export.csv?outcome=blocked")
+        text = resp.get_data(as_text=True)
+        assert "missing 703b" in text
+
+
+class TestTrailCsvExport:
+    """GET /api/quoting/status/<doc_id>/export.csv — full chronological trail."""
+
+    def test_trail_csv_returns_full_chronological_trail(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/pc_aaa/export.csv")
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/csv"
+        text = resp.get_data(as_text=True)
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        # Header + 3 transitions for pc_aaa.
+        assert lines[0].startswith("stage_from,stage_to,outcome,reasons,actor,at")
+        assert len(lines) == 1 + 3
+        # Chronology preserved: parsed → priced → qa_pass.
+        assert "draft,parsed,advanced" in text
+        assert "parsed,priced,advanced" in text
+        assert "priced,qa_pass,blocked" in text
+
+    def test_trail_csv_filename_uses_safe_doc_id(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/pc_aaa/export.csv")
+        cd = resp.headers.get("Content-Disposition", "")
+        assert "quoting_trail_pc_aaa.csv" in cd
+
+    def test_trail_csv_404s_for_unknown_doc(self, auth_client, seeded_audit):
+        resp = auth_client.get("/api/quoting/status/pc_does_not_exist/export.csv")
+        assert resp.status_code == 404
+
+
+class TestFilterChipsRendered:
+    """The chip UI is JS-driven; the test verifies SSR includes the buttons +
+    the export link, so an operator with JS disabled still sees affordances and
+    a deep-link to the CSV. This guards against the chips being accidentally
+    removed in a future template refactor."""
+
+    def test_filter_chips_present_in_rendered_html(self, auth_client, seeded_audit):
+        resp = auth_client.get("/quoting/status")
+        html = resp.get_data(as_text=True)
+        # Each chip carries data-filter="<key>" — assert by stable hook, not label.
+        for key in ["all", "advanced", "blocked", "error", "skipped", "override"]:
+            assert f'data-filter="{key}"' in html, f"chip {key!r} missing"
+
+    def test_export_csv_link_present(self, auth_client, seeded_audit):
+        resp = auth_client.get("/quoting/status")
+        html = resp.get_data(as_text=True)
+        assert 'href="/api/quoting/status/export.csv"' in html
+
+    def test_detail_page_has_export_trail_link(self, auth_client, seeded_audit):
+        resp = auth_client.get("/quoting/status/pc_aaa")
+        html = resp.get_data(as_text=True)
+        assert 'href="/api/quoting/status/pc_aaa/export.csv"' in html
+        assert "Export trail CSV" in html
+
+    def test_detail_page_without_trail_omits_export_link(self, auth_client, seeded_audit):
+        resp = auth_client.get("/quoting/status/pc_unknown")
+        html = resp.get_data(as_text=True)
+        # No trail → no export affordance (avoids generating an empty CSV that
+        # the operator then has to wonder about).
+        assert "Export trail CSV" not in html
