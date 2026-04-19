@@ -18,6 +18,7 @@ venv/
 Thumbs.db
 uploads/
 output/
+artifacts/
 
 # ── Sensitive / auth tokens (never commit) ───────────────────────────────────
 data/qb_tokens.json
