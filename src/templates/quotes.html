@@ -32,6 +32,23 @@
       {% endfor %}
      </div>
 
+     <!-- Quick filter chips — one-click status filter without opening dropdown -->
+     <div role="group" aria-label="Quick status filter" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">
+      {% for chip_key, chip_label in [
+        ('', 'All'),
+        ('pending', '⏳ Pending'),
+        ('won', '✅ Won'),
+        ('lost', '❌ Lost'),
+        ('sent', '📤 Sent'),
+      ] %}
+      <a href="?status={{ chip_key }}{% if q %}&q={{ q }}{% endif %}{% if agency_filter %}&agency={{ agency_filter }}{% endif %}"
+         class="quote-chip{% if status_filter == chip_key %} quote-chip-active{% endif %}"
+         style="text-decoration:none;padding:4px 12px;border-radius:999px;border:1px solid var(--bd);color:var(--tx2);font-size:12px;{% if status_filter == chip_key %}background:var(--tx);color:var(--bg);border-color:var(--tx);font-weight:600;{% endif %}">
+        {{ chip_label }}
+      </a>
+      {% endfor %}
+     </div>
+
      <!-- Search + Filters — one compact bar -->
      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
       <form method="get" style="display:contents">
