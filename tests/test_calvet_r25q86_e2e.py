@@ -137,6 +137,41 @@ class TestCalvetR25Q86OrchestratorE2E:
             f"expected final_stage=qa_pass; got {result.final_stage}"
         )
 
+    def test_calvet_r25q86_quote_pdf_renders_golden_subtotal(self, golden):
+        """DSH-pattern math anchor: the rendered Reytech letterhead must
+        show the same subtotal the golden fixture pins ($24,245.40).
+        Anchoring the math in two places (golden JSON + rendered PDF
+        text) means a unit-price drift forces both to update — math
+        can't silently diverge.
+        """
+        import io
+        import re
+
+        import pdfplumber
+
+        from src.forms.fill_engine import fill
+        from src.forms.profile_registry import load_profiles
+
+        quote = Quote.from_legacy_dict(golden, doc_type="rfq")
+        quote.header.solicitation_number = golden["test_rfq_quote_number"]
+
+        profile = load_profiles()["quote_reytech_letterhead"]
+        pdf_bytes = fill(quote, profile)
+        assert pdf_bytes and len(pdf_bytes) > 1000, "letterhead PDF empty/tiny"
+
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            text = "\n".join((p.extract_text() or "") for p in pdf.pages)
+
+        expected_subtotal = golden["totals"]["subtotal"]  # 24245.40
+        # Match "$24,245.40" with optional whitespace between glyphs (pdfplumber
+        # sometimes interleaves wrapping spaces with adjacent text).
+        money = re.escape(f"{expected_subtotal:,.2f}").replace(",", r"\s*,\s*").replace(r"\.", r"\s*\.\s*")
+        assert re.search(money, text), (
+            f"Rendered CalVet quote letterhead does not show subtotal "
+            f"${expected_subtotal:,.2f}. Either the per-row math drifted, "
+            f"or quote_generator stopped rendering the SUBTOTAL line."
+        )
+
 
 # ── Test B: quote letterhead paginates correctly ────────────────────────────
 
