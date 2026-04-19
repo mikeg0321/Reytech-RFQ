@@ -34,6 +34,36 @@ except ImportError:
 
 log = logging.getLogger("item_link")
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# Best-effort enrichment paths (claude_amazon_lookup, claude_product_lookup)
+# return {} on missing-dep failures so callers don't have to special-case
+# the optional-LLM tier. But those skips were previously invisible — log.debug
+# only — leaving operators to wonder why "no enrichment data" appeared on
+# every item. The ledger lets the orchestrator/route surface those skips
+# via the OrchestratorResult 3-channel envelope (PRs #181-#183).
+from src.core.dependency_check import Severity, SkipReason, try_env  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip to the module ledger. try_env/try_import already log
+    at WARNING — this just persists the event so a later drain can pick it
+    up and route it through OrchestratorResult.add_skip()."""
+    _SKIP_LEDGER.append(skip)
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every skip recorded since the last drain.
+
+    Callers (the orchestrator, the routes that run enrichment) call this
+    AFTER a batch of lookups completes, then push each skip into
+    `OrchestratorResult.add_skip()` so they appear in result.warnings.
+    Drain is destructive so two consecutive calls don't double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
 # ─── Supplier detection ───────────────────────────────────────────────────────
 
 SUPPLIER_MAP = {
@@ -1399,11 +1429,21 @@ def claude_amazon_lookup(asin: str) -> dict:
     """
     if not asin:
         return {}
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        log.debug("claude_amazon_lookup: no ANTHROPIC_API_KEY")
+    api_key, _key_skip = try_env(
+        "ANTHROPIC_API_KEY",
+        severity=Severity.WARNING,
+        where="claude_amazon_lookup",
+    )
+    if _key_skip is not None:
+        _record_skip(_key_skip)
         return {}
     if not HAS_REQUESTS:
+        _record_skip(SkipReason(
+            name="requests",
+            reason="requests library not installed",
+            severity=Severity.WARNING,
+            where="claude_amazon_lookup",
+        ))
         return {}
 
     url = f"https://www.amazon.com/dp/{asin}"
@@ -1727,10 +1767,20 @@ def claude_product_lookup(url: str, supplier: str = "") -> dict:
     fatal.
     """
     if not HAS_REQUESTS:
+        _record_skip(SkipReason(
+            name="requests",
+            reason="requests library not installed",
+            severity=Severity.WARNING,
+            where="claude_product_lookup",
+        ))
         return {}
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        log.debug("claude_product_lookup: no ANTHROPIC_API_KEY")
+    api_key, _key_skip = try_env(
+        "ANTHROPIC_API_KEY",
+        severity=Severity.WARNING,
+        where="claude_product_lookup",
+    )
+    if _key_skip is not None:
+        _record_skip(_key_skip)
         return {}
 
     _sup = supplier or "the retailer"
