@@ -57,6 +57,17 @@ class QuoteStatus(str, Enum):
     DISMISSED = "dismissed"
 
 
+_PIPELINE_STATUSES = [
+    QuoteStatus.DRAFT,
+    QuoteStatus.PARSED,
+    QuoteStatus.PRICED,
+    QuoteStatus.QA_PASS,
+    QuoteStatus.GENERATED,
+    QuoteStatus.SENT,
+]
+_TERMINAL_STATUSES = {QuoteStatus.WON, QuoteStatus.LOST}
+
+
 class DocType(str, Enum):
     PC = "pc"
     RFQ = "rfq"
@@ -286,9 +297,45 @@ class Quote(BaseModel):
             self._audit(f"remove_item line {line_no}")
 
     def transition(self, new_status: QuoteStatus):
-        """Transition status with prerequisite validation."""
-        # Basic forward-only transitions (allow any for now, tighten later)
-        self._audit(f"transition {self.status.value} → {new_status.value}")
+        """Transition status with prerequisite validation.
+
+        Permissive forward-allowing model. Refuses two clearly bug-shaped
+        cases that previously slipped through silently:
+
+          * Re-opening a terminal status (WON / LOST) into the active
+            pipeline — closed quotes don't get re-opened, clone instead.
+          * Backward jumps in the main pipeline by more than one stage —
+            a stale callback firing post-send shouldn't wipe SENT back to
+            DRAFT.
+
+        Forward jumps (DRAFT → PRICED), self-transitions, single-step
+        backward (re-pricing after QA), and pipeline → terminal (close)
+        all remain allowed.
+        """
+        cur = self.status
+        if cur != new_status:
+            if cur in _TERMINAL_STATUSES and new_status not in _TERMINAL_STATUSES:
+                self._audit(
+                    f"transition refused {cur.value} → {new_status.value} "
+                    "(cannot re-open terminal status)"
+                )
+                raise ValueError(
+                    f"illegal transition from terminal status "
+                    f"{cur.value} to {new_status.value}"
+                )
+            if cur in _PIPELINE_STATUSES and new_status in _PIPELINE_STATUSES:
+                ci = _PIPELINE_STATUSES.index(cur)
+                ni = _PIPELINE_STATUSES.index(new_status)
+                if ni < ci - 1:
+                    self._audit(
+                        f"transition refused {cur.value} → {new_status.value} "
+                        "(backward jump skips stages)"
+                    )
+                    raise ValueError(
+                        f"illegal backward transition: "
+                        f"{cur.value} → {new_status.value} (skipped stages)"
+                    )
+        self._audit(f"transition {cur.value} → {new_status.value}")
         self.status = new_status
 
     def _audit(self, action: str, by: str = "system"):
