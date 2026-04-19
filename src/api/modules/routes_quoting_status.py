@@ -6,6 +6,7 @@ Routes:
     GET  /api/quoting/status                — JSON: recent quotes summary
     GET  /api/quoting/status/<doc_id>       — JSON: single quote trail
     POST /api/quoting/override/<doc_id>     — record an operator override
+    POST /api/quoting/retry/<doc_id>        — re-run orchestrator on one doc
     POST /api/quoting/backfill              — drive existing PCs through orchestrator
 
 Data source: `quote_audit_log` (migration 21). Rows are written by
@@ -205,6 +206,126 @@ def api_quoting_override(doc_id: str):
         return jsonify({"ok": False, "error": str(e)}), 500
 
     return jsonify({"ok": True, "recorded_at": at})
+
+
+# ── Single-doc retry ────────────────────────────────────────────────────────
+
+# Allowed target stages for one-click retry. Generation/sending stay manual —
+# retry is for re-driving the analysis half of the pipeline after a fix.
+_RETRY_TARGET_STAGES = {"parsed", "priced", "qa_pass"}
+
+
+@bp.route("/api/quoting/retry/<doc_id>", methods=["POST"])
+@auth_required
+def api_quoting_retry(doc_id: str):
+    """Re-run the orchestrator on a single doc after the operator fixes a blocker.
+
+    Looks up the source PC by doc_id (which equals pc_id for PC docs),
+    constructs a QuoteRequest using the doc_type/agency_key recorded in the
+    most-recent audit row, and calls orchestrator.run(). The orchestrator is
+    idempotent — it advances from current stage forward, so this is safe to
+    call repeatedly.
+
+    POST body:
+        target_stage  one of {"parsed","priced","qa_pass"}, default "qa_pass"
+        actor         default "operator"
+        reason        optional human note recorded as a separate audit row
+
+    Returns the orchestrator result summary (final_stage, blockers, profiles_used).
+    """
+    if not doc_id:
+        return jsonify({"ok": False, "error": "doc_id required"}), 400
+
+    body = request.get_json(silent=True) or {}
+    target_stage = (body.get("target_stage") or "qa_pass").strip()
+    if target_stage not in _RETRY_TARGET_STAGES:
+        return jsonify({
+            "ok": False,
+            "error": f"target_stage must be one of {sorted(_RETRY_TARGET_STAGES)}",
+        }), 400
+    actor = (body.get("actor") or "operator").strip() or "operator"
+    reason = (body.get("reason") or "").strip()
+
+    try:
+        from src.core.db import get_all_price_checks, get_db
+        from src.core.quote_orchestrator import QuoteOrchestrator, QuoteRequest
+    except Exception as e:
+        log.error("retry import failed: %s", e)
+        return jsonify({"ok": False, "error": f"import failed: {e}"}), 500
+
+    # Source lookup. Today only PC docs are retriable from here — RFQs don't
+    # round-trip cleanly without their original parse blob, which we don't keep.
+    try:
+        pcs = get_all_price_checks(include_test=False)
+    except Exception as e:
+        log.error("retry: get_all_price_checks failed: %s", e)
+        return jsonify({"ok": False, "error": f"source lookup failed: {e}"}), 500
+
+    pc = pcs.get(doc_id)
+    if not pc:
+        return jsonify({
+            "ok": False,
+            "error": "doc_id not found in price-check store (RFQ-only retry not supported yet)",
+        }), 404
+
+    # Carry doc_type/agency_key from the latest audit row (so retry uses the
+    # same identity the orchestrator originally resolved).
+    doc_type = "pc"
+    agency_key = (pc.get("agency") or "").strip()
+    try:
+        with get_db() as conn:
+            last = conn.execute(
+                "SELECT doc_type, agency_key FROM quote_audit_log "
+                "WHERE quote_doc_id = ? ORDER BY at DESC LIMIT 1",
+                (doc_id,),
+            ).fetchone()
+            if last:
+                doc_type = last[0] or doc_type
+                agency_key = last[1] or agency_key
+    except Exception as e:
+        log.warning("retry: audit lookup failed for %s (proceeding with PC defaults): %s", doc_id, e)
+
+    try:
+        orchestrator = QuoteOrchestrator()
+        req = QuoteRequest(
+            source=pc,
+            doc_type=doc_type,
+            agency_key=agency_key,
+            solicitation_number=(pc.get("pc_number") or "").strip(),
+            target_stage=target_stage,
+            actor=actor,
+        )
+        result = orchestrator.run(req)
+    except Exception as e:
+        log.error("retry orchestrator run failed for %s: %s", doc_id, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    # Optional human-note audit row alongside whatever the orchestrator wrote.
+    if reason:
+        try:
+            from src.core.db import get_db as _get_db
+            with _get_db() as conn:
+                conn.execute(
+                    """INSERT INTO quote_audit_log
+                       (quote_doc_id, doc_type, agency_key, stage_from, stage_to,
+                        outcome, reasons_json, actor, at)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (doc_id, doc_type, agency_key, result.final_stage, result.final_stage,
+                     "override", json.dumps([f"retry-note: {reason[:480]}"]),
+                     actor, datetime.now(timezone.utc).isoformat()),
+                )
+        except Exception as e:
+            log.warning("retry: failed to record reason note: %s", e)
+
+    return jsonify({
+        "ok": result.ok,
+        "doc_id": doc_id,
+        "final_stage": result.final_stage,
+        "blockers": result.blockers,
+        "warnings": result.warnings[:5],
+        "profiles_used": result.profiles_used,
+        "target_stage": target_stage,
+    })
 
 
 # ── Backfill ────────────────────────────────────────────────────────────────

@@ -29,85 +29,254 @@
     </div>
   {% else %}
 
-  <!-- Timeline -->
-  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:16px">
-    <div style="font-size:14px;font-weight:600;color:var(--tx);margin-bottom:12px">Stage Timeline</div>
-    {% for t in trail %}
-    {% set color = outcome_colors.get(t.outcome, 'var(--tx2)') %}
-    <div style="border-left:3px solid {{ color }};padding:8px 0 8px 12px;margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <div style="font-family:monospace;font-size:13px;color:var(--tx)">
-          {{ t.stage_from or '·' }} &rarr; {{ t.stage_to }}
-          &nbsp;<span style="color:{{ color }};font-weight:600">{{ t.outcome }}</span>
-        </div>
-        <div style="font-size:12px;color:var(--tx2)">{{ t.at }}</div>
-      </div>
-      {% if t.reasons %}
-        <ul style="margin:6px 0 0 12px;padding:0;color:var(--tx2);font-size:12px">
-          {% for r in t.reasons %}
-            <li>{{ r }}</li>
-          {% endfor %}
-        </ul>
+  {% set latest = trail[-1] %}
+  {% set is_blocked = latest.outcome in ('blocked', 'error') %}
+
+  <!-- Stage Timeline (vertical stepper) -->
+  <div style="background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div style="font-size:14px;font-weight:600;color:var(--tx)">Stage Timeline</div>
+      {% if is_blocked %}
+      <button id="open-action-modal" type="button"
+              style="background:#d29922;border:0;color:#000;font-weight:600;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px">
+        Override or Retry
+      </button>
       {% endif %}
-      <div style="font-size:11px;color:var(--tx2);margin-top:4px">actor: {{ t.actor }}</div>
     </div>
-    {% endfor %}
+
+    <ol class="qs-stepper" style="list-style:none;margin:0;padding:0;position:relative">
+      {% for t in trail %}
+      {% set color = outcome_colors.get(t.outcome, '#8b949e') %}
+      <li class="qs-step" style="position:relative;padding:0 0 16px 36px">
+        {# spine connector — drawn via ::before-style fallback inline #}
+        {% if not loop.last %}
+        <span aria-hidden="true"
+              style="position:absolute;left:11px;top:22px;bottom:0;width:2px;background:var(--bd)"></span>
+        {% endif %}
+        <span aria-hidden="true"
+              title="{{ t.outcome }}"
+              style="position:absolute;left:0;top:2px;width:24px;height:24px;border-radius:50%;
+                     background:{{ color }};border:3px solid var(--sf);box-shadow:0 0 0 2px {{ color }}33;
+                     display:flex;align-items:center;justify-content:center;color:#0d1117;font-size:11px;font-weight:800">
+          {{ loop.index }}
+        </span>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+          <div style="font-family:monospace;font-size:13px;color:var(--tx)">
+            {{ t.stage_from or '·' }} &rarr; {{ t.stage_to }}
+            <span style="display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;
+                         background:{{ color }}22;color:{{ color }};font-family:inherit;
+                         font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px"
+                  title="{% if t.reasons %}{{ t.reasons|join(' | ')|truncate(300) }}{% else %}no reasons recorded{% endif %}">
+              {{ t.outcome }}
+            </span>
+          </div>
+          <div style="font-size:12px;color:var(--tx2)">{{ t.at }}</div>
+        </div>
+        {% if t.reasons %}
+          <ul style="margin:6px 0 0 12px;padding:0;color:var(--tx2);font-size:12px">
+            {% for r in t.reasons %}
+              <li style="margin:2px 0">{{ r }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        <div style="font-size:11px;color:var(--tx2);margin-top:6px">actor: {{ t.actor }}</div>
+      </li>
+      {% endfor %}
+    </ol>
   </div>
 
-  <!-- Override form -->
-  {% set latest = trail[-1] %}
-  {% if latest.outcome in ('blocked', 'error') %}
-  <div style="background:var(--sf);border:1px solid #d29922;border-radius:10px;padding:16px">
-    <div style="font-size:14px;font-weight:600;color:#d29922;margin-bottom:6px">Operator Override</div>
-    <p style="color:var(--tx2);font-size:12px;margin:0 0 10px">
-      Recording an override does NOT advance the quote — fix the root cause, then rerun the orchestrator.
-      This only documents that you accepted the current blocker.
-    </p>
-    <textarea id="override-reason" rows="3" style="width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px"
-              placeholder="Why is the blocker acceptable? (required)"></textarea>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button id="override-btn" type="button"
-              style="background:#d29922;border:0;color:#000;font-weight:600;padding:8px 14px;border-radius:6px;cursor:pointer">
-        Record Override
-      </button>
-      <div id="override-status" style="color:var(--tx2);font-size:12px;align-self:center"></div>
+  {% if is_blocked %}
+  <!-- Action Modal: Override + Retry -->
+  <div id="action-modal-backdrop"
+       style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:1000;
+              align-items:center;justify-content:center;padding:20px">
+    <div role="dialog" aria-modal="true" aria-labelledby="action-modal-title"
+         style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;
+                max-width:560px;width:100%;padding:20px;box-shadow:0 20px 50px rgba(0,0,0,.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 id="action-modal-title" style="margin:0;font-size:16px;color:var(--tx)">
+          Operator Action — {{ doc_id }}
+        </h3>
+        <button id="action-modal-close" type="button" aria-label="Close"
+                style="background:transparent;border:0;color:var(--tx2);font-size:20px;cursor:pointer;line-height:1">&times;</button>
+      </div>
+
+      <p style="color:var(--tx2);font-size:12px;margin:0 0 14px">
+        Latest stage: <code>{{ latest.stage_to }}</code> ·
+        outcome: <strong style="color:{{ outcome_colors.get(latest.outcome, '#f85149') }}">{{ latest.outcome }}</strong>.
+        Pick a reason category, add detail, then either record an override (audit only) or
+        re-run the orchestrator from a target stage.
+      </p>
+
+      <label for="action-reason-cat" style="display:block;font-size:12px;color:var(--tx2);margin-bottom:4px">Reason category</label>
+      <select id="action-reason-cat"
+              style="width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:10px">
+        <option value="missing_form">Missing form</option>
+        <option value="price_error">Price error</option>
+        <option value="compliance_gap">Compliance gap</option>
+        <option value="agency_misroute">Agency misrouted</option>
+        <option value="vendor_identity">Vendor identity issue</option>
+        <option value="other">Other (specify)</option>
+      </select>
+
+      <label for="action-reason-text" style="display:block;font-size:12px;color:var(--tx2);margin-bottom:4px">Detail (required)</label>
+      <textarea id="action-reason-text" rows="3"
+                style="width:100%;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:8px;font-family:inherit;font-size:13px;margin-bottom:14px"
+                placeholder="Why this happened, or what you fixed before retrying."></textarea>
+
+      <div style="border-top:1px solid var(--bd);padding-top:12px;margin-bottom:8px">
+        <div style="font-size:12px;color:var(--tx2);margin-bottom:6px">Retry target stage</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          {% for stage in ['parsed', 'priced', 'qa_pass'] %}
+          <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--tx)">
+            <input type="radio" name="action-target-stage" value="{{ stage }}" {% if stage == 'qa_pass' %}checked{% endif %}>
+            <code>{{ stage }}</code>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px">
+        <button id="action-override-btn" type="button"
+                style="background:transparent;border:1px solid #d29922;color:#d29922;font-weight:600;padding:8px 14px;border-radius:6px;cursor:pointer">
+          Record Override
+        </button>
+        <button id="action-retry-btn" type="button"
+                style="background:#3fb950;border:0;color:#0d1117;font-weight:700;padding:8px 14px;border-radius:6px;cursor:pointer">
+          Retry Orchestrator
+        </button>
+      </div>
+      <div id="action-status" style="margin-top:12px;font-size:12px;color:var(--tx2);min-height:1em"></div>
+      <pre id="action-result" style="display:none;margin-top:10px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;color:var(--tx);font-size:11px;white-space:pre-wrap;max-height:240px;overflow:auto"></pre>
     </div>
   </div>
 
   <script>
-    (function() {
-      var btn = document.getElementById('override-btn');
-      var reason = document.getElementById('override-reason');
-      var status = document.getElementById('override-status');
-      if (!btn || !reason || !status) return;
-      btn.addEventListener('click', function() {
-        var r = (reason.value || '').trim();
-        if (!r) { status.textContent = 'Reason is required.'; status.style.color = '#f85149'; return; }
-        btn.disabled = true;
-        status.textContent = 'Recording…'; status.style.color = 'var(--tx2)';
-        fetch('/api/quoting/override/{{ doc_id }}', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({reason: r})
-        }).then(function(resp) {
-          return resp.json().then(function(j) { return {ok: resp.ok && j.ok, data: j}; });
-        }).then(function(out) {
-          if (out.ok) {
-            status.textContent = 'Override recorded. Reloading…';
-            status.style.color = '#3fb950';
-            setTimeout(function() { window.location.reload(); }, 700);
-          } else {
-            status.textContent = 'Error: ' + (out.data && out.data.error ? out.data.error : 'unknown');
-            status.style.color = '#f85149';
-            btn.disabled = false;
-          }
-        }).catch(function(e) {
-          status.textContent = 'Network error: ' + e;
+  (function() {
+    var openBtn   = document.getElementById('open-action-modal');
+    var backdrop  = document.getElementById('action-modal-backdrop');
+    var closeBtn  = document.getElementById('action-modal-close');
+    var overrideBtn = document.getElementById('action-override-btn');
+    var retryBtn  = document.getElementById('action-retry-btn');
+    var status    = document.getElementById('action-status');
+    var resultBox = document.getElementById('action-result');
+    var catSel    = document.getElementById('action-reason-cat');
+    var detailTa  = document.getElementById('action-reason-text');
+    var docId     = {{ doc_id|tojson }};
+    if (!openBtn || !backdrop) return;
+
+    function open() {
+      backdrop.style.display = 'flex';
+      if (status) { status.textContent = ''; status.style.color = 'var(--tx2)'; }
+      if (resultBox) { resultBox.style.display = 'none'; resultBox.textContent = ''; }
+      if (detailTa) detailTa.focus();
+    }
+    function close() { backdrop.style.display = 'none'; }
+
+    openBtn.addEventListener('click', open);
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    backdrop.addEventListener('click', function(e) { if (e.target === backdrop) close(); });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && backdrop.style.display === 'flex') close();
+    });
+
+    function buildReason() {
+      var cat = catSel ? catSel.value : 'other';
+      var detail = (detailTa && detailTa.value || '').trim();
+      if (!detail) return null;
+      return '[' + cat + '] ' + detail;
+    }
+
+    function selectedTargetStage() {
+      var inputs = document.getElementsByName('action-target-stage');
+      for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i].checked) return inputs[i].value;
+      }
+      return 'qa_pass';
+    }
+
+    function showResult(j) {
+      if (!resultBox) return;
+      try { resultBox.textContent = JSON.stringify(j, null, 2); }
+      catch (_) { resultBox.textContent = String(j); }
+      resultBox.style.display = '';
+    }
+
+    function setBusy(busy) {
+      if (overrideBtn) overrideBtn.disabled = busy;
+      if (retryBtn) retryBtn.disabled = busy;
+    }
+
+    if (overrideBtn) overrideBtn.addEventListener('click', function() {
+      var reason = buildReason();
+      if (!reason) {
+        status.textContent = 'Detail is required.'; status.style.color = '#f85149'; return;
+      }
+      setBusy(true);
+      status.textContent = 'Recording override…'; status.style.color = 'var(--tx2)';
+      fetch('/api/quoting/override/' + encodeURIComponent(docId), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'same-origin',
+        body: JSON.stringify({reason: reason})
+      }).then(function(r) {
+        return r.json().then(function(j) { return {ok: r.ok && j.ok, data: j}; });
+      }).then(function(out) {
+        showResult(out.data);
+        if (out.ok) {
+          status.textContent = 'Override recorded. Reloading…';
+          status.style.color = '#3fb950';
+          setTimeout(function() { window.location.reload(); }, 800);
+        } else {
+          status.textContent = 'Error: ' + (out.data && out.data.error ? out.data.error : 'unknown');
           status.style.color = '#f85149';
-          btn.disabled = false;
-        });
+          setBusy(false);
+        }
+      }).catch(function(e) {
+        status.textContent = 'Network error: ' + e;
+        status.style.color = '#f85149';
+        setBusy(false);
       });
-    })();
+    });
+
+    if (retryBtn) retryBtn.addEventListener('click', function() {
+      var reason = buildReason();
+      if (!reason) {
+        status.textContent = 'Detail is required.'; status.style.color = '#f85149'; return;
+      }
+      var target = selectedTargetStage();
+      setBusy(true);
+      status.textContent = 'Re-running orchestrator (target: ' + target + ')…';
+      status.style.color = 'var(--tx2)';
+      fetch('/api/quoting/retry/' + encodeURIComponent(docId), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'same-origin',
+        body: JSON.stringify({reason: reason, target_stage: target})
+      }).then(function(r) {
+        return r.json().then(function(j) { return {http_ok: r.ok, data: j}; });
+      }).then(function(out) {
+        showResult(out.data);
+        var advanced = out.data && out.data.ok;
+        if (advanced) {
+          status.textContent = 'Advanced to ' + (out.data.final_stage || '?') + '. Reloading…';
+          status.style.color = '#3fb950';
+          setTimeout(function() { window.location.reload(); }, 1200);
+        } else {
+          var msg = (out.data && out.data.error)
+            ? out.data.error
+            : 'Still blocked at ' + ((out.data && out.data.final_stage) || '?');
+          status.textContent = msg;
+          status.style.color = '#d29922';
+          setBusy(false);
+        }
+      }).catch(function(e) {
+        status.textContent = 'Network error: ' + e;
+        status.style.color = '#f85149';
+        setBusy(false);
+      });
+    });
+  })();
   </script>
   {% endif %}
 

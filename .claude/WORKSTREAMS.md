@@ -22,7 +22,9 @@ Track all in-progress work across Claude Code context windows.
 | feat/strict-boot-validator | (merged) | `C:\Users\mikeg\rfq-strict-boot-validator` | Merged PR #141 | Flip boot validator to strict — bad profile blocks app boot in prod | 2026-04-18 |
 | feat/703a-profile | (merged) | `C:\Users\mikeg\rfq-703a-profile` | Merged PR #142 | Add 703a_reytech_standard profile + blank fixture | 2026-04-18 |
 | feat/golden-test-fixture | (merged) | `C:\Users\mikeg\rfq-golden-test-fixture` | Merged PR #143 | Test0321/R26Q0321 golden fixture + 28 real CCHCS items + seed script | 2026-04-18 |
-| feat/quote-orchestrator | This window | `C:\Users\mikeg\rfq-quote-orchestrator` | Ready to ship | Platform build: QuoteOrchestrator state machine + FormProfiler agent + ComplianceValidator + /quoting/status dashboard + playbook (`docs/PLATFORM_QUOTING.md`). 46/46 platform tests green. Makes every new agency a data task, not code. | 2026-04-18 |
+| feat/quote-orchestrator | (merged) | `C:\Users\mikeg\rfq-quote-orchestrator` | Merged (platform PR) | Platform build: QuoteOrchestrator state machine + FormProfiler agent + ComplianceValidator + /quoting/status dashboard + playbook (`docs/PLATFORM_QUOTING.md`). | 2026-04-18 |
+| feat/calvet-r25q86-proof | (merged) | `C:\Users\mikeg\rfq-calvet-r25q86-proof` | Merged PR #156 | CalVet R25Q86 E2E proof + new pass_through and generated fill modes + sellers_permit_reytech and quote_reytech_letterhead profiles. | 2026-04-19 |
+| feat/ui-tier1-status-overhaul | This window | `C:\Users\mikeg\rfq-ui-tier1` | Active | UI Tier 1 from Grok audit: live status auto-refresh + timeline stepper polish + override+retry modal + new POST /api/quoting/retry. Touches `quoting_status.html`, `quoting_status_detail.html`, `routes_quoting_status.py`. | 2026-04-19 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 
