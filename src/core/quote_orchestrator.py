@@ -126,6 +126,40 @@ class OrchestratorResult:
     notes: list[str] = field(default_factory=list)
     stage_history: list[StageAttempt] = field(default_factory=list)
     final_stage: str = "draft"
+    # list[SkipReason] — structured skip events emitted by downstream
+    # consumers (compliance_validator, item_link_lookup, pricing_oracle, …
+    # see PRs #183-#190). Routed by add_skip() into blockers/warnings/notes
+    # AND retained here for the audit log + feature_status dashboard banner.
+    skips: list = field(default_factory=list)
+
+    def add_skip(self, skip) -> None:
+        """Route a SkipReason into the right channel by severity AND keep
+        the structured form on `skips` for the audit log + feature_status.
+
+        Channel entry format is "<name>: <reason>" so dashboards can filter
+        by source prefix consistently across consumers.
+
+        Deduplicates the channel entry on (name, reason, severity) — if a
+        skip fires once per profile (5×) we want one warning, not five.
+        The full structured skip is still appended to `skips` each time so
+        the audit log knows it actually fired N times.
+        """
+        # Local import: dependency_check is a sibling module. Importing at
+        # function scope avoids any circular-import risk during module load.
+        from src.core.dependency_check import Severity
+
+        self.skips.append(skip)
+        entry = f"{skip.name}: {skip.reason}"
+
+        if skip.severity is Severity.BLOCKER:
+            channel = self.blockers
+        elif skip.severity is Severity.WARNING:
+            channel = self.warnings
+        else:  # INFO
+            channel = self.notes
+
+        if entry not in channel:
+            channel.append(entry)
 
 
 # ── The orchestrator ─────────────────────────────────────────────────────────
