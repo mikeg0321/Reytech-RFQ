@@ -14,6 +14,34 @@ from typing import Any, Dict
 
 log = logging.getLogger("reytech.pricing_oracle")
 
+# ─── Skip ledger ──────────────────────────────────────────────────────────────
+# Each `_search_X` helper queries one historical-pricing data source. When
+# the underlying table is missing, malformed, or its column shape drifts,
+# the helper used to swallow the exception with `log.debug("X search: %s", e)`
+# and return `[]`. The caller (`get_pricing`) then quietly omitted that
+# source from `sources_used` — operators saw a thinner price recommendation
+# with no signal that a data source had crashed.
+#
+# The ledger lets routes/orchestrator drain skips after a pricing call and
+# surface the degraded data sources via the standard 3-channel envelope.
+from src.core.dependency_check import Severity, SkipReason  # noqa: E402
+
+_SKIP_LEDGER: list[SkipReason] = []
+
+
+def _record_skip(skip: SkipReason) -> None:
+    """Append a skip to the module ledger; routes/orchestrator drain later."""
+    _SKIP_LEDGER.append(skip)
+    log.warning(skip.format_for_log())
+
+
+def drain_skips() -> list[SkipReason]:
+    """Pop and return every skip recorded since the last drain. Destructive
+    so two consecutive calls do not double-warn."""
+    drained = list(_SKIP_LEDGER)
+    _SKIP_LEDGER.clear()
+    return drained
+
 
 def get_pricing(description, quantity=1, cost=None, item_number="",
                 department="", force_refresh=False, qty_per_uom=1):
@@ -214,7 +242,12 @@ def _search_won_quotes(db, description, item_number=""):
                                "source": "won_quotes",
                                "is_reytech": "REYTECH" in (r[3] or "").upper()})
     except Exception as e:
-        log.debug("won_quotes search: %s", e)
+        _record_skip(SkipReason(
+            name="won_quotes",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="pricing_oracle_v2._search_won_quotes",
+        ))
     return prices
 
 
@@ -257,7 +290,12 @@ def _search_winning_prices(db, description, item_number=""):
                                "margin": r[7] or 0, "source": "winning_prices",
                                "is_reytech": True})
     except Exception as e:
-        log.debug("winning_prices search: %s", e)
+        _record_skip(SkipReason(
+            name="winning_prices",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="pricing_oracle_v2._search_winning_prices",
+        ))
     return prices
 
 
@@ -296,7 +334,12 @@ def _search_scprs_catalog(db, description, item_number=""):
                                "date": r[6] or "", "source": "scprs_catalog",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
     except Exception as e:
-        log.debug("scprs_catalog search: %s", e)
+        _record_skip(SkipReason(
+            name="scprs_catalog",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="pricing_oracle_v2._search_scprs_catalog",
+        ))
     return prices
 
 
@@ -339,7 +382,12 @@ def _search_po_lines(db, description, item_number=""):
                                "source": "scprs_po_lines",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
     except Exception as e:
-        log.debug("po_lines search: %s", e)
+        _record_skip(SkipReason(
+            name="scprs_po_lines",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="pricing_oracle_v2._search_po_lines",
+        ))
     return prices
 
 
@@ -363,8 +411,13 @@ def _search_product_catalog(db, description, item_number=""):
             if p and p > 0:
                 prices.append({"price": p, "description": r[0], "supplier": r[3] or "",
                                "source": "product_catalog", "is_reytech": True})
-    except Exception as _e:
-        log.debug("suppressed: %s", _e)
+    except Exception as e:
+        _record_skip(SkipReason(
+            name="product_catalog",
+            reason=f"{type(e).__name__}: {e}",
+            severity=Severity.WARNING,
+            where="pricing_oracle_v2._search_product_catalog",
+        ))
     return prices
 
 
