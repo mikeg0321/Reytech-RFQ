@@ -1464,6 +1464,56 @@ def generate_rfq_package(rid):
                 "required_forms": list(_req_forms),
             }), 400
 
+        # ── Pre-flight: template fingerprint gate (feature-flagged) ──
+        # Blocks generation when a buyer-uploaded template does not match any
+        # registered FormProfile. Off by default — soak period so we can
+        # gather fingerprints for buyer variants before hard-blocking.
+        try:
+            from src.core.flags import get_flag as _get_flag
+            _require_profile_match = bool(_get_flag("rfq.require_profile_match", False))
+        except Exception:
+            _require_profile_match = False
+
+        try:
+            from src.forms.profile_registry import check_template_profile_matches
+            _profile_slots = {
+                _slot: tmpl[_slot]
+                for _slot in ("703b", "703c", "704b")
+                if _slot in tmpl and os.path.exists(tmpl.get(_slot, ""))
+            }
+            if _profile_slots:
+                _match_report = check_template_profile_matches(_profile_slots)
+                _unmatched = {
+                    _slot: _info
+                    for _slot, _info in _match_report.items()
+                    if not _info.get("matched")
+                }
+                for _slot, _info in _match_report.items():
+                    if _info.get("matched"):
+                        t.step(f"{_slot.upper()} template matched profile {_info['profile_id']}",
+                               fingerprint=_info.get("fingerprint", "")[:12])
+                    else:
+                        t.warn(f"{_slot.upper()} template has no registered profile",
+                               fingerprint=_info.get("fingerprint", "")[:12],
+                               reason=_info.get("reason"))
+                if _unmatched and _require_profile_match:
+                    return jsonify({
+                        "ok": False,
+                        "error": "One or more buyer templates do not match a registered "
+                                 "form profile. Generating would fill blind. Register the "
+                                 "profile (scripts/generate_profile.py) or clear the "
+                                 "rfq.require_profile_match flag.",
+                        "unmatched_templates": {
+                            _slot: {
+                                "fingerprint": _info.get("fingerprint", ""),
+                                "reason": _info.get("reason"),
+                            }
+                            for _slot, _info in _unmatched.items()
+                        },
+                    }), 422
+        except Exception as _pm_e:
+            log.debug("Profile-match preflight suppressed: %s", _pm_e)
+
         # Pre-flight: verify signature image exists
         try:
             from src.forms.form_qa import verify_signature_file_exists
