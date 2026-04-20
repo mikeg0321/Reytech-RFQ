@@ -528,6 +528,94 @@ def db_bloat_json():
                 out.sort(key=lambda r: r["row_count"], reverse=True)
             result["tables"] = out
 
+            # rfq_files deep-dive — this table dominates DB size (PDF blobs).
+            # Break it down by (category, file_type) and surface orphan files
+            # pointing at missing/dismissed RFQs so we can pick a trim policy
+            # without blindly deleting. Each diagnostic is independently
+            # guarded so a single missing table doesn't suppress the others.
+            result["rfq_files_breakdown"] = []
+            result["rfq_files_orphans"] = {"count": 0, "mb": 0}
+            result["rfq_files_dead_parents"] = {"count": 0, "mb": 0}
+            result["rfq_files_size_histogram"] = {
+                "lt_100kb": 0, "100kb_1mb": 0, "1mb_5mb": 0,
+                "gt_5mb": 0, "biggest_bytes": 0,
+            }
+            try:
+                rows = conn.execute("""
+                    SELECT category, file_type,
+                           COUNT(*) AS n,
+                           SUM(file_size) AS bytes,
+                           MIN(created_at) AS oldest,
+                           MAX(created_at) AS newest
+                    FROM rfq_files GROUP BY category, file_type
+                    ORDER BY bytes DESC
+                """).fetchall()
+                result["rfq_files_breakdown"] = [
+                    {
+                        "category": r[0] or "(null)",
+                        "file_type": r[1] or "(null)",
+                        "count": r[2],
+                        "mb": round((r[3] or 0) / 1024 / 1024, 2),
+                        "oldest": r[4],
+                        "newest": r[5],
+                    }
+                    for r in rows
+                ]
+            except Exception as _e:
+                log.debug("rfq_files breakdown skipped: %s", _e)
+            try:
+                # Orphan detection: files whose rfq_id has no matching row
+                # in rfqs AND no matching row in price_checks.
+                orphans = conn.execute("""
+                    SELECT COUNT(*) AS n, COALESCE(SUM(file_size), 0) AS bytes
+                    FROM rfq_files rf
+                    WHERE NOT EXISTS (SELECT 1 FROM rfqs r WHERE r.id = rf.rfq_id)
+                      AND NOT EXISTS (SELECT 1 FROM price_checks p WHERE p.id = rf.rfq_id)
+                """).fetchone()
+                result["rfq_files_orphans"] = {
+                    "count": orphans[0] or 0,
+                    "mb": round((orphans[1] or 0) / 1024 / 1024, 2),
+                }
+            except Exception as _e:
+                log.debug("rfq_files orphans skipped: %s", _e)
+            try:
+                # Dead-parent files: rfq_id points at an RFQ/PC whose status
+                # is terminal. Retention-trim candidates — no longer
+                # reachable through the UI but still cost storage.
+                dead = conn.execute("""
+                    SELECT COUNT(*) AS n, COALESCE(SUM(rf.file_size), 0) AS bytes
+                    FROM rfq_files rf
+                    LEFT JOIN rfqs r ON r.id = rf.rfq_id
+                    LEFT JOIN price_checks p ON p.id = rf.rfq_id
+                    WHERE COALESCE(r.status, p.status) IN
+                          ('dismissed','archived','lost','cancelled','deleted','expired')
+                """).fetchone()
+                result["rfq_files_dead_parents"] = {
+                    "count": dead[0] or 0,
+                    "mb": round((dead[1] or 0) / 1024 / 1024, 2),
+                }
+            except Exception as _e:
+                log.debug("rfq_files dead_parents skipped: %s", _e)
+            try:
+                hist = conn.execute("""
+                    SELECT
+                      SUM(CASE WHEN file_size < 100000 THEN 1 ELSE 0 END) AS lt100k,
+                      SUM(CASE WHEN file_size BETWEEN 100000 AND 1000000 THEN 1 ELSE 0 END) AS k100_1m,
+                      SUM(CASE WHEN file_size BETWEEN 1000000 AND 5000000 THEN 1 ELSE 0 END) AS m1_5,
+                      SUM(CASE WHEN file_size > 5000000 THEN 1 ELSE 0 END) AS gt5m,
+                      MAX(file_size) AS biggest
+                    FROM rfq_files
+                """).fetchone()
+                result["rfq_files_size_histogram"] = {
+                    "lt_100kb": hist[0] or 0,
+                    "100kb_1mb": hist[1] or 0,
+                    "1mb_5mb": hist[2] or 0,
+                    "gt_5mb": hist[3] or 0,
+                    "biggest_bytes": hist[4] or 0,
+                }
+            except Exception as _e:
+                log.debug("rfq_files size_histogram skipped: %s", _e)
+
     except Exception as e:
         log.warning("/api/health/db-bloat failed: %s", e)
         result["ok"] = False

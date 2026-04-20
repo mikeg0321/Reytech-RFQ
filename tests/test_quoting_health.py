@@ -189,3 +189,29 @@ class TestDbBloat:
         assert sizes == sorted(sizes, reverse=True), (
             "tables must be ranked largest-first when dbstat available"
         )
+
+    def test_rfq_files_breakdown_shape(self, auth_client):
+        """rfq_files is the DB's biggest single offender — must report
+        per-category/file_type size so trim policy can be picked without
+        blindly deleting."""
+        d = auth_client.get("/api/health/db-bloat").get_json()
+        assert "rfq_files_breakdown" in d
+        assert isinstance(d["rfq_files_breakdown"], list)
+        for entry in d["rfq_files_breakdown"]:
+            for key in ("category", "file_type", "count", "mb", "oldest", "newest"):
+                assert key in entry, f"missing {key} in breakdown entry"
+
+    def test_rfq_files_orphan_and_dead_parent_counts(self, auth_client):
+        d = auth_client.get("/api/health/db-bloat").get_json()
+        assert "rfq_files_orphans" in d
+        assert "count" in d["rfq_files_orphans"]
+        assert "mb" in d["rfq_files_orphans"]
+        assert "rfq_files_dead_parents" in d
+        assert "count" in d["rfq_files_dead_parents"]
+        assert "mb" in d["rfq_files_dead_parents"]
+
+    def test_rfq_files_size_histogram(self, auth_client):
+        d = auth_client.get("/api/health/db-bloat").get_json()
+        hist = d.get("rfq_files_size_histogram", {})
+        for bucket in ("lt_100kb", "100kb_1mb", "1mb_5mb", "gt_5mb", "biggest_bytes"):
+            assert bucket in hist, f"missing {bucket} in size histogram"
