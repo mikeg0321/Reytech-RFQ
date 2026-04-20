@@ -55,6 +55,10 @@ class ValidationReport:
                 f"({self.match_rate}%), {self.fields_missing} missing, "
                 f"{self.fields_wrong} wrong — {'PASS' if self.passed else 'FAIL'}")
 
+    @property
+    def errors(self) -> list[str]:
+        return [i.message for i in self.issues if i.severity == "error"]
+
 
 def validate(filled_pdf_bytes: bytes, quote: Quote, profile: FormProfile) -> ValidationReport:
     """Validate a filled PDF against the Quote that generated it.
