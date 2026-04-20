@@ -642,6 +642,8 @@ if __name__ == "__main__":
     parser.add_argument("--only", help="Comma-separated categories to run")
     parser.add_argument("--save-baseline", metavar="FILE", help="Save results to JSON baseline file")
     parser.add_argument("--compare", metavar="FILE", help="Compare against baseline JSON file")
+    parser.add_argument("--min-score", type=int, default=None,
+                        help="Exit 1 if score < min-score (used by post-deploy gate)")
     args = parser.parse_args()
 
     only = args.only.split(",") if args.only else None
@@ -666,5 +668,9 @@ if __name__ == "__main__":
             sys.exit(2)
         else:
             print(f"✅ No regressions vs baseline (score: {baseline['score']} → {report['score']})")
+
+    if args.min_score is not None and report["score"] < args.min_score:
+        print(f"FAIL: score {report['score']} < min-score {args.min_score}", file=sys.stderr)
+        sys.exit(1)
 
     sys.exit(0 if report["failed"] == 0 else 1)

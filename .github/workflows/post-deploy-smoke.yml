@@ -1,0 +1,54 @@
+name: Post-Deploy Smoke
+
+# After every push to main, wait for Railway to deploy then run the
+# production smoke suite. Failure emails Mike automatically — no Slack.
+# This is the safety net the pre-push hook can't provide: it exercises
+# the live prod URL, not just local code.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: post-deploy-smoke-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install deps
+        run: pip install --quiet requests
+
+      - name: Wait for Railway deploy
+        # Railway typical deploy is 5-8 min (CLAUDE.md). Sleep 240s then
+        # poll /health until it reports the current git sha, with a
+        # bounded retry loop.
+        env:
+          PROD_URL: ${{ secrets.PROD_URL }}
+        run: |
+          sleep 240
+          for i in $(seq 1 18); do
+            if curl -fsS "$PROD_URL/health" >/dev/null 2>&1; then
+              echo "prod /health reachable (attempt $i)"
+              exit 0
+            fi
+            echo "not ready yet (attempt $i) — sleeping 20s"
+            sleep 20
+          done
+          echo "FAIL: prod /health unreachable after 6 minutes of polling"
+          exit 1
+
+      - name: Run prod smoke (min-score 100)
+        env:
+          REYTECH_URL:  ${{ secrets.PROD_URL }}
+          REYTECH_USER: ${{ secrets.DASH_USER }}
+          REYTECH_PASS: ${{ secrets.DASH_PASS }}
+        run: python tests/smoke_test.py --min-score 100
