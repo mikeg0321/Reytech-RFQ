@@ -1276,10 +1276,18 @@ function rfqTaxLookup(address){
  fetch('/api/rfq/'+RID+'/lookup-tax-rate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:address,force_live:true}),credentials:'same-origin'})
  .then(function(r){return r.json()}).then(function(d){
   if(!d.ok||!d.rate) return;
-  var el=document.getElementById('tax-rate-display');
-  if(el) el.textContent=d.rate+'% ('+( d.jurisdiction||'CDTFA')+')';
-  var inp=document.getElementById('tax-rate-input');
-  if(inp) inp.value=d.rate;
+  var rateEl=document.getElementById('tax-rate');
+  if(rateEl) rateEl.value=d.rate;
+  var valEl=document.getElementById('tax-validation');
+  if(valEl){
+   var isFallback=d.source&&(d.source.indexOf('fallback')>=0||d.source==='default');
+   var badgeColor=isFallback?'#d29922':'#3fb950';
+   var badgeIcon=isFallback?'⚠️':'✅';
+   var badgeSuffix=isFallback?' (fallback — verify)':'';
+   valEl.innerHTML='<span style="color:'+badgeColor+'" title="'+(d.source||'')+'">'+badgeIcon+' '+d.rate+'% · '+(d.jurisdiction||d.city||'')+badgeSuffix+'</span>';
+  }
+  if(typeof recalc==='function')recalc();
+  if(typeof triggerAutosave==='function')triggerAutosave();
  }).catch(function(){});
 }
 
