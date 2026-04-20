@@ -75,3 +75,40 @@ class TestMarkWonLostDedup:
         html = _fetch(client, pcid)
         assert "Mark Won" in html
         assert "Mark Lost" in html
+
+
+class TestStatusBannerCopyMatchesButtons:
+    """The colored status banner at the top tells the user what to do next
+    ("then Save & Generate", "Regenerate if prices changed"). Those phrases
+    must match the actual button labels in the stage action bar below —
+    otherwise the user hunts for a button that doesn't exist with that name.
+    """
+
+    def test_priced_banner_names_the_real_button(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """priced-status action bar button is 'Save & Generate' — the
+        banner hint must say the same, not the old 'Save & Fill 704'."""
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "priced")
+        html = _fetch(client, pcid)
+        assert "Save &amp; Generate" in html or "Save & Generate" in html, (
+            "Priced banner must point to the actual 'Save & Generate' button"
+        )
+        # Old copy must not leak back in
+        assert "Save &amp; Fill 704" not in html, (
+            "Priced banner still references the old 'Save & Fill 704' label"
+        )
+
+    def test_completed_banner_names_the_real_button(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """completed-status action bar button is 'Regenerate' — the
+        banner hint must say the same, not the old 'Re-fill'."""
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "completed")
+        html = _fetch(client, pcid)
+        assert "Regenerate if prices changed" in html, (
+            "Completed banner must use 'Regenerate' to match the button label"
+        )
+        assert "Re-fill if prices changed" not in html, (
+            "Completed banner still references the old 'Re-fill' label"
+        )
