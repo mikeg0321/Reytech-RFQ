@@ -474,3 +474,94 @@ def parse_from_text(text: str, source_path: str = "") -> Optional[dict]:
 def is_available() -> bool:
     """Check if vision parsing is available (API key + dependencies)."""
     return bool(_get_api_key()) and HAS_REQUESTS
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Email Screenshot OCR → body text + subject
+# ═══════════════════════════════════════════════════════════════════════
+
+_EMAIL_OCR_SYSTEM = """You are an OCR + extraction assistant for buyer email screenshots.
+The operator forwarded an email screenshot from a California government procurement
+buyer. Your job is to transcribe the email into text so downstream extractors can
+parse out due dates, forms required, solicitation numbers, and delivery info.
+
+Return ONLY valid JSON with this exact shape:
+
+{
+  "subject": "the email subject line, or empty string if not visible",
+  "sender_name": "the sender's display name, or empty",
+  "sender_email": "the sender's email address, or empty",
+  "body_text": "the FULL body of the email as plain text, preserving line breaks with \\n. Do not summarize — transcribe verbatim.",
+  "solicitation_number": "RFQ/PC/bid number if visible, else empty"
+}
+
+Rules:
+- body_text must be the raw email body — no markdown, no quoting, no summarization.
+- If there's a forwarded/quoted earlier message, include it in body_text after the primary body.
+- If a field is not visible or not applicable, use empty string. Never null.
+- Return ONLY the JSON object. No prose, no code fences."""
+
+
+def extract_email_from_screenshot(image_path: str) -> Optional[dict]:
+    """Run Claude vision on an email screenshot to recover subject + body text.
+
+    Returns dict with keys:
+        subject, sender_name, sender_email, body_text, solicitation_number
+    Or None if the API key is missing or the call fails.
+    """
+    api_key = _get_api_key()
+    if not api_key or not HAS_REQUESTS:
+        log.warning("extract_email_from_screenshot: API key missing, cannot OCR %s",
+                    os.path.basename(image_path))
+        return None
+
+    img_data = _image_file_to_base64(image_path)
+    if not img_data:
+        return None
+
+    try:
+        resp = _requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-opus-4-7",
+                "max_tokens": 4096,
+                "system": [{"type": "text", "text": _EMAIL_OCR_SYSTEM,
+                            "cache_control": {"type": "ephemeral"}}],
+                "messages": [{"role": "user", "content": [
+                    {"type": "image", "source": {
+                        "type": "base64",
+                        "media_type": img_data["media_type"],
+                        "data": img_data["base64"],
+                    }},
+                    {"type": "text", "text": "Transcribe the email. Return JSON only."},
+                ]}],
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        raw = resp.json()["content"][0]["text"].strip()
+        if raw.startswith("```"):
+            raw = re.sub(r'^```\w*\n?', '', raw)
+            raw = re.sub(r'\n?```$', '', raw)
+        parsed = json.loads(raw)
+        out = {
+            "subject": str(parsed.get("subject", "") or ""),
+            "sender_name": str(parsed.get("sender_name", "") or ""),
+            "sender_email": str(parsed.get("sender_email", "") or ""),
+            "body_text": str(parsed.get("body_text", "") or ""),
+            "solicitation_number": str(parsed.get("solicitation_number", "") or ""),
+        }
+        log.info("extract_email_from_screenshot: %d body chars, subject=%r",
+                 len(out["body_text"]), out["subject"][:60])
+        return out
+    except json.JSONDecodeError as e:
+        log.error("extract_email_from_screenshot: non-JSON response: %s", e)
+        return None
+    except Exception as e:
+        log.error("extract_email_from_screenshot failed: %s", e)
+        return None

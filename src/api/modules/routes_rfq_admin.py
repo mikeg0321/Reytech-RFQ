@@ -2394,7 +2394,7 @@ def api_diag_package(rid):
     
     # Check templates dir
     import os
-    tdir = os.path.join(os.environ.get("DATA_DIR", "data"), "templates")
+    tdir = os.path.join(DATA_DIR, "templates")
     if os.path.exists(tdir):
         files = os.listdir(tdir)
         results["steps"].append({"step": "templates_dir", "ok": True, "files": files})

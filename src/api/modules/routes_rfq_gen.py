@@ -2930,6 +2930,80 @@ def api_rfq_manual_submit_clear(rid):
 # and auto-classifies each one. Replaces the need to hunt for the right
 # button per file type.
 # ────────────────────────────────────────────────────────────────────
+def _auto_extract_email_on_upload(rid: str, screenshot_path: str) -> None:
+    """Spawn a background thread that OCRs a freshly-uploaded email screenshot,
+    persists body_text/subject/sender, and runs requirement extraction so the
+    operator sees extracted forms/due-date/buyer info without a second click.
+
+    Called from the contract-upload route for every email_screenshot upload.
+    Never raises — all errors are logged and the thread exits quietly.
+    """
+    import threading
+
+    def _run():
+        try:
+            from src.forms.vision_parser import extract_email_from_screenshot
+            from src.agents.requirement_extractor import extract_requirements
+            from src.api.dashboard import _save_single_rfq, load_rfqs
+
+            ocr = extract_email_from_screenshot(screenshot_path)
+            if not ocr:
+                log.warning("auto-extract %s: OCR returned no data", rid)
+                _log_rfq_activity(rid, "auto_extract_failed",
+                    "Auto-extract: OCR returned no data",
+                    actor="system", metadata={"screenshot": os.path.basename(screenshot_path)})
+                return
+
+            rfqs = load_rfqs()
+            r = rfqs.get(rid)
+            if not r:
+                log.warning("auto-extract %s: RFQ gone while OCR ran", rid)
+                return
+
+            body_text = ocr.get("body_text") or ""
+            subject = ocr.get("subject") or ""
+            if body_text and not r.get("body_text"):
+                r["body_text"] = body_text
+            if subject and not r.get("email_subject"):
+                r["email_subject"] = subject
+            sender_email = ocr.get("sender_email") or ""
+            sender_name = ocr.get("sender_name") or ""
+            if sender_email and not r.get("from_email"):
+                r["from_email"] = sender_email
+            if sender_name and not r.get("from_name"):
+                r["from_name"] = sender_name
+            sol = ocr.get("solicitation_number") or ""
+            if sol and not r.get("solicitation_number"):
+                r["solicitation_number"] = sol
+
+            req = None
+            if body_text or subject:
+                try:
+                    req = extract_requirements(body_text, subject, [])
+                except Exception as _ex:
+                    log.warning("auto-extract %s: requirement_extractor raised: %s", rid, _ex)
+
+            if req and getattr(req, "has_requirements", False):
+                r["requirements_json"] = json.dumps(req.to_dict(), default=str)
+                if r.get("due_date") in ("TBD", "", None) and getattr(req, "due_date", ""):
+                    r["due_date"] = req.due_date
+
+            _save_single_rfq(rid, r)
+            _log_rfq_activity(rid, "auto_extract_email",
+                f"Auto-extracted email → {len(body_text)} body chars, {len(getattr(req, 'forms_required', []) or []) if req else 0} forms",
+                actor="system",
+                metadata={
+                    "body_chars": len(body_text),
+                    "subject": subject[:120],
+                    "forms_found": (getattr(req, "forms_required", []) if req else []),
+                    "method": (getattr(req, "extraction_method", "none") if req else "none"),
+                })
+        except Exception as _e:
+            log.error("auto-extract %s crashed: %s", rid, _e, exc_info=True)
+
+    threading.Thread(target=_run, name=f"auto-extract-{rid}", daemon=True).start()
+
+
 @bp.route("/api/rfq/<rid>/contract-upload", methods=["POST"])
 @auth_required
 @safe_route
@@ -2957,6 +3031,7 @@ def api_rfq_contract_upload(rid):
     attachments = list(r.get("attachments") or [])
     now_iso = datetime.now(timezone.utc).isoformat()
     results = []
+    _pending_auto_extracts: "list[str]" = []
 
     for f in files:
         if not f or not f.filename:
@@ -2990,9 +3065,13 @@ def api_rfq_contract_upload(rid):
                 "original_filename": f.filename, "bytes": len(raw),
                 "uploaded_at": now_iso,
             }
+            # Queue auto-extract path for after the save; the helper reloads
+            # r from DB and patches body_text/subject/requirements_json so it
+            # can't race the route's final save.
+            _pending_auto_extracts.append(target_path)
             results.append({"filename": f.filename, "kind": "email_screenshot",
                              "slot": None, "reason": decision["reason"],
-                             "bytes": len(raw)})
+                             "bytes": len(raw), "auto_extract": "queued"})
             continue
 
         # Templates — slot into r["templates"][slot]
@@ -3036,6 +3115,12 @@ def api_rfq_contract_upload(rid):
     except Exception as _e:
         log.warning("contract-upload single-save fallback for %s: %s", rid, _e)
         save_rfqs(rfqs)
+
+    # Fire auto-extract AFTER the save so its own re-load/re-save sees the
+    # fresh email_screenshot record and can't be clobbered by this route.
+    # R26Q36 incident 2026-04-20: screenshots landed with no follow-on action.
+    for _shot_path in _pending_auto_extracts:
+        _auto_extract_email_on_upload(rid, _shot_path)
 
     _log_rfq_activity(rid, "contract_upload",
         f"Contract upload: {len(results)} file(s)",
