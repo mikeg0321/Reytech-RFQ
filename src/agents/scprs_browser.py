@@ -10,6 +10,30 @@ import asyncio
 
 log = logging.getLogger("scprs.browser")
 
+
+# ── Playwright availability check (cached) ────────────────────────────
+# Incident 2026-04-20: every scheduled scrape kept re-importing playwright
+# on a container that doesn't have it installed, flooding logs with
+# "No module named 'playwright'" every ~45s and drowning real errors.
+# Cache the import result at module scope and short-circuit future calls.
+_PLAYWRIGHT_AVAILABLE: "bool | None" = None
+
+
+def _playwright_available() -> bool:
+    """Return True iff playwright is importable. Logs once per boot."""
+    global _PLAYWRIGHT_AVAILABLE
+    if _PLAYWRIGHT_AVAILABLE is None:
+        try:
+            import playwright.async_api  # noqa: F401
+            _PLAYWRIGHT_AVAILABLE = True
+        except ImportError:
+            _PLAYWRIGHT_AVAILABLE = False
+            log.warning(
+                "playwright not installed — SCPRS browser scraping disabled for this boot. "
+                "Install it in the container, or set SCRAPER_SERVICE_URL to use the remote scraper."
+            )
+    return _PLAYWRIGHT_AVAILABLE
+
 SCPRS_SEARCH_URL = (
     "https://suppliers.fiscal.ca.gov/psc/psfpd1/"
     "SUPPLIER/ERP/c/ZZ_PO.ZZ_SCPRS1_CMP.GBL"
@@ -62,6 +86,8 @@ async def _scrape_detail_async(supplier_name="reytech",
     Launch headless browser, search SCPRS, click each PO link,
     wait for detail modal, extract line items.
     """
+    if not _playwright_available():
+        return []
     from playwright.async_api import async_playwright
 
     results = []
@@ -400,6 +426,8 @@ def scrape_po_detail(po_number):
 
 async def _scrape_single_po(po_number):
     """Search for a specific PO and extract its detail."""
+    if not _playwright_available():
+        return None
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
@@ -762,6 +790,8 @@ def _run_exhaustive_scrape():
 
 async def _scrape_full_async(search_params, seen_pos, max_rows=500):
     """Full async scrape with search_params dict (supports to_date, description)."""
+    if not _playwright_available():
+        return []
     from playwright.async_api import async_playwright
     results = []
     async with async_playwright() as p:

@@ -152,7 +152,11 @@ class TestOrchestratorRoutesComplianceSkips:
                 [_Profile()], result,
             )
 
-        assert attempt.outcome == "error", (attempt.outcome, attempt.reasons)
+        # A BLOCKER skip is a business-validation block (expected refusal),
+        # not a programming bug — orchestrator records outcome="blocked".
+        # See StageBlocked docstring in quote_orchestrator.py: "error" is
+        # reserved for uncaught exceptions worth paging on.
+        assert attempt.outcome == "blocked", (attempt.outcome, attempt.reasons)
         # The compliance skip must have routed into result.blockers, not just
         # buried in compliance_report.
         assert any(
