@@ -888,3 +888,86 @@ def quote_errors_json():
         "by_workflow": by_wf,
         "recent": recent,
     }
+
+
+@bp.route("/api/health/profiles")
+@auth_required
+def profiles_json():
+    """Registered form profile inventory + manifest drift status.
+
+    Ops uses this to confirm that the running app's profile set matches the
+    registry.yml manifest — a mismatch means a deploy bundled a profile YAML
+    change without regenerating the manifest, which can mask a broken
+    fingerprint from the pre-fill gate.
+
+    Surfaces:
+        profile_count: number of profiles loaded in-process.
+        drift: per-profile (live vs manifest) fingerprint/field_count mismatches.
+        profiles: list of {id, form_type, fill_mode, fingerprint, field_count,
+                           blank_exists}.
+    """
+    import os as _os
+    try:
+        from src.forms.profile_registry import load_manifest, load_profiles
+    except Exception as e:
+        log.warning("profiles endpoint failed to import registry: %s", e)
+        return {"ok": False, "error": f"registry_unavailable: {e}"}, 500
+
+    profiles = load_profiles()
+    manifest = load_manifest()
+
+    drift = []
+    for pid, p in sorted(profiles.items()):
+        entry = manifest.get(pid)
+        if not entry:
+            drift.append({
+                "profile_id": pid,
+                "reason": "missing_from_manifest",
+                "live_fingerprint": p.fingerprint,
+                "manifest_fingerprint": None,
+            })
+            continue
+        if p.fingerprint != entry.get("fingerprint", ""):
+            drift.append({
+                "profile_id": pid,
+                "reason": "fingerprint_mismatch",
+                "live_fingerprint": p.fingerprint,
+                "manifest_fingerprint": entry.get("fingerprint", ""),
+            })
+        if len(p.fields) != entry.get("field_count"):
+            drift.append({
+                "profile_id": pid,
+                "reason": "field_count_mismatch",
+                "live_field_count": len(p.fields),
+                "manifest_field_count": entry.get("field_count"),
+            })
+    # Manifest entries with no corresponding live profile.
+    for mid in sorted(set(manifest.keys()) - set(profiles.keys())):
+        drift.append({
+            "profile_id": mid,
+            "reason": "missing_from_runtime",
+            "live_fingerprint": None,
+            "manifest_fingerprint": manifest[mid].get("fingerprint", ""),
+        })
+
+    out_profiles = []
+    for pid in sorted(profiles.keys()):
+        p = profiles[pid]
+        blank_exists = bool(p.blank_pdf) and _os.path.exists(p.blank_pdf)
+        out_profiles.append({
+            "id": p.id,
+            "form_type": p.form_type,
+            "fill_mode": p.fill_mode,
+            "blank_pdf": p.blank_pdf or "",
+            "blank_exists": blank_exists,
+            "fingerprint": p.fingerprint or "",
+            "field_count": len(p.fields),
+        })
+
+    return {
+        "ok": True,
+        "profile_count": len(profiles),
+        "manifest_count": len(manifest),
+        "drift": drift,
+        "profiles": out_profiles,
+    }
