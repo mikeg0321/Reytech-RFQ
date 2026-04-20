@@ -105,6 +105,45 @@ class TestHintCollection:
                 f"Profile {h['profile_id']} declares unknown slot {h['slot']}"
             )
 
+    def test_get_field_prefix_from_profile(self):
+        """Registered prefixes come from classifier_hints.field_prefixes[0]."""
+        from src.forms.form_classifier import get_field_prefix
+        assert get_field_prefix("703a") == "703A_"
+        assert get_field_prefix("703b") == "703B_"
+
+    def test_get_field_prefix_fallback_for_703c(self):
+        """703c has no profile yet — fallback map supplies 703C_."""
+        from src.forms.form_classifier import get_field_prefix
+        assert get_field_prefix("703c") == "703C_"
+
+    def test_get_field_prefix_empty_for_slot_without_prefix(self):
+        """704b uses field_contains, not field_prefixes — returns ""."""
+        from src.forms.form_classifier import get_field_prefix
+        assert get_field_prefix("704b") == ""
+
+    def test_get_field_prefix_empty_for_unknown_slot(self):
+        from src.forms.form_classifier import get_field_prefix
+        assert get_field_prefix("nonexistent") == ""
+
+    def test_detect_field_prefix_matches_prefixed_pdf(self):
+        from src.forms.form_classifier import detect_field_prefix
+        names = {"703B_Business Name", "703B_Address"}
+        assert detect_field_prefix(names, "703b") == "703B_"
+
+    def test_detect_field_prefix_returns_empty_for_unprefixed_pdf(self):
+        """Buyer 703Bs sometimes drop the prefix — detection must
+        distinguish so the filler can switch to bare field names."""
+        from src.forms.form_classifier import detect_field_prefix
+        names = {"Business Name", "Address", "Contact Person"}
+        assert detect_field_prefix(names, "703b") == ""
+
+    def test_detect_field_prefix_scoped_to_slot(self):
+        """A PDF with 703A fields must not resolve a 703B prefix."""
+        from src.forms.form_classifier import detect_field_prefix
+        names = {"703A_Name", "703A_Phone"}
+        assert detect_field_prefix(names, "703b") == ""
+        assert detect_field_prefix(names, "703a") == "703A_"
+
     def test_higher_priority_wins_first(self):
         """Inject a higher-priority 704b-style hint that claims a 703A
         prefix; it must beat the stock 703A hint."""

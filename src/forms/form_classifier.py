@@ -62,6 +62,45 @@ def _collect_classifier_hints() -> list[dict]:
     return hints
 
 
+# Fallback prefix map for slots that have no profile YAML yet (703c).
+# Keep in sync with the hardcoded check in _fingerprint_pdf below.
+_FALLBACK_SLOT_PREFIXES: dict[str, str] = {"703c": "703C_"}
+
+
+def get_field_prefix(slot: str) -> str:
+    """Return the registered AcroForm field-name prefix for a form slot.
+
+    Data source is profile YAML `classifier_hints.field_prefixes`. Profiles
+    with a `field_prefixes` list expose the first entry as the canonical
+    prefix for that slot. Slots without a profile fall back to the
+    hardcoded map above.
+
+    Returns "" when the slot has neither a profile prefix nor a fallback —
+    callers should treat that as "template uses unprefixed field names".
+    """
+    for hint in _collect_classifier_hints():
+        if hint["slot"] == slot and hint["field_prefixes"]:
+            return hint["field_prefixes"][0]
+    return _FALLBACK_SLOT_PREFIXES.get(slot, "")
+
+
+def detect_field_prefix(field_names: set[str], slot: str) -> str:
+    """Detect which prefix (if any) an uploaded PDF actually uses for a slot.
+
+    Buyer-supplied PDFs sometimes drop the canonical prefix, leaving bare
+    field names like "Business Name" instead of "703B_Business Name". This
+    helper returns the registered prefix when the PDF has any field
+    starting with it, else "" (empty = unprefixed fields present).
+
+    Callers pass the slot they believe the PDF belongs to; detection is a
+    single startswith scan, no prefix hunting across unrelated slots.
+    """
+    canonical = get_field_prefix(slot)
+    if canonical and any(n.startswith(canonical) for n in field_names):
+        return canonical
+    return ""
+
+
 def _fingerprint_pdf(data: bytes) -> str | None:
     """Inspect AcroForm field names to guess form type.
 
