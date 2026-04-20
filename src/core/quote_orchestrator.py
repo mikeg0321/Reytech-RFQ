@@ -130,6 +130,11 @@ class OrchestratorResult:
     package: Any = None                          # PackageResult from package_engine
     compliance_report: dict = field(default_factory=dict)
     profiles_used: list[str] = field(default_factory=list)
+    # Per-profile editable drafts produced by the qa_pass stage. Routes
+    # needing the filled bytes (to write to disk, attach to email, etc.)
+    # consume these directly instead of re-running draft(). Empty unless
+    # the run advanced to or past qa_pass.
+    drafts: list[Any] = field(default_factory=list)  # list[DraftResult]
     blockers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -652,6 +657,10 @@ class QuoteOrchestrator:
 
         if to_stage == "qa_pass":
             # Fill + validate each profile. Collect reports.
+            # Retain the DraftResult objects on result.drafts so route callers
+            # can consume the filled bytes directly (PR #13 / C.1 wedge —
+            # without this, qa_pass filled bytes were thrown away and routes
+            # had to re-run draft() on the same profiles).
             per_form: list[dict] = []
             for profile in profiles:
                 try:
@@ -663,6 +672,7 @@ class QuoteOrchestrator:
                         "error": str(e),
                     })
                     continue
+                result.drafts.append(draft)
                 per_form.append({
                     "profile_id": profile.id,
                     "filled": True,
