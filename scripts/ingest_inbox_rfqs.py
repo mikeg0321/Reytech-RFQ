@@ -18,6 +18,14 @@ Usage:
     python scripts/ingest_inbox_rfqs.py --dry-run     # report without writes
     python scripts/ingest_inbox_rfqs.py --inbox mike  # use the second inbox
     python scripts/ingest_inbox_rfqs.py --target 10840486  # single solicitation
+    python scripts/ingest_inbox_rfqs.py --corpus-dir /path/to/email_corpus
+
+Resolution order per target:
+    1. Gmail API (if configured) — authoritative; returns raw bytes we parse.
+    2. Local email corpus (`tools/mine_email_corpus.py` output) — fallback
+       when Gmail auth isn't available or the mailbox moved. Corpus entries
+       include gmail_id + already-downloaded attachments, so we can build an
+       rfq_info dict without a second API trip.
 
 The script reuses `process_rfq_email` in dashboard.py — the exact same
 entry point the background poller uses — so ingest is identical to what
@@ -30,6 +38,7 @@ from __future__ import annotations
 import argparse
 import base64
 import email as email_pkg
+import json
 import logging
 import os
 import re
@@ -179,6 +188,142 @@ def _identify_form(filename):
     return "unknown"
 
 
+# ── Corpus fallback ───────────────────────────────────────────────────
+#
+# `tools/mine_email_corpus.py` writes one JSONL record per email into
+# <corpus_dir>/{sales,mike}_corpus.jsonl and the corresponding raw
+# attachments into <corpus_dir>/attachments/<inbox>/<gmail_id[:16]>/.
+# When Gmail auth isn't available (e.g. running locally), we can still
+# drive the pipeline from that on-disk snapshot.
+
+def _default_corpus_dir():
+    """Corpus is mined in a sibling worktree; allow an env override."""
+    override = os.environ.get("EMAIL_CORPUS_DIR")
+    if override:
+        return override
+    return os.path.join(_ROOT, "data", "email_corpus")
+
+
+def _subject_matches(subject, query):
+    """Loose match: every `subject:<token>` in the Gmail query must appear
+    in the record's subject (case-insensitive, partial ok)."""
+    if not subject:
+        return False
+    subject_lc = subject.lower()
+    tokens = re.findall(r"subject:(\S+)", query or "")
+    if not tokens:
+        return False
+    return all(t.lower() in subject_lc for t in tokens)
+
+
+def find_in_corpus(query, corpus_dir, inbox_hint=None):
+    """Search the corpus JSONLs for a record whose subject matches `query`.
+
+    Returns the newest matching record dict (by parsed_date) plus the
+    resolved attachment directory, or None if no match.
+    """
+    if not os.path.isdir(corpus_dir):
+        return None
+
+    candidates = []
+    # Prefer the hinted inbox first, then the other.
+    inbox_order = []
+    if inbox_hint in ("sales", "mike"):
+        inbox_order.append(inbox_hint)
+    for ix in ("sales", "mike"):
+        if ix not in inbox_order:
+            inbox_order.append(ix)
+
+    for inbox_name in inbox_order:
+        jsonl = os.path.join(corpus_dir, f"{inbox_name}_corpus.jsonl")
+        if not os.path.exists(jsonl):
+            continue
+        try:
+            with open(jsonl, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if _subject_matches(rec.get("subject", ""), query):
+                        rec["_inbox"] = inbox_name
+                        candidates.append(rec)
+        except OSError:
+            continue
+
+    if not candidates:
+        return None
+
+    # Newest first.
+    candidates.sort(key=lambda r: r.get("parsed_date", ""), reverse=True)
+    best = candidates[0]
+
+    gid = best.get("gmail_id", "")
+    att_dir = os.path.join(
+        corpus_dir, "attachments", best["_inbox"], gid[:16]
+    ) if gid else ""
+    best["_attachment_dir"] = att_dir if os.path.isdir(att_dir) else ""
+    return best
+
+
+def _build_info_from_corpus(record, rfq_dir):
+    """Reconstruct an rfq_info dict from a corpus record + on-disk PDFs."""
+    os.makedirs(rfq_dir, exist_ok=True)
+    attachments = []
+    src_dir = record.get("_attachment_dir", "")
+    if src_dir and os.path.isdir(src_dir):
+        for fname in os.listdir(src_dir):
+            if not fname.lower().endswith(".pdf"):
+                continue
+            src_path = os.path.join(src_dir, fname)
+            safe = re.sub(r"[^\w\-_. ()]+", "_", fname)
+            dst_path = os.path.join(rfq_dir, safe)
+            # Copy so the RFQ owns its own files (corpus stays immutable).
+            try:
+                with open(src_path, "rb") as sf, open(dst_path, "wb") as df:
+                    df.write(sf.read())
+            except OSError as e:
+                log.warning("  corpus copy failed %s: %s", fname, e)
+                continue
+            attachments.append({
+                "path": dst_path,
+                "filename": safe,
+                "type": _identify_form(safe),
+            })
+
+    subject = record.get("subject", "")
+    sender_raw = record.get("from_addr", "")
+    sender_email = record.get("from_email", "") or _extract_email_addr(sender_raw)
+    body = record.get("body_preview", "") or ""
+
+    sol_hint = ""
+    m = re.search(r"\b(\d{7,})\b", subject)
+    if m:
+        sol_hint = m.group(1)
+    else:
+        m = re.search(r"\b(\d{5})\b", subject)
+        if m:
+            sol_hint = m.group(1)
+
+    gid = record.get("gmail_id", "")
+    rfq_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + (gid[:6] or "corpus")
+    return {
+        "id": rfq_id,
+        "email_uid": gid,
+        "message_id": record.get("message_id", ""),
+        "subject": subject,
+        "sender": sender_raw,
+        "sender_email": sender_email,
+        "original_sender": sender_email,
+        "date": record.get("date_str", ""),
+        "solicitation_hint": sol_hint,
+        "attachments": attachments,
+        "rfq_dir": rfq_dir,
+        "body_preview": body[:500],
+        "body_text": body,
+    }
+
+
 # ── Ingest core ───────────────────────────────────────────────────────
 
 def _find_latest_message_id(service, query):
@@ -231,12 +376,63 @@ def _upload_dir_for(rfq_id):
     return os.path.join(base, rfq_id)
 
 
-def ingest_target(service, label, query, expected_agency, dry_run=False):
+def ingest_target(service, label, query, expected_agency, dry_run=False,
+                  corpus_dir=None, inbox_hint=None):
     log.info("─── %s ───", label)
     log.info("  query: %s", query)
-    msg_id, all_hits = _find_latest_message_id(service, query)
+
+    # Gmail path — only attempted if we actually have a service handle.
+    msg_id = None
+    all_hits = []
+    if service is not None:
+        msg_id, all_hits = _find_latest_message_id(service, query)
+
+    # Corpus fallback — used when Gmail returned nothing OR no service.
+    if not msg_id and corpus_dir:
+        hit = find_in_corpus(query, corpus_dir, inbox_hint=inbox_hint)
+        if hit:
+            log.info("  corpus hit: gmail_id=%s subject=%s",
+                     hit.get("gmail_id", "")[:16],
+                     (hit.get("subject", "") or "")[:80])
+            if dry_run:
+                return {
+                    "label": label,
+                    "status": "dry_run_corpus",
+                    "msg_id": hit.get("gmail_id", ""),
+                    "subject": hit.get("subject", ""),
+                    "sender": hit.get("from_addr", ""),
+                }
+            rfq_id_preview = datetime.now().strftime("%Y%m%d_%H%M%S") + \
+                "_" + (hit.get("gmail_id", "") or "corpus")[:6]
+            rfq_dir = _upload_dir_for(rfq_id_preview)
+            rfq_info = _build_info_from_corpus(hit, rfq_dir)
+            rfq_info["id"] = rfq_id_preview
+            rfq_info["expected_agency"] = expected_agency
+            rfq_info["_source"] = "corpus"
+
+            from src.api.dashboard import process_rfq_email
+            result = process_rfq_email(rfq_info)
+            if result is None:
+                return {
+                    "label": label,
+                    "status": "skipped_dedup",
+                    "source": "corpus",
+                    "msg_id": hit.get("gmail_id", ""),
+                    "attachments": len(rfq_info["attachments"]),
+                }
+            return {
+                "label": label,
+                "status": "ingested",
+                "source": "corpus",
+                "msg_id": hit.get("gmail_id", ""),
+                "rfq_id": result.get("id") if isinstance(result, dict) else rfq_info["id"],
+                "attachments": len(rfq_info["attachments"]),
+                "sol_hint": rfq_info["solicitation_hint"],
+            }
+
     if not msg_id:
-        log.warning("  NO MATCH in Gmail — skipping")
+        log.warning("  NO MATCH in Gmail%s — skipping",
+                    " or corpus" if corpus_dir else "")
         return {"label": label, "status": "no_match", "query": query}
     if len(all_hits) > 1:
         log.info("  %d hits; using most recent %s", len(all_hits), msg_id)
@@ -300,17 +496,30 @@ def main():
                     help="Inbox key: 'sales' (default) or 'mike'")
     ap.add_argument("--target", default=None,
                     help="Filter to a single solicitation (substring match on query)")
+    ap.add_argument("--corpus-dir", default=None,
+                    help="Path to mined email corpus (fallback when Gmail unavailable). "
+                         "Defaults to $EMAIL_CORPUS_DIR or <repo>/data/email_corpus.")
+    ap.add_argument("--no-gmail", action="store_true",
+                    help="Skip Gmail entirely; ingest from corpus only.")
     args = ap.parse_args()
 
-    from src.core import gmail_api
-    if not gmail_api.is_configured():
-        log.error("Gmail OAuth is not configured. Set GMAIL_OAUTH_* env vars "
-                  "or run scripts/gmail_oauth_setup.py first.")
-        return 2
+    corpus_dir = args.corpus_dir or _default_corpus_dir()
+    corpus_available = os.path.isdir(corpus_dir)
 
-    log.info("Building Gmail service for inbox=%s (dry_run=%s)",
-             args.inbox, args.dry_run)
-    service = gmail_api.get_service(args.inbox)
+    from src.core import gmail_api
+    service = None
+    if not args.no_gmail and gmail_api.is_configured():
+        log.info("Building Gmail service for inbox=%s (dry_run=%s)",
+                 args.inbox, args.dry_run)
+        service = gmail_api.get_service(args.inbox)
+    else:
+        reason = "disabled via --no-gmail" if args.no_gmail \
+            else "Gmail OAuth not configured"
+        if corpus_available:
+            log.warning("%s — falling back to corpus at %s", reason, corpus_dir)
+        else:
+            log.error("%s and no usable corpus at %s", reason, corpus_dir)
+            return 2
 
     targets = TARGETS
     if args.target:
@@ -324,7 +533,10 @@ def main():
     for label, query, agency in targets:
         try:
             results.append(ingest_target(
-                service, label, query, agency, dry_run=args.dry_run))
+                service, label, query, agency,
+                dry_run=args.dry_run,
+                corpus_dir=corpus_dir if corpus_available else None,
+                inbox_hint=args.inbox))
         except Exception as e:
             log.exception("  FAILED: %s", e)
             results.append({"label": label, "status": "error", "error": str(e)})
