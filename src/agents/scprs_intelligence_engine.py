@@ -452,15 +452,12 @@ def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) 
         }]
 
     for i, line in enumerate(line_items):
-        existing_line = conn.execute(
-            "SELECT id FROM scprs_po_lines WHERE po_id=? AND line_num=?",
-            (po_id, i)
-        ).fetchone()
-        if existing_line:
-            continue
         cls = _classify_line(line.get("description",""))
+        # INSERT OR REPLACE — paired with UNIQUE(po_id, line_num) in db.py.
+        # Prior SELECT-then-skip pattern silently discarded updates on
+        # re-pull (award-amount corrections, classification changes).
         conn.execute("""
-            INSERT INTO scprs_po_lines
+            INSERT OR REPLACE INTO scprs_po_lines
             (po_id, po_number, line_num, item_id, description, unspsc, uom,
              quantity, unit_price, line_total, line_status, category,
              reytech_sells, reytech_sku, opportunity_flag)
@@ -473,7 +470,33 @@ def _store_po(conn, po: dict, agency_key: str, search_term: str, category: str) 
               cls["opportunity_flag"]))
         lines_added += 1
 
+        # Catalog writeback — only for items we sell, and without populating
+        # cost. SCPRS unit_price is state-paid (competitor's price), not our
+        # cost — feedback_scprs_prices.md forbids using it as cost basis. We
+        # still want product identity in the catalog so future lookups match.
+        if cls["reytech_sells"]:
+            _writeback_to_catalog(line)
+
     return {"is_new": is_new, "lines_added": lines_added}
+
+
+def _writeback_to_catalog(line: dict) -> None:
+    """Best-effort catalog enrichment from SCPRS intel. No price written —
+    only identity (description + item_id). Silent on failure so a catalog
+    hiccup doesn't kill the SCPRS ingest."""
+    desc = (line.get("description") or "").strip()
+    item_id = (line.get("item_id") or "").strip()
+    if not desc:
+        return
+    try:
+        from src.agents.product_catalog import add_to_catalog
+        add_to_catalog(
+            description=desc,
+            part_number=item_id,
+            source="scprs_intel",
+        )
+    except Exception as e:
+        log.debug("scprs catalog writeback failed: %s", e)
 
 
 def _update_price_history(conn, line: dict, po: dict, agency_key: str) -> int:

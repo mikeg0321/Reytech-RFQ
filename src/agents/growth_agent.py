@@ -364,7 +364,22 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
             return {"ok": False, "error": "SCPRS session init failed"}
 
         to_date = datetime.now().strftime("%m/%d/%Y")
-        prospects = {}
+
+        # Seed prospects dict with prior-run entries so re-scans merge rather
+        # than overwrite. Without this, `outreach_status="contacted"` resets
+        # to "new" every run → same buyer gets contacted again → spam flag.
+        prospects: dict = {}
+        prior = _load_json(PROSPECTS_FILE)
+        if isinstance(prior, dict):
+            for p in prior.get("prospects") or []:
+                if not isinstance(p, dict):
+                    continue
+                email = (p.get("buyer_email") or "").strip()
+                dept = (p.get("agency") or "").strip()
+                # Match the new-entry key scheme below so repeat finds merge.
+                key = email or f"{dept}_{(p.get('purchase_orders') or [{}])[0].get('po_number', '')}"
+                if key:
+                    prospects[key] = p
 
         for cat_idx, (cat_name, cat_info) in enumerate(cats):
             BUYER_STATUS["progress"] = f"[{cat_idx+1}/{len(cats)}] {cat_name}"
@@ -401,6 +416,11 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
                                 "purchase_orders": [], "total_spend": 0,
                                 "outreach_status": "new",
                             }
+                        else:
+                            # Prior run may have seeded a stub without buyer_email
+                            # (dept-only key). Backfill email if we have it now.
+                            if email and not prospects[key].get("buyer_email"):
+                                prospects[key]["buyer_email"] = email
 
                         p = prospects[key]
                         if cat_name not in p["categories_matched"]:

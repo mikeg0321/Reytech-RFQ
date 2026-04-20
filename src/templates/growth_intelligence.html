@@ -12,6 +12,21 @@
   </div>
  </div>
 
+ {% if scprs_freshness %}
+ <div class="card" style="padding:8px 12px;margin-bottom:12px;display:flex;align-items:center;gap:10px;border-left:4px solid {% if scprs_freshness.stale %}var(--rd){% else %}var(--gn){% endif %}">
+  <span style="font-size:14px;color:var(--tx2)">SCPRS data</span>
+  <span style="font-size:14px;font-weight:600">
+   last pull: {{ scprs_freshness.last_relative|default('unknown') }}
+  </span>
+  {% if scprs_freshness.next_pull %}
+  <span style="font-size:14px;color:var(--tx2)">· next: {{ scprs_freshness.next_pull[:16] }}</span>
+  {% endif %}
+  {% if scprs_freshness.stale %}
+  <span style="font-size:14px;color:var(--rd);font-weight:600">· STALE (&gt;48h)</span>
+  {% endif %}
+ </div>
+ {% endif %}
+
  <!-- Top Stats Row -->
  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px">
   <div class="card" style="text-align:center;padding:16px">

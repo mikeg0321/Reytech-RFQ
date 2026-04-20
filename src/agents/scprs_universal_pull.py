@@ -425,21 +425,15 @@ def run_universal_pull(priority: str = "P0") -> dict:
                                          po.get("grand_total", 0), category,
                                          agency_code or dept_code)
 
-                # Store line items
+                # Store line items — idempotent via UNIQUE(po_id, line_num).
                 for j, line in enumerate(po.get("line_items", [])):
                     desc = line.get("description", "")
                     if not desc:
                         continue
-                    already = conn.execute(
-                        "SELECT id FROM scprs_po_lines WHERE po_id=? AND line_num=?",
-                        (po_id, j)
-                    ).fetchone()
-                    if already:
-                        continue
                     sells = _sells(desc)
                     opp = _opportunity_flag(desc)
                     conn.execute("""
-                        INSERT INTO scprs_po_lines
+                        INSERT OR REPLACE INTO scprs_po_lines
                         (po_id, po_number, line_num, item_id, description, unspsc,
                          uom, quantity, unit_price, line_total, line_status,
                          category, reytech_sells, opportunity_flag)
