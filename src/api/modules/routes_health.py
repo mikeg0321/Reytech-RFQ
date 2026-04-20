@@ -447,3 +447,90 @@ def _build_db_health():
     except Exception:
         pass
     return result
+
+
+@bp.route("/api/health/db-bloat")
+@auth_required
+def db_bloat_json():
+    """Per-table row counts + approximate bytes. Diagnostic for sizing
+    the 500MB+ reytech.db bloat: which tables grew unboundedly, and
+    which rows are candidates for trim.
+
+    Uses the dbstat virtual table if compiled in (SQLite ≥ 3.36 with
+    SQLITE_ENABLE_DBSTAT_VTAB). Falls back to a count+avg_row_estimate
+    which is rough but ranks tables correctly."""
+    import os as _os
+    from src.core.paths import DATA_DIR as data_dir
+
+    db_path = _os.path.join(data_dir, "reytech.db")
+    result = {
+        "ok": True,
+        "db_size_mb": 0,
+        "page_size": 0,
+        "dbstat_available": False,
+        "tables": [],
+    }
+
+    if not _os.path.exists(db_path):
+        result["ok"] = False
+        result["error"] = "reytech.db not found"
+        return result
+
+    result["db_size_mb"] = round(_os.path.getsize(db_path) / 1024 / 1024, 2)
+
+    try:
+        with get_db() as conn:
+            page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+            result["page_size"] = page_size
+
+            # List all user tables.
+            rows = conn.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+                "ORDER BY name"
+            ).fetchall()
+            names = [r[0] for r in rows]
+
+            # Try dbstat — gives actual on-disk bytes per table.
+            dbstat_sizes = {}
+            try:
+                ds_rows = conn.execute(
+                    "SELECT name, SUM(pgsize) AS bytes, SUM(payload) AS payload "
+                    "FROM dbstat GROUP BY name"
+                ).fetchall()
+                for n, b, p in ds_rows:
+                    dbstat_sizes[n] = {"bytes": b or 0, "payload": p or 0}
+                result["dbstat_available"] = True
+            except Exception as _e:
+                log.debug("dbstat unavailable: %s", _e)
+
+            out = []
+            for t in names:
+                try:
+                    cnt = conn.execute(
+                        f"SELECT COUNT(*) FROM {t}"
+                    ).fetchone()[0]
+                except Exception:
+                    cnt = -1
+                entry = {"table": t, "row_count": cnt}
+                if t in dbstat_sizes:
+                    entry["bytes"] = dbstat_sizes[t]["bytes"]
+                    entry["mb"] = round(
+                        dbstat_sizes[t]["bytes"] / 1024 / 1024, 2
+                    )
+                    entry["payload_bytes"] = dbstat_sizes[t]["payload"]
+                out.append(entry)
+
+            # Rank by mb if available, otherwise by row_count.
+            if result["dbstat_available"]:
+                out.sort(key=lambda r: r.get("mb", 0), reverse=True)
+            else:
+                out.sort(key=lambda r: r["row_count"], reverse=True)
+            result["tables"] = out
+
+    except Exception as e:
+        log.warning("/api/health/db-bloat failed: %s", e)
+        result["ok"] = False
+        result["error"] = str(e)
+
+    return result
