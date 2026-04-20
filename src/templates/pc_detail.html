@@ -448,8 +448,6 @@
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       {% set st = pc.get('status','new') %}
       {% if st in ('sent',) %}
-       <button class="btn" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Mark Won</button>
-       <button class="btn" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:10px 20px">Mark Lost</button>
        <button class="btn" onclick="viewOriginalPc()" style="background:#21262d;color:#d2a8ff;border:1px solid #30363d;font-size:14px;padding:8px 16px">View Sent</button>
       {% elif st in ('completed','converted') %}
        <button class="btn" onclick="sendPcQuote()" style="background:#238636;color:#fff;font-size:15px;padding:10px 24px">Send Quote</button>

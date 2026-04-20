@@ -1,0 +1,77 @@
+"""Regression guards for the PC detail action-bar dedup.
+
+On `status=='sent'` the page used to render Mark Won / Mark Lost TWICE:
+once in the green "Sent — Awaiting award decision" banner at the top and
+once in the stage-aware action bar a few rows below. The action-bar pair
+was removed (banner is the canonical placement — it sits right next to
+the award-decision message, so the decision-time buttons belong there).
+These tests lock that in so a future refactor doesn't re-introduce the
+duplicate.
+"""
+from __future__ import annotations
+
+import json
+import os
+
+
+def _seed_with_status(temp_data_dir, sample_pc: dict, status: str) -> str:
+    pc = dict(sample_pc)
+    pc["status"] = status
+    path = os.path.join(temp_data_dir, "price_checks.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({pc["id"]: pc}, f)
+    return pc["id"]
+
+
+def _fetch(client, pcid: str) -> str:
+    resp = client.get(f"/pricecheck/{pcid}")
+    assert resp.status_code == 200, (
+        f"/pricecheck/{pcid} returned {resp.status_code}"
+    )
+    return resp.get_data(as_text=True)
+
+
+class TestMarkWonLostDedup:
+    def test_sent_status_renders_mark_won_exactly_once(
+        self, client, temp_data_dir, sample_pc
+    ):
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "sent")
+        html = _fetch(client, pcid)
+        won_count = html.count("adminAction('won')")
+        assert won_count == 1, (
+            f"expected 1 Mark Won button for sent PC, found {won_count} "
+            f"— duplicate in stage action bar?"
+        )
+
+    def test_sent_status_renders_mark_lost_exactly_once(
+        self, client, temp_data_dir, sample_pc
+    ):
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "sent")
+        html = _fetch(client, pcid)
+        lost_count = html.count("adminAction('lost')")
+        assert lost_count == 1, (
+            f"expected 1 Mark Lost button for sent PC, found {lost_count} "
+            f"— duplicate in stage action bar?"
+        )
+
+    def test_sent_status_keeps_view_sent_button(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """View Sent is unique to the sent-stage action bar — it must not
+        be removed alongside the Mark Won/Lost dedup."""
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "sent")
+        html = _fetch(client, pcid)
+        assert "viewOriginalPc()" in html
+        assert ">View Sent<" in html
+
+    def test_sent_banner_still_carries_decision_buttons(
+        self, client, temp_data_dir, sample_pc
+    ):
+        """Belt-and-suspenders: the remaining pair lives in the banner
+        (next to the 'Awaiting award decision' message). Verify they're
+        present — if someone removed the banner buttons too, the page
+        would have zero decision-time affordances."""
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "sent")
+        html = _fetch(client, pcid)
+        assert "Mark Won" in html
+        assert "Mark Lost" in html
