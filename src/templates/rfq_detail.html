@@ -72,6 +72,66 @@
  </div>
  {% endif %}
 
+ <!-- ── Contract Builder (unified upload) ──
+      One drop target that auto-classifies every file: email screenshot,
+      703A/B/C, 704B, bid package, DSH attachments, or generic attachment.
+      Calls POST /api/rfq/<rid>/contract-upload, then reloads the page. -->
+ {% set _t = r.get('templates') or {} %}
+ {% set _es = r.get('email_screenshot') or {} %}
+ <div id="contract-builder-card" style="margin-top:14px;padding:14px 16px;border-radius:10px;background:linear-gradient(180deg,rgba(88,166,255,.06),rgba(88,166,255,.02));border:1px solid rgba(88,166,255,.35)">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+   <div style="display:flex;align-items:center;gap:10px">
+    <span style="font-size:15px;font-weight:700;color:#58a6ff">📎 Contract Builder</span>
+    <span style="font-size:12px;color:var(--tx2)">drop anything — auto-routes to slots</span>
+   </div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">
+    {% set _slot_defs = [('email_screenshot','📧','Email'),('703b','📄','703B'),('703c','📄','703C'),('704b','📋','704B'),('bidpkg','📦','BidPkg')] %}
+    {% for slot, icon, label in _slot_defs %}
+     {% set _filled = (slot == 'email_screenshot' and _es.get('path')) or (slot != 'email_screenshot' and _t.get(slot)) %}
+     <span style="padding:3px 9px;border-radius:5px;font-weight:600;{% if _filled %}background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.3){% else %}background:var(--sf2);color:var(--tx2);border:1px solid var(--bd){% endif %}" title="{{ 'uploaded' if _filled else 'missing' }}">{{ icon }} {{ label }}{% if _filled %} ✓{% endif %}</span>
+    {% endfor %}
+   </div>
+  </div>
+  <div id="cb-drop" ondragover="event.preventDefault();this.style.borderColor='#58a6ff';this.style.background='rgba(88,166,255,.08)'" ondragleave="this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent'" ondrop="event.preventDefault();this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent';_cbUpload(event.dataTransfer.files)" onclick="document.getElementById('cb-input').click()" style="cursor:pointer;padding:18px;border:2px dashed rgba(88,166,255,.4);border-radius:8px;text-align:center;color:var(--tx2);font-size:13px;transition:all .15s">
+   <div style="font-size:20px;margin-bottom:4px">⬆️</div>
+   <div><strong style="color:var(--tx)">Drop files or click to upload</strong></div>
+   <div style="margin-top:4px;font-size:12px">PDFs (703B, 703C, 704B, bid package) · Images (email screenshot as contract) · Anything else → attachment</div>
+   <input type="file" id="cb-input" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tif,.tiff" style="display:none" onchange="_cbUpload(this.files)">
+  </div>
+  <div id="cb-results" style="display:none;margin-top:10px;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:12px;font-family:'JetBrains Mono',monospace"></div>
+  {% if _es.get('path') %}
+  <div style="margin-top:8px;padding:8px 12px;background:rgba(63,185,80,.06);border:1px solid rgba(63,185,80,.2);border-radius:6px;font-size:12px;color:#3fb950">📧 Email contract: <strong>{{ _es.get('original_filename') or _es.get('filename') }}</strong> · {{ (_es.get('bytes',0)/1024)|round|int }} KB · {{ _es.get('uploaded_at','')[:19] }}</div>
+  {% endif %}
+ </div>
+ <script>
+ async function _cbUpload(fileList) {
+  if (!fileList || !fileList.length) return;
+  var out = document.getElementById('cb-results');
+  out.style.display = 'block';
+  out.innerHTML = '<span style="color:var(--tx2)">⏳ Uploading ' + fileList.length + ' file(s)...</span>';
+  var fd = new FormData();
+  for (var i = 0; i < fileList.length; i++) fd.append('files', fileList[i]);
+  try {
+   var r = await fetch('/api/rfq/{{rid}}/contract-upload', {method: 'POST', credentials: 'include', body: fd});
+   var d = await r.json();
+   if (!d.ok) {
+    out.innerHTML = '<span style="color:#f85149">⚠ ' + (d.error || 'Upload failed') + '</span>';
+    return;
+   }
+   var lines = (d.results || []).map(function(x){
+    var icon = x.kind === 'email_screenshot' ? '📧' : (x.kind === 'template' ? '📄' : (x.kind === 'attachment' ? '📎' : '⚠'));
+    var label = x.kind === 'template' ? (x.slot || 'template').toUpperCase() : x.kind.replace('_',' ');
+    var color = x.kind === 'attachment' ? '#d29922' : '#3fb950';
+    return '<div style="color:' + color + '">' + icon + ' <strong>' + x.filename + '</strong> → ' + label + ' <span style="color:var(--tx2)">(' + x.reason + ')</span></div>';
+   });
+   out.innerHTML = lines.join('') + '<div style="margin-top:8px;color:var(--tx2)">Reloading...</div>';
+   setTimeout(function(){ window.location.reload(); }, 1200);
+  } catch (e) {
+   out.innerHTML = '<span style="color:#f85149">⚠ Network error: ' + e.message + '</span>';
+  }
+ }
+ </script>
+
  {% set reqs = requirements|default({}) %}
  <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(167,139,250,.05);border:1px solid rgba(167,139,250,.15);font-size:13px{% if not reqs or not reqs.get('forms_required') %};display:flex;align-items:center;gap:8px{% endif %}">
  {% if reqs and reqs.get('forms_required') %}
