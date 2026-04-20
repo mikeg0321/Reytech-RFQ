@@ -222,13 +222,13 @@ jobs:
   # Full test suite — runs on push to main, workflow_dispatch, or
   # PRs with `full-ci` label.
   # 2026-04-19: #229 main run was killed at 20:15 at 79% progress;
-  # linear extrapolation puts clean runtime ≈ 25-26 min.
-  # 25 min gives a tight ceiling — tighten further once we have
-  # duration data and can exclude slow-path outliers.
+  # linear extrapolation put clean runtime ≈ 25-26 min. Tightened to
+  # 25 min then hit 25:16 timeout. Restored to 30 min — the safety
+  # margin matters more than a slightly stale upper bound.
   # ─────────────────────────────────────────────────────────────────
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     needs: gate-decision
     if: needs.gate-decision.outputs.run_full == 'true'
     steps:

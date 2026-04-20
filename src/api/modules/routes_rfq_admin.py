@@ -93,22 +93,12 @@ def rfq_reopen(rid):
 def _rfq_to_pc_for_qa(rfq: dict) -> dict:
     """Adapter: shape an RFQ dict into the form pc_qa_agent.run_qa expects.
 
-    The audit task is "extend the existing Form QA hard-block to the RFQ
-    page and REUSE the existing QA helper". The PC QA agent reads items
-    via `pc.get("items")` while RFQ data uses `line_items`, so this is a
-    pure rename + passthrough — no new QA rules introduced.
+    Delegates to the canonical record-field accessor so PC and RFQ shapes
+    both yield correct revenue/profit readings without mutating the source.
+    See src/core/record_fields.build_qa_view.
     """
-    if not isinstance(rfq, dict):
-        return {"items": []}
-    pc_view = dict(rfq)
-    items = rfq.get("line_items") or rfq.get("items") or []
-    pc_view["items"] = items
-    pc_view.setdefault("agency", rfq.get("agency", ""))
-    pc_view.setdefault("ship_to", rfq.get("ship_to") or rfq.get("ship_to_name", ""))
-    pc_view.setdefault("total", rfq.get("total") or rfq.get("total_price", 0))
-    pc_view.setdefault("subtotal", rfq.get("subtotal", 0))
-    pc_view.setdefault("tax", rfq.get("tax", 0))
-    return pc_view
+    from src.core.record_fields import build_qa_view
+    return build_qa_view(rfq)
 
 
 @bp.route("/api/rfq/<rid>/qa", methods=["GET", "POST"])

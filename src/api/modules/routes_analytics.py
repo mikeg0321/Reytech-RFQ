@@ -1792,6 +1792,38 @@ def convert_pc_to_rfq(pcid):
     except Exception as _e:
         log.debug("Activity log for PC→RFQ: %s", _e)
 
+    # ── Optional: re-poll last 30 days of email for a matching RFQ ──────
+    # Triggered by repoll=1 query or body flag. Best-effort: any failure
+    # here does NOT fail the conversion itself. Returns email-match info
+    # so the UI can surface whether a contract was attached.
+    _repoll_info = {}
+    _repoll_requested = (
+        request.args.get("repoll") in ("1", "true", "yes")
+        or (request.get_json(silent=True) or {}).get("repoll") in (True, 1, "1")
+    )
+    if _repoll_requested:
+        try:
+            _repoll_info = _repoll_email_into_rfq(pc, rfq_id)
+        except Exception as _re:
+            log.warning("PC→RFQ email re-poll failed (non-fatal) for %s: %s", pcid, _re)
+            _repoll_info = {"ok": False, "error": str(_re)}
+
+    # ── Optional: initial QA pass so the RFQ page lands with a score ────
+    _qa_summary = {}
+    try:
+        from src.core.record_fields import build_qa_view
+        from src.agents.pc_qa_agent import run_qa
+        import copy as _qa_copy
+        _qa_view = build_qa_view(rfq_data)
+        _qa_report = run_qa(_qa_copy.deepcopy(_qa_view), use_llm=False)
+        _qa_summary = {
+            "pass": _qa_report.get("pass"),
+            "score": _qa_report.get("score"),
+            "summary": _qa_report.get("summary"),
+        }
+    except Exception as _qa_e:
+        log.debug("Initial QA on converted RFQ failed (non-fatal): %s", _qa_e)
+
     return jsonify({
         "ok": True, "rfq_id": rfq_id, "items": item_count,
         "files_copied": files_copied,
@@ -1799,7 +1831,131 @@ def convert_pc_to_rfq(pcid):
         "agency_name": _agency_cfg.get("name", _agency_key),
         "required_forms": _req_forms,
         "warnings": _conversion_warnings,
+        "next_url": f"/rfq/{rfq_id}",
+        "email_repoll": _repoll_info,
+        "qa": _qa_summary,
     })
+
+
+def _repoll_email_into_rfq(pc: dict, rfq_id: str) -> dict:
+    """Search last 30 days of inbox for an email whose subject/body references
+    this PC's solicitation number or PC number. If found, download attachments
+    and route them through the unified ingest pipeline so the RFQ ends up with
+    the buyer's contract-of-record.
+
+    Best-effort: returns {"ok": False, "reason": ...} when Gmail isn't
+    configured or no match. Never raises to the caller.
+    """
+    info: dict = {"ok": False, "matched": False}
+
+    try:
+        from src.core.gmail_api import is_configured, get_service, list_message_ids, get_raw_message
+    except Exception as e:
+        info["error"] = f"gmail module unavailable: {e}"
+        return info
+
+    if not is_configured():
+        info["reason"] = "Gmail API not configured — skipped re-poll"
+        return info
+
+    pc_number = (pc.get("pc_number") or "").strip()
+    sol_number = (pc.get("solicitation_number") or "").strip()
+    subject_hint = (pc.get("email_subject") or "").strip()
+    needles = [n for n in (pc_number, sol_number, subject_hint) if n and len(n) >= 4]
+    if not needles:
+        info["reason"] = "PC has no identifiers to match against"
+        return info
+
+    try:
+        service = get_service("sales")
+    except Exception as e:
+        info["error"] = f"gmail auth failed: {e}"
+        return info
+
+    from datetime import datetime as _dt, timedelta as _td
+    since = (_dt.now() - _td(days=30)).strftime("%Y/%m/%d")
+    # Gmail query: match any of the needles in subject or body, last 30d
+    or_clause = " OR ".join([f'"{n}"' for n in needles])
+    query = f"in:inbox after:{since} ({or_clause}) has:attachment"
+    info["query"] = query
+
+    try:
+        ids = list_message_ids(service, query, max_results=20)
+    except Exception as e:
+        info["error"] = f"gmail search failed: {e}"
+        return info
+
+    if not ids:
+        info["reason"] = f"no inbox messages in last 30 days matched {needles[:2]}"
+        return info
+
+    info["matched"] = True
+    info["message_count"] = len(ids)
+
+    # Fetch the most-recent matching email and ingest its attachments
+    import tempfile
+    import email as _email
+    import os as _os
+    attached = 0
+
+    for mid in ids[:1]:  # just the first (top) match
+        try:
+            raw = get_raw_message(service, mid)
+        except Exception as e:
+            info["error"] = f"gmail fetch failed: {e}"
+            continue
+        msg = _email.message_from_bytes(raw)
+        info["email_subject"] = msg.get("Subject", "")
+        info["email_from"] = msg.get("From", "")
+
+        saved_paths: list = []
+        tmp_root = tempfile.mkdtemp(prefix=f"pc_repoll_{rfq_id}_")
+        for part in msg.walk():
+            if part.get_content_disposition() != "attachment":
+                continue
+            fname = part.get_filename() or f"attachment_{len(saved_paths)}.bin"
+            safe = "".join(c for c in fname if c.isalnum() or c in "._- ") or "attachment.bin"
+            outp = _os.path.join(tmp_root, safe)
+            try:
+                payload = part.get_payload(decode=True) or b""
+                with open(outp, "wb") as fh:
+                    fh.write(payload)
+                saved_paths.append(outp)
+            except Exception as e:
+                log.debug("attachment write failed: %s", e)
+
+        if not saved_paths:
+            info["reason"] = "matching email had no saveable attachments"
+            break
+
+        try:
+            from src.core.ingest_pipeline import process_buyer_request
+            body_text = ""
+            for p in msg.walk():
+                if p.get_content_type() == "text/plain":
+                    try:
+                        body_text = (p.get_payload(decode=True) or b"").decode("utf-8", "replace")
+                    except Exception as _be:
+                        log.debug("body decode: %s", _be)
+                    break
+            result = process_buyer_request(
+                files=saved_paths,
+                email_body=body_text,
+                email_subject=info.get("email_subject", ""),
+                email_sender=info.get("email_from", ""),
+                existing_record_id=rfq_id,
+                existing_record_type="rfq",
+            )
+            attached = result.items_parsed or len(saved_paths)
+            info["ingest_ok"] = bool(result.ok)
+            info["ingest_items_parsed"] = result.items_parsed
+        except Exception as e:
+            info["error"] = f"ingest failed: {e}"
+            log.warning("PC→RFQ re-poll ingest failed: %s", e)
+
+    info["ok"] = True
+    info["attached_count"] = attached
+    return info
 
 
 @bp.route("/api/pc/<pcid>/reclassify-as-rfq", methods=["POST"])

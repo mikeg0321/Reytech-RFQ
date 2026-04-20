@@ -183,10 +183,16 @@ def _recommend_price(item):
 
 def _enrich_items_with_intel(items, rfq_number="", agency=""):
     """Enrich line items with catalog matches and price history.
-    Called on RFQ detail load to surface pricing intelligence."""
+    Called on RFQ detail load to surface pricing intelligence.
+
+    Architecture rule: catalog is the bible. Every RFQ/PC autosave writes
+    item enrichment to the catalog; this read-side hydration fills empty
+    `item_link`, `photo_url`, `mfg_number`, `upc` from catalog on EVERY
+    detail render — so reloads never lose what autosave already saved.
+    """
     for item in items:
         desc = item.get("description", "")
-        pn = item.get("item_number", "") or ""
+        pn = item.get("item_number", "") or item.get("mfg_number", "") or ""
         if not desc and not pn:
             continue
 
@@ -206,6 +212,15 @@ def _enrich_items_with_intel(items, rfq_number="", agency=""):
                     }
             except Exception as _e:
                 log.debug('suppressed in _enrich_items_with_intel: %s', _e)
+
+        # 1b. Catalog hydration — backfill empty display fields from the
+        # product_catalog / product_suppliers tables. This is the read-side
+        # half of the catalog-is-bible flywheel: autosave writes, reload reads.
+        try:
+            from src.core.record_fields import hydrate_item_from_catalog
+            hydrate_item_from_catalog(item)
+        except Exception as _e:
+            log.debug('suppressed hydrate: %s', _e)
 
         # 2. Price history (last 5 observations)
         if not item.get("price_intel"):
@@ -1231,18 +1246,10 @@ def api_rfq_upload_parse_doc(rid):
                 existing_record_id=rid,
                 existing_record_type="rfq",
             )
-            return jsonify({
-                "ok": result.ok,
-                "items": result.items_parsed,
-                "parser_used": (result.classification or {}).get("shape", "classifier_v2"),
-                "classification": result.classification,
-                "linked_pc_id": result.linked_pc_id,
-                "link_reason": result.link_reason,
-                "link_confidence": result.link_confidence,
-                "errors": result.errors,
-                "warnings": result.warnings,
-                "reasons": result.reasons,
-            })
+            # Unified response contract: to_dict() emits items_found /
+            # items_added / parser fields so the frontend uploadDoc() handler
+            # sees the same shape whether classifier_v2 or legacy ran.
+            return jsonify(result.to_dict())
     except Exception as _cv2_e:
         log.warning("classifier_v2 fallthrough: %s", _cv2_e)
 
