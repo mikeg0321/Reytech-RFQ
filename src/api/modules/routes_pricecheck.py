@@ -401,6 +401,20 @@ def _pricecheck_detail_inner(pcid):
     items = _copy.deepcopy(pc.get("items") or [])
     header = _copy.deepcopy((pc.get("parsed") or {}).get("header") or {})
 
+    # Catalog-is-bible hydration: backfill item_link / photo_url / mfg_number /
+    # upc from the catalog on every render. Autosave writes to catalog; read
+    # hydrates from catalog — so reloads never lose URLs/photos the operator
+    # already sourced.
+    try:
+        from src.core.record_fields import hydrate_item_from_catalog
+        for _it in items:
+            try:
+                hydrate_item_from_catalog(_it)
+            except Exception as _he:
+                log.debug("pc hydrate item: %s", _he)
+    except Exception as _e:
+        log.debug("pc hydrate import: %s", _e)
+
     items_html = ""
     # Review UX: classify each item into a tier so the user knows at a glance
     # what's safe to quote vs what needs a second look. Counts feed the

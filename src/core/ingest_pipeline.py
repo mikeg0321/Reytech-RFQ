@@ -48,6 +48,11 @@ class IngestResult:
     reasons: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
+        # Emit BOTH the canonical (items_parsed) and legacy-compatible
+        # (items_found / items_added / parser) fields so every Upload & Parse
+        # caller — frontend `uploadDoc()` included — reads the same shape
+        # regardless of whether classifier_v2 or the legacy parser chain ran.
+        parser_label = (self.classification or {}).get("shape", "classifier_v2")
         return {
             "ok": self.ok,
             "record_type": self.record_type,
@@ -57,6 +62,10 @@ class IngestResult:
             "link_reason": self.link_reason,
             "link_confidence": self.link_confidence,
             "items_parsed": self.items_parsed,
+            "items_found": self.items_parsed,
+            "items_added": self.items_parsed,
+            "parser": parser_label,
+            "parser_used": parser_label,
             "errors": list(self.errors),
             "warnings": list(self.warnings),
             "reasons": list(self.reasons),

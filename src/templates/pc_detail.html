@@ -4143,15 +4143,26 @@
      });
     }
     function convertPCToRFQ(){
-     if(!confirm('Convert this PC to a new RFQ?\n\nAll item data and pricing will carry over.'))return;
-     fetch('/api/pc/'+_pcid+'/convert-to-rfq',{method:'POST'})
+     if(!confirm('Convert this PC to a new RFQ?\n\nAll item data and pricing carry over. The system will also scan the last 30 days of email for a matching buyer contract and attach it if found.'))return;
+     showMsg('Converting and scanning email…','info');
+     fetch('/api/pc/'+_pcid+'/convert-to-rfq?repoll=1',{method:'POST'})
      .then(r=>r.json()).then(d=>{
       if(d.ok){
-       var msg='✅ Converted! '+d.items+' items.';
+       var msg='Converted — '+d.items+' items.';
        if(d.agency_key&&d.agency_key!=='other')msg+='\nAgency: '+d.agency_name+' ('+d.agency_key+')';
+       var er=d.email_repoll||{};
+       if(er.matched){
+        msg+='\n\n📧 Matching email found: '+(er.email_subject||'(no subject)');
+        if(er.attached_count)msg+=' — '+er.attached_count+' attachment(s) ingested.';
+       } else if(er.reason){
+        msg+='\n\n📧 '+er.reason;
+       }
+       var qa=d.qa||{};
+       if(qa.summary)msg+='\n\nQA: '+qa.summary+' (score '+(qa.score||0)+'/100)';
        if(d.warnings&&d.warnings.length>0)msg+='\n\n⚠️ Before generating package:\n• '+d.warnings.join('\n• ');
-       if(d.warnings&&d.warnings.length>0){alert(msg);} else{showMsg(msg,'ok');}
-       setTimeout(()=>location.href='/rfq/'+d.rfq_id,d.warnings&&d.warnings.length?500:1200);
+       var needsAlert=(d.warnings&&d.warnings.length>0)||er.matched;
+       if(needsAlert){alert(msg);} else{showMsg(msg,'ok');}
+       setTimeout(()=>location.href=d.next_url||('/rfq/'+d.rfq_id),needsAlert?500:1200);
       }
       else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
      });
