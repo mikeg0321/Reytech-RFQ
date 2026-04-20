@@ -2516,8 +2516,9 @@ def api_lookup_tax_rate(rid):
                 _d_city = _city_from_zip.group(1).strip()
         log.info("Tax lookup: raw='%s' → street='%s' city='%s' zip='%s'",
                  address[:60], _d_street, _d_city, _d_zip)
+        _force = bool(data.get("force_live"))
         if _d_street and _d_city and _d_zip:
-            result = get_tax_rate(street=_d_street, city=_d_city, zip_code=_d_zip)
+            result = get_tax_rate(street=_d_street, city=_d_city, zip_code=_d_zip, force_live=_force)
         else:
             from src.agents.tax_agent import parse_ship_to
             _parts = [p.strip() for p in address.split(",")]
@@ -2525,7 +2526,8 @@ def api_lookup_tax_rate(rid):
             result = get_tax_rate(
                 street=parsed.get("street", ""),
                 city=parsed.get("city", ""),
-                zip_code=parsed.get("zip", "")
+                zip_code=parsed.get("zip", ""),
+                force_live=_force,
             )
         if result and result.get("rate"):
             rate_pct = round(result["rate"] * 100, 3)
@@ -2979,48 +2981,6 @@ def rfq_update_field(rid):
 
     return jsonify({"ok": True, "updated": changed, "suggestions": suggestions,
                     "link_result": link_result})
-
-
-@bp.route("/api/rfq/<rid>/lookup-tax-rate", methods=["POST"])
-@auth_required
-@safe_route
-def api_rfq_lookup_tax_rate(rid):
-    """Look up CA sales tax rate from delivery address for an RFQ."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"})
-    data = request.get_json(force=True, silent=True) or {}
-    address = data.get("address") or r.get("delivery_location") or r.get("ship_to") or ""
-    if not address:
-        return jsonify({"ok": False, "error": "No address — enter Delivery Location first"})
-    try:
-        import re as _re_tax
-        _zips = _re_tax.findall(r'\b(\d{5})\b', address)
-        _d_zip = _zips[-1] if _zips else ""
-        _city_m = (_re_tax.search(r',\s*([A-Za-z\s]+),?\s*[A-Z][A-Za-z]\.?\s*\d{5}', address) or
-                   _re_tax.search(r',\s*([A-Za-z][A-Za-z\s]+?)\s*,\s*[A-Z]{2}', address))
-        _d_city = _city_m.group(1).strip() if _city_m else ""
-        if not _d_city and _d_zip:
-            _cfz = _re_tax.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,?\s*[Cc][Aa]\.?\s*' + _d_zip, address)
-            if _cfz: _d_city = _cfz.group(1).strip()
-        from src.agents.tax_agent import get_tax_rate
-        _force = bool(data.get("force_live"))
-        result = get_tax_rate(city=_d_city, zip_code=_d_zip, force_live=_force)
-        if result and result.get("rate"):
-            rate_pct = round(result["rate"] * 100, 3)
-            r["tax_rate"] = rate_pct
-            r["tax_validated"] = True
-            r["tax_source"] = result.get("source", "")
-            from src.api.dashboard import _save_single_rfq
-            _save_single_rfq(rid, r)
-            return jsonify({"ok": True, "rate": rate_pct,
-                "jurisdiction": result.get("jurisdiction", ""),
-                "source": result.get("source", "")})
-        return jsonify({"ok": False, "error": "Tax lookup returned no rate"})
-    except Exception as e:
-        log.error("RFQ tax lookup %s: %s", rid, e, exc_info=True)
-        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/rfq/<rid>/auto-price", methods=["POST"])
