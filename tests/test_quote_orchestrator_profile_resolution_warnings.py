@@ -52,9 +52,17 @@ class TestProfileResolutionWarnings:
                 f"Warning: {w}"
             )
 
-    def test_genuinely_missing_profile_still_warned(self):
-        """Sanity — 703b (which has a non-empty mapping but no loaded profile)
-        SHOULD still be called out as missing."""
+    def test_genuinely_missing_profile_still_warned(self, monkeypatch):
+        """Sanity — a form_id with a non-empty mapping but no loaded profile
+        SHOULD still be called out as missing. Simulates 703b being absent
+        from the registry (at one point in history it really wasn't built)
+        so the warning path stays covered even now that 703b ships."""
+        from src.core import quote_engine
+
+        original = quote_engine.get_profiles()
+        stripped = {k: v for k, v in original.items() if k != "703b_reytech_standard"}
+        monkeypatch.setattr(quote_engine, "get_profiles", lambda: stripped)
+
         orch = QuoteOrchestrator(persist_audit=False)
         req = QuoteRequest(
             source=_cchcs_dict_source(),
@@ -67,7 +75,6 @@ class TestProfileResolutionWarnings:
         no_profile_warnings = [
             w for w in result.warnings if "no profile yet" in w
         ]
-        # 703b_reytech_standard isn't built yet — operator should know.
         assert any("703b" in w for w in no_profile_warnings), (
             f"Expected a warning calling out 703b. All warnings: {result.warnings}"
         )
