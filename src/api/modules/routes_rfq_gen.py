@@ -2407,12 +2407,22 @@ def generate_rfq_package(rid):
     )
     _transition_status(r, _final_status, actor="user", notes=_transition_notes)
 
-    # Notify: package ready to review
-    try:
-        from src.agents.notify_agent import notify_package_ready
-        notify_package_ready(r, result)
-    except Exception as _e:
-        log.debug('suppressed in _form_sort_key: %s', _e)
+    # Notify: package ready to review — ONLY if QA passed. Notifying on an
+    # incomplete package tells the operator "ready to send" and they don't
+    # look at the details until the buyer flags a blank form.
+    # Incident R26Q36 (2026-04-20): notify fired before QA logged
+    # "required forms failed QA: 703b, 704b".
+    if _package_complete:
+        try:
+            from src.agents.notify_agent import notify_package_ready
+            notify_package_ready(r, result)
+        except Exception as _e:
+            log.debug('suppressed in _form_sort_key: %s', _e)
+    else:
+        log.warning(
+            "NOTIFY SUPPRESSED %s: package incomplete — %s",
+            rid, _incomplete_msg,
+        )
 
     r["output_files"] = final_output_files
 

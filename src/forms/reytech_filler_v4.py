@@ -3026,18 +3026,24 @@ def _bidpkg_page_skip_reason(page):
     """
     text = (page.extract_text() or "").strip()
     t = text.lower()
-    n_fields = len(page.get("/Annots", [])) if "/Annots" in page else 0
+    # /Annots can be stored as an IndirectObject referencing the array; resolve
+    # before len/indexing. Incident 2026-04-20: unresolved indirect raised
+    # "object of type 'IndirectObject' has no len()" and silently aborted trim.
+    annots_raw = page.get("/Annots") if "/Annots" in page else None
+    annots = annots_raw.get_object() if hasattr(annots_raw, "get_object") else annots_raw
+    if annots is None:
+        annots = []
+    n_fields = len(annots)
 
-    # ── Collect field name fingerprints (first 3 fields) ──────────────
+    # ── Collect field name fingerprints (first 5 fields) ──────────────
     field_names = []
-    if "/Annots" in page:
-        for annot in page.get("/Annots", [])[:5]:
-            try:
-                fn = str(annot.get_object().get("/T", ""))
-                if fn:
-                    field_names.append(fn)
-            except Exception as _e:
-                log.debug("suppressed: %s", _e)
+    for annot in list(annots)[:5]:
+        try:
+            fn = str(annot.get_object().get("/T", ""))
+            if fn:
+                field_names.append(fn)
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
     field_sig = " ".join(field_names).lower()
 
     # ── Hard skip by field-name fingerprint ───────────────────────────
