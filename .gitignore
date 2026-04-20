@@ -21,6 +21,12 @@ output/
 artifacts/
 tmp/
 
+# ── Local E2E verification artifacts ─────────────────────────────────────────
+docs/screenshots/
+data/shadow_diffs.jsonl
+data/shadow_outputs/
+data/tmp*.tmp
+
 # ── Sensitive / auth tokens (never commit) ───────────────────────────────────
 data/qb_tokens.json
 data/qb_vendors.json
