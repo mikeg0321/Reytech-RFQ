@@ -1049,6 +1049,10 @@ def growth_intel_page():
                          if q.get("status") == "sent"
                          and q.get("follow_up_date", "9999") <= datetime.now().isoformat())
 
+    # SCPRS pull freshness — operators need to know when intel last refreshed
+    # so stale Oracle prices aren't mistaken for current market data.
+    scprs_freshness = _scprs_pull_freshness()
+
     return render_page("growth_intelligence.html",
         catalog_stats=catalog_stats,
         alerts=alerts,
@@ -1062,4 +1066,46 @@ def growth_intel_page():
         follow_ups_due=follow_ups_due,
         outreach_targets=outreach_targets[:20],
         outreach_queue=outreach_queue[-10:][::-1],
+        scprs_freshness=scprs_freshness,
     )
+
+
+def _scprs_pull_freshness() -> dict:
+    """Return {last_pull, next_pull, last_relative, stale} for the most recent
+    SCPRS pull across all agencies. `stale=True` when last_pull is older than
+    48h — the dashboard flips the banner red."""
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        conn = get_db()
+        row = conn.execute(
+            "SELECT agency_key, last_pull, next_pull FROM scprs_pull_schedule "
+            "WHERE last_pull IS NOT NULL AND last_pull <> '' "
+            "ORDER BY last_pull DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+    except Exception as e:
+        log.debug("scprs freshness query failed: %s", e)
+        return {"last_pull": "", "next_pull": "", "last_relative": "unknown", "stale": True}
+
+    if not row:
+        return {"last_pull": "", "next_pull": "", "last_relative": "never", "stale": True}
+
+    last = row["last_pull"] if hasattr(row, "keys") else row[1]
+    nxt = (row["next_pull"] if hasattr(row, "keys") else row[2]) or ""
+    try:
+        lt = _dt.fromisoformat(last.replace("Z", "+00:00"))
+        if lt.tzinfo is None:
+            lt = lt.replace(tzinfo=_tz.utc)
+        delta = _dt.now(_tz.utc) - lt
+        secs = int(delta.total_seconds())
+        if secs < 3600:
+            rel = f"{max(secs // 60, 1)} min ago"
+        elif secs < 86400:
+            rel = f"{secs // 3600} h ago"
+        else:
+            rel = f"{secs // 86400} d ago"
+        stale = secs > 48 * 3600
+    except Exception:
+        rel = "unknown"
+        stale = True
+    return {"last_pull": last, "next_pull": nxt, "last_relative": rel, "stale": stale}

@@ -35,12 +35,18 @@ except ImportError:
 SCPRS_CACHE_FILE = os.path.join(DATA_DIR, "scprs_public_cache.json")
 SCPRS_URL = "https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx"
 
-# CDCR/CCHCS business units in FI$Cal
-# These are the department codes used in the SCPRS search
-CCHCS_DEPT_CODES = [
-    "3860",   # CDCR (Department of Corrections & Rehabilitation)
-    "5225",   # CCHCS (CA Correctional Health Care Services)
-]
+# CDCR/CCHCS business units in FI$Cal — single source of truth lives in
+# scprs_intelligence_engine.AGENCY_REGISTRY. Local list had drifted to 3860
+# (dead code) + 5225; engine uses 5225 + 4700. Sync here so the public-search
+# path matches what intel-engine expects.
+def _cchcs_codes():
+    try:
+        from src.agents.scprs_intelligence_engine import AGENCY_REGISTRY
+        return list(AGENCY_REGISTRY.get("CCHCS", {}).get("dept_codes") or ["5225", "4700"])
+    except Exception:
+        return ["5225", "4700"]
+
+CCHCS_DEPT_CODES = _cchcs_codes()
 
 # Products Reytech sells / wants to identify gaps in
 REYTECH_KEYWORDS = [

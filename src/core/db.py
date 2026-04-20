@@ -1687,6 +1687,38 @@ def _migrate_columns():
                 conn.execute(_idx_sql)
             except Exception as _e:
                 log.debug("suppressed: %s", _e)
+
+        # ── SCPRS ingest idempotency (audit P0 — 2026-04-19) ──
+        # Dedupe existing (po_id, line_num) collisions before creating the
+        # UNIQUE index. Keep the lowest id per collision; earlier rows win
+        # because they're from the first successful ingest.
+        try:
+            conn.execute("""
+                DELETE FROM scprs_po_lines
+                WHERE id NOT IN (
+                    SELECT MIN(id) FROM scprs_po_lines
+                    WHERE po_id IS NOT NULL AND line_num IS NOT NULL
+                    GROUP BY po_id, line_num
+                )
+                AND po_id IS NOT NULL AND line_num IS NOT NULL
+            """)
+        except Exception as _e:
+            log.debug("suppressed: %s", _e)
+
+        # Hot-path indexes + idempotency UNIQUE. UNIQUE enables INSERT OR
+        # REPLACE at the ingest sites so re-pulls refresh stale rows instead
+        # of silently skipping them (prior SELECT-then-skip lost updates).
+        for _idx_sql in [
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_po_lines_uniq ON scprs_po_lines(po_id, line_num)",
+            "CREATE INDEX IF NOT EXISTS idx_po_lines_opp ON scprs_po_lines(opportunity_flag)",
+            "CREATE INDEX IF NOT EXISTS idx_po_lines_cat ON scprs_po_lines(category)",
+            "CREATE INDEX IF NOT EXISTS idx_po_master_start ON scprs_po_master(start_date)",
+            "CREATE INDEX IF NOT EXISTS idx_po_master_supplier_lc ON scprs_po_master(LOWER(supplier))",
+        ]:
+            try:
+                conn.execute(_idx_sql)
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
         # Copy agency_code → agency_key for existing SCPRS data
         try:
             conn.execute("""

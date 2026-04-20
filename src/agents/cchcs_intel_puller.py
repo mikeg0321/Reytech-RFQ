@@ -37,28 +37,23 @@ except ImportError:
         return sqlite3.connect(os.path.join(DATA_DIR, "reytech.db"), timeout=15)
 
 # ── CCHCS Department Codes in FI$Cal ─────────────────────────────────────────
-# These are the official SCPRS business unit codes for CDCR/CCHCS departments
-CCHCS_DEPT_CODES = [
-    "5225",   # CDCR - Corrections
-    "4700",   # CCHCS - Health Care
-]
+# Pull from the canonical registry so we have a single source of truth. Prior
+# local copies in this file + scprs_public_search.py drifted over time and
+# caused the Phase-A wide ingest to miss rows the engine would have matched.
+def _cchcs_codes_and_names():
+    try:
+        from src.agents.scprs_intelligence_engine import AGENCY_REGISTRY
+        reg = AGENCY_REGISTRY.get("CCHCS", {})
+        return list(reg.get("dept_codes") or []), list(reg.get("dept_name_patterns") or [])
+    except Exception:
+        # Last-resort fallback (module-import failure). Keep the puller running
+        # rather than returning zero CCHCS matches on an import blip.
+        return (["5225", "4700"],
+                ["CORRECTIONAL HEALTH", "CDCR", "CCHCS",
+                 "CORRECTIONS AND REHABILITATION", "CA STATE PRISON",
+                 "CALIFORNIA INSTITUTION"])
 
-CCHCS_DEPT_NAMES = [
-    "CORRECTIONAL HEALTH",
-    "CDCR",
-    "CCHCS",
-    "CORRECTIONS AND REHABILITATION",
-    "CA STATE PRISON",
-    "CALIFORNIA INSTITUTION",
-    "PELICAN BAY",
-    "FOLSOM STATE",
-    "SAN QUENTIN",
-    "MULE CREEK",
-    "KERN VALLEY",
-    "HIGH DESERT",
-    "SALINAS VALLEY",
-    "PLEASANT VALLEY",
-]
+CCHCS_DEPT_CODES, CCHCS_DEPT_NAMES = _cchcs_codes_and_names()
 
 # ── Products Reytech sells (for gap analysis) ─────────────────────────────────
 REYTECH_CATALOG = {
@@ -308,21 +303,13 @@ def store_pos(pos: list, search_term: str) -> dict:
                              po.get("supplier_id", ""),
                              po.get("grand_total", 0), search_term)
 
-        # Store line items
+        # Store line items — idempotent via UNIQUE(po_id, line_num).
         for i, line in enumerate(po.get("line_items", [])):
             desc = line.get("description", "")
             classification = _classify_line(desc)
 
-            # Skip if already stored for this PO
-            already = conn.execute(
-                "SELECT id FROM scprs_po_lines WHERE po_id=? AND line_num=?",
-                (po_id, i)
-            ).fetchone()
-            if already:
-                continue
-
             conn.execute("""
-                INSERT INTO scprs_po_lines
+                INSERT OR REPLACE INTO scprs_po_lines
                 (po_id, po_number, line_num, item_id, description, unspsc,
                  uom, quantity, unit_price, line_total, line_status,
                  category, reytech_sells, reytech_sku, opportunity_flag)
