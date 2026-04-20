@@ -20,10 +20,12 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 
+from src.core.paths import DATA_DIR
+
 log = logging.getLogger(__name__)
 
 _PST = timezone(timedelta(hours=-8))
-_DIFF_LOG = os.path.join(os.environ.get("DATA_DIR", "data"), "quote_adapter_diffs.jsonl")
+_DIFF_LOG = os.path.join(DATA_DIR, "quote_adapter_diffs.jsonl")
 
 
 def _is_enabled() -> bool:

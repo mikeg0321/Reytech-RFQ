@@ -25,10 +25,12 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 
+from src.core.paths import DATA_DIR
+
 log = logging.getLogger(__name__)
 
 _PST = timezone(timedelta(hours=-8))
-_SHADOW_LOG = os.path.join(os.environ.get("DATA_DIR", "data"), "shadow_diffs.jsonl")
+_SHADOW_LOG = os.path.join(DATA_DIR, "shadow_diffs.jsonl")
 
 
 def _is_shadow_enabled() -> bool:
@@ -125,7 +127,7 @@ def _shadow_worker(pc_or_rfq_dict: dict, doc_type: str, doc_id: str, legacy_outp
         )
 
         # Save new output for manual comparison
-        shadow_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "shadow_outputs")
+        shadow_dir = os.path.join(DATA_DIR, "shadow_outputs")
         os.makedirs(shadow_dir, exist_ok=True)
         shadow_path = os.path.join(shadow_dir, f"{doc_id}_shadow.pdf")
         with open(shadow_path, "wb") as f:

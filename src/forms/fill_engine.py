@@ -21,6 +21,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from src.core.paths import DATA_DIR
 from src.core.quote_model import Quote
 from src.forms.profile_registry import FormProfile
 
@@ -431,7 +432,7 @@ def approve_and_sign(draft_pdf_bytes: bytes, signature_image_path: str = "") -> 
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "signature_transparent.png"),
             "src/forms/signature_transparent.png",
             "signature_transparent.png",
-            os.path.join(os.environ.get("DATA_DIR", "data"), "signature_transparent.png"),
+            os.path.join(DATA_DIR, "signature_transparent.png"),
         ]:
             if os.path.exists(candidate):
                 signature_image_path = candidate

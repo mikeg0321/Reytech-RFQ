@@ -433,8 +433,7 @@ def _build_catalog_health():
 def _build_db_health():
     """DB size + backup status for the health dashboard."""
     import os as _dbh_os
-    data_dir = _dbh_os.environ.get("DATA_DIR", _dbh_os.path.join(
-        _dbh_os.path.dirname(_dbh_os.path.dirname(_dbh_os.path.dirname(_dbh_os.path.abspath(__file__)))), "data"))
+    from src.core.paths import DATA_DIR as data_dir
     db_path = _dbh_os.path.join(data_dir, "reytech.db")
     result = {"db_size_mb": 0, "status": "unknown", "backup_count": 0}
     try:

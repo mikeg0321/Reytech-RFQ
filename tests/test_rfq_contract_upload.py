@@ -250,3 +250,128 @@ class TestContractUploadRoute:
         assert body["counts"]["email_screenshot"] == 1
         assert body["counts"]["template"] == 1
         assert body["counts"]["attachment"] == 1
+
+
+# ─────────────────────────────────────────────────────────────────
+# Auto-extract-on-upload regression (R26Q36, 2026-04-20)
+#
+# Before: email screenshot landed in r["email_screenshot"] and
+# extraction never ran — operator had to click "Re-extract".
+# After: vision OCR + requirement_extractor run in a background
+# thread right after the save, persisting body_text/subject/
+# requirements_json.
+# ─────────────────────────────────────────────────────────────────
+
+class TestAutoExtractOnUpload:
+
+    def _patch_async_to_sync(self, monkeypatch):
+        """Replace threading.Thread with a sync stub for the duration of
+        the test so the auto-extract helper completes before we inspect
+        state. We patch by setting the `threading` attribute on the
+        helper's module directly (resolved via importlib because
+        src.api.modules has no __init__.py at import time)."""
+        import importlib
+        gen_mod = importlib.import_module("src.api.modules.routes_rfq_gen")
+
+        class _SyncThread:
+            def __init__(self, target=None, name=None, daemon=None, **_k):
+                self._target = target
+            def start(self):
+                if self._target:
+                    self._target()
+
+        import threading as _real_threading
+        # Replace just the Thread class, not the whole module
+        monkeypatch.setattr(_real_threading, "Thread", _SyncThread)
+
+    def test_email_screenshot_triggers_auto_extract(
+        self, auth_client, seed_rfq, patched_upload_dir, app, monkeypatch,
+    ):
+        """Uploading an email screenshot should populate body_text +
+        requirements_json without a second click."""
+        self._patch_async_to_sync(monkeypatch)
+
+        class _FakeReq:
+            has_requirements = True
+            extraction_method = "claude"
+            confidence = 0.9
+            forms_required = ["703b", "704b"]
+            due_date = "2026-05-01"
+            def to_dict(self):
+                return {
+                    "forms_required": self.forms_required,
+                    "due_date": self.due_date,
+                    "extraction_method": self.extraction_method,
+                }
+
+        def _fake_ocr(path):
+            return {
+                "subject": "RFQ R26Q36 — Gauze pricing needed by Friday",
+                "sender_name": "Lucy Buyer",
+                "sender_email": "lucy@cchcs.ca.gov",
+                "body_text": "Please quote the attached 704B. Forms 703B and 704B required. Due 2026-05-01.",
+                "solicitation_number": "R26Q0036",
+            }
+
+        import src.forms.vision_parser as vp
+        import src.agents.requirement_extractor as re_mod
+        monkeypatch.setattr(vp, "extract_email_from_screenshot", _fake_ocr)
+        monkeypatch.setattr(re_mod, "extract_requirements",
+                            lambda body, subj, atts: _FakeReq())
+
+        rid = seed_rfq
+        resp = auth_client.post(
+            f"/api/rfq/{rid}/contract-upload",
+            data={"files": (io.BytesIO(_png_bytes()), "buyer_email.png")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert body["counts"]["email_screenshot"] == 1
+        assert body["results"][0]["auto_extract"] == "queued"
+
+        with app.app_context():
+            from src.api.data_layer import load_rfqs
+            r = load_rfqs()[rid]
+
+        # OCR fields persisted
+        assert "Please quote" in (r.get("body_text") or "")
+        assert "R26Q36" in (r.get("email_subject") or "")
+        assert (r.get("from_email") or "") == "lucy@cchcs.ca.gov"
+
+        # Requirements persisted as JSON string
+        import json as _json
+        req_json = _json.loads(r.get("requirements_json") or "{}")
+        assert "703b" in req_json.get("forms_required", [])
+        assert "704b" in req_json.get("forms_required", [])
+        # seed_rfq ships a concrete due_date; helper must NOT overwrite it,
+        # only fill in when the RFQ has TBD / empty / None.
+        assert r.get("due_date") == "2026-03-15"
+
+    def test_auto_extract_noop_when_ocr_fails(
+        self, auth_client, seed_rfq, patched_upload_dir, app, monkeypatch,
+    ):
+        """If OCR returns None (no API key, bad image) we log and move on —
+        the upload must still succeed and the file must still be saved."""
+        self._patch_async_to_sync(monkeypatch)
+
+        import src.forms.vision_parser as vp
+        monkeypatch.setattr(vp, "extract_email_from_screenshot",
+                            lambda path: None)
+
+        rid = seed_rfq
+        resp = auth_client.post(
+            f"/api/rfq/{rid}/contract-upload",
+            data={"files": (io.BytesIO(_png_bytes()), "buyer_email.png")},
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert body["counts"]["email_screenshot"] == 1
+
+        with app.app_context():
+            from src.api.data_layer import load_rfqs
+            r = load_rfqs()[rid]
+        # body_text not clobbered, screenshot still saved
+        assert "email_screenshot" in r
+        assert os.path.exists(r["email_screenshot"]["path"])

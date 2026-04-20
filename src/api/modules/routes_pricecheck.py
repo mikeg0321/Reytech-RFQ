@@ -2430,7 +2430,7 @@ def pricecheck_reparse(pcid):
                     except Exception as _e:
                         log.debug("Suppressed: %s", _e)
                 if row and row["data"]:
-                    restore_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
+                    restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
                     os.makedirs(restore_dir, exist_ok=True)
                     source_pdf = os.path.join(restore_dir, row["filename"] or f"{pcid}.pdf")
                     with open(source_pdf, "wb") as _fw:
@@ -2636,7 +2636,7 @@ def pricecheck_upload_pdf(pcid):
     f.seek(0)
 
     # Save to disk
-    upload_dir = os.path.join(os.environ.get("DATA_DIR", "data"), "pc_pdfs")
+    upload_dir = os.path.join(DATA_DIR, "pc_pdfs")
     os.makedirs(upload_dir, exist_ok=True)
     safe_name = re.sub(r'[^a-zA-Z0-9_.\-]', '_', f.filename)
     save_path = os.path.join(upload_dir, f"{pcid}_{safe_name}")
