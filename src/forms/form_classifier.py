@@ -28,9 +28,45 @@ def _ext(name: str) -> str:
     return os.path.splitext(name or "")[1].lower()
 
 
+def _collect_classifier_hints() -> list[dict]:
+    """Build the ordered list of classifier hints from profile YAMLs.
+
+    Each entry is {slot, priority, field_prefixes, field_contains} taken
+    directly from the profile's `classifier_hints` block. Sorted by
+    priority descending, then by profile id for stable ordering.
+    """
+    try:
+        from src.forms.profile_registry import load_profiles
+        profiles = load_profiles()
+    except Exception as e:
+        log.debug("classifier: load_profiles failed: %s", e)
+        return []
+
+    hints: list[dict] = []
+    for pid, p in profiles.items():
+        raw = getattr(p, "raw_yaml", {}) or {}
+        block = raw.get("classifier_hints")
+        if not isinstance(block, dict):
+            continue
+        slot = block.get("slot")
+        if not slot:
+            continue
+        hints.append({
+            "profile_id": pid,
+            "slot": slot,
+            "priority": int(block.get("priority", 0)),
+            "field_prefixes": list(block.get("field_prefixes", []) or []),
+            "field_contains": list(block.get("field_contains", []) or []),
+        })
+    hints.sort(key=lambda h: (-h["priority"], h["profile_id"]))
+    return hints
+
+
 def _fingerprint_pdf(data: bytes) -> str | None:
     """Inspect AcroForm field names to guess form type.
 
+    Consults profile YAML classifier_hints first (data-driven), then falls
+    back to hardcoded checks for slots with no profile yet (703c).
     Returns one of TEMPLATE_SLOTS or None when no confident match.
     """
     try:
@@ -43,21 +79,19 @@ def _fingerprint_pdf(data: bytes) -> str | None:
     names = list(fields.keys())
     if not names:
         return None
-    has_prefix = lambda pfx: any(n.startswith(pfx) for n in names)
-    if has_prefix("703C_"):
-        return "703c"
-    if has_prefix("703B_"):
-        return "703b"
-    if has_prefix("703A_"):
-        return "703a"
-    # 704B variants: Reytech template uses "COMPANY REPRESENTATIVE print name"
-    # + numbered row fields; buyer 704B uses "ITEM DESCRIPTION PRODUCT
-    # SPECIFICATIONRow1" + "Contract_Number".
+
     joined = "\n".join(names)
-    if "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow" in joined:
-        return "704b"
-    if "COMPANY REPRESENTATIVE" in joined and "Date of Request" in joined:
-        return "704b"
+    for hint in _collect_classifier_hints():
+        for pfx in hint["field_prefixes"]:
+            if any(n.startswith(pfx) for n in names):
+                return hint["slot"]
+        for sub in hint["field_contains"]:
+            if sub in joined:
+                return hint["slot"]
+
+    # Hardcoded fallback: 703c has no profile yet (buyer-supplied variant).
+    if any(n.startswith("703C_") for n in names):
+        return "703c"
     return None
 
 
