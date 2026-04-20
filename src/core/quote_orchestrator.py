@@ -1047,6 +1047,9 @@ _FORM_ID_TO_PROFILE_ID = {
     "drug_free": "drug_free_reytech_standard",
     "obs_1600": "obs_1600_reytech_standard",          # not yet built
     "w9": "w9_reytech",                               # not yet built
+    "dsh_attA": "dsh_attA_reytech_standard",          # not yet built
+    "dsh_attB": "dsh_attB_reytech_standard",          # not yet built
+    "dsh_attC": "dsh_attC_reytech_standard",          # not yet built
     "bidpkg": "",  # Bid package is a container — handled by package_engine, not a profile
 }
 
