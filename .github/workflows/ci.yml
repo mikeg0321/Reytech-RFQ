@@ -220,16 +220,15 @@ jobs:
 
   # ─────────────────────────────────────────────────────────────────
   # Full test suite — runs on push to main, workflow_dispatch, or
-  # PRs with `full-ci` label. ~14-18 min typical, 20 min on slow runners.
-  # 2026-04-19: bumped 20→30 after the #229 main run hit 20:15 and was
-  # killed at 79%. The prior #228 run finished in 13:43 only because
-  # 566 tests errored during collection (pre-#229 double-register bug)
-  # and skipped execution. Real runtime ≈ 17-18 min; 30 min gives
-  # headroom for cold caches and the occasional slow GH runner.
+  # PRs with `full-ci` label.
+  # 2026-04-19: #229 main run was killed at 20:15 at 79% progress;
+  # linear extrapolation puts clean runtime ≈ 25-26 min.
+  # 25 min gives a tight ceiling — tighten further once we have
+  # duration data and can exclude slow-path outliers.
   # ─────────────────────────────────────────────────────────────────
   tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     needs: gate-decision
     if: needs.gate-decision.outputs.run_full == 'true'
     steps:
