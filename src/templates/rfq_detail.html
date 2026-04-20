@@ -496,6 +496,8 @@
   <button type="button" id="rfq-food-cert-btn" class="btn" style="display:none;background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (auto-shown when food items detected)" aria-label="Generate food certification form">🌾 Food Cert</button>
   <button type="button" class="btn" data-qa-gated="1" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
   <a href="/simple-submit/rfq/{{rid}}" class="btn" style="background:rgba(240,136,62,.1);color:#f0883e;border:1px solid rgba(240,136,62,.25);font-size:14px;padding:12px 16px;font-weight:600;text-decoration:none" title="Simple Submit — fast path quoting, skip complex pipeline" aria-label="Simple Submit">⚡ Simple Submit</a>
+  <button type="button" class="btn" style="background:rgba(248,113,113,.1);color:#f85149;border:1px solid rgba(248,113,113,.3);font-size:14px;padding:12px 16px;font-weight:600" onclick="document.getElementById('manual704bInput').click()" title="Upload a hand-filled 704B PDF. Bypasses auto-fill for this RFQ." aria-label="Manual 704B upload">🆘 Manual 704B</button>
+  <input type="file" id="manual704bInput" accept=".pdf" style="display:none" onchange="_uploadManual704b(this)">
   <button type="button" id="rfq-refresh-prices-btn" class="btn" style="background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="refreshCatalogPrices(this)" title="Pull fresh web MSRP for items that lack cost. Runs in background; reload in ~1 min to see updates." aria-label="Refresh catalog prices for this RFQ's items">🔄 Refresh Prices</button>
  </div>
  <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
@@ -526,6 +528,52 @@
    }
  }
  </script>
+ <script>
+ // Phase 0 emergency: upload a hand-filled 704B PDF. Bypasses auto-fill
+ // for this RFQ. Clear via the banner's "Resume auto-fill" link.
+ async function _uploadManual704b(input) {
+   var file = input.files && input.files[0];
+   if (!file) return;
+   if (!/\.pdf$/i.test(file.name)) {
+     showMsg('Manual 704B must be a PDF', 'error');
+     input.value = '';
+     return;
+   }
+   var fd = new FormData();
+   fd.append('file', file);
+   try {
+     showMsg('Uploading ' + file.name + '...', 'ok');
+     var r = await fetch('/api/rfq/{{rid}}/manual-submit', {method: 'POST', credentials: 'include', body: fd});
+     var d = await r.json();
+     if (d.ok) {
+       showMsg('Manual 704B saved (' + d.pages + ' pages, ' + Math.round(d.bytes/1024) + ' KB). Reloading...', 'ok');
+       setTimeout(function() { window.location.reload(); }, 900);
+     } else {
+       showMsg('Upload failed: ' + (d.error || 'unknown'), 'error');
+     }
+   } catch(e) {
+     showMsg('Network error: ' + e.message, 'error');
+   } finally {
+     input.value = '';
+   }
+ }
+ async function _clearManual704b() {
+   if (!confirm('Resume auto-fill for 704B on this RFQ? The uploaded file stays on disk until the next Generate Package overwrites it.')) return;
+   try {
+     var r = await fetch('/api/rfq/{{rid}}/manual-submit', {method: 'DELETE', credentials: 'include'});
+     var d = await r.json();
+     if (d.ok) { window.location.reload(); }
+     else { showMsg('Clear failed: ' + (d.error || 'unknown'), 'error'); }
+   } catch(e) { showMsg('Network error: ' + e.message, 'error'); }
+ }
+ </script>
+
+ {% if r.get('manual_704b') %}
+ <div style="margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span>🆘 <strong>Manual 704B uploaded</strong> — auto-fill is bypassed. Uploaded {{ r.manual_704b.uploaded_at[:19] }} ({{ r.manual_704b.original_filename }}, {{ r.manual_704b.pages }} pages).</span>
+  <a href="#" onclick="event.preventDefault();_clearManual704b()" style="color:#58a6ff;text-decoration:underline">Resume auto-fill</a>
+ </div>
+ {% endif %}
 
  <!-- ── Quote Management ── -->
  {% if r.get('reytech_quote_number') %}
