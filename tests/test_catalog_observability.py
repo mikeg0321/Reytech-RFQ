@@ -15,7 +15,11 @@ from src.agents.product_catalog import (
     init_catalog_db, _get_conn, enrich_catalog_product,
     _record_enrich_error, ENRICHMENT_ERRORS_KEEP,
 )
-from src.api.modules.routes_health import _build_catalog_health
+
+# NOTE: direct `from src.api.modules.routes_health import _build_catalog_health`
+# double-registers Blueprint routes because dashboard.py also loads the same
+# module via importlib+exec. Use the auth_client fixture to hit /api/health/catalog
+# instead — same coverage, no import side effects.
 
 
 @pytest.fixture
@@ -29,17 +33,21 @@ def clean_catalog():
     yield
 
 
-class TestCatalogHealthBuilder:
-    def test_reports_index_presence(self, clean_catalog):
-        h = _build_catalog_health()
-        assert h["upc_column"] is True
-        assert h["upc_index"] is True
-        assert h["unique_name_index"] is True
+class TestCatalogHealthEndpoint:
+    def test_reports_index_presence(self, clean_catalog, auth_client):
+        r = auth_client.get("/api/health/catalog")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True
+        assert d["upc_column"] is True
+        assert d["upc_index"] is True
+        assert d["unique_name_index"] is True
 
-    def test_empty_enrichment_errors_reports_zero(self, clean_catalog):
-        h = _build_catalog_health()
-        assert h["enrichment_errors_24h"] == 0
-        assert h["recent_enrichment_errors"] == []
+    def test_empty_enrichment_errors_reports_zero(self, clean_catalog, auth_client):
+        r = auth_client.get("/api/health/catalog")
+        d = r.get_json()
+        assert d["enrichment_errors_24h"] == 0
+        assert d["recent_enrichment_errors"] == []
 
 
 class TestEnrichmentErrorRecording:
@@ -100,13 +108,13 @@ class TestEnrichmentErrorRecording:
             f"trim-on-insert must cap rows; got {n} with keep={ENRICHMENT_ERRORS_KEEP}"
         )
 
-    def test_build_catalog_health_counts_recent_errors(self, clean_catalog):
+    def test_health_endpoint_counts_recent_errors(self, clean_catalog, auth_client):
         _record_enrich_error(99, "photo_url", "http://x", "network")
         _record_enrich_error(99, "best_cost", 3.5, "bad-cast")
-        h = _build_catalog_health()
-        assert h["enrichment_errors_24h"] >= 2
-        assert len(h["recent_enrichment_errors"]) >= 2
-        assert h["recent_enrichment_errors"][0]["product_id"] == 99
+        d = auth_client.get("/api/health/catalog").get_json()
+        assert d["enrichment_errors_24h"] >= 2
+        assert len(d["recent_enrichment_errors"]) >= 2
+        assert d["recent_enrichment_errors"][0]["product_id"] == 99
 
 
 class TestSmokeMinScoreFlag:
