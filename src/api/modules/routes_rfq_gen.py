@@ -1285,7 +1285,30 @@ def generate_rfq_package(rid):
         link_val = request.form.get(f"link_{i}", "").strip()
         if link_val:
             item["item_link"] = link_val
-    
+
+    # ── Orchestrator observer (flag-gated, default off) ──
+    # Runs the platform pipeline in parallel with the legacy filler chain
+    # so we can diff stage_history against the trace in soak. Wrapper is
+    # a no-op unless `rfq.orchestrator_pipeline` is flipped on — see
+    # QuoteOrchestrator.run_legacy_package. Failures here never block the
+    # legacy route; they surface as a single trace warn.
+    try:
+        from src.core.quote_orchestrator import QuoteOrchestrator as _QO
+        _obs = _QO(persist_audit=False).run_legacy_package(
+            rid, dict(request.form), target_stage="qa_pass",
+        )
+        for _n in _obs.notes:
+            t.step(f"orchestrator: {_n}")
+        for _b in _obs.blockers:
+            t.warn(f"orchestrator blocker: {_b}")
+        if _obs.ok and _obs.quote is not None:
+            t.step(
+                f"orchestrator observer: final_stage={_obs.final_stage}, "
+                f"profiles={len(_obs.profiles_used)}"
+            )
+    except Exception as _oe:
+        t.warn(f"orchestrator observer suppressed: {type(_oe).__name__}: {_oe}")
+
     r["sign_date"] = get_pst_date()
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
