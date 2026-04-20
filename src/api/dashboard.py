@@ -4068,6 +4068,22 @@ def _update_order_status(oid: str):
     except Exception:
         return
 
+    # ── ORACLE WIN-CALIBRATION TRIGGER — runtime counterpart to the
+    # orders→wins backfill script. Fires once per order (ledger-gated) when
+    # status first lands in a realized-win class. Without this, Oracle only
+    # sees losses (via SCPRS award tracker); wins stay at 0 even as POs ship.
+    _WIN_CLASS = ("shipped", "delivered", "invoiced", "complete", "completed")
+    if new_status in _WIN_CLASS and old_status not in _WIN_CLASS:
+        try:
+            from src.core.pricing_oracle_v2 import calibrate_order_shipped_once
+            calibrate_order_shipped_once(
+                oid, items,
+                agency=order.get("agency") or order.get("institution", ""),
+                order_total=order.get("total", 0) or 0,
+            )
+        except Exception as _oe:
+            log.debug("Oracle win-calibration trigger: %s", _oe)
+
     # ── ALL DELIVERED TRIGGER — auto-draft invoice + notify Mike ──
     if new_status == "delivered" and old_status != "delivered":
         order["delivered_at"] = datetime.now().isoformat()
