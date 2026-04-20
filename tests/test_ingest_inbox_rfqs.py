@@ -103,3 +103,117 @@ def test_build_rfq_info_handles_five_digit_solicitation(ingest_mod):
     msg = email_pkg.message_from_bytes(raw)
     info = ingest_mod._build_rfq_info(msg, "gmailid456", [], "/tmp/x")
     assert info["solicitation_hint"] == "20026"
+
+
+# ── Corpus fallback ──────────────────────────────────────────────────
+#
+# The corpus-first path lets us ingest when Gmail auth isn't available
+# locally (and on future runs where we've already mined the thread). We
+# only test the pure-python helpers — actual dashboard.process_rfq_email
+# integration is covered by the smoke layer above.
+
+import json  # noqa: E402
+import shutil  # noqa: E402
+
+
+def _write_corpus(tmp_path, inbox, records):
+    cdir = tmp_path / "email_corpus"
+    cdir.mkdir(exist_ok=True)
+    jsonl = cdir / f"{inbox}_corpus.jsonl"
+    with open(jsonl, "w", encoding="utf-8") as f:
+        for r in records:
+            f.write(json.dumps(r) + "\n")
+    return cdir
+
+
+def test_subject_matches_requires_all_tokens(ingest_mod):
+    m = ingest_mod._subject_matches
+    assert m("RFQ 10840486 CCHCS", "in:inbox subject:10840486") is True
+    assert m("RFQ 10840486 CCHCS",
+             "in:inbox subject:10840486 subject:CCHCS") is True
+    # missing second token
+    assert m("RFQ 10840486",
+             "in:inbox subject:10840486 subject:CCHCS") is False
+    # case-insensitive
+    assert m("rfq SNF residents 20026",
+             "in:inbox subject:20026 subject:SNF") is True
+    # no subject tokens → can't match (prevents accidental fuzzy hits)
+    assert m("RFQ anything", "in:inbox") is False
+
+
+def test_find_in_corpus_returns_newest(ingest_mod, tmp_path):
+    records = [
+        {
+            "gmail_id": "aaa111",
+            "subject": "RFQ 10840486 CCHCS older",
+            "parsed_date": "2026-03-01T10:00:00",
+            "from_addr": "old@cchcs.ca.gov",
+        },
+        {
+            "gmail_id": "bbb222",
+            "subject": "RFQ 10840486 CCHCS newer",
+            "parsed_date": "2026-04-18T10:00:00",
+            "from_addr": "new@cchcs.ca.gov",
+        },
+        {
+            "gmail_id": "ccc333",
+            "subject": "Unrelated thread",
+            "parsed_date": "2026-04-19T10:00:00",
+            "from_addr": "misc@example.com",
+        },
+    ]
+    corpus = _write_corpus(tmp_path, "sales", records)
+    hit = ingest_mod.find_in_corpus(
+        "in:inbox subject:10840486", str(corpus), inbox_hint="sales")
+    assert hit is not None
+    assert hit["gmail_id"] == "bbb222"
+    assert hit["_inbox"] == "sales"
+
+
+def test_find_in_corpus_returns_none_when_missing(ingest_mod, tmp_path):
+    corpus = _write_corpus(tmp_path, "sales", [
+        {"gmail_id": "x", "subject": "other", "parsed_date": "2026-01-01"}
+    ])
+    assert ingest_mod.find_in_corpus(
+        "in:inbox subject:99999999", str(corpus)) is None
+
+    # Missing corpus dir is fine — we just return None.
+    assert ingest_mod.find_in_corpus(
+        "in:inbox subject:anything", str(tmp_path / "does_not_exist")) is None
+
+
+def test_build_info_from_corpus_copies_pdf_attachments(ingest_mod, tmp_path):
+    # Lay out a corpus attachment dir as the miner would have written it.
+    gmail_id = "dead1234beef5678"
+    inbox = "sales"
+    corpus_dir = tmp_path / "email_corpus"
+    att_src = corpus_dir / "attachments" / inbox / gmail_id[:16]
+    att_src.mkdir(parents=True)
+    (att_src / "AMS 703B Reytech.pdf").write_bytes(b"%PDF-1.4 fake\n")
+    (att_src / "random_image.png").write_bytes(b"\x89PNG fake")  # ignored
+
+    record = {
+        "gmail_id": gmail_id,
+        "subject": "RFQ 10840486 CCHCS Test",
+        "from_addr": "buyer@cchcs.ca.gov",
+        "from_email": "buyer@cchcs.ca.gov",
+        "date_str": "Mon, 20 Apr 2026 09:00:00 -0700",
+        "body_preview": "Please quote.",
+        "message_id": "<msg@cchcs>",
+        "_inbox": inbox,
+        "_attachment_dir": str(att_src),
+    }
+    rfq_dir = tmp_path / "uploads" / "rfq_x"
+    info = ingest_mod._build_info_from_corpus(record, str(rfq_dir))
+
+    assert info["email_uid"] == gmail_id
+    assert info["subject"] == "RFQ 10840486 CCHCS Test"
+    assert info["sender_email"] == "buyer@cchcs.ca.gov"
+    assert info["solicitation_hint"] == "10840486"
+    # Only the PDF was copied; the PNG was ignored.
+    assert len(info["attachments"]) == 1
+    att = info["attachments"][0]
+    assert att["type"] == "703b"
+    assert os.path.exists(att["path"])
+    # Safe filename was used (spaces preserved, special chars scrubbed).
+    assert att["filename"].endswith(".pdf")

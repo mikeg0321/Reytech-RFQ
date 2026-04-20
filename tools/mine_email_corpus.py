@@ -7,10 +7,14 @@ profiles, and golden fixtures are calibrated against.
 Usage:
     # Requires env vars: GMAIL_OAUTH_CLIENT_ID, GMAIL_OAUTH_CLIENT_SECRET,
     #                     GMAIL_OAUTH_REFRESH_TOKEN, GMAIL_OAUTH_REFRESH_TOKEN_2
-    python tools/mine_email_corpus.py
+    python tools/mine_email_corpus.py                 # full 2-year mine (destructive)
+    python tools/mine_email_corpus.py --refresh       # mine only last 7 days,
+                                                      # dedupe-append to existing JSONL
+    python tools/mine_email_corpus.py --since 2026/04/01
+    python tools/mine_email_corpus.py --inbox sales --refresh
 
     # Or with Railway env:
-    railway run python tools/mine_email_corpus.py
+    railway run python tools/mine_email_corpus.py --refresh
 
 Output:
     data/email_corpus/sales_corpus.jsonl      — one JSON per email from sales@
@@ -20,7 +24,12 @@ Output:
 
 The raw corpus is gitignored (contains PII, buyer names, prices). The analysis
 report and anonymized pattern summaries can ship to the repo.
+
+Refresh mode preserves previously-mined messages — it reads the existing JSONL,
+builds a set of known gmail_ids, and only writes records that aren't already
+there. Full-mine mode still overwrites (same as before).
 """
+import argparse
 import email
 import email.utils
 import hashlib
@@ -358,24 +367,70 @@ def analyze_corpus(records):
 
 # ── Main pipeline ────────────────────────────────────────────────────────────
 
-def mine_inbox(inbox_name, output_file):
-    """Mine all emails from one inbox."""
+def load_existing_gmail_ids(output_file):
+    """Read an existing corpus JSONL and return the set of gmail_ids present.
+
+    Returns an empty set if the file doesn't exist. Used by refresh mode to
+    skip messages that were already mined on a previous run.
+    """
+    if not os.path.exists(output_file):
+        return set()
+    known = set()
+    try:
+        with open(output_file, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                    gid = rec.get("gmail_id")
+                    if gid:
+                        known.add(gid)
+                except json.JSONDecodeError:
+                    continue
+    except OSError as e:
+        log.warning("Could not read existing corpus %s: %s", output_file, e)
+    return known
+
+
+def mine_inbox(inbox_name, output_file, start_date=None, end_date=None,
+               append=False):
+    """Mine emails from one inbox within an optional date window.
+
+    Args:
+        inbox_name: "sales" or "mike"
+        output_file: path to the JSONL to write
+        start_date: Gmail-format date (YYYY/MM/DD); defaults to module START_DATE
+        end_date: Gmail-format date (YYYY/MM/DD); defaults to module END_DATE
+        append: when True, load known gmail_ids from an existing JSONL and
+                skip those; open the file in append mode. When False, the
+                file is overwritten (legacy behavior).
+    """
     log.info("=" * 60)
-    log.info("Mining inbox: %s", inbox_name)
+    log.info("Mining inbox: %s (%s)", inbox_name,
+             "refresh/append" if append else "full overwrite")
     log.info("=" * 60)
 
     service = get_gmail_service(inbox_name)
     if not service:
         return []
 
-    # Build query — broad net, we'll classify in post-processing
+    start = start_date or START_DATE
+    end = end_date or END_DATE
     exclude = " ".join(f"-from:{e}" for e in EXCLUDE_FROM)
-    query = f"in:inbox after:{START_DATE} before:{END_DATE} {exclude}"
+    query = f"in:inbox after:{start} before:{end} {exclude}"
     log.info("Query: %s", query)
 
-    # Fetch all message IDs
+    known_ids = load_existing_gmail_ids(output_file) if append else set()
+    if append:
+        log.info("Dedupe: %d known gmail_ids in existing corpus", len(known_ids))
+
     msg_ids = list_all_message_ids(service, query, max_results=10000)
     log.info("Found %d messages in %s", len(msg_ids), inbox_name)
+
+    if append and known_ids:
+        before = len(msg_ids)
+        msg_ids = [m for m in msg_ids if m not in known_ids]
+        log.info("  %d new after dedupe (%d already in corpus)",
+                 len(msg_ids), before - len(msg_ids))
 
     if not msg_ids:
         return []
@@ -383,11 +438,12 @@ def mine_inbox(inbox_name, output_file):
     records = []
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-    with open(output_file, "w", encoding="utf-8") as f:
+    mode = "a" if append else "w"
+    with open(output_file, mode, encoding="utf-8") as f:
         for i, msg_id in enumerate(msg_ids):
-            # Rate limiting
             if i > 0 and i % BATCH_SIZE == 0:
-                log.info("  Progress: %d/%d (%.0f%%)", i, len(msg_ids), i / len(msg_ids) * 100)
+                log.info("  Progress: %d/%d (%.0f%%)", i, len(msg_ids),
+                         i / len(msg_ids) * 100)
                 time.sleep(BATCH_PAUSE_SEC)
 
             raw = fetch_raw_message(service, msg_id)
@@ -399,7 +455,6 @@ def mine_inbox(inbox_name, output_file):
                 record["inbox"] = inbox_name
                 record["classification"] = classify_email(record)
 
-                # Save attachments if agency-related
                 if record["classification"]["is_broad"] and record["attachment_count"] > 0:
                     saved = save_attachments(raw, msg_id, inbox_name)
                     record["saved_attachments"] = len(saved)
@@ -410,29 +465,82 @@ def mine_inbox(inbox_name, output_file):
             except Exception as e:
                 log.warning("Parse error for %s: %s", msg_id, e)
 
-    log.info("Mined %d emails from %s → %s", len(records), inbox_name, output_file)
+    log.info("Mined %d %semails from %s → %s",
+             len(records), "new " if append else "", inbox_name, output_file)
     return records
 
 
-def main():
+def _parse_args(argv=None):
+    p = argparse.ArgumentParser(
+        description="Mine agency emails from Reytech inboxes (full-mine or refresh).")
+    p.add_argument("--refresh", action="store_true",
+                   help="Dedupe-append mode; defaults to a 7-day window unless "
+                        "--since/--before override it.")
+    p.add_argument("--since", default=None,
+                   help="Gmail-format start date YYYY/MM/DD "
+                        "(default: module START_DATE for full mine, 7 days ago for --refresh)")
+    p.add_argument("--before", default=None,
+                   help="Gmail-format end date YYYY/MM/DD "
+                        "(default: module END_DATE)")
+    p.add_argument("--inbox", choices=("sales", "mike", "both"), default="both",
+                   help="Which inbox to mine (default: both)")
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
+
     os.makedirs(CORPUS_DIR, exist_ok=True)
     os.makedirs(ATTACHMENT_DIR, exist_ok=True)
 
-    all_records = []
+    # Resolve the date window.
+    if args.refresh and not args.since:
+        start_date = (datetime.now() - timedelta(days=7)).strftime("%Y/%m/%d")
+    else:
+        start_date = args.since  # None falls back to module START_DATE inside mine_inbox
+    end_date = args.before
 
-    # Mine both inboxes
+    append_mode = bool(args.refresh)
+
+    all_records = []
+    sales_records = []
+    mike_records = []
+
     sales_file = os.path.join(CORPUS_DIR, "sales_corpus.jsonl")
     mike_file = os.path.join(CORPUS_DIR, "mike_corpus.jsonl")
 
-    sales_records = mine_inbox("sales", sales_file)
-    all_records.extend(sales_records)
+    if args.inbox in ("sales", "both"):
+        sales_records = mine_inbox(
+            "sales", sales_file,
+            start_date=start_date, end_date=end_date, append=append_mode)
+        all_records.extend(sales_records)
 
-    mike_records = mine_inbox("mike", mike_file)
-    all_records.extend(mike_records)
+    if args.inbox in ("mike", "both"):
+        mike_records = mine_inbox(
+            "mike", mike_file,
+            start_date=start_date, end_date=end_date, append=append_mode)
+        all_records.extend(mike_records)
 
     if not all_records:
+        if append_mode:
+            log.info("Refresh complete — no new emails since last mine.")
+            return 0
         log.warning("No emails mined. Check Gmail API configuration.")
         return 1
+
+    # Refresh mode: keep it short. The on-disk JSONL is the authoritative
+    # corpus; we don't re-run full analysis on partial data because that
+    # would overwrite the full-mine snapshot with only the new tail.
+    if append_mode:
+        print("\n" + "=" * 60)
+        print("CORPUS REFRESH COMPLETE")
+        print("=" * 60)
+        print(f"  New sales emails: {len(sales_records)}")
+        print(f"  New mike emails:  {len(mike_records)}")
+        print(f"  Total new:        {len(all_records)}")
+        print(f"  Appended to:      {CORPUS_DIR}/")
+        print("=" * 60)
+        return 0
 
     # Run analysis
     log.info("Running corpus analysis on %d total emails...", len(all_records))
@@ -471,4 +579,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main() or 0)
