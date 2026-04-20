@@ -547,6 +547,14 @@ def run_award_check(force: bool = False) -> dict:
                 )
                 total_prices_recorded += prices_recorded
 
+                # ── Idempotency check: was this (quote, po) pair already matched? ──
+                # Calibration below must fire exactly once per match to avoid
+                # double-counting losses when award_tracker re-runs (every 8h).
+                already_matched = conn.execute(
+                    "SELECT 1 FROM quote_po_matches WHERE quote_number=? AND po_number=?",
+                    (quote_num, po_number)
+                ).fetchone() is not None
+
                 # ── Store match record ────────────────────────────────────
                 try:
                     conn.execute("""
@@ -603,6 +611,32 @@ def run_award_check(force: bool = False) -> dict:
                              quote_num, loss_class, len(mth_items))
                 except Exception as e:
                     log.debug("Enhanced competitor intel: %s", e)
+
+                # ── Oracle calibration from SCPRS-detected loss ───────────
+                # Runtime counterpart to the PC/RFQ mark-lost routes. Fires
+                # only on FRESH matches (see already_matched guard above), so
+                # award_tracker's 8-hour re-run doesn't double-count losses.
+                # Passes real winner_prices from SCPRS so the EMA for
+                # avg_losing_delta reflects actual competitor pricing, not
+                # just a count.
+                if not already_matched:
+                    try:
+                        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+                        _winner_prices = _winner_prices_from_analysis(
+                            our_items, analysis.get("line_comparison", [])
+                        )
+                        _loss_class_local = analysis.get("loss_reason_class", "price_higher")
+                        _calibrate_loss_reason = _loss_reason_for_calibration(_loss_class_local)
+                        calibrate_from_outcome(
+                            our_items, "lost",
+                            agency=agency,
+                            loss_reason=_calibrate_loss_reason,
+                            winner_prices=_winner_prices or None,
+                        )
+                        log.info("ORACLE_CALIBRATE: %s loss=%s winner_prices=%d items",
+                                 quote_num, _calibrate_loss_reason, len(_winner_prices))
+                    except Exception as _ce:
+                        log.warning("Oracle loss calibration: %s", _ce)
 
                 # ── Auto-close quote as lost ──────────────────────────────
                 # Guard: Only auto-close at HIGH confidence (0.80+)
@@ -979,6 +1013,42 @@ def _classify_loss_reason(pct_diff: float, line_comparison: list,
 
 
 # ── Loss Analysis ─────────────────────────────────────────────────────────────
+
+def _loss_reason_for_calibration(loss_class: str) -> str:
+    """Map award_tracker's loss_reason_class → calibrate_from_outcome's
+    `loss_reason` enum. 'price' covers both direct undercut and us-above-
+    market-on-margin; everything else (relationship_incumbent, unclear) is
+    'other' and only bumps loss_on_other (no avg_losing_delta EMA)."""
+    return "price" if loss_class in ("price_higher", "margin_too_high") else "other"
+
+
+def _winner_prices_from_analysis(our_items: list, line_comparison: list) -> dict:
+    """Build `{idx: competitor_unit_price}` keyed on the index of each item
+    in the ORIGINAL `our_items` list (the list passed to calibrate_from_outcome).
+
+    _analyze_loss drops items without descriptions, so indexes in
+    line_comparison don't match our_items positions. Match on the same
+    `description[:80]` slice that _analyze_loss stores in `our_description`.
+    """
+    out: dict = {}
+    if not our_items or not line_comparison:
+        return out
+    for i, item in enumerate(our_items):
+        desc = (item.get("description") or item.get("name") or "").strip()[:80]
+        if not desc:
+            continue
+        for comp in line_comparison:
+            if (comp.get("matched")
+                    and comp.get("our_description") == desc):
+                wp = comp.get("winner_unit_price", 0)
+                if wp:
+                    try:
+                        out[i] = float(wp)
+                    except (TypeError, ValueError):
+                        pass
+                break
+    return out
+
 
 def _analyze_loss(quote: dict, our_items: list, po: dict, po_lines: list,
                   winner: str, winner_total: float) -> dict:
