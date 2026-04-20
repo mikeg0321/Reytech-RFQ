@@ -576,38 +576,68 @@ def fill_703b(input_path, rfq_data, config, output_path):
         except Exception as _e:
             log.debug("suppressed: %s", _e)
 
+    # Detect the template's field-name prefix. Buyer-supplied 703Bs sometimes
+    # have unprefixed field names ("Business Name" instead of "703B_Business
+    # Name"); if we hardcode the prefix, every vendor field fills to a
+    # non-existent key and the output PDF shows a blank bidder section. A 703C
+    # template routed here (shouldn't happen, but be defensive) gets redirected.
+    try:
+        _reader_prefix = PdfReader(input_path)
+        _field_names = set((_reader_prefix.get_fields() or {}).keys())
+    except Exception as _e:
+        log.debug("703B prefix detect: reader failed (%s) — defaulting to 703B_", _e)
+        _field_names = set()
+    _has_703b = any(f.startswith("703B_") for f in _field_names)
+    _has_703c = any(f.startswith("703C_") for f in _field_names)
+    if _has_703c and not _has_703b:
+        return fill_703c(input_path, rfq_data, config, output_path)
+    if _has_703b:
+        p = "703B_"
+    elif _field_names and any(
+        f in _field_names for f in ("Business Name", "Contact Person", "Check Box2")
+    ):
+        p = ""
+    else:
+        # No AcroForm fields recognised — keep legacy prefix so behaviour is
+        # unchanged vs pre-fix versions when the reader can't see fields.
+        p = "703B_"
+
     values = {
-        "703B_Business Name": company["name"],
-        "703B_Address": company["address"],
-        "703B_Contact Person": company["owner"],
-        "703B_Title": company["title"],
-        "703B_Phone": company["phone"],
-        "703B_Email": company["email"],
-        "703B_Federal Employer Identification Number FEIN": company["fein"],
-        "703B_Retailers CA Sellers Permit Number": company["sellers_permit"],
-        "703B_SBMBDVBE Certification.0": company["cert_number"],
-        "703B_Certification Expiration Date": company["cert_expiration"],
-        "703B_Payment discount offered on invoices to be paid within": "N/A",
-        "703B_days of receipt": "0",
-        "703B_Solicitation Number": _sol_display(rfq_data.get("solicitation_number", "")),
-        "703B_Release Date": rfq_data.get("release_date", ""),
-        "703B_Due Date": rfq_data.get("due_date", ""),
-        "703B_BidExpirationDate": bid_exp,
-        "703B_Sign_Date": sign_date,
-        "703B_Deliveries must be completed within": rfq_data.get("delivery_days", "30"),
-        "703B_Name": rfq_data.get("requestor_name", ""),
-        "703B_Email_2": rfq_data.get("requestor_email", ""),
-        "703B_Phone_2": rfq_data.get("requestor_phone", ""),
-        "703B_Check Box2": "/Yes", "703B_Check Box4": "/Yes",
-        "703B_Check Box5": "/Yes", "703B_Check Box7": "/Yes",
-        "703B_ResponseList.0": "/Yes", "703B_ResponseList.1": "/Yes",
-        "703B_ResponseList.2": "/Yes", "703B_ResponseList.3": "/Yes",
-        "703B_ResponseList.4": "/Yes", "703B_ResponseList.5": "/Yes",
-        "703B_ResponseList.6": "/Yes", "703B_ResponseList.7": "/Yes",
-        "703B_ResponseList.14": "/Yes",
+        f"{p}Business Name": company["name"],
+        f"{p}Address": company["address"],
+        f"{p}Contact Person": company["owner"],
+        f"{p}Title": company["title"],
+        f"{p}Phone": company["phone"],
+        f"{p}Email": company["email"],
+        f"{p}Federal Employer Identification Number FEIN": company["fein"],
+        f"{p}Retailers CA Sellers Permit Number": company["sellers_permit"],
+        f"{p}SBMBDVBE Certification.0": company["cert_number"],
+        f"{p}Certification Expiration Date": company["cert_expiration"],
+        f"{p}Payment discount offered on invoices to be paid within": "N/A",
+        f"{p}days of receipt": "0",
+        f"{p}Solicitation Number": _sol_display(rfq_data.get("solicitation_number", "")),
+        f"{p}Release Date": rfq_data.get("release_date", ""),
+        f"{p}Due Date": rfq_data.get("due_date", ""),
+        f"{p}BidExpirationDate": bid_exp,
+        f"{p}Sign_Date": sign_date,
+        f"{p}Deliveries must be completed within": rfq_data.get("delivery_days", "30"),
+        f"{p}Name": rfq_data.get("requestor_name", ""),
+        f"{p}Email_2": rfq_data.get("requestor_email", ""),
+        f"{p}Phone_2": rfq_data.get("requestor_phone", ""),
+        f"{p}Check Box2": "/Yes", f"{p}Check Box4": "/Yes",
+        f"{p}Check Box5": "/Yes", f"{p}Check Box7": "/Yes",
+        f"{p}ResponseList.0": "/Yes", f"{p}ResponseList.1": "/Yes",
+        f"{p}ResponseList.2": "/Yes", f"{p}ResponseList.3": "/Yes",
+        f"{p}ResponseList.4": "/Yes", f"{p}ResponseList.5": "/Yes",
+        f"{p}ResponseList.6": "/Yes", f"{p}ResponseList.7": "/Yes",
+        f"{p}ResponseList.14": "/Yes",
     }
+    # Some unprefixed 703B variants use a "Date" field for the signature date
+    # instead of "Sign_Date" — populate both for safety.
+    if p == "" and "Date" in _field_names:
+        values["Date"] = sign_date
     if rfq_data.get("delivery_location"):
-        values["703B_Dropdown2"] = rfq_data["delivery_location"]
+        values[f"{p}Dropdown2"] = rfq_data["delivery_location"]
 
     # Check if template has /Sig fields (if so, fill_and_sign_pdf handles signature)
     _reader_check = PdfReader(input_path)
