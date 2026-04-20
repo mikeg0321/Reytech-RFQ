@@ -487,12 +487,13 @@ def fill_703c(input_path, rfq_data, config, output_path):
     """Fill AMS 703C Rev 03/2025 (Fair and Reasonable / Exempt).
     Field names use '703C_' prefix. Verified from actual PDF field dump."""
     from pypdf import PdfReader as _PR703c
+    from src.forms.form_classifier import detect_field_prefix, get_field_prefix
     reader = _PR703c(input_path)
     fields = reader.get_fields() or {}
     field_names = set(fields.keys())
 
-    has_703b_prefix = any(f.startswith("703B_") for f in field_names)
-    has_703c_prefix = any(f.startswith("703C_") for f in field_names)
+    has_703b_prefix = bool(detect_field_prefix(field_names, "703b"))
+    has_703c_prefix = bool(detect_field_prefix(field_names, "703c"))
 
     if has_703b_prefix and not has_703c_prefix:
         return fill_703b(input_path, rfq_data, config, output_path)
@@ -505,7 +506,7 @@ def fill_703c(input_path, rfq_data, config, output_path):
         gen_date = datetime.now()
     bid_exp = (gen_date + timedelta(days=45)).strftime("%m/%d/%Y")
 
-    p = "703C_" if has_703c_prefix else ""
+    p = get_field_prefix("703c") if has_703c_prefix else ""
 
     values = {
         # Company info
@@ -581,26 +582,28 @@ def fill_703b(input_path, rfq_data, config, output_path):
     # Name"); if we hardcode the prefix, every vendor field fills to a
     # non-existent key and the output PDF shows a blank bidder section. A 703C
     # template routed here (shouldn't happen, but be defensive) gets redirected.
+    from src.forms.form_classifier import detect_field_prefix, get_field_prefix
+    _703b_prefix = get_field_prefix("703b")  # canonical "703B_"
     try:
         _reader_prefix = PdfReader(input_path)
         _field_names = set((_reader_prefix.get_fields() or {}).keys())
     except Exception as _e:
-        log.debug("703B prefix detect: reader failed (%s) — defaulting to 703B_", _e)
+        log.debug("703B prefix detect: reader failed (%s) — defaulting to %s", _e, _703b_prefix)
         _field_names = set()
-    _has_703b = any(f.startswith("703B_") for f in _field_names)
-    _has_703c = any(f.startswith("703C_") for f in _field_names)
+    _has_703b = bool(detect_field_prefix(_field_names, "703b"))
+    _has_703c = bool(detect_field_prefix(_field_names, "703c"))
     if _has_703c and not _has_703b:
         return fill_703c(input_path, rfq_data, config, output_path)
     if _has_703b:
-        p = "703B_"
+        p = _703b_prefix
     elif _field_names and any(
         f in _field_names for f in ("Business Name", "Contact Person", "Check Box2")
     ):
         p = ""
     else:
-        # No AcroForm fields recognised — keep legacy prefix so behaviour is
+        # No AcroForm fields recognised — keep canonical prefix so behaviour is
         # unchanged vs pre-fix versions when the reader can't see fields.
-        p = "703B_"
+        p = _703b_prefix
 
     values = {
         f"{p}Business Name": company["name"],
