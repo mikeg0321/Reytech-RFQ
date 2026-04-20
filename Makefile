@@ -329,6 +329,12 @@ routes:  ## List all API routes
 status:  ## Pipeline dashboard — where your code is in the deploy pipeline
 	@python scripts/pipeline_status.py
 
+db-diag:  ## Read-only reytech.db bloat diagnostic (pass db=<path> for non-default)
+	@python scripts/db_bloat_diagnostic.py $(if $(db),--db $(db),)
+
+db-diag-json:  ## Machine-readable JSON bloat report (pass db=<path> for non-default)
+	@python scripts/db_bloat_diagnostic.py --json $(if $(db),--db $(db),)
+
 # ── Legacy Deploy (direct push, before branch protection) ──────────────────
 
 deploy: check test  ## Legacy: test + check + push main directly
