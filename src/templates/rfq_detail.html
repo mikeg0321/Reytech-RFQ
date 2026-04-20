@@ -168,13 +168,18 @@
  {% set _catalog = items|selectattr('catalog_match')|list|length %}
  {% set ns = namespace(priced=0) %}{% for i in items %}{% if i.get('price_per_unit') or i.get('supplier_cost') or i.get('amazon_price') or i.get('scprs_last_price') %}{% set ns.priced = ns.priced + 1 %}{% endif %}{% endfor %}
  {% if _total > 0 %}
- <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:14px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-  <span style="font-weight:600;color:var(--tx2)">🔍 Pricing Status:</span>
-  <span style="color:{% if _scprs %}#3fb950{% else %}#8b949e{% endif %}">SCPRS: {{ _scprs }}/{{ _total }}</span>
-  <span style="color:{% if _amazon %}#f0883e{% else %}#8b949e{% endif %}">Amazon: {{ _amazon }}/{{ _total }}</span>
-  <span style="color:{% if _catalog %}#a78bfa{% else %}#8b949e{% endif %}">Catalog: {{ _catalog }}/{{ _total }}</span>
-  <span style="color:{% if ns.priced %}#3fb950{% else %}#f85149{% endif %};font-weight:600">{{ ns.priced }}/{{ _total }} priced</span>
-  {% if lookup.ran_at %}<span style="color:#8b949e;font-size:13px">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
+ {# Source counts compress to icons; show only non-zero sources to reduce 0/1 0/1 0/1 clutter #}
+ <div style="margin-top:12px;padding:10px 14px;border-radius:8px;background:rgba(79,140,255,.05);border:1px solid rgba(79,140,255,.15);font-size:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+  <span style="color:{% if ns.priced == _total %}#3fb950{% elif ns.priced %}#d29922{% else %}#f85149{% endif %};font-weight:700;font-size:15px">
+   {% if ns.priced == _total %}✅{% elif ns.priced %}⏳{% else %}⚠️{% endif %} {{ ns.priced }}/{{ _total }} priced
+  </span>
+  {% if _scprs or _amazon or _catalog %}
+  <span style="color:var(--tx2);font-size:13px">via</span>
+  {% if _scprs %}<span title="SCPRS reference prices matched" style="color:#3fb950">🏛 SCPRS {{ _scprs }}</span>{% endif %}
+  {% if _amazon %}<span title="Amazon prices found" style="color:#f0883e">🛒 Amazon {{ _amazon }}</span>{% endif %}
+  {% if _catalog %}<span title="Catalog matches" style="color:#a78bfa">📦 Catalog {{ _catalog }}</span>{% endif %}
+  {% endif %}
+  {% if lookup.ran_at %}<span style="color:#8b949e;font-size:12px;margin-left:auto">{{ lookup.ran_at[:16].replace('T',' ') }}</span>{% endif %}
  </div>
  {% endif %}
 </div>
