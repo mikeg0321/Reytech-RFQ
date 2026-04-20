@@ -154,6 +154,8 @@ def load_profiles(profiles_dir: str = PROFILES_DIR) -> dict[str, FormProfile]:
     for fname in sorted(os.listdir(profiles_dir)):
         if not fname.endswith((".yaml", ".yml")):
             continue
+        if fname == "registry.yml":
+            continue
         path = os.path.join(profiles_dir, fname)
         try:
             profile = load_profile(path)
@@ -247,6 +249,53 @@ def check_template_profile_matches(
         report[slot] = entry
 
     return report
+
+
+def build_manifest_payload(profiles: dict[str, FormProfile]) -> dict:
+    """Serialize the in-memory profile set into the registry.yml schema.
+
+    Output schema:
+        version: 1
+        profiles:
+          - id: <profile_id>
+            form_type: <form_type>
+            fill_mode: <acroform|overlay|hybrid|generated|pass_through|static_attach>
+            blank_pdf: <relative path or ''>
+            fingerprint: <sha256 hex or ''>
+            field_count: <int>
+    """
+    entries = []
+    for pid in sorted(profiles.keys()):
+        p = profiles[pid]
+        entries.append({
+            "id": p.id,
+            "form_type": p.form_type,
+            "fill_mode": p.fill_mode,
+            "blank_pdf": p.blank_pdf or "",
+            "fingerprint": p.fingerprint or "",
+            "field_count": len(p.fields),
+        })
+    return {"version": 1, "profiles": entries}
+
+
+def load_manifest(manifest_path: Optional[str] = None) -> dict[str, dict]:
+    """Load registry.yml into a {profile_id: entry} dict.
+
+    Returns empty dict if the manifest file is missing — callers should treat
+    absence as 'no registered profiles' rather than raise.
+    """
+    if manifest_path is None:
+        manifest_path = os.path.join(PROFILES_DIR, "registry.yml")
+    if not os.path.exists(manifest_path):
+        return {}
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+    out: dict[str, dict] = {}
+    for entry in raw.get("profiles", []) or []:
+        pid = entry.get("id", "")
+        if pid:
+            out[pid] = entry
+    return out
 
 
 def validate_profile(profile: FormProfile) -> list[str]:
