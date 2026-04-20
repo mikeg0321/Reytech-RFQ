@@ -202,10 +202,6 @@ def _run_llm_gap_check(
     """
     if not (buyer_email_text or "").strip():
         return [], "no buyer email text available"
-    try:
-        import anthropic  # noqa: F401
-    except Exception:
-        return [], "anthropic SDK not installed"
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return [], "ANTHROPIC_API_KEY not set"
@@ -218,6 +214,10 @@ def _run_llm_gap_check(
             filled_profiles=filled_profiles,
             quote=quote,
         )
+    except ImportError:
+        # anthropic SDK not installed — preserve the prior skip-reason shape
+        # so operators see the same message in prod runs without the SDK.
+        return [], "anthropic SDK not installed"
     except Exception as e:
         log.debug("LLM gap check failed: %s", e)
         return [], f"LLM call failed: {type(e).__name__}: {e}"
