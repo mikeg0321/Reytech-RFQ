@@ -48,6 +48,9 @@ AVAILABLE_FORMS = [
     {"id": "barstow_cuf", "name": "Barstow CUF", "desc": "Barstow facility CUF"},
     {"id": "obs_1600", "name": "OBS 1600", "desc": "Food Product Certification"},
     {"id": "w9", "name": "W-9", "desc": "IRS W-9 Tax Form"},
+    {"id": "dsh_attA", "name": "DSH Attachment A", "desc": "Vendor Information"},
+    {"id": "dsh_attB", "name": "DSH Attachment B", "desc": "Bidder Declaration"},
+    {"id": "dsh_attC", "name": "DSH Attachment C", "desc": "Darfur / Certifications"},
 ]
 
 # Patterns in email body/PDF text that indicate a specific form is required
