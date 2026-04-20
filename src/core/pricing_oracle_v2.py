@@ -1737,6 +1737,80 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
             log.debug("suppressed: %s", _e)
 
 
+def calibrate_order_shipped_once(order_id: str, items: list, agency: str = "",
+                                 order_total: float = 0.0) -> bool:
+    """Fire calibrate_from_outcome('won') for a shipped/delivered/invoiced order,
+    idempotently via `backfill_wins_ledger`.
+
+    Prod 2026-04-20 had 0 wins / 47 losses because the only runtime win-path
+    (PC/RFQ mark-won buttons) hadn't been used — Mike is mid-transition from
+    Google Drive. Real shipped POs sat in `orders` invisible to Oracle. This
+    helper is the runtime counterpart to `scripts/backfill_wins_from_orders.py`:
+    order-status transitions into win-class now feed Oracle the same way the
+    backfill does, gated on the same ledger so no double-count occurs.
+
+    Args:
+        order_id: `orders.id` — ledger primary key, dedupes re-entries.
+        items: parsed line-items list from the order.
+        agency: agency/institution label for calibration bucket.
+        order_total: recorded on the ledger row for audit; no math done on it.
+
+    Returns:
+        True  — fired calibrate_from_outcome and wrote the ledger row.
+        False — ledger already had this order_id; silently skipped.
+    """
+    import sqlite3
+    from src.core.db import DB_PATH
+
+    if not order_id:
+        return False
+    if not items:
+        # Can't calibrate without items (single real prod win has items,
+        # but 3/4 prod orders carry items=[] as artifacts). Skip quietly —
+        # same contract as the backfill script.
+        return False
+
+    try:
+        db = sqlite3.connect(DB_PATH, timeout=10)
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS backfill_wins_ledger (
+                order_id TEXT PRIMARY KEY,
+                processed_at TEXT NOT NULL,
+                win_total REAL,
+                agency TEXT,
+                items_count INTEGER
+            )
+        """)
+        existing = db.execute(
+            "SELECT 1 FROM backfill_wins_ledger WHERE order_id=?",
+            (order_id,)
+        ).fetchone()
+        if existing:
+            db.close()
+            log.debug("Oracle win-calibration skipped (already in ledger): %s", order_id)
+            return False
+
+        db.execute("""
+            INSERT INTO backfill_wins_ledger
+                (order_id, processed_at, win_total, agency, items_count)
+            VALUES (?, datetime('now'), ?, ?, ?)
+        """, (order_id, float(order_total or 0), agency or "", len(items)))
+        db.commit()
+        db.close()
+    except Exception as e:
+        log.warning("calibrate_order_shipped_once ledger error (%s): %s", order_id, e)
+        return False
+
+    try:
+        calibrate_from_outcome(items, "won", agency=agency)
+        log.info("Oracle win-calibration fired from order ship: %s (agency=%s, items=%d)",
+                 order_id, agency, len(items))
+        return True
+    except Exception as e:
+        log.error("calibrate_order_shipped_once calibrate error (%s): %s", order_id, e)
+        return False
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ORACLE V5.5 — Per-Buyer Win-Rate Curves
 # ═══════════════════════════════════════════════════════════════════════════════

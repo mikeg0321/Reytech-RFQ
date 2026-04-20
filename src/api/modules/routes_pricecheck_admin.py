@@ -352,6 +352,26 @@ def api_pricecheck_mark_won(pcid):
                       po_number, "new", order_total,
                       json.dumps(order_items, default=str),
                       datetime.now().isoformat(), datetime.now().isoformat()))
+                # PC mark-won already fired calibrate_from_outcome('won') above.
+                # Write a ledger row for this order_id so the later order-ship
+                # trigger (dashboard._update_order_status) will skip and not
+                # double-count this same win.
+                _oconn.execute("""
+                    CREATE TABLE IF NOT EXISTS backfill_wins_ledger (
+                        order_id TEXT PRIMARY KEY,
+                        processed_at TEXT NOT NULL,
+                        win_total REAL,
+                        agency TEXT,
+                        items_count INTEGER
+                    )
+                """)
+                _oconn.execute("""
+                    INSERT OR IGNORE INTO backfill_wins_ledger
+                        (order_id, processed_at, win_total, agency, items_count)
+                    VALUES (?, datetime('now'), ?, ?, ?)
+                """, (order_id, float(order_total or 0),
+                      pc.get("institution") or pc.get("agency", ""),
+                      len(order_items)))
             order_created = True
             log.info("AUTO_ORDER: Created order %s for PO %s from PC %s", order_id, po_number, pcid)
         except Exception as _oe:
