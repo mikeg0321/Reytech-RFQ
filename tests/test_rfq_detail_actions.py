@@ -98,3 +98,50 @@ class TestPrimaryActionBarShape:
         assert "recordRfqOutcome('won')" in html
         assert "recordRfqOutcome('lost')" in html
         assert "recordRfqOutcome('no_response')" in html
+
+
+class TestNotesToBuyerHidden:
+    """Notes to Buyer is a 704-fill concern — hiding on the RFQ detail page
+    per user direction 2026-04-20. Existing stored `quote_notes` values are
+    still rendered on the generated quote PDF; only the input is gone."""
+
+    def test_textarea_removed_from_detail_page(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        assert 'name="quote_notes"' not in html, (
+            "Notes to Buyer textarea must not render on RFQ detail"
+        )
+        assert "📝 Notes to Buyer" not in html, (
+            "Notes to Buyer label must not render on RFQ detail"
+        )
+
+    def test_textarea_hidden_across_statuses(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        for status in ("new", "generated", "sent", "won", "lost"):
+            rid = _seed_with_status(temp_data_dir, sample_rfq, status)
+            html = _fetch_detail(client, rid)
+            assert 'name="quote_notes"' not in html, (
+                f"Notes to Buyer textarea leaked at status={status}"
+            )
+
+    def test_stored_quote_notes_do_not_leak_to_detail_page(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        """Even if an RFQ already has quote_notes set (from earlier 704
+        fill), the value must not render on the detail page via some
+        other echo path."""
+        rfq = dict(sample_rfq)
+        rfq["status"] = "new"
+        rfq["quote_notes"] = "LEAKY_NOTE_MARKER_ZX9"
+        import json as _json
+        import os as _os
+        path = _os.path.join(temp_data_dir, "rfqs.json")
+        with open(path, "w", encoding="utf-8") as f:
+            _json.dump({rfq["id"]: rfq}, f)
+        html = _fetch_detail(client, rfq["id"])
+        assert "LEAKY_NOTE_MARKER_ZX9" not in html, (
+            "Stored quote_notes must not be displayed on RFQ detail"
+        )

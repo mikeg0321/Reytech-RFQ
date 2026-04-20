@@ -538,11 +538,10 @@
   {% endif %}
  </div>
 
- <!-- ── Notes to Buyer ── -->
- <div style="margin-top:16px;margin-bottom:4px">
-  <label style="font-size:14px;color:var(--tx);display:block;margin-bottom:6px;font-weight:600">📝 Notes to Buyer <span style="font-size:12px;font-weight:400;color:var(--tx2);margin-left:6px">Printed on generated quote</span></label>
-  <textarea name="quote_notes" rows="4" class="text-in" oninput="triggerAutosave()" style="width:100%;font-size:14px;line-height:1.5;padding:10px 12px;resize:vertical;border-radius:8px;background:var(--sf2);border:1px solid var(--bd);color:var(--tx);min-height:90px" placeholder="e.g. Line items 1-4 are on allocation. Separate deliveries may be required to deliver full quantities requested.">{{ r.get('quote_notes', '') }}</textarea>
- </div>
+{# Notes to Buyer textarea lives on the 704 form-fill flow only — hiding on
+   RFQ detail per user direction (2026-04-20). The stored quote_notes value
+   is still rendered on the generated quote PDF when set from the 704 flow;
+   the collector in saveRfq() is null-safe so removing the input is fine. #}
 
  <!-- ── Revenue KPI Strip ── -->
  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin-top:16px">
