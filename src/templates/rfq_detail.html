@@ -712,8 +712,11 @@
 </div>
 
 <!-- Template / Agency Status Card -->
+{# Package form selection lives at /settings/packages (agency-wide, app-level).
+   This card shows per-RFQ upload + template status only. Renamed from
+   "Package Settings" on 2026-04-20 to avoid confusion with the app-level page. #}
 <details class="card" id="form-templates-card" style="padding:0">
- <summary style="padding:14px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:8px;list-style:none"><span style="font-size:16px">⚙</span> Package Settings <span style="font-size:12px;font-weight:400;opacity:.7;margin-left:4px">Templates, forms, upload</span><span style="margin-left:auto;font-size:12px;opacity:.5">▸</span></summary><div style="padding:0 16px 16px">
+ <summary style="padding:14px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:8px;list-style:none"><span style="font-size:16px">📎</span> Templates &amp; Files <span style="font-size:12px;font-weight:400;opacity:.7;margin-left:4px">Uploaded RFQ forms</span><span style="margin-left:auto;font-size:12px;opacity:.5">▸</span></summary><div style="padding:0 16px 16px">
  {% set t = r.get('templates', {}) %}
  {% set is_generic = r.get('form_type') == 'generic_rfq' %}
 
@@ -771,21 +774,9 @@
  </form>
  {% endif %}
  {% endif %}
- {% set pf = r.get('package_forms', {}) %}
- {% set arf = agency_required_forms|default([]) %}
- <div style="margin-top:10px;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:8px">
-  <div style="font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:6px">Include in package:</div>
-  <div style="display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px">
-   <label><input type="checkbox" class="pkg-form" data-form="703b" {% if pf.get('703b', '703b' in arf) %}checked{% endif %}> 703B/C</label>
-   <label><input type="checkbox" class="pkg-form" data-form="704b" {% if pf.get('704b', '704b' in arf) %}checked{% endif %}> 704B</label>
-   <label><input type="checkbox" class="pkg-form" data-form="bidpkg" {% if pf.get('bidpkg', 'bidpkg' in arf) %}checked{% endif %}> Bid Pkg</label>
-   <label><input type="checkbox" class="pkg-form" data-form="calrecycle74" {% if pf.get('calrecycle74', 'calrecycle74' in arf) %}checked{% endif %}> CalRecycle</label>
-   <label><input type="checkbox" class="pkg-form" data-form="dvbe843" {% if pf.get('dvbe843', 'dvbe843' in arf) %}checked{% endif %}> DVBE 843</label>
-   <label><input type="checkbox" class="pkg-form" data-form="cv012_cuf" {% if pf.get('cv012_cuf', 'cv012_cuf' in arf) %}checked{% endif %}> CUF</label>
-   <label><input type="checkbox" class="pkg-form" data-form="obs_1600" {% if pf.get('obs_1600', 'obs_1600' in arf) %}checked{% endif %}> OBS 1600</label>
-   <label><input type="checkbox" class="pkg-form" data-form="sellers_permit" {% if pf.get('sellers_permit', 'sellers_permit' in arf) %}checked{% endif %}> Seller's Permit</label>
-   <label><input type="checkbox" class="pkg-form" data-form="quote" {% if pf.get('quote', 'quote' in arf or not arf) %}checked{% endif %}> Quote</label>
-  </div>
+ <div style="margin-top:10px;padding:8px 12px;font-size:13px;color:var(--tx2);border-top:1px solid var(--bd)">
+  Which forms ship in the package is configured agency-wide at
+  <a href="/settings/packages" style="color:var(--ac);text-decoration:underline">Settings → Packages</a>.
  </div>
 </div></details>
 
@@ -1708,10 +1699,6 @@ function _getFormData(){
  // Quote notes
  var notesEl=document.querySelector('[name=quote_notes]');
  if(notesEl)payload.quote_notes=notesEl.value;
- // Package form checklist
- var pkgForms={};
- document.querySelectorAll('.pkg-form').forEach(function(cb){pkgForms[cb.dataset.form]=cb.checked;});
- if(Object.keys(pkgForms).length>0)payload.package_forms=pkgForms;
  return JSON.stringify(payload);
 }
 
@@ -1836,8 +1823,6 @@ document.addEventListener('DOMContentLoaded',function(){
   if(inp.type==='text')inp.addEventListener('input',function(){clearTimeout(_autosaveTimer);_autosaveTimer=setTimeout(triggerAutosave,1500)});
  });
  recalc(); // Show margin summary on load
- // Package form checkboxes trigger autosave
- document.querySelectorAll('.pkg-form').forEach(function(cb){cb.addEventListener('change',triggerAutosave);});
 });
 
 function recalc(){

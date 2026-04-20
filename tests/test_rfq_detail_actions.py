@@ -145,3 +145,67 @@ class TestNotesToBuyerHidden:
         assert "LEAKY_NOTE_MARKER_ZX9" not in html, (
             "Stored quote_notes must not be displayed on RFQ detail"
         )
+
+
+class TestPackageSettingsRelocated:
+    """The per-RFQ `Package Settings` card was renamed `Templates & Files`
+    and the per-RFQ form-include checkboxes were removed — the canonical
+    place to configure which forms an agency requires is
+    /settings/packages (app-level, agency-wide).
+
+    Incident to prevent: a user looks at the RFQ detail page, unchecks
+    `704B` to "not include it for this one", generates a package, and
+    then an RFQ for the same agency the next day silently picks up the
+    wrong form set. Config belongs at agency level, not per-RFQ.
+    """
+
+    def test_card_title_is_templates_and_files(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        assert "Templates &amp; Files" in html or "Templates & Files" in html, (
+            "Templates & Files card title missing on RFQ detail"
+        )
+        # The old "Package Settings" label must not render in the card
+        # summary (still allowed to appear in hidden/data attrs).
+        assert "⚙ Package Settings" not in html, (
+            "Old 'Package Settings' card title must not remain on RFQ detail"
+        )
+
+    def test_per_rfq_form_checkboxes_removed(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        assert 'class="pkg-form"' not in html, (
+            "Per-RFQ pkg-form checkboxes must not render on RFQ detail — "
+            "agency-wide config lives at /settings/packages"
+        )
+        assert "Include in package:" not in html, (
+            "'Include in package:' header belongs to the removed checkbox block"
+        )
+
+    def test_points_to_app_level_settings(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        assert 'href="/settings/packages"' in html, (
+            "RFQ detail must link to app-level Settings → Packages"
+        )
+
+    def test_autosave_js_does_not_collect_package_forms(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        """Belt-and-suspenders: with the checkboxes gone, the autosave
+        JS that read `.pkg-form` must also be gone so the payload never
+        tries to overwrite stored agency defaults with an empty set."""
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        assert "document.querySelectorAll('.pkg-form')" not in html, (
+            ".pkg-form autosave collector must be removed"
+        )
+        assert "payload.package_forms=" not in html, (
+            "Autosave payload must no longer send package_forms from detail page"
+        )
