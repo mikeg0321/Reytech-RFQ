@@ -58,6 +58,8 @@ python -m pytest \
     tests/test_orders_v2_user_crud_mirror.py \
     tests/test_golden_path_pc_to_rfq_roundtrip.py \
     tests/test_email_pipeline_e2e.py \
+    tests/test_profile_registry_manifest.py \
+    tests/test_profile_contracts.py \
     -n auto -q --tb=short 2>&1
 
 RESULT=$?
