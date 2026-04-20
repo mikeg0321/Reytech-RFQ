@@ -162,6 +162,47 @@ def test_empty_items_array_orders_are_skipped(backfill_mod, tmp_path):
     assert m.call_count == 0
 
 
+def test_script_bootstraps_sys_path_when_invoked_directly(tmp_path):
+    """Regression: 2026-04-20 prod incident. Running
+    `railway ssh python scripts/backfill_wins_from_orders.py` without
+    PYTHONPATH=/app set hit ModuleNotFoundError('src') at the live
+    calibrate import site. Dry-run didn't catch it because the import
+    is inside _apply_one(dry_run=False).
+
+    This test executes the script in a fresh subprocess with a sterile
+    PYTHONPATH (repo root NOT on sys.path) so the bootstrap in the
+    script itself is the only way the `from src.core.pricing_oracle_v2`
+    import can succeed. Remove the bootstrap → this test fails.
+    """
+    import subprocess
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = os.path.join(repo_root, "scripts", "backfill_wins_from_orders.py")
+    db = tmp_path / "reytech.db"
+    _seed_orders_table(str(db), [{
+        "id": "ORD-bootstrap", "agency": "CDCR", "po_number": "PO-BS",
+        "status": "shipped", "total": 100.0,
+        "items": [{"description": "thing", "qty": 1, "unit_price": 50.0}],
+    }])
+
+    # Empty PYTHONPATH — bootstrap must handle it alone.
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    # Run from tmp_path so cwd is NOT the repo — eliminates the implicit
+    # "repo root is cwd, so src is importable" fallback.
+    result = subprocess.run(
+        [sys.executable, script, "--db", str(db), "--json"],
+        env=env, cwd=str(tmp_path),
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, (
+        f"Script failed without PYTHONPATH — bootstrap missing?\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    parsed = json.loads(result.stdout.strip())
+    assert parsed["candidates"] == 1
+    assert parsed["applied"][0]["applied"] is True
+
+
 def test_json_mode_emits_valid_json(backfill_mod, tmp_path, capsys):
     db = tmp_path / "reytech.db"
     _seed_orders_table(str(db), [{

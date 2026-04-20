@@ -25,7 +25,7 @@ Usage:
     python scripts/backfill_wins_from_orders.py
 
     # Apply on prod (via Railway):
-    railway ssh "cd /app && python scripts/backfill_wins_from_orders.py"
+    railway ssh "python scripts/backfill_wins_from_orders.py"
 
 Safe to run repeatedly — ledger table prevents double-counting.
 """
@@ -36,6 +36,15 @@ import json
 import os
 import sqlite3
 import sys
+
+# Bootstrap: when invoked as `python scripts/backfill_wins_from_orders.py`,
+# the repo root isn't on sys.path, so `from src.core.pricing_oracle_v2
+# import ...` fails with ModuleNotFoundError. Add the parent of scripts/
+# so this script works the same way whether run locally, in CI, or on
+# prod via `railway ssh python scripts/backfill_wins_from_orders.py`.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 
 _WIN_STATUSES = ("shipped", "delivered", "invoiced", "complete", "completed")
