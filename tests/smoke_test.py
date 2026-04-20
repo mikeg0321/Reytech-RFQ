@@ -606,21 +606,64 @@ def run_catalog_health():
           upc_column_and_index_present)
 
 
+def run_profiles_health():
+    """Post-deploy check for the form profile registry.
+
+    Guards the fingerprint gate (PR #251) and the manifest drift detector
+    (PR #254) against silent regressions. If registry.yml ships out of
+    sync with the profile YAMLs, the /api/health/profiles endpoint will
+    flag drift — and rfq package generation for that form will hard-fail
+    in routes_rfq_gen with a 422. Catching drift here, right after deploy,
+    means ops sees it before a real RFQ hits the gate.
+    """
+    print("\n🗂  PROFILE REGISTRY HEALTH")
+
+    def endpoint_reachable():
+        r = get("/api/health/profiles")
+        assert r.status_code == 200, f"HTTP {r.status_code}"
+        d = r.json()
+        assert d.get("ok") is True, f"returned ok=False: {d}"
+        return f"endpoint live ({d.get('profile_count')} profiles)"
+    check("GET /api/health/profiles returns ok=True", "profiles_health",
+          endpoint_reachable)
+
+    def no_manifest_drift():
+        d = get("/api/health/profiles").json()
+        drift = d.get("drift") or []
+        assert not drift, (
+            f"profile manifest drift on prod — regenerate registry.yml: {drift}"
+        )
+        return "manifest matches runtime"
+    check("/api/health/profiles reports zero manifest drift", "profiles_health",
+          no_manifest_drift)
+
+    def manifest_count_matches_runtime():
+        d = get("/api/health/profiles").json()
+        assert d.get("manifest_count") == d.get("profile_count"), (
+            f"manifest_count ({d.get('manifest_count')}) != "
+            f"profile_count ({d.get('profile_count')})"
+        )
+        return f"manifest/runtime agree at {d.get('profile_count')} profiles"
+    check("manifest_count == profile_count", "profiles_health",
+          manifest_count_matches_runtime)
+
+
 CATEGORIES = {
-    "pages":          run_pages,
-    "auth":           run_auth,
-    "api":            run_api,
-    "feature_321":    run_feature_321,
-    "templates":      run_templates,
-    "growth":         run_growth,
-    "forecasting":    run_forecasting,
-    "scheduler":      run_scheduler,
-    "prices":         run_price_history,
-    "data":           run_data,
-    "errors":         run_errors,
-    "poll":           run_poll_health,
-    "classifier_v2":  run_classifier_v2_health,
-    "catalog_health": run_catalog_health,
+    "pages":            run_pages,
+    "auth":             run_auth,
+    "api":              run_api,
+    "feature_321":      run_feature_321,
+    "templates":        run_templates,
+    "growth":           run_growth,
+    "forecasting":      run_forecasting,
+    "scheduler":        run_scheduler,
+    "prices":           run_price_history,
+    "data":             run_data,
+    "errors":           run_errors,
+    "poll":             run_poll_health,
+    "classifier_v2":    run_classifier_v2_health,
+    "catalog_health":   run_catalog_health,
+    "profiles_health":  run_profiles_health,
 }
 
 
