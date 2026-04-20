@@ -209,3 +209,32 @@ class TestPackageSettingsRelocated:
         assert "payload.package_forms=" not in html, (
             "Autosave payload must no longer send package_forms from detail page"
         )
+
+
+class TestIntelColumnHeaderLabeled:
+    """The item-table intel column used to be a bare 📊 header — the
+    label text is invisible without hover, so users could not tell what
+    the column meant or what the 📊N / 📦 / — glyphs indicated.
+
+    Locking in a visible "📊 History" label plus an explanatory title
+    attribute so a future "tighten the columns" pass doesn't silently
+    revert to the icon-only header.
+    """
+
+    def test_header_carries_visible_label(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        assert ">📊 History<" in html, (
+            "Intel column header must show a visible 'History' label"
+        )
+
+    def test_header_title_explains_glyphs(
+        self, client, temp_data_dir, sample_rfq
+    ):
+        rid = _seed_with_status(temp_data_dir, sample_rfq, "new")
+        html = _fetch_detail(client, rid)
+        # The title attribute should explain each glyph (📊N / 📦 / —)
+        assert "📊N" in html, "header tooltip must document the 📊N glyph"
+        assert "📦" in html, "header tooltip must document the 📦 catalog-match glyph"

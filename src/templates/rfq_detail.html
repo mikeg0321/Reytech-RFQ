@@ -365,7 +365,7 @@
   <thead><tr>
    <th scope="col">#</th><th scope="col" style="width:55px">Qty</th><th scope="col" style="width:55px">UOM</th><th scope="col">Description</th><th scope="col">Part #</th>
    <th scope="col" style="min-width:220px">Item Link</th>
-   <th scope="col">Your Cost</th><th scope="col" style="width:30px" title="Price Intelligence">📊</th><th scope="col" style="width:80px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
+   <th scope="col">Your Cost</th><th scope="col" style="width:70px" title="Prior-price history for this item. 📊N = N prior prices found (click cell for details). 📦 = catalog match only. — = no history.">📊 History</th><th scope="col" style="width:80px">Markup</th><th scope="col">Bid Price</th><th scope="col">Subtotal</th><th scope="col">Margin</th><th scope="col">Profit</th><th scope="col" style="width:30px"></th>
   </tr></thead>
   <tbody>
   {% if not (r.get("line_items") or r.get("items")) %}
@@ -407,13 +407,13 @@
      <input type="hidden" name="scprs_{{loop.index0}}" value="{{i.scprs_last_price or ''}}">
     </div>
    </td>
-   <td id="intel_{{loop.index0}}" style="font-size:14px;text-align:center;cursor:pointer" title="Click for price history" onclick="showIntel({{loop.index0}})">
+   <td id="intel_{{loop.index0}}" style="font-size:14px;text-align:center;cursor:pointer" title="Click to open price history popup" onclick="showIntel({{loop.index0}})">
     {% if i.get('price_intel') and i.price_intel.get('history_count', 0) > 0 %}
-     <span style="color:#58a6ff">📊{{i.price_intel.history_count}}</span>
+     <span style="color:#58a6ff" title="{{i.price_intel.history_count}} prior price{{'s' if i.price_intel.history_count != 1 else ''}} — click for details">📊{{i.price_intel.history_count}}</span>
     {% elif i.get('catalog_match') %}
-     <span style="color:#3fb950">📦</span>
+     <span style="color:#3fb950" title="Catalog match only — no prior-price history">📦</span>
     {% else %}
-     <span style="color:#8b949e">—</span>
+     <span style="color:#8b949e" title="No prior-price history or catalog match">—</span>
     {% endif %}
    </td>
    <td>
