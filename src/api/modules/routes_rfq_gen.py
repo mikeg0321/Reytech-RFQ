@@ -2626,7 +2626,23 @@ def generate(rid):
                 except Exception as e:
 
                     log.debug("Suppressed: %s", e)
-    
+
+    # Orchestrator observer (flag-gated, default off) — see PR-1/PR-2 notes
+    # on `run_legacy_package`. Logs-only here because this route doesn't
+    # maintain a Trace instance.
+    try:
+        from src.core.quote_orchestrator import QuoteOrchestrator as _QO
+        _obs = _QO(persist_audit=False).run_legacy_package(
+            rid, dict(request.form), target_stage="qa_pass",
+        )
+        if _obs.blockers:
+            log.info("orchestrator observer blockers for %s: %s", rid, _obs.blockers)
+        if _obs.ok and _obs.quote is not None:
+            log.info("orchestrator observer advanced %s to %s (%d profiles)",
+                     rid, _obs.final_stage, len(_obs.profiles_used))
+    except Exception as _oe:
+        log.debug("orchestrator observer suppressed in generate(): %s", _oe)
+
     r["sign_date"] = get_pst_date()
     sol = r["solicitation_number"]
     out = os.path.join(OUTPUT_DIR, sol)
@@ -2732,6 +2748,26 @@ def rfq_generate_quote(rid):
 
     sol = r.get("solicitation_number", "") or "RFQ"
     t.step("Starting", sol=sol, items=len(r.get("line_items",[])))
+
+    # Orchestrator observer (flag-gated, default off). Empty form — this
+    # route is GET, row overrides happen upstream in the UI save path.
+    try:
+        from src.core.quote_orchestrator import QuoteOrchestrator as _QO
+        _obs = _QO(persist_audit=False).run_legacy_package(
+            rid, {}, target_stage="qa_pass",
+        )
+        for _n in _obs.notes:
+            t.step(f"orchestrator: {_n}")
+        for _b in _obs.blockers:
+            t.warn(f"orchestrator blocker: {_b}")
+        if _obs.ok and _obs.quote is not None:
+            t.step(
+                f"orchestrator observer: final_stage={_obs.final_stage}, "
+                f"profiles={len(_obs.profiles_used)}"
+            )
+    except Exception as _oe:
+        t.warn(f"orchestrator observer suppressed: {type(_oe).__name__}: {_oe}")
+
     safe_sol = re.sub(r'[^a-zA-Z0-9_-]', '_', sol.strip())
     out_dir = os.path.join(OUTPUT_DIR, sol)
     os.makedirs(out_dir, exist_ok=True)
@@ -2872,6 +2908,20 @@ def api_rfq_manual_submit_704b(rid):
     r = rfqs.get(rid)
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    # Orchestrator observer (flag-gated, default off) — manual-submit
+    # ignores row overrides, but we still want the pipeline to record
+    # what it would do if driven from current RFQ state.
+    try:
+        from src.core.quote_orchestrator import QuoteOrchestrator as _QO
+        _obs = _QO(persist_audit=False).run_legacy_package(
+            rid, {}, target_stage="qa_pass",
+        )
+        if _obs.blockers:
+            log.info("orchestrator observer blockers for %s (manual-submit): %s",
+                     rid, _obs.blockers)
+    except Exception as _oe:
+        log.debug("orchestrator observer suppressed in manual-submit: %s", _oe)
 
     f = request.files.get("file")
     if not f or not f.filename:
