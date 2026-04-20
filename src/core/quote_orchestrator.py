@@ -70,6 +70,15 @@ def _stage_index(stage: str) -> int:
         return -1
 
 
+class StageBlocked(Exception):
+    """Raised by a transition to signal a business-validation block (not a bug).
+
+    _try_advance records this as outcome="blocked" with the exception message
+    in reasons — distinct from uncaught exceptions, which are recorded as
+    outcome="error" (indicating a real programming bug worth paging on).
+    """
+
+
 # ── Request / Result ─────────────────────────────────────────────────────────
 
 @dataclass
@@ -584,6 +593,10 @@ class QuoteOrchestrator:
 
         try:
             self._run_transition(quote, to_stage, request, profiles, result)
+        except StageBlocked as e:
+            attempt.outcome = "blocked"
+            attempt.reasons.append(str(e))
+            return attempt
         except Exception as e:
             attempt.outcome = "error"
             attempt.reasons.append(f"transition raised: {type(e).__name__}: {e}")
@@ -629,7 +642,7 @@ class QuoteOrchestrator:
                 if not it.no_bid and float(it.unit_cost or 0) <= 0
             ]
             if unpriced:
-                raise RuntimeError(
+                raise StageBlocked(
                     f"priced incomplete: {len(unpriced)}/{len(quote.line_items)} "
                     f"items have no price (lines: {unpriced[:10]})"
                 )
@@ -750,7 +763,7 @@ class QuoteOrchestrator:
                 # result.compliance_report is already populated above —
                 # raise lets _try_advance record outcome="error" with the
                 # specific reasons, while preserving the structured report.
-                raise RuntimeError("qa_pass incomplete: " + " ; ".join(problems))
+                raise StageBlocked("qa_pass incomplete: " + " ; ".join(problems))
             quote.transition(QuoteStatus.QA_PASS)
             return
 
@@ -798,7 +811,7 @@ class QuoteOrchestrator:
                     )
             if problems:
                 # Raise so _try_advance records outcome="error" with reasons.
-                raise RuntimeError("generated incomplete: " + " ; ".join(problems))
+                raise StageBlocked("generated incomplete: " + " ; ".join(problems))
 
             quote.transition(QuoteStatus.GENERATED)
             return

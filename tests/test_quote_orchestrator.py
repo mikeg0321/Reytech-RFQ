@@ -147,6 +147,58 @@ class TestRunBlankQuote:
         assert any("Unknown target_stage" in b for b in result.blockers)
 
 
+# ── Business-validation blocks vs programming errors ────────────────────────
+
+class TestStageBlockedClassification:
+    """Transitions raise StageBlocked for legitimate validation failures (missing
+    price, missing form, etc.). The orchestrator must record those as
+    outcome='blocked' with the exception message as the reason — NOT as
+    outcome='error', which is reserved for unhandled programming bugs."""
+
+    def test_stage_blocked_is_recorded_as_blocked_not_error(self, monkeypatch):
+        from src.core import quote_orchestrator as qo
+
+        orch = qo.QuoteOrchestrator(persist_audit=False)
+
+        original = qo.QuoteOrchestrator._run_transition
+
+        def _maybe_boom(self, quote, to_stage, request, profiles, result):
+            if to_stage == "priced":
+                raise qo.StageBlocked("test-injected business block")
+            return original(self, quote, to_stage, request, profiles, result)
+
+        monkeypatch.setattr(qo.QuoteOrchestrator, "_run_transition", _maybe_boom)
+        result = orch.run(qo.QuoteRequest(
+            source={"items": [{"description": "x", "qty": 1, "unit_price": 1.0}]},
+            doc_type="pc",
+            target_stage="priced",
+        ))
+        attempt = [a for a in result.stage_history if a.stage_to == "priced"]
+        assert attempt, f"no priced attempt recorded: {result.stage_history}"
+        assert attempt[-1].outcome == "blocked"
+        assert any("test-injected business block" in r for r in attempt[-1].reasons)
+
+    def test_uncaught_exception_is_still_recorded_as_error(self, monkeypatch):
+        from src.core import quote_orchestrator as qo
+
+        orch = qo.QuoteOrchestrator(persist_audit=False)
+        original = qo.QuoteOrchestrator._run_transition
+
+        def _maybe_boom(self, quote, to_stage, request, profiles, result):
+            if to_stage == "priced":
+                raise RuntimeError("unexpected programming bug")
+            return original(self, quote, to_stage, request, profiles, result)
+
+        monkeypatch.setattr(qo.QuoteOrchestrator, "_run_transition", _maybe_boom)
+        result = orch.run(qo.QuoteRequest(
+            source={"items": [{"description": "x", "qty": 1, "unit_price": 1.0}]},
+            doc_type="pc",
+            target_stage="priced",
+        ))
+        attempt = [a for a in result.stage_history if a.stage_to == "priced"]
+        assert attempt and attempt[-1].outcome == "error"
+
+
 # ── run() from a legacy-dict source ─────────────────────────────────────────
 
 class TestRunFromDict:

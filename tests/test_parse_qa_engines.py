@@ -187,3 +187,24 @@ class TestQAEngine:
         assert "9/10" in report.summary
         assert "90.0%" in report.summary
         assert "PASS" in report.summary
+
+    def test_qa_report_errors_property_surfaces_error_severity_messages(self):
+        """orchestrator reads draft.qa_report.errors — must list only severity=error messages."""
+        from src.forms.qa_engine import ValidationReport, QAIssue
+        report = ValidationReport(
+            passed=False,
+            issues=[
+                QAIssue(field="f1", severity="error", message="Price blank", expected="$10", actual=""),
+                QAIssue(field="f2", severity="warning", message="Description short", expected="x", actual="x"),
+                QAIssue(field="f3", severity="error", message="Extension wrong", expected="$20", actual="$0"),
+            ],
+        )
+        assert report.errors == ["Price blank", "Extension wrong"]
+
+    def test_qa_report_errors_empty_when_only_warnings(self):
+        from src.forms.qa_engine import ValidationReport, QAIssue
+        report = ValidationReport(
+            passed=True,
+            issues=[QAIssue(field="f", severity="warning", message="meh", expected="", actual="")],
+        )
+        assert report.errors == []
