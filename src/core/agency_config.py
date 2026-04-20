@@ -51,6 +51,7 @@ AVAILABLE_FORMS = [
     {"id": "dsh_attA", "name": "DSH Attachment A", "desc": "Vendor Information"},
     {"id": "dsh_attB", "name": "DSH Attachment B", "desc": "Bidder Declaration"},
     {"id": "dsh_attC", "name": "DSH Attachment C", "desc": "Darfur / Certifications"},
+    {"id": "cchcs_it_rfq", "name": "CCHCS IT RFQ", "desc": "CDCR/CCHCS IT Goods & Services RFQ (Non-Cloud)"},
 ]
 
 # Patterns in email body/PDF text that indicate a specific form is required
@@ -72,6 +73,8 @@ FORM_TEXT_PATTERNS = {
     "703b":         ["703B", "703-B", "AMS 703"],
     "703c":         ["703C", "703-C", "FAIR AND REASONABLE"],
     "704b":         ["704B", "704-B", "QUOTE WORKSHEET"],
+    "cchcs_it_rfq": ["IT GOODS AND SERVICES", "IT GOODS/SERVICES",
+                     "REQUEST FOR QUOTATION IT", "NON-CLOUD RFQ"],
 }
 
 DEFAULT_AGENCY_CONFIGS = {
@@ -116,8 +119,9 @@ DEFAULT_AGENCY_CONFIGS = {
                           "CDCR.CA.GOV", "CCHCS.CA.GOV"],
         "required_forms": ["703b", "704b", "bidpkg", "quote"],
         "optional_forms": ["703c", "sellers_permit", "dvbe843", "std204", "calrecycle74",
-                          "bidder_decl", "darfur_act", "obs_1600", "drug_free", "std1000"],
-        "notes": "CCHCS / CDCR. Package: 703B (or 703C) + 704B + CCHCS Bid Package. DVBE 843 and seller's permit are inside the bid package.",
+                          "bidder_decl", "darfur_act", "obs_1600", "drug_free", "std1000",
+                          "cchcs_it_rfq"],
+        "notes": "CCHCS / CDCR. Package: 703B (or 703C) + 704B + CCHCS Bid Package. DVBE 843 and seller's permit are inside the bid package. CCHCS also issues a separate IT Goods/Services RFQ (form_type=cchcs_it_rfq, Non-Cloud only — Reytech does not respond to Cloud variants).",
         "default_markup_pct": 25,
         "payment_terms": "Net 45",
         "shipping_terms": "FOB Destination, Freight Prepaid",

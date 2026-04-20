@@ -1,0 +1,209 @@
+# CCHCS IT Request for Quotation (Non-Cloud) — Reytech Standard Response
+# Source: CDCR/CCHCS "Request For Quotation — IT Goods and Services" form
+# Golden fixture: tests/fixtures/cchcs_it_rfq_reytech_golden.pdf (PREQ10843276, 04/2026)
+#
+# Address field convention (non-obvious — documented from golden):
+#   Supplier Address 1  = street + city     "30 Carnoustie Way Trabuco Canyon"
+#   Supplier Address 2  = state + zip       "CA 92679"
+#   Supplier Address 3  = (unused by Reytech)
+# The AMS 708 GenAI sub-block uses clean split (street/city/state/zip separately).
+# When the fill engine serializes a Quote object, main-form addresses MUST be
+# concatenated; GenAI block fields stay separated.
+#
+# Line-item overflow: 10-row hard cap on the buyer-issued blank. When a bid
+# exceeds 10 items, duplicate page 1 with _2/_3/... suffix on row fields —
+# same PyPDFForm pattern as 704b (see DESIGN_704_REBUILD.md "Template Extension").
+id: cchcs_it_rfq_reytech_standard
+form_type: cchcs_it_rfq
+blank_pdf: tests/fixtures/cchcs_it_rfq_blank.pdf
+fill_mode: acroform
+page_row_capacities: [10]
+overflow:
+  mode: duplicate_page
+  source_page: 1
+  row_field_suffix_pattern: "_{page}"   # Row 11 on duplicate page 2 → "Item Description1_2"
+
+fields:
+  # ── Header (buyer-issued, usually preserved from received PDF) ──
+  header.solicitation_number:
+    pdf_field: "Solicitation No"
+  header.rev:
+    pdf_field: "Rev"
+  header.date:
+    pdf_field: "Today"
+  header.due_time:
+    pdf_field: "Time"
+  header.due_date:
+    pdf_field: "before"
+
+  # ── Vendor (Reytech) block ──
+  vendor.name:
+    pdf_field: "Supplier Name"
+  vendor.dba:
+    pdf_field: "DOING BUSINESS AS DBA NAME"
+  vendor.address_1:
+    pdf_field: "Supplier Address 1"
+  vendor.address_2:
+    pdf_field: "Supplier Address 2"
+  vendor.address_3:
+    pdf_field: "Supplier Address 3"
+  vendor.contact_name:
+    pdf_field: "Contact Name"
+  vendor.phone:
+    pdf_field: "Phone"
+  vendor.email:
+    pdf_field: "Supplier Email"
+  vendor.signature_date:
+    pdf_field: "Date_es_:date"
+  vendor.cert_date:
+    pdf_field: "DATE"
+
+  # ── Certification / identifiers ──
+  cert.sb_dvbe_number:
+    pdf_field: "SBMBDVBE Certification  if applicable"
+  cert.sb_dvbe_expiration:
+    pdf_field: "Expiration Date"
+  cert.osds_ref:
+    pdf_field: "OSDS REF  CURRENTLY CERTIFIED FIRMS ONLY"
+  cert.ca_reseller_permit:
+    pdf_field: "CA Reseller Permit Num"
+  cert.bidder_vendor_id:
+    pdf_field: "Bidder/Vendor ID"
+
+  # ── Software term / renewal indicators (SW bid specific) ──
+  sw.renew_no:
+    pdf_field: "SW Renew No"
+  sw.term:
+    pdf_field: "SW Term"
+
+  # ── Totals block ──
+  totals.subtotal:
+    pdf_field: "Extension TotalSubtotal"
+  totals.sales_tax:
+    pdf_field: "Extension TotalSales Tax"
+  totals.freight:
+    pdf_field: "Extension TotalFOB Destination Freight Prepaid"
+  totals.total:
+    pdf_field: "Extension TotalTotal"
+  totals.amount:
+    pdf_field: "Amount"
+
+  # ── Line items (1..10) ──
+  items[n].description:
+    pdf_field: "Item Description{n}"
+  items[n].part_number:
+    pdf_field: "Model or Part Number{n}"
+  items[n].qty:
+    pdf_field: "Qty{n}"
+  items[n].unit:
+    pdf_field: "Unit{n}"
+  items[n].unit_price:
+    pdf_field: "Price Per Unit{n}"
+  items[n].extension:
+    pdf_field: "Extension Total{n}"
+
+  # ── Compliance acknowledgment checkboxes (26 boxes Reytech checks per golden) ──
+  # Semantic labels unconfirmed — values captured from observed Reytech submission.
+  # When the fill engine wires these up, a future session should walk the PDF
+  # with Mike and label each group (Check Box 21.* likely = Yes/No × 3 prefs,
+  # Check Box 27.* likely = 11-row compliance attestation grid first column,
+  # Check Box 29.* likely = 3-row subcontractor/small-business confirmation).
+  compliance.box_12: { pdf_field: "Check Box12" }
+  compliance.box_14: { pdf_field: "Check Box14" }
+  compliance.box_16: { pdf_field: "Check Box16" }
+  compliance.box_21_0_0:   { pdf_field: "Check Box21.0.0" }
+  compliance.box_21_0_0_0: { pdf_field: "Check Box21.0.0.0" }
+  compliance.box_21_0_1:   { pdf_field: "Check Box21.0.1" }
+  compliance.box_21_0_1_0: { pdf_field: "Check Box21.0.1.0" }
+  compliance.box_21_0_2:   { pdf_field: "Check Box21.0.2" }
+  compliance.box_21_0_2_0: { pdf_field: "Check Box21.0.2.0" }
+  compliance.box_27_0_0:  { pdf_field: "Check Box27.0.0" }
+  compliance.box_27_1_0:  { pdf_field: "Check Box27.1.0" }
+  compliance.box_27_2_0:  { pdf_field: "Check Box27.2.0" }
+  compliance.box_27_3_0:  { pdf_field: "Check Box27.3.0" }
+  compliance.box_27_4_0:  { pdf_field: "Check Box27.4.0" }
+  compliance.box_27_5_0:  { pdf_field: "Check Box27.5.0" }
+  compliance.box_27_6_0:  { pdf_field: "Check Box27.6.0" }
+  compliance.box_27_7_0:  { pdf_field: "Check Box27.7.0" }
+  compliance.box_27_8_0:  { pdf_field: "Check Box27.8.0" }
+  compliance.box_27_9_0:  { pdf_field: "Check Box27.9.0" }
+  compliance.box_27_10_0: { pdf_field: "Check Box27.10.0" }
+  compliance.box_29_0:    { pdf_field: "Check Box29.0" }
+  compliance.box_29_0_0:  { pdf_field: "Check Box29.0.0" }
+  compliance.box_29_1:    { pdf_field: "Check Box29.1" }
+  compliance.box_29_1_0:  { pdf_field: "Check Box29.1.0" }
+  compliance.box_29_2:    { pdf_field: "Check Box29.2" }
+  compliance.box_29_2_0:  { pdf_field: "Check Box29.2.0" }
+
+  # ── AMS 708 GenAI attachment (Reytech default: No / N/A) ──
+  genai.is_genai_no:
+    pdf_field: "AMS 708 GenAI No"
+  genai.is_genai_yes:
+    pdf_field: "AMS 708 GenAI Yes"
+  genai.supplier_address:
+    pdf_field: "AMS 708 Supplier Address"
+  genai.supplier_city:
+    pdf_field: "AMS 708 Supplier City"
+  genai.supplier_state:
+    pdf_field: "AMS 708 Supplier State"
+  genai.supplier_zip:
+    pdf_field: "AMS 708 Supplier Zip Code"
+  genai.supplier_phone:
+    pdf_field: "AMS 708 Supplier Phone"
+  genai.sign_date:
+    pdf_field: "AMS 708 Sign Date_af_date"
+
+# ── Signature ──
+signature:
+  mode: image_stamp
+  page: 1
+  field: "Signature1_es_:signer:signature"
+
+# ── Defaults applied when building a fill payload from a Quote ──
+# (Reytech canonical identity per project_reytech_canonical_identity.md)
+defaults:
+  vendor.name: "Reytech Inc."
+  vendor.dba: "Reytech Inc."
+  vendor.address_1: "30 Carnoustie Way Trabuco Canyon"
+  vendor.address_2: "CA 92679"
+  vendor.contact_name: "Michael Guadan"
+  vendor.phone: "949-229-1575"
+  vendor.email: "sales@reytechinc.com"
+  cert.sb_dvbe_number: "2002605"
+  cert.osds_ref: "2002605"
+  cert.bidder_vendor_id: "47-4588061"
+  cert.ca_reseller_permit: "245652416 - 00001"
+  # cert.sb_dvbe_expiration should come from cert registry, not hardcoded
+  genai.is_genai_no: "/Yes"
+  genai.supplier_address: "30 Carnoustie Way"
+  genai.supplier_city: "Trabuco Canyon"
+  genai.supplier_state: "CA"
+  genai.supplier_zip: "92679"
+  genai.supplier_phone: "949-229-1575"
+  # Compliance checkboxes — observed defaults from Reytech golden submission.
+  compliance.box_12: "/Yes"
+  compliance.box_14: "/Yes"
+  compliance.box_16: "/Yes"
+  compliance.box_21_0_0: "/Yes"
+  compliance.box_21_0_0_0: "/Yes"
+  compliance.box_21_0_1: "/Yes"
+  compliance.box_21_0_1_0: "/Yes"
+  compliance.box_21_0_2: "/Yes"
+  compliance.box_21_0_2_0: "/Yes"
+  compliance.box_27_0_0: "/Yes"
+  compliance.box_27_1_0: "/Yes"
+  compliance.box_27_2_0: "/Yes"
+  compliance.box_27_3_0: "/Yes"
+  compliance.box_27_4_0: "/Yes"
+  compliance.box_27_5_0: "/Yes"
+  compliance.box_27_6_0: "/Yes"
+  compliance.box_27_7_0: "/Yes"
+  compliance.box_27_8_0: "/Yes"
+  compliance.box_27_9_0: "/Yes"
+  compliance.box_27_10_0: "/Yes"
+  compliance.box_29_0: "/Yes"
+  compliance.box_29_0_0: "/Yes"
+  compliance.box_29_1: "/Yes"
+  compliance.box_29_1_0: "/Yes"
+  compliance.box_29_2: "/Yes"
+  compliance.box_29_2_0: "/Yes"
