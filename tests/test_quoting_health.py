@@ -215,3 +215,119 @@ class TestDbBloat:
         hist = d.get("rfq_files_size_histogram", {})
         for bucket in ("lt_100kb", "100kb_1mb", "1mb_5mb", "gt_5mb", "biggest_bytes"):
             assert bucket in hist, f"missing {bucket} in size histogram"
+
+
+class TestTrimRfqFiles:
+    """Destructive trim endpoint — verify dry-run is default and confirm=YES
+    is required for actual delete, so a forgotten flag can never wipe data."""
+
+    def _seed_rfq_file(self, rfq_id, filename="a.pdf", size=1024,
+                       category="attachment", file_type="attachment"):
+        """Insert an rfq_files row directly, bypassing the BLOB data column."""
+        from src.core.db import DB_PATH
+        import sqlite3, uuid
+        file_id = f"f_{uuid.uuid4().hex[:10]}"
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        try:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS rfq_files (
+                    id TEXT PRIMARY KEY,
+                    rfq_id TEXT NOT NULL,
+                    filename TEXT,
+                    file_type TEXT,
+                    category TEXT DEFAULT 'template',
+                    mime_type TEXT,
+                    file_size INTEGER,
+                    data BLOB,
+                    uploaded_by TEXT,
+                    created_at TEXT
+                )
+            """)
+            conn.execute("""
+                INSERT INTO rfq_files
+                  (id, rfq_id, filename, file_type, category, file_size,
+                   data, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            """, (file_id, rfq_id, filename, file_type, category, size, b""))
+            conn.commit()
+        finally:
+            conn.close()
+        return file_id
+
+    def test_dry_run_is_default(self, auth_client):
+        """Calling POST without dry_run=0 must NOT delete anything."""
+        fid = self._seed_rfq_file("dead_rfq_1")
+        r = auth_client.post("/api/admin/trim-rfq-files?mode=orphans")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True
+        assert d["dry_run"] is True
+        assert d["deleted"]["count"] == 0
+        # Row still present
+        from src.core.db import get_db
+        with get_db() as c:
+            assert c.execute(
+                "SELECT 1 FROM rfq_files WHERE id=?", (fid,)
+            ).fetchone() is not None
+
+    def test_dry_run_reports_orphans(self, auth_client):
+        fid = self._seed_rfq_file("missing_parent", size=5000)
+        r = auth_client.post("/api/admin/trim-rfq-files?mode=orphans&dry_run=1")
+        d = r.get_json()
+        assert d["matched"]["count"] >= 1
+        ids = [s["id"] for s in d["sample"]]
+        assert fid in ids
+
+    def test_delete_requires_confirm_yes(self, auth_client):
+        """dry_run=0 without confirm=YES must be rejected, not silently delete."""
+        self._seed_rfq_file("rfq_no_confirm")
+        r = auth_client.post("/api/admin/trim-rfq-files?mode=orphans&dry_run=0")
+        assert r.status_code == 400
+        d = r.get_json()
+        assert d["ok"] is False
+        assert "confirm" in d["error"].lower()
+
+    def test_delete_with_confirm_actually_deletes(self, auth_client):
+        fid = self._seed_rfq_file("rfq_gone", size=9999)
+        r = auth_client.post(
+            "/api/admin/trim-rfq-files"
+            "?mode=orphans&dry_run=0&confirm=YES&vacuum=0"
+        )
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["dry_run"] is False
+        assert d["deleted"]["count"] >= 1
+        from src.core.db import get_db
+        with get_db() as c:
+            assert c.execute(
+                "SELECT 1 FROM rfq_files WHERE id=?", (fid,)
+            ).fetchone() is None
+
+    def test_invalid_mode_rejected(self, auth_client):
+        r = auth_client.post("/api/admin/trim-rfq-files?mode=everything")
+        assert r.status_code == 400
+
+    def test_orphan_mode_spares_live_rfq_files(self, auth_client):
+        """Files whose rfq_id DOES exist must not be deleted by orphan mode."""
+        from src.core.db import get_db
+        import uuid
+        live_id = f"live_{uuid.uuid4().hex[:8]}"
+        from datetime import datetime as _dt
+        with get_db() as c:
+            # rfqs table is created by core.db init; just insert a row.
+            c.execute(
+                "INSERT INTO rfqs (id, status, received_at) "
+                "VALUES (?, 'active', ?)",
+                (live_id, _dt.now().isoformat()),
+            )
+            c.commit()
+        fid = self._seed_rfq_file(live_id)
+        r = auth_client.post(
+            "/api/admin/trim-rfq-files"
+            "?mode=orphans&dry_run=0&confirm=YES&vacuum=0"
+        )
+        d = r.get_json()
+        with get_db() as c:
+            assert c.execute(
+                "SELECT 1 FROM rfq_files WHERE id=?", (fid,)
+            ).fetchone() is not None, "live file was wrongly deleted"
