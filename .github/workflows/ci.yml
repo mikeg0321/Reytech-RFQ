@@ -12,8 +12,13 @@ on:
 # To force CI on a docs-only PR, add the `full-ci` label.
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PRs: same PR → same group → cancel in progress (kills old run on force-push).
+  # Main/workflow_dispatch: each commit gets a unique group via github.sha so
+  # rapid merges don't cancel each other — pre-2026-04-19 the group was just
+  # `ci-${{ github.ref }}`, which made every main push share a ref and the
+  # result was 48/50 cancelled runs and an effectively-disabled gate.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
