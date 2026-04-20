@@ -158,3 +158,34 @@ class TestFlagCard:
         _cache_clear_all()
         d = auth_client.get("/api/health/quoting").get_json()
         assert d["flag_card"]["classifier_v2_on"] is False
+
+
+class TestDbBloat:
+    """Diagnostic endpoint for ops to see which tables bloat the DB."""
+
+    def test_returns_tables_sorted_by_size(self, auth_client):
+        r = auth_client.get("/api/health/db-bloat")
+        assert r.status_code == 200
+        d = r.get_json()
+        assert d["ok"] is True
+        assert "db_size_mb" in d
+        assert "tables" in d
+        assert isinstance(d["tables"], list)
+        # At least the core tables must be present in a fresh init.
+        names = {t["table"] for t in d["tables"]}
+        assert "rfqs" in names
+        assert "price_checks" in names
+        # Every entry must report a row_count.
+        for entry in d["tables"]:
+            assert "table" in entry
+            assert "row_count" in entry
+
+    def test_dbstat_sort_when_available(self, auth_client):
+        """If dbstat is compiled in, tables must be sorted by mb desc."""
+        d = auth_client.get("/api/health/db-bloat").get_json()
+        if not d.get("dbstat_available"):
+            pytest.skip("dbstat virtual table not available")
+        sizes = [t.get("mb", 0) for t in d["tables"]]
+        assert sizes == sorted(sizes, reverse=True), (
+            "tables must be ranked largest-first when dbstat available"
+        )
