@@ -191,3 +191,194 @@ class TestWatchDeploy:
 
         rc = watcher.watch_deploy(max_poll_minutes=10, dry_run=True)
         assert rc == 1
+
+
+class TestCheckMainCiStatus:
+    """The main-CI hook: poll GitHub Actions for a specific commit's
+    ci.yml run and classify the terminal outcome."""
+
+    def _patch_gh(self, monkeypatch, stdout, returncode=0):
+        """Install a fake subprocess.run that returns `stdout` for gh."""
+        def fake_run(cmd, capture_output=False, text=False, timeout=None):
+            result = MagicMock()
+            result.returncode = returncode
+            result.stdout = stdout
+            result.stderr = ""
+            return result
+        monkeypatch.setattr(watcher.subprocess, "run", fake_run)
+        monkeypatch.setattr(watcher.time, "sleep", lambda *a, **kw: None)
+
+    def test_success_conclusion_is_success(self, monkeypatch):
+        self._patch_gh(monkeypatch, '[{"status":"completed","conclusion":"success","databaseId":1,"url":"u","headSha":"abc123"}]')
+        assert watcher.check_main_ci_status("abc123", max_wait_minutes=1) == "success"
+
+    def test_failure_conclusion_is_failure(self, monkeypatch):
+        self._patch_gh(monkeypatch, '[{"status":"completed","conclusion":"failure","databaseId":2,"url":"u","headSha":"abc123"}]')
+        assert watcher.check_main_ci_status("abc123", max_wait_minutes=1) == "failure"
+
+    def test_timed_out_counts_as_failure(self, monkeypatch):
+        self._patch_gh(monkeypatch, '[{"status":"completed","conclusion":"timed_out","databaseId":3,"url":"u","headSha":"abc123"}]')
+        assert watcher.check_main_ci_status("abc123", max_wait_minutes=1) == "failure"
+
+    def test_cancelled_counts_as_failure(self, monkeypatch):
+        self._patch_gh(monkeypatch, '[{"status":"completed","conclusion":"cancelled","databaseId":4,"url":"u","headSha":"abc123"}]')
+        assert watcher.check_main_ci_status("abc123", max_wait_minutes=1) == "failure"
+
+    def test_neutral_and_skipped_count_as_success(self, monkeypatch):
+        self._patch_gh(monkeypatch, '[{"status":"completed","conclusion":"skipped","databaseId":5,"url":"u","headSha":"abc123"}]')
+        assert watcher.check_main_ci_status("abc123", max_wait_minutes=1) == "success"
+
+    def test_no_run_visible_returns_pending_at_deadline(self, monkeypatch):
+        # Empty list = no run yet. Watcher polls until deadline, returns pending.
+        self._patch_gh(monkeypatch, '[]')
+        # Use a very short deadline so the test doesn't actually block.
+        fake_now = [1000.0]
+        def fake_time():
+            current = fake_now[0]
+            fake_now[0] += 100  # each call advances 100s
+            return current
+        monkeypatch.setattr(watcher.time, "time", fake_time)
+        verdict = watcher.check_main_ci_status(
+            "abc123", max_wait_minutes=1, poll_interval_seconds=1,
+        )
+        assert verdict == "pending"
+
+    def test_gh_cli_missing_returns_unknown(self, monkeypatch):
+        def raise_fnf(*a, **kw):
+            raise FileNotFoundError("gh")
+        monkeypatch.setattr(watcher.subprocess, "run", raise_fnf)
+        monkeypatch.setattr(watcher.time, "sleep", lambda *a, **kw: None)
+        fake_now = [1000.0]
+        def fake_time():
+            current = fake_now[0]
+            fake_now[0] += 100
+            return current
+        monkeypatch.setattr(watcher.time, "time", fake_time)
+        verdict = watcher.check_main_ci_status(
+            "abc123", max_wait_minutes=1, poll_interval_seconds=1,
+        )
+        # No gh CLI = no runs visible = pending at deadline.
+        assert verdict == "pending"
+
+    def test_commit_mismatch_is_rejected(self, monkeypatch):
+        """gh's --commit filter is tolerant — it may return the latest run
+        even when the sha doesn't match. Reject mismatches to avoid
+        rolling back based on an unrelated run."""
+        self._patch_gh(
+            monkeypatch,
+            '[{"status":"completed","conclusion":"failure","databaseId":6,"url":"u","headSha":"DIFFERENT_SHA"}]',
+        )
+        fake_now = [1000.0]
+        def fake_time():
+            current = fake_now[0]
+            fake_now[0] += 100
+            return current
+        monkeypatch.setattr(watcher.time, "time", fake_time)
+        verdict = watcher.check_main_ci_status(
+            "abc123", max_wait_minutes=1, poll_interval_seconds=1,
+        )
+        assert verdict == "pending"
+
+    def test_empty_sha_returns_unknown(self):
+        assert watcher.check_main_ci_status("") == "unknown"
+
+
+class TestMainCiHookInWatchDeploy:
+    """Watch loop wiring: when --check-main-ci is set and deploy SUCCEEDs,
+    a CI failure triggers rollback."""
+
+    def test_success_then_ci_failure_rolls_back(self, monkeypatch):
+        deploys = [
+            _deploy("dep-new", "SUCCESS", commit="abc123"),
+            _deploy("dep-prev", "SUCCESS", commit="abc000"),
+        ]
+        monkeypatch.setattr(watcher, "_fetch_deployments", lambda: deploys)
+        monkeypatch.setattr(watcher, "_ping_healthy", lambda url, timeout_sec=5: True)
+        monkeypatch.setattr(watcher.time, "sleep", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            watcher, "check_main_ci_status",
+            lambda sha, max_wait_minutes=35, poll_interval_seconds=45: "failure",
+        )
+        calls = []
+        monkeypatch.setattr(
+            watcher, "_trigger_rollback",
+            lambda tid, dry_run=False: calls.append(tid) or True,
+        )
+        rc = watcher.watch_deploy(
+            max_poll_minutes=1, dry_run=True,
+            check_main_ci_sha="abc123", ci_max_wait_minutes=1,
+        )
+        assert rc == 0
+        assert calls == ["dep-prev"], f"expected rollback to dep-prev, got {calls}"
+
+    def test_success_and_ci_success_no_rollback(self, monkeypatch):
+        deploys = [
+            _deploy("dep-new", "SUCCESS", commit="abc123"),
+            _deploy("dep-prev", "SUCCESS", commit="abc000"),
+        ]
+        monkeypatch.setattr(watcher, "_fetch_deployments", lambda: deploys)
+        monkeypatch.setattr(watcher, "_ping_healthy", lambda url, timeout_sec=5: True)
+        monkeypatch.setattr(watcher.time, "sleep", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            watcher, "check_main_ci_status",
+            lambda sha, max_wait_minutes=35, poll_interval_seconds=45: "success",
+        )
+        calls = []
+        monkeypatch.setattr(
+            watcher, "_trigger_rollback",
+            lambda tid, dry_run=False: calls.append(tid) or True,
+        )
+        rc = watcher.watch_deploy(
+            max_poll_minutes=1, dry_run=True,
+            check_main_ci_sha="abc123", ci_max_wait_minutes=1,
+        )
+        assert rc == 0
+        assert calls == [], "ci=success must not trigger rollback"
+
+    def test_ci_pending_exits_green_no_rollback(self, monkeypatch):
+        """CI still running at the CI-wait deadline: we exit cleanly and
+        leave operator notification to human eyes. Rollback only fires on
+        a definitive failure, never on ambiguity."""
+        deploys = [_deploy("dep-new", "SUCCESS", commit="abc123")]
+        monkeypatch.setattr(watcher, "_fetch_deployments", lambda: deploys)
+        monkeypatch.setattr(watcher, "_ping_healthy", lambda url, timeout_sec=5: True)
+        monkeypatch.setattr(watcher.time, "sleep", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            watcher, "check_main_ci_status",
+            lambda sha, max_wait_minutes=35, poll_interval_seconds=45: "pending",
+        )
+        calls = []
+        monkeypatch.setattr(
+            watcher, "_trigger_rollback",
+            lambda tid, dry_run=False: calls.append(tid) or True,
+        )
+        rc = watcher.watch_deploy(
+            max_poll_minutes=1, dry_run=True,
+            check_main_ci_sha="abc123", ci_max_wait_minutes=1,
+        )
+        assert rc == 0
+        assert calls == []
+
+    def test_legacy_no_check_main_ci_sha_skips_ci_hook(self, monkeypatch):
+        """Backward compat: without --check-main-ci, behavior is the
+        pre-existing Railway-only watcher."""
+        deploys = [_deploy("dep-new", "SUCCESS", commit="abc123")]
+        monkeypatch.setattr(watcher, "_fetch_deployments", lambda: deploys)
+        monkeypatch.setattr(watcher, "_ping_healthy", lambda url, timeout_sec=5: True)
+        monkeypatch.setattr(watcher.time, "sleep", lambda *a, **kw: None)
+
+        ci_calls = []
+        def fake_ci(*a, **kw):
+            ci_calls.append(a)
+            return "failure"  # Even if this were called, it'd want rollback
+        monkeypatch.setattr(watcher, "check_main_ci_status", fake_ci)
+
+        rb_calls = []
+        monkeypatch.setattr(
+            watcher, "_trigger_rollback",
+            lambda tid, dry_run=False: rb_calls.append(tid) or True,
+        )
+        rc = watcher.watch_deploy(max_poll_minutes=1, dry_run=True)
+        assert rc == 0
+        assert ci_calls == [], "ci hook must be skipped when no sha given"
+        assert rb_calls == [], "no rollback without ci check"

@@ -212,9 +212,12 @@ promote: require-smoke-creds  ## Merge current PR after CI passes, then smoke te
 		python tests/smoke_test.py && \
 		echo "" && \
 		echo "DEPLOY SUCCESSFUL: $(COMMIT)" && \
-		echo "Launching deploy watcher in background (auto-rollback on FAILED)..." && \
-		(REYTECH_URL=$(PROD_URL) nohup python scripts/railway_deploy_watcher.py \
-			--max-poll-minutes 5 > /tmp/reytech_deploy_watcher.log 2>&1 &) \
+		echo "Launching deploy watcher in background (auto-rollback on FAILED or main-CI failure)..." && \
+		(REYTECH_URL=$(PROD_URL) REYTECH_CI_COMMIT=$$(git rev-parse HEAD) \
+			nohup python scripts/railway_deploy_watcher.py \
+			--max-poll-minutes 5 \
+			--ci-max-wait-minutes 35 \
+			> /tmp/reytech_deploy_watcher.log 2>&1 &) \
 		|| \
 		(echo "" && \
 		echo "SMOKE TESTS FAILED — triggering auto-rollback..." && \
