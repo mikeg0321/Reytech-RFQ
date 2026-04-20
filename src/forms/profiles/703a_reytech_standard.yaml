@@ -3,6 +3,15 @@ form_type: 703a
 blank_pdf: tests/fixtures/703a_blank.pdf
 fill_mode: acroform
 
+# form_classifier uses these hints to route an uploaded PDF to this slot
+# by inspecting AcroForm field names. field_prefixes / field_contains
+# are ORed together; first profile with any match wins (priority ties
+# broken by id order).
+classifier_hints:
+  slot: 703a
+  priority: 100
+  field_prefixes: ["703A_"]
+
 fields:
   buyer.name:                  {pdf_field: "703A_Name"}
   buyer.phone:                 {pdf_field: "703A_Phone_2"}

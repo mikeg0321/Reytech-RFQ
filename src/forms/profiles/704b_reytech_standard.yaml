@@ -10,6 +10,19 @@ blank_pdf: tests/fixtures/704b_blank.pdf
 fill_mode: acroform
 page_row_capacities: [23, 16]
 
+# form_classifier consumes classifier_hints to route uploaded 704B PDFs
+# to the 704b slot. 704B templates have no distinctive field prefix, so
+# we match by substring on characteristic field names instead. field_contains
+# entries are ORed. "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow" covers both
+# buyer 704B and the Reytech template. "COMPANY REPRESENTATIVE" is a backup
+# for 704B variants where the item grid was renamed.
+classifier_hints:
+  slot: 704b
+  priority: 100
+  field_contains:
+    - "ITEM DESCRIPTION PRODUCT SPECIFICATIONRow"
+    - "COMPANY REPRESENTATIVE"
+
 fields:
   # ── Header fields ──
   header.solicitation_number:

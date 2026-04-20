@@ -3,6 +3,11 @@ form_type: 703b
 blank_pdf: tests/fixtures/703b_blank.pdf
 fill_mode: acroform
 
+classifier_hints:
+  slot: 703b
+  priority: 100
+  field_prefixes: ["703B_"]
+
 fields:
   buyer.name:                  {pdf_field: "703B_Name"}
   buyer.phone:                 {pdf_field: "703B_Phone_2"}
