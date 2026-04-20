@@ -556,6 +556,12 @@ def run_award_check(force: bool = False) -> dict:
                 ).fetchone() is not None
 
                 # ── Store match record ────────────────────────────────────
+                # `match_stored` gates Oracle calibration below: if the
+                # INSERT fails, the dedupe row never lands, so the next 8h
+                # re-run would see `already_matched=False` again and fire
+                # calibrate a second time → double-count. Only calibrate on
+                # a confirmed-stored match.
+                match_stored = False
                 try:
                     conn.execute("""
                         INSERT OR REPLACE INTO quote_po_matches
@@ -569,6 +575,7 @@ def run_award_check(force: bool = False) -> dict:
                           ", ".join(best_match["reasons"]),
                           analysis["report"],
                           json.dumps(analysis["line_comparison"], default=str)))
+                    match_stored = True
                 except Exception as e:
                     log.error("Failed to store match: %s", e)
 
@@ -614,12 +621,18 @@ def run_award_check(force: bool = False) -> dict:
 
                 # ── Oracle calibration from SCPRS-detected loss ───────────
                 # Runtime counterpart to the PC/RFQ mark-lost routes. Fires
-                # only on FRESH matches (see already_matched guard above), so
-                # award_tracker's 8-hour re-run doesn't double-count losses.
+                # only when BOTH:
+                #   (a) already_matched=False — this is a fresh match, not
+                #       an 8h re-run seeing a row we already calibrated on
+                #   (b) match_stored=True — the quote_po_matches INSERT
+                #       succeeded, so the next run's already_matched check
+                #       will see the row and skip. Without this guard, a
+                #       silently-failed INSERT would re-fire calibrate on
+                #       every 8h poll → double-count retry storm.
                 # Passes real winner_prices from SCPRS so the EMA for
                 # avg_losing_delta reflects actual competitor pricing, not
                 # just a count.
-                if not already_matched:
+                if _should_calibrate_loss(already_matched, match_stored):
                     try:
                         from src.core.pricing_oracle_v2 import calibrate_from_outcome
                         _winner_prices = _winner_prices_from_analysis(
@@ -1020,6 +1033,20 @@ def _loss_reason_for_calibration(loss_class: str) -> str:
     market-on-margin; everything else (relationship_incumbent, unclear) is
     'other' and only bumps loss_on_other (no avg_losing_delta EMA)."""
     return "price" if loss_class in ("price_higher", "margin_too_high") else "other"
+
+
+def _should_calibrate_loss(already_matched: bool, match_stored: bool) -> bool:
+    """Gate for Oracle loss calibration on SCPRS-detected losses.
+
+    Both conditions MUST hold:
+      - already_matched is False: the (quote, po) pair isn't in
+        quote_po_matches yet, so this is a fresh signal
+      - match_stored is True: the INSERT into quote_po_matches succeeded,
+        so the next 8h re-run will see the row and its already_matched
+        check will short-circuit. Without this, a silently-failed INSERT
+        would re-fire calibrate on every poll → double-count retry storm.
+    """
+    return (not already_matched) and match_stored
 
 
 def _winner_prices_from_analysis(our_items: list, line_comparison: list) -> dict:

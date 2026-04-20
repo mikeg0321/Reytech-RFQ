@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from src.agents.award_tracker import (
     _loss_reason_for_calibration,
+    _should_calibrate_loss,
     _winner_prices_from_analysis,
 )
 
@@ -142,6 +143,35 @@ def test_winner_prices_uses_description_80_slice():
     ]
     result = _winner_prices_from_analysis(our_items, line_comparison)
     assert result == {0: 99.0}
+
+
+# ── _should_calibrate_loss ───────────────────────────────────────────────────
+# Truth table regression: if a future refactor drops the match_stored
+# condition, the INSERT-failure retry-storm double-count returns. These
+# lock the gate semantics.
+
+def test_should_calibrate_fresh_match_stored_true_fires():
+    # Fresh signal + row persisted → calibrate; next poll will skip via
+    # already_matched.
+    assert _should_calibrate_loss(already_matched=False, match_stored=True) is True
+
+
+def test_should_calibrate_fresh_match_stored_false_skips():
+    # INSERT silently failed — skip calibrate so next poll still sees a
+    # fresh match and will retry INSERT + calibrate together (not fire
+    # calibrate on every 8h poll with no dedupe).
+    assert _should_calibrate_loss(already_matched=False, match_stored=False) is False
+
+
+def test_should_calibrate_already_matched_always_skips_even_if_stored():
+    # This run re-stored an existing row; we already calibrated on a prior
+    # poll when it first appeared. Don't double-count.
+    assert _should_calibrate_loss(already_matched=True, match_stored=True) is False
+
+
+def test_should_calibrate_already_matched_skips_when_insert_failed_too():
+    # Defensive: both false-paths converge to skip.
+    assert _should_calibrate_loss(already_matched=True, match_stored=False) is False
 
 
 def test_winner_prices_falls_back_to_name_when_description_missing():
