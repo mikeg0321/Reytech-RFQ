@@ -24,7 +24,8 @@ Track all in-progress work across Claude Code context windows.
 | feat/golden-test-fixture | (merged) | `C:\Users\mikeg\rfq-golden-test-fixture` | Merged PR #143 | Test0321/R26Q0321 golden fixture + 28 real CCHCS items + seed script | 2026-04-18 |
 | feat/quote-orchestrator | (merged) | `C:\Users\mikeg\rfq-quote-orchestrator` | Merged (platform PR) | Platform build: QuoteOrchestrator state machine + FormProfiler agent + ComplianceValidator + /quoting/status dashboard + playbook (`docs/PLATFORM_QUOTING.md`). | 2026-04-18 |
 | feat/calvet-r25q86-proof | (merged) | `C:\Users\mikeg\rfq-calvet-r25q86-proof` | Merged PR #156 | CalVet R25Q86 E2E proof + new pass_through and generated fill modes + sellers_permit_reytech and quote_reytech_letterhead profiles. | 2026-04-19 |
-| feat/ui-tier1-status-overhaul | This window | `C:\Users\mikeg\rfq-ui-tier1` | Active | UI Tier 1 from Grok audit: live status auto-refresh + timeline stepper polish + override+retry modal + new POST /api/quoting/retry. Touches `quoting_status.html`, `quoting_status_detail.html`, `routes_quoting_status.py`. | 2026-04-19 |
+| feat/ui-tier1-status-overhaul | (other window) | `C:\Users\mikeg\rfq-ui-tier1` | Active | UI Tier 1 from Grok audit: live status auto-refresh + timeline stepper polish + override+retry modal + new POST /api/quoting/retry. Touches `quoting_status.html`, `quoting_status_detail.html`, `routes_quoting_status.py`. | 2026-04-19 |
+| feat/manual-submit-emergency | This window | `C:\Users\mikeg\rfq-manual-submit-emergency` | Active | B1: 704 Rebuild Phase 0 — POST /rfq/<rid>/manual-submit emergency route. Operator uploads hand-filled 704B PDF; bypasses broken auto-fill. Touches `routes_rfq_gen.py` (or new `routes_manual_submit.py`) + `rfq_detail.html`. | 2026-04-19 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

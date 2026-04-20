@@ -1498,7 +1498,16 @@ def generate_rfq_package(rid):
                 errors.append(f"{_703_label}: no template uploaded — upload {_703_label} PDF on this RFQ page")
         
         if _include("704b"):
-            if "704b" in tmpl and os.path.exists(tmpl["704b"]):
+            # Phase 0 emergency: if operator uploaded a manual 704B, preserve
+            # it instead of overwriting via auto-fill. Clear the flag via
+            # DELETE /api/rfq/<rid>/manual-submit to resume auto-fill.
+            _manual_704b = r.get("manual_704b")
+            _manual_704b_path = f"{out_dir}/{sol}_704B_Reytech.pdf"
+            if _manual_704b and os.path.exists(_manual_704b_path):
+                output_files.append(f"{sol}_704B_Reytech.pdf")
+                t.step("704B preserved from manual submit",
+                       uploaded_at=_manual_704b.get("uploaded_at"))
+            elif "704b" in tmpl and os.path.exists(tmpl["704b"]):
                 try:
                     fill_704b(tmpl["704b"], r, CONFIG, f"{out_dir}/{sol}_704B_Reytech.pdf")
                     output_files.append(f"{sol}_704B_Reytech.pdf")
@@ -2548,7 +2557,12 @@ def generate(rid):
             fill_703b(t["703b"], r, CONFIG, f"{out}/{sol}_703B_Reytech.pdf")
             output_files.append(f"{sol}_703B_Reytech.pdf")
         
-        if "704b" in t and os.path.exists(t["704b"]):
+        # Phase 0: preserve manual-submitted 704B (see docs/DESIGN_704_REBUILD.md)
+        _manual_704b = r.get("manual_704b")
+        _manual_704b_path = f"{out}/{sol}_704B_Reytech.pdf"
+        if _manual_704b and os.path.exists(_manual_704b_path):
+            output_files.append(f"{sol}_704B_Reytech.pdf")
+        elif "704b" in t and os.path.exists(t["704b"]):
             fill_704b(t["704b"], r, CONFIG, f"{out}/{sol}_704B_Reytech.pdf")
             output_files.append(f"{sol}_704B_Reytech.pdf")
         
@@ -2749,6 +2763,153 @@ def send_email(rid):
         flash(f"Send failed: {e}. Use 'Open in Mail App' instead.", "error")
     
     return redirect(f"/rfq/{rid}")
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Phase 0 emergency: manual 704B submit
+# ═══════════════════════════════════════════════════════════════════════
+# When auto-fill is broken on a buyer variant, the operator uploads a
+# hand-filled 704B PDF. We drop it at the conventional output path so the
+# existing Generate Package + Send flow treats it as the authoritative
+# 704B. A flag on the RFQ record tells generate_rfq_package to SKIP the
+# auto-fill for this RFQ so subsequent regenerations don't overwrite the
+# operator's manual file.
+@bp.route("/api/rfq/<rid>/manual-submit", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_rfq_manual_submit_704b(rid):
+    """Emergency route: operator uploads a hand-filled 704B PDF that
+    replaces the auto-fill output. See docs/DESIGN_704_REBUILD.md Phase 0."""
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    filename_lower = (f.filename or "").lower()
+    if not filename_lower.endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Upload must be a PDF"}), 400
+
+    # Read bytes once — we validate + persist from the same buffer
+    try:
+        raw = f.read()
+    except Exception as e:
+        log.error("manual-submit read failed for %s: %s", rid, e)
+        return jsonify({"ok": False, "error": f"Could not read upload: {e}"}), 400
+
+    if not raw or len(raw) < 100:
+        return jsonify({"ok": False, "error": "Upload is empty or truncated"}), 400
+
+    # Validate AcroForm-parseable PDF via pypdf
+    try:
+        from pypdf import PdfReader
+        from io import BytesIO
+        reader = PdfReader(BytesIO(raw))
+        page_count = len(reader.pages)
+        if page_count < 1:
+            return jsonify({"ok": False, "error": "PDF has no pages"}), 400
+    except Exception as e:
+        log.warning("manual-submit invalid PDF for %s: %s", rid, e)
+        return jsonify({"ok": False, "error": f"Not a valid PDF: {e}"}), 400
+
+    sol = r.get("solicitation_number", "") or "RFQ"
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out_dir, exist_ok=True)
+
+    target_name = f"{sol}_704B_Reytech.pdf"
+    target_path = os.path.join(out_dir, target_name)
+
+    # Archive any existing 704B (auto-filled or prior manual) before overwriting
+    archived_to = None
+    if os.path.exists(target_path):
+        try:
+            import shutil as _sh
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            archive_dir = os.path.join(out_dir, "_prev")
+            os.makedirs(archive_dir, exist_ok=True)
+            archived_to = os.path.join(archive_dir, f"{stamp}_{target_name}")
+            _sh.move(target_path, archived_to)
+        except Exception as e:
+            log.warning("manual-submit archive failed for %s: %s", rid, e)
+            archived_to = None
+
+    # Persist the uploaded PDF at the conventional 704B path
+    try:
+        with open(target_path, "wb") as fh:
+            fh.write(raw)
+    except Exception as e:
+        log.error("manual-submit write failed for %s: %s", rid, e)
+        return jsonify({"ok": False, "error": f"Could not save file: {e}"}), 500
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    r["manual_704b"] = {
+        "uploaded_at": now_iso,
+        "original_filename": f.filename,
+        "bytes": len(raw),
+        "pages": page_count,
+        "archived_prev": archived_to,
+    }
+
+    # Keep output_files in sync so the existing send flow attaches the file
+    output_files = list(r.get("output_files") or [])
+    if target_name not in output_files:
+        output_files.append(target_name)
+    r["output_files"] = output_files
+
+    # Audit trail
+    try:
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as _e:
+        log.warning("manual-submit single-save fallback for %s: %s", rid, _e)
+        save_rfqs(rfqs)
+
+    log.info("manual-submit 704B saved rid=%s sol=%s bytes=%d pages=%d",
+             rid, sol, len(raw), page_count)
+
+    return jsonify({
+        "ok": True,
+        "filename": target_name,
+        "bytes": len(raw),
+        "pages": page_count,
+        "uploaded_at": now_iso,
+        "message": "704B uploaded. Auto-fill is disabled for this RFQ — use Generate Package to fill other forms, then Send.",
+    })
+
+
+@bp.route("/api/rfq/<rid>/manual-submit", methods=["DELETE"])
+@auth_required
+@safe_route
+def api_rfq_manual_submit_clear(rid):
+    """Clear the manual-704b flag so auto-fill resumes on next Generate Package.
+    Does NOT delete the file on disk — operator can still Generate Package to
+    overwrite with fresh auto-fill output."""
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    had_flag = bool(r.pop("manual_704b", None))
+    try:
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as _e:
+        log.warning("manual-submit-clear fallback for %s: %s", rid, _e)
+        save_rfqs(rfqs)
+
+    return jsonify({"ok": True, "cleared": had_flag})
 
 
 @bp.route("/api/quote/<qn>/regenerate", methods=["POST"])
