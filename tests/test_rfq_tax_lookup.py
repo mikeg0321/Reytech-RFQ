@@ -131,3 +131,23 @@ class TestTaxLookupJsTargetsRealDom:
         assert "recalc" in body and "triggerAutosave" in body, (
             "rfqTaxLookup must recalc + triggerAutosave after rate update"
         )
+
+    def test_pc_save_ship_to_updates_cached_tax_rate(self):
+        """PC's saveShipTo() must sync cachedTaxRate after live lookup —
+        otherwise the display updates but the math uses the stale rate."""
+        tpl_path = os.path.join("src", "templates", "pc_detail.html")
+        with open(tpl_path, encoding="utf-8") as f:
+            html = f.read()
+
+        start = html.find("function saveShipTo(")
+        assert start != -1, "saveShipTo() not found in template"
+        end = html.find("\n    function ", start + 1)
+        body = html[start:end if end != -1 else start + 3000]
+
+        assert "cachedTaxRate = d.rate" in body, (
+            "saveShipTo must sync cachedTaxRate after tax lookup"
+        )
+        # Must not reference a non-existent #taxRate input.
+        assert "getElementById('taxRate')" not in body, (
+            "#taxRate input doesn't exist on PC — use cachedTaxRate instead"
+        )

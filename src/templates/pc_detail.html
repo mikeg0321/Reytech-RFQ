@@ -1220,10 +1220,20 @@
           credentials:'same-origin'
         }).then(function(r){return r.json()}).then(function(d){
           if(d.ok && d.rate){
-            var el=document.getElementById('taxRateDisplay');
-            if(el) el.textContent=d.rate+'% ('+( d.jurisdiction||'CDTFA')+')';
-            var inp=document.getElementById('taxRate');
-            if(inp){inp.value=d.rate; if(typeof recalcPC==='function') recalcPC();}
+            // Keep math's tax source in sync with the fetched rate.
+            cachedTaxRate = d.rate / 100;
+            var disp=document.getElementById('taxRateDisplay');
+            if(disp) disp.textContent='('+(d.source||'CDTFA')+' \u2014 '+d.rate+'%)';
+            var toggle=document.getElementById('taxToggle');
+            if(toggle) toggle.checked=true;
+            var valEl=document.getElementById('pc-tax-validation');
+            if(valEl){
+              var isFallback=d.source&&d.source.indexOf('fallback')>=0;
+              valEl.innerHTML='<span style="color:'+(isFallback?'#d29922':'#3fb950')+'">'+
+                (isFallback?'\u26A0\uFE0F':'\u2705')+' '+d.rate+'% \u00B7 '+(d.jurisdiction||'')+
+                (isFallback?' (fallback)':'')+'</span>';
+            }
+            if(typeof recalcPC==='function') recalcPC();
           }
         }).catch(function(){});
       }).catch(function(){});
