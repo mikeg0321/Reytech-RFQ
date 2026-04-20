@@ -301,6 +301,7 @@ def quoting_health_page():
         "top_errors": _build_top_errors(days),
         "recent_crashes": _build_recent_crashes(),
         "db_health": _build_db_health(),
+        "catalog_health": _build_catalog_health(),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
 
@@ -341,6 +342,22 @@ def feature_status_json():
                 "by_severity": {}, "rows": []}, 200
 
 
+@bp.route("/api/health/catalog")
+@auth_required
+def catalog_health_json():
+    """Catalog subsystem status — index enforcement + enrichment error
+    count. Keyed separately from /api/health/quoting so an ops script
+    can alert on just the catalog surface without pulling the whole
+    quoting payload.
+    """
+    try:
+        data = _build_catalog_health()
+        return {"ok": True, **data}
+    except Exception as e:
+        log.warning("/api/health/catalog failed: %s", e)
+        return {"ok": False, "error": str(e)}, 200
+
+
 @bp.route("/api/health/quoting")
 @auth_required
 def quoting_health_json():
@@ -363,7 +380,54 @@ def quoting_health_json():
         "top_errors": _build_top_errors(days),
         "recent_crashes": _build_recent_crashes(),
         "db_health": _build_db_health(),
+        "catalog_health": _build_catalog_health(),
     }
+
+
+def _build_catalog_health():
+    """Catalog-subsystem health: UPC + UNIQUE(name) index presence and a
+    count of enrichment errors in the last 24h. Backs both the JSON
+    endpoint and the dashboard tile.
+    """
+    result = {
+        "upc_column": False,
+        "unique_name_index": False,
+        "upc_index": False,
+        "enrichment_errors_24h": 0,
+        "recent_enrichment_errors": [],
+    }
+    try:
+        from src.agents.product_catalog import _get_conn
+        conn = _get_conn()
+        try:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(product_catalog)").fetchall()}
+            result["upc_column"] = "upc" in cols
+            idxs = {r[1] for r in conn.execute("PRAGMA index_list(product_catalog)").fetchall()}
+            result["unique_name_index"] = "idx_catalog_name_unique" in idxs
+            result["upc_index"] = "idx_catalog_upc" in idxs
+            try:
+                row = conn.execute(
+                    "SELECT COUNT(*) FROM catalog_enrichment_errors "
+                    "WHERE created_at >= datetime('now', '-1 day')"
+                ).fetchone()
+                result["enrichment_errors_24h"] = int(row[0]) if row else 0
+                recent = conn.execute(
+                    "SELECT product_id, column, error, created_at "
+                    "FROM catalog_enrichment_errors "
+                    "ORDER BY id DESC LIMIT 10"
+                ).fetchall()
+                result["recent_enrichment_errors"] = [
+                    {"product_id": r[0], "column": r[1],
+                     "error": (r[2] or "")[:200], "created_at": r[3]}
+                    for r in recent
+                ]
+            except Exception:
+                pass  # table may not exist on a stale DB before init runs
+        finally:
+            conn.close()
+    except Exception as e:
+        log.warning("_build_catalog_health failed: %s", e)
+    return result
 
 
 def _build_db_health():

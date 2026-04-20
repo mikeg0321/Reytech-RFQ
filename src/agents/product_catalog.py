@@ -118,6 +118,22 @@ CREATE INDEX IF NOT EXISTS idx_cat_ph_product ON catalog_price_history(product_i
 CREATE INDEX IF NOT EXISTS idx_cat_ph_type ON catalog_price_history(price_type);
 """
 
+# Enrichment errors — written in addition to log.warning(). Gives /health/catalog
+# a structured count instead of needing to parse logs. Capped via trim-on-insert
+# so prod DB can't grow unbounded.
+ENRICHMENT_ERRORS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS catalog_enrichment_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    column TEXT,
+    value TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_enrich_err_created ON catalog_enrichment_errors(created_at);
+"""
+ENRICHMENT_ERRORS_KEEP = 500
+
 # Multi-supplier pricing per product
 SUPPLIER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS product_suppliers (
@@ -364,6 +380,7 @@ def init_catalog_db():
     conn.executescript(PRICE_HISTORY_SCHEMA)
     conn.executescript(PRICE_HISTORY_INDEXES)
     conn.executescript(SUPPLIER_SCHEMA)
+    conn.executescript(ENRICHMENT_ERRORS_SCHEMA)
 
     # Migrate FIRST: add columns that may not exist on older DBs
     # This MUST run before index creation (indexes reference these columns)
@@ -2885,6 +2902,29 @@ def find_by_supplier_sku(sku: str, supplier_name: str = "") -> list:
         return []
 
 
+def _record_enrich_error(product_id, column, value, error):
+    """Persist an enrichment failure so /health/catalog can count them without
+    scraping logs. Best-effort — swallow failures so observability can't crash
+    the enrichment path."""
+    try:
+        conn = _get_conn()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO catalog_enrichment_errors "
+            "(product_id, column, value, error, created_at) VALUES (?,?,?,?,?)",
+            (product_id, str(column), str(value)[:200], str(error)[:500], now),
+        )
+        conn.execute(
+            "DELETE FROM catalog_enrichment_errors WHERE id < "
+            "(SELECT COALESCE(MAX(id),0) - ? FROM catalog_enrichment_errors)",
+            (ENRICHMENT_ERRORS_KEEP,),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
 def enrich_catalog_product(product_id: int, **fields):
     """
     Enrich an existing catalog product with new data from ANY lookup source.
@@ -2920,6 +2960,7 @@ def enrich_catalog_product(product_id: int, **fields):
                     updated.append(col_name)
             except Exception as _e:
                 log.warning("enrich_catalog_product #%d %s=%r failed: %s", product_id, col_name, val, _e)
+                _record_enrich_error(product_id, col_name, val, _e)
 
     # Cost update (only if better/newer)
     _cost = fields.get("best_cost") or fields.get("cost")
@@ -2932,6 +2973,7 @@ def enrich_catalog_product(product_id: int, **fields):
             )
         except Exception as _e:
             log.warning("enrich_catalog_product #%d best_cost=%r failed: %s", product_id, _cost, _e)
+            _record_enrich_error(product_id, "best_cost", _cost, _e)
 
     # Photo URL update (always update if we have one and current is empty)
     _photo = fields.get("photo_url", "")
@@ -2944,6 +2986,7 @@ def enrich_catalog_product(product_id: int, **fields):
             )
         except Exception as _e:
             log.warning("enrich_catalog_product #%d photo_url failed: %s", product_id, _e)
+            _record_enrich_error(product_id, "photo_url", _photo, _e)
 
     conn.commit()
     conn.close()
