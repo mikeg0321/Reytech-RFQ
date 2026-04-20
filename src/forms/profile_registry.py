@@ -189,6 +189,66 @@ def match_profile(pdf_path: str, profiles: dict[str, FormProfile]) -> Optional[F
     return None
 
 
+def check_template_profile_matches(
+    templates: dict[str, str],
+    profiles: Optional[dict[str, FormProfile]] = None,
+) -> dict[str, dict]:
+    """Inspect each uploaded buyer template and report profile-match status.
+
+    Args:
+        templates: mapping of slot -> on-disk PDF path (e.g. {"703b": "/path/703b.pdf"}).
+            Keys that are not form-template slots (e.g. "bidpkg") and paths
+            that do not exist are still reported, with matched=False.
+        profiles: preloaded registry. If None, loads from disk.
+
+    Returns:
+        {slot: {"path": str, "fingerprint": str, "matched": bool,
+                "profile_id": str | None, "reason": str | None}}
+
+        reason is set when matched=False and explains why
+        (missing_file, unreadable_pdf, no_registered_profile).
+    """
+    if profiles is None:
+        profiles = load_profiles()
+
+    fingerprint_index = {
+        p.fingerprint: p.id
+        for p in profiles.values()
+        if p.fingerprint
+    }
+
+    report: dict[str, dict] = {}
+    for slot, path in templates.items():
+        entry: dict = {
+            "path": path,
+            "fingerprint": "",
+            "matched": False,
+            "profile_id": None,
+            "reason": None,
+        }
+        if not path or not os.path.exists(path):
+            entry["reason"] = "missing_file"
+            report[slot] = entry
+            continue
+
+        fp = _compute_fingerprint(path)
+        entry["fingerprint"] = fp
+        if not fp:
+            entry["reason"] = "unreadable_pdf"
+            report[slot] = entry
+            continue
+
+        pid = fingerprint_index.get(fp)
+        if pid:
+            entry["matched"] = True
+            entry["profile_id"] = pid
+        else:
+            entry["reason"] = "no_registered_profile"
+        report[slot] = entry
+
+    return report
+
+
 def validate_profile(profile: FormProfile) -> list[str]:
     """Validate a profile against its blank PDF.
 
