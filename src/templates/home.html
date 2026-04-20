@@ -1132,11 +1132,6 @@ document.querySelectorAll('details').forEach(d=>{
  });
 });
 
-    // ── Clear stale quote number from PC ──────────────────────────────────
-    // ── Delete Price Check ─────────────────────────────────────────────────
-
-    // dismissItem replaced by global doDismiss()
-
     // E11: Bulk Action Functions
     function toggleAllChecks(type, master){
       document.querySelectorAll('.'+type+'-check').forEach(function(c){c.checked=master.checked;});
@@ -1166,21 +1161,6 @@ document.querySelectorAll('details').forEach(d=>{
         if(d.ok){showMsg('Applied to '+d.applied+' items','ok');setTimeout(function(){location.reload();},1000);}
         else{showMsg('Error: '+(d.error||'unknown'),'err');}
       }).catch(function(e){showMsg('Request failed: '+e.message,'err');});
-    }
-    function batchDismiss() {
-      var checked = document.querySelectorAll('.rfq-check:checked');
-      if (!checked.length) { showMsg('No items selected', 'warn'); return; }
-      if (!confirm('Dismiss ' + checked.length + ' selected items?')) return;
-      var ids = [];
-      checked.forEach(function(cb) { ids.push(cb.value); });
-      fetch('/api/bulk/action', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: ids, action: 'dismiss', type: 'rfq'})
-      }).then(function(r) { return r.json(); }).then(function(d) {
-        if (d.ok) { showMsg('Dismissed ' + d.applied + ' items', 'ok'); setTimeout(function(){ location.reload(); }, 1000); }
-        else { showMsg('Error: ' + (d.error || 'unknown'), 'err'); }
-      }).catch(function(e) { showMsg('Request failed: ' + e.message, 'err'); });
     }
     function batchClearSelection() {
       document.querySelectorAll('.rfq-check:checked').forEach(function(cb) { cb.checked = false; });
