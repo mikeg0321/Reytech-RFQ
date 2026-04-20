@@ -572,20 +572,55 @@ def run_classifier_v2_health():
     check("recent_crashes list parses cleanly", "classifier_v2", recent_crashes_table_sane)
 
 
+def run_catalog_health():
+    """Post-deploy check for the catalog observability surface shipped in
+    PR #227: UNIQUE(name) + UPC column presence, enrichment error table.
+    Lights up a regression if the endpoint drops or the index is lost."""
+    print("\n📚 CATALOG HEALTH")
+
+    def endpoint_reachable():
+        r = get("/api/health/catalog")
+        assert r.status_code == 200, f"HTTP {r.status_code}"
+        d = r.json()
+        assert d.get("ok") is True, f"returned ok=False: {d}"
+        return "endpoint live"
+    check("GET /api/health/catalog returns ok=True", "catalog_health", endpoint_reachable)
+
+    def unique_name_index_present():
+        d = get("/api/health/catalog").json()
+        assert d.get("unique_name_index") is True, (
+            "UNIQUE(name) index missing on prod — possible duplicate rows in "
+            "product_catalog blocking the CREATE UNIQUE INDEX. Check logs for "
+            "'UNIQUE(name) enforcement blocked'."
+        )
+        return "idx_catalog_name_unique present"
+    check("product_catalog UNIQUE(name) index enforced", "catalog_health",
+          unique_name_index_present)
+
+    def upc_column_and_index_present():
+        d = get("/api/health/catalog").json()
+        assert d.get("upc_column") is True, "upc column missing"
+        assert d.get("upc_index") is True, "idx_catalog_upc missing"
+        return "upc + idx_catalog_upc present"
+    check("product_catalog upc column + index present", "catalog_health",
+          upc_column_and_index_present)
+
+
 CATEGORIES = {
-    "pages":         run_pages,
-    "auth":          run_auth,
-    "api":           run_api,
-    "feature_321":   run_feature_321,
-    "templates":     run_templates,
-    "growth":        run_growth,
-    "forecasting":   run_forecasting,
-    "scheduler":     run_scheduler,
-    "prices":        run_price_history,
-    "data":          run_data,
-    "errors":        run_errors,
-    "poll":          run_poll_health,
-    "classifier_v2": run_classifier_v2_health,
+    "pages":          run_pages,
+    "auth":           run_auth,
+    "api":            run_api,
+    "feature_321":    run_feature_321,
+    "templates":      run_templates,
+    "growth":         run_growth,
+    "forecasting":    run_forecasting,
+    "scheduler":      run_scheduler,
+    "prices":         run_price_history,
+    "data":           run_data,
+    "errors":         run_errors,
+    "poll":           run_poll_health,
+    "classifier_v2":  run_classifier_v2_health,
+    "catalog_health": run_catalog_health,
 }
 
 
