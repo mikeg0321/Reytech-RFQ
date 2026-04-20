@@ -271,6 +271,19 @@ class TestRFQRoutes:
         assert "rfqQaGate" in html
         assert 'data-qa-gated="1"' in html
 
+    def test_pricing_status_hides_zero_sources(self, client, seed_rfq):
+        """Seed RFQ has no SCPRS/Amazon/Catalog matches — the '0/1 0/1 0/1'
+        clutter must not render. Only the 'X/Y priced' headline shows."""
+        r = client.get(f"/rfq/{seed_rfq}")
+        assert r.status_code == 200
+        html = r.data.decode()
+        # Headline counter is always present when items exist.
+        assert "priced" in html
+        # Cluttered zero-fraction breakdown must not appear.
+        assert "SCPRS: 0/" not in html, "SCPRS:0/N clutter reintroduced"
+        assert "Amazon: 0/" not in html, "Amazon:0/N clutter reintroduced"
+        assert "Catalog: 0/" not in html, "Catalog:0/N clutter reintroduced"
+
     def test_delete(self, client, seed_rfq, temp_data_dir):
         r = client.post(f"/rfq/{seed_rfq}/delete", follow_redirects=True)
         assert r.status_code == 200
