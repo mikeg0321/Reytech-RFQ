@@ -16,6 +16,32 @@ _REPORT_INTERVAL_SEC = 7 * 24 * 3600  # 1 week
 _scheduler_started = False
 
 
+def _calibration_why(*, wins: int, losses_total: int, win_rate: int) -> str:
+    """Human-readable explanation for an oracle_calibration row.
+
+    The old copy said 'Aggressive reduction — too many losses' whenever
+    win_rate < 40 — including rows where 0 wins had been *captured* vs.
+    actually *lost*. On 2026-04-20 prod had 3 calibration rows totaling
+    47 losses and 0 wins; every one of them was displayed as 'too many
+    losses' even though the real story was: no win-capture pipeline
+    exists, so the data is structurally loss-biased.
+
+    Returns phrasing that separates "loss-heavy signal" (we competed,
+    we lost) from "loss-only signal" (we have no way to record wins).
+    """
+    if wins == 0 and losses_total == 0:
+        return "No outcome data yet — calibration neutral"
+    if wins == 0 and losses_total > 0:
+        return "⚠ Loss-only data — wins not being captured"
+    if win_rate >= 80:
+        return "Strong — room for margin"
+    if win_rate >= 60:
+        return "Healthy — holding steady"
+    if win_rate >= 40:
+        return "Compressing markup to win more"
+    return "Aggressive reduction — too many losses"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. RETROACTIVE SEEDER — process historical outcomes into calibration table
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -144,18 +170,19 @@ def generate_weekly_report():
             try:
                 cal_rows = conn.execute("""
                     SELECT category, agency, sample_size, win_count,
-                           loss_on_price, avg_winning_margin,
+                           loss_on_price, loss_on_other, avg_winning_margin,
                            recommended_max_markup, last_updated
                     FROM oracle_calibration
                     ORDER BY sample_size DESC
                 """).fetchall()
                 report["calibrations"] = [{
                     "category": r[0], "agency": r[1], "samples": r[2],
-                    "wins": r[3], "losses_price": r[4],
+                    "wins": r[3], "losses_price": r[4], "losses_other": r[5],
+                    "losses_total": (r[4] or 0) + (r[5] or 0),
                     "win_rate": round(r[3] / r[2] * 100) if r[2] > 0 else 0,
-                    "avg_win_margin": round(r[5], 1),
-                    "rec_max_markup": round(r[6], 1),
-                    "last_updated": (r[7] or "")[:10],
+                    "avg_win_margin": round(r[6], 1),
+                    "rec_max_markup": round(r[7], 1),
+                    "last_updated": (r[8] or "")[:10],
                 } for r in cal_rows]
             except Exception:
                 report["calibrations"] = []
@@ -273,15 +300,11 @@ def format_report_email(report):
         html += '<tr style="color:#8b949e;border-bottom:1px solid #30363d"><th style="text-align:left;padding:4px">Category</th><th>Samples</th><th>Win Rate</th><th>Avg Win Margin</th><th>Max Markup</th><th>Why</th></tr>'
         for c in cals:
             wr_color = "#3fb950" if c["win_rate"] >= 70 else ("#d29922" if c["win_rate"] >= 40 else "#f85149")
-            why = ""
-            if c["win_rate"] >= 80:
-                why = "Strong — room for margin"
-            elif c["win_rate"] >= 60:
-                why = "Healthy — holding steady"
-            elif c["win_rate"] >= 40:
-                why = "Compressing markup to win more"
-            else:
-                why = "Aggressive reduction — too many losses"
+            why = _calibration_why(
+                wins=c.get("wins", 0),
+                losses_total=c.get("losses_total", c.get("losses_price", 0)),
+                win_rate=c["win_rate"],
+            )
             html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:#e6edf3;text-transform:capitalize">{c["category"]}</td><td style="color:#8b949e">{c["samples"]}</td><td style="color:{wr_color};font-weight:600">{c["win_rate"]}%</td><td style="color:#8b949e">{c["avg_win_margin"]}%</td><td style="color:#58a6ff;font-weight:600">{c["rec_max_markup"]}%</td><td style="color:#8b949e;font-size:11px">{why}</td></tr>'
         html += '</table>'
 
