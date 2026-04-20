@@ -2912,6 +2912,134 @@ def api_rfq_manual_submit_clear(rid):
     return jsonify({"ok": True, "cleared": had_flag})
 
 
+# ────────────────────────────────────────────────────────────────────
+# Contract Builder — single-upload entry point
+#
+# One drop target on the RFQ detail page that accepts any mix of files
+# (buyer 704B, 703B, bid package, email screenshot, other attachments)
+# and auto-classifies each one. Replaces the need to hunt for the right
+# button per file type.
+# ────────────────────────────────────────────────────────────────────
+@bp.route("/api/rfq/<rid>/contract-upload", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_rfq_contract_upload(rid):
+    """Multi-file upload that fans into email screenshot / template slots /
+    attachments via src.forms.form_classifier.classify."""
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    files = request.files.getlist("files") or request.files.getlist("file")
+    if not files:
+        return jsonify({"ok": False, "error": "No files uploaded"}), 400
+
+    from src.forms.form_classifier import classify
+    rfq_dir = os.path.join(UPLOAD_DIR, rid)
+    os.makedirs(rfq_dir, exist_ok=True)
+    templates = dict(r.get("templates") or {})
+    attachments = list(r.get("attachments") or [])
+    now_iso = datetime.now(timezone.utc).isoformat()
+    results = []
+
+    for f in files:
+        if not f or not f.filename:
+            continue
+        raw = f.read()
+        if not raw:
+            results.append({"filename": f.filename, "kind": "skipped",
+                             "reason": "empty file"})
+            continue
+
+        decision = classify(f.filename, raw)
+        safe_fn = _safe_filename(f.filename) or f.filename
+
+        # Images — store under a stable email_<stamp>.<ext> name so repeat
+        # uploads don't collide and we keep the operator's original name in
+        # the flag record.
+        if decision["kind"] == "email_screenshot":
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            ext = os.path.splitext(safe_fn)[1].lower() or ".png"
+            target_name = f"email_{stamp}{ext}"
+            target_path = os.path.join(rfq_dir, target_name)
+            with open(target_path, "wb") as fh:
+                fh.write(raw)
+            try:
+                save_rfq_file(rid, target_name, "email_screenshot", raw,
+                              category="email_screenshot", uploaded_by="user")
+            except Exception as _e:
+                log.debug("save email screenshot file row: %s", _e)
+            r["email_screenshot"] = {
+                "path": target_path, "filename": target_name,
+                "original_filename": f.filename, "bytes": len(raw),
+                "uploaded_at": now_iso,
+            }
+            results.append({"filename": f.filename, "kind": "email_screenshot",
+                             "slot": None, "reason": decision["reason"],
+                             "bytes": len(raw)})
+            continue
+
+        # Templates — slot into r["templates"][slot]
+        if decision["kind"] == "template" and decision.get("slot"):
+            target_path = os.path.join(rfq_dir, safe_fn)
+            with open(target_path, "wb") as fh:
+                fh.write(raw)
+            try:
+                save_rfq_file(rid, safe_fn, f"template_{decision['slot']}",
+                              raw, category="template", uploaded_by="user")
+            except Exception as _e:
+                log.debug("save template file row: %s", _e)
+            templates[decision["slot"]] = target_path
+            results.append({"filename": f.filename, "kind": "template",
+                             "slot": decision["slot"],
+                             "reason": decision["reason"],
+                             "bytes": len(raw)})
+            continue
+
+        # Fallback — attachment
+        target_path = os.path.join(rfq_dir, safe_fn)
+        with open(target_path, "wb") as fh:
+            fh.write(raw)
+        try:
+            save_rfq_file(rid, safe_fn, "attachment", raw,
+                          category="attachment", uploaded_by="user")
+        except Exception as _e:
+            log.debug("save attachment file row: %s", _e)
+        attachments.append({"path": target_path, "filename": safe_fn,
+                            "uploaded_at": now_iso, "bytes": len(raw)})
+        results.append({"filename": f.filename, "kind": "attachment",
+                         "slot": None, "reason": decision["reason"],
+                         "bytes": len(raw)})
+
+    r["templates"] = templates
+    r["attachments"] = attachments
+
+    try:
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as _e:
+        log.warning("contract-upload single-save fallback for %s: %s", rid, _e)
+        save_rfqs(rfqs)
+
+    _log_rfq_activity(rid, "contract_upload",
+        f"Contract upload: {len(results)} file(s)",
+        actor="user", metadata={"results": results})
+
+    counts = {"email_screenshot": 0, "template": 0, "attachment": 0,
+              "skipped": 0}
+    for res in results:
+        counts[res["kind"]] = counts.get(res["kind"], 0) + 1
+
+    return jsonify({"ok": True, "results": results, "counts": counts,
+                    "templates": list(templates.keys())})
+
+
 @bp.route("/api/quote/<qn>/regenerate", methods=["POST"])
 @auth_required
 @safe_route
