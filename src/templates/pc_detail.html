@@ -1449,7 +1449,7 @@
        }).catch(()=>{
         btn.disabled=false; _hideGenOverlay();
         btn.textContent='✅ Saved';btn.style.background='#238636';
-        showMsg('✅ Prices saved. PDF will generate on next Save & Fill.','ok');
+        showMsg('✅ Prices saved. PDF will generate on next Save & Generate.','ok');
         setTimeout(()=>{btn.textContent=origText;btn.style.background=''},2500);
        });
        }, function _onBlocked(reason) {
@@ -3826,62 +3826,6 @@
      if(e.target===this) closePreview();
     });
     document.addEventListener('keydown',function(e){if(e.key==='Escape') closePreview();});
-
-    function saveAndGenerate(btn) {
-     if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
-     btn.disabled=true; btn.textContent='⏳ Saving prices...';
-     showMsg('Saving prices...','warn');
-     fetch('/pricecheck/'+_pcid+'/save-prices',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(collectPrices())})
-     .then(function(r){
-      if(!r.ok) return r.text().then(function(t){throw new Error('Save: Server '+r.status)});
-      return r.json();
-     }).then(function(d){
-      if(!d.ok){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ Save failed: '+(d.error||'unknown'),'err');return;}
-      // Skip QA gate — go straight to generate (QA was hanging and blocking)
-      _doGenerate704(btn);
-     }).catch(function(e){btn.textContent='📄 Save & Fill 704';btn.disabled=false;showMsg('❌ '+e.message,'err')});
-    }
-
-    function _doGenerate704(btn) {
-     // Internal: actually generate the PDF (called after QA passes)
-     if (!btn) btn = document.querySelector('[onclick*="saveAndGenerate"]') || {};
-     btn.disabled=true;btn.textContent='⏳ Generating PDF...';
-     _isGenerating = true; _showGenOverlay();
-     fetch('/pricecheck/'+_pcid+'/generate',{method:'POST',credentials:'same-origin'})
-     .then(function(r){
-      if(!r||!r.json){_hideGenOverlay();return;} // save failed, chain stopped
-      if(!r.ok) return r.text().then(t=>{throw new Error('Generate: Server '+r.status)});
-      return r.json();
-     }).then(d=>{
-      if(!d){_hideGenOverlay();return;} // earlier step failed
-      btn.disabled=false; _hideGenOverlay();
-      if(d&&d.ok){
-       showMsg('✅ AMS 704 filled!','ok');
-       btn.textContent='♻️ Re-fill 704';btn.className='btn btn-g';
-       btn.onclick=function(){saveAndGenerate(this)};
-       // Update composer attachments with new PDF URL
-       if(d.download && typeof _refreshComposeAttachments === 'function'){
-        _refreshComposeAttachments(null, d.download);
-       }
-       // Scroll to composer so user can review and send
-       var composer = document.getElementById('email-composer');
-       if(composer) composer.scrollIntoView({behavior:'smooth',block:'start'});
-      }
-      else{btn.textContent='📄 Save & Fill 704';_showPipelineError(d)}
-     }).catch(e=>{btn.textContent='📄 Save & Fill 704';btn.disabled=false; _hideGenOverlay(); showMsg('❌ '+e.message,'err')});
-    }
-
-    function _showPipelineError(d) {
-     var msg = '❌ Generation failed: ' + (d?.error || 'unknown');
-     if (d?.verification_score !== undefined) msg += ' (score: ' + d.verification_score + ')';
-     if (d?.failed_fields && d.failed_fields.length > 0) {
-      msg += '\nFailed fields: ' + d.failed_fields.slice(0, 5).join(', ');
-     }
-     if (d?.attempts && d.attempts.length > 0) {
-      msg += '\nStrategies tried: ' + d.attempts.map(function(a){return a.strategy+'('+a.score+')'}).join(', ');
-     }
-     showMsg(msg, 'err');
-    }
 
     function generateOriginal704(btn) {
      if (_isGenerating) { showMsg('PDF generation in progress...', 'warn'); return; }
