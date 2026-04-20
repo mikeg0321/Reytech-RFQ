@@ -624,6 +624,162 @@ def db_bloat_json():
     return result
 
 
+# ─────────────────────────────────────────────────────────────────────
+# rfq_files trim — destructive endpoint behind dry_run + confirm=YES
+# ─────────────────────────────────────────────────────────────────────
+
+_TRIM_ORPHANS_SQL = """
+    SELECT rf.id, rf.rfq_id, rf.filename, rf.file_size, rf.category,
+           rf.file_type, rf.created_at
+      FROM rfq_files rf
+     WHERE NOT EXISTS (SELECT 1 FROM rfqs r WHERE r.id = rf.rfq_id)
+       AND NOT EXISTS (SELECT 1 FROM price_checks p WHERE p.id = rf.rfq_id)
+"""
+
+_TRIM_DEAD_PARENTS_SQL = """
+    SELECT rf.id, rf.rfq_id, rf.filename, rf.file_size, rf.category,
+           rf.file_type, rf.created_at
+      FROM rfq_files rf
+      LEFT JOIN rfqs r ON r.id = rf.rfq_id
+      LEFT JOIN price_checks p ON p.id = rf.rfq_id
+     WHERE COALESCE(r.status, p.status) IN
+           ('dismissed','archived','lost','cancelled','deleted','expired')
+"""
+
+
+@bp.route("/api/admin/trim-rfq-files", methods=["POST"])
+@auth_required
+def trim_rfq_files():
+    """Reclaim space by deleting unreachable rfq_files rows.
+
+    Modes:
+        orphans       — rfq_id absent from both rfqs and price_checks
+        dead_parents  — parent status in dismissed/archived/lost/cancelled/
+                        deleted/expired
+        both          — union of the above (de-duplicated by file id)
+
+    Query params:
+        mode     — one of the above (default: orphans)
+        dry_run  — "1" (default) reports what *would* be deleted; "0"
+                   performs the delete. dry_run=0 requires confirm=YES.
+        confirm  — must equal "YES" to actually delete (case-sensitive).
+        vacuum   — "1" (default when dry_run=0) runs VACUUM after the
+                   delete to release pages back to the OS; "0" skips it.
+
+    Returns:
+        {
+          "ok": bool,
+          "mode": "orphans"|"dead_parents"|"both",
+          "dry_run": bool,
+          "matched": {"count": int, "mb": float},
+          "deleted": {"count": int, "mb": float},   # 0/0 on dry_run
+          "vacuum":  {"ran": bool, "before_mb": float,
+                      "after_mb": float, "reclaimed_mb": float},
+          "sample": [ up to 10 matched rows for eyeballing ]
+        }
+    """
+    mode = (request.args.get("mode") or "orphans").strip().lower()
+    if mode not in ("orphans", "dead_parents", "both"):
+        return {"ok": False, "error": f"invalid mode: {mode}"}, 400
+
+    dry_run = (request.args.get("dry_run", "1") != "0")
+    confirm = request.args.get("confirm", "")
+    if not dry_run and confirm != "YES":
+        return {
+            "ok": False,
+            "error": "destructive op requires confirm=YES",
+            "hint": "re-issue with &confirm=YES after reviewing dry-run",
+        }, 400
+
+    want_vacuum = (request.args.get("vacuum", "1") != "0") and not dry_run
+
+    import os as _os
+    from src.core.paths import DATA_DIR as data_dir
+    db_path = _os.path.join(data_dir, "reytech.db")
+    size_before = (_os.path.getsize(db_path) / 1024 / 1024) \
+        if _os.path.exists(db_path) else 0
+
+    out = {
+        "ok": True,
+        "mode": mode,
+        "dry_run": dry_run,
+        "matched": {"count": 0, "mb": 0.0},
+        "deleted": {"count": 0, "mb": 0.0},
+        "vacuum": {"ran": False, "before_mb": round(size_before, 2),
+                   "after_mb": round(size_before, 2), "reclaimed_mb": 0.0},
+        "sample": [],
+    }
+
+    # Gather ids, dedupe across modes.
+    matched_rows = {}  # id -> row tuple
+    try:
+        with get_db() as conn:
+            if mode in ("orphans", "both"):
+                for r in conn.execute(_TRIM_ORPHANS_SQL).fetchall():
+                    matched_rows[r[0]] = r
+            if mode in ("dead_parents", "both"):
+                for r in conn.execute(_TRIM_DEAD_PARENTS_SQL).fetchall():
+                    matched_rows.setdefault(r[0], r)
+
+            total_bytes = sum((r[3] or 0) for r in matched_rows.values())
+            out["matched"]["count"] = len(matched_rows)
+            out["matched"]["mb"] = round(total_bytes / 1024 / 1024, 2)
+            out["sample"] = [
+                {
+                    "id": r[0], "rfq_id": r[1], "filename": r[2],
+                    "bytes": r[3], "category": r[4], "file_type": r[5],
+                    "created_at": r[6],
+                }
+                for r in list(matched_rows.values())[:10]
+            ]
+
+            if not dry_run and matched_rows:
+                ids = list(matched_rows.keys())
+                # Chunk the DELETE so SQLite's 999-param limit doesn't bite.
+                CHUNK = 500
+                deleted = 0
+                for i in range(0, len(ids), CHUNK):
+                    chunk = ids[i:i + CHUNK]
+                    placeholders = ",".join("?" * len(chunk))
+                    cur = conn.execute(
+                        f"DELETE FROM rfq_files WHERE id IN ({placeholders})",
+                        chunk,
+                    )
+                    deleted += cur.rowcount or 0
+                conn.commit()
+                out["deleted"]["count"] = deleted
+                out["deleted"]["mb"] = round(total_bytes / 1024 / 1024, 2)
+                log.warning(
+                    "rfq_files trim (mode=%s): deleted %d rows, ~%.2f MB",
+                    mode, deleted, total_bytes / 1024 / 1024,
+                )
+    except Exception as e:
+        log.warning("trim-rfq-files failed: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e), "partial": out}, 500
+
+    if want_vacuum and out["deleted"]["count"] > 0:
+        try:
+            # VACUUM must run outside a transaction and without other
+            # writers. Use a dedicated connection that auto-commits.
+            import sqlite3
+            vc = sqlite3.connect(db_path, timeout=60, isolation_level=None)
+            vc.execute("VACUUM")
+            vc.close()
+            size_after = _os.path.getsize(db_path) / 1024 / 1024
+            out["vacuum"]["ran"] = True
+            out["vacuum"]["after_mb"] = round(size_after, 2)
+            out["vacuum"]["reclaimed_mb"] = round(size_before - size_after, 2)
+            log.warning(
+                "rfq_files trim VACUUM: %.2f MB → %.2f MB (reclaimed %.2f MB)",
+                size_before, size_after, size_before - size_after,
+            )
+        except Exception as e:
+            log.warning("VACUUM after trim failed: %s", e)
+            out["vacuum"]["error"] = str(e)
+
+    return out
+
+
 @bp.route("/api/health/quote-errors")
 @auth_required
 def quote_errors_json():
