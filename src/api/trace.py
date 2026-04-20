@@ -106,6 +106,31 @@ class Trace:
     def _finish(self):
         self.finished_at = datetime.now().isoformat()
         self.duration_ms = round((time.time() - self._t0) * 1000)
+        # Persist a coarse record of every finished workflow into
+        # utilization_events so /api/health/quote-errors can surface
+        # failed quote generations across restarts. Traces themselves
+        # live only in-memory (deque of 200); this is the durable copy.
+        try:
+            from src.core.utilization import record_feature_use
+            last_fail = next(
+                (s["msg"] for s in reversed(self.steps)
+                 if isinstance(s.get("msg"), str) and s["msg"].startswith("FAIL:")),
+                "",
+            )
+            ctx = {**self.context}
+            if last_fail:
+                ctx["error"] = last_fail.replace("FAIL:", "", 1).strip()
+            ctx["trace_id"] = self.id
+            ctx["status"] = self.status
+            ctx["steps"] = len(self.steps)
+            record_feature_use(
+                feature=f"trace.{self.workflow}",
+                context=ctx,
+                duration_ms=int(self.duration_ms or 0),
+                ok=(self.status == "ok"),
+            )
+        except Exception as _e:
+            log.debug("trace utilization record suppressed: %s", _e)
     
     def to_dict(self):
         return {

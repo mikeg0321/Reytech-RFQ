@@ -534,3 +534,113 @@ def db_bloat_json():
         result["error"] = str(e)
 
     return result
+
+
+@bp.route("/api/health/quote-errors")
+@auth_required
+def quote_errors_json():
+    """Failed quote/package generations in the last `hours` (default 24).
+
+    Backed by `utilization_events`: every `Trace(...).fail(...)` call in
+    the quoting routes persists a row with `feature='trace.<workflow>'`
+    and `ok=0`. This endpoint filters those rows to the quote-relevant
+    workflows so ops can see what's crashing without tailing logs.
+
+    Query params:
+        hours  — lookback window (default 24, clamped [1, 720])
+        limit  — max rows returned (default 200, clamped [1, 1000])
+
+    Surfaces:
+        - summary: {total_attempts, failures, failure_rate}
+        - by_workflow: failure count per workflow (rfq_package, etc.)
+        - recent: last N failures with trace_id / rfq_id / pc_id / error
+    """
+    try:
+        hours = int(request.args.get("hours", 24))
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(hours, 720))
+
+    try:
+        limit = int(request.args.get("limit", 200))
+    except (TypeError, ValueError):
+        limit = 200
+    limit = max(1, min(limit, 1000))
+
+    since = (datetime.now() - timedelta(hours=hours)).isoformat()
+
+    # Only workflows that represent quote/package generation. Other
+    # traced flows (classifier, email pipeline) live elsewhere in the
+    # dashboard and would pollute the signal here.
+    quote_prefixes = (
+        "trace.rfq_package",
+        "trace.quote_generation",
+        "trace.pc_quote",
+        "trace.rfq_quote",
+    )
+    like_clauses = " OR ".join(["feature LIKE ?"] * len(quote_prefixes))
+    like_params = [f"{p}%" for p in quote_prefixes]
+
+    totals_sql = (
+        f"SELECT COUNT(*) AS n, "
+        f"SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS fails "
+        f"FROM utilization_events "
+        f"WHERE created_at >= ? AND ({like_clauses})"
+    )
+    by_wf_sql = (
+        f"SELECT feature, "
+        f"COUNT(*) AS attempts, "
+        f"SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS failures, "
+        f"AVG(duration_ms) AS avg_ms "
+        f"FROM utilization_events "
+        f"WHERE created_at >= ? AND ({like_clauses}) "
+        f"GROUP BY feature ORDER BY failures DESC, attempts DESC"
+    )
+    recent_sql = (
+        f"SELECT feature, context, duration_ms, created_at "
+        f"FROM utilization_events "
+        f"WHERE created_at >= ? AND ok=0 AND ({like_clauses}) "
+        f"ORDER BY created_at DESC LIMIT ?"
+    )
+
+    params_base = [since, *like_params]
+
+    tot_rows = _safe_fetchall(totals_sql, params_base)
+    tot = tot_rows[0] if tot_rows else {"n": 0, "fails": 0}
+    total = int(tot.get("n") or 0)
+    fails = int(tot.get("fails") or 0)
+
+    by_wf = _safe_fetchall(by_wf_sql, params_base)
+    for row in by_wf:
+        row["avg_ms"] = round(float(row.get("avg_ms") or 0), 1)
+
+    recent_rows = _safe_fetchall(recent_sql, params_base + [limit])
+    recent = []
+    for r in recent_rows:
+        ctx = {}
+        try:
+            ctx = json.loads(r.get("context") or "{}")
+        except (TypeError, ValueError):
+            ctx = {}
+        recent.append({
+            "feature": r.get("feature", ""),
+            "created_at": r.get("created_at", ""),
+            "duration_ms": r.get("duration_ms", 0),
+            "trace_id": ctx.get("trace_id", ""),
+            "rfq_id": ctx.get("rfq_id", ""),
+            "pc_id": ctx.get("pc_id", ""),
+            "error": ctx.get("error", ""),
+            "status": ctx.get("status", ""),
+        })
+
+    return {
+        "ok": True,
+        "hours": hours,
+        "summary": {
+            "total_attempts": total,
+            "failures": fails,
+            "failure_rate": round(fails / total, 3) if total else 0.0,
+        },
+        "by_workflow": by_wf,
+        "recent": recent,
+    }
