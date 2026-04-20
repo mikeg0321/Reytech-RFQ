@@ -219,6 +219,118 @@ class QuoteOrchestrator:
             # run failed, so feature_status must always be updated.
             self._sweep_module_skips(result)
 
+    # ── Legacy-route adapter ──
+
+    def run_legacy_package(
+        self,
+        rfq_id: str,
+        form_data: Optional[dict] = None,
+        *,
+        target_stage: str = "qa_pass",
+        actor: str = "legacy_route",
+    ) -> OrchestratorResult:
+        """Orchestrator-shaped observer for the legacy generate-package routes.
+
+        Gated by the `rfq.orchestrator_pipeline` feature flag (default off).
+        When off, returns an empty result with a single note so callers can
+        no-op cheaply; when on, loads the RFQ by id, merges `form_data`
+        (request.form-style overrides the routes apply before filling), and
+        delegates to `run()` with a legacy-dict source.
+
+        Never raises — a missing RFQ, bad form_data, or DB error surfaces as
+        a blocker so the caller stays on its own code path.
+        """
+        result = OrchestratorResult()
+
+        try:
+            from src.core.flags import get_flag
+            enabled = bool(get_flag("rfq.orchestrator_pipeline", False))
+        except Exception as e:
+            log.warning("run_legacy_package: flag read failed: %s", e)
+            enabled = False
+
+        if not enabled:
+            result.ok = True
+            result.notes.append("rfq.orchestrator_pipeline flag off — no-op")
+            return result
+
+        try:
+            from src.api.data_layer import load_rfqs
+        except Exception as e:
+            result.blockers.append(f"load_rfqs import failed: {type(e).__name__}: {e}")
+            return result
+
+        try:
+            rfqs = load_rfqs()
+        except Exception as e:
+            result.blockers.append(f"load_rfqs failed: {type(e).__name__}: {e}")
+            return result
+
+        r = rfqs.get(rfq_id) if isinstance(rfqs, dict) else None
+        if not r:
+            result.blockers.append(f"rfq not found: {rfq_id}")
+            return result
+
+        # Apply row-level form overrides the legacy route applies before
+        # generating — keeps the observer's view in sync with what the
+        # filler chain is about to see. Non-destructive: we copy first.
+        import copy as _copy
+        merged = _copy.deepcopy(r)
+        self._apply_legacy_form_overrides(merged, form_data or {})
+
+        return self.run(QuoteRequest(
+            source=merged,
+            doc_type=(merged.get("doc_type") or "rfq"),
+            agency_key=merged.get("agency_key", "") or merged.get("agency", ""),
+            solicitation_number=merged.get("solicitation_number", ""),
+            target_stage=target_stage,
+            actor=actor,
+        ))
+
+    @staticmethod
+    def _apply_legacy_form_overrides(rfq: dict, form_data: dict) -> None:
+        """Mirror the row-override shuffle that every generate-package route
+        runs before filling: copy cost/scprs/price/markup/desc/qty/uom/part/link
+        from `form_data[<field>_<i>]` onto each line item. Silent on bad
+        values — route behaviour is the contract, not strict validation."""
+        items = rfq.get("line_items") or []
+        if not items or not form_data:
+            return
+
+        float_map = {
+            "cost": "supplier_cost",
+            "scprs": "scprs_last_price",
+            "price": "price_per_unit",
+            "markup": "markup_pct",
+        }
+        for i, item in enumerate(items):
+            for field_name, key in float_map.items():
+                v = form_data.get(f"{field_name}_{i}")
+                if v in (None, ""):
+                    continue
+                try:
+                    item[key] = float(v)
+                except (ValueError, TypeError):
+                    pass
+            desc_val = form_data.get(f"desc_{i}")
+            if desc_val is not None:
+                item["description"] = str(desc_val).strip()
+            qty_val = form_data.get(f"qty_{i}")
+            if qty_val:
+                try:
+                    item["qty"] = int(float(qty_val))
+                except (ValueError, TypeError):
+                    pass
+            uom_val = form_data.get(f"uom_{i}")
+            if uom_val is not None:
+                item["uom"] = str(uom_val).strip().upper()
+            part_val = form_data.get(f"part_{i}")
+            if part_val is not None:
+                item["item_number"] = str(part_val).strip()
+            link_val = form_data.get(f"link_{i}")
+            if link_val:
+                item["item_link"] = str(link_val).strip()
+
     # Modules that expose `drain_skips()` per the silent-skip rollout
     # (PRs #184-#190). Listed here so end-of-run sweep stays in one place.
     _SKIP_LEDGER_MODULES = (
