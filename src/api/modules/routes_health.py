@@ -247,6 +247,79 @@ def _build_top_errors(days: int, limit: int = 10):
     return rows
 
 
+def _build_oracle_calibration_card():
+    """Is the Oracle feedback loop actually firing?
+
+    Aggregates `oracle_calibration` across all category×agency rows so an
+    operator can tell at a glance whether the 4 runtime trigger paths
+    (PC/RFQ mark-won/lost, order-ship, SCPRS loss-poll) are landing real
+    signal. Staleness fires after 14 days with no update — matches the
+    cadence the weekly report narrator expects.
+
+    Context: before the 2026-04-20 PRs (#277-#280), prod showed 0 wins /
+    47 losses and the weekly narrator mislabelled it "aggressive markup
+    reduction." The card surfaces the same honest state: if loss_on_price
+    still dominates after the loop is wired, that's a supplier-cost /
+    market-reality signal, not a narrator bug.
+    """
+    row = _safe_fetchone(
+        """SELECT COUNT(*) AS rows_n,
+                  COALESCE(SUM(sample_size), 0) AS samples,
+                  COALESCE(SUM(win_count), 0) AS wins,
+                  COALESCE(SUM(loss_on_price), 0) AS losses_price,
+                  COALESCE(SUM(loss_on_other), 0) AS losses_other,
+                  MAX(last_updated) AS last_updated,
+                  COUNT(DISTINCT agency) AS agencies_n
+             FROM oracle_calibration"""
+    ) or {}
+
+    rows_n = int(row.get("rows_n") or 0)
+    wins = int(row.get("wins") or 0)
+    losses_price = int(row.get("losses_price") or 0)
+    losses_other = int(row.get("losses_other") or 0)
+    losses_total = losses_price + losses_other
+    samples = int(row.get("samples") or 0)
+    last_updated = row.get("last_updated") or ""
+
+    days_since_update = None
+    is_stale = None
+    if last_updated:
+        try:
+            dt = datetime.fromisoformat(last_updated[:19])
+            days_since_update = (datetime.now() - dt).days
+            is_stale = days_since_update > 14
+        except (ValueError, TypeError):
+            pass
+
+    win_rate_pct = None
+    if (wins + losses_total) > 0:
+        win_rate_pct = round(100 * wins / (wins + losses_total), 1)
+
+    if rows_n == 0:
+        status = "no_data"
+    elif is_stale:
+        status = "stale"
+    elif wins == 0 and losses_total > 0:
+        status = "losses_only"
+    else:
+        status = "healthy"
+
+    return {
+        "rows": rows_n,
+        "agencies": int(row.get("agencies_n") or 0),
+        "samples": samples,
+        "wins": wins,
+        "losses_price": losses_price,
+        "losses_other": losses_other,
+        "losses_total": losses_total,
+        "win_rate_pct": win_rate_pct,
+        "last_updated": last_updated,
+        "days_since_update": days_since_update,
+        "is_stale": is_stale,
+        "status": status,
+    }
+
+
 def _build_recent_crashes(limit: int = 10):
     """Latest rows of the ingest.classify_crashed feature. The context
     column carries error type + attachment names + sender so triage
@@ -302,6 +375,7 @@ def quoting_health_page():
         "recent_crashes": _build_recent_crashes(),
         "db_health": _build_db_health(),
         "catalog_health": _build_catalog_health(),
+        "oracle_calibration": _build_oracle_calibration_card(),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
 
@@ -381,6 +455,7 @@ def quoting_health_json():
         "recent_crashes": _build_recent_crashes(),
         "db_health": _build_db_health(),
         "catalog_health": _build_catalog_health(),
+        "oracle_calibration": _build_oracle_calibration_card(),
     }
 
 

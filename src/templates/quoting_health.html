@@ -145,6 +145,57 @@
   </div>
 </div>
 
+{# ── Oracle feedback loop ── #}
+{# Surfaces whether the 4 runtime calibrate triggers (PC/RFQ mark-won/lost, #}
+{# order-ship, SCPRS loss-poll) are landing real signal. Card color-codes #}
+{# by status: no_data → grey, stale (>14d) → red, losses_only → amber, #}
+{# healthy → green. #}
+{% set _oc = oracle_calibration %}
+{% set _oc_border = '#8b949e' if _oc.status == 'no_data'
+                    else '#f85149' if _oc.status == 'stale'
+                    else '#d29922' if _oc.status == 'losses_only'
+                    else '#3fb950' %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {{ _oc_border }}">
+  <div class="card-t">Oracle feedback loop</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
+    {{ stat(_oc.rows, 'Category × agency rows', '#58a6ff') }}
+    {{ stat(_oc.wins, 'Wins recorded',
+            '#3fb950' if _oc.wins > 0 else '#8b949e') }}
+    {{ stat(_oc.losses_price, 'Losses (price)',
+            '#d29922' if _oc.losses_price > 0 else '#8b949e') }}
+    {{ stat(_oc.losses_other, 'Losses (other)', '#8b949e') }}
+    {{ stat(
+        _oc.win_rate_pct if _oc.win_rate_pct is not none else '--',
+        'Win rate',
+        '#3fb950' if (_oc.win_rate_pct or 0) >= 30
+         else '#d29922' if (_oc.win_rate_pct or 0) > 0
+         else '#8b949e',
+        '%' if _oc.win_rate_pct is not none else '') }}
+  </div>
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+    {% if _oc.status == 'no_data' %}
+      No calibration data yet — the 4 runtime triggers haven't fired. If
+      you've marked quotes won/lost, check
+      <code>/api/health/quoting</code> for details.
+    {% elif _oc.status == 'stale' %}
+      <strong style="color:#f85149">⚠ Last update {{ _oc.days_since_update }}d ago.</strong>
+      Feedback loop may be stuck. Expected cadence is multiple updates/week.
+    {% elif _oc.status == 'losses_only' %}
+      <strong style="color:#d29922">⚠ Loss-only data.</strong>
+      Wins aren't flowing through — historical wins live on Google Drive;
+      new wins register when you mark-won. Run
+      <code>scripts/backfill_wins_from_orders.py</code> to backfill from
+      existing orders.
+    {% else %}
+      {{ _oc.samples }} calibration sample{{ 's' if _oc.samples != 1 else '' }}
+      across {{ _oc.agencies }} agenc{{ 'ies' if _oc.agencies != 1 else 'y' }}.
+      Last update
+      {% if _oc.days_since_update == 0 %}today{% elif _oc.days_since_update == 1 %}1d ago
+      {% else %}{{ _oc.days_since_update }}d ago{% endif %}.
+    {% endif %}
+  </div>
+</div>
+
 {# ── Top errored features ── #}
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">Top errored features — last {{ days }}d</div>
