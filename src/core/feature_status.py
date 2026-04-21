@@ -47,11 +47,10 @@ _table_initialized = False
 def _db_path() -> str:
     if _DB_PATH_OVERRIDE:
         return _DB_PATH_OVERRIDE
-    try:
-        from src.core.paths import DATA_DIR
-        return os.path.join(DATA_DIR, "reytech.db")
-    except Exception:
-        return "data/reytech.db"
+    # Source of truth is src.core.db.DB_PATH — same string on prod volume,
+    # same string on local dev. Avoids drift if DATA_DIR resolution changes.
+    from src.core.db import DB_PATH
+    return DB_PATH
 
 
 def _connect() -> sqlite3.Connection:

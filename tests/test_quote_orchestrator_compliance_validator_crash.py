@@ -78,7 +78,7 @@ class TestComplianceValidatorCrashBlocksQaPass:
                 quote, "qa_pass", QuoteRequest(target_stage="qa_pass"), profiles, result,
             )
 
-        assert attempt.outcome == "error", (
+        assert attempt.outcome == "blocked", (
             f"Expected qa_pass to refuse advance when validator crashed. "
             f"Got outcome={attempt.outcome}, reasons={attempt.reasons}"
         )
@@ -115,7 +115,7 @@ class TestComplianceValidatorCrashBlocksQaPass:
                 quote, "qa_pass", QuoteRequest(target_stage="qa_pass"), profiles, result,
             )
 
-        assert attempt.outcome == "error", attempt.reasons
+        assert attempt.outcome == "blocked", attempt.reasons
         assert any(
             "compliance check did not run" in r.lower()
             for r in attempt.reasons
