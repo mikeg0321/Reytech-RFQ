@@ -258,6 +258,9 @@ def _process_po_email_legacy(subject, sender, body, email_uid):
 
     # Match to existing POs
     from src.core.db import get_db
+    matched_po_num = None
+    recalc_status = None
+    now = datetime.now().isoformat()
     with get_db() as conn:
         conn.row_factory = _sqlite3.Row
         for po_num in po_numbers:
@@ -281,18 +284,32 @@ def _process_po_email_legacy(subject, sender, body, email_uid):
                 (po_id, email_uid, direction, sender, subject, body_preview, parsed_updates, received_at, processed_at)
                 VALUES (?,?,?,?,?,?,?,?,?)""",
                 (po_id, email_uid, "inbound", sender, subject, body[:500],
-                 json.dumps(updates), datetime.now().isoformat(), datetime.now().isoformat()))
+                 json.dumps(updates), now, now))
 
             # Apply updates
             for update in updates:
                 _apply_po_update(conn, po_id, update)
                 result["updates"].append(update)
 
-            # Recalculate PO status based on line items
-            _recalculate_po_status(conn, po_id)
+            # Recalculate PO status based on line items — capture the final
+            # rollup for the Orders V2 mirror (applied after the `with` block
+            # closes so the mirror can open its own connection).
+            recalc_status = _recalculate_po_status(conn, po_id)
+            matched_po_num = po_num
 
             log.info("PO email matched: %s → %s with %d updates", po_num, po_id, len(updates))
             break
+
+    # Mirror the recalculated rollup to Orders V2 so margin/analytics views
+    # don't lag the poller when the V2 poller FF is flipped off. Best-effort
+    # — `_mirror_status_to_orders_v2` never raises, but wrap defensively to
+    # guarantee the legacy write cannot be undone by a mirror regression.
+    if matched_po_num and recalc_status:
+        try:
+            _mirror_status_to_orders_v2(matched_po_num, recalc_status, now)
+        except Exception as _e:
+            log.warning("V2 poller rollup mirror raised for %s — legacy write succeeded: %s",
+                        matched_po_num, _e)
 
     return result
 
