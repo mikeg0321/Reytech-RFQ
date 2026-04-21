@@ -1055,3 +1055,237 @@ class TestCCHCSGoldenPath:
         fqa = r["form_qa"]
         assert fqa["form_id"] == "cchcs_packet"
         assert fqa["passed"] is True, f"form_qa issues: {fqa.get('issues')}"
+
+
+# ── PC → RFQ handoff golden path ─────────────────────────────────────────────
+# Proves that the commitment-price rule (PR #285-#300 chain) flows end-to-end:
+# operator confirms link → promote_pc_to_rfq_in_place ports prices → fill
+# renders them on the packet PDF. If either of these two tests drifts, the
+# PC's public-bidding commitment is broken.
+
+class TestPCToRFQHandoffGoldenPath:
+    """End-to-end: confirm-pc-link → packet generation.
+
+    Builds on the PC→RFQ chain shipped in PRs #285-#300. The chain's hard
+    rule: PC prices are a commitment for public bidding — port VERBATIM on
+    promote, re-price ONLY when qty changes (because a 10-unit commitment
+    can't bind a 100-unit order).
+
+    These two tests pin that rule by driving the whole handoff and asserting
+    the filled packet's grand total math — if the wrong price flows through,
+    the arithmetic will not match.
+    """
+
+    @pytest.fixture
+    def packet_path(self):
+        # Prefer the overnight-review packet if present (matches the
+        # existing TestCCHCSGoldenPath tests). Fall back to the committed
+        # fixture so this test always guards — a golden-path test that
+        # silently skips in CI protects nothing.
+        if os.path.exists(CCHCS_SAMPLE_PACKET):
+            return CCHCS_SAMPLE_PACKET
+        fallback = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "fixtures", "unified_ingest", "cchcs_packet_preq.pdf",
+        )
+        if not os.path.exists(fallback):
+            pytest.skip("No CCHCS packet fixture available")
+        return fallback
+
+    @pytest.fixture
+    def parsed_packet(self, packet_path):
+        from src.forms.cchcs_packet_parser import parse_cchcs_packet
+        parsed = parse_cchcs_packet(packet_path)
+        assert parsed["ok"]
+        return parsed
+
+    @staticmethod
+    def _seed_pc_and_rfq(temp_data_dir, pc, rfq):
+        with open(os.path.join(temp_data_dir, "price_checks.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({pc["id"]: pc}, f)
+        with open(os.path.join(temp_data_dir, "rfqs.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({rfq["id"]: rfq}, f)
+
+    def test_verbatim_pc_price_flows_to_filled_packet(
+        self, parsed_packet, packet_path, cchcs_reytech_info, auth_client,
+        temp_data_dir, tmp_path,
+    ):
+        """Verbatim path: when PC qty == RFQ qty, promote ports the PC
+        price unchanged and the filled packet's arithmetic proves the
+        exact price flowed from commitment → public-bidding output."""
+        packet_desc = parsed_packet["line_items"][0].get("description") or ""
+        packet_qty = parsed_packet["line_items"][0].get("qty") or 15
+        pc_price = 395.00
+        pc_cost = 295.00
+
+        pc = {
+            "id": "pc-gp-verbatim",
+            "pc_number": "PC-GP-V",
+            "agency": "CCHCS",
+            "institution": "California Correctional Health Care Services",
+            "requestor": "buyer@cchcs.ca.gov",
+            "items": [{
+                "description": packet_desc,
+                "quantity": packet_qty,
+                "unit_price": pc_price,
+                "supplier_cost": pc_cost,
+                "bid_price": pc_price,
+                "markup_pct": 33.9,
+            }],
+        }
+        rfq = {
+            "id": "rfq-gp-verbatim",
+            "solicitation_number": "PREQ-GP-V",
+            "requestor_email": "buyer@cchcs.ca.gov",
+            "institution": "CCHCS",
+            "agency": "CCHCS",
+            "status": "new",
+            "line_items": [{
+                "description": packet_desc,
+                "quantity": packet_qty,
+            }],
+        }
+        self._seed_pc_and_rfq(temp_data_dir, pc, rfq)
+
+        link = auth_client.post(
+            f"/api/rfq/{rfq['id']}/confirm-pc-link",
+            json={"pc_id": pc["id"], "reprice": False},
+        )
+        assert link.status_code == 200, link.get_data(as_text=True)
+
+        from src.api.data_layer import load_rfqs
+        promoted_line = (load_rfqs() or {})[rfq["id"]]["line_items"][0]
+        # Verbatim rule: PC price lands on RFQ unchanged, no reprice flag.
+        assert abs(promoted_line["unit_price"] - pc_price) < 0.01
+        assert not promoted_line.get("qty_changed"), (
+            "matched qty must NOT flag qty_changed — only drift does"
+        )
+        assert promoted_line.get("repriced_reason") != "qty_change"
+
+        # Feed the promoted price into the full packet filler.
+        overrides = {1: {
+            "unit_price": promoted_line["unit_price"],
+            "unit_cost": promoted_line.get("supplier_cost") or pc_cost,
+        }}
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=packet_path,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides=overrides,
+            strict=True,
+        )
+        assert r["ok"] is True, f"gate blocked: {r.get('error')}"
+        assert r["gate"]["passed"] is True
+        # Grand total arithmetic is the commitment-price witness: if the
+        # filled packet's total ≠ PC's (qty × price), some layer between
+        # promote and fill mutated the commitment.
+        expected = packet_qty * pc_price
+        assert abs(r["grand_total"] - expected) < 0.01, (
+            f"PC commitment {pc_price} × qty {packet_qty} = {expected}, "
+            f"packet total {r['grand_total']} — handoff mutated price"
+        )
+
+    def test_qty_drift_reprices_via_oracle_then_fills(
+        self, parsed_packet, packet_path, cchcs_reytech_info, auth_client,
+        temp_data_dir, tmp_path, monkeypatch,
+    ):
+        """Drift path: when RFQ qty differs from PC qty, the commitment
+        rule carveout applies — reprice via oracle. The filled packet
+        must render the oracle price on the drifted line, not the stale
+        PC price. Volume changes invalidate the original commitment."""
+        packet_desc = parsed_packet["line_items"][0].get("description") or ""
+        packet_qty = parsed_packet["line_items"][0].get("qty") or 15
+        # PC quoted half the qty the packet actually asks for — drift.
+        pc_qty = max(1, packet_qty // 2)
+        pc_price = 395.00
+        pc_cost = 295.00
+        oracle_price = 345.00  # volume discount the oracle returns
+        oracle_cost = 260.00
+
+        pc = {
+            "id": "pc-gp-drift",
+            "pc_number": "PC-GP-D",
+            "agency": "CCHCS",
+            "institution": "California Correctional Health Care Services",
+            "requestor": "buyer@cchcs.ca.gov",
+            "items": [{
+                "description": packet_desc,
+                "quantity": pc_qty,
+                "unit_price": pc_price,
+                "supplier_cost": pc_cost,
+                "bid_price": pc_price,
+                "markup_pct": 33.9,
+            }],
+        }
+        rfq = {
+            "id": "rfq-gp-drift",
+            "solicitation_number": "PREQ-GP-D",
+            "requestor_email": "buyer@cchcs.ca.gov",
+            "institution": "CCHCS",
+            "agency": "CCHCS",
+            "status": "new",
+            "line_items": [{
+                "description": packet_desc,
+                "quantity": packet_qty,  # drifted from PC qty
+            }],
+        }
+        self._seed_pc_and_rfq(temp_data_dir, pc, rfq)
+
+        # Oracle stub: deterministic price for the repriced line.
+        import src.core.pricing_oracle_v2 as _poll
+        monkeypatch.setattr(_poll, "get_pricing", lambda **kw: {
+            "recommendation": {"quote_price": oracle_price,
+                               "markup_pct": 32.7},
+            "cost": {"locked_cost": oracle_cost},
+        })
+
+        link = auth_client.post(
+            f"/api/rfq/{rfq['id']}/confirm-pc-link",
+            json={"pc_id": pc["id"], "reprice": True},
+        )
+        assert link.status_code == 200, link.get_data(as_text=True)
+
+        from src.api.data_layer import load_rfqs
+        promoted_line = (load_rfqs() or {})[rfq["id"]]["line_items"][0]
+        # Drift must reprice and leave an audit trail — pc_original_qty
+        # pins the commitment qty, repriced_reason explains the carveout.
+        # (qty_changed is cleared by the reprice pass after a successful
+        # oracle hit — repriced_reason="qty_change" is the post-reprice
+        # witness, not qty_changed.)
+        assert promoted_line.get("repriced_reason") == "qty_change", (
+            "drifted line must be repriced via oracle — leaving stale PC "
+            "price is the commitment-rule violation this test guards"
+        )
+        assert abs(promoted_line["unit_price"] - oracle_price) < 0.01, (
+            f"expected oracle price {oracle_price} on drifted line, got "
+            f"{promoted_line['unit_price']}"
+        )
+        assert promoted_line.get("pc_original_qty") == pc_qty
+
+        overrides = {1: {
+            "unit_price": promoted_line["unit_price"],
+            "unit_cost": promoted_line.get("supplier_cost") or oracle_cost,
+        }}
+        from src.forms.cchcs_packet_filler import fill_cchcs_packet
+        r = fill_cchcs_packet(
+            source_pdf=packet_path,
+            parsed=parsed_packet,
+            output_dir=str(tmp_path),
+            reytech_info=cchcs_reytech_info,
+            price_overrides=overrides,
+            strict=True,
+        )
+        assert r["ok"] is True, f"gate blocked: {r.get('error')}"
+        # Grand total = RFQ qty (the real ask) × oracle price (the repriced
+        # commitment). If either factor is wrong, some layer between
+        # promote → reprice → fill used the stale value.
+        expected = packet_qty * oracle_price
+        assert abs(r["grand_total"] - expected) < 0.01, (
+            f"drifted line must render at oracle price {oracle_price} "
+            f"× rfq qty {packet_qty} = {expected}, packet total "
+            f"{r['grand_total']} — drift path dropped the reprice"
+        )
