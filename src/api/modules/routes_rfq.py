@@ -3404,3 +3404,116 @@ def api_rfq_bulk_paste_data(rid):
     return jsonify({"ok": True, "results": results, "applied": applied, "total": len(rows)})
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# CCHCS PC→RFQ Handoff (operator-confirmed link)
+# Rule (Mike, 2026-04-20): PC prices are publish-for-bidding commitments.
+# Port verbatim on promote; only re-price lines whose qty drifted.
+# Never auto-link below 100% — always surface candidates for operator review.
+# ═══════════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/<rid>/pc-link-suggestions", methods=["GET"])
+@auth_required
+@safe_route
+def api_rfq_pc_link_suggestions(rid):
+    """Surface top CCHCS PC candidates for operator review. Never auto-links."""
+    bad = _validate_rid(rid)
+    if bad:
+        return bad
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    from src.core.pc_rfq_linker import find_matching_pcs_for_cchcs
+    from src.api.dashboard import _load_price_checks as _dash_load_pcs
+    pcs = _dash_load_pcs()
+
+    candidates = find_matching_pcs_for_cchcs(r, pcs, max_results=3)
+    suggestions = []
+    for c in candidates:
+        inner = c.get("pc_data", {}) or {}
+        pc_inner = inner.get("pc_data", inner) if isinstance(inner, dict) else {}
+        if isinstance(pc_inner, str):
+            try:
+                import json as _json
+                pc_inner = _json.loads(pc_inner)
+            except Exception:
+                pc_inner = {}
+        suggestions.append({
+            "pc_id": c["pc_id"],
+            "pc_number": pc_inner.get("pc_number") or inner.get("pc_number", ""),
+            "match_pct": c["match_pct"],
+            "is_exact": c["is_exact"],
+            "line_matches": c["line_matches"],
+            "line_total": c["line_total"],
+            "reasons": c["reasons"],
+            "pc_item_count": len(pc_inner.get("items") or inner.get("items") or []),
+        })
+    return jsonify({
+        "ok": True,
+        "rfq_id": rid,
+        "already_linked": bool(r.get("linked_pc_id")),
+        "linked_pc_id": r.get("linked_pc_id", ""),
+        "suggestions": suggestions,
+    })
+
+
+@bp.route("/api/rfq/<rid>/confirm-pc-link", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_confirm_pc_link(rid):
+    """Operator-confirmed PC→RFQ promote. Ports prices verbatim; optional
+    selective reprice for qty-changed lines only."""
+    bad = _validate_rid(rid)
+    if bad:
+        return bad
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    pc_id = (body.get("pc_id") or "").strip()
+    reprice = bool(body.get("reprice"))
+    if not pc_id:
+        return jsonify({"ok": False, "error": "pc_id is required"}), 400
+
+    from src.api.dashboard import _load_price_checks as _dash_load_pcs
+    pcs = _dash_load_pcs()
+    pc = pcs.get(pc_id)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+
+    from src.core.pc_rfq_linker import (
+        promote_pc_to_rfq_in_place,
+        qty_change_summary,
+        reprice_qty_changed_lines,
+    )
+    promote_result = promote_pc_to_rfq_in_place(r, pc_id, pc)
+
+    reprice_result = None
+    if reprice:
+        # Pricer wiring deferred — caller-injectable. Passing None triggers
+        # skipped_no_price for every qty-changed line, surfacing them for
+        # manual follow-up without fabricating a price.
+        reprice_result = reprice_qty_changed_lines(r, None)
+
+    summary = qty_change_summary(r)
+
+    from src.api.dashboard import _save_single_rfq
+    _save_single_rfq(rid, r)
+
+    log.info("PC→RFQ confirmed: rfq=%s pc=%s promoted=%d qty_changed=%d reprice=%s",
+             rid, pc_id, promote_result["promoted"], promote_result["qty_changed"],
+             reprice)
+
+    return jsonify({
+        "ok": True,
+        "rfq_id": rid,
+        "pc_id": pc_id,
+        "promote": promote_result,
+        "reprice": reprice_result,
+        "qty_change_summary": summary,
+    })
+
+
