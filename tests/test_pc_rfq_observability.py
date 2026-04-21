@@ -344,3 +344,36 @@ def test_quoting_health_page_renders_recent_link_after_confirm(
     # The tile renders the recent-links table (not the empty-state hint)
     assert "PC-2026-OBS" in html
     assert "No PC→RFQ links recorded yet" not in html
+
+
+# ── RFQ timeline visibility ───────────────────────────────────────────────
+
+def test_pc_link_event_visible_on_rfq_timeline(auth_client, temp_data_dir):
+    """The RFQ detail page queries /api/rfq/<rid>/activity which filters by
+    ref_id=rid. The pc_rfq_linked event MUST be keyed by rid — not by
+    reytech_quote_number — or it will silently not appear on the timeline
+    of any RFQ that has a quote number assigned."""
+    rfq = _cchcs_rfq()
+    rfq["reytech_quote_number"] = "Q26-1234"  # the trigger for the old bug
+    pc = _cchcs_pc()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    link = auth_client.post(
+        f"/api/rfq/{rfq['id']}/confirm-pc-link",
+        json={"pc_id": pc["id"], "reprice": False},
+    )
+    assert link.status_code == 200
+
+    resp = auth_client.get(f"/api/rfq/{rfq['id']}/activity")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    events = [a for a in body["activities"]
+              if a.get("event_type") == "pc_rfq_linked"]
+    assert len(events) == 1, (
+        "pc_rfq_linked event must be queryable by rfq id so it shows on "
+        "the RFQ detail timeline — even when an RFQ has a quote number"
+    )
+    # Quote number preserved in metadata for ops context
+    assert events[0]["metadata"]["reytech_quote_number"] == "Q26-1234"
