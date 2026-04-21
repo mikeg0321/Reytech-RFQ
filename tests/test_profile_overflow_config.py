@@ -109,11 +109,15 @@ class TestEffectivePageCapacities:
         p = self._profile([10], overflow={"mode": "some_future_thing"})
         assert p.effective_page_capacities(25) == [10]
 
-    def test_invalid_source_page_returns_base(self):
-        """source_page pointing outside the capacity list is a profile bug —
-        the helper returns the base list rather than raise."""
+    def test_source_page_outside_capacity_list_falls_back_to_last_nonzero(self):
+        """`source_page` in YAML refers to an absolute 1-indexed PDF page.
+        For profiles with one logical row-page (page_row_capacities=[10])
+        but row widgets on PDF page 5 (source_page=5), the helper must still
+        extend — falling back to the last non-zero base capacity. This is
+        the real cchcs_it_rfq shape."""
         p = self._profile([10], overflow={"mode": "duplicate_page", "source_page": 5})
-        assert p.effective_page_capacities(25) == [10]
+        assert p.effective_page_capacities(25) == [10, 10, 10]
+        assert p.effective_page_capacities(15) == [10, 10]
 
     def test_zero_source_capacity_returns_base(self):
         p = self._profile([0, 10], overflow={"mode": "duplicate_page", "source_page": 1})
@@ -156,16 +160,24 @@ class TestFillAcroformOverflowGuard:
         with pytest.raises(RuntimeError, match="exceed row-field capacity 10"):
             _fill_acroform(q, p)
 
-    def test_duplicate_page_declared_raises_not_implemented(self):
-        """Currently the runtime can't execute duplicate_page — raise a
-        distinct exception so operators see 'capability gap', not 'data bug'."""
+    def test_duplicate_page_declared_does_not_trip_guard(self):
+        """PR #317 implements duplicate_page. The guard must pass it through
+        to the actual fill path; we prove this by asserting the failure comes
+        from downstream PDF I/O (missing blank), not from the guard or a
+        capability-gap NotImplementedError."""
         p = self._profile(
             capacity=10,
             overflow={"mode": "duplicate_page", "source_page": 1, "row_field_suffix_pattern": "_{page}"},
         )
         q = self._quote(15)
-        with pytest.raises(NotImplementedError, match="duplicate_page"):
+        with pytest.raises(Exception) as exc_info:
             _fill_acroform(q, p)
+        assert not isinstance(exc_info.value, NotImplementedError), (
+            "duplicate_page is implemented — guard should not raise NotImplementedError"
+        )
+        msg = str(exc_info.value)
+        assert "exceed row-field capacity" not in msg
+        assert "does-not-matter-for-guard" in msg or "No such file" in msg
 
     def test_unknown_overflow_mode_raises_runtime_error(self):
         p = self._profile(capacity=10, overflow={"mode": "some_future_thing"})

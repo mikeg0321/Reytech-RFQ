@@ -137,29 +137,26 @@ def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
     # ── Overflow guard ──
     # Silently dropping items past the last row slot would put an incomplete
     # quote on the wire. If the profile hasn't declared an overflow strategy,
-    # refuse up-front. If it has declared `duplicate_page` but the runtime
-    # doesn't implement it yet, refuse with a clearly different message so
-    # callers know it's a profile capability gap, not a data problem.
+    # refuse up-front. `duplicate_page` is handled downstream by cloning the
+    # row page at the pypdf layer; any other declared mode is unsupported.
     active_count = sum(1 for it in quote.line_items if not it.no_bid)
     capacity = profile.total_row_capacity
+    overflow_mode = (profile.overflow or {}).get("mode") or ""
     if capacity > 0 and active_count > capacity:
-        mode = (profile.overflow or {}).get("mode") or ""
-        if not mode:
+        if not overflow_mode:
             raise RuntimeError(
                 f"fill_acroform: {profile.id}: {active_count} active line items "
                 f"exceed row-field capacity {capacity} and no overflow mode is "
                 f"configured — refusing to silently drop items"
             )
-        if mode == "duplicate_page":
-            raise NotImplementedError(
-                f"fill_acroform: {profile.id}: {active_count} active line items "
-                f"exceed row-field capacity {capacity}; profile declares "
-                f"overflow.mode='duplicate_page' but page duplication is not "
-                f"yet implemented in the fill engine — tracked as PR #317"
+        if overflow_mode != "duplicate_page":
+            raise RuntimeError(
+                f"fill_acroform: {profile.id}: overflow mode {overflow_mode!r} is not supported"
             )
-        raise RuntimeError(
-            f"fill_acroform: {profile.id}: overflow mode {mode!r} is not supported"
-        )
+
+    # Effective capacity list, extended with duplicated row pages when
+    # overflow is active. When items fit, this equals page_row_capacities.
+    effective_caps = profile.effective_page_capacities(active_count)
 
     field_values = {}
 
@@ -168,7 +165,7 @@ def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
     field_values.update(field_map)
 
     # ── Row items ──
-    row_values = _build_row_field_map(quote, profile)
+    row_values = _build_row_field_map(quote, profile, capacities=effective_caps)
     field_values.update(row_values)
 
     # ── Page metadata ──
@@ -198,6 +195,13 @@ def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
         # Chrome, Edge, Acrobat all honor this. Fields render AND stay editable.
         if "/AcroForm" in writer._root_object:
             writer._root_object["/AcroForm"][NameObject("/NeedAppearances")] = BooleanObject(True)
+
+        # ── Duplicate row page(s) when overflow is active ──
+        # Must happen AFTER clone_from (so the source page exists) but BEFORE
+        # update_page_form_field_values (so the cloned fields are visible).
+        extra_row_pages = len(effective_caps) - len(profile.page_row_capacities)
+        if extra_row_pages > 0 and overflow_mode == "duplicate_page":
+            _duplicate_row_pages(writer, profile, extra_row_pages)
 
         # Clear signature field (will be stamped as image overlay on approval)
         field_values["Signature and Date"] = " "
@@ -370,17 +374,28 @@ def _build_static_field_map(quote: Quote, profile: FormProfile) -> dict[str, str
     return values
 
 
-def _build_row_field_map(quote: Quote, profile: FormProfile) -> dict[str, str]:
-    """Build field values for item rows across all pages."""
+def _build_row_field_map(
+    quote: Quote,
+    profile: FormProfile,
+    *,
+    capacities: list[int] | None = None,
+) -> dict[str, str]:
+    """Build field values for item rows across all pages.
+
+    `capacities` defaults to `profile.page_row_capacities`. Callers doing
+    overflow (duplicate_page) pass the extended list from
+    `profile.effective_page_capacities(item_count)` so rows past the base
+    capacity land in suffixed field names (`Item Description1_2` etc.).
+    """
     values = {}
     active_items = [it for it in quote.line_items if not it.no_bid]
 
-    capacities = profile.page_row_capacities
-    if not capacities:
+    caps = capacities if capacities is not None else profile.page_row_capacities
+    if not caps:
         return values
 
     item_idx = 0
-    for page_num, capacity in enumerate(capacities, start=1):
+    for page_num, capacity in enumerate(caps, start=1):
         for row in range(1, capacity + 1):
             if item_idx >= len(active_items):
                 break
@@ -396,6 +411,102 @@ def _build_row_field_map(quote: Quote, profile: FormProfile) -> dict[str, str]:
             item_idx += 1
 
     return values
+
+
+def _duplicate_row_pages(writer, profile: FormProfile, extra_pages: int) -> None:
+    """Clone the profile's row page `extra_pages` times, renaming row-field
+    widgets with `_{page}` suffix so each duplicate has its own independently
+    addressable set of row fields.
+
+    The source page is identified by `profile.overflow["source_page"]`
+    (1-indexed PDF page containing the row widgets). Non-row widgets on
+    the source page are dropped from the duplicates — only row-field
+    widgets are cloned. The new widgets are appended to the AcroForm
+    `/Fields` array so readers discover them; each widget's `/P` is set
+    to the newly-inserted page so the PDF structure is well-formed.
+
+    Mutates the writer in place. No-op if `extra_pages <= 0`.
+    """
+    if extra_pages <= 0:
+        return
+
+    import copy as _copy
+    from pypdf.generic import (
+        NameObject, TextStringObject, ArrayObject, DictionaryObject,
+    )
+
+    overflow = profile.overflow or {}
+    src_page_1indexed = int(overflow.get("source_page", 1) or 1)
+    src_idx = src_page_1indexed - 1
+    if src_idx < 0 or src_idx >= len(writer.pages):
+        raise RuntimeError(
+            f"duplicate_row_pages: {profile.id}: source_page {src_page_1indexed} "
+            f"out of range for PDF with {len(writer.pages)} pages"
+        )
+
+    # Collect the full set of row-field pdf_field names at the base capacity.
+    base_cap = profile.page_row_capacities[0] if profile.page_row_capacities else 0
+    row_field_names: set[str] = set()
+    for fm in profile.fields:
+        if "[n]" not in fm.semantic:
+            continue
+        for n in range(1, base_cap + 1):
+            row_field_names.add(fm.pdf_field.replace("{n}", str(n)))
+
+    if not row_field_names:
+        raise RuntimeError(
+            f"duplicate_row_pages: {profile.id}: no row-field semantics "
+            f"found — cannot duplicate without row fields to clone"
+        )
+
+    root = writer._root_object
+    af = root["/AcroForm"]
+    if hasattr(af, "get_object"):
+        af = af.get_object()
+    fields = af["/Fields"]
+    if hasattr(fields, "get_object"):
+        fields = fields.get_object()
+
+    src_page = writer.pages[src_idx]
+    src_annots = src_page.get("/Annots")
+    if hasattr(src_annots, "get_object"):
+        src_annots = src_annots.get_object()
+    src_annots = list(src_annots or [])
+
+    # Each extra page becomes a new row page. Insert after the source page
+    # so duplicates stay contiguous with the original row page.
+    for copy_ordinal in range(2, 2 + extra_pages):
+        suffix = f"_{copy_ordinal}"
+        new_page = _copy.deepcopy(src_page)
+
+        new_refs = []
+        for a_ref in src_annots:
+            a = a_ref.get_object()
+            t = str(a.get("/T", ""))
+            if t not in row_field_names:
+                continue
+            widget = DictionaryObject()
+            for k, v in a.items():
+                k_str = str(k)
+                if k_str in ("/P", "/V"):
+                    continue
+                widget[NameObject(k_str)] = v
+            widget[NameObject("/T")] = TextStringObject(f"{t}{suffix}")
+            new_refs.append(writer._add_object(widget))
+
+        new_page[NameObject("/Annots")] = ArrayObject(new_refs)
+
+        insert_at = src_idx + (copy_ordinal - 1)
+        writer.insert_page(new_page, insert_at)
+
+        # Point each new widget's /P at the page we just inserted
+        inserted_ref = writer.pages[insert_at].indirect_reference
+        for ref in new_refs:
+            ref.get_object()[NameObject("/P")] = inserted_ref
+            fields.append(ref)
+
+    log.info("duplicate_row_pages: %s cloned source page %d × %d",
+             profile.id, src_page_1indexed, extra_pages)
 
 
 def _get_item_field_value(item, semantic: str) -> str:

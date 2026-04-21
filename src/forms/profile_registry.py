@@ -76,8 +76,15 @@ class FormProfile:
 
         Returns `page_row_capacities` unchanged when items fit. When items
         exceed the base capacity AND `overflow.mode == "duplicate_page"`, the
-        list is extended with copies of the source page's capacity until it
-        accommodates every item.
+        list is extended with copies of the duplicable row page's capacity
+        until it accommodates every item.
+
+        `overflow.source_page` is interpreted first as a 1-indexed reference
+        into `page_row_capacities`; if that index is out of range (common
+        when source_page points at an absolute PDF page number rather than
+        a row-page index — e.g., cchcs_it_rfq's row widgets live on PDF
+        page 5 even though there's only one logical row-page), the last
+        non-zero capacity is used as the duplicable row-page capacity.
 
         For any other overflow mode (or no overflow), returns the base list —
         callers should detect the shortfall and act (raise, truncate, log).
@@ -89,9 +96,16 @@ class FormProfile:
             return base
         src_page_1indexed = int(self.overflow.get("source_page", 1) or 1)
         src_idx = src_page_1indexed - 1
-        if src_idx < 0 or src_idx >= len(base):
-            return base
-        per_page = base[src_idx]
+        if 0 <= src_idx < len(base):
+            # In-range index is authoritative: an explicit 0 here means
+            # "this page has no rows, don't extend" (profile bug signal).
+            per_page = base[src_idx]
+        else:
+            # Out-of-range: source_page is a PDF-page reference that doesn't
+            # index into page_row_capacities (common for single-row-page
+            # profiles like cchcs_it_rfq). Fall back to last non-zero.
+            non_zero = [c for c in base if c > 0]
+            per_page = non_zero[-1] if non_zero else 0
         if per_page <= 0:
             return base
         while sum(base) < item_count:

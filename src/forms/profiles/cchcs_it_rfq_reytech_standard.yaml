@@ -20,8 +20,8 @@ fill_mode: acroform
 page_row_capacities: [10]
 overflow:
   mode: duplicate_page
-  source_page: 1
-  row_field_suffix_pattern: "_{page}"   # Row 11 on duplicate page 2 → "Item Description1_2"
+  source_page: 5                         # Row-field page in the blank (1-indexed)
+  row_field_suffix_pattern: "_{page}"    # Row 11 on duplicate row-page 2 → "Item Description1_2"
 
 fields:
   # ── Header (buyer-issued, usually preserved from received PDF) ──
