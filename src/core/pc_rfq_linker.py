@@ -497,3 +497,171 @@ def find_matching_pcs_for_cchcs(rfq_data, pcs, max_results=3):
 
     candidates.sort(key=lambda c: (c["match_pct"], c["line_matches"]), reverse=True)
     return candidates[:max_results]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Promote-in-place: PC → RFQ with verbatim price preservation ──────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Price fields ported verbatim from the PC line. These are Mike's commitment
+# prices used to publish the RFQ for public bidding — DO NOT re-derive them.
+_VERBATIM_PRICE_FIELDS = (
+    "supplier_cost", "cost", "unit_cost", "unit_price",
+    "bid_price", "sell_price", "price_per_unit",
+    "markup_pct", "scprs_last_price",
+)
+
+# Non-price fields worth carrying over so the operator sees the same item
+# context (supplier, URL, identifiers) they approved on the PC.
+_CONTEXT_PORT_FIELDS = (
+    "item_supplier", "supplier", "item_link", "url",
+    "product_url", "amazon_url", "amazon_price",
+    "catalog_match", "oracle", "intelligence",
+    "item_number", "mfg_number", "asin", "upc",
+)
+
+
+def _as_int_qty(v) -> int:
+    """Coerce qty to int for change comparison. 0 on failure."""
+    if v is None or v == "":
+        return 0
+    try:
+        return int(float(str(v).strip()))
+    except (ValueError, TypeError):
+        return 0
+
+
+def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
+    """Operator-confirmed promote: PC → RFQ with verbatim price preservation.
+
+    Called after `find_matching_pcs_for_cchcs` surfaced the candidate and the
+    operator accepted the link. Contrast with `auto_link_rfq_to_pc` which
+    skips already-priced items and is called during auto-linking.
+
+    Mike's rule (2026-04-20): "do not re-price unless QTY changes — PCs are
+    banking on the price submitted which allows the RFQ to go out to public
+    bidding." So this function:
+      - Copies PC prices onto the matched RFQ lines VERBATIM (even if the
+        RFQ already has different/stale prices — the PC commitment wins).
+      - Flags `qty_changed=True` + `pc_original_qty=<pc qty>` when the RFQ
+        qty differs from the PC qty. A downstream re-pricing step (PR #3)
+        should target only those lines.
+
+    Line identity uses the same hierarchy as `find_matching_pcs_for_cchcs`,
+    plus a positional fallback enabled here — the operator already confirmed
+    the overall link, so trailing unmatched lines can match by index.
+
+    Args:
+        rfq_data: RFQ dict, modified in place.
+        pc_id: the confirmed PC ID.
+        pc_data: the PC dict.
+    Returns:
+        Dict with counts:
+          {"promoted": n lines that received PC pricing,
+           "qty_changed": n lines flagged for re-price,
+           "no_match": n RFQ lines we couldn't match to a PC line}
+    """
+    inner = _get_pc_inner(pc_data)
+    pc_items = inner.get("items") or pc_data.get("items") or []
+    if not pc_items:
+        log.warning("promote_pc_to_rfq_in_place: PC %s has no items", pc_id)
+        return {"promoted": 0, "qty_changed": 0, "no_match": 0}
+
+    rfq_items = rfq_data.get("line_items") or rfq_data.get("items") or []
+
+    promoted = 0
+    qty_changed = 0
+    no_match = 0
+
+    if not rfq_items:
+        # RFQ has no items yet — carry PC items over verbatim so operator has
+        # something to review. All lines flagged as sourced from the PC.
+        new_items = []
+        for pc_item in pc_items:
+            item = dict(pc_item)
+            item.setdefault("description", pc_item.get("desc", ""))
+            item.setdefault("quantity", pc_item.get("qty", 1))
+            item.setdefault("uom", pc_item.get("uom", "EACH"))
+            item["source_pc"] = pc_id
+            item["promoted_from_pc"] = True
+            item["pc_original_qty"] = _as_int_qty(pc_item.get("quantity") or pc_item.get("qty"))
+            item["qty_changed"] = False
+            new_items.append(item)
+            promoted += 1
+        rfq_data["line_items"] = new_items
+        rfq_data["items"] = new_items
+    else:
+        # RFQ has items — match each and port prices verbatim.
+        # Track which PC items we've already matched so one PC line doesn't
+        # get claimed by multiple RFQ lines.
+        claimed_pc_idx = set()
+        for pos, rfq_item in enumerate(rfq_items):
+            best_kind = None
+            best_sim = 0.0
+            best_idx = None
+            for idx, pc_item in enumerate(pc_items):
+                if idx in claimed_pc_idx:
+                    continue
+                kind, conf = _line_identity_match(rfq_item, pc_item)
+                # Prefer mfg/upc > desc > positional. A 1.0 confidence mfg/upc
+                # short-circuits the search.
+                if kind in ("mfg", "upc"):
+                    best_kind = kind
+                    best_idx = idx
+                    best_sim = conf
+                    break
+                if kind == "desc" and conf > best_sim:
+                    best_kind = kind
+                    best_idx = idx
+                    best_sim = conf
+            # Positional fallback for any still-unmatched RFQ line — safe
+            # because the operator already confirmed the PC match. Only
+            # applies when the same positional slot is free on the PC side.
+            if best_idx is None and pos < len(pc_items) and pos not in claimed_pc_idx:
+                best_kind = "positional"
+                best_idx = pos
+
+            if best_idx is None:
+                no_match += 1
+                continue
+
+            claimed_pc_idx.add(best_idx)
+            pc_item = pc_items[best_idx]
+
+            # Verbatim price port — overwrites any existing values.
+            for field in _VERBATIM_PRICE_FIELDS:
+                val = pc_item.get(field)
+                if val is not None and val != "":
+                    rfq_item[field] = val
+            # Context fields — fill only if the RFQ line doesn't already have
+            # a value (don't overwrite a buyer-provided description, etc.).
+            for field in _CONTEXT_PORT_FIELDS:
+                if pc_item.get(field) and not rfq_item.get(field):
+                    rfq_item[field] = pc_item[field]
+
+            pc_qty = _as_int_qty(pc_item.get("quantity") or pc_item.get("qty"))
+            rfq_qty = _as_int_qty(rfq_item.get("quantity") or rfq_item.get("qty"))
+            rfq_item["pc_original_qty"] = pc_qty
+            if pc_qty and rfq_qty and pc_qty != rfq_qty:
+                rfq_item["qty_changed"] = True
+                qty_changed += 1
+            else:
+                rfq_item["qty_changed"] = False
+
+            rfq_item["source_pc"] = pc_id
+            rfq_item["promoted_from_pc"] = True
+            rfq_item["line_match_kind"] = best_kind
+            promoted += 1
+
+    rfq_data["linked_pc_id"] = pc_id
+    rfq_data["linked_pc_number"] = inner.get("pc_number") or pc_data.get("pc_number", "")
+    rfq_data["linked_pc_match_reason"] = "operator_confirmed"
+    rfq_data["promoted_from_pc"] = True
+
+    bundle_id = inner.get("bundle_id") or pc_data.get("bundle_id", "")
+    if bundle_id:
+        rfq_data["bundle_id"] = bundle_id
+
+    log.info("Promoted PC %s → RFQ: %d lines (qty_changed=%d, no_match=%d)",
+             pc_id, promoted, qty_changed, no_match)
+    return {"promoted": promoted, "qty_changed": qty_changed, "no_match": no_match}
