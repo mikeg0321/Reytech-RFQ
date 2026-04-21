@@ -59,11 +59,44 @@ class FormProfile:
     # invariant across quotes and belongs on the profile, not on every Quote.
     # Quote-derived values still take precedence.
     defaults: dict = field(default_factory=dict)
+    # Overflow config — what to do when item count exceeds total_row_capacity.
+    # Structure: {"mode": "duplicate_page", "source_page": 1,
+    #             "row_field_suffix_pattern": "_{page}"} (all optional).
+    # Empty dict = no overflow declared; fill engine raises to prevent silent
+    # item drop past the row-field limit.
+    overflow: dict = field(default_factory=dict)
     raw_yaml: dict = field(default_factory=dict)
 
     @property
     def total_row_capacity(self) -> int:
         return sum(self.page_row_capacities)
+
+    def effective_page_capacities(self, item_count: int) -> list[int]:
+        """Compute the per-page row capacities needed to fit `item_count` items.
+
+        Returns `page_row_capacities` unchanged when items fit. When items
+        exceed the base capacity AND `overflow.mode == "duplicate_page"`, the
+        list is extended with copies of the source page's capacity until it
+        accommodates every item.
+
+        For any other overflow mode (or no overflow), returns the base list —
+        callers should detect the shortfall and act (raise, truncate, log).
+        """
+        base = list(self.page_row_capacities)
+        if not base or item_count <= sum(base):
+            return base
+        if (self.overflow or {}).get("mode") != "duplicate_page":
+            return base
+        src_page_1indexed = int(self.overflow.get("source_page", 1) or 1)
+        src_idx = src_page_1indexed - 1
+        if src_idx < 0 or src_idx >= len(base):
+            return base
+        per_page = base[src_idx]
+        if per_page <= 0:
+            return base
+        while sum(base) < item_count:
+            base.append(per_page)
+        return base
 
     def get_field(self, semantic: str) -> Optional[FieldMapping]:
         """Look up a field mapping by semantic name."""
@@ -132,6 +165,9 @@ def load_profile(yaml_path: str) -> FormProfile:
     # AcroForm fields only for now (checkbox defaults are a follow-up).
     defaults = {str(k): str(v) for k, v in defaults_raw.items()}
 
+    overflow_raw = raw.get("overflow", {}) or {}
+    overflow = dict(overflow_raw) if isinstance(overflow_raw, dict) else {}
+
     profile = FormProfile(
         id=raw.get("id", ""),
         form_type=raw.get("form_type", ""),
@@ -143,6 +179,7 @@ def load_profile(yaml_path: str) -> FormProfile:
         signature_page=sig.get("page", 1),
         signature_field=sig.get("field", ""),
         defaults=defaults,
+        overflow=overflow,
         raw_yaml=raw,
     )
 
