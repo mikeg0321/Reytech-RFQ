@@ -1058,6 +1058,10 @@ def _build_pc_rfq_link_health():
 
     Returns the same shape as the JSON endpoint. Fields:
         links_24h: pc_rfq_linked activity events in last 24h.
+        unlinks_24h: pc_rfq_unlinked activity events in last 24h. A
+                     high unlink/link ratio flags a misfiring auto-
+                     suggestion heuristic — ops watches this, not a
+                     noisy per-event alert.
         reprices_24h: drifted lines repriced by oracle in last 24h
                       (summed from activity metadata — avoids re-scanning
                       RFQ items).
@@ -1072,6 +1076,7 @@ def _build_pc_rfq_link_health():
     """
     out = {
         "links_24h": 0,
+        "unlinks_24h": 0,
         "reprices_24h": 0,
         "skipped_no_price_24h": 0,
         "cchcs_linked_total": 0,
@@ -1097,6 +1102,13 @@ def _build_pc_rfq_link_health():
             if isinstance(rep, dict):
                 out["reprices_24h"] += int(rep.get("repriced") or 0)
                 out["skipped_no_price_24h"] += int(rep.get("skipped_no_price") or 0)
+        # Unlink churn: links later reversed signal bad auto-suggestions.
+        # A high unlink/link ratio is the clearest ops signal that the
+        # suggestion heuristic is misfiring.
+        unlink_events_24h = [a for a in activity
+                             if a.get("event_type") == "pc_rfq_unlinked"
+                             and (a.get("timestamp") or "") >= cutoff]
+        out["unlinks_24h"] = len(unlink_events_24h)
         # Last 5, newest first
         for a in sorted(link_events,
                         key=lambda x: x.get("timestamp") or "",
