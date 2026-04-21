@@ -1977,52 +1977,6 @@ def api_rfq_revert_pricing(rid):
     })
 
 
-@bp.route("/api/rfq/<rid>/convert-to-pc", methods=["POST"])
-@auth_required
-@safe_route
-def api_rfq_convert_to_pc(rid):
-    """Convert a misrouted RFQ to a Price Check."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"})
-    try:
-        import uuid as _uuid
-        from src.api.dashboard import _load_price_checks, _save_price_checks
-        pcs = _load_price_checks()
-        pc_id = f"pc_{str(_uuid.uuid4())[:8]}"
-        sol = r.get("solicitation_number", "") or r.get("rfq_number", "") or rid
-        pc = {
-            "id": pc_id,
-            "pc_number": sol,
-            "institution": r.get("agency_name", "") or r.get("institution", "") or r.get("department", ""),
-            "requestor": r.get("requestor_name", ""),
-            "requestor_email": r.get("requestor_email", ""),
-            "due_date": r.get("due_date", ""),
-            "ship_to": r.get("delivery_location", ""),
-            "items": r.get("line_items", []),
-            "status": "parsed" if r.get("line_items") else "new",
-            "parse_note": f"Converted from RFQ {rid}",
-            "email_uid": r.get("email_uid", ""),
-            "email_subject": r.get("email_subject", ""),
-            "created_at": r.get("received_at", ""),
-            "source_pdf": "",
-            "reytech_quote_number": "",
-            "linked_rfq_id": rid,
-        }
-        pcs[pc_id] = pc
-        _save_price_checks(pcs)
-        r["status"] = "converted_to_pc"
-        r["linked_pc_id"] = pc_id
-        from src.api.dashboard import _save_single_rfq
-        _save_single_rfq(rid, r)
-        log.info("RFQ %s converted to PC %s (sol=%s)", rid, pc_id, sol)
-        return jsonify({"ok": True, "pc_id": pc_id, "redirect": f"/pricecheck/{pc_id}"})
-    except Exception as e:
-        log.error("convert-to-pc %s: %s", rid, e, exc_info=True)
-        return jsonify({"ok": False, "error": str(e)})
-
-
 @bp.route("/api/admin/relink-rfq/<rid>", methods=["POST", "GET"])
 @auth_required
 @safe_route
