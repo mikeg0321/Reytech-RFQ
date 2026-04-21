@@ -3522,6 +3522,19 @@ def api_rfq_confirm_pc_link(rid):
     from src.api.dashboard import _save_single_rfq
     _save_single_rfq(rid, r)
 
+    # Reverse link: also record the handoff on the PC so its detail page's
+    # "Linked to RFQ X" banner appears (template reads pc.linked_rfq_id —
+    # see src/templates/pc_detail.html:327). Suppress on write failure so
+    # a PC-side save glitch never rolls back the already-committed RFQ
+    # promote.
+    try:
+        pc["linked_rfq_id"] = rid
+        pc["linked_rfq_number"] = r.get("solicitation_number") or ""
+        from src.api.data_layer import _save_single_pc
+        _save_single_pc(pc_id, pc)
+    except Exception as _e:
+        log.debug("PC reverse-link writeback suppressed: %s", _e)
+
     log.info("PC→RFQ confirmed: rfq=%s pc=%s promoted=%d qty_changed=%d reprice=%s",
              rid, pc_id, promote_result["promoted"], promote_result["qty_changed"],
              reprice)
