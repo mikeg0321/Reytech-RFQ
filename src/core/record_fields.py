@@ -192,7 +192,14 @@ def hydrate_item_from_catalog(item: dict) -> None:
         return
 
     m = matches[0]
-    if (m.get("match_confidence") or 0) < 0.75:
+    # Confidence threshold is flag-tunable so prod can nudge it up/down via
+    # /api/admin/flags without a deploy. Default preserves prior 0.75 gate.
+    try:
+        from src.core.flags import get_flag
+        _threshold = float(get_flag("pipeline.confidence_threshold", 0.75))
+    except Exception:
+        _threshold = 0.75
+    if (m.get("match_confidence") or 0) < _threshold:
         return
 
     if not item.get("photo_url") and m.get("photo_url"):

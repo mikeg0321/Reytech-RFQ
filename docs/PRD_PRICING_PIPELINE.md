@@ -21,11 +21,45 @@
 >   match-quality report not yet built.
 >
 > **Known gaps (PRD review 2026-04-21):**
-> - "EXACT" badge overclaims — fires at any confidence >0.95, not only
->   UPC-verified. [PR A]
-> - Grok circuit breaker missing. [PR B]
-> - No shadow mode for new cost sources. [PR C]
-> - Chrome-MCP color-coding regression not captured. [PR D]
+> - ~~"EXACT" badge overclaims~~ — ✅ fixed PR #310 (UPC/identifier-verified only, ≥0.99).
+> - ~~Grok circuit breaker missing~~ — ✅ fixed PR #311 (`get_breaker("grok").call(...)`).
+> - ~~Confidence threshold hardcoded at 0.75~~ — ✅ now flag-tunable via
+>   `pipeline.confidence_threshold` (`/api/admin/flags`). Default 0.75 preserved.
+> - Shadow mode for new cost sources — not built. No concrete new source today;
+>   will add when a new source (scraper, API) is introduced.
+> - Chrome-MCP color-coding regression — visual audit done 2026-04-21 against
+>   prod PC pc_711f47d6 (no color-only signals found); automated regression
+>   not yet captured in a pytest-chrome fixture.
+> - Evaluator-Critic loop around Grok validator output quality — not built.
+> - Weekly match-quality report (Phase 4) — not yet built.
+
+### Agentic Gaps (patterns not yet adopted)
+
+- **Shadow mode** — pattern for introducing a new cost source: run it
+  beside catalog/SCPRS for N quotes, log deltas to `match_feedback` without
+  affecting quoted price. Adopt when the next cost source lands.
+- **Evaluator-Critic** — Grok's validation output isn't graded. Consider a
+  second-pass critic (Grok + cheaper model, or Grok vs catalog consensus)
+  that scores confidence in Grok's answer before it flips `llm_validated=True`.
+- **Proactive Watcher** — nothing monitors catalog drift, price staleness,
+  or UPC resolution accuracy over time. A weekly agent pass comparing
+  last-30-days matches against current-day matches would surface rot.
+
+### Verification Plan (Stage 5 UI)
+
+Chrome MCP selectors for the tier/badge rollout — tie these into a
+pytest-chrome fixture when the regression suite needs lockdown:
+
+- **EXACT badge** — `b` elements with text `EXACT` on `/pricecheck/<id>`.
+  Count per item should be 0 unless a source chip has `match_confidence ≥ 0.99`
+  (UPC-verified or explicit identifier).
+- **~FUZZY badge** — `span` elements with text `~FUZZY`. Renders when
+  `0.80 ≤ match_confidence < 0.99`.
+- **Review tier pill** — text content in `{READY, REVIEW, MANUAL, SKIP}`.
+  Colorblind guard: text is the primary signal; color is secondary.
+- **Flag knob** — setting `pipeline.confidence_threshold=0.70` via
+  `/api/admin/flags` must move items from REVIEW to READY on the next
+  PC render.
 >
 > Treat the sections below as the architectural vision, not the as-built
 > state. Do not scope new work from this doc alone — grep the code first.

@@ -420,6 +420,13 @@ def _pricecheck_detail_inner(pcid):
     # what's safe to quote vs what needs a second look. Counts feed the
     # summary banner above the table.
     tier_counts = {"READY": 0, "REVIEW": 0, "MANUAL": 0, "SKIP": 0}
+    # Confidence gate for READY tier. Flag-tunable so prod can nudge the bar
+    # up/down via /api/admin/flags (key: pipeline.confidence_threshold).
+    try:
+        from src.core.flags import get_flag
+        _ready_threshold = float(get_flag("pipeline.confidence_threshold", 0.75))
+    except Exception:
+        _ready_threshold = 0.75
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
             item = {"description": str(item), "qty": 1, "pricing": {}}
@@ -836,7 +843,7 @@ def _pricecheck_detail_inner(pcid):
             _tier = "MANUAL"
         else:
             _best_src_conf = max((s[5] for s in sources), default=0) if sources else 0
-            if _best_src_conf >= 0.75:
+            if _best_src_conf >= _ready_threshold:
                 _tier = "READY"
             elif _best_src_conf >= 0.50:
                 _tier = "REVIEW"
