@@ -3526,6 +3526,40 @@ def api_rfq_confirm_pc_link(rid):
              rid, pc_id, promote_result["promoted"], promote_result["qty_changed"],
              reprice)
 
+    # Observability: log to CRM activity feed so the PC→RFQ handoff is
+    # visible in the unified timeline + SQLite activity_log. Keyed by the
+    # RFQ's reytech quote number when available, falling back to rfq_id,
+    # matching how the rest of the RFQ pipeline keys activity.
+    try:
+        from src.api.dashboard import _log_crm_activity
+        pc_number = (pc.get("pc_number") or pc_id[:12]) if isinstance(pc, dict) else pc_id[:12]
+        desc_parts = [
+            f"RFQ linked to PC {pc_number}",
+            f"{promote_result['promoted']} prices ported",
+            f"{promote_result['qty_changed']} qty-changed",
+        ]
+        if reprice_result:
+            desc_parts.append(
+                f"{reprice_result.get('repriced', 0)} repriced, "
+                f"{reprice_result.get('skipped_no_price', 0)} skipped"
+            )
+        _log_crm_activity(
+            r.get("reytech_quote_number") or rid,
+            "pc_rfq_linked",
+            " — ".join(desc_parts),
+            actor="user",
+            metadata={
+                "rfq_id": rid,
+                "pc_id": pc_id,
+                "pc_number": pc_number,
+                "promote": promote_result,
+                "reprice": reprice_result,
+                "reprice_requested": reprice,
+            },
+        )
+    except Exception as _e:
+        log.debug("pc_rfq_linked activity log suppressed: %s", _e)
+
     return jsonify({
         "ok": True,
         "rfq_id": rid,

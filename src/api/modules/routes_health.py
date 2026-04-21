@@ -1046,3 +1046,96 @@ def profiles_json():
         "drift": drift,
         "profiles": out_profiles,
     }
+
+
+@bp.route("/api/health/pc-rfq-link")
+@auth_required
+def pc_rfq_link_health_json():
+    """CCHCS PC→RFQ handoff observability. Ops reads this to confirm the
+    one-engine chain is actually flowing in prod.
+
+    Surfaces:
+        links_24h: count of pc_rfq_linked activity events in the last 24h.
+        reprices_24h: count of drifted lines repriced by the oracle in
+                      the last 24h (extracted from activity metadata).
+        skipped_no_price_24h: count of drifted lines where the oracle
+                              had no data (operator follow-up required).
+        cchcs_linked_total: CCHCS RFQs currently carrying `linked_pc_id`.
+        cchcs_unlinked_total: CCHCS RFQs that could still be linked.
+        unresolved_qty_drift: number of line_items across all RFQs where
+                              qty_changed=True AND no reprice has landed
+                              (repriced_reason != qty_change). This is the
+                              "needs manual pricing" backlog.
+        recent_links: last 5 pc_rfq_linked activity entries (ref_id,
+                      description, timestamp).
+
+    Defensive: missing data returns zeros, not 500s. Ops dashboards
+    should be able to hit this every minute without ever alerting on
+    transient stat shape issues.
+    """
+    out = {
+        "ok": True,
+        "links_24h": 0,
+        "reprices_24h": 0,
+        "skipped_no_price_24h": 0,
+        "cchcs_linked_total": 0,
+        "cchcs_unlinked_total": 0,
+        "unresolved_qty_drift": 0,
+        "recent_links": [],
+    }
+
+    cutoff = (datetime.now() - timedelta(days=1)).isoformat()
+
+    # Activity-log scan: authoritative for "did the handoff actually run".
+    try:
+        from src.api.data_layer import _load_crm_activity
+        activity = _load_crm_activity() or []
+        link_events = [a for a in activity
+                       if a.get("event_type") == "pc_rfq_linked"]
+        recent_24h = [a for a in link_events
+                      if (a.get("timestamp") or "") >= cutoff]
+        out["links_24h"] = len(recent_24h)
+        for a in recent_24h:
+            meta = a.get("metadata") or {}
+            rep = meta.get("reprice") or {}
+            if isinstance(rep, dict):
+                out["reprices_24h"] += int(rep.get("repriced") or 0)
+                out["skipped_no_price_24h"] += int(rep.get("skipped_no_price") or 0)
+        # Last 5, newest first
+        for a in sorted(link_events,
+                        key=lambda x: x.get("timestamp") or "",
+                        reverse=True)[:5]:
+            out["recent_links"].append({
+                "ref_id": a.get("ref_id", ""),
+                "description": a.get("description", ""),
+                "timestamp": a.get("timestamp", ""),
+            })
+    except Exception as e:
+        log.debug("pc_rfq_link_health: activity scan failed: %s", e)
+
+    # RFQ-level scan: link coverage + qty-drift backlog.
+    try:
+        from src.api.data_layer import load_rfqs
+        rfqs = load_rfqs() or {}
+        for _rid, r in rfqs.items():
+            if not isinstance(r, dict):
+                continue
+            agency = (r.get("agency") or "").lower()
+            inst = (r.get("institution") or r.get("department") or "").lower()
+            is_cchcs = ("cchcs" in agency or "cchcs" in inst
+                        or "correctional health" in inst)
+            if is_cchcs:
+                if r.get("linked_pc_id"):
+                    out["cchcs_linked_total"] += 1
+                else:
+                    out["cchcs_unlinked_total"] += 1
+            items = r.get("line_items") or r.get("items") or []
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                if it.get("qty_changed") and it.get("repriced_reason") != "qty_change":
+                    out["unresolved_qty_drift"] += 1
+    except Exception as e:
+        log.debug("pc_rfq_link_health: rfq scan failed: %s", e)
+
+    return out
