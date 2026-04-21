@@ -2090,6 +2090,21 @@ def detail(rid):
             rfqs[rid] = r
             r["_needs_save"] = True  # Deferred to POST /rfq/{rid}/save-restore
 
+    # Normalize agency casing for display. classifier_v2 persists the key
+    # in lowercase (`"cchcs"`); the badge at rfq_detail.html:29 renders
+    # agency_name directly, so un-normalized values leak as lowercase in
+    # the UI. See src/core/agency_display.py.
+    try:
+        from src.core.agency_display import agency_display
+        if r.get("agency_name"):
+            r["agency_name"] = agency_display(r["agency_name"])
+        _cls = r.get("_classification") or {}
+        if _cls.get("agency_name"):
+            _cls["agency_name"] = agency_display(_cls["agency_name"])
+            r["_classification"] = _cls
+    except Exception as _ad:
+        log.debug("agency_display normalization skipped: %s", _ad)
+
     # ── Auto-fill delivery_location via full priority chain ──
     # PO history → CRM contact → institution resolver. Updated
     # 2026-04-14 from the old institution-only path so buyers with
