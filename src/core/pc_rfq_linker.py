@@ -665,3 +665,96 @@ def promote_pc_to_rfq_in_place(rfq_data, pc_id, pc_data):
     log.info("Promoted PC %s → RFQ: %d lines (qty_changed=%d, no_match=%d)",
              pc_id, promoted, qty_changed, no_match)
     return {"promoted": promoted, "qty_changed": qty_changed, "no_match": no_match}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── Selective re-price for qty-changed lines ────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def qty_change_summary(rfq_data):
+    """Surface the operator-facing diff for a promoted RFQ.
+
+    Returns a list of dicts, one per line, marking which ones drifted from the
+    PC qty. The UI renders this as a review strip before calling re-price:
+
+        [{ "index": 0, "description": "...",
+           "pc_qty": 5, "rfq_qty": 10, "qty_changed": True,
+           "current_unit_price": 45.0 }, ...]
+    """
+    items = rfq_data.get("line_items") or rfq_data.get("items") or []
+    out = []
+    for i, item in enumerate(items):
+        if not item.get("promoted_from_pc"):
+            continue
+        pc_qty = _as_int_qty(item.get("pc_original_qty"))
+        rfq_qty = _as_int_qty(item.get("quantity") or item.get("qty"))
+        out.append({
+            "index": i,
+            "description": item.get("description") or item.get("desc") or "",
+            "pc_qty": pc_qty,
+            "rfq_qty": rfq_qty,
+            "qty_changed": bool(item.get("qty_changed")),
+            "current_unit_price": item.get("unit_price")
+                or item.get("bid_price") or item.get("price_per_unit"),
+        })
+    return out
+
+
+def reprice_qty_changed_lines(rfq_data, pricer):
+    """Re-price only the lines flagged `qty_changed=True` by `promote_pc_to_rfq_in_place`.
+
+    Mike's rule (2026-04-20): PC prices are the bidding commitment. The only
+    lines we're allowed to re-derive are the ones whose qty moved — those
+    already break the original unit economics, so a fresh price is defensible.
+    Every other line is left alone.
+
+    The caller supplies a pricer — a callable that takes one RFQ line dict
+    and returns either a dict of fields to set (e.g. {"supplier_cost":...,
+    "unit_price":..., "bid_price":..., "markup_pct":...}) or None to skip.
+    Pricing infra lives in `pricing_oracle_v2` / route modules; injecting
+    keeps this helper free of circular imports and trivially testable.
+
+    After a successful re-price, `qty_changed` is cleared and a
+    `repriced_reason="qty_change"` audit marker is set on the line. Lines
+    whose qty didn't change are skipped regardless of what the pricer does.
+
+    Args:
+        rfq_data: RFQ dict modified in place.
+        pricer: callable(line: dict) -> dict | None.
+    Returns:
+        {"repriced": n lines updated,
+         "skipped_no_change": n lines not flagged (untouched),
+         "skipped_no_price": n flagged lines the pricer declined to price}
+    """
+    items = rfq_data.get("line_items") or rfq_data.get("items") or []
+    repriced = 0
+    skipped_no_change = 0
+    skipped_no_price = 0
+
+    for item in items:
+        if not item.get("qty_changed"):
+            skipped_no_change += 1
+            continue
+
+        updates = pricer(item) if callable(pricer) else None
+        if not updates:
+            skipped_no_price += 1
+            continue
+
+        # Only accept known price fields — protects against a bad pricer
+        # stomping on description/qty/identifiers.
+        for field in _VERBATIM_PRICE_FIELDS:
+            if field in updates and updates[field] not in (None, ""):
+                item[field] = updates[field]
+
+        item["qty_changed"] = False
+        item["repriced_reason"] = "qty_change"
+        repriced += 1
+
+    log.info("Reprice pass: %d repriced, %d unchanged lines skipped, %d no-price skips",
+             repriced, skipped_no_change, skipped_no_price)
+    return {
+        "repriced": repriced,
+        "skipped_no_change": skipped_no_change,
+        "skipped_no_price": skipped_no_price,
+    }
