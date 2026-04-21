@@ -80,7 +80,7 @@ class TestGeneratedStrictCompleteness:
         with patch("src.core.quote_engine.finalize", return_value=pkg):
             attempt = orch._try_advance(quote, "generated", QuoteRequest(target_stage="generated"), profiles, result)
 
-        assert attempt.outcome == "error", f"expected error, got {attempt.outcome}: {attempt.reasons}"
+        assert attempt.outcome == "blocked", f"expected blocked, got {attempt.outcome}: {attempt.reasons}"
         assert any("missing or empty artifacts" in r for r in attempt.reasons), attempt.reasons
         assert any("quote_reytech_letterhead" in r for r in attempt.reasons), attempt.reasons
         assert quote.status == QuoteStatus.QA_PASS  # never transitioned
@@ -99,7 +99,7 @@ class TestGeneratedStrictCompleteness:
         with patch("src.core.quote_engine.finalize", return_value=pkg):
             attempt = orch._try_advance(quote, "generated", QuoteRequest(target_stage="generated"), profiles, result)
 
-        assert attempt.outcome == "error"
+        assert attempt.outcome == "blocked"
         assert any("blank PDF missing" in r for r in attempt.reasons), attempt.reasons
         assert quote.status == QuoteStatus.QA_PASS
 
@@ -116,7 +116,7 @@ class TestGeneratedStrictCompleteness:
         with patch("src.core.quote_engine.finalize", return_value=pkg):
             attempt = orch._try_advance(quote, "generated", QuoteRequest(target_stage="generated"), profiles, result)
 
-        assert attempt.outcome == "error"
+        assert attempt.outcome == "blocked"
         assert any("merged_pdf is empty" in r for r in attempt.reasons), attempt.reasons
 
     def test_generated_advances_when_all_artifacts_present(self):

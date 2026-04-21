@@ -909,7 +909,7 @@ class QuoteOrchestrator:
                     problems.append(f"compliance: {b}")
                 problems.extend(compliance_unchecked)
                 # result.compliance_report is already populated above —
-                # raise lets _try_advance record outcome="error" with the
+                # raise lets _try_advance record outcome="blocked" with the
                 # specific reasons, while preserving the structured report.
                 raise StageBlocked("qa_pass incomplete: " + " ; ".join(problems))
             quote.transition(QuoteStatus.QA_PASS)
@@ -958,7 +958,7 @@ class QuoteOrchestrator:
                         f"package not ok (warnings: {getattr(pkg, 'warnings', [])})"
                     )
             if problems:
-                # Raise so _try_advance records outcome="error" with reasons.
+                # Raise so _try_advance records outcome="blocked" with reasons.
                 raise StageBlocked("generated incomplete: " + " ; ".join(problems))
 
             quote.transition(QuoteStatus.GENERATED)
@@ -1198,6 +1198,7 @@ _FORM_ID_TO_PROFILE_ID = {
     "dsh_attA": "dsh_attA_reytech_standard",          # not yet built
     "dsh_attB": "dsh_attB_reytech_standard",          # not yet built
     "dsh_attC": "dsh_attC_reytech_standard",          # not yet built
+    "cchcs_it_rfq": "cchcs_it_rfq_reytech_standard",  # PR #238 (fill-engine integration deferred)
     "bidpkg": "",  # Bid package is a container — handled by package_engine, not a profile
 }
 
