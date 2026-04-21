@@ -544,11 +544,22 @@ def rfq_reset_items(rid):
 @auth_required
 @safe_route
 def api_rfq_unlink_pc(rid):
-    """Remove PC linkage from an RFQ."""
+    """Remove PC linkage from an RFQ.
+
+    Clears both directions of the link: RFQ-side fields AND the reverse
+    link on the PC itself (linked_rfq_id / linked_rfq_number, written by
+    confirm-pc-link in PR #295). Without the PC-side clear, the PC keeps
+    a stale "Linked to RFQ X" banner pointing at an RFQ that no longer
+    claims the relationship.
+    """
     rfqs = load_rfqs()
     r = rfqs.get(rid)
     if not r:
         return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    # Capture for reverse-link clear + activity metadata before mutating
+    prior_pc_id = r.get("linked_pc_id")
+    prior_pc_number = r.get("linked_pc_number")
+
     r.pop("linked_pc_id", None)
     r.pop("linked_pc_number", None)
     r.pop("linked_pc_match_reason", None)
@@ -565,7 +576,43 @@ def api_rfq_unlink_pc(rid):
         item.pop("_from_pc", None)
     from src.api.dashboard import _save_single_rfq
     _save_single_rfq(rid, r)
-    log.info("RFQ %s unlinked from PC", rid)
+
+    # Reverse link clear: only if the PC actually points back at this RFQ
+    # (guard against clearing a PC that has been re-linked to a different
+    # RFQ since this handoff was recorded).
+    if prior_pc_id:
+        try:
+            from src.api.data_layer import _load_price_checks, _save_single_pc
+            pcs = _load_price_checks() or {}
+            pc = pcs.get(prior_pc_id)
+            if isinstance(pc, dict) and pc.get("linked_rfq_id") == rid:
+                pc.pop("linked_rfq_id", None)
+                pc.pop("linked_rfq_number", None)
+                _save_single_pc(prior_pc_id, pc)
+        except Exception as _e:
+            log.debug("PC reverse-link clear suppressed: %s", _e)
+
+    # Activity log — operators need to see WHY the link count dropped.
+    # Keyed by rid so the event appears on the RFQ timeline like
+    # pc_rfq_linked (PR #294).
+    try:
+        from src.api.dashboard import _log_crm_activity
+        _log_crm_activity(
+            rid,
+            "pc_rfq_unlinked",
+            f"PC link removed (was PC {prior_pc_number or (prior_pc_id or '')[:12]})",
+            actor="user",
+            metadata={
+                "rfq_id": rid,
+                "reytech_quote_number": r.get("reytech_quote_number") or "",
+                "pc_id": prior_pc_id or "",
+                "pc_number": prior_pc_number or "",
+            },
+        )
+    except Exception as _e:
+        log.debug("pc_rfq_unlinked activity log suppressed: %s", _e)
+
+    log.info("RFQ %s unlinked from PC %s", rid, prior_pc_id or "(none)")
     return jsonify({"ok": True, "msg": "PC linkage removed"})
 
 
