@@ -1180,13 +1180,14 @@ class TestPCToRFQHandoffGoldenPath:
         )
         assert r["ok"] is True, f"gate blocked: {r.get('error')}"
         assert r["gate"]["passed"] is True
-        # Grand total arithmetic is the commitment-price witness: if the
-        # filled packet's total ≠ PC's (qty × price), some layer between
-        # promote and fill mutated the commitment.
+        # Subtotal (pre-tax, pre-freight) is the pure commitment-price
+        # witness — grand_total folds in sales_tax by zip + freight, which
+        # are not part of the PC's line commitment. If subtotal ≠ qty ×
+        # price, some layer between promote and fill mutated the price.
         expected = packet_qty * pc_price
-        assert abs(r["grand_total"] - expected) < 0.01, (
+        assert abs(r["subtotal"] - expected) < 0.01, (
             f"PC commitment {pc_price} × qty {packet_qty} = {expected}, "
-            f"packet total {r['grand_total']} — handoff mutated price"
+            f"packet subtotal {r['subtotal']} — handoff mutated price"
         )
 
     def test_qty_drift_reprices_via_oracle_then_fills(
@@ -1280,12 +1281,96 @@ class TestPCToRFQHandoffGoldenPath:
             strict=True,
         )
         assert r["ok"] is True, f"gate blocked: {r.get('error')}"
-        # Grand total = RFQ qty (the real ask) × oracle price (the repriced
+        # Subtotal (pre-tax, pre-freight) is the pure reprice witness —
+        # see verbatim test for why grand_total is brittle here.
+        # Subtotal = RFQ qty (the real ask) × oracle price (the repriced
         # commitment). If either factor is wrong, some layer between
         # promote → reprice → fill used the stale value.
         expected = packet_qty * oracle_price
-        assert abs(r["grand_total"] - expected) < 0.01, (
+        assert abs(r["subtotal"] - expected) < 0.01, (
             f"drifted line must render at oracle price {oracle_price} "
-            f"× rfq qty {packet_qty} = {expected}, packet total "
-            f"{r['grand_total']} — drift path dropped the reprice"
+            f"× rfq qty {packet_qty} = {expected}, packet subtotal "
+            f"{r['subtotal']} — drift path dropped the reprice"
+        )
+
+    def test_oracle_returns_none_leaves_commitment_intact_as_skipped(
+        self, parsed_packet, cchcs_reytech_info, auth_client,
+        temp_data_dir, tmp_path, monkeypatch,
+    ):
+        """Safety-valve path: when the oracle has no data for a drifted
+        line, the reprice pass must NOT fabricate a price — it must leave
+        the PC commitment in place and mark the line `skipped_no_price`
+        for manual follow-up. This pins the design's safest branch: it
+        is the one most likely to silently regress if someone 'helpfully'
+        adds a fallback default price."""
+        packet_desc = parsed_packet["line_items"][0].get("description") or ""
+        packet_qty = parsed_packet["line_items"][0].get("qty") or 15
+        pc_qty = max(1, packet_qty // 2)  # drift
+        pc_price = 395.00
+        pc_cost = 295.00
+
+        pc = {
+            "id": "pc-gp-nodata",
+            "pc_number": "PC-GP-N",
+            "agency": "CCHCS",
+            "institution": "California Correctional Health Care Services",
+            "requestor": "buyer@cchcs.ca.gov",
+            "items": [{
+                "description": packet_desc,
+                "quantity": pc_qty,
+                "unit_price": pc_price,
+                "supplier_cost": pc_cost,
+                "bid_price": pc_price,
+                "markup_pct": 33.9,
+            }],
+        }
+        rfq = {
+            "id": "rfq-gp-nodata",
+            "solicitation_number": "PREQ-GP-N",
+            "requestor_email": "buyer@cchcs.ca.gov",
+            "institution": "CCHCS",
+            "agency": "CCHCS",
+            "status": "new",
+            "line_items": [{
+                "description": packet_desc,
+                "quantity": packet_qty,
+            }],
+        }
+        self._seed_pc_and_rfq(temp_data_dir, pc, rfq)
+
+        # Oracle has no data: adapter returns None when quote_price <= 0.
+        import src.core.pricing_oracle_v2 as _poll
+        monkeypatch.setattr(_poll, "get_pricing", lambda **kw: {
+            "recommendation": {"quote_price": 0, "markup_pct": 0},
+        })
+
+        link = auth_client.post(
+            f"/api/rfq/{rfq['id']}/confirm-pc-link",
+            json={"pc_id": pc["id"], "reprice": True},
+        )
+        assert link.status_code == 200, link.get_data(as_text=True)
+
+        body = link.get_json() or {}
+        # Route must report the line was skipped, not repriced. If a
+        # future change turns `skipped_no_price` into a silent default
+        # price, this assertion catches it.
+        reprice = body.get("reprice") or {}
+        assert reprice.get("skipped_no_price", 0) >= 1, (
+            "oracle returning no data must surface as skipped_no_price "
+            f"for manual follow-up, not a fabricated price: {reprice}"
+        )
+
+        from src.api.data_layer import load_rfqs
+        line = (load_rfqs() or {})[rfq["id"]]["line_items"][0]
+        # PC commitment must be intact — NOT overwritten by a default.
+        assert abs(line["unit_price"] - pc_price) < 0.01, (
+            f"PC commitment {pc_price} must survive when oracle has no "
+            f"data; got {line['unit_price']} — the safety valve failed"
+        )
+        assert line.get("pc_original_qty") == pc_qty
+        # The line stays flagged (qty_changed still True) so ops see the
+        # drift needs manual attention — reprice didn't clear it.
+        assert line.get("qty_changed") is True, (
+            "drift flag must persist when reprice skipped — else ops "
+            "lose the signal that this line needs manual follow-up"
         )
