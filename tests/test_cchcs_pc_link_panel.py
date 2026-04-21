@@ -97,11 +97,32 @@ def test_panel_hidden_when_pc_already_linked(auth_client, temp_data_dir):
     )
 
 
+def test_panel_renders_when_only_agency_name_set(auth_client, temp_data_dir):
+    """Prod bug surfaced 2026-04-20: RFQs classified as CCHCS via the form
+    classifier land with `agency_name="cchcs"` but `r.agency` empty. The
+    panel condition must honor `agency_name` (the display badge field)
+    so it renders on those RFQs — not just the ones with `r.agency` set."""
+    rfq = _cchcs_rfq(rid="rfq-agency-name-only")
+    rfq["agency"] = ""  # prod state: agency field empty
+    rfq["institution"] = ""
+    rfq["agency_name"] = "cchcs"  # only this is set (from classifier)
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+
+    resp = auth_client.get(f"/rfq/{rfq['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'data-testid="cchcs-pc-link-panel"' in html, (
+        "CCHCS panel failed to render on an RFQ tagged via agency_name. "
+        "This is the prod bug: classifier sets agency_name, not r.agency."
+    )
+
+
 def test_panel_hidden_for_non_cchcs_rfq(auth_client, temp_data_dir):
     """Non-CCHCS agencies don't use the PC workflow. Even unlinked,
     the panel must not appear."""
     rfq = _cchcs_rfq(rid="rfq-calvet-test")
     rfq["agency"] = "CalVet"
+    rfq["agency_name"] = "calvet"
     rfq["institution"] = "California Department of Veterans Affairs"
     rfq["department"] = "CalVet"
     rfq["requestor_email"] = "buyer@calvet.ca.gov"
@@ -112,6 +133,29 @@ def test_panel_hidden_for_non_cchcs_rfq(auth_client, temp_data_dir):
     html = resp.get_data(as_text=True)
     assert 'data-testid="cchcs-pc-link-panel"' not in html, (
         "CCHCS panel leaked onto non-CCHCS RFQ — PC workflow is CCHCS-only."
+    )
+
+
+def test_panel_has_empty_state_markup_for_zero_candidates(auth_client, temp_data_dir):
+    """Prod UX gap surfaced 2026-04-20: when the suggestions endpoint
+    returns `{ok:true, suggestions:[]}`, the panel stayed `display:none`
+    and the operator had no signal the system even looked. The template
+    must ship the empty-state markup + its testid so the JS can reveal
+    it, and a future audit can find the hook."""
+    rfq = _cchcs_rfq(rid="rfq-empty-state")
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+
+    resp = auth_client.get(f"/rfq/{rfq['id']}")
+    html = resp.get_data(as_text=True)
+    # Empty-state testid is rendered by the JS when suggestions=[]. The
+    # JS source must be in the page (bundled inline) to guard it.
+    assert 'cchcs-pc-no-candidates' in html, (
+        "Empty-state hook `data-testid=cchcs-pc-no-candidates` missing — "
+        "operator will see silent blank panel on zero matches"
+    )
+    assert 'No matching Price Checks found' in html, (
+        "Empty-state copy missing — operator needs a signal the system "
+        "looked and found nothing, not just a hidden panel"
     )
 
 
