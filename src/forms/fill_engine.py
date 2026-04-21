@@ -134,6 +134,33 @@ def _fill_acroform(quote: Quote, profile: FormProfile) -> bytes:
     """Fill using PyPDFForm — AcroForm field fill + flatten."""
     from PyPDFForm import PdfWrapper
 
+    # ── Overflow guard ──
+    # Silently dropping items past the last row slot would put an incomplete
+    # quote on the wire. If the profile hasn't declared an overflow strategy,
+    # refuse up-front. If it has declared `duplicate_page` but the runtime
+    # doesn't implement it yet, refuse with a clearly different message so
+    # callers know it's a profile capability gap, not a data problem.
+    active_count = sum(1 for it in quote.line_items if not it.no_bid)
+    capacity = profile.total_row_capacity
+    if capacity > 0 and active_count > capacity:
+        mode = (profile.overflow or {}).get("mode") or ""
+        if not mode:
+            raise RuntimeError(
+                f"fill_acroform: {profile.id}: {active_count} active line items "
+                f"exceed row-field capacity {capacity} and no overflow mode is "
+                f"configured — refusing to silently drop items"
+            )
+        if mode == "duplicate_page":
+            raise NotImplementedError(
+                f"fill_acroform: {profile.id}: {active_count} active line items "
+                f"exceed row-field capacity {capacity}; profile declares "
+                f"overflow.mode='duplicate_page' but page duplication is not "
+                f"yet implemented in the fill engine — tracked as PR #317"
+            )
+        raise RuntimeError(
+            f"fill_acroform: {profile.id}: overflow mode {mode!r} is not supported"
+        )
+
     field_values = {}
 
     # ── Static fields (vendor, header, buyer, ship_to, totals) ──
