@@ -473,31 +473,43 @@ def _save_all_quotes(quotes: list):
         json.dump(quotes, f, indent=2, default=str)
 
 def search_quotes(query: str = "", agency: str = "", status: str = "",
-                  limit: int = 50) -> list:
-    """Search quotes — full-text across all fields including items, part numbers, ship_to."""
+                  limit: int = 50, since_hours: int = 0) -> list:
+    """Search quotes — full-text across all fields including items, part numbers, ship_to.
+
+    since_hours: if >0, only include quotes whose created_at/date falls within
+    the last N hours. Unparseable dates are excluded when the filter is active.
+    """
     quotes = get_all_quotes()
     q = query.lower()
     results = []
     now = datetime.now()
+    cutoff = now - timedelta(hours=since_hours) if since_hours > 0 else None
+
+    def _parse_created(qt):
+        created = qt.get("created_at") or qt.get("date", "")
+        if not created:
+            return None
+        try:
+            if "T" in str(created):
+                return datetime.fromisoformat(str(created).replace("Z", "+00:00")).replace(tzinfo=None)
+            return datetime.strptime(str(created), "%b %d, %Y")
+        except (ValueError, TypeError):
+            return None
+
     for qt in reversed(quotes):
+        created_dt = _parse_created(qt)
         # Auto-expire: if pending and older than 45 days, mark expired
-        if qt.get("status", "pending") == "pending":
-            try:
-                created = qt.get("created_at") or qt.get("date", "")
-                if created:
-                    if "T" in str(created):
-                        created_dt = datetime.fromisoformat(str(created).replace("Z", "+00:00")).replace(tzinfo=None)
-                    else:
-                        created_dt = datetime.strptime(str(created), "%b %d, %Y")
-                    if (now - created_dt).days > 45:
-                        qt["status"] = "expired"
-            except Exception as _e:
-                log.debug("suppressed: %s", _e)
+        if qt.get("status", "pending") == "pending" and created_dt is not None:
+            if (now - created_dt).days > 45:
+                qt["status"] = "expired"
 
         if agency and qt.get("agency", "").lower() != agency.lower():
             continue
         if status and qt.get("status", "pending").lower() != status.lower():
             continue
+        if cutoff is not None:
+            if created_dt is None or created_dt < cutoff:
+                continue
         if q:
             # Build searchable text from ALL fields — requestor, contact, notes included
             parts = [
