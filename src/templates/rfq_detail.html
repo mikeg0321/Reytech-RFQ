@@ -359,6 +359,67 @@
  </div>
  {% endif %}
 
+ {# ── CCHCS PC link suggestions (operator-confirmed; prices port verbatim) ── #}
+ {% set _pc_link_agency = (r.get('agency') or '')|lower %}
+ {% set _pc_link_inst = (r.get('institution') or r.get('department') or '')|lower %}
+ {% if not r.get('linked_pc_id') and ('cchcs' in _pc_link_agency or 'cchcs' in _pc_link_inst or 'correctional health' in _pc_link_inst) %}
+ <div id="cchcs-pc-link-panel" data-testid="cchcs-pc-link-panel" style="display:none;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);border-radius:8px;padding:12px 16px;margin-bottom:10px">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+   <span style="font-size:18px">🧭</span>
+   <b style="color:#58a6ff">Possible Price Check match</b>
+   <span style="color:#8b949e;font-size:12px">Operator confirmation required — PC prices will port verbatim.</span>
+  </div>
+  <div id="cchcs-pc-candidates"></div>
+ </div>
+ <script>
+ (function(){
+  var rid={{rid|tojson}};
+  fetch('/api/rfq/'+encodeURIComponent(rid)+'/pc-link-suggestions',{credentials:'same-origin'})
+   .then(function(r){return r.ok?r.json():null}).then(function(d){
+    if(!d||!d.ok||!d.suggestions||!d.suggestions.length)return;
+    var p=document.getElementById('cchcs-pc-link-panel');
+    var host=document.getElementById('cchcs-pc-candidates');
+    if(!p||!host)return;
+    var html='';
+    d.suggestions.forEach(function(c){
+     var tag=c.is_exact
+      ? '<span style="background:#3fb950;color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">EXACT</span>'
+      : '<span style="background:#d29922;color:#0d1117;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">'+c.match_pct+'%</span>';
+     var reasons=(c.reasons||[]).join(', ');
+     html+='<div data-testid="cchcs-pc-candidate" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06)">';
+     html+=tag;
+     html+='<div style="flex:1"><b style="color:#e6edf3">PC '+(c.pc_number||c.pc_id.substring(0,10))+'</b>';
+     html+=' <span style="color:#8b949e;font-size:12px">— '+c.line_matches+'/'+c.line_total+' lines';
+     if(reasons)html+=' · '+reasons;
+     html+='</span></div>';
+     html+='<button type="button" class="btn btn-primary" data-testid="cchcs-pc-link-btn" data-pc-id="'+c.pc_id+'" style="font-size:13px;padding:6px 12px">Link this PC</button>';
+     html+='</div>';
+    });
+    host.innerHTML=html;
+    p.style.display='block';
+    host.querySelectorAll('[data-testid="cchcs-pc-link-btn"]').forEach(function(btn){
+     btn.addEventListener('click',function(){
+      if(!confirm('Link this PC and port its prices verbatim onto this RFQ?'))return;
+      btn.disabled=true;btn.textContent='Linking...';
+      fetch('/api/rfq/'+encodeURIComponent(rid)+'/confirm-pc-link',{
+       method:'POST',credentials:'same-origin',
+       headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({pc_id:btn.dataset.pcId,reprice:false})
+      }).then(function(r){return r.json()}).then(function(resp){
+       if(resp&&resp.ok){location.reload();return}
+       btn.disabled=false;btn.textContent='Link this PC';
+       alert('Link failed: '+((resp&&resp.error)||'unknown error'));
+      }).catch(function(e){
+       btn.disabled=false;btn.textContent='Link this PC';
+       alert('Link error: '+e);
+      });
+     });
+    });
+   }).catch(function(){});
+ })();
+ </script>
+ {% endif %}
+
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
  <table class="it" style="min-width:1500px">
