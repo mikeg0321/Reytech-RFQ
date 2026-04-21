@@ -715,8 +715,13 @@ def _pricecheck_detail_inner(pcid):
                 return (1, price)
             sources.sort(key=_sort_key)
 
-        # Suppress fuzzy sources when an EXACT match exists
-        has_exact = any(s[5] > 0.95 for s in sources)
+        # Suppress fuzzy sources when an EXACT match exists.
+        # EXACT = UPC/barcode-verified identity (conf >= 0.99 per the ladder
+        # in docs/PRD_PRICING_PIPELINE.md §Stage 2). Description matches at
+        # 0.96-0.98 are STRONG, not EXACT — they don't trigger suppression
+        # because a 96% description match is not proof that we have the
+        # identity pinned down.
+        has_exact = any(s[5] >= 0.99 for s in sources)
         if has_exact:
             sources = [s for s in sources if s[5] >= 0.75]
 
@@ -733,9 +738,12 @@ def _pricecheck_detail_inner(pcid):
             else: source_key = "web"
             # Truncate long supplier names
             slabel_short = slabel[:15] + "…" if len(slabel) > 15 else slabel
-            # Confidence tier: EXACT (>0.95), normal (0.75-0.95), ~FUZZY (0.50-0.75)
-            # Text labels (not color-only) — user is colorblind
-            if sconf > 0.95:
+            # Confidence tier: EXACT (>=0.99 — UPC-verified only), normal
+            # (0.75-0.98), ~FUZZY (0.50-0.75). The 0.99 floor reserves EXACT
+            # for identifier-verified matches (UPC/barcode); a 96% description
+            # match is STRONG but not proof of identity. Text labels (not
+            # color-only) — user is colorblind.
+            if sconf >= 0.99:
                 conf_tag = ' <b style="font-size:9px;padding:1px 3px;border-radius:2px;background:#3fb95030;letter-spacing:.3px">EXACT</b>'
                 border_style = f"border:2px solid {scolor}80"
             elif sconf >= 0.75:
@@ -756,8 +764,9 @@ def _pricecheck_detail_inner(pcid):
                 chip = f'<a href="{surl}" target="_blank" style="{_chip_style};text-decoration:none;cursor:pointer" title="{slabel} · {price_fmt}{conf_title}{_ai_reason}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</a>'
             else:
                 chip = f'<span style="{_chip_style}" title="{slabel}{conf_title}{_ai_reason}">{pref_icon}<b>{price_fmt}</b> {slabel_short}{conf_tag}</span>'
-            # Reject button for non-EXACT matches (× to dismiss bad match)
-            if sconf <= 0.95 and source_key in ("scprs", "catalog", "web"):
+            # Reject button for non-EXACT matches (× to dismiss bad match).
+            # Non-EXACT here = anything below the UPC-verified floor (0.99).
+            if sconf < 0.99 and source_key in ("scprs", "catalog", "web"):
                 chip += (f'<a href="#" onclick="rejectMatch({idx},\'{source_key}\',this);return false" '
                          f'style="color:#f85149;font-size:11px;text-decoration:none;opacity:0.4;margin-left:1px" '
                          f'title="Wrong match — reject" onmouseover="this.style.opacity=1" '
