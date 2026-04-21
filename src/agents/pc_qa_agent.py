@@ -45,6 +45,29 @@ CAT_REQUIREMENTS = "requirements"  # Email-as-contract gaps
 PROFIT_FLOOR = 75.00  # Minimum total profit to justify the quote
 
 
+def _sell_price(item: dict, pricing: dict | None = None) -> float:
+    """Resolve an item's sell price across PC and RFQ shapes.
+
+    PC items store the operator's entered price in `unit_price`. RFQ items
+    store it in `bid_price` (see routes_pricecheck_admin.py comment:
+    "PC items use 'unit_price', RFQ uses 'final_price'/'bid_price'").
+    Falling through to `pricing.recommended_price` catches auto-priced
+    items whose operator value hasn't been persisted yet.
+
+    Until this helper was added, every QA price read in this module was
+    PC-only — which silently reported 0 for every RFQ, disabling Generate
+    Package on every priced RFQ.
+    """
+    p = pricing if pricing is not None else (item.get("pricing") or {})
+    return float(
+        item.get("bid_price")
+        or item.get("unit_price")
+        or item.get("price_per_unit")
+        or p.get("recommended_price")
+        or 0
+    )
+
+
 def run_qa(pc: dict, use_llm: bool = True) -> dict:
     """
     Run document-readiness QA on a Price Check. Returns structured report.
@@ -146,7 +169,7 @@ def _check_math(idx: int, item: dict, p: dict) -> list:
 
     qty = float(item.get("qty", 0) or 0)
     cost = float(p.get("unit_cost") or item.get("vendor_cost") or 0)
-    price = float(item.get("unit_price") or p.get("recommended_price") or 0)
+    price = _sell_price(item, p)
 
     # Negative margin — selling below cost
     if cost > 0 and price > 0 and price < cost:
@@ -189,7 +212,7 @@ def _check_profit(pc: dict, items: list) -> list:
             if it.get("no_bid"):
                 continue
             p = it.get("pricing") or {}
-            price = float(it.get("unit_price") or p.get("recommended_price") or 0)
+            price = _sell_price(it, p)
             cost = float(p.get("unit_cost") or it.get("vendor_cost") or 0)
             qty = float(it.get("qty") or 0)
             gross_profit += (price - cost) * qty
@@ -218,7 +241,7 @@ def _check_completeness(idx: int, item: dict, p: dict) -> list:
     qty = float(item.get("qty", 0) or 0)
     uom = (item.get("uom") or "").strip()
     cost = float(p.get("unit_cost") or item.get("vendor_cost") or 0)
-    price = float(item.get("unit_price") or p.get("recommended_price") or 0)
+    price = _sell_price(item, p)
 
     if not desc or len(desc) < 3:
         issues.append({"severity": BLOCKER, "item_index": idx, "field": "description",
@@ -265,7 +288,7 @@ def _check_identity(idx: int, item: dict, p: dict) -> list:
                         "value": mfg})
 
     # No MFG# at all for a priced item
-    price = float(item.get("unit_price") or 0)
+    price = _sell_price(item, p)
     if price > 0 and not mfg:
         issues.append({"severity": INFO, "item_index": idx, "field": "mfg_number",
                         "category": CAT_IDENTITY,
@@ -350,9 +373,7 @@ def _check_agency(pc: dict, items: list) -> list:
 
     # All items accounted for — check bid count vs total
     active = [it for it in items if not it.get("no_bid")]
-    unpriced = sum(1 for it in active
-                   if not (it.get("unit_price") or
-                           (it.get("pricing") or {}).get("recommended_price")))
+    unpriced = sum(1 for it in active if not _sell_price(it))
     if unpriced > 0:
         issues.append({"severity": BLOCKER, "item_index": -1, "field": "unpriced_items",
                         "category": CAT_COMPLETE,
@@ -450,7 +471,7 @@ def _verify_totals(pc: dict, items: list) -> dict:
         if it.get("no_bid"):
             continue
         p = it.get("pricing") or {}
-        price = float(it.get("unit_price") or p.get("recommended_price") or 0)
+        price = _sell_price(it, p)
         qty = float(it.get("qty", 0) or 0)
         calc_subtotal += price * qty
 
