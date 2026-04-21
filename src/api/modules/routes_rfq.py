@@ -3493,10 +3493,17 @@ def api_rfq_confirm_pc_link(rid):
 
     reprice_result = None
     if reprice:
-        # Pricer wiring deferred — caller-injectable. Passing None triggers
-        # skipped_no_price for every qty-changed line, surfacing them for
-        # manual follow-up without fabricating a price.
-        reprice_result = reprice_qty_changed_lines(r, None)
+        # Oracle-backed pricer (PR #291). oracle_pricer_for_line returns
+        # None when the oracle lacks enough data — those lines surface as
+        # `skipped_no_price` so the operator knows to follow up manually
+        # rather than locking in a fabricated number.
+        from src.core.pc_rfq_reprice_adapter import oracle_pricer_for_line
+        agency = r.get("agency") or r.get("department") or ""
+
+        def _pricer(line):
+            return oracle_pricer_for_line(line, agency=agency)
+
+        reprice_result = reprice_qty_changed_lines(r, _pricer)
 
     summary = qty_change_summary(r)
 

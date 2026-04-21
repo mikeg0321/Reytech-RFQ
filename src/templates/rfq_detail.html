@@ -393,27 +393,36 @@
      if(reasons)html+=' · '+reasons;
      html+='</span></div>';
      html+='<button type="button" class="btn btn-primary" data-testid="cchcs-pc-link-btn" data-pc-id="'+c.pc_id+'" style="font-size:13px;padding:6px 12px">Link this PC</button>';
+     html+='<button type="button" class="btn" data-testid="cchcs-pc-link-reprice-btn" data-pc-id="'+c.pc_id+'" title="Link this PC and auto-reprice any lines whose qty differs from the PC" style="font-size:13px;padding:6px 12px;background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3)">Link + reprice drifted</button>';
      html+='</div>';
     });
     host.innerHTML=html;
     p.style.display='block';
-    host.querySelectorAll('[data-testid="cchcs-pc-link-btn"]').forEach(function(btn){
-     btn.addEventListener('click',function(){
-      if(!confirm('Link this PC and port its prices verbatim onto this RFQ?'))return;
-      btn.disabled=true;btn.textContent='Linking...';
-      fetch('/api/rfq/'+encodeURIComponent(rid)+'/confirm-pc-link',{
-       method:'POST',credentials:'same-origin',
-       headers:{'Content-Type':'application/json'},
-       body:JSON.stringify({pc_id:btn.dataset.pcId,reprice:false})
-      }).then(function(r){return r.json()}).then(function(resp){
-       if(resp&&resp.ok){location.reload();return}
-       btn.disabled=false;btn.textContent='Link this PC';
-       alert('Link failed: '+((resp&&resp.error)||'unknown error'));
-      }).catch(function(e){
-       btn.disabled=false;btn.textContent='Link this PC';
-       alert('Link error: '+e);
-      });
+    function _doConfirm(btn, reprice){
+     var label=btn.textContent;
+     var prompt=reprice
+      ? 'Link this PC, port prices verbatim, and auto-reprice any lines whose qty differs from the PC?'
+      : 'Link this PC and port its prices verbatim onto this RFQ?';
+     if(!confirm(prompt))return;
+     btn.disabled=true;btn.textContent='Linking...';
+     fetch('/api/rfq/'+encodeURIComponent(rid)+'/confirm-pc-link',{
+      method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pc_id:btn.dataset.pcId,reprice:!!reprice})
+     }).then(function(r){return r.json()}).then(function(resp){
+      if(resp&&resp.ok){location.reload();return}
+      btn.disabled=false;btn.textContent=label;
+      alert('Link failed: '+((resp&&resp.error)||'unknown error'));
+     }).catch(function(e){
+      btn.disabled=false;btn.textContent=label;
+      alert('Link error: '+e);
      });
+    }
+    host.querySelectorAll('[data-testid="cchcs-pc-link-btn"]').forEach(function(btn){
+     btn.addEventListener('click',function(){_doConfirm(btn,false)});
+    });
+    host.querySelectorAll('[data-testid="cchcs-pc-link-reprice-btn"]').forEach(function(btn){
+     btn.addEventListener('click',function(){_doConfirm(btn,true)});
     });
    }).catch(function(){});
  })();
@@ -443,7 +452,7 @@
   {% for i in (r.get("line_items") or r.get("items") or []) %}
   <tr>
    <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number or (loop.index0 + 1)}}" readonly ondblclick="this.removeAttribute('readonly');this.select()" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;cursor:default" title="Line # (double-click to edit)"></td>
-   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" max="999999" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity"></td>
+   <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" max="999999" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity">{% if i.get('qty_changed') and i.get('pc_original_qty') %}<div data-testid="line-qty-changed-badge" title="Qty drifted from Price Check ({{ i.pc_original_qty }} → {{ i.qty }}). Price may need re-review." style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(210,153,34,.18);color:#d29922;border-radius:3px;font-weight:600;text-align:center">Δ PC {{ i.pc_original_qty }}</div>{% elif i.get('repriced_reason') == 'qty_change' %}<div data-testid="line-repriced-badge" title="Auto-repriced because qty drifted from Price Check" style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(63,185,80,.15);color:#3fb950;border-radius:3px;font-weight:600;text-align:center">✓ reprice</div>{% endif %}</td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td style="position:relative"><textarea name="desc_{{loop.index0}}" class="text-in desc-area" style="width:100%;min-width:280px;max-width:350px;font-size:14px;padding:6px 8px 6px 8px;resize:none;min-height:28px;height:28px;line-height:1.4;overflow:hidden;transition:height 0.15s" title="{{i.description}}" onclick="expandDesc(this)" onblur="collapseDesc(this)">{{i.description}}</textarea><button type="button" class="desc-expand-btn" onclick="toggleDescFull(this.previousElementSibling)" title="Expand description" style="position:absolute;bottom:2px;right:4px;background:rgba(88,166,255,.15);border:1px solid rgba(88,166,255,.25);color:#58a6ff;font-size:11px;padding:1px 5px;border-radius:3px;cursor:pointer;opacity:0;transition:opacity 0.15s;line-height:1.4">⤢</button>{% if i.get('_desc_source') %}<span style="position:absolute;top:2px;right:4px;font-size:10px;background:{% if i._desc_source == 'supplier' %}rgba(251,146,60,.2);color:#fb923c{% elif i._desc_source == 'catalog' %}rgba(59,130,246,.2);color:#3b82f6{% else %}rgba(88,166,255,.15);color:#58a6ff{% endif %};padding:1px 4px;border-radius:3px;pointer-events:none">{{i._desc_source}}</span>{% elif i.get('_from_pc') %}<span style="position:absolute;top:2px;right:4px;font-size:13px;background:#1f6feb;color:#fff;padding:1px 4px;border-radius:3px;pointer-events:none">PC</span>{% endif %}</td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
