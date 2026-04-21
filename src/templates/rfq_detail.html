@@ -360,7 +360,10 @@
  {% endif %}
 
  {# ── CCHCS PC link suggestions (operator-confirmed; prices port verbatim) ── #}
- {% set _pc_link_agency = (r.get('agency') or '')|lower %}
+ {# agency_name is the display badge field (line 29) — include it so the panel
+    renders on any RFQ the UI labels CCHCS, not just ones with r.agency set.
+    Prod RFQs often have agency_name="cchcs" but r.agency empty. #}
+ {% set _pc_link_agency = ((r.get('agency') or '') + ' ' + (r.get('agency_name') or ''))|lower %}
  {% set _pc_link_inst = (r.get('institution') or r.get('department') or '')|lower %}
  {% if not r.get('linked_pc_id') and ('cchcs' in _pc_link_agency or 'cchcs' in _pc_link_inst or 'correctional health' in _pc_link_inst) %}
  <div id="cchcs-pc-link-panel" data-testid="cchcs-pc-link-panel" style="display:none;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.25);border-radius:8px;padding:12px 16px;margin-bottom:10px">
@@ -376,10 +379,17 @@
   var rid={{rid|tojson}};
   fetch('/api/rfq/'+encodeURIComponent(rid)+'/pc-link-suggestions',{credentials:'same-origin'})
    .then(function(r){return r.ok?r.json():null}).then(function(d){
-    if(!d||!d.ok||!d.suggestions||!d.suggestions.length)return;
+    if(!d||!d.ok)return;  // only bail on hard error; empty is a valid state
     var p=document.getElementById('cchcs-pc-link-panel');
     var host=document.getElementById('cchcs-pc-candidates');
     if(!p||!host)return;
+    if(!d.suggestions||!d.suggestions.length){
+     // Empty state: operator needs a signal that the system looked and
+     // found nothing — silent hide misreads as "feature broken".
+     host.innerHTML='<div data-testid="cchcs-pc-no-candidates" style="padding:8px 0;color:#8b949e;font-size:13px">No matching Price Checks found. If you remember one was generated, paste its PC # here and we\'ll link it manually.</div>';
+     p.style.display='block';
+     return;
+    }
     var html='';
     d.suggestions.forEach(function(c){
      var tag=c.is_exact
