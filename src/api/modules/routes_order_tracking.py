@@ -395,14 +395,19 @@ def _apply_po_update(conn, po_id, update):
 
 
 def _recalculate_po_status(conn, po_id):
-    """Recalculate PO status based on line item statuses."""
+    """Recalculate PO status based on line item statuses.
+
+    Returns the computed `new_status` so the caller can forward it to
+    `_mirror_status_to_orders_v2` after the connection context closes.
+    Returns None if there are no line items to reduce over.
+    """
     rows = conn.execute(
         "SELECT status, COUNT(*) as cnt FROM po_line_items WHERE po_id = ? GROUP BY status",
         (po_id,)
     ).fetchall()
 
     if not rows:
-        return
+        return None
 
     status_counts = {r[0]: r[1] for r in rows}
     total = sum(status_counts.values())
@@ -429,6 +434,7 @@ def _recalculate_po_status(conn, po_id):
     now = datetime.now().isoformat()
     conn.execute("UPDATE purchase_orders SET status = ?, updated_at = ? WHERE id = ?",
                  (new_status, now, po_id))
+    return new_status
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -763,7 +769,22 @@ def update_po_item(po_id):
             VALUES (?,?,?,?,?,?)""",
             (po_id, item_id, old["status"], new_status, "user", now))
 
-        _recalculate_po_status(conn, po_id)
+        recalc_status = _recalculate_po_status(conn, po_id)
+        # Capture po_number for V2 mirror while we still hold the conn.
+        po_num_row = conn.execute(
+            "SELECT po_number FROM purchase_orders WHERE id = ?", (po_id,)
+        ).fetchone()
+        po_num = po_num_row[0] if po_num_row else ""
+
+    # Mirror the recalculated status to Orders V2 so margin/analytics
+    # views reflect the line-item change without waiting for next boot
+    # migration. Best-effort — failures MUST NOT fail the legacy write.
+    if po_num and recalc_status:
+        try:
+            _mirror_status_to_orders_v2(po_num, recalc_status, now)
+        except Exception as _e:
+            log.warning("V2 recalc mirror raised for %s — legacy write succeeded: %s",
+                        po_num, _e)
 
     return jsonify({"ok": True})
 
