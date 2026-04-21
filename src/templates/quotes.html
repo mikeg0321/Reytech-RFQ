@@ -15,8 +15,16 @@
       </div>
      </div>
 
-     <!-- KPI Cards -->
-     <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
+     <!-- KPI Cards — scoped to active filter when any facet is set -->
+     {% if has_filter %}
+     <div data-testid="quotes-kpis-filtered-indicator"
+          style="font-size:11px;color:var(--tx2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">
+      Stats scoped to current filter
+     </div>
+     {% endif %}
+     <div data-testid="quotes-kpi-grid"
+          data-kpi-scope="{{ 'filtered' if has_filter else 'global' }}"
+          style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px">
       {% for val, label, color in [
         (stat_total, 'Total', 'var(--ac)'),
         (stat_won, 'Won', '#3fb950'),
