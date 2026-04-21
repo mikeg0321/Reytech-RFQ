@@ -453,3 +453,73 @@ def test_pc_detail_banner_falls_back_to_truncated_id(
     assert visible == "rfq-uuid-abc…"
     # Full UUID still reachable via the href
     assert 'href="/rfq/rfq-uuid-abcdef1234567890"' in html
+
+
+# ── Unlink reverses the link on BOTH sides ────────────────────────────────
+
+def test_unlink_pc_clears_pc_reverse_link(auth_client, temp_data_dir):
+    """Unlinking must clear the PC-side reverse link too. Without this, the
+    PC keeps a stale "Linked to RFQ X" banner pointing at an RFQ that no
+    longer claims the relationship, and ops see a broken handoff trail."""
+    rfq = _cchcs_rfq()
+    pc = _cchcs_pc()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    link = auth_client.post(
+        f"/api/rfq/{rfq['id']}/confirm-pc-link",
+        json={"pc_id": pc["id"], "reprice": False},
+    )
+    assert link.status_code == 200
+
+    # Sanity: reverse link is set before unlink
+    from src.api.data_layer import _load_price_checks
+    pcs = _load_price_checks() or {}
+    assert pcs[pc["id"]].get("linked_rfq_id") == rfq["id"]
+
+    unlink = auth_client.post(f"/api/rfq/{rfq['id']}/unlink-pc")
+    assert unlink.status_code == 200
+
+    # Reload from disk — reverse link must be gone
+    pcs = _load_price_checks() or {}
+    saved_pc = pcs.get(pc["id"]) or {}
+    assert "linked_rfq_id" not in saved_pc, (
+        "unlink-pc must clear PC.linked_rfq_id or the PC banner will point "
+        "at an RFQ that no longer owns the link"
+    )
+    assert "linked_rfq_number" not in saved_pc
+
+
+def test_unlink_pc_writes_activity_event(auth_client, temp_data_dir):
+    """Unlinking must write a `pc_rfq_unlinked` CRM event keyed by rid so
+    it appears on the RFQ timeline — same pattern as pc_rfq_linked. Ops
+    need to see WHY the link count dropped, not guess from a silent diff."""
+    rfq = _cchcs_rfq()
+    rfq["reytech_quote_number"] = "Q26-UNLINK"
+    pc = _cchcs_pc()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    link = auth_client.post(
+        f"/api/rfq/{rfq['id']}/confirm-pc-link",
+        json={"pc_id": pc["id"], "reprice": False},
+    )
+    assert link.status_code == 200
+
+    unlink = auth_client.post(f"/api/rfq/{rfq['id']}/unlink-pc")
+    assert unlink.status_code == 200
+
+    resp = auth_client.get(f"/api/rfq/{rfq['id']}/activity")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    events = [a for a in body["activities"]
+              if a.get("event_type") == "pc_rfq_unlinked"]
+    assert len(events) == 1, (
+        "pc_rfq_unlinked must be keyed by rid so the RFQ timeline renders "
+        "the unlink event alongside the earlier link event"
+    )
+    meta = events[0]["metadata"]
+    assert meta["pc_id"] == pc["id"]
+    assert meta["pc_number"] == pc["pc_number"]
+    assert meta["reytech_quote_number"] == "Q26-UNLINK"
