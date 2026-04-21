@@ -3500,6 +3500,18 @@ def api_rfq_confirm_pc_link(rid):
 
     summary = qty_change_summary(r)
 
+    # Populate pc_diff for the existing Linked banner on the RFQ detail page
+    # (template reads r.pc_diff.ported / r.pc_diff.qty_changed — see
+    # src/templates/rfq_detail.html:297). Keeps the banner truthful after
+    # an operator-confirmed link.
+    qty_changed_entries = [s for s in summary if s["qty_changed"]]
+    r["pc_diff"] = {
+        "ported": promote_result["promoted"],
+        "qty_changed": qty_changed_entries,
+        "added": [],
+        "removed": [],
+    }
+
     from src.api.dashboard import _save_single_rfq
     _save_single_rfq(rid, r)
 
