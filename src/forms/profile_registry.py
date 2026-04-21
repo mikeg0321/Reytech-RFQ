@@ -53,6 +53,12 @@ class FormProfile:
     signature_page: int = 1
     signature_field: str = ""
     fingerprint: str = ""   # SHA-256 of sorted field names from blank PDF
+    # Profile-level default values, keyed by semantic name. Used by the fill
+    # engine as a floor when the Quote has no value for a field — e.g. the
+    # Reytech canonical identity (vendor.name, cert.sb_dvbe_number, etc.) is
+    # invariant across quotes and belongs on the profile, not on every Quote.
+    # Quote-derived values still take precedence.
+    defaults: dict = field(default_factory=dict)
     raw_yaml: dict = field(default_factory=dict)
 
     @property
@@ -121,6 +127,11 @@ def load_profile(yaml_path: str) -> FormProfile:
     fields = _parse_fields(raw.get("fields", {}))
     sig = raw.get("signature", {})
 
+    defaults_raw = raw.get("defaults", {}) or {}
+    # Coerce every value to a string; the fill engine writes text-mode
+    # AcroForm fields only for now (checkbox defaults are a follow-up).
+    defaults = {str(k): str(v) for k, v in defaults_raw.items()}
+
     profile = FormProfile(
         id=raw.get("id", ""),
         form_type=raw.get("form_type", ""),
@@ -131,6 +142,7 @@ def load_profile(yaml_path: str) -> FormProfile:
         signature_mode=sig.get("mode", "image_stamp"),
         signature_page=sig.get("page", 1),
         signature_field=sig.get("field", ""),
+        defaults=defaults,
         raw_yaml=raw,
     )
 
