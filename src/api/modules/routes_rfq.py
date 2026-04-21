@@ -3544,12 +3544,13 @@ def api_rfq_confirm_pc_link(rid):
                 f"{reprice_result.get('skipped_no_price', 0)} skipped"
             )
         _log_crm_activity(
-            r.get("reytech_quote_number") or rid,
+            rid,
             "pc_rfq_linked",
             " — ".join(desc_parts),
             actor="user",
             metadata={
                 "rfq_id": rid,
+                "reytech_quote_number": r.get("reytech_quote_number") or "",
                 "pc_id": pc_id,
                 "pc_number": pc_number,
                 "promote": promote_result,

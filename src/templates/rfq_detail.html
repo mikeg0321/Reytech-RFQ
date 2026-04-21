@@ -3309,6 +3309,7 @@ setTimeout(function(){
    var icon='📝';
    var et=a.event_type||'';
    if(et.indexOf('created')>=0) icon='🆕';
+   else if(et==='pc_rfq_linked'||et.indexOf('link')>=0) icon='🔗';
    else if(et.indexOf('email')>=0) icon='📧';
    else if(et.indexOf('generated')>=0||et.indexOf('package')>=0) icon='📦';
    else if(et.indexOf('pricing')>=0) icon='💰';
