@@ -1655,16 +1655,48 @@ def quotes_list():
     quotes = all_quotes[start:start + per_page]
 
     next_num = peek_next_quote_number()
-    # P0.12 fix: use unified metrics instead of get_quote_stats() so
-    # /quotes and /pipeline show the same numbers.
-    from src.core.metrics import get_win_rate as _unified_wr
-    _uwr = _unified_wr()
-    stats = {
-        "total": _uwr["total"], "won": _uwr["won"], "lost": _uwr["lost"],
-        "pending": _uwr["pending"], "sent": _uwr.get("sent", 0),
-        "won_total": _uwr["won_total"], "pending_total": _uwr["pending_total"],
-        "win_rate": _uwr["rate"],
-    }
+    # Stats: when the operator has ANY facet active, the KPI tiles must
+    # reflect the scoped view — otherwise "Won: 500" next to 5 filtered
+    # rows is a lie. When no facet is active, keep the unified metrics
+    # path so /quotes and /pipeline stay in sync (P0.12 invariant).
+    has_filter = bool(q or agency_filter or status_filter or since_filter)
+    if has_filter:
+        # Mirror the unified-metrics semantics exactly so the same KPI tile
+        # doesn't mean two different things across filter toggles:
+        #   - pending_total rolls up the full in-flight pipeline, not just
+        #     literal "pending" (see src/core/metrics.PIPELINE_STATUSES).
+        #   - win_rate is a float rounded to 1dp, matching `_unified_wr`.
+        # Test quotes are already excluded by search_quotes() (line ~461),
+        # so we don't re-filter is_test here.
+        from src.core.metrics import PIPELINE_STATUSES
+        def _tot(_qt):
+            try: return float(_qt.get("total") or 0)
+            except (TypeError, ValueError): return 0.0
+        f_won     = sum(1 for _q in all_quotes if _q.get("status") == "won")
+        f_lost    = sum(1 for _q in all_quotes if _q.get("status") == "lost")
+        f_pending = sum(1 for _q in all_quotes if _q.get("status") == "pending")
+        f_sent    = sum(1 for _q in all_quotes if _q.get("status") == "sent")
+        f_won_total     = round(sum(_tot(_q) for _q in all_quotes
+                                    if _q.get("status") == "won"), 2)
+        f_pending_total = round(sum(_tot(_q) for _q in all_quotes
+                                    if _q.get("status") in PIPELINE_STATUSES), 2)
+        _decided = f_won + f_lost
+        f_rate = round(100 * f_won / _decided, 1) if _decided else 0.0
+        stats = {
+            "total": total_quotes, "won": f_won, "lost": f_lost,
+            "pending": f_pending, "sent": f_sent,
+            "won_total": f_won_total, "pending_total": f_pending_total,
+            "win_rate": f_rate,
+        }
+    else:
+        from src.core.metrics import get_win_rate as _unified_wr
+        _uwr = _unified_wr()
+        stats = {
+            "total": _uwr["total"], "won": _uwr["won"], "lost": _uwr["lost"],
+            "pending": _uwr["pending"], "sent": _uwr.get("sent", 0),
+            "won_total": _uwr["won_total"], "pending_total": _uwr["pending_total"],
+            "win_rate": _uwr["rate"],
+        }
 
     # Check if logo exists
     logo_exists = any(os.path.exists(os.path.join(DATA_DIR, f"reytech_logo.{e}"))
@@ -1820,6 +1852,7 @@ def quotes_list():
     return render_page("quotes.html", active_page="Quotes",
         stats_html=stats_html, q=q, agency_filter=agency_filter,
         status_filter=status_filter, since_filter=since_filter,
+        has_filter=has_filter,
         logo_exists=logo_exists, rows_html=rows_html,
         title="Quotes Database",
         stat_total=stats['total'], stat_won=stats['won'], stat_lost=stats['lost'],
