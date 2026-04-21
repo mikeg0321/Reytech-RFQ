@@ -66,7 +66,11 @@ def temp_data_dir(tmp_path, monkeypatch):
          "zip": "", "phone": "", "email": "", "open_balance": 0, "source": "calvet.ca.gov"},
     ])
 
-    # Patch every module that has DATA_DIR
+    # Patch every module that has DATA_DIR. `product_catalog` is included
+    # because its DB_PATH snapshots DATA_DIR at import time — if we don't
+    # redirect, parallel xdist workers collide on the real data/reytech.db
+    # (and mutate prod-dev data). Every new module below needs the same
+    # treatment: add it here, not to a per-test fixture.
     _module_map = {
         "src.knowledge.won_quotes_db": "won_quotes_db",
         "src.agents.product_research": "product_research",
@@ -78,6 +82,7 @@ def temp_data_dir(tmp_path, monkeypatch):
         "src.forms.price_check": "price_check",
         "src.auto.auto_processor": "auto_processor",
         "src.agents.scprs_lookup": "scprs_lookup",
+        "src.agents.product_catalog": "product_catalog",
     }
     for mod_path, mod_name in _module_map.items():
         try:
@@ -89,6 +94,12 @@ def temp_data_dir(tmp_path, monkeypatch):
                 continue
         if hasattr(mod, "DATA_DIR"):
             monkeypatch.setattr(mod, "DATA_DIR", data)
+        if hasattr(mod, "DB_PATH"):
+            # DB_PATH is almost always `os.path.join(DATA_DIR, "reytech.db")`
+            # evaluated at import time — redirect it explicitly so tests
+            # never touch the real DB.
+            monkeypatch.setattr(mod, "DB_PATH",
+                                os.path.join(data, "reytech.db"))
         if hasattr(mod, "WON_QUOTES_FILE"):
             monkeypatch.setattr(mod, "WON_QUOTES_FILE",
                                 os.path.join(data, "won_quotes.json"))
