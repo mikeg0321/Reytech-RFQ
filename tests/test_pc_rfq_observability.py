@@ -377,3 +377,30 @@ def test_pc_link_event_visible_on_rfq_timeline(auth_client, temp_data_dir):
     )
     # Quote number preserved in metadata for ops context
     assert events[0]["metadata"]["reytech_quote_number"] == "Q26-1234"
+
+
+# ── PC reverse-link surface ───────────────────────────────────────────────
+
+def test_confirm_pc_link_writes_reverse_link_on_pc(auth_client, temp_data_dir):
+    """After confirm-pc-link, the PC must carry linked_rfq_id +
+    linked_rfq_number so its detail page's "Linked to RFQ X" banner
+    renders. Without this, the handoff is only visible from the RFQ side
+    and operators looking at the PC see no sign it was handed off."""
+    rfq = _cchcs_rfq()
+    rfq["solicitation_number"] = "PREQ-999"
+    pc = _cchcs_pc()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    resp = auth_client.post(
+        f"/api/rfq/{rfq['id']}/confirm-pc-link",
+        json={"pc_id": pc["id"], "reprice": False},
+    )
+    assert resp.status_code == 200
+
+    # Reload PCs from disk — confirm the reverse link was persisted.
+    from src.api.data_layer import _load_price_checks
+    pcs = _load_price_checks() or {}
+    saved_pc = pcs.get(pc["id"]) or {}
+    assert saved_pc.get("linked_rfq_id") == rfq["id"]
+    assert saved_pc.get("linked_rfq_number") == "PREQ-999"
