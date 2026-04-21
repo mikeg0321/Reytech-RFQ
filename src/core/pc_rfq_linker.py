@@ -337,3 +337,163 @@ def auto_link_rfq_to_bundle(rfq_data, bundle_pcs):
 
     log.info("Auto-linked RFQ to bundle (%d PCs): %d items imported", len(bundle_pcs), imported)
     return imported
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# ── CCHCS RFQ→PC matching (operator-confirmed, never auto-links) ─────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CCHCS_AGENCY_TOKENS = ("cchcs", "california correctional health", "ccchs")
+
+
+def _norm_id(v) -> str:
+    """Normalize MFG#/UPC for equality compare — uppercase, strip punctuation."""
+    if v is None:
+        return ""
+    s = str(v).strip().upper()
+    return "".join(ch for ch in s if ch.isalnum())
+
+
+def _line_identity_match(rfq_item, pc_item, positional_ok=False):
+    """Match two line items with the price-preservation hierarchy Mike set:
+      1. MFG# equality (authoritative — identifies the exact product)
+      2. UPC equality (same, from barcodes)
+      3. Description fuzzy ≥ 0.65 (catalog-match threshold)
+      4. Positional fallback (only when caller opts in)
+    Returns ("mfg" | "upc" | "desc" | "positional" | None, confidence_0_1).
+    """
+    r_mfg = _norm_id(rfq_item.get("mfg_number") or rfq_item.get("manufacturer_number")
+                     or rfq_item.get("part_number"))
+    p_mfg = _norm_id(pc_item.get("mfg_number") or pc_item.get("manufacturer_number")
+                     or pc_item.get("part_number"))
+    if r_mfg and p_mfg and r_mfg == p_mfg:
+        return "mfg", 1.0
+
+    r_upc = _norm_id(rfq_item.get("upc"))
+    p_upc = _norm_id(pc_item.get("upc"))
+    if r_upc and p_upc and r_upc == p_upc:
+        return "upc", 1.0
+
+    r_desc = (rfq_item.get("description") or rfq_item.get("desc") or "").lower().strip()
+    p_desc = (pc_item.get("description") or pc_item.get("desc") or "").lower().strip()
+    if r_desc and p_desc and len(r_desc) >= 5 and len(p_desc) >= 5:
+        sim = SequenceMatcher(None, r_desc, p_desc).ratio()
+        if sim >= 0.65:
+            return "desc", sim
+
+    if positional_ok:
+        return "positional", 0.3
+
+    return None, 0.0
+
+
+def _is_cchcs_pc(pc_data) -> bool:
+    """True if PC belongs to CCHCS. Only CCHCS has PCs in this system."""
+    inner = _get_pc_inner(pc_data)
+    for field in ("agency", "institution", "requestor", "buyer_agency"):
+        v = (inner.get(field) or pc_data.get(field) or "").lower()
+        if any(tok in v for tok in _CCHCS_AGENCY_TOKENS):
+            return True
+    return False
+
+
+def find_matching_pcs_for_cchcs(rfq_data, pcs, max_results=3):
+    """Return the top CCHCS PC candidates for an RFQ — operator confirms the link.
+
+    Unlike `find_matching_pc`, this NEVER returns a single "auto-link" winner.
+    Mike's rule: "if nearly match, just ask me or do a % match if not 100%.
+    prompt to link." PC prices are used to publish the RFQ for public bidding,
+    so silently linking the wrong PC would contaminate the commitment price.
+
+    Scoped to CCHCS PCs only — no other agency uses the PC workflow today.
+
+    Args:
+        rfq_data: the incoming RFQ dict (needs requestor_email, solicitation_number,
+                  institution, line_items/items, each item with mfg_number/upc/desc).
+        pcs: dict of pc_id → pc_data (as loaded by the queue).
+        max_results: cap on candidates returned (default 3).
+    Returns:
+        List of dicts sorted by match_pct desc:
+            {"pc_id": str, "pc_data": dict, "match_pct": int 0-100,
+             "line_matches": int, "line_total": int, "reasons": list[str],
+             "is_exact": bool}  # is_exact = 100% lines matched by mfg/upc/desc
+    """
+    rfq_email = (rfq_data.get("requestor_email") or "").lower().strip()
+    rfq_sol = (rfq_data.get("solicitation_number") or "").strip()
+    rfq_inst = (rfq_data.get("institution") or "").strip()
+    rfq_items = rfq_data.get("line_items") or rfq_data.get("items") or []
+    line_total = len([i for i in rfq_items if (i.get("description") or i.get("desc"))])
+
+    candidates = []
+    for pcid, pc in pcs.items():
+        if not isinstance(pc, dict) or not _is_cchcs_pc(pc):
+            continue
+        inner = _get_pc_inner(pc)
+
+        reasons = []
+        header_score = 0  # max 100 from header signals
+
+        pc_email = (inner.get("requestor") or pc.get("requestor") or "").lower()
+        if rfq_email and pc_email and rfq_email == pc_email:
+            header_score += 40
+            reasons.append("same_requestor")
+
+        pc_sol = (inner.get("pc_number") or pc.get("pc_number") or "").strip()
+        if rfq_sol and pc_sol and (rfq_sol in pc_sol or pc_sol in rfq_sol):
+            header_score += 30
+            reasons.append("same_solicitation")
+
+        pc_inst = (inner.get("institution") or pc.get("institution") or "").strip()
+        if rfq_inst and pc_inst:
+            try:
+                from src.core.institution_resolver import same_institution
+                if same_institution(rfq_inst, pc_inst):
+                    header_score += 10
+                    reasons.append("same_institution")
+            except ImportError:
+                if rfq_inst.lower() in pc_inst.lower() or pc_inst.lower() in rfq_inst.lower():
+                    header_score += 10
+                    reasons.append("same_institution")
+
+        pc_items = inner.get("items") or pc.get("items") or []
+        line_matches = 0
+        mfg_matches = 0
+        for rfq_item in rfq_items:
+            if not (rfq_item.get("description") or rfq_item.get("desc")):
+                continue
+            for pc_item in pc_items:
+                kind, _conf = _line_identity_match(rfq_item, pc_item)
+                if kind:
+                    line_matches += 1
+                    if kind in ("mfg", "upc"):
+                        mfg_matches += 1
+                    break
+        if line_matches:
+            reasons.append(f"matched_{line_matches}_of_{line_total}_lines")
+        if mfg_matches:
+            reasons.append(f"{mfg_matches}_by_mfg_or_upc")
+
+        # Match % blends line coverage (primary signal) with header confirmation.
+        # Pure header match without any item match = not a candidate (per Mike:
+        # "do not re-price unless QTY changes" — wrong-PC link would contaminate
+        # the publish-for-bidding commitment price).
+        if line_matches == 0:
+            continue
+        line_pct = (line_matches / line_total) * 100 if line_total else 0
+        # Line coverage dominates; header adds a small confirming bump.
+        # Capped at 100 — an exact line match with header confirmation is "100%".
+        match_pct = int(min(100, round(line_pct + header_score * 0.2)))
+        is_exact = line_total > 0 and line_matches == line_total
+
+        candidates.append({
+            "pc_id": pcid,
+            "pc_data": pc,
+            "match_pct": match_pct,
+            "line_matches": line_matches,
+            "line_total": line_total,
+            "reasons": reasons,
+            "is_exact": is_exact,
+        })
+
+    candidates.sort(key=lambda c: (c["match_pct"], c["line_matches"]), reverse=True)
+    return candidates[:max_results]
