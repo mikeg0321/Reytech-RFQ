@@ -1,5 +1,37 @@
 # PRD: Automated Pricing Pipeline
 
+> ## Current State — 2026-04-21
+>
+> This doc is the original vision (2026-04-08). Code has sprinted past it.
+> For live state, check `project_pricing_pipeline_prd.md` in memory, the
+> `/health/quoting` dashboard, and git log. Highlights:
+>
+> **Shipped:**
+> - Phase 1: UPC/MFG#/ASIN identifier waterfall, supplier SKU reverse lookup,
+>   match-rejection blocklist, confidence guardrails — live.
+> - Phase 2: Grok LLM validator (`src/agents/product_validator.py`) with 14-day
+>   cache, rate limits, retries — live. **Gap:** no circuit breaker wrapping
+>   the API call despite `get_breaker("grok")` predefined in
+>   `src/core/circuit_breaker.py`.
+> - Phase 3 (partial): READY/REVIEW/MANUAL/SKIP tier classification live at
+>   `routes_pricecheck.py:819-836`. Row color-coding shipped. Chrome-MCP
+>   visual regression not yet added.
+> - Phase 4 (partial): `match_feedback` + `rejected_matches` blocklist live;
+>   Oracle V5 `calibrate_from_outcome` wired at mark-won. Weekly
+>   match-quality report not yet built.
+>
+> **Known gaps (PRD review 2026-04-21):**
+> - "EXACT" badge overclaims — fires at any confidence >0.95, not only
+>   UPC-verified. [PR A]
+> - Grok circuit breaker missing. [PR B]
+> - No shadow mode for new cost sources. [PR C]
+> - Chrome-MCP color-coding regression not captured. [PR D]
+>
+> Treat the sections below as the architectural vision, not the as-built
+> state. Do not scope new work from this doc alone — grep the code first.
+
+---
+
 ## Vision
 
 A buyer sends a 704 PDF. The system reads it, identifies every product, finds the best price, applies intelligent markup, and presents a ready-to-send quote. Human time per PC: **under 2 minutes** — review and click send.
