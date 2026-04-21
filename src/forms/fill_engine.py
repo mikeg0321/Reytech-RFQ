@@ -323,6 +323,23 @@ def _build_static_field_map(quote: Quote, profile: FormProfile) -> dict[str, str
             if checkbox_values[fm.semantic]:
                 values[fm.pdf_field] = True
 
+    # Merge profile-level defaults as a floor: fill any text field we didn't
+    # already populate from Quote-derived accessors. Quote values win; defaults
+    # are the fallback for fields with no Quote source (vendor identity,
+    # cert numbers, etc.). Checkbox defaults are out of scope here — the
+    # current checkbox path in _fill_acroform uses a hardcoded allow-list;
+    # wiring checkbox defaults needs field_type metadata per profile entry.
+    for semantic, default_val in (profile.defaults or {}).items():
+        if not default_val:
+            continue
+        fm = profile.get_field(semantic)
+        if fm is None or "[n]" in fm.semantic:
+            continue
+        # Row-field defaults and fields without a pdf_field are meaningless.
+        if not fm.pdf_field:
+            continue
+        values.setdefault(fm.pdf_field, default_val)
+
     return values
 
 
