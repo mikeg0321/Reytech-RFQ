@@ -597,6 +597,40 @@ def test_pc_detail_hides_unlink_button_when_unlinked(auth_client, temp_data_dir)
     assert 'data-testid="pc-banner-unlink-btn"' not in html
 
 
+def test_rfq_timeline_renders_distinct_icon_for_unlink(
+    auth_client, temp_data_dir
+):
+    """pc_rfq_unlinked must get its own 🔓 icon on the RFQ timeline, not
+    reuse the 🔗 icon from pc_rfq_linked. The timeline is client-side JS
+    so we assert the icon-mapping branch is present in the rendered page
+    template — without it, the fallback indexOf('link') catch-all maps
+    unlink events to 🔗 and operators can't tell links from unlinks at
+    a glance."""
+    rfq = _cchcs_rfq()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+
+    resp = auth_client.get(f"/rfq/{rfq['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    # The dedicated branch for unlinked events must exist AND come before
+    # the generic indexOf('link') fallback, otherwise the fallback eats it.
+    unlink_branch = "et==='pc_rfq_unlinked'"
+    link_fallback = "et.indexOf('link')"
+    assert unlink_branch in html, (
+        "pc_rfq_unlinked icon branch missing — unlink events will render "
+        "with the same 🔗 icon as links"
+    )
+    assert html.index(unlink_branch) < html.index(link_fallback), (
+        "pc_rfq_unlinked branch must appear BEFORE the indexOf('link') "
+        "fallback, otherwise the generic clause matches first"
+    )
+    # And the icon itself is 🔓, not 🔗
+    import re
+    m = re.search(r"et==='pc_rfq_unlinked'\)\s*icon='([^']+)'", html)
+    assert m is not None
+    assert m.group(1) == "🔓"
+
+
 def test_pc_detail_hides_unlink_button_when_converted(auth_client, temp_data_dir):
     """Converted PCs (PC identity replaced by RFQ) must NOT expose an
     unlink — the PC was promoted, not just linked. Matches the existing
