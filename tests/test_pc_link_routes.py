@@ -217,15 +217,21 @@ def test_confirm_persists_rfq_to_disk(auth_client, temp_data_dir):
 
 
 def test_confirm_with_reprice_flag_runs_selective_reprice(
-    auth_client, temp_data_dir
+    auth_client, temp_data_dir, monkeypatch
 ):
-    """reprice=True invokes the selective reprice helper. Without a wired
-    pricer (pricer=None at route layer, deferred), qty-changed lines come
-    back as `skipped_no_price` — commitment prices on unchanged lines must
-    still be untouched."""
+    """reprice=True wires in the oracle pricer (PR #291). Stub the oracle
+    so this test is deterministic regardless of fixture DB state. Commitment
+    prices on unchanged lines must survive."""
     rfq = _cchcs_rfq()
     pc = _cchcs_pc()
     _seed(temp_data_dir, {rfq["id"]: rfq}, {pc["id"]: pc})
+
+    # Stub oracle: return a fresh price for the only drifted line.
+    import src.core.pricing_oracle_v2 as _poll
+    monkeypatch.setattr(_poll, "get_pricing", lambda **kw: {
+        "recommendation": {"quote_price": 14.50, "markup_pct": 60.0},
+        "cost": {"locked_cost": 9.0},
+    })
 
     resp = auth_client.post(
         f"/api/rfq/{rfq['id']}/confirm-pc-link",
@@ -234,11 +240,9 @@ def test_confirm_with_reprice_flag_runs_selective_reprice(
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["reprice"] is not None
-    # 1 qty-changed line, pricer=None → skipped_no_price
-    assert body["reprice"]["skipped_no_price"] == 1
-    assert body["reprice"]["repriced"] == 0
-    # 1 matched-qty line counted as no_change
+    assert body["reprice"]["repriced"] == 1
     assert body["reprice"]["skipped_no_change"] == 1
+    assert body["reprice"]["skipped_no_price"] == 0
 
     # Commitment line still has its PC price — reprice didn't touch it
     unchanged = [s for s in body["qty_change_summary"] if s["pc_qty"] == 10][0]
