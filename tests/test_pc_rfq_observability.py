@@ -404,3 +404,52 @@ def test_confirm_pc_link_writes_reverse_link_on_pc(auth_client, temp_data_dir):
     saved_pc = pcs.get(pc["id"]) or {}
     assert saved_pc.get("linked_rfq_id") == rfq["id"]
     assert saved_pc.get("linked_rfq_number") == "PREQ-999"
+
+
+def test_pc_detail_banner_shows_solicitation_number(
+    auth_client, temp_data_dir
+):
+    """The PC detail page's "Linked to RFQ X" banner must display the
+    solicitation number (human-readable) rather than the raw RFQ UUID
+    when linked_rfq_number is populated."""
+    pc = _cchcs_pc()
+    pc["linked_rfq_id"] = "rfq-uuid-abcdef1234567890"
+    pc["linked_rfq_number"] = "PREQ-42"
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    resp = auth_client.get(f"/pricecheck/{pc['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    # Solicitation number appears in the banner
+    assert "RFQ PREQ-42" in html
+    # Raw UUID is NOT shown as the banner label (it's still in the href,
+    # but the visible label should be the number). The label sits between
+    # ">RFQ " and "</a>".
+    import re
+    label = re.search(r">RFQ ([^<]+)</a>", html)
+    assert label is not None, "PC detail banner label not found"
+    assert label.group(1).strip() == "PREQ-42"
+
+
+def test_pc_detail_banner_falls_back_to_truncated_id(
+    auth_client, temp_data_dir
+):
+    """Legacy rows (linked_rfq_id set but linked_rfq_number missing) must
+    still render a readable banner — truncated UUID with an ellipsis, not
+    the full 36-char uuid sprawling across the header."""
+    pc = _cchcs_pc()
+    pc["linked_rfq_id"] = "rfq-uuid-abcdef1234567890"
+    # Deliberately no linked_rfq_number
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    resp = auth_client.get(f"/pricecheck/{pc['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    # The visible label is the first 12 chars + ellipsis, not the full UUID
+    import re
+    label = re.search(r">RFQ ([^<]+)</a>", html)
+    assert label is not None
+    visible = label.group(1).strip()
+    assert visible == "rfq-uuid-abc…"
+    # Full UUID still reachable via the href
+    assert 'href="/rfq/rfq-uuid-abcdef1234567890"' in html
