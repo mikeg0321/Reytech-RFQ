@@ -30,6 +30,29 @@ try:
 except ImportError:
     HAS_REQUESTS = False
 
+# Circuit breaker: trip after repeated Grok failures so one bad afternoon at
+# xAI doesn't cascade across every PC we process. Defaults for "grok" live
+# in src/core/circuit_breaker.py: 3 failures → open for 120s, 1 success to
+# close. Breaker counts Timeouts, ConnectionErrors, and 5xx responses.
+# 429 (rate-limited) and 4xx (client error) are NOT failures — they flow
+# through as normal responses and the retry loop handles them.
+from src.core.circuit_breaker import get_breaker, CircuitOpenError
+
+
+def _post_xai(headers: dict, payload: dict):
+    """Single POST to Grok that raises on 5xx so the circuit breaker
+    sees it as a failure. Timeouts/ConnectionErrors bubble up naturally.
+    """
+    resp = requests.post(
+        XAI_API_URL, headers=headers, json=payload, timeout=_TIMEOUT,
+    )
+    if 500 <= resp.status_code < 600:
+        raise requests.exceptions.HTTPError(
+            f"Grok API {resp.status_code}: {resp.text[:200]}",
+            response=resp,
+        )
+    return resp
+
 # ── Cache Configuration ─────────────────────────────────────────────────────
 try:
     from src.core.paths import DATA_DIR
@@ -223,19 +246,16 @@ Respond in this exact JSON format (no markdown, no code blocks):
         "response_format": {"type": "json_object"},
     }
 
+    breaker = get_breaker("grok")
     for attempt in range(_MAX_RETRIES):
         try:
-            resp = requests.post(
-                XAI_API_URL,
-                headers=headers,
-                json=payload,
-                timeout=_TIMEOUT,
-            )
+            resp = breaker.call(_post_xai, headers, payload)
             if resp.status_code == 429:
-                # Rate limited — wait and retry
+                # Rate limited — wait and retry (429 doesn't trip the breaker)
                 time.sleep(2 * (attempt + 1))
                 continue
             if resp.status_code != 200:
+                # 4xx — client error, non-retryable, doesn't trip breaker
                 log.warning("Grok API %d: %s", resp.status_code, resp.text[:200])
                 return {"ok": False, "error": f"API {resp.status_code}"}
 
@@ -295,6 +315,18 @@ Respond in this exact JSON format (no markdown, no code blocks):
 
             return result
 
+        except CircuitOpenError as e:
+            # xAI is failing consistently — stop hammering. The breaker
+            # auto-tests recovery after 120s, so the next PC may succeed.
+            log.warning("Grok circuit open — skipping validate: %s", e)
+            return {"ok": False, "error": "grok circuit open",
+                    "circuit_open": True}
+        except requests.exceptions.HTTPError as e:
+            # Only raised on 5xx (see _post_xai). Counted as breaker failure;
+            # we retry within this call but the breaker is tracking globally.
+            log.warning("Grok 5xx (attempt %d/%d): %s",
+                        attempt + 1, _MAX_RETRIES, e)
+            continue
         except requests.exceptions.Timeout:
             log.warning("Grok API timeout (attempt %d/%d)", attempt + 1, _MAX_RETRIES)
             continue
