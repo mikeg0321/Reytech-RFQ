@@ -86,8 +86,17 @@ class TestGeneratedChecksPackageOk:
                 profiles, result,
             )
 
-        assert attempt.outcome == "error", (
-            f"expected error, got {attempt.outcome}: {attempt.reasons}"
+        # outcome="blocked" (not "error") is the correct semantic here:
+        # signing failures are typically config/data issues (bad signature
+        # image, missing certificate, etc.) — a known-bad state the operator
+        # can fix, not a programming bug worth paging on. `_run_transition`
+        # raises `StageBlocked`, which `_try_advance` records as "blocked"
+        # (see the class docstring at the top of quote_orchestrator.py).
+        # What must NOT happen: outcome="advanced" with the unsigned PDF
+        # getting sent — that's the regression this test guards against.
+        assert attempt.outcome == "blocked", (
+            f"expected blocked (signing is a recoverable config issue), "
+            f"got {attempt.outcome}: {attempt.reasons}"
         )
         assert any("signing failed" in r.lower() or "package not ok" in r.lower()
                    for r in attempt.reasons), attempt.reasons
