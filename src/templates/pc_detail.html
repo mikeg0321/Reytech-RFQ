@@ -216,7 +216,7 @@
      {% elif pc.get('status') == 'priced' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.25);color:#58a6ff;margin-bottom:10px"><span style="font-size:18px">💰</span><div><b>Priced</b> — review costs below, then Save &amp; Generate.</div></div>
      {% elif pc.get('status') == 'new' %}
-     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#4f8cff;margin-bottom:10px"><span style="font-size:18px">📋</span><div><b>New</b> — run SCPRS/Amazon/Catalog to find prices, then Save.</div>
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#4f8cff;margin-bottom:10px"><span style="font-size:18px">📋</span><div><b>New</b> — click Auto-Price Now to find prices, then Save &amp; Generate.</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Retry automatic pricing">🔄 Auto-Price Now</button></div>
      {% elif pc.get('status') == 'parsed' or pc.get('status') == 'priced' %}
      {% if pc.get('enrichment_status') == 'enriching' %}
@@ -246,7 +246,7 @@
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#238636;color:#fff;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Re-run enrichment">🔄 Re-enrich</button></div>
      {% endif %}
      {% else %}
-     <div id="autoStatusBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — no enrichment yet. Click to search Catalog + SCPRS.</div>
+     <div id="autoStatusBanner" style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px"><span style="font-size:18px">📥</span><div><b>Parsed</b> — no enrichment yet. Click Auto-Enrich to search the catalog and SCPRS.</div>
       <button onclick="retryAutoPrice(this)" style="margin-left:auto;padding:4px 12px;background:#d29922;color:#000;border:none;border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap" aria-label="Run automatic pricing">🔍 Auto-Enrich</button></div>
      {% endif %}
      {% endif %}

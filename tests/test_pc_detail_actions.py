@@ -163,3 +163,44 @@ class TestNoDeadSaveAndGenerateCluster:
         assert "next Save & Generate" in html, (
             "savePrices fallback toast must name the real button"
         )
+
+
+class TestEarlyStageBannerCopy:
+    """The 'new' and 'parsed' status banners tell the user what button
+    to click next. They used to reference tool names from the old
+    7-button pricing UI ('SCPRS/Amazon/Catalog') which no longer exist
+    as separate top-level buttons. Each banner embeds its own real
+    button — point the copy at that button's label so the hint is
+    actionable, not archaeology.
+    """
+
+    def test_new_banner_points_to_auto_price_now_button(
+        self, client, temp_data_dir, sample_pc
+    ):
+        pcid = _seed_with_status(temp_data_dir, sample_pc, "new")
+        html = _fetch(client, pcid)
+        assert "click Auto-Price Now" in html, (
+            "New banner must point to the 'Auto-Price Now' button that "
+            "lives in the banner itself"
+        )
+        assert "run SCPRS/Amazon/Catalog" not in html, (
+            "New banner still lists removed individual-source tools"
+        )
+
+    def test_parsed_banner_points_to_auto_enrich_button(
+        self, client, temp_data_dir, sample_pc
+    ):
+        pc = dict(sample_pc)
+        pc["status"] = "parsed"
+        pc.pop("enrichment_status", None)
+        path = os.path.join(temp_data_dir, "price_checks.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({pc["id"]: pc}, f)
+        html = _fetch(client, pc["id"])
+        assert "Click Auto-Enrich" in html, (
+            "Parsed banner must point to the 'Auto-Enrich' button"
+        )
+        assert "Click to search Catalog + SCPRS" not in html, (
+            "Parsed banner still uses the old vague 'search Catalog + "
+            "SCPRS' copy"
+        )
