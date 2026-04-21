@@ -1623,9 +1623,12 @@ def quotes_list():
     q = request.args.get("q", "")
     agency_filter = request.args.get("agency", "")
     status_filter = request.args.get("status", "")
+    since_filter = request.args.get("since", "")  # "24h" or "" (all)
     page = max(1, int(request.args.get("page", 1)))
     per_page = min(100, max(10, int(request.args.get("per_page", 50))))
-    all_quotes = search_quotes(query=q, agency=agency_filter, status=status_filter, limit=500)
+    since_hours = 24 if since_filter == "24h" else 0
+    all_quotes = search_quotes(query=q, agency=agency_filter, status=status_filter,
+                               limit=500, since_hours=since_hours)
 
     # Hide ghost quotes from the list view (HIDE, not delete — data stays in DB).
     # A ghost quote has $0 total AND 0 items AND no real agency. Stats bar still
@@ -1816,7 +1819,8 @@ def quotes_list():
 
     return render_page("quotes.html", active_page="Quotes",
         stats_html=stats_html, q=q, agency_filter=agency_filter,
-        status_filter=status_filter, logo_exists=logo_exists, rows_html=rows_html,
+        status_filter=status_filter, since_filter=since_filter,
+        logo_exists=logo_exists, rows_html=rows_html,
         title="Quotes Database",
         stat_total=stats['total'], stat_won=stats['won'], stat_lost=stats['lost'],
         stat_pending=stats['pending'], stat_sent=stats.get('sent', 0),
