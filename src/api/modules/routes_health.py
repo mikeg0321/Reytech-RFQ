@@ -376,6 +376,7 @@ def quoting_health_page():
         "db_health": _build_db_health(),
         "catalog_health": _build_catalog_health(),
         "oracle_calibration": _build_oracle_calibration_card(),
+        "pc_rfq_link": _build_pc_rfq_link_health(),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
 
@@ -1048,33 +1049,28 @@ def profiles_json():
     }
 
 
-@bp.route("/api/health/pc-rfq-link")
-@auth_required
-def pc_rfq_link_health_json():
-    """CCHCS PC→RFQ handoff observability. Ops reads this to confirm the
-    one-engine chain is actually flowing in prod.
+def _build_pc_rfq_link_health():
+    """Builder for the CCHCS PC→RFQ handoff observability panel.
 
-    Surfaces:
-        links_24h: count of pc_rfq_linked activity events in the last 24h.
-        reprices_24h: count of drifted lines repriced by the oracle in
-                      the last 24h (extracted from activity metadata).
-        skipped_no_price_24h: count of drifted lines where the oracle
-                              had no data (operator follow-up required).
+    Shared by `/api/health/pc-rfq-link` (JSON for ops scripts) and the
+    tile on `/health/quoting` (operator-facing dashboard). Pure read,
+    no side effects — safe to call on every page render.
+
+    Returns the same shape as the JSON endpoint. Fields:
+        links_24h: pc_rfq_linked activity events in last 24h.
+        reprices_24h: drifted lines repriced by oracle in last 24h
+                      (summed from activity metadata — avoids re-scanning
+                      RFQ items).
+        skipped_no_price_24h: drifted lines where the oracle had no data
+                              (operator follow-up required).
         cchcs_linked_total: CCHCS RFQs currently carrying `linked_pc_id`.
         cchcs_unlinked_total: CCHCS RFQs that could still be linked.
-        unresolved_qty_drift: number of line_items across all RFQs where
-                              qty_changed=True AND no reprice has landed
-                              (repriced_reason != qty_change). This is the
-                              "needs manual pricing" backlog.
-        recent_links: last 5 pc_rfq_linked activity entries (ref_id,
-                      description, timestamp).
-
-    Defensive: missing data returns zeros, not 500s. Ops dashboards
-    should be able to hit this every minute without ever alerting on
-    transient stat shape issues.
+        unresolved_qty_drift: line_items across all RFQs where
+                              qty_changed=True AND no reprice has landed.
+                              The "needs manual pricing" backlog.
+        recent_links: last 5 pc_rfq_linked entries (newest first).
     """
     out = {
-        "ok": True,
         "links_24h": 0,
         "reprices_24h": 0,
         "skipped_no_price_24h": 0,
@@ -1139,3 +1135,16 @@ def pc_rfq_link_health_json():
         log.debug("pc_rfq_link_health: rfq scan failed: %s", e)
 
     return out
+
+
+@bp.route("/api/health/pc-rfq-link")
+@auth_required
+def pc_rfq_link_health_json():
+    """CCHCS PC→RFQ handoff observability. Ops reads this to confirm the
+    one-engine chain is actually flowing in prod.
+
+    Defensive: missing data returns zeros, not 500s. Ops dashboards
+    should be able to hit this every minute without ever alerting on
+    transient stat shape issues.
+    """
+    return {"ok": True, **_build_pc_rfq_link_health()}
