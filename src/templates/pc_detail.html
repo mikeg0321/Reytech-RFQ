@@ -175,7 +175,7 @@
      {% if pc.get('status') == 'sent' %}
      <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;justify-content:space-between;background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.25);color:#3fb950;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:10px"><span style="font-size:18px">📨</span><div><b>Sent</b> — Awaiting award decision{% if pc.get('sent_at') %} · Sent {{ pc.get('sent_at','')[:10] }}{% endif %}
-       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/'+_pcid+'/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/'+_pcid+'/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
+       {% if pc.get('current_doc_id') %}<br><a href="/pricecheck/{{ pcid }}/document/{{ pc.get('current_doc_id','') }}" style="color:#58a6ff;font-size:14px">📄 View/Edit Sent Document</a> · <a href="/pricecheck/{{ pcid }}/documents" style="color:#8b949e;font-size:14px">All Versions</a>{% endif %}</div></div>
       <div style="display:flex;gap:6px">
        <button class="btn btn-sm" onclick="adminAction('won')" style="background:#238636;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Won">🏆 Mark Won</button>
        <button class="btn btn-sm" onclick="adminAction('lost')" style="background:#da3633;color:#fff;font-size:14px;padding:4px 12px;border-radius:6px;border:none;cursor:pointer" aria-label="Mark Lost">❌ Mark Lost</button>

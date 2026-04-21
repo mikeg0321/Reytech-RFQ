@@ -1073,11 +1073,11 @@ def _pricecheck_detail_inner(pcid):
                 header["institution"] = institution
                 try:
                     from src.api.dashboard import _save_single_pc
-                    _save_single_pc(pc_id, pc)
+                    _save_single_pc(pcid, pc)
                     log.info("Self-healed institution: '%s' -> '%s' (via %s)",
                              _resolved.get("original", ""), institution, _resolved["source"])
                 except Exception as _e:
-                    log.debug("suppressed: %s", _e)
+                    log.warning("PC %s self-heal save failed: %s", pcid, _e)
         except Exception as _e:
             log.debug("suppressed: %s", _e)
         _canonical = _resolved.get("canonical", "") or institution
@@ -1606,7 +1606,7 @@ def pricecheck_rename(pcid):
     if not new_name:
         return jsonify({"ok": False, "error": "Name cannot be empty"})
     pcs[pcid]["pc_number"] = new_name
-    _save_single_pc(pcid, pc)
+    _save_single_pc(pcid, pcs[pcid])
     log.info("RENAME PC %s → %s", pcid, new_name)
     return jsonify({"ok": True, "pc_number": new_name})
 
