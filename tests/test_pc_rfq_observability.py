@@ -563,3 +563,50 @@ def test_health_endpoint_empty_unlinks_when_no_activity(auth_client):
     body = resp.get_json()
     assert body["ok"] is True
     assert body["unlinks_24h"] == 0
+
+
+def test_pc_detail_shows_unlink_button_when_linked(auth_client, temp_data_dir):
+    """A linked PC must surface an Unlink button so operators can break a
+    wrong auto-suggested link without leaving the PC page. Wires through
+    /api/rfq/<rid>/unlink-pc using the PC's stored linked_rfq_id."""
+    pc = _cchcs_pc()
+    pc["linked_rfq_id"] = "rfq-uuid-wrong-link"
+    pc["linked_rfq_number"] = "PREQ-77"
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    resp = auth_client.get(f"/pricecheck/{pc['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'data-testid="pc-banner-unlink-btn"' in html, (
+        "linked PC must expose the unlink affordance — otherwise users "
+        "have to navigate to the RFQ to break a wrong link"
+    )
+    # The button must carry the correct RFQ id so unlinkFromRfq() targets
+    # /api/rfq/<rid>/unlink-pc for that specific link.
+    assert "unlinkFromRfq('rfq-uuid-wrong-link')" in html
+
+
+def test_pc_detail_hides_unlink_button_when_unlinked(auth_client, temp_data_dir):
+    """Unlinked PCs must NOT show the unlink button — nothing to break."""
+    pc = _cchcs_pc()  # no linked_rfq_id
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    resp = auth_client.get(f"/pricecheck/{pc['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'data-testid="pc-banner-unlink-btn"' not in html
+
+
+def test_pc_detail_hides_unlink_button_when_converted(auth_client, temp_data_dir):
+    """Converted PCs (PC identity replaced by RFQ) must NOT expose an
+    unlink — the PC was promoted, not just linked. Matches the existing
+    guard on the Reclassify button."""
+    pc = _cchcs_pc()
+    pc["linked_rfq_id"] = "rfq-uuid-converted"
+    pc["converted_to_rfq"] = True
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    resp = auth_client.get(f"/pricecheck/{pc['id']}")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert 'data-testid="pc-banner-unlink-btn"' not in html

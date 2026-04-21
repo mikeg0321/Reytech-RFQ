@@ -330,10 +330,24 @@
       <span>Linked to <a href="/rfq/{{pc.linked_rfq_id}}" style="color:#a78bfa;font-weight:700">RFQ {{ pc.get('linked_rfq_number') or (pc.linked_rfq_id[:12] ~ '…') }}</a>
       {% if pc.get('converted_to_rfq') %} (converted){% endif %}</span>
       {% if not pc.get('converted_to_rfq') and pc.get('status') != 'reclassified' %}
-      <button class="btn btn-sm" style="font-size:13px;padding:3px 8px;background:rgba(251,191,36,.08);color:#f59e0b;border:1px solid rgba(251,191,36,.25);margin-left:auto"
+      <button class="btn btn-sm" data-testid="pc-banner-unlink-btn"
+        style="font-size:13px;padding:3px 8px;background:rgba(139,148,160,.08);color:var(--tx2,#8b949e);border:1px solid var(--bd);margin-left:auto"
+        onclick="unlinkFromRfq('{{pc.linked_rfq_id}}')" aria-label="Break link to RFQ">🔓 Unlink</button>
+      <button class="btn btn-sm" style="font-size:13px;padding:3px 8px;background:rgba(251,191,36,.08);color:#f59e0b;border:1px solid rgba(251,191,36,.25)"
         onclick="reclassifyAsRFQ()" aria-label="Reclassify as RFQ">⚠️ Reclassify as RFQ</button>
       {% endif %}
      </div>
+     <script>
+     function unlinkFromRfq(rid){
+       if(!rid) return;
+       if(!confirm('Break link between this PC and RFQ '+rid.slice(0,12)+'…?')) return;
+       fetch('/api/rfq/'+encodeURIComponent(rid)+'/unlink-pc',{method:'POST',credentials:'same-origin'})
+         .then(r=>r.json()).then(d=>{
+           if(d && d.ok){ location.reload(); }
+           else { alert('Unlink failed: '+(d && d.error || 'unknown error')); }
+         }).catch(e=>alert('Unlink failed: '+e));
+     }
+     </script>
      {% else %}
      {# Audit consolidation: three near-identical "make this an RFQ" actions
         ("Link to Existing RFQ", "Convert to New RFQ", "Reclassify as RFQ")
