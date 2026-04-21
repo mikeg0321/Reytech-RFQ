@@ -153,7 +153,7 @@ class TestSentStageRealSend:
         orch = QuoteOrchestrator(persist_audit=False)
         with patch.dict(os.environ, {"GMAIL_ADDRESS": "x@x.com", "GMAIL_PASSWORD": "x"}):
             attempt = orch._try_advance(quote, "sent", QuoteRequest(target_stage="sent"), [], result)
-        assert attempt.outcome == "error"
+        assert attempt.outcome == "blocked"
         assert any("requestor_email is empty" in r for r in attempt.reasons)
         assert quote.status == QuoteStatus.GENERATED
 
@@ -163,7 +163,7 @@ class TestSentStageRealSend:
         orch = QuoteOrchestrator(persist_audit=False)
         with patch.dict(os.environ, {"GMAIL_ADDRESS": "x@x.com", "GMAIL_PASSWORD": "x"}):
             attempt = orch._try_advance(quote, "sent", QuoteRequest(target_stage="sent"), [], result)
-        assert attempt.outcome == "error"
+        assert attempt.outcome == "blocked"
         assert any("no merged package" in r for r in attempt.reasons)
 
     def test_sent_blocks_when_transport_unconfigured(self):
@@ -172,7 +172,7 @@ class TestSentStageRealSend:
         # Drop both GMAIL_* vars
         with patch.dict(os.environ, {}, clear=True):
             attempt = orch._try_advance(quote, "sent", QuoteRequest(target_stage="sent"), [], result)
-        assert attempt.outcome == "error"
+        assert attempt.outcome == "blocked"
         assert any("GMAIL_ADDRESS/GMAIL_PASSWORD not configured" in r for r in attempt.reasons)
 
     def test_sent_calls_email_sender_with_attachment(self):

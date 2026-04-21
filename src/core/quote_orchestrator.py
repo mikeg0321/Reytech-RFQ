@@ -990,24 +990,30 @@ class QuoteOrchestrator:
         Idempotency: callers should not invoke this once status is SENT — the
         orchestrator's stage-advancement guard already prevents re-entry.
 
-        Raises RuntimeError with a clear reason on any blocker so _try_advance
-        records outcome="error" with the message in the audit row.
+        Contract:
+          - Preconditions (missing recipient, empty header fields, no merged
+            package, unconfigured transport) raise StageBlocked → outcome=
+            "blocked". These are operator-correctable business states, not
+            bugs worth paging on.
+          - EmailSender import failure and SMTP transport failures raise
+            RuntimeError → outcome="error". These signal real programming or
+            infra faults that need engineering attention.
         """
         to_addr = (quote.buyer.requestor_email or "").strip()
         if not to_addr:
-            raise RuntimeError("sent: quote.buyer.requestor_email is empty")
+            raise StageBlocked("sent: quote.buyer.requestor_email is empty")
         # Both header fields fed the email subject/body via fallback ("quote",
         # "buyer") — refuse to ship a real email with placeholder text.
         sol_check = (quote.header.solicitation_number or "").strip()
         if not sol_check:
-            raise RuntimeError("sent: quote.header.solicitation_number is empty")
+            raise StageBlocked("sent: quote.header.solicitation_number is empty")
         if not (quote.header.agency_key or "").strip():
-            raise RuntimeError("sent: quote.header.agency_key is empty")
+            raise StageBlocked("sent: quote.header.agency_key is empty")
         pkg = result.package
         if not pkg or not getattr(pkg, "merged_pdf", None):
-            raise RuntimeError("sent: no merged package available (run generated first)")
+            raise StageBlocked("sent: no merged package available (run generated first)")
         if not os.environ.get("GMAIL_PASSWORD") or not os.environ.get("GMAIL_ADDRESS"):
-            raise RuntimeError("sent: GMAIL_ADDRESS/GMAIL_PASSWORD not configured")
+            raise StageBlocked("sent: GMAIL_ADDRESS/GMAIL_PASSWORD not configured")
 
         # Lazy imports — keep the orchestrator startable in environments
         # that don't ship the email transport (tests, CI).

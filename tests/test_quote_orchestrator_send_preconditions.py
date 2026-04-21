@@ -9,9 +9,10 @@ run(), but _send_package can also be invoked directly (tests, future
 callers) and the solicitation_number path was completely unguarded — a
 quote could ship to a real buyer with a fake-looking subject line.
 
-Now _send_package raises with a clear reason when either header field is
-missing, so _try_advance records outcome="error" instead of sending a
-malformed email.
+Now _send_package raises StageBlocked with a clear reason when either
+header field is missing, so _try_advance records outcome="blocked"
+instead of sending a malformed email. (Precondition-class blocks; real
+transport failures still record outcome="error".)
 """
 from __future__ import annotations
 
@@ -57,7 +58,7 @@ class TestSendPreconditions:
                 )
                 MockSender.return_value.send.assert_not_called()
 
-        assert attempt.outcome == "error", f"got {attempt.outcome}: {attempt.reasons}"
+        assert attempt.outcome == "blocked", f"got {attempt.outcome}: {attempt.reasons}"
         assert any("solicitation_number" in r for r in attempt.reasons), attempt.reasons
         assert quote.status == QuoteStatus.GENERATED  # never advanced
 
@@ -74,7 +75,7 @@ class TestSendPreconditions:
                 )
                 MockSender.return_value.send.assert_not_called()
 
-        assert attempt.outcome == "error", f"got {attempt.outcome}: {attempt.reasons}"
+        assert attempt.outcome == "blocked", f"got {attempt.outcome}: {attempt.reasons}"
         assert any("agency_key" in r for r in attempt.reasons), attempt.reasons
         assert quote.status == QuoteStatus.GENERATED
 
