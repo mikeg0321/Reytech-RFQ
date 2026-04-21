@@ -1767,6 +1767,37 @@ def _validate_item_field(field_type, val):
         return (val, None)
 
 
+def _recompute_unit_price(item: dict) -> None:
+    """Re-derive unit_price from cost × (1 + markup_pct/100).
+
+    Called after cost or markup edits so persisted `unit_price` +
+    `pricing.recommended_price` stay in sync with what the UI renders
+    on the fly. Without this, email previews and PDFs read the stale
+    `unit_price` and ship the wrong price to the customer (incident
+    2026-04-21: pc_f7ba7a6b Cortech mattress, $558.48 shipped vs
+    $567.79 displayed).
+    """
+    p = item.get("pricing") or {}
+    try:
+        cost = p.get("unit_cost")
+        if cost is None:
+            cost = item.get("vendor_cost")
+        markup = p.get("markup_pct")
+        if markup is None:
+            markup = item.get("markup_pct")
+        if cost is None or markup is None:
+            return
+        cost_f = float(cost)
+        markup_f = float(markup)
+        if cost_f <= 0:
+            return
+        new_price = round(cost_f * (1 + markup_f / 100.0), 2)
+        item["unit_price"] = new_price
+        item["pricing"]["recommended_price"] = new_price
+    except (TypeError, ValueError):
+        return
+
+
 def _do_save_prices(pcid):
     """Inner save handler — separated so exceptions always return JSON."""
     def _safe_float(v, default=0):
@@ -1869,6 +1900,7 @@ def _do_save_prices(pcid):
                         if _err: log.warning("SAVE validation: item[%d] %s", idx, _err)
                         items[idx]["pricing"]["unit_cost"] = v if v else None
                         items[idx]["vendor_cost"] = v if v else None
+                        _recompute_unit_price(items[idx])
                         # Implicit feedback: detect significant price override vs match
                         if v and v > 0:
                             _p = items[idx].get("pricing") or {}
@@ -1901,6 +1933,7 @@ def _do_save_prices(pcid):
                         v, _err = _validate_item_field("markup", val)
                         items[idx]["pricing"]["markup_pct"] = v
                         items[idx]["markup_pct"] = v
+                        _recompute_unit_price(items[idx])
                     # Recalculate derived profit fields whenever any of these change
                     it = items[idx]
                     vc = it.get("vendor_cost") or it["pricing"].get("unit_cost") or 0
