@@ -196,6 +196,51 @@
   </div>
 </div>
 
+{# ── CCHCS PC→RFQ link handoff ── #}
+{% set _pl = pc_rfq_link|default({}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">CCHCS PC→RFQ handoff</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
+    {{ stat(_pl.links_24h|default(0), 'Links (24h)',
+            '#3fb950' if (_pl.links_24h|default(0)) > 0 else '#8b949e') }}
+    {{ stat(_pl.reprices_24h|default(0), 'Repriced lines (24h)', '#58a6ff') }}
+    {{ stat(_pl.skipped_no_price_24h|default(0), 'Skipped — no oracle price (24h)',
+            '#3fb950' if (_pl.skipped_no_price_24h|default(0)) == 0 else '#d29922') }}
+    {{ stat(_pl.cchcs_linked_total|default(0) ~ '/' ~
+            ((_pl.cchcs_linked_total|default(0)) + (_pl.cchcs_unlinked_total|default(0))),
+            'CCHCS RFQs linked', '#58a6ff') }}
+    {{ stat(_pl.unresolved_qty_drift|default(0), 'Unresolved qty drift',
+            '#3fb950' if (_pl.unresolved_qty_drift|default(0)) == 0 else '#f85149') }}
+  </div>
+  {% if _pl.recent_links %}
+    <table style="width:100%;margin-top:12px;font-size:13px;border-collapse:collapse">
+      <thead>
+        <tr style="color:var(--tx2,#8b949e);text-align:left">
+          <th style="padding:6px 0">When</th>
+          <th style="padding:6px 0">RFQ</th>
+          <th style="padding:6px 0">What</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in _pl.recent_links %}
+          <tr style="border-top:1px solid var(--bd,#30363d)">
+            <td style="padding:6px 0;color:var(--tx2,#8b949e);white-space:nowrap;font-family:monospace;font-size:12px">{{ row.timestamp[:19] }}</td>
+            <td style="padding:6px 0;font-family:monospace">{{ row.ref_id }}</td>
+            <td style="padding:6px 0">{{ row.description }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div style="margin-top:12px;color:var(--tx2,#8b949e);font-size:13px">
+      No PC→RFQ links recorded yet. Operators confirm links from the
+      CCHCS PC panel on the RFQ detail page; each confirm writes a
+      <code>pc_rfq_linked</code> event. JSON mirror at
+      <a href="/api/health/pc-rfq-link" style="color:#58a6ff">/api/health/pc-rfq-link</a>.
+    </div>
+  {% endif %}
+</div>
+
 {# ── Top errored features ── #}
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">Top errored features — last {{ days }}d</div>

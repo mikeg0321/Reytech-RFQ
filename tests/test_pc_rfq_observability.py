@@ -296,3 +296,51 @@ def test_health_endpoint_ignores_old_link_events(
 def test_health_endpoint_requires_auth(anon_client):
     resp = anon_client.get("/api/health/pc-rfq-link")
     assert resp.status_code in (401, 403)
+
+
+# ── /health/quoting page renders the tile ────────────────────────────────
+
+def test_quoting_health_page_renders_pc_rfq_tile_with_empty_state(
+    auth_client, temp_data_dir
+):
+    """The tile must render even with no RFQs / no activity — empty
+    state shows the "No PC→RFQ links recorded yet" hint, not a blank
+    card. This is the surface the operator will see most of the time
+    until volume ramps up."""
+    resp = auth_client.get("/health/quoting")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "CCHCS PC→RFQ handoff" in html
+    assert "Links (24h)" in html
+    assert "CCHCS RFQs linked" in html
+    assert "Unresolved qty drift" in html
+    # Empty-state copy + link to the JSON mirror
+    assert "No PC→RFQ links recorded yet" in html
+    assert "/api/health/pc-rfq-link" in html
+
+
+def test_quoting_health_page_renders_recent_link_after_confirm(
+    auth_client, temp_data_dir, monkeypatch
+):
+    """After a confirm-pc-link, the tile's recent-links table must show
+    the entry so operators can watch new links land in real time."""
+    rfq = _cchcs_rfq()
+    pc = _cchcs_pc()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    import src.core.pricing_oracle_v2 as _poll
+    monkeypatch.setattr(_poll, "get_pricing", lambda **kw: {
+        "recommendation": {"quote_price": 14.50, "markup_pct": 60.0},
+        "cost": {"locked_cost": 9.0},
+    })
+    auth_client.post(
+        f"/api/rfq/{rfq['id']}/confirm-pc-link",
+        json={"pc_id": pc["id"], "reprice": True},
+    )
+
+    resp = auth_client.get("/health/quoting")
+    html = resp.get_data(as_text=True)
+    # The tile renders the recent-links table (not the empty-state hint)
+    assert "PC-2026-OBS" in html
+    assert "No PC→RFQ links recorded yet" not in html
