@@ -200,9 +200,11 @@
 {% set _pl = pc_rfq_link|default({}) %}
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">CCHCS PC→RFQ handoff</div>
-  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:12px">
     {{ stat(_pl.links_24h|default(0), 'Links (24h)',
             '#3fb950' if (_pl.links_24h|default(0)) > 0 else '#8b949e') }}
+    {{ stat(_pl.unlinks_24h|default(0), 'Unlinks (24h)',
+            '#8b949e' if (_pl.unlinks_24h|default(0)) == 0 else '#d29922') }}
     {{ stat(_pl.reprices_24h|default(0), 'Repriced lines (24h)', '#58a6ff') }}
     {{ stat(_pl.skipped_no_price_24h|default(0), 'Skipped — no oracle price (24h)',
             '#3fb950' if (_pl.skipped_no_price_24h|default(0)) == 0 else '#d29922') }}

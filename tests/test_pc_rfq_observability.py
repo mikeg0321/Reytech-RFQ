@@ -523,3 +523,43 @@ def test_unlink_pc_writes_activity_event(auth_client, temp_data_dir):
     assert meta["pc_id"] == pc["id"]
     assert meta["pc_number"] == pc["pc_number"]
     assert meta["reytech_quote_number"] == "Q26-UNLINK"
+
+
+def test_health_endpoint_counts_24h_unlink_activity(
+    auth_client, temp_data_dir
+):
+    """A link followed by an unlink must show up as links_24h=1 AND
+    unlinks_24h=1 on the health endpoint. The unlink counter is the ops
+    signal for link churn — a high unlinks/links ratio flags a misfiring
+    auto-suggestion heuristic."""
+    rfq = _cchcs_rfq()
+    pc = _cchcs_pc()
+    _write_json(os.path.join(temp_data_dir, "rfqs.json"), {rfq["id"]: rfq})
+    _write_json(os.path.join(temp_data_dir, "price_checks.json"), {pc["id"]: pc})
+
+    link = auth_client.post(
+        f"/api/rfq/{rfq['id']}/confirm-pc-link",
+        json={"pc_id": pc["id"], "reprice": False},
+    )
+    assert link.status_code == 200
+    unlink = auth_client.post(f"/api/rfq/{rfq['id']}/unlink-pc")
+    assert unlink.status_code == 200
+
+    resp = auth_client.get("/api/health/pc-rfq-link")
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["links_24h"] == 1
+    assert body["unlinks_24h"] == 1, (
+        "unlinks_24h must count pc_rfq_unlinked events so ops can see "
+        "link churn, not just gross new-link volume"
+    )
+
+
+def test_health_endpoint_empty_unlinks_when_no_activity(auth_client):
+    """Zero-state: the health endpoint must always surface unlinks_24h=0
+    when no events exist — never missing-key, never None — so dashboard
+    tiles render without default-filter gymnastics."""
+    resp = auth_client.get("/api/health/pc-rfq-link")
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert body["unlinks_24h"] == 0
