@@ -123,11 +123,24 @@ def _check_line_item_pricing(
     warnings: List[str] = []
     overrides = price_overrides or {}
     line_items = (parsed or {}).get("line_items", []) or []
+
+    # CC-3 fail-closed: an empty line-item list means the packet has no
+    # items to price, so the gate must block rather than pass silently.
+    if not line_items:
+        issues.append(
+            "no line items in parsed packet — cannot ship a CCHCS packet with "
+            "zero rows (CC-3 fail-closed)"
+        )
+        return {"issues": issues, "warnings": warnings}
+
+    rows_priced = 0
+    rows_with_qty = 0
     for item in line_items:
         row = int(item.get("row_index", 0))
         qty = _safe_float(item.get("qty", 0))
         if qty <= 0:
             continue
+        rows_with_qty += 1
         override = overrides.get(row, {}) or {}
         unit_price = _safe_float(
             override.get("unit_price")
@@ -143,6 +156,7 @@ def _check_line_item_pricing(
         if unit_price <= 0:
             issues.append(f"row {row}: no price set (qty {qty:.0f})")
             continue
+        rows_priced += 1
         if unit_cost > 0:
             if unit_price < unit_cost:
                 issues.append(
@@ -163,6 +177,20 @@ def _check_line_item_pricing(
                     warnings.append(
                         f"row {row}: markup {markup:.1%} above {MARKUP_WARN_HIGH:.0%} ceiling"
                     )
+
+    # CC-3 fail-closed: if every row had qty=0 OR none ended up priced,
+    # the packet totals to $0. That is never a valid CCHCS submission.
+    if rows_with_qty == 0:
+        issues.append(
+            f"all {len(line_items)} line items have qty=0 — packet would total $0 "
+            "(CC-3 fail-closed)"
+        )
+    elif rows_priced == 0:
+        issues.append(
+            f"0 of {rows_with_qty} line items with qty>0 received a unit price — "
+            "packet would total $0 (CC-3 fail-closed)"
+        )
+
     return {"issues": issues, "warnings": warnings}
 
 
