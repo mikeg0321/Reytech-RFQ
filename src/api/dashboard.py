@@ -4775,7 +4775,7 @@ def api_force_repoll():
                     "next": "Hit Check Now or wait for auto-poll"})
 
 
-@bp.route("/api/admin/delete-pc/<pcid>", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-pc/<pcid>", methods=["POST"])
 @auth_required
 def api_admin_delete_pc(pcid):
     """Delete a single PC by ID."""
@@ -4794,7 +4794,7 @@ def api_admin_delete_pc(pcid):
     return jsonify({"ok": True, "deleted": pcid, "sol": sol})
 
 
-@bp.route("/api/admin/delete-rfq/<rid>", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-rfq/<rid>", methods=["POST"])
 @auth_required
 def api_admin_delete_rfq(rid):
     """Delete a single RFQ by ID."""
@@ -4813,13 +4813,13 @@ def api_admin_delete_rfq(rid):
     return jsonify({"ok": True, "deleted": rid, "sol": sol})
 
 
-@bp.route("/api/admin/delete-by-sol", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-by-sol", methods=["POST"])
 @auth_required
 def api_admin_delete_by_sol():
     """Delete PCs and RFQs by solicitation number.
 
-    Usage: /api/admin/delete-by-sol?sol=10840485&type=pc
-           /api/admin/delete-by-sol?sol=10840485&type=both
+    Usage: POST /api/admin/delete-by-sol?sol=10840485&type=pc
+           POST /api/admin/delete-by-sol?sol=10840485&type=both
     """
     sol = request.args.get("sol", "").strip()
     dtype = request.args.get("type", "pc").strip()  # pc, rfq, both
@@ -5786,14 +5786,27 @@ def api_email_trace():
     return Response(_json.dumps(result, default=str), mimetype="application/json")
 
 
-@bp.route("/api/disk-cleanup")
+# SY-3 (RE-AUDIT-8): single-flight lock around VACUUM so a double-click
+# doesn't stack two 30-60s exclusive write locks on the 525 MB prod DB.
+import threading as _disk_cleanup_thr
+_vacuum_singleflight_lock = _disk_cleanup_thr.Lock()
+_DESTRUCTIVE_CLEANUP_ACTIONS = {"clean", "nuke-uploads", "vacuum", "trim-data"}
+
+
+@bp.route("/api/disk-cleanup", methods=["GET", "POST"])
 @auth_required
 def api_disk_cleanup():
-    """Show disk usage and clean old upload files."""
+    """Show disk usage (GET) and clean old upload files (POST).
+
+    Destructive actions (clean, nuke-uploads, vacuum, trim-data) require POST
+    to block CSRF via `<img src=".../api/disk-cleanup?action=vacuum">`.
+    """
     import shutil
-    
+
     action = request.args.get("action", "")
-    
+    if action in _DESTRUCTIVE_CLEANUP_ACTIONS and request.method != "POST":
+        return jsonify({"ok": False, "error": "destructive actions require POST"}), 405
+
     # Get disk usage
     total, used, free = shutil.disk_usage("/")
     
@@ -5891,23 +5904,54 @@ def api_disk_cleanup():
         result["freed_mb"] = round(freed / 1024 / 1024, 1)
 
     if action == "vacuum":
-        # VACUUM the database to reclaim space
-        import sqlite3 as _sq
-        db_path = os.path.join(DATA_DIR, "reytech.db")
-        before = os.path.getsize(db_path)
+        # VACUUM takes an exclusive write lock for 30-60s on the 525 MB prod DB.
+        # Single-flight non-blocking lock prevents a double-click from stacking
+        # two VACUUMs. Audit row records every attempt (success or contention).
+        if not _vacuum_singleflight_lock.acquire(blocking=False):
+            try:
+                from src.core.security import _log_audit_internal
+                _log_audit_internal("db_vacuum", f"rejected_in_flight from {request.remote_addr}")
+            except Exception as _e:
+                log.debug('suppressed in api_disk_cleanup: %s', _e)
+            result["action"] = "vacuum_rejected"
+            result["error"] = "VACUUM already in progress — retry in ~60s"
+            return Response(_json.dumps(result, default=str), mimetype="application/json", status=429)
+
         try:
-            vc = _sq.connect(db_path, timeout=120)
-            vc.execute("VACUUM")
-            vc.close()
-            after = os.path.getsize(db_path)
-            result["action"] = "vacuumed"
-            result["db_before_mb"] = round(before / 1024 / 1024, 1)
-            result["db_after_mb"] = round(after / 1024 / 1024, 1)
-            result["freed_mb"] = round((before - after) / 1024 / 1024, 1)
-            log.info("VACUUM: %.1fMB → %.1fMB (freed %.1fMB)", before/1048576, after/1048576, (before-after)/1048576)
-        except Exception as e:
-            result["action"] = "vacuum_failed"
-            result["error"] = str(e)
+            try:
+                from src.core.security import _log_audit_internal
+                _log_audit_internal("db_vacuum", f"started from {request.remote_addr}")
+            except Exception as _e:
+                log.debug('suppressed in api_disk_cleanup: %s', _e)
+
+            import sqlite3 as _sq
+            db_path = os.path.join(DATA_DIR, "reytech.db")
+            before = os.path.getsize(db_path)
+            try:
+                vc = _sq.connect(db_path, timeout=120)
+                vc.execute("VACUUM")
+                vc.close()
+                after = os.path.getsize(db_path)
+                result["action"] = "vacuumed"
+                result["db_before_mb"] = round(before / 1024 / 1024, 1)
+                result["db_after_mb"] = round(after / 1024 / 1024, 1)
+                result["freed_mb"] = round((before - after) / 1024 / 1024, 1)
+                log.info("VACUUM: %.1fMB → %.1fMB (freed %.1fMB)", before/1048576, after/1048576, (before-after)/1048576)
+                try:
+                    from src.core.security import _log_audit_internal
+                    _log_audit_internal("db_vacuum", f"ok freed_mb={result['freed_mb']}")
+                except Exception as _e:
+                    log.debug('suppressed in api_disk_cleanup: %s', _e)
+            except Exception as e:
+                result["action"] = "vacuum_failed"
+                result["error"] = str(e)
+                try:
+                    from src.core.security import _log_audit_internal
+                    _log_audit_internal("db_vacuum", f"failed: {e}")
+                except Exception as _e:
+                    log.debug('suppressed in api_disk_cleanup: %s', _e)
+        finally:
+            _vacuum_singleflight_lock.release()
     
     if action == "trim-data":
         # Trim large data files: truncate logs, compact JSON, remove caches
