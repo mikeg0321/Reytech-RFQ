@@ -862,13 +862,6 @@ def api_catalog_import_quotewerks():
     except Exception as e:
         log.exception("QuoteWerks import error")
         return jsonify({"ok": False, "error": str(e)})
-    try:
-        init_catalog_db()
-        dry = request.args.get("dry_run", "").lower() in ("1", "true", "yes")
-        result = dedup_catalog(dry_run=dry)
-        return jsonify({"ok": True, **result})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
 
 
 @bp.route("/api/catalog/refresh-for-pc/<pcid>", methods=["POST"])
