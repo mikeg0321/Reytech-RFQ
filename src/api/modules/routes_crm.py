@@ -3403,6 +3403,9 @@ def api_expansion_outreach():
         import time as _time
         pc_id = f"expand-{agency_type.lower()}-{int(_time.time())}"
         short = facility_name.split(":")[-1].strip()[:20] if ":" in facility_name else facility_name[:20]
+        # CR-3: mark as is_test so the fabricated "expansion" PC does not
+        # leak into deadline alerts, funnels, analytics revenue, etc.
+        # The PC is a CRM lead placeholder, not a real price check.
         pc = {
             "id": pc_id, "created_at": datetime.now().isoformat(),
             "pc_number": f"EXP-{agency_type}-{short}",
@@ -3410,6 +3413,7 @@ def api_expansion_outreach():
             "contact_email": contact_email, "contact_name": contact_name,
             "items": items, "total": round(total, 2), "status": "pending",
             "source": "cchcs_expansion", "tags": [f"{agency_type.lower()}_expansion", "outreach"],
+            "is_test": True,
         }
         from src.api.dashboard import _load_price_checks, _save_price_checks
         pcs = _load_price_checks()
@@ -3435,14 +3439,17 @@ def api_expansion_outreach():
                 f"{plines}\n\n"
                 f"We respond to AMS 704 price checks and offer competitive SCPRS pricing.")
         try:
-            from src.core.dal import get_outbox as _ob
-            outbox = _ob()
-            outbox_path_local = os.path.join(DATA_DIR, "outbox.json")
-            outbox.append({"id": f"draft-expand-{int(__import__('time').time())}",
+            # CR-4: go through the DAL instead of loading the full outbox
+            # and rewriting outbox.json raw. The previous path both bypassed
+            # DB persistence and race-stomped concurrent writers.
+            from src.core.dal import upsert_outbox_email as _upsert_ob
+            draft = {
+                "id": f"draft-expand-{int(__import__('time').time())}",
                 "to": contact_email, "subject": f"Reytech Inc — Medical Supplies for {short}",
                 "body": body, "status": "draft", "type": "expansion_outreach",
-                "facility": facility_name, "created_at": datetime.now().isoformat()})
-            with open(outbox_path_local, "w") as f: _json.dump(outbox, f, indent=2, default=str)
+                "facility": facility_name, "created_at": datetime.now().isoformat(),
+            }
+            _upsert_ob(draft)
             results["email_drafted"] = True; results["email_to"] = contact_email
         except Exception as e: results["email_error"] = str(e)
 
