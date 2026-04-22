@@ -27,6 +27,7 @@ Track all in-progress work across Claude Code context windows.
 | feat/ui-tier1-status-overhaul | (other window) | `C:\Users\mikeg\rfq-ui-tier1` | Active | UI Tier 1 from Grok audit: live status auto-refresh + timeline stepper polish + override+retry modal + new POST /api/quoting/retry. Touches `quoting_status.html`, `quoting_status_detail.html`, `routes_quoting_status.py`. | 2026-04-19 |
 | feat/manual-submit-emergency | (merged) | `C:\Users\mikeg\rfq-manual-submit-emergency` | Merged PR #239 | B1: 704 Rebuild Phase 0 — POST /rfq/<rid>/manual-submit emergency route. | 2026-04-19 |
 | feat/rfq-contract-builder | This window | `C:\Users\mikeg\rfq-rfq-contract-builder` | Active | Unified Contract Builder: single dropzone on RFQ detail auto-classifies uploads → 703B/704B/bidpkg template slots, email screenshots, or attachments. New `src/forms/form_classifier.py` + `/api/rfq/<rid>/contract-upload` route + dropzone block in `rfq_detail.html`. | 2026-04-20 |
+| chore/deploy-speedup-ignore-sleep | This window | `C:\Users\mikeg\rfq-deploy-speedup-ignore-sleep` | Active | Shave `make promote` time: add `data/backups/` to .dockerignore (136MB upload saved), add `/version` endpoint, replace blind `sleep 90` with SHA-matching poll via `scripts/wait_for_deploy.sh`. Touches `.dockerignore`, `app.py`, `Makefile`, new `scripts/wait_for_deploy.sh`, `tests/test_dashboard_core.py`. | 2026-04-22 |
 
 ## Stale / Abandoned Branches (cleanup needed)
 

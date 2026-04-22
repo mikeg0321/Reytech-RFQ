@@ -11,6 +11,12 @@ data/reytech.db-wal
 data/reytech.db-shm
 output/
 
+# Backups live on the Railway volume under /data/backups — never needed in the
+# image. Local dev accumulates 130MB+ here which otherwise bloats build upload.
+# _seed_volume() (src/core/paths.py) only recurses into data/templates/, so
+# excluding backups does not affect first-boot seeding.
+data/backups/
+
 # Git
 .git/
 .github/

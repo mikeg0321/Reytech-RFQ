@@ -227,6 +227,16 @@ def create_app():
     def _ping():
         return "pong", 200, {"Content-Type": "text/plain"}
 
+    # Commit SHA probe — lets `make promote` poll for "is the new replica live"
+    # instead of a blind sleep. Railway sets RAILWAY_GIT_COMMIT_SHA on every
+    # deploy; old and new replicas both answer /ping, but they serve different
+    # RAILWAY_GIT_COMMIT_SHA values, so matching SHA is the only reliable
+    # "new deploy is swapped in" signal without a Railway API round-trip.
+    @app.route("/version")
+    def _version():
+        sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA") or os.environ.get("GIT_COMMIT_SHA") or "unknown"
+        return {"commit": sha, "short": sha[:7] if sha != "unknown" else "unknown"}, 200
+
     # /health is defined in routes_rfq.py with real DB + disk checks
 
     @app.errorhandler(413)
