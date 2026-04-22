@@ -685,6 +685,152 @@ def start_deadline_watcher():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# DAILY DEADLINE DIGEST (morning summary email)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_daily_digest_started = False
+DIGEST_HOUR_PST = int(os.environ.get("DIGEST_HOUR_PST", "7"))   # 7am default
+DIGEST_MIN_PST = int(os.environ.get("DIGEST_MIN_PST", "30"))   # :30
+_PST_UTC_OFFSET_HOURS = 8  # PST; accept one-hour drift during DST
+
+
+def _format_digest_line(it: dict) -> str:
+    """One line per bid for the digest email: 'RFQ 10843276 CIW due today at 2:00 PM'."""
+    doc_type = (it.get("doc_type") or "").upper() or "BID"
+    pc_num = it.get("pc_number") or it.get("doc_id", "")[:8]
+    inst = it.get("institution") or ""
+    hours_left = it.get("hours_left", 0)
+    urgency = it.get("urgency", "")
+    time_str = (it.get("due_time") or "").strip()
+
+    if urgency == "overdue":
+        when = f"OVERDUE ({it.get('countdown_text', '')})"
+    elif hours_left < 24:
+        when = f"due today at {time_str}" if time_str else f"due today ({it.get('countdown_text','')})"
+    elif hours_left < 48:
+        when = f"due tomorrow at {time_str}" if time_str else f"due tomorrow ({it.get('countdown_text','')})"
+    else:
+        when = f"due {it.get('due_date','')} at {time_str}" if time_str else f"due {it.get('due_date','')}"
+
+    parts = [f"{doc_type} {pc_num}"]
+    if inst:
+        parts.append(inst)
+    parts.append(when)
+    return " ".join(parts)
+
+
+def _build_digest_body(items: list) -> str:
+    if not items:
+        return "No PCs or RFQs due in the next 48 hours. You're clear."
+
+    overdue = [i for i in items if i["urgency"] == "overdue"]
+    today = [i for i in items if i["urgency"] != "overdue" and i.get("hours_left", 999) < 24]
+    tomorrow = [i for i in items if i["urgency"] != "overdue" and 24 <= i.get("hours_left", 999) < 48]
+
+    lines = []
+    if overdue:
+        lines.append(f"🚨 OVERDUE ({len(overdue)}):")
+        for it in overdue:
+            lines.append(f"  • {_format_digest_line(it)}")
+        lines.append("")
+    if today:
+        lines.append(f"⏰ DUE TODAY ({len(today)}):")
+        for it in today:
+            lines.append(f"  • {_format_digest_line(it)}")
+        lines.append("")
+    if tomorrow:
+        lines.append(f"📅 DUE TOMORROW ({len(tomorrow)}):")
+        for it in tomorrow:
+            lines.append(f"  • {_format_digest_line(it)}")
+        lines.append("")
+
+    lines.append("— Reytech deadline digest")
+    return "\n".join(lines)
+
+
+def send_daily_digest() -> dict:
+    """Send the deadline digest email. Callable directly for ad-hoc runs or tests."""
+    try:
+        from src.api.modules.routes_deadlines import _scan_deadlines
+        all_items = _scan_deadlines()
+    except Exception as e:
+        log.warning("digest: scan failed: %s", e)
+        return {"ok": False, "error": f"scan: {e}"}
+
+    # Keep only overdue + next 48 hours so the email is actionable.
+    items = [
+        i for i in all_items
+        if i.get("urgency") == "overdue" or i.get("hours_left", 999) < 48
+    ]
+    items.sort(key=lambda d: d.get("hours_left", 999))
+
+    body = _build_digest_body(items)
+    subj = f"Reytech deadlines — {len(items)} due next 48h"
+    if any(i["urgency"] == "overdue" for i in items):
+        subj = f"🚨 {subj}"
+
+    to = NOTIFY_EMAIL or GMAIL_ADDRESS
+    if not to:
+        return {"ok": False, "error": "no NOTIFY_EMAIL or GMAIL_ADDRESS set"}
+
+    try:
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return {"ok": False, "error": "gmail_api not configured"}
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(service, to=to, subject=subj, body_plain=body)
+    except Exception as e:
+        log.error("digest send failed: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e)}
+
+    log.info("Daily digest sent to %s — %d items", to, len(items))
+    return {"ok": True, "count": len(items), "to": to}
+
+
+def start_daily_digest():
+    """Daemon thread that fires send_daily_digest once per day at DIGEST_HOUR:DIGEST_MIN PST."""
+    global _daily_digest_started
+    if _daily_digest_started:
+        return
+    _daily_digest_started = True
+
+    def _watch():
+        from src.core.scheduler import _shutdown_event, heartbeat
+        last_fire_date = None
+        # First check 5 minutes after startup to absorb any reboot right at the window.
+        _shutdown_event.wait(300)
+        while not _shutdown_event.is_set():
+            try:
+                # Approx PST = UTC - 8. DST drift ± 1h acceptable for a daily digest.
+                now_pst = datetime.utcnow() - timedelta(hours=_PST_UTC_OFFSET_HOURS)
+                today = now_pst.date()
+                in_window = (
+                    now_pst.hour == DIGEST_HOUR_PST
+                    and now_pst.minute >= DIGEST_MIN_PST
+                )
+                if in_window and last_fire_date != today:
+                    r = send_daily_digest()
+                    if r.get("ok"):
+                        last_fire_date = today
+                        heartbeat("daily-digest", success=True)
+                    else:
+                        heartbeat("daily-digest", success=False, error=str(r.get("error"))[:200])
+                else:
+                    heartbeat("daily-digest", success=True)
+            except Exception as e:
+                log.debug("Daily digest loop error: %s", e)
+                heartbeat("daily-digest", success=False, error=str(e)[:200])
+            # Poll every 15 minutes — cheap, and ensures we catch the window
+            # even after a reboot that lands mid-morning.
+            _shutdown_event.wait(900)
+        log.info("Daily digest shutting down")
+
+    t = threading.Thread(target=_watch, daemon=True, name="daily-digest")
+    t.start()
+    log.info("Daily deadline digest started (fires %02d:%02d PST)", DIGEST_HOUR_PST, DIGEST_MIN_PST)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PERSISTENT BELL — get notifications from SQLite
 # ══════════════════════════════════════════════════════════════════════════════
 

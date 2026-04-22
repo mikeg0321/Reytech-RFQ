@@ -252,6 +252,13 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
     persistence and data is silently lost (same failure mode as the 2026-04-16
     PC session).
     """
+    # Parity with _save_single_pc: every RFQ carries a deadline.
+    try:
+        from src.core.deadline_defaults import apply_default_if_missing
+        apply_default_if_missing(r, email_body=r.get("email_body", "") or r.get("body_text", ""))
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
+
     with _save_rfqs_lock:
         p = rfq_db_path()
         _invalidate_cache(p)
@@ -438,6 +445,15 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
         tag_pc_if_packet(pc)
     except Exception as _e:
         log.debug("suppressed: %s", _e)  # never let tagging break a save
+
+    # Ensure every PC carries a deadline (header → email → now+2 biz days).
+    # Centralized here so all ingest paths + admin edits + test harnesses
+    # get the same default, matching the tag_pc_if_packet pattern above.
+    try:
+        from src.core.deadline_defaults import apply_default_if_missing
+        apply_default_if_missing(pc, email_body=pc.get("email_body", ""))
+    except Exception as _e:
+        log.debug("suppressed: %s", _e)
 
     with _save_pcs_lock:
         global _pc_cache, _pc_cache_time
