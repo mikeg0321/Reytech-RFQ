@@ -285,14 +285,20 @@ def _send_sms(title: str, body: str, context: dict) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> dict:
-    """Send alert email via Gmail to Mike's personal address."""
-    if not all([GMAIL_ADDRESS, GMAIL_PASSWORD, NOTIFY_EMAIL]):
-        return {"ok": False, "reason": "Gmail or NOTIFY_EMAIL not configured"}
-    
+    """Send alert email via Gmail API to Mike's personal address.
+
+    RE-AUDIT-10: migrated from smtplib.SMTP(587)+STARTTLS to
+    gmail_api.send_message. Previous path depended on GMAIL_PASSWORD
+    (app password) env var; OAuth refresh-token is the standard for
+    all outbound sending now.
+    """
+    if not NOTIFY_EMAIL:
+        return {"ok": False, "reason": "NOTIFY_EMAIL not configured"}
+
     try:
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return {"ok": False, "reason": "Gmail API not configured"}
 
         URGENCY_SUBJECT_PREFIX = {
             "cs_draft_ready":    "📬 [ACTION] CS Draft Ready",
@@ -343,17 +349,14 @@ def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> 
         if context.get("html_body"):
             html = context["html_body"]
 
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"Reytech Dashboard <{GMAIL_ADDRESS}>"
-        msg["To"] = NOTIFY_EMAIL
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-        msg.attach(MIMEText(html, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
-            server.send_message(msg)
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(
+            service,
+            to=NOTIFY_EMAIL,
+            subject=subject,
+            body_plain=body,
+            body_html=html,
+        )
 
         log.info("Alert email sent: %s → %s", subject[:50], NOTIFY_EMAIL)
         return {"ok": True, "to": NOTIFY_EMAIL}
