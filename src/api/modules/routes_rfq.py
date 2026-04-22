@@ -2619,27 +2619,31 @@ def api_resend_package(rid):
     if not pkg_data:
         return jsonify({"ok": False, "error": f"Package file not found: {pkg_filename}"})
 
+    # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL
+    # + GMAIL_PASSWORD app-password. Same pattern as the PR #365 bundle-send
+    # migration and the IN-5 send_quote_email migration.)
+    from src.core import gmail_api
+    if not gmail_api.is_configured():
+        return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
+
+    # gmail_api.send_message derives the attachment filename from
+    # os.path.basename(path). Write pkg_data to a named temp file with
+    # pkg_filename so the buyer sees the Reytech-branded filename instead
+    # of an internal temp name.
+    import shutil, tempfile
+    tmp_dir = tempfile.mkdtemp(prefix="rfq_resend_")
+    named_pdf = os.path.join(tmp_dir, pkg_filename)
     try:
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.mime.application import MIMEApplication
-        smtp_user = os.environ.get("GMAIL_ADDRESS", "")
-        smtp_pass = os.environ.get("GMAIL_PASSWORD", "")
-        if not smtp_user or not smtp_pass:
-            return jsonify({"ok": False, "error": "Email not configured"})
-        msg = MIMEMultipart()
-        msg["From"] = smtp_user
-        msg["To"] = to_email
-        msg["Subject"] = subject or f"Reytech Inc. — RFQ Response #{sol}"
-        msg.attach(MIMEText(body_text or "Please find attached our RFQ response package.", "plain"))
-        att = MIMEApplication(pkg_data, _subtype="pdf")
-        att.add_header("Content-Disposition", "attachment", filename=pkg_filename)
-        msg.attach(att)
-        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        server.login(smtp_user, smtp_pass)
-        server.sendmail(smtp_user, [to_email], msg.as_string())
-        server.quit()
+        with open(named_pdf, "wb") as _tf:
+            _tf.write(pkg_data)
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(
+            service,
+            to=to_email,
+            subject=subject or f"Reytech Inc. — RFQ Response #{sol}",
+            body_plain=body_text or "Please find attached our RFQ response package.",
+            attachments=[named_pdf],
+        )
 
         log_lifecycle_event("rfq", rid, "package_sent",
             f"Resent to {to_email} (support view)", actor="user",
@@ -2653,6 +2657,11 @@ def api_resend_package(rid):
     except Exception as e:
         log.error("Resend RFQ %s: %s", rid, e)
         return jsonify({"ok": False, "error": str(e)})
+    finally:
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as _cleanup_err:
+            log.debug("rfq resend tmpdir cleanup: %s", _cleanup_err)
 
 
 @bp.route("/api/support/search-packages")
