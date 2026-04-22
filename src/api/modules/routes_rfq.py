@@ -1072,6 +1072,7 @@ def api_rfq_create_manual():
         "received_at": datetime.now().isoformat(),
         "line_items": [],
         "notes": data.get("notes", ""),
+        "is_test": bool(data.get("is_test", False)),
     }
 
     from src.api.dashboard import _save_single_rfq
