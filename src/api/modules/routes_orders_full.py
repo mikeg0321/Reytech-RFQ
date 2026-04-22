@@ -454,6 +454,13 @@ def api_order_add_line(oid):
     order["total"] = sum(it.get("extended", 0) for it in items)
     order["updated_at"] = datetime.now().isoformat()
     _save_single_order(oid, order)
+    # O-13: timeline event for line add
+    try:
+        log_order_event(oid, "line_added", "line_id", "", new_item["line_id"],
+                        "user",
+                        f"Added: {new_item.get('description','')[:40]} qty={new_item.get('qty',0)} price={new_item.get('unit_price',0)}")
+    except Exception as _e:
+        log.debug("log_order_event line_added: %s", _e)
     return jsonify({"ok": True, "line_id": new_item["line_id"], "total_items": len(items)})
 
 
@@ -593,18 +600,18 @@ def api_order_update_line(oid, lid):
     updated = False
     for it in order.get("line_items", []):
         if it.get("line_id") == lid:
+            # O-12: qty + unit_price now writable; O-15: unit_cost is canonical — 'cost' removed from write path
             for field in ("sourcing_status", "tracking_number", "carrier",
                           "ship_date", "delivery_date", "invoice_status",
                           "invoice_number", "supplier", "supplier_url", "notes",
-                          "unit_cost", "cost", "asin", "part_number"):
+                          "unit_cost", "asin", "part_number",
+                          "qty", "unit_price"):
                 if field in data:
                     old_val = it.get(field, "")
                     it[field] = data[field]
-                    # V2: sync unit_cost ↔ cost (legacy name)
+                    # Legacy read-alias: mirror unit_cost → cost for templates that still read it.
                     if field == "unit_cost":
                         it["cost"] = data[field]
-                    elif field == "cost":
-                        it["unit_cost"] = data[field]
                     if field == "sourcing_status" and old_val != data[field]:
                         _log_crm_activity(order.get("quote_number",""), f"line_{data[field]}",
                                           f"Order {oid} line {lid}: {old_val} → {data[field]} — {it.get('description','')[:60]}",
@@ -616,14 +623,29 @@ def api_order_update_line(oid, lid):
                                         "user", f"Line {lid}: {it.get('description','')[:40]}")
                     except Exception as _e:
                         log.debug("suppressed: %s", _e)
+            # O-12: recompute extended if qty or unit_price touched
+            if "qty" in data or "unit_price" in data:
+                try:
+                    _q = float(it.get("qty", 0) or 0)
+                    _p = float(it.get("unit_price", 0) or 0)
+                    it["extended"] = round(_q * _p, 2)
+                except (TypeError, ValueError) as _e:
+                    log.debug("extended recompute: %s", _e)
             updated = True
             break
     if not updated:
         return jsonify({"ok": False, "error": "Line item not found"})
+    # O-12: if qty/unit_price changed, roll line extendeds up into order total
+    if "qty" in data or "unit_price" in data:
+        try:
+            order["total"] = round(sum(float(i.get("extended", 0) or 0)
+                                       for i in order.get("line_items", [])), 2)
+        except (TypeError, ValueError) as _e:
+            log.debug("order total recompute: %s", _e)
     order["updated_at"] = datetime.now().isoformat()
     _save_single_order(oid, order)
     _update_order_status(oid)
-    
+
     # ── Line-item level notifications ──
     if "sourcing_status" in data:
         new_ss = data["sourcing_status"]
@@ -689,6 +711,13 @@ def api_order_bulk_update(oid):
     _log_crm_activity(order.get("quote_number",""), "order_bulk_update",
                       f"Order {oid}: bulk update — {data}",
                       actor="user", metadata={"order_id": oid})
+    # O-13: timeline event for bulk edit
+    try:
+        log_order_event(oid, "bulk_line_update", "", "",
+                        json.dumps({k: data[k] for k in ("sourcing_status","carrier","invoice_status") if k in data}),
+                        "user", f"Bulk updated {len(order.get('line_items',[]))} lines")
+    except Exception as _e:
+        log.debug("log_order_event bulk_line_update: %s", _e)
     return jsonify({"ok": True})
 
 
@@ -718,6 +747,12 @@ def api_order_bulk_tracking(oid):
     _log_crm_activity(order.get("quote_number",""), "tracking_added",
                       f"Order {oid}: tracking {tracking} ({carrier}) added to {updated} items",
                       actor="user", metadata={"order_id": oid, "tracking": tracking})
+    # O-13: timeline event for bulk tracking
+    try:
+        log_order_event(oid, "bulk_tracking", "tracking_number", "", tracking,
+                        "user", f"Tracking {tracking} ({carrier}) applied to {updated} items")
+    except Exception as _e:
+        log.debug("log_order_event bulk_tracking: %s", _e)
     return jsonify({"ok": True, "updated": updated})
 
 
@@ -767,6 +802,12 @@ def api_order_invoice(oid):
     _log_crm_activity(order.get("quote_number",""), f"invoice_{inv_type}",
                       f"Order {oid}: {inv_type} invoice #{inv_num} — ${order.get('invoice_total',0):,.2f}",
                       actor="user", metadata={"order_id": oid, "invoice": inv_num})
+    # O-13: timeline event for invoice
+    try:
+        log_order_event(oid, f"invoice_{inv_type}", "invoice_number", "", inv_num,
+                        "user", f"{inv_type.capitalize()} invoice ${order.get('invoice_total',0):,.2f}")
+    except Exception as _e:
+        log.debug("log_order_event invoice: %s", _e)
     return jsonify({"ok": True, "invoice_type": inv_type, "invoice_total": order.get("invoice_total", 0)})
 
 
@@ -1066,6 +1107,12 @@ def api_order_link_quote(oid):
     _log_crm_activity(qn, "order_linked",
                       f"Order {oid} linked to quote {qn} — enriched {enriched} items",
                       actor="user", metadata={"order_id": oid, "quote": qn, "enriched": enriched})
+    # O-13: timeline event for quote link
+    try:
+        log_order_event(oid, "quote_linked", "quote_number", "", qn,
+                        "user", f"Linked to {qn}, enriched {enriched} items")
+    except Exception as _e:
+        log.debug("log_order_event quote_linked: %s", _e)
 
     return jsonify({"ok": True, "quote_number": qn, "enriched": enriched,
                      "total_items": len(order.get("line_items", []))})
@@ -1123,6 +1170,12 @@ def api_order_delete(oid):
                       "order_deleted",
                       f"Order {oid} deleted. Reason: {reason}. PO: {order.get('po_number','')} Total: ${order.get('total',0):,.2f}",
                       actor="user", metadata={"order_id": oid, "reason": reason})
+    # O-13: timeline event for delete (written before row is removed; order_audit_log rows persist)
+    try:
+        log_order_event(oid, "order_deleted", "", "", reason, "user",
+                        f"PO {order.get('po_number','')} total ${order.get('total',0):,.2f}")
+    except Exception as _e:
+        log.debug("log_order_event order_deleted: %s", _e)
 
     from src.core.order_dal import delete_order as _delete_order
     _delete_order(oid, actor="user", reason=reason)
