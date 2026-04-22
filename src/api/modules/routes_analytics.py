@@ -20,6 +20,14 @@ import sqlite3 as _sqlite3
 from collections import defaultdict as _defaultdict
 from datetime import timedelta as _timedelta
 
+# AN-2 fix: process-start timestamp for /api/system/metrics uptime.
+# Previously the endpoint used `'_plt_start' in dir()` to guard access to
+# a `_plt_start` that was never defined — `dir()` at function scope does
+# not see module globals, so the guard was always False and uptime was
+# always None. Even if the guard had passed, the body referenced `time`,
+# which is only imported here as `_time` — NameError at runtime.
+_plt_start = _time.time()
+
 import csv, io, glob, os, json, platform, re, sqlite3
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -3913,11 +3921,11 @@ def api_system_batch_health():
     ]
     results = []
     for path, name in test_endpoints:
-        start = time.time()
+        start = _time.time()
         try:
             with current_app.test_client() as client:
                 resp = client.get(path, headers={"Authorization": request.headers.get("Authorization", "")})
-                elapsed = round((time.time() - start) * 1000)
+                elapsed = round((_time.time() - start) * 1000)
                 ok = resp.status_code == 200
                 results.append({"name": name, "path": path, "status": resp.status_code,
                                 "ok": ok, "ms": elapsed})
@@ -3965,7 +3973,7 @@ def api_system_metrics():
         "ok": True,
         "python_version": platform.python_version(),
         "platform": platform.platform(),
-        "uptime_seconds": int(time.time() - _plt_start) if '_plt_start' in dir() else None,
+        "uptime_seconds": int(_time.time() - _plt_start),
     }
     if HAS_PSUTIL:
         try:
