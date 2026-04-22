@@ -117,7 +117,7 @@
    <tr style="{{ 'opacity:0.5' if st == 'closed' else '' }}">
     <td><a href="/order/{{ oid }}" style="color:var(--ac);text-decoration:none;font-family:'JetBrains Mono',monospace;font-weight:700;font-size:14px">{{ oid }}</a></td>
     <td class="mono" style="white-space:nowrap;font-size:14px">{{ (o.created_at|default(''))[:10] }}</td>
-    <td style="font-size:14px">{{ o.agency|default('') }}</td>
+    <td style="font-size:14px">{{ o.agency|default('')|agency_display }}</td>
     <td style="max-width:250px;word-wrap:break-word;white-space:normal;font-weight:500;font-size:15px">{{ o.institution|default('') }}</td>
     <td class="mono" style="font-size:14px">{{ o.po_number|default('') or o.quote_number|default('') }}</td>
     <td style="text-align:right;font-weight:600;font-family:'JetBrains Mono',monospace;font-size:16px">${{ "{:,.2f}".format(o.total|default(0)) }}</td>

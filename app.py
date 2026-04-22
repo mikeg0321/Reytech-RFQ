@@ -184,6 +184,15 @@ def create_app():
     app.register_blueprint(bp)
     print(f"[BOOT] Routes registered ({time.time()-t0:.1f}s)", flush=True)
 
+    # Canonical agency casing filter — templates render {{ agency|agency_display }}
+    # instead of each site carrying its own agency_map dict. Closes O-8 / RFQ-3
+    # / PC-14 lowercase-leak class.
+    try:
+        from src.core.agency_display import agency_display
+        app.jinja_env.filters["agency_display"] = agency_display
+    except Exception as e:
+        logging.getLogger("reytech").warning("agency_display filter: %s", e)
+
     # ── Request tracing ──
     try:
         from src.core.tracing import install_tracing
