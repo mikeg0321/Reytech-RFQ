@@ -25,7 +25,9 @@ UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
 @safe_route
 def orders_page():
     """Orders dashboard — track sourcing, shipping, delivery, invoicing."""
-    orders = _load_orders()
+    # O-10: V2 DAL directly — same dict shape as legacy _load_orders wrapper.
+    from src.core.order_dal import load_orders_dict
+    orders = load_orders_dict()
 
     # ── Filtering ──
     filter_status = request.args.get("status", "")
@@ -130,7 +132,9 @@ def _find_unresolved_orders():
     known_qns = {(r.get("quote_number") or "").strip()
                  for r in rfqs.values()
                  if (r.get("quote_number") or "").strip()}
-    orders = _load_orders()
+    # O-10: V2 DAL directly.
+    from src.core.order_dal import load_orders_dict
+    orders = load_orders_dict()
     out = []
     for oid, o in orders.items():
         order_qn = (o.get("quote_number") or "").strip()
@@ -224,8 +228,9 @@ def api_orders_retry_match(oid):
     """
     try:
         rfqs = _load_rfqs_from_json()
-        orders = _load_orders()
-        o = orders.get(oid)
+        # O-10: direct single-order lookup via V2 DAL.
+        from src.core.order_dal import get_order as _get_order
+        o = _get_order(oid)
         if not o:
             return jsonify({"ok": False, "error": "order not found"}), 404
         # Already linked? Idempotent OK.
@@ -1761,7 +1766,9 @@ def api_orders_diagnostic():
 
     # 1. SQLite orders (single source of truth)
     try:
-        all_orders = _load_orders()
+        # O-10: V2 DAL directly.
+        from src.core.order_dal import load_orders_dict
+        all_orders = load_orders_dict()
         for oid, o in all_orders.items():
             items = o.get("line_items", [])
             has_real_items = any(
@@ -2138,7 +2145,9 @@ def api_quote_to_cash():
         except Exception:
             rfqs = {}
 
-        orders = _load_orders()
+        # O-10: V2 DAL directly.
+        from src.core.order_dal import load_orders_dict
+        orders = load_orders_dict()
 
         stages = {
             "draft": [], "priced": [], "sent": [],
@@ -2298,7 +2307,9 @@ def api_pipeline_revenue_goal():
         q_month = ((now.month - 1) // 3) * 3 + 1
         quarter_start = now.replace(month=q_month, day=1).strftime("%Y-%m-%d")
 
-        orders = _load_orders()
+        # O-10: V2 DAL directly.
+        from src.core.order_dal import load_orders_dict
+        orders = load_orders_dict()
 
         monthly_rev = 0.0
         quarterly_rev = 0.0
@@ -2407,7 +2418,9 @@ def api_avg_deal_size():
             log.debug("suppressed: %s", _e)
 
         try:
-            orders = _load_orders()
+            # O-10: V2 DAL directly.
+            from src.core.order_dal import load_orders_dict
+            orders = load_orders_dict()
             for o in orders.values():
                 total = o.get("total", 0)
                 if isinstance(total, (int, float)) and total > 0:
@@ -2445,7 +2458,9 @@ def api_pipeline_daily_summary():
         except Exception:
             rfqs = {}
 
-        orders = _load_orders()
+        # O-10: V2 DAL directly.
+        from src.core.order_dal import load_orders_dict
+        orders = load_orders_dict()
 
         new_today = [r for r in rfqs.values() if (r.get("created") or r.get("received_date") or "")[:10] == today]
         sent_today = [r for r in rfqs.values() if (r.get("sent_date") or "")[:10] == today]
@@ -2546,7 +2561,9 @@ def api_pipeline_weekly_summary():
         except Exception:
             rfqs = {}
 
-        orders = _load_orders()
+        # O-10: V2 DAL directly.
+        from src.core.order_dal import load_orders_dict
+        orders = load_orders_dict()
 
         new_rfqs = [r for r in rfqs.values()
                     if (r.get("created") or r.get("received_date") or "")[:10] >= week_ago]
@@ -2584,7 +2601,9 @@ def api_po_match():
         except Exception:
             rfqs = {}
 
-        orders = _load_orders()
+        # O-10: V2 DAL directly.
+        from src.core.order_dal import load_orders_dict
+        orders = load_orders_dict()
 
         matched = []
         unmatched_orders = []
@@ -2955,8 +2974,9 @@ def api_order_delivery_update(oid):
     """Send delivery status update email for selected line items.
     Reply-all to the original PO sender group."""
     try:
-        orders = _load_orders()
-        order = orders.get(oid)
+        # O-10: direct single-order lookup via V2 DAL.
+        from src.core.order_dal import get_order as _get_order
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
@@ -3069,7 +3089,9 @@ def supplier_record_page(name):
     """
     import urllib.parse
     supplier_name = urllib.parse.unquote_plus(name)
-    orders = _load_orders()
+    # O-10: V2 DAL directly.
+    from src.core.order_dal import load_orders_dict
+    orders = load_orders_dict()
 
     # Find all line items for this supplier across all orders
     supplier_items = []
@@ -3167,8 +3189,9 @@ def api_order_timeline(oid):
         log.debug("suppressed: %s", _e)
 
     # 2. Status history from order JSON
-    orders = _load_orders()
-    order = orders.get(oid, {})
+    # O-10: direct single-order lookup via V2 DAL.
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid) or {}
     for h in order.get("status_history", []):
         events.append({
             "type": "status",
@@ -3220,8 +3243,9 @@ def api_order_timeline(oid):
 @safe_route
 def api_order_line_margins(oid):
     """Calculate margins for all line items in an order."""
-    orders = _load_orders()
-    order = orders.get(oid)
+    # O-10: direct single-order lookup via V2 DAL.
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid)
     if not order:
         return jsonify({"ok": False, "error": "Not found"})
 
@@ -3387,8 +3411,9 @@ def calc_order_aging(order: dict) -> dict:
 @safe_route
 def api_order_emails(oid):
     """Get all emails related to this order (by PO#, quote#, or institution)."""
-    orders = _load_orders()
-    order = orders.get(oid, {})
+    # O-10: direct single-order lookup via V2 DAL.
+    from src.core.order_dal import get_order as _get_order
+    order = _get_order(oid) or {}
     po = order.get("po_number", "")
     qn = order.get("quote_number", "")
     sender = order.get("sender_email", "")
@@ -3443,8 +3468,9 @@ def api_order_emails(oid):
 def api_order_clone(oid):
     """Clone an existing order with new PO number and fresh dates."""
     try:
-        orders = _load_orders()
-        order = orders.get(oid)
+        # O-10: direct single-order lookup via V2 DAL.
+        from src.core.order_dal import get_order as _get_order
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Order not found"})
 
@@ -3456,7 +3482,7 @@ def api_order_clone(oid):
         now = datetime.now().isoformat()
         new_oid = f"ORD-PO-{new_po}"
 
-        if new_oid in orders:
+        if _get_order(new_oid) is not None:
             return jsonify({"ok": False, "error": f"Order {new_oid} already exists"})
 
         # Clone line items — reset statuses
@@ -3493,8 +3519,11 @@ def api_order_clone(oid):
             "status_history": [{"status": "new", "timestamp": now, "actor": "user"}],
         }
 
-        orders[new_oid] = new_order
-        _save_orders(orders)
+        # O-10/O-11: per-order write through V2 DAL — no bulk aggregate rewrite.
+        from src.core.order_dal import save_order as _save_order
+        from src.core.order_dal import save_line_items_batch as _save_line_items_batch
+        _save_order(new_oid, new_order, actor="user")
+        _save_line_items_batch(new_oid, new_items)
 
         log_order_event(new_oid, "order_created", "", "", "",
                         "user", f"Cloned from {oid} with new PO #{new_po}")
@@ -3516,8 +3545,9 @@ def api_order_clone(oid):
 def api_order_upload_proof(oid):
     """Upload delivery proof (photo, BOL PDF) for an order or line item."""
     try:
-        orders = _load_orders()
-        if oid not in orders:
+        # O-10: direct single-order lookup via V2 DAL.
+        from src.core.order_dal import get_order as _get_order
+        if _get_order(oid) is None:
             return jsonify({"ok": False, "error": "Order not found"})
 
         if "file" not in request.files:
@@ -3585,7 +3615,9 @@ def api_order_attachments(oid):
 @safe_route
 def api_orders_kpi():
     """Order KPI metrics: monthly trends, avg fulfillment, top agencies, margins."""
-    orders = _load_orders()
+    # O-10: V2 DAL directly.
+    from src.core.order_dal import load_orders_dict
+    orders = load_orders_dict()
     now = datetime.now()
 
     # Monthly breakdown
