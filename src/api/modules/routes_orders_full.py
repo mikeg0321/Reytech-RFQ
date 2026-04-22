@@ -953,10 +953,14 @@ def api_order_lookup_suppliers(oid):
                     "url": research.get("url", ""),
                     "asin": research.get("asin", ""),
                 }
-                # Auto-populate if no supplier set
+                # Auto-populate if no supplier set. save_line_items_batch reads
+                # supplier_name first (then supplier) — writing only `supplier`
+                # when supplier_name already hydrated from DB silently discards
+                # the lookup on the next DELETE/INSERT round-trip. Mirror both.
                 if not it.get("supplier_url"):
                     it["supplier_url"] = research.get("url", "")
                     it["supplier"] = "Amazon"
+                    it["supplier_name"] = "Amazon"
                 if not (it.get("unit_cost") or it.get("cost")) and research.get("price"):
                     it["unit_cost"] = research["price"]
                     it["cost"] = research["price"]
