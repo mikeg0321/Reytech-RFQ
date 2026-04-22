@@ -5431,125 +5431,170 @@ def _build_pc_quote_email_body(pc, pcid, buyer_email):
     return body
 
 
+# ── RE-AUDIT-6 (PC-12 + OB-20): PC quote send hardening ────────────────────
+# A double-click on "Send Quote" used to fire two concurrent SMTP sends —
+# the buyer received two identical emails, each marked the PC `sent` twice,
+# and the activity log double-appended. Module-level in-flight set (guarded
+# by a lock) claims the slot per-pcid; the second request gets 409 instead
+# of racing. `finally` always releases the slot so a crashed send cannot
+# leave the PC permanently locked.
+import threading as _pc_send_thr
+_pc_send_inflight_lock = _pc_send_thr.Lock()
+_pc_send_inflight = set()
+
+
+def _claim_pc_send_slot(pcid: str) -> bool:
+    with _pc_send_inflight_lock:
+        if pcid in _pc_send_inflight:
+            return False
+        _pc_send_inflight.add(pcid)
+        return True
+
+
+def _release_pc_send_slot(pcid: str) -> None:
+    with _pc_send_inflight_lock:
+        _pc_send_inflight.discard(pcid)
+
+
 @bp.route("/api/pricecheck/<pcid>/send-quote", methods=["POST"])
 @auth_required
 @safe_route
 def api_pc_send_quote(pcid):
-    """Send the generated PC quote PDF via email."""
+    """Send the generated PC quote PDF via email (Gmail API)."""
     pcs = _load_price_checks()
     pc = pcs.get(pcid)
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"})
 
     data = request.get_json(force=True, silent=True) or {}
-    # Prefer original buyer email (from forwarded emails) over requestor fields
-    to_email = data.get("to") or pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
-    pc_num = pc.get("pc_number", pcid)
-    # Build reply subject from original email subject
-    import re as _re_subj
-    orig_subject = pc.get("email_subject", "")
-    if orig_subject and not data.get("subject"):
-        clean_subj = _re_subj.sub(r'^(Re:\s*|Fwd?:\s*|FW:\s*)*', '', orig_subject, flags=re.IGNORECASE).strip()
-        subject = f"Re: {clean_subj}" if clean_subj else f"Price Quote — {pc_num}"
-    else:
-        subject = data.get("subject") or f"Price Quote — {pc_num}"
-    body_text = data.get("body") or _build_pc_quote_email_body(pc, pcid, to_email)
+    force = bool(data.get("force", False))
 
-    if not to_email or "@" not in to_email:
-        return jsonify({"ok": False, "error": "No valid recipient email"})
+    # Already-sent guard: block unintentional re-sends. UI can pass force=true
+    # for an intentional re-send. Without this, a user who refreshes the page
+    # and clicks "Send" again silently double-emails the buyer.
+    if pc.get("status") == "sent" and not force:
+        return jsonify({
+            "ok": False,
+            "error": "already_sent",
+            "message": f"Quote already sent to {pc.get('sent_to', '?')} at {pc.get('sent_at', '?')}. Pass force=true to re-send.",
+            "sent_to": pc.get("sent_to"),
+            "sent_at": pc.get("sent_at"),
+        }), 409
 
-    # Find the latest generated PDF — check ALL possible locations
-    pdf_path = ""
-    qn = pc.get("reytech_quote_number", "")
-    import re as _re
-    safe = _re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
-    safe_id = _re.sub(r'[^a-zA-Z0-9_-]', '_', pcid.strip())
+    # Single-flight: a double-click from the UI must NOT fire two SMTP sends.
+    if not _claim_pc_send_slot(pcid):
+        return jsonify({
+            "ok": False,
+            "error": "send_in_progress",
+            "message": "Another send for this PC is already in progress.",
+        }), 409
 
-    # Priority 1: paths stored on the PC record
-    for stored_path in [pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", "")]:
-        if stored_path and os.path.exists(stored_path):
-            pdf_path = stored_path
-            break
+    try:
+        # Prefer original buyer email (from forwarded emails) over requestor fields
+        to_email = data.get("to") or pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
+        pc_num = pc.get("pc_number", pcid)
+        # Build reply subject from original email subject
+        import re as _re_subj
+        orig_subject = pc.get("email_subject", "")
+        if orig_subject and not data.get("subject"):
+            clean_subj = _re_subj.sub(r'^(Re:\s*|Fwd?:\s*|FW:\s*)*', '', orig_subject, flags=re.IGNORECASE).strip()
+            subject = f"Re: {clean_subj}" if clean_subj else f"Price Quote — {pc_num}"
+        else:
+            subject = data.get("subject") or f"Price Quote — {pc_num}"
+        body_text = data.get("body") or _build_pc_quote_email_body(pc, pcid, to_email)
 
-    # Priority 2: search by naming patterns
-    if not pdf_path:
-        candidates = [
-            os.path.join(DATA_DIR, f"Quote_{safe}_Reytech.pdf"),
-            os.path.join(DATA_DIR, f"PC_{safe}_Reytech.pdf"),
-            os.path.join(DATA_DIR, f"Quote_{safe}_{safe_id}_Reytech.pdf"),
-            os.path.join(DATA_DIR, f"PC_{safe}_{safe_id}_Reytech.pdf"),
-        ]
-        # Also search for any PDF with the PC ID in the filename
-        try:
-            for f in os.listdir(DATA_DIR):
-                if f.endswith(".pdf") and (pcid in f or safe in f) and "Reytech" in f:
-                    candidates.append(os.path.join(DATA_DIR, f))
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
-        for candidate in candidates:
-            if os.path.exists(candidate):
-                pdf_path = candidate
-                log.info("SEND: Found PDF at %s", os.path.basename(candidate))
+        if not to_email or "@" not in to_email:
+            return jsonify({"ok": False, "error": "No valid recipient email"})
+
+        # Find the latest generated PDF — check ALL possible locations
+        pdf_path = ""
+        qn = pc.get("reytech_quote_number", "")
+        import re as _re
+        safe = _re.sub(r'[^a-zA-Z0-9_-]', '_', pc_num.strip())
+        safe_id = _re.sub(r'[^a-zA-Z0-9_-]', '_', pcid.strip())
+
+        # Priority 1: paths stored on the PC record
+        for stored_path in [pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", "")]:
+            if stored_path and os.path.exists(stored_path):
+                pdf_path = stored_path
                 break
 
-    # Priority 3: rfq_files DB
-    if not pdf_path:
+        # Priority 2: search by naming patterns
+        if not pdf_path:
+            candidates = [
+                os.path.join(DATA_DIR, f"Quote_{safe}_Reytech.pdf"),
+                os.path.join(DATA_DIR, f"PC_{safe}_Reytech.pdf"),
+                os.path.join(DATA_DIR, f"Quote_{safe}_{safe_id}_Reytech.pdf"),
+                os.path.join(DATA_DIR, f"PC_{safe}_{safe_id}_Reytech.pdf"),
+            ]
+            # Also search for any PDF with the PC ID in the filename
+            try:
+                for f in os.listdir(DATA_DIR):
+                    if f.endswith(".pdf") and (pcid in f or safe in f) and "Reytech" in f:
+                        candidates.append(os.path.join(DATA_DIR, f))
+            except Exception as _e:
+                log.debug("suppressed: %s", _e)
+            for candidate in candidates:
+                if os.path.exists(candidate):
+                    pdf_path = candidate
+                    log.info("SEND: Found PDF at %s", os.path.basename(candidate))
+                    break
+
+        # Priority 3: rfq_files DB
+        if not pdf_path:
+            try:
+                from src.api.dashboard import list_rfq_files, get_rfq_file
+                files = list_rfq_files(pcid, category="generated")
+                if files:
+                    full = get_rfq_file(files[0]["id"])
+                    if full and full.get("data"):
+                        import tempfile
+                        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                        tmp.write(full["data"])
+                        tmp.close()
+                        pdf_path = tmp.name
+            except Exception as _e:
+                log.debug("Suppressed: %s", _e)
+
+        if not pdf_path:
+            log.warning("SEND %s: No PDF found. output_pdf=%s, quote_pdf=%s, safe=%s",
+                         pcid, pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", ""), safe)
+            return jsonify({"ok": False, "error": "No generated PDF found — generate first"})
+
+        # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL
+        # + GMAIL_PASSWORD app-password. Same migration pattern as the bundle-send
+        # path in routes_pricecheck_gen.py and send_quote_email in routes_analytics.py.)
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return jsonify({"ok": False, "error": "Gmail API not configured"})
+
+        # gmail_api.send_message derives the attachment filename from
+        # os.path.basename(path). Copy to a temp file with the Reytech-branded
+        # name so the buyer sees Quote_<pc_num>_Reytech.pdf, not an internal name.
+        import shutil, tempfile
+        tmp_dir = tempfile.mkdtemp(prefix="pc_send_")
+        attach_name = f"Quote_{safe}_Reytech.pdf"
+        named_pdf = os.path.join(tmp_dir, attach_name)
         try:
-            from src.api.dashboard import list_rfq_files, get_rfq_file
-            files = list_rfq_files(pcid, category="generated")
-            if files:
-                full = get_rfq_file(files[0]["id"])
-                if full and full.get("data"):
-                    import tempfile
-                    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-                    tmp.write(full["data"])
-                    tmp.close()
-                    pdf_path = tmp.name
-        except Exception as _e:
-            log.debug("Suppressed: %s", _e)
+            shutil.copy(pdf_path, named_pdf)
 
-    if not pdf_path:
-        log.warning("SEND %s: No PDF found. output_pdf=%s, quote_pdf=%s, safe=%s",
-                     pcid, pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", ""), safe)
-        return jsonify({"ok": False, "error": "No generated PDF found — generate first"})
+            service = gmail_api.get_send_service()
+            email_message_id = pc.get("email_message_id", "") or None
 
-    # Send via Gmail
-    try:
-        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
-        if not gmail_user or not gmail_pass:
-            return jsonify({"ok": False, "error": "Gmail not configured"})
-
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.mime.base import MIMEBase
-        from email import encoders
-
-        msg = MIMEMultipart("mixed")
-        msg["From"] = f"Reytech Inc. <{gmail_user}>"
-        msg["To"] = to_email
-        msg["Subject"] = subject
-
-        # Threading — reply in buyer's email thread
-        email_message_id = pc.get("email_message_id", "")
-        if email_message_id:
-            msg["In-Reply-To"] = email_message_id
-            msg["References"] = email_message_id
-
-        # Plain text only — Gmail auto-appends the configured signature
-        msg.attach(MIMEText(body_text, "plain"))
-
-        with open(pdf_path, "rb") as f:
-            part = MIMEBase("application", "pdf")
-            part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f'attachment; filename="Quote_{pc_num}_Reytech.pdf"')
-            msg.attach(part)
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(gmail_user, gmail_pass)
-            server.sendmail(gmail_user, [to_email], msg.as_string())
+            gmail_api.send_message(
+                service,
+                to=to_email,
+                subject=subject,
+                body_plain=body_text,
+                attachments=[named_pdf],
+                in_reply_to=email_message_id,
+                references=email_message_id,
+            )
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception as _cleanup_err:
+                log.debug("pc send tmpdir cleanup: %s", _cleanup_err)
 
         # Update PC status
         pc["status"] = "sent"
@@ -5569,6 +5614,8 @@ def api_pc_send_quote(pcid):
     except Exception as e:
         log.error("PC send-quote: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)[:200]})
+    finally:
+        _release_pc_send_slot(pcid)
 
 
 @bp.route("/api/pricecheck/<pcid>/email-preview", methods=["GET"])
