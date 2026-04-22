@@ -664,49 +664,27 @@ def send_quote_email(rid):
             except Exception as _db_err:
                 log.debug("rfq_files PDF lookup: %s", _db_err)
 
-    # Send via Gmail
+    # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL +
+    # app-password. See project_gmail_api_send_gap_2026_04_21 / IN-5).
     try:
-        email_cfg = CONFIG.get("email", {})
-        gmail_user = email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pass = email_cfg.get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
 
-        if not gmail_user or not gmail_pass:
-            return jsonify({"ok": False, "error": "Gmail not configured"}), 400
+        service = gmail_api.get_send_service()
 
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.mime.base import MIMEBase
-        from email import encoders
+        email_message_id = r.get("email_message_id", "") or None
+        attachments = [pdf_path] if (pdf_path and os.path.exists(pdf_path)) else None
 
-        msg = MIMEMultipart("mixed")
-        msg["From"] = gmail_user
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg["Reply-To"] = gmail_user
-
-        # Threading — reply in buyer's email thread
-        email_message_id = r.get("email_message_id", "")
-        if email_message_id:
-            msg["In-Reply-To"] = email_message_id
-            msg["References"] = email_message_id
-
-        # Plain text only — Gmail auto-appends the configured signature
-        msg.attach(MIMEText(body, "plain"))
-
-        # Attach PDF if available
-        if pdf_path and os.path.exists(pdf_path):
-            with open(pdf_path, "rb") as f:
-                part = MIMEBase("application", "pdf")
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f'attachment; filename="{os.path.basename(pdf_path)}"')
-                msg.attach(part)
-
-        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        server.login(gmail_user, gmail_pass)
-        server.send_message(msg)
-        server.quit()
+        gmail_api.send_message(
+            service,
+            to=to_email,
+            subject=subject,
+            body_plain=body,
+            attachments=attachments,
+            in_reply_to=email_message_id,
+            references=email_message_id,
+        )
 
         # Record in DB
         r["status"] = "sent"
@@ -715,14 +693,15 @@ def send_quote_email(rid):
         rfqs[rid] = r
         _save_single_rfq(rid, r)
 
-        # Log to email_log
+        # Log to email_log (sender = authenticated Gmail account)
+        sender_addr = os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com")
         try:
             from src.core.db import get_db
             with get_db() as conn:
                 conn.execute("""INSERT INTO email_log
                     (direction, sender, recipient, subject, body_preview, status, logged_at)
                     VALUES (?,?,?,?,?,?,?)""",
-                    ("outbound", gmail_user, to_email, subject, body[:200], "sent",
+                    ("outbound", sender_addr, to_email, subject, body[:200], "sent",
                      datetime.now().isoformat()))
         except Exception as _e:
             log.debug('suppressed in send_quote_email: %s', _e)
@@ -1371,28 +1350,19 @@ Please let us know if you have any questions or need any revisions.</p>
 <p>We remain ready to support your procurement needs.</p>
 </div>"""
 
-    # Send via Gmail
+    # Send via Gmail API (replaces smtplib.SMTP_SSL — IN-5)
     try:
-        email_cfg = CONFIG.get("email", {})
-        gmail_user = email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pass = email_cfg.get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
-        if not gmail_user or not gmail_pass:
-            return jsonify({"ok": False, "error": "Gmail not configured"}), 400
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
 
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-
-        msg = MIMEMultipart()
-        msg["From"] = gmail_user
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "html"))
-
-        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        server.login(gmail_user, gmail_pass)
-        server.send_message(msg)
-        server.quit()
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(
+            service,
+            to=to_email,
+            subject=subject,
+            body_html=body,
+        )
 
         # Record follow-up
         if entity_type == "rfq":
@@ -1438,45 +1408,29 @@ def bulk_follow_up():
         if not s.get("email"):
             continue
         try:
-            # Trigger individual follow-up via internal call
-            from flask import current_app
-            with current_app.test_request_context(
-                f"/api/stale-quotes/{s['type']}/{s['id']}/follow-up",
-                method="POST",
-                json={"to": s["email"]},
-            ):
-                # Just call the send function directly
-                email_cfg = CONFIG.get("email", {})
-                gmail_user = email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "")
-                gmail_pass = email_cfg.get("email_password") or os.environ.get("GMAIL_PASSWORD", "")
-                if not gmail_user or not gmail_pass:
-                    return jsonify({"ok": False, "error": "Gmail not configured"}), 400
+            # Send via Gmail API (replaces smtplib.SMTP_SSL — IN-5)
+            from src.core import gmail_api
+            if not gmail_api.is_configured():
+                return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
 
-                import smtplib
-                from email.mime.multipart import MIMEMultipart
-                from email.mime.text import MIMEText
-
-                name = s.get("requestor", "Procurement Officer")
-                sol = s.get("number", "?")
-                body = f"""<div style="font-family:Arial,sans-serif;color:#333">
+            name = s.get("requestor", "Procurement Officer")
+            sol = s.get("number", "?")
+            body = f"""<div style="font-family:Arial,sans-serif;color:#333">
 <p>Dear {name},</p>
 <p>I'm following up on our quote submitted for <strong>#{sol}</strong>.
 Please let us know if you have any questions or need revisions.</p>
 <p>We remain ready to support your procurement needs.</p>
 </div>"""
 
-                msg = MIMEMultipart()
-                msg["From"] = gmail_user
-                msg["To"] = s["email"]
-                msg["Subject"] = f"Follow Up — Quote #{sol}"
-                msg.attach(MIMEText(body, "html"))
-
-                server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-                server.login(gmail_user, gmail_pass)
-                server.send_message(msg)
-                server.quit()
-                sent_count += 1
-                log.info("Bulk follow-up sent to %s for #%s", s["email"], sol)
+            service = gmail_api.get_send_service()
+            gmail_api.send_message(
+                service,
+                to=s["email"],
+                subject=f"Follow Up — Quote #{sol}",
+                body_html=body,
+            )
+            sent_count += 1
+            log.info("Bulk follow-up sent to %s for #%s", s["email"], sol)
         except Exception as e:
             errors.append(f"{s.get('number', '?')}: {str(e)[:60]}")
             log.error("Bulk follow-up error for %s: %s", s.get("number"), e)
