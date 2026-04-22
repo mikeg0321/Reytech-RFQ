@@ -67,7 +67,7 @@
    <tr class="home-row" id="{{ queue_type }}-row-{{ id }}"
        onclick="location.href='{{ r.url }}'"
        data-search="{{ (r.number or '')|lower }} {{ (r.institution or '')|lower }} {{ (r.buyer or '')|lower }} {{ r.display_status|lower }}"
-       style="border-left:3px solid {% if r._urgency == 'overdue' %}#f85149{% elif r._urgency == 'critical' %}#f0883e{% elif r._urgency == 'soon' %}#d29922{% else %}transparent{% endif %};{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
+       style="border-left:3px solid {% if r._urgency == 'overdue' %}#f85149{% elif r._urgency == 'critical' %}#f0883e{% elif r._urgency == 'urgent' %}#e6a700{% elif r._urgency == 'soon' %}#d29922{% else %}transparent{% endif %};{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
     {# Col 0: Checkbox #}
     <td onclick="event.stopPropagation()"><input type="checkbox" class="{{ queue_type }}-check row-check" value="{{ id }}" onchange="updateBulkBar('{{ queue_type }}')"></td>
     {# Col 1: Number #}
@@ -81,14 +81,29 @@
      <span style="display:block;font-size:12px;{% if loop.last and r.buyer_sub.split('\n')|length > 1 %}font-weight:500;color:#a78bfa{% else %}color:var(--tx2){% endif %}">{% if loop.first and 'Req:' not in line %}Req: {% endif %}{{ line }}</span>
      {% endfor %}{% endif %}
     </td>
-    {# Col 4: Due date with urgency #}
+    {# Col 4: Due date + time with urgency. Hours-granular countdown when <24h
+       so a 2 PM deadline goes red/orange the same morning, not at midnight.
+       ⚠ ASSUMED 2 PM badge appears when the RFQ has a date but no explicit time —
+       surfaces the fact that urgency is based on a default assumption, not the
+       buyer's stated close time (we missed a 2 PM once thinking it was 5 PM). #}
     <td class="mono">
      {% if r._urgency == 'overdue' %}<span style="color:#f85149;font-weight:700">{{ r.due_date }}</span>
      {% elif r._urgency == 'critical' %}<span style="color:#f0883e;font-weight:700">{{ r.due_date }}</span>
+     {% elif r._urgency == 'urgent' %}<span style="color:#e6a700;font-weight:700">{{ r.due_date }}</span>
      {% elif r._urgency == 'soon' %}<span style="color:#d29922;font-weight:600">{{ r.due_date }}</span>
      {% elif r.due_date %}{{ r.due_date }}
      {% else %}<span style="color:var(--tx2);font-size:12px;opacity:.6">TBD</span>{% endif %}
-     {% if r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
+     {% if r.due_date %}
+      {% if r.due_time %}<span style="font-size:12px;color:var(--tx2);margin-left:4px">{{ r.due_time }}</span>
+      {% else %}<span title="No explicit close time — defaulting urgency to 2 PM PST" style="display:inline-block;margin-left:4px;font-size:10px;padding:1px 5px;border-radius:8px;background:rgba(230,167,0,.14);color:#e6a700;border:1px solid rgba(230,167,0,.35);font-weight:700;letter-spacing:.3px">&#9888; 2 PM?</span>{% endif %}
+     {% endif %}
+     {% if r._hours_left is not none and r._hours_left <= 24 %}
+      <div style="font-size:13px;font-weight:600;color:{% if r._hours_left < 0 %}#f85149{% elif r._hours_left <= 4 %}#f0883e{% else %}#e6a700{% endif %}">
+       {% if r._hours_left < 0 %}{{ (-r._hours_left)|round(0,'floor')|int }}h overdue
+       {% elif r._hours_left < 1 %}&lt;1h left
+       {% else %}{{ r._hours_left|round(0,'floor')|int }}h left{% endif %}
+      </div>
+     {% elif r._days_left is not none %}<div style="font-size:13px;color:{% if r._days_left < 0 %}#f85149{% elif r._days_left <= 1 %}#f0883e{% elif r._days_left <= 3 %}#d29922{% else %}var(--tx2){% endif %}">
       {% if r._days_left < 0 %}{{ -r._days_left }}d overdue{% elif r._days_left == 0 %}Due today{% elif r._days_left == 1 %}Tomorrow{% else %}{{ r._days_left }}d left{% endif %}
      </div>{% endif %}
     </td>

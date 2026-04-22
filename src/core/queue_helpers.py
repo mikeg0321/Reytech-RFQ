@@ -88,8 +88,14 @@ def normalize_queue_item(raw, queue_type, item_id):
         "buyer": buyer,
         "buyer_sub": buyer_sub,
         "due_date": raw.get("due_date") or "",
+        "due_time": raw.get("due_time") or "",
         "_urgency": raw.get("_urgency", "normal"),
         "_days_left": raw.get("_days_left"),
+        # Hours remaining to the precise close time (time-aware). Falls back
+        # to None when the deadline is date-only or unparseable; in that case
+        # the UI flags the 2:00 PM default via "_time_explicit=False".
+        "_hours_left": raw.get("_hours_left"),
+        "_time_explicit": bool(raw.get("due_time")),
         "item_count": _item_count(raw, queue_type),
         "_readiness": raw.get("_readiness", {}),
         "quote_number": quote_number,
