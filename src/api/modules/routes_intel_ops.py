@@ -2637,6 +2637,22 @@ def _scprs_autostart():
     except Exception as _dw:
         log.debug("Deadline watcher: %s", _dw)
 
+    try:
+        from src.agents.notify_agent import start_daily_digest
+        start_daily_digest()
+    except Exception as _dd:
+        log.debug("Daily digest: %s", _dd)
+
+    try:
+        from src.core.deadline_defaults import backfill_missing_deadlines
+        threading.Thread(
+            target=backfill_missing_deadlines,
+            daemon=True,
+            name="deadline-backfill",
+        ).start()
+    except Exception as _bf:
+        log.debug("Deadline backfill: %s", _bf)
+
 def _full_scprs_scheduler_loop():
     """
     Master SCPRS intelligence scheduler.
