@@ -116,6 +116,70 @@ def _save_json(path, data):
         atomic_json_save(path, data)
 
 
+# ── IN-15: canonical agency normalization at ingest ──────────────────
+# Lead-ingest paths receive raw agency strings from SCPRS scrapes,
+# email parses, and manual entry. Without normalization, multiple
+# spellings ("CDCR", "Dept of Corrections", "Dept. of Corrections")
+# coexist in prospects and split the funnel metrics. Pass every raw
+# string through here at write time — one normalization at ingest
+# beats ten at read time.
+def _norm_agency(raw: str) -> str:
+    """Normalize an agency/institution string to canonical form.
+
+    Returns canonical name if institution_resolver can match it;
+    otherwise returns the trimmed input (so unknown agencies still
+    flow through instead of being dropped). Safe to call on None."""
+    if not raw:
+        return ""
+    try:
+        from src.core.institution_resolver import resolve as _resolve
+        result = _resolve(str(raw))
+        canonical = (result or {}).get("canonical", "")
+        if canonical:
+            return canonical
+    except Exception as _e:
+        log.debug("_norm_agency fallthrough on %r: %s", raw, _e)
+    return str(raw).strip()
+
+
+# ── IN-17: cross-worker status persistence ───────────────────────────
+# PULL_STATUS/BUYER_STATUS/INTEL_STATUS are module globals. Under
+# Gunicorn, workers don't share memory — worker B queried while a
+# pull runs on worker A returns stale "idle". Persist transitions to
+# /data/status/ so every worker can read the same ground truth.
+STATUS_DIR = os.path.join(DATA_DIR, "status")
+
+
+def _persist_status(name: str, data: dict) -> None:
+    """Write `data` atomically to /data/status/<name>.json. No-op on
+    write failure — status visibility is best-effort, should not
+    crash the caller."""
+    try:
+        from src.core.data_guard import atomic_json_save
+        os.makedirs(STATUS_DIR, exist_ok=True)
+        path = os.path.join(STATUS_DIR, f"{name}.json")
+        with _json_write_lock:
+            atomic_json_save(path, dict(data))
+    except Exception as _e:
+        log.debug("_persist_status(%s) failed: %s", name, _e)
+
+
+def _load_persisted_status(name: str) -> dict | None:
+    """Return the persisted status dict, or None if file missing.
+    Returns None (not {}) so callers can distinguish 'no peer has
+    written yet' from 'peer wrote an empty status'."""
+    try:
+        path = os.path.join(STATUS_DIR, f"{name}.json")
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except FileNotFoundError:
+        return None
+    except Exception as _e:
+        log.debug("_load_persisted_status(%s) failed: %s", name, _e)
+        return None
+
+
 def _load_prospects_list():
     """Load prospects as a flat list, handling both dict and list formats.
 
@@ -203,6 +267,7 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
             "pos_found": 0, "pos_detailed": 0, "items_total": 0,
             "errors": [], "started_at": datetime.now().isoformat(), "finished_at": None,
         })
+        _persist_status("pull", PULL_STATUS)  # IN-17
 
     if _wf_tracker:
         _wf_tracker.start("growth_pull", "growth_pull")
@@ -212,6 +277,7 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
         if not session.initialized and not session.init_session():
             with _status_lock:
                 PULL_STATUS.update({"running": False, "phase": "error"})
+                _persist_status("pull", PULL_STATUS)  # IN-17
             return {"ok": False, "error": "SCPRS session init failed"}
 
         results = session.search(supplier_name="Reytech", from_date=from_date, to_date=to_date)
@@ -280,6 +346,7 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
                 "progress": f"Done: {len(history)} POs, {PULL_STATUS['items_total']} items, {len(categories)} categories",
                 "finished_at": datetime.now().isoformat(),
             })
+            _persist_status("pull", PULL_STATUS)  # IN-17
 
         if _wf_tracker:
             _wf_tracker.finish("growth_pull", results_count=len(history))
@@ -294,6 +361,7 @@ def pull_reytech_history(from_date="01/01/2019", to_date=""):
     except Exception as e:
         with _status_lock:
             PULL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
+            _persist_status("pull", PULL_STATUS)  # IN-17
         if _wf_tracker:
             _wf_tracker.error("growth_pull", str(e))
             _wf_tracker.finish("growth_pull", status="failed")
@@ -352,6 +420,7 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 
     with _status_lock:
         BUYER_STATUS.update({"running": True, "phase": "searching", "progress": "Starting...", "prospects_found": 0, "errors": []})
+        _persist_status("buyer", BUYER_STATUS)  # IN-17
 
     if _wf_tracker:
         _wf_tracker.start("growth_buyers", "growth_buyers")
@@ -361,6 +430,7 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
         if not session.initialized and not session.init_session():
             with _status_lock:
                 BUYER_STATUS.update({"running": False})
+                _persist_status("buyer", BUYER_STATUS)  # IN-17
             return {"ok": False, "error": "SCPRS session init failed"}
 
         to_date = datetime.now().strftime("%m/%d/%Y")
@@ -402,7 +472,7 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
                             continue
 
                         email = (r.get("buyer_email") or "").strip()
-                        dept = (r.get("dept") or "").strip()
+                        dept = _norm_agency(r.get("dept") or "")  # IN-15
                         if not email and not dept:
                             continue
 
@@ -469,6 +539,7 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
 
         with _status_lock:
             BUYER_STATUS.update({"running": False, "phase": "complete", "prospects_found": len(prospect_list)})
+            _persist_status("buyer", BUYER_STATUS)  # IN-17
 
         if _wf_tracker:
             _wf_tracker.finish("growth_buyers", results_count=len(prospect_list))
@@ -482,6 +553,7 @@ def find_category_buyers(max_categories=10, from_date="01/01/2019"):
     except Exception as e:
         with _status_lock:
             BUYER_STATUS.update({"running": False, "phase": "error"})
+            _persist_status("buyer", BUYER_STATUS)  # IN-17
         if _wf_tracker:
             _wf_tracker.error("growth_buyers", str(e))
             _wf_tracker.finish("growth_buyers", status="failed")
@@ -558,6 +630,7 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
             "p1_buyers": 0, "p2_crosssell": 0, "p3_opportunities": 0,
             "errors": [],
         })
+        _persist_status("intel", INTEL_STATUS)  # IN-17
 
     if _wf_tracker:
         _wf_tracker.start("growth_intel", "growth_intel")
@@ -567,6 +640,7 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         if not session.initialized and not session.init_session():
             with _status_lock:
                 INTEL_STATUS.update({"running": False, "phase": "error"})
+                _persist_status("intel", INTEL_STATUS)  # IN-17
             return {"ok": False, "error": "SCPRS session init failed"}
 
         # Load existing Reytech intel
@@ -612,7 +686,7 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
                         if "reytech" in supplier or "rey tech" in supplier:
                             continue
 
-                        dept = (r.get("dept") or "").strip()
+                        dept = _norm_agency(r.get("dept") or "")  # IN-15
                         email = (r.get("buyer_email") or "").strip().lower()
 
                         # Only keep if it's at one of our served agencies
@@ -693,7 +767,7 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
                     if "reytech" in supplier or "rey tech" in supplier:
                         continue
 
-                    dept = (r.get("dept") or "").strip()
+                    dept = _norm_agency(r.get("dept") or "")  # IN-15
                     email = (r.get("buyer_email") or "").strip().lower()
 
                     if email and email in reytech_buyer_emails:
@@ -874,6 +948,7 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
                 "progress": f"Done: {len(p1_list)} same-agency, {len(p2_list)} cross-sell, {len(p3_medical)+len(p3_commodity)} opportunities",
                 "finished_at": datetime.now().isoformat(),
             })
+            _persist_status("intel", INTEL_STATUS)  # IN-17
 
         if _wf_tracker:
             _wf_tracker.finish("growth_intel",
@@ -891,6 +966,7 @@ def run_buyer_intelligence(year_from=2024, year_to=None, max_per_phase=30):
         log.error("Buyer intelligence error: %s", e, exc_info=True)
         with _status_lock:
             INTEL_STATUS.update({"running": False, "phase": "error", "progress": str(e)})
+            _persist_status("intel", INTEL_STATUS)  # IN-17
         if _wf_tracker:
             _wf_tracker.error("growth_intel", str(e))
             _wf_tracker.finish("growth_intel", status="failed")
@@ -1101,8 +1177,29 @@ def get_intel_results() -> dict:
 
 
 def get_intel_status() -> dict:
-    """Get current intel status."""
-    return dict(INTEL_STATUS)
+    """Get current intel status. Prefers the in-memory dict if this
+    worker is actively running; otherwise falls back to the persisted
+    file so cross-worker queries see the real state (IN-17)."""
+    if INTEL_STATUS.get("running"):
+        return dict(INTEL_STATUS)
+    persisted = _load_persisted_status("intel")
+    return persisted if persisted is not None else dict(INTEL_STATUS)
+
+
+def get_pull_status() -> dict:
+    """IN-17: cross-worker-safe read of PULL_STATUS."""
+    if PULL_STATUS.get("running"):
+        return dict(PULL_STATUS)
+    persisted = _load_persisted_status("pull")
+    return persisted if persisted is not None else dict(PULL_STATUS)
+
+
+def get_buyer_status() -> dict:
+    """IN-17: cross-worker-safe read of BUYER_STATUS."""
+    if BUYER_STATUS.get("running"):
+        return dict(BUYER_STATUS)
+    persisted = _load_persisted_status("buyer")
+    return persisted if persisted is not None else dict(BUYER_STATUS)
 
 # ── Email Template Library (PRD Feature 4.3) ─────────────────────────────
 # Implements Anthropic Skills Guide Pattern 5: Domain-specific intelligence
