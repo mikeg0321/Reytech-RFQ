@@ -1302,13 +1302,20 @@ def _pricecheck_detail_inner(pcid):
     _qp = pc.get("reytech_quote_pdf") or ""
     if _qp and os.path.exists(_qp):
         _existing_quote_url = f"/api/pricecheck/download/{os.path.basename(_qp)}"
-    # Fallback: scan DATA_DIR for matching PDFs by PC ID or number
+    # Fallback: scan DATA_DIR for matching PDFs by PC ID or number.
+    # UI-2: CCHCS packet outputs are named `<source>_Reytech.pdf` (see
+    # cchcs_packet_filler._output_path), so they also match the "Reytech"
+    # branch below. Exclude the already-resolved packet basename so the
+    # packet doesn't get mislabeled as "Reytech Quote" in the compose panel.
+    _packet_basename = os.path.basename(_pk) if _pk else ""
     if not _existing_704_url or not _existing_quote_url:
         import re as _re_scan
         _safe_num = _re_scan.sub(r'[^a-zA-Z0-9_-]', '_', (pc.get("pc_number", "") or pcid).strip())
         try:
             for _f in os.listdir(DATA_DIR):
                 if not _f.endswith(".pdf"):
+                    continue
+                if _packet_basename and _f == _packet_basename:
                     continue
                 if pcid in _f or _safe_num in _f:
                     _dl = f"/api/pricecheck/download/{_f}"
