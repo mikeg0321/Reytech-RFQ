@@ -957,7 +957,8 @@ def api_order_lookup_suppliers(oid):
                 if not it.get("supplier_url"):
                     it["supplier_url"] = research.get("url", "")
                     it["supplier"] = "Amazon"
-                if not it.get("cost") and research.get("price"):
+                if not (it.get("unit_cost") or it.get("cost")) and research.get("price"):
+                    it["unit_cost"] = research["price"]
                     it["cost"] = research["price"]
                     sell = it.get("unit_price", 0) or 0
                     if sell > 0:
@@ -1084,15 +1085,17 @@ def api_order_link_quote(oid):
             if matched:
                 if not oi.get("unit_price"):
                     oi["unit_price"] = qi.get("unit_price", 0) or qi.get("our_price", 0) or qi.get("price", 0)
-                if not oi.get("cost"):
-                    oi["cost"] = qi.get("cost", 0) or qi.get("supplier_price", 0)
+                if not (oi.get("unit_cost") or oi.get("cost")):
+                    _c = qi.get("cost", 0) or qi.get("supplier_price", 0)
+                    oi["unit_cost"] = _c
+                    oi["cost"] = _c
                 if not oi.get("supplier"):
                     oi["supplier"] = qi.get("supplier", "")
                 if not oi.get("supplier_url"):
                     oi["supplier_url"] = qi.get("supplier_url", "") or qi.get("url", "")
                 # Recalculate margin
                 sell = oi.get("unit_price", 0) or 0
-                cost = oi.get("cost", 0) or 0
+                cost = oi.get("unit_cost") or oi.get("cost", 0) or 0
                 if sell > 0 and cost > 0:
                     oi["margin_pct"] = round((sell - cost) / sell * 100, 1)
                 oi["extended"] = round((oi.get("qty", 0) or 1) * sell, 2)
@@ -1478,7 +1481,7 @@ def _learn_supplier_from_order_line(line_item: dict, order: dict):
     pn = line_item.get("part_number", "")
     supplier = line_item.get("supplier", "")
     supplier_url = line_item.get("supplier_url", "")
-    cost = line_item.get("cost", 0) or line_item.get("unit_price", 0)
+    cost = line_item.get("unit_cost") or line_item.get("cost", 0) or line_item.get("unit_price", 0)
     qty = line_item.get("qty", 0)
     
     if not desc and not pn:
@@ -1627,7 +1630,7 @@ def build_supplier_purchase_urls(order: dict) -> dict:
         
         groups[supplier_key]["items"].append(it)
         groups[supplier_key]["total_items"] += 1
-        groups[supplier_key]["total_cost"] += it.get("cost", 0) or it.get("unit_price", 0) * it.get("qty", 0)
+        groups[supplier_key]["total_cost"] += (it.get("unit_cost") or it.get("cost", 0)) or it.get("unit_price", 0) * it.get("qty", 0)
     
     # Generate purchase URLs per supplier
     for key, group in groups.items():
@@ -3315,7 +3318,7 @@ def api_order_line_margins(oid):
     for it in items:
         qty = it.get("qty", 0) or 0
         sell = it.get("unit_price", 0) or 0
-        cost = it.get("cost", 0) or 0
+        cost = it.get("unit_cost") or it.get("cost", 0) or 0
         revenue = qty * sell
         cost_total = qty * cost
         margin = revenue - cost_total
@@ -3726,7 +3729,7 @@ def api_orders_kpi():
 
         # Line-item costs for margin — only count if real cost data exists
         for it in order.get("line_items", []):
-            cost = it.get("cost", 0) or 0
+            cost = it.get("unit_cost") or it.get("cost", 0) or 0
             qty = it.get("qty", 0) or 0
             if cost > 0:
                 has_cost_data = True
