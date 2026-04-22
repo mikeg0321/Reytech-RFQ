@@ -3568,18 +3568,40 @@ def _create_order_from_quote(qt: dict, po_number: str = "") -> dict:
                       f"Order {oid} created from quote {qn} — ${qt.get('total',0):,.2f}",
                       actor="system", metadata={"order_id": oid, "institution": order["institution"]})
     # ── Mark linked quote as 'won' since it has a confirmed order ──
+    _won_rowcount = 0
     if qn:
         try:
             from src.core.db import get_db
             with get_db() as conn:
-                conn.execute("""
+                cur = conn.execute("""
                     UPDATE quotes SET status = 'won',
                         po_number = COALESCE(NULLIF(?, ''), po_number),
                         updated_at = ?
                     WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
                 """, (po_number, datetime.now().isoformat(), qn))
+                _won_rowcount = cur.rowcount or 0
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
+    # BUILD-9: calibrate oracle on the order-from-quote won path. Prior to
+    # BUILD-9, creating an order silently marked the linked quote won but
+    # never fed the outcome back to the oracle — every UI-driven win
+    # evaporated. Idempotency: only fires when the UPDATE actually flipped
+    # status (rowcount>0), so creating a second order on the same quote
+    # won't double-count. `with get_db()` already committed on context
+    # exit, matching BUILD-5's lock-contention fix.
+    if qn and _won_rowcount > 0:
+        try:
+            from src.core.pricing_oracle_v2 import calibrate_from_outcome
+            calibrate_from_outcome(
+                line_items,
+                "won",
+                agency=order.get("agency", "") or order.get("institution", ""),
+                winner_prices=None,
+            )
+            log.info("BUILD-9 oracle calibrated from order-from-quote: quote=%s agency=%s items=%d",
+                     qn, order.get("agency", ""), len(line_items))
+        except Exception as _ce:
+            log.warning("BUILD-9 calibrate_from_outcome failed for quote %s: %s", qn, _ce)
     # ── Pricing Intelligence: capture winning prices ──
     try:
         from src.knowledge.pricing_intel import record_winning_prices
@@ -3769,18 +3791,38 @@ def _create_order_from_po_email(po_data: dict) -> dict:
                       f"Order {oid} created from PO email — PO#{po_num} · ${total:,.2f}" + (f" · Linked to quote {qn}" if qn else ""),
                       actor="system", metadata={"order_id": oid, "po_number": po_num, "source": "email_po", "quote_linked": qn})
     # ── Mark linked quote as 'won' since PO confirms the order ──
+    _won_rowcount = 0
     if qn:
         try:
             from src.core.db import get_db as _get_db
             with _get_db() as _conn:
-                _conn.execute("""
+                _cur = _conn.execute("""
                     UPDATE quotes SET status = 'won',
                         po_number = COALESCE(NULLIF(?, ''), po_number),
                         updated_at = ?
                     WHERE quote_number = ? AND status NOT IN ('won', 'cancelled')
                 """, (po_num, datetime.now().isoformat(), qn))
+                _won_rowcount = _cur.rowcount or 0
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
+    # BUILD-9: calibrate oracle on the order-from-PO-email won path. This
+    # is the twin of the order-from-quote path above — a PO arrives via
+    # email, we auto-create an order, and must calibrate. Guards identical:
+    # fires only on actual status transition (rowcount>0) to stay
+    # idempotent against PO re-sends.
+    if qn and _won_rowcount > 0:
+        try:
+            from src.core.pricing_oracle_v2 import calibrate_from_outcome
+            calibrate_from_outcome(
+                line_items,
+                "won",
+                agency=order.get("agency", "") or order.get("institution", ""),
+                winner_prices=None,
+            )
+            log.info("BUILD-9 oracle calibrated from order-from-po-email: quote=%s agency=%s items=%d",
+                     qn, order.get("agency", ""), len(line_items))
+        except Exception as _ce:
+            log.warning("BUILD-9 calibrate_from_outcome failed for quote %s: %s", qn, _ce)
     log.info("Order %s created from PO email (quote=%s, po=%s, items=%d, total=$%.2f, costs=%d)",
              oid, qn, po_num, len(line_items), total, sum(1 for it in line_items if it.get("cost")))
     # ── Notify Mike: new PO arrived ──────────────────────────────
