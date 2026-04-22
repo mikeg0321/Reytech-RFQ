@@ -490,9 +490,13 @@ def analytics_dashboard():
             log.debug('suppressed in analytics_dashboard: %s', _e)
 
         strategy_stats = {}
+        top_failing = []
         try:
             from src.forms.template_learning import get_strategy_stats
-            strategy_stats = get_strategy_stats(days=90)
+            strategy_stats = get_strategy_stats(days=90) or {}
+            # top_failing is a list, not a per-strategy stat dict — pull it out
+            # so the template's dictsort loop only iterates real strategies.
+            top_failing = strategy_stats.pop("top_failing", []) if isinstance(strategy_stats, dict) else []
         except Exception as _e:
             log.debug('suppressed in analytics_dashboard: %s', _e)
 
@@ -510,6 +514,7 @@ def analytics_dashboard():
             growth_top=growth_top,
             qa_eff=qa_eff,
             strategy_stats=strategy_stats,
+            top_failing=top_failing,
         )
 
     elif tab == "business_intel":

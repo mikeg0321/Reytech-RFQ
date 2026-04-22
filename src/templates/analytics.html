@@ -90,7 +90,7 @@
   <div style="text-align:center;padding:10px;background:var(--sf2,#161b22);border-radius:8px">
    <div style="font-size:18px;font-weight:700;color:{% if info.avg_score|default(0) >= 90 %}#3fb950{% elif info.avg_score|default(0) >= 70 %}#d29922{% else %}#f85149{% endif %};font-family:monospace">{{info.avg_score|default(0)|round(0)|int}}%</div>
    <div style="font-size:13px;font-weight:600;color:var(--tx)">{{strat}}</div>
-   <div style="font-size:12px;color:var(--tx2,#8b949e)">{{info.count|default(0)}} runs</div>
+   <div style="font-size:12px;color:var(--tx2,#8b949e)">{{info.total|default(0)}} runs</div>
   </div>
   {% endfor %}
  </div>
