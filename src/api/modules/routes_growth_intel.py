@@ -665,10 +665,10 @@ Our advantages:
 I'd be happy to provide pricing on any upcoming needs. Feel free to send over a 704 form or requisition anytime.
 
 Best regards,
-Mike Gorzell
+Michael Guadan
 Reytech Inc.
-mike@reytechinc.com
-(916) 548-9484"""
+sales@reytechinc.com
+(949) 229-1575"""
     },
     "follow_up": {
         "subject": "Following Up — Reytech Inc. for {facility}",
@@ -681,7 +681,7 @@ We recently fulfilled orders for {reference_facility} in the same {agency} netwo
 If you have any upcoming needs or 704 forms to price, please don't hesitate to reach out.
 
 Best,
-Mike Gorzell
+Michael Guadan
 Reytech Inc."""
     },
     "capability": {
@@ -702,9 +702,9 @@ We maintain competitive pricing through direct manufacturer and distributor rela
 I welcome the opportunity to discuss how we can support {facility}.
 
 Regards,
-Mike Gorzell
+Michael Guadan
 Reytech Inc.
-mike@reytechinc.com"""
+sales@reytechinc.com"""
     },
 }
 
