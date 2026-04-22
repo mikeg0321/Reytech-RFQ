@@ -901,12 +901,21 @@ def api_outreach_draft():
 
     template = _OUTREACH_TEMPLATES.get(template_key, _OUTREACH_TEMPLATES["intro"])
 
-    # Find a reference facility (one we've served in the same agency)
+    # Find a reference facility (one we've served in the same agency).
+    # IN-9: agency strings are stored inconsistently across the codebase —
+    # the institution resolver emits lowercase ("cchcs") while UI + RFQ
+    # forms use uppercase ("CCHCS"). A case-sensitive compare here loses
+    # every match that happens to be stored in the opposite case and the
+    # outreach template falls back to "other facilities" — a real
+    # reference-erosion bug the operator never sees. Normalize both sides.
     reference = ""
     try:
         from src.forms.quote_generator import get_all_quotes as _gaq
+        _target_agency = (target.get("agency", "") or "").strip().lower()
         for q in _gaq():
-                if q.get("agency", "") == target.get("agency", "") and q.get("status") in ("sent", "won"):
+                _q_agency = (q.get("agency", "") or "").strip().lower()
+                if (_target_agency and _q_agency == _target_agency
+                        and q.get("status") in ("sent", "won")):
                     reference = q.get("institution", "") or q.get("ship_to_name", "")
                     if reference:
                         break
