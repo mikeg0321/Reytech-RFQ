@@ -1182,16 +1182,7 @@ Total: ${total:,.2f}
 
 We will begin processing this order immediately and provide tracking information as items ship.
 
-Should you have any questions, please don't hesitate to reach out.
-
-Respectfully,
-
-Michael Guadan
-Reytech Inc.
-30 Carnoustie Way, Trabuco Canyon, CA 92679
-949-229-1575
-sales@reytechinc.com
-SB/DVBE Cert #2002605"""
+Should you have any questions, please don't hesitate to reach out."""
 
     # HTML body with styled table + signature
     body_html = f"""<div style="font-family:'Segoe UI',Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
@@ -1222,27 +1213,6 @@ SB/DVBE Cert #2002605"""
 
 <p>We will begin processing this order immediately and provide tracking information as items ship.</p>
 <p>Should you have any questions, please don't hesitate to reach out.</p>
-
-<br>
-<div style="border-top:1px solid #ddd;padding-top:12px;margin-top:12px">
- <table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif">
-  <tr>
-   <td style="padding-right:16px;vertical-align:top">
-    <img src="https://reytechinc.com/logo.png" alt="Reytech Inc." style="width:80px;height:auto" onerror="this.style.display='none'">
-   </td>
-   <td style="vertical-align:top">
-    <div style="font-weight:700;font-size:14px;color:#1a1a2e">Michael Guadan</div>
-    <div style="font-size:14px;color:#666">Reytech Inc.</div>
-    <div style="font-size:14px;color:#666">30 Carnoustie Way, Trabuco Canyon, CA 92679</div>
-    <div style="font-size:14px;margin-top:4px">
-     <a href="tel:9492291575" style="color:#2563eb;text-decoration:none">949-229-1575</a> |
-     <a href="mailto:sales@reytechinc.com" style="color:#2563eb;text-decoration:none">sales@reytechinc.com</a>
-    </div>
-    <div style="font-size:14px;color:#888;margin-top:2px">SB/DVBE Cert #2002605 · <a href="https://reytechinc.com" style="color:#2563eb;text-decoration:none">reytechinc.com</a></div>
-   </td>
-  </tr>
- </table>
-</div>
 </div>"""
 
     # Find original email thread info from processed emails
@@ -3026,14 +2996,8 @@ Please see below for the latest delivery status update on PO {po} for {instituti
         if note:
             body += f"\nNote: {note}\n"
 
-        body += f"""
+        body += """
 If you have any questions about this order, please don't hesitate to reach out.
-
-Best regards,
-Mike Gonzales
-Reytech Inc.
-(949) 229-1575
-mike@reytechinc.com
 """
 
         # Find original PO sender emails for reply-all
