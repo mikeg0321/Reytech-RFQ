@@ -143,6 +143,38 @@ def ingest(
 
 # ── Step 2: Pricing enrichment ─────────────────────────────────────────────
 
+def _oracle_recommendation_to_flat(raw: dict) -> dict:
+    """Flatten pricing_oracle_v2.get_pricing() output into the shape
+    enrich_pricing expects. get_pricing returns nested dicts (cost, market,
+    matched_item, recommendation); we project the fields the quote engine
+    populates on each LineItem."""
+    if not raw:
+        return {}
+    matched = raw.get("matched_item") or {}
+    cost = raw.get("cost") or {}
+    market = raw.get("market") or {}
+    rec = raw.get("recommendation") or {}
+
+    flat = {
+        "asin": matched.get("asin") or "",
+        "supplier": matched.get("supplier") or cost.get("supplier") or "",
+        "source_url": matched.get("product_url") or matched.get("supplier_url") or "",
+        "confidence": raw.get("confidence") or matched.get("confidence") or 0,
+        "catalog_cost": (
+            cost.get("locked_cost")
+            or matched.get("last_cost")
+            or 0
+        ),
+        "scprs_price": market.get("competitor_low") or market.get("low") or 0,
+        "unit_cost": cost.get("locked_cost") or 0,
+        "source": (raw.get("sources_used") or ["oracle"])[0],
+    }
+    # recommendation price becomes a reference ceiling (non-cost-basis)
+    if rec.get("recommended_price"):
+        flat["recommended_price"] = rec["recommended_price"]
+    return flat
+
+
 def enrich_pricing(quote: Quote, *, apply: bool = False) -> Quote:
     """Populate price recommendations on each line item.
 
@@ -158,7 +190,7 @@ def enrich_pricing(quote: Quote, *, apply: bool = False) -> Quote:
     environments where the oracle DB isn't seeded.
     """
     try:
-        from src.core.pricing_oracle_v2 import recommend_for_item
+        from src.core.pricing_oracle_v2 import get_pricing
     except Exception as e:
         log.info("quote_engine.enrich_pricing: oracle unavailable (%s) — skipping", e)
         return quote
@@ -167,11 +199,12 @@ def enrich_pricing(quote: Quote, *, apply: bool = False) -> Quote:
         if item.no_bid:
             continue
         try:
-            rec = recommend_for_item(
+            raw = get_pricing(
                 description=item.description,
-                part_number=item.item_no,
-                qty=float(item.qty),
+                quantity=float(item.qty or 1),
+                item_number=item.item_no or "",
             )
+            rec = _oracle_recommendation_to_flat(raw)
         except Exception as e:
             log.warning("oracle lookup failed for line %d: %s", item.line_no, e)
             continue
