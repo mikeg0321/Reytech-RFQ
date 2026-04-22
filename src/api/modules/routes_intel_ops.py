@@ -2366,25 +2366,10 @@ def api_outbox_send_all():
     Runtime override via `outbox.send_approved_enabled=true` feature
     flag for when the rewrite lands.
     """
-    try:
-        from src.core.flags import get_flag
-        if not get_flag("outbox.send_approved_enabled", False):
-            return jsonify({
-                "ok": False,
-                "error": "BLOCKED: Send All Approved is disabled until the "
-                         "CS-reply agent rewrite ships. Review drafts "
-                         "individually in /outbox.",
-                "blocked_reason": "ux_audit_p0_2",
-            }), 423
-    except Exception as e:
-        log.debug("send-approved flag check failed: %s", e)
-        # If the flag layer is broken, default-deny — this is a
-        # destructive bulk action.
-        return jsonify({
-            "ok": False,
-            "error": "BLOCKED: feature flag layer unavailable, "
-                     "defaulting to deny for send-approved.",
-        }), 423
+    from src.core.flags import send_approved_guard_ok
+    ok, blocked = send_approved_guard_ok(label="Send All Approved")
+    if not ok:
+        return jsonify(blocked), 423
     if not OUTREACH_AVAILABLE:
         return jsonify({"ok": False, "error": "Email outreach agent not available"})
     return jsonify({"ok": True, **send_approved()})

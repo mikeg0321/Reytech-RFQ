@@ -273,9 +273,54 @@ def list_flags() -> list:
     return out
 
 
+def send_approved_guard_ok(*, label: str) -> tuple:
+    """Shared killswitch helper for every live outbound-email route (IN-7).
+
+    Returns `(True, None)` if the `outbox.send_approved_enabled` flag is on
+    and live sends are permitted. Returns `(False, payload)` otherwise, where
+    `payload` is the JSON body the caller should return with HTTP 423
+    (Locked). Fails *closed* — if the flag layer itself errors, the helper
+    returns a deny payload so a half-broken DB can never accidentally open
+    the killswitch.
+
+    `label` is the human-readable name of the action ("Send All Approved",
+    "Live growth outreach", "Distro-list campaign"). It shows up in the
+    blocked-reason body so logs / UI stay specific per call site.
+
+    Before this existed, each route open-coded the flag check with subtly
+    different error strings — and the distro-list campaign silently
+    *didn't* check it at all. Extracting the guard closes that killswitch
+    inconsistency.
+    """
+    try:
+        if not get_flag("outbox.send_approved_enabled", False):
+            return False, {
+                "ok": False,
+                "error": (
+                    f"BLOCKED: {label} is disabled until the CS-reply "
+                    f"agent rewrite ships. Use dry_run=true to preview, "
+                    f"or review drafts individually in /outbox."
+                ),
+                "blocked_reason": "ux_audit_p0_2",
+            }
+    except Exception as e:
+        log.debug("send_approved_guard_ok flag check failed: %s", e)
+        # Flag layer broken → deny. This endpoint is destructive enough
+        # that fail-closed is the only safe default.
+        return False, {
+            "ok": False,
+            "error": (
+                f"BLOCKED: feature flag layer unavailable, "
+                f"defaulting to deny for {label}."
+            ),
+        }
+    return True, None
+
+
 __all__ = [
     "get_flag",
     "set_flag",
     "delete_flag",
     "list_flags",
+    "send_approved_guard_ok",
 ]
