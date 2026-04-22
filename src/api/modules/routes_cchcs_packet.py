@@ -23,7 +23,7 @@ from flask import jsonify, request
 
 from src.api.shared import bp, auth_required
 from src.core.error_handler import safe_route
-from src.core.paths import DATA_DIR
+from src.core.paths import DATA_DIR, OUTPUT_DIR
 
 log = logging.getLogger("reytech")
 
@@ -123,7 +123,13 @@ def api_cchcs_packet_generate(pcid):
         })
 
     # ── Fill ──
-    output_dir = os.path.dirname(source_pdf) or DATA_DIR
+    # CC-1: filled packets must land in OUTPUT_DIR (persistent volume on
+    # Railway), not in the upload directory next to the source. Before
+    # this fix the filled PDF sat in uploads/ forever, which
+    # (a) polluted the raw-source directory with generated artifacts and
+    # (b) left the output vulnerable to upload-dir cleanup routines.
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    output_dir = OUTPUT_DIR
     # Gate enforcement: strict mode blocks fill from returning ok=True
     # if any critical business rule is violated. Dry-run preview still
     # runs every check but surfaces issues without blocking.
@@ -162,9 +168,17 @@ def api_cchcs_packet_generate(pcid):
     output_name = os.path.basename(output_path)
     download_url = f"/api/pricecheck/download/{output_name}"
 
-    # ── Persist output_pdf on the PC so the UI shows a download button ──
+    # ── Persist output on the PC so the UI shows a download button ──
+    # CC-2: store the packet output under its OWN slot
+    # (cchcs_packet_output_pdf). The generic `output_pdf` slot is used
+    # by the 704 generator; overwriting it meant that whichever fill
+    # ran last won the single download slot, and earlier artifacts went
+    # silently invisible in the UI.
     try:
-        pc["output_pdf"] = output_path
+        pc["cchcs_packet_output_pdf"] = output_path
+        # Keep `output_pdf` pointing at the packet only if nothing else
+        # has claimed the slot yet — don't clobber an already-generated 704.
+        pc.setdefault("output_pdf", output_path)
         pc["cchcs_packet_last_generated"] = {
             "at": _utc_now_iso(),
             "rows_priced": fill_result["rows_priced"],
@@ -177,6 +191,25 @@ def api_cchcs_packet_generate(pcid):
         _save_single_pc(pcid, pc)
     except Exception as _se:
         log.debug("cchcs_packet save-pc metadata: %s", _se)
+
+    # ── CC-5: register the generated PDF in rfq_files so it surfaces
+    # on the Files tab and participates in the DB-backed file index.
+    # Before this fix the packet output existed only on disk — the
+    # /Files tab and analytics that enumerate rfq_files never saw it.
+    try:
+        from src.api.dashboard import save_rfq_file
+        with open(output_path, "rb") as _fh:
+            _pdf_bytes = _fh.read()
+        save_rfq_file(
+            pcid,
+            output_name,
+            "application/pdf",
+            _pdf_bytes,
+            category="cchcs_packet",
+            uploaded_by="system",
+        )
+    except Exception as _re:
+        log.warning("cchcs_packet register in rfq_files failed for %s: %s", pcid, _re)
 
     log.info(
         "cchcs_packet generated for %s: matched=%d unmatched=%d total=$%.2f file=%s",
