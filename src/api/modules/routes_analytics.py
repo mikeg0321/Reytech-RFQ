@@ -4184,13 +4184,24 @@ def _build_bi_data(conn):
         ).fetchone()[0] or 0)
     except Exception as _e:
         log.debug('suppressed in _build_bi_data: %s', _e)
-    won_revenue = max(won_revenue_quotes, won_revenue_orders, revenue_logged)
-    # Count won from orders too
-    try:
-        orders_count = conn.execute("SELECT COUNT(*) FROM orders WHERE status NOT IN ('cancelled','')").fetchone()[0] or 0
-        won_quotes = max(won_quotes, orders_count)
-    except Exception as _e:
-        log.debug('suppressed in _build_bi_data: %s', _e)
+    # AN-3: pick canonical source, do NOT max() across overlapping tables.
+    # A won quote converts to an order and may also be logged in revenue_log —
+    # max() picks the largest single source (avoiding triple-count) but lets a
+    # stale/partial table dictate the headline, and a late revenue_log write
+    # would inflate versus reality. Orders is the invoiced-revenue source of
+    # truth; fall back to quotes.status='won' only when the orders table is
+    # empty (fresh install / pre-migration).
+    if won_revenue_orders > 0:
+        won_revenue = won_revenue_orders
+    elif won_revenue_quotes > 0:
+        won_revenue = won_revenue_quotes
+    else:
+        won_revenue = revenue_logged
+    # AN-3: do NOT max() won_quotes count against orders_count. orders_count
+    # above counts orders with status NOT IN ('cancelled','') — that includes
+    # draft/open/pending, so it is a pipeline count, not a won count. max()ing
+    # it into won_quotes inflated both the win_rate denominator and avg_deal.
+    # Keep won_quotes = quotes.status='won' only.
     pipeline_revenue = float(conn.execute("SELECT COALESCE(SUM(total),0) FROM quotes WHERE is_test=0 AND status IN ('sent','draft','priced')").fetchone()[0] or 0)
     bi["bid_to_win"] = {
         "total_bids": total_quotes,
