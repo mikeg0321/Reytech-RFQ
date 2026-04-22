@@ -1363,14 +1363,12 @@ def send_follow_up(entity_type, eid):
         return jsonify({"ok": False, "error": "No recipient email"}), 400
 
     subject = data.get("subject") or f"Follow Up — Quote for #{sol}"
+    # Gmail auto-appends the canonical signature — no app-level sig here.
     body = data.get("body") or f"""<div style="font-family:Arial,sans-serif;color:#333">
 <p>Dear {name or 'Procurement Officer'},</p>
 <p>I'm following up on our quote submitted for <strong>#{sol}</strong>.
 Please let us know if you have any questions or need any revisions.</p>
 <p>We remain ready to support your procurement needs.</p>
-<br>
-<p>Best regards,<br><strong>Reytech Inc.</strong><br>
-Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
 </div>"""
 
     # Send via Gmail
@@ -1465,9 +1463,6 @@ def bulk_follow_up():
 <p>I'm following up on our quote submitted for <strong>#{sol}</strong>.
 Please let us know if you have any questions or need revisions.</p>
 <p>We remain ready to support your procurement needs.</p>
-<br>
-<p>Best regards,<br><strong>Reytech Inc.</strong><br>
-Michael Guadan · 949-229-1575 · sales@reytechinc.com</p>
 </div>"""
 
                 msg = MIMEMultipart()

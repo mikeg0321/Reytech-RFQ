@@ -425,24 +425,16 @@ def upload_sig_logo():
 
 
 def _build_default_signature():
-    """Build the default Reytech email signature HTML for compose section."""
-    return """<table cellpadding="0" cellspacing="0" style="font-family:'Segoe UI',Arial,sans-serif;margin-top:12px">
- <tr>
-  <td style="padding-right:14px;vertical-align:top"><img src="cid:reytech_logo" alt="Reytech Inc." style="width:120px;height:auto;display:block"></td>
-  <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
-   <strong style="font-size:14px;color:#1a1a2e">Michael Guadan</strong><br>
-   <strong>Reytech Inc.</strong><br>
-   <a href="tel:9492291575" style="color:#2563eb;text-decoration:none">(949) 229-1575</a><br>
-   <a href="mailto:sales@reytechinc.com" style="color:#2563eb;text-decoration:none">sales@reytechinc.com</a><br>
-   DVBE / Small Business Certified<br>
-   <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a>
-  </td>
- </tr>
-</table>
-<div style="font-size:11px;color:#999;margin-top:8px;line-height:1.4">
-CA MB/SB/SB-PW/DVBE #2002605 &middot; NY SDVOB 221449<br>
-DOT DBE #44511 &middot; MBE SC6550 &middot; SBA-SDVOB (FWWSKE9113T7)
-</div>"""
+    """Return empty — Gmail auto-appends the canonical signature.
+
+    Previously auto-generated a hardcoded Reytech HTML signature on first
+    load of /api/email-signature, which stacked on top of Gmail's own
+    auto-sig on every send. Per CLAUDE.md "Gmail Handles Signatures", the
+    app must not inject one. Users who want an explicit compose-time sig
+    can still save one via POST /api/email-signature (that's a user
+    choice, not an app default).
+    """
+    return ""
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -146,14 +146,7 @@ Quote Summary:
 
 All items are quoted F.O.B. Destination, freight prepaid and included.
 
-We appreciate the opportunity to serve {institution} and look forward to your response.
-
-Best regards,
-Michael Guadan
-Reytech Inc.
-949-229-1575
-sales@reytechinc.com
-SB/DVBE Cert #2002605"""
+We appreciate the opportunity to serve {institution} and look forward to your response."""
 
     attachments = []
     if pdf_path and os.path.exists(pdf_path):
@@ -206,14 +199,7 @@ Reytech Inc. is a certified Small Business (SB/DVBE) reseller specializing in Ca
 
 We would welcome the opportunity to be added to the quote list for this and future Purchase Orders. We typically respond within 24 hours with competitive pricing and can meet all delivery requirements.
 
-Would you be open to a brief conversation about how Reytech can support {institution}?
-
-Best regards,
-Michael Guadan
-Reytech Inc.
-949-229-1575
-sales@reytechinc.com
-SB/DVBE Cert #2002605"""
+Would you be open to a brief conversation about how Reytech can support {institution}?"""
 
     return {
         "id": hashlib.md5(f"lead-{po_number}{time.time()}".encode()).hexdigest()[:12],
