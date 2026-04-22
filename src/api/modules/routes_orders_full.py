@@ -3306,32 +3306,51 @@ def api_order_line_margins(oid):
 @auth_required
 @safe_route
 def api_order_line_cost(oid, lid):
-    """Update cost for a single line item."""
+    """Update cost for a single line item.
+
+    Persists via order_dal.update_line_status so the write lands on
+    order_line_items.unit_cost (the authoritative column read by get_order
+    and the margins endpoint). Prior implementation wrote `it["cost"]` into
+    an in-memory dict and called `_save_orders(orders)` — save_line_items_batch
+    reads `unit_cost` first, so the new cost was silently discarded on the
+    DELETE/INSERT round-trip. Per O-1 / O-11 (audit 2026-04-21).
+    """
     try:
-        orders = _load_orders()
-        order = orders.get(oid)
+        from src.core.order_dal import get_order as _get_order
+        from src.core.order_dal import update_line_status
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Not found"})
 
         data = request.get_json(silent=True) or {}
-        cost = data.get("cost", 0)
+        cost_val = float(data.get("cost", 0) or 0)
 
+        # Locate the line so we can compute margin + produce a user-facing
+        # description for the audit log without a second DB round-trip.
+        target = None
         for it in order.get("line_items", []):
-            if it.get("line_id") == lid:
-                old_cost = it.get("cost", 0)
-                it["cost"] = float(cost)
-                sell = it.get("unit_price", 0) or 0
-                it["margin_pct"] = round(((sell - float(cost)) / sell * 100), 1) if sell > 0 else 0
+            if it.get("line_id") == lid or str(it.get("id")) == str(lid):
+                target = it
+                break
+        if target is None:
+            return jsonify({"ok": False, "error": "Line not found"})
 
-                log_order_event(oid, "cost_updated", "cost",
-                                f"${old_cost:.2f}", f"${float(cost):.2f}",
-                                "user", f"Line {lid}: {it.get('description', '')[:40]}")
+        old_cost = target.get("unit_cost", target.get("cost", 0)) or 0
+        sell = target.get("unit_price", 0) or 0
+        margin_pct = round(((sell - cost_val) / sell * 100), 1) if sell > 0 else 0
 
-                orders[oid] = order
-                _save_orders(orders)
-                return jsonify({"ok": True, "margin_pct": it["margin_pct"]})
+        ok = update_line_status(oid, lid, "unit_cost", cost_val, actor="user")
+        if not ok:
+            return jsonify({"ok": False, "error": "Persist failed"}), 500
 
-        return jsonify({"ok": False, "error": "Line not found"})
+        try:
+            log_order_event(oid, "cost_updated", "unit_cost",
+                            f"${float(old_cost):.2f}", f"${cost_val:.2f}",
+                            "user", f"Line {lid}: {target.get('description', '')[:40]}")
+        except Exception as _e:
+            log.warning("line-cost event log suppressed: %s", _e)
+
+        return jsonify({"ok": True, "margin_pct": margin_pct})
     except Exception as e:
         log.error("api_order_line_cost error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
