@@ -44,10 +44,14 @@ def drain_skips() -> list[SkipReason]:
 
 
 def get_pricing(description, quantity=1, cost=None, item_number="",
-                department="", force_refresh=False, qty_per_uom=1):
+                department="", force_refresh=False, qty_per_uom=1,
+                line_count=None):
     """THE pricing function. Call this for everything.
     qty_per_uom: pack size (e.g., 200 for a box of 200 markers). Used to
-    normalize cost to per-unit for proper comparison with market data."""
+    normalize cost to per-unit for proper comparison with market data.
+    line_count: total line count on the quote/PC (BUILD-2). When the
+    caller knows this, the volume-aware band narrows by line-count
+    bucket; missing it falls to the mid-density 'lc_4_15' default."""
     import sqlite3
     from src.core.db import DB_PATH
 
@@ -110,7 +114,8 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     rec = _calculate_recommendation(cost, result["market"], quantity,
                                      category=category, agency=department, _db=db,
                                      qty_per_uom=qty_per_uom,
-                                     win_history=result.get("matched_item"))
+                                     win_history=result.get("matched_item"),
+                                     line_count=line_count)
     result["strategies"] = rec.pop("strategies", [])
     result["tiers"] = rec.pop("tiers", [])
     result["recommendation"] = rec
@@ -122,10 +127,11 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
         from src.core.volume_aware_pricing import volume_aware_ceiling, get_volume_band
         va_cost = (cost if cost and cost > 0
                    else (result.get("cost", {}) or {}).get("locked_cost") or 0)
-        va_band = get_volume_band(department or "", quantity)
+        va_band = get_volume_band(department or "", quantity, line_count)
         if va_band:
             result["volume_aware_band"] = va_band
-        va = volume_aware_ceiling(va_cost, department or "", quantity) if va_cost else None
+        va = volume_aware_ceiling(va_cost, department or "", quantity,
+                                   line_count) if va_cost else None
         if va:
             result["volume_aware"] = va
     except Exception as _vae:
@@ -576,7 +582,8 @@ def _analyze_market_prices(market_prices, request_qty):
 
 
 def _calculate_recommendation(cost, market, quantity, category=None, agency=None,
-                               _db=None, qty_per_uom=1, win_history=None):
+                               _db=None, qty_per_uom=1, win_history=None,
+                               line_count=None):
     result = {"strategies": [], "tiers": [], "rationale": "",
               "quote_price": None, "markup_pct": None, "confidence": "low",
               "calibration": None, "win_anchor": None}
@@ -748,17 +755,20 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
         from src.core.flags import get_flag
         from src.core.volume_aware_pricing import get_volume_band
         if has_cost and get_flag("oracle.volume_aware", True):
-            vb = get_volume_band(agency or "", qty)
+            vb = get_volume_band(agency or "", qty, line_count)
             if vb and vb.get("sample_size", 0) >= 10 and vb.get("p75_margin") is not None:
                 va_ceiling = round(cost * (1 + float(vb["p75_margin"])), 2)
                 va_band_info = {
                     "agency": vb["agency"],
                     "qty_bucket": vb["qty_bucket"],
+                    "line_count_bucket": vb.get("line_count_bucket"),
                     "sample_size": vb["sample_size"],
                     "p25_margin_pct": round(float(vb["p25_margin"]) * 100, 1) if vb.get("p25_margin") is not None else None,
                     "p50_margin_pct": round(float(vb["p50_margin"]) * 100, 1) if vb.get("p50_margin") is not None else None,
                     "p75_margin_pct": round(float(vb["p75_margin"]) * 100, 1) if vb.get("p75_margin") is not None else None,
                     "used_fallback": vb.get("used_fallback", False),
+                    "used_fallback_agency": vb.get("used_fallback_agency", False),
+                    "used_fallback_lc": vb.get("used_fallback_lc", False),
                     "ceiling_price": va_ceiling,
                 }
                 result["volume_aware"] = va_band_info
