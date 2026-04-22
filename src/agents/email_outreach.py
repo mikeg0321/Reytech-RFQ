@@ -271,9 +271,16 @@ def approve_email(email_id: str) -> dict:
                 return {"ok": False, "error": f"Email is {email['status']}, not draft"}
             if not email.get("to"):
                 return {"ok": False, "error": "No recipient email address"}
+            # OB-18: audit-log the status transition so we can reconstruct who
+            # approved what when a duplicate-send incident is investigated.
+            prev_status = email["status"]
             email["status"] = "approved"
             email["updated_at"] = datetime.now().isoformat()
             _save_outbox(outbox)
+            log.info(
+                "approve_email: id=%s to=%s subject=%r status %s -> approved",
+                email_id, email.get("to"), (email.get("subject") or "")[:80], prev_status,
+            )
             return {"ok": True, "email": email}
     return {"ok": False, "error": "Email not found in outbox"}
 

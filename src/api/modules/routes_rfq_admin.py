@@ -476,7 +476,11 @@ def save_gmail_draft(rid):
         # Build the MIME message
         msg = MIMEMultipart("mixed")
         email_cfg = CONFIG.get("email", {})
-        from_name = email_cfg.get("from_name", "Michael Guadan - Reytech Inc.")
+        # OB-16: source the default from the canonical identity constants so
+        # a single env override (REYTECH_SIGNER_NAME / REYTECH_COMPANY) updates
+        # every send-path. `sales@reytechinc.com` lives in email_signature.EMAIL.
+        from src.core.email_signature import NAME as _SIG_NAME, COMPANY as _SIG_COMPANY
+        from_name = email_cfg.get("from_name", f"{_SIG_NAME} - {_SIG_COMPANY}")
         from_addr = email_cfg.get("email", os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com"))
         password = email_cfg.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
 

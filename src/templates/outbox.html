@@ -5,6 +5,14 @@
 {% block content %}
 {{ crm_tabs('outbox') }}
 
+{% if load_error %}
+<div role="alert" style="margin-bottom:16px;padding:12px 14px;background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.5);border-left:4px solid var(--rd);border-radius:6px;color:var(--rd);font-size:14px">
+ <strong>⚠️ Outbox partially loaded —</strong> the queue shown below may be incomplete.<br>
+ <span style="font-size:13px;color:var(--tx2)">{{ load_error }}</span><br>
+ <span style="font-size:12px;color:var(--tx2)">Check server logs for full traceback. <a href="/outbox" style="color:var(--ac)">Retry</a>.</span>
+</div>
+{% endif %}
+
 <style>
 .btn{padding:5px 12px;border:1px solid var(--bd);border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:.15s;text-decoration:none}
 .btn:hover{opacity:.8}
@@ -151,7 +159,20 @@ function approveCS(id,btn){
   btn.disabled=true;btn.textContent='Sending...';
   fetch('/api/email/approve-cs',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({draft_id:id})})
   .then(r=>r.json()).then(d=>{
-    if(d.ok){btn.textContent='✅ Sent!';setTimeout(()=>location.reload(),1200)}
+    if(d.ok){
+      // OB-13: per the OB-1 invariant, `ok=true` + `warning` means the send
+      // succeeded at SMTP but the DB persist failed. Surface the warning so
+      // an operator does NOT click Approve again (duplicate-send risk).
+      if(d.warning){
+        btn.textContent='⚠️ Sent (warning)';
+        btn.style.background='var(--yl, #facc15)';
+        btn.title=d.warning;
+        alert('Email sent, but: '+d.warning+'\n\nDO NOT re-approve — this may cause a duplicate send. Refresh and verify status.');
+      } else {
+        btn.textContent='✅ Sent!';
+      }
+      setTimeout(()=>location.reload(),1500);
+    }
     else{btn.disabled=false;btn.textContent='Error: '+(d.error||'unknown')}
   }).catch(()=>{btn.disabled=false;btn.textContent='Error'});
 }
