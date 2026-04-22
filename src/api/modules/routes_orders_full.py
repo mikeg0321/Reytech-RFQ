@@ -3093,10 +3093,14 @@ mike@reytechinc.com
 @bp.route("/supplier/<name>")
 @auth_required
 @safe_page
-def supplier_record_page(n):
-    """Supplier record page — shows all orders, items, and activity for a supplier."""
+def supplier_record_page(name):
+    """Supplier record page — shows all orders, items, and activity for a supplier.
+
+    O-5: parameter was `n` while the route captured `<name>`; Flask raised
+    TypeError on every call, caught + buried by @safe_page.
+    """
     import urllib.parse
-    supplier_name = urllib.parse.unquote_plus(n)
+    supplier_name = urllib.parse.unquote_plus(name)
     orders = _load_orders()
 
     # Find all line items for this supplier across all orders
@@ -3441,16 +3445,23 @@ def api_order_emails(oid):
                 return jsonify({"ok": True, "emails": [], "count": 0})
 
             where = " OR ".join(conditions)
-            rows = conn.execute("""
+            # O-2: `where` is assembled from a fixed allowlist of SQL fragments
+            # above — user input only reaches `params` as bound ? placeholders.
+            # Safe to f-string. Previous implementation put literal text inside
+            # a triple-quoted string (no interpolation) which produced invalid
+            # SQL that the log.debug swallow buried — Emails tab always empty.
+            sql = f"""
                 SELECT id, subject, sender, received_at, classification,
                        substr(body, 1, 200) as preview
                 FROM processed_emails
-                WHERE " + where + "
+                WHERE {where}
                 ORDER BY received_at DESC LIMIT 30
-            """, params).fetchall()
+            """
+            rows = conn.execute(sql, params).fetchall()
             emails = [dict(r) for r in rows]
     except Exception as e:
-        log.debug("Email thread: %s", e)
+        # O-2: escalated from log.debug. SQL errors should be visible.
+        log.warning("api_order_emails query failed for %s: %s", oid, e)
 
     return jsonify({"ok": True, "emails": emails, "count": len(emails)})
 

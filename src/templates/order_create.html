@@ -159,8 +159,10 @@ if (quoteInput) {
     debounce = setTimeout(function() {
       fetch('/api/quote/lookup?q=' + encodeURIComponent(qn)).then(function(r){return r.json()}).then(function(d) {
         var el = document.getElementById('quote-match');
-        if (d.ok && d.quote) {
-          el.innerHTML = '<span style="color:#3fb950">✅ Found: ' + d.quote.quote_number + ' — $' + (d.quote.total||0).toLocaleString() + ' · ' + (d.quote.institution||'') + '</span>';
+        // O-6: API returns {ok, results:[...]} not {ok, quote}.
+        var match = (d && d.ok && d.results && d.results.length) ? d.results[0] : null;
+        if (match) {
+          el.innerHTML = '<span style="color:#3fb950">✅ Found: ' + (match.quote_number||match.id||'') + ' — $' + (match.total||0).toLocaleString() + ' · ' + (match.institution||'') + '</span>';
         } else {
           el.innerHTML = '<span style="color:var(--tx2)">No match</span>';
         }
