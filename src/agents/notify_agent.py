@@ -630,6 +630,61 @@ def start_stale_watcher():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# DEADLINE ESCALATION WATCHER (background thread — GRILL-Q3)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_deadline_watcher_started = False
+
+def start_deadline_watcher():
+    """Alert hourly when an active PC/RFQ is <4h out or overdue.
+
+    Complements the UI hard-alert modal (base.html) for when the operator
+    is away from the dashboard — SMS + email fire via send_alert() with
+    a per-bid cooldown so a single overdue item doesn't spam every hour.
+    """
+    global _deadline_watcher_started
+    if _deadline_watcher_started:
+        return
+    _deadline_watcher_started = True
+
+    def _watch():
+        from src.core.scheduler import _shutdown_event, heartbeat
+        _shutdown_event.wait(3600)
+        while not _shutdown_event.is_set():
+            try:
+                from src.api.modules.routes_deadlines import _scan_deadlines
+                critical = _scan_deadlines(urgencies={"overdue", "critical"})
+                for it in critical:
+                    is_overdue = it["urgency"] == "overdue"
+                    icon = "🚨" if is_overdue else "⏰"
+                    label = "OVERDUE" if is_overdue else "DUE SOON"
+                    pc_num = it.get("pc_number") or it["doc_id"][:8]
+                    inst = it.get("institution") or "—"
+                    send_alert(
+                        event_type="deadline_critical",
+                        title=f"{icon} {label}: {pc_num} ({inst})",
+                        body=f"{it['countdown_text']} — {it.get('item_count', 0)} item(s). Open: {it['url']}",
+                        urgency="urgent",
+                        context={"doc_id": it["doc_id"], "doc_type": it["doc_type"],
+                                 "entity_id": it["doc_id"], "urgency": it["urgency"]},
+                        # Per-bid key + 1h cooldown = max one alert per bid per hour.
+                        cooldown_key=f"deadline_critical:{it['doc_id']}",
+                        cooldown_seconds=3600,
+                        run_async=False,
+                    )
+                heartbeat("deadline-watcher", success=True)
+            except Exception as e:
+                log.debug("Deadline watcher error: %s", e)
+                heartbeat("deadline-watcher", success=False, error=str(e)[:200])
+            _shutdown_event.wait(3600)
+        log.info("Deadline watcher shutting down")
+
+    t = threading.Thread(target=_watch, daemon=True, name="deadline-watcher")
+    t.start()
+    log.info("Deadline escalation watcher started (checks hourly, alerts on <4h/overdue bids)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # PERSISTENT BELL — get notifications from SQLite
 # ══════════════════════════════════════════════════════════════════════════════
 
