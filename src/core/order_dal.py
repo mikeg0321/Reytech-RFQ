@@ -100,8 +100,19 @@ def get_order(order_id: str) -> dict | None:
 
             if line_rows:
                 order["line_items"] = [_row_to_line_item(lr) for lr in line_rows]
+                # O-28: line_items are authoritative — recompute header total from
+                # line extendeds. orders.total column can drift because line edits
+                # touch order_line_items but not orders.total. Reading the canonical
+                # value here means /api/orders/kpi and /api/order/<oid>/margins
+                # definitionally agree.
+                order["total"] = round(sum(
+                    (it.get("extended_price")
+                     or (it.get("qty_ordered") or 0) * (it.get("unit_price") or 0))
+                    for it in order["line_items"]
+                ), 2)
             else:
-                # No normalized line items — parse from items JSON column
+                # No normalized line items — parse from items JSON column; preserve
+                # header total (nothing authoritative to recompute from).
                 order["line_items"] = _safe_json(order.get("items"), [])
 
             # Hydrate status_history to list (parity with get_order_detail).
@@ -166,6 +177,14 @@ def list_orders(status: str = None, agency: str = None,
 
                 if line_rows:
                     items = [_row_to_line_item(lr) for lr in line_rows]
+                    # O-28: normalized lines are authoritative — recompute header
+                    # total from line extendeds so queue/KPI never show a drifted
+                    # header. See get_order() for the same canonicalization.
+                    order["total"] = round(sum(
+                        (it.get("extended_price")
+                         or (it.get("qty_ordered") or 0) * (it.get("unit_price") or 0))
+                        for it in items
+                    ), 2)
                 else:
                     items = _safe_json(order.get("items"), [])
 
