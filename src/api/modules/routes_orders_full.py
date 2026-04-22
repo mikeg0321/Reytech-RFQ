@@ -1130,11 +1130,15 @@ def api_order_delete(oid):
     return jsonify({"ok": True, "deleted": oid, "reason": reason})
 
 
-@bp.route("/api/order/<oid>/reply-all")
+@bp.route("/api/order/<oid>/reply-all", methods=["POST"])
 @auth_required
 @safe_route
 def api_order_reply_all(oid):
-    """Draft PO confirmation reply-all email → saved to outbox for review + send."""
+    """Draft PO confirmation reply-all email → saved to outbox for review + send.
+
+    POST-only (O-14): this route mutates (writes a draft to outbox). GET would
+    let link-preview bots and browser prefetch create phantom drafts.
+    """
     from src.core.order_dal import get_order as _get_order
     order = _get_order(oid)
     if not order:
@@ -3355,12 +3359,13 @@ def calc_order_aging(order: dict) -> dict:
     elif status == "new" and age_days >= 3:
         severity = "critical"
         badge = "🔴"
+    # O-16: critical >=10 must be checked before warning >=5 or it never fires.
+    elif stale_days >= 10 and status not in ("closed", "invoiced"):
+        severity = "critical"
+        badge = "🔴"
     elif stale_days >= 5 and status not in ("closed", "invoiced"):
         severity = "warning"
         badge = "🟡"
-    elif stale_days >= 10:
-        severity = "critical"
-        badge = "🔴"
     else:
         severity = "ok"
         badge = "🟢"

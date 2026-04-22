@@ -231,8 +231,8 @@
      </div>
     </div>
     {% endif %}
-      <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="link-quote-btn" aria-label="if qn  Linked  qn  else">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
-      <a href="/api/order/{{ oid }}/reply-all" class="btn btn-s" style="font-size:16px">📧 Draft PO Confirmation</a>
+      <button onclick="linkQuote('{{ oid }}')" class="btn btn-s" style="font-size:16px" id="link-quote-btn" aria-label="{% if qn %}Linked to {{ qn }}{% else %}No quote linked{% endif %}">{% if qn %}🔗 Linked: {{ qn }}{% else %}🔗 Link Quote{% endif %}</button>
+      <button type="button" onclick="draftReplyAll('{{ oid }}')" class="btn btn-s" style="font-size:16px" aria-label="Draft PO Confirmation email">📧 Draft PO Confirmation</button>
      </div>
     </div>
 
@@ -775,6 +775,22 @@
       });
     }
     loadProofs();
+
+    // O-14: reply-all is a mutation (writes draft to outbox). Must be POST,
+    // not GET — any browser prefetch or link-preview bot would create phantom
+    // drafts. Server responds with a redirect to the draft URL.
+    function draftReplyAll(oid) {
+      fetch('/api/order/' + oid + '/reply-all', {method: 'POST'})
+        .then(function(r) {
+          if (r.redirected) { window.location.href = r.url; return null; }
+          return r.json();
+        })
+        .then(function(d) {
+          if (d && !d.ok) { alert('Error: ' + (d.error || 'unknown')); }
+          else if (d && d.ok && d.draft_url) { window.location.href = d.draft_url; }
+        })
+        .catch(function(e) { alert('Error: ' + e); });
+    }
 
     function linkQuote(oid) {
       var qn = prompt('Enter quote number to link (e.g., Q-2024-001)\\nLeave blank to auto-detect:');
