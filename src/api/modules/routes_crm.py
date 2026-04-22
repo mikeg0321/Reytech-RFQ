@@ -2405,54 +2405,89 @@ def page_outbox():
 @auth_required
 @safe_route
 def api_approve_cs_draft():
-    """Approve and send a CS reply draft."""
+    """Approve and send a CS reply draft.
+
+    Send/persist boundary is critical: once the SMTP send succeeds the caller
+    MUST NOT be allowed to retry, or they duplicate-send. Any post-send
+    persistence failure is logged loudly and returned as `ok=True` with a
+    `warning` field — never `ok=False`.
+    """
     data = request.get_json(silent=True) or {}
     draft_id = data.get("draft_id","")
     if not draft_id:
         return jsonify({"ok": False, "error": "draft_id required"})
+
+    # 1. Load draft (safe to retry if this fails)
     try:
-        from src.core.dal import get_outbox as _dal_ob
+        from src.core.dal import get_outbox as _dal_ob, update_outbox_status
         outbox = _dal_ob()
-        
         draft = next((e for e in outbox if e.get("id") == draft_id), None)
         if not draft:
-            return jsonify({"ok": False, "error": "Draft not found"})
-        
-        # Send via EmailSender
-        from src.agents.email_poller import EmailSender
-        from src.core.secrets import CONFIG
-        sender = EmailSender(CONFIG.get("email", {}))
-        sender.send({"to": draft["to"], "subject": draft["subject"], "body": draft["body"], "attachments": []})
-        
-        # Mark as sent
-        draft["status"] = "sent"
-        draft["sent_at"] = datetime.now().isoformat()
-        
-        with open(outbox_path, "w") as f:
-            json.dump(outbox, f, indent=2, default=str)
-        
-        # Log the sent email
-        try:
-            from src.agents.notify_agent import log_email_event
-            log_email_event(
-                direction="sent",
-                sender=CONFIG.get("email",{}).get("email","sales@reytechinc.com"),
-                recipient=draft["to"],
-                subject=draft["subject"],
-                body_preview=draft.get("body","")[:500],
-                full_body=draft.get("body",""),
-                contact_id=draft.get("to",""),
-                intent=f"cs_{draft.get('intent','reply')}",
-                status="sent",
-            )
-        except Exception as _e:
-            log.debug("Suppressed: %s", _e)
-        
-        log.info("CS draft %s sent to %s", draft_id, draft["to"])
-        return jsonify({"ok": True, "sent_to": draft["to"]})
+            return jsonify({"ok": False, "error": "Draft not found"}), 404
+        if draft.get("status") == "sent":
+            return jsonify({
+                "ok": False,
+                "error": "Draft already sent — refusing to resend",
+                "already_sent": True,
+            }), 409
     except Exception as e:
-        log.error("CS send failed: %s", e)
-        return jsonify({"ok": False, "error": str(e)})
+        log.error("CS draft lookup failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": f"Lookup failed: {e}"})
+
+    # 2. Send (safe to retry if this fails — email did not go out)
+    gmail = os.environ.get("GMAIL_ADDRESS", "")
+    pwd = os.environ.get("GMAIL_PASSWORD", "")
+    if not (gmail and pwd):
+        log.error("CS send refused: GMAIL_ADDRESS/GMAIL_PASSWORD not configured")
+        return jsonify({
+            "ok": False,
+            "error": "Email not configured (GMAIL_ADDRESS/GMAIL_PASSWORD missing)",
+        })
+    try:
+        from src.agents.email_poller import EmailSender
+        sender = EmailSender({"email": gmail, "email_password": pwd})
+        sender.send({"to": draft["to"], "subject": draft["subject"], "body": draft["body"], "attachments": []})
+    except Exception as e:
+        log.error("CS send failed for draft %s: %s", draft_id, e, exc_info=True)
+        return jsonify({"ok": False, "error": f"Send failed: {e}"})
+
+    # 3. Persist sent state (MUST NOT return ok=False — would trigger retry)
+    sent_at = datetime.now().isoformat()
+    warning = None
+    try:
+        if not update_outbox_status(draft_id, "sent", sent_at=sent_at):
+            warning = "Email sent but DB status update returned False — do not retry"
+            log.error(
+                "OB-1: CS draft %s sent to %s but update_outbox_status returned False. "
+                "DO NOT RETRY — manual DB fix needed.",
+                draft_id, draft["to"],
+            )
+    except Exception as e:
+        warning = f"Email sent but persist raised: {e}"
+        log.error("CS draft %s persist failed post-send: %s", draft_id, e, exc_info=True)
+
+    # 4. CRM activity log (best-effort)
+    try:
+        from src.agents.notify_agent import log_email_event
+        log_email_event(
+            direction="sent",
+            sender=gmail or "sales@reytechinc.com",
+            recipient=draft["to"],
+            subject=draft["subject"],
+            body_preview=draft.get("body","")[:500],
+            full_body=draft.get("body",""),
+            contact_id=draft.get("to",""),
+            intent=f"cs_{draft.get('intent','reply')}",
+            status="sent",
+        )
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
+
+    log.info("CS draft %s sent to %s", draft_id, draft["to"])
+    resp = {"ok": True, "sent_to": draft["to"]}
+    if warning:
+        resp["warning"] = warning
+    return jsonify(resp)
 
 
 @bp.route("/api/email/delete-cs", methods=["POST"])
