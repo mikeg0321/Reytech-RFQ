@@ -48,6 +48,25 @@ class TestRouteModuleLoading:
         resp = client.get("/ping")
         assert resp.status_code == 200
 
+    def test_version_endpoint_returns_commit(self, anon_client, monkeypatch):
+        """GET /version returns the Railway commit SHA as JSON, no auth required."""
+        monkeypatch.setenv("RAILWAY_GIT_COMMIT_SHA", "abc123def4567890")
+        resp = anon_client.get("/version")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["commit"] == "abc123def4567890"
+        assert body["short"] == "abc123d"
+
+    def test_version_endpoint_fallback_when_env_missing(self, anon_client, monkeypatch):
+        """GET /version reports 'unknown' when neither env var is set — caller's poll
+        script will then time out cleanly instead of matching a falsy value."""
+        monkeypatch.delenv("RAILWAY_GIT_COMMIT_SHA", raising=False)
+        monkeypatch.delenv("GIT_COMMIT_SHA", raising=False)
+        resp = anon_client.get("/version")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["commit"] == "unknown"
+
     def test_auth_required_on_protected(self, anon_client):
         """GET /analytics without auth returns 401."""
         resp = anon_client.get("/analytics")

@@ -204,8 +204,13 @@ promote: require-smoke-creds  ## Merge current PR after CI passes, then smoke te
 	git pull origin main
 	@echo ""
 	@echo "Merged to main. Railway auto-deploying..."
-	@echo "Waiting 90s for Railway build..."
-	@sleep 90
+	@# Poll /version until the new replica reports our HEAD commit, instead of
+	@# a blind sleep. Old sleep was 90s; a healthy rolling swap happens in ~30s
+	@# but Railway's build phase runs 3-7 min, so the old flow sometimes ran
+	@# smoke against the OLD replica (it still answers /ping during build).
+	@# On timeout we still run smoke — smoke + the background deploy watcher
+	@# are the real gates; this poll is just a "ready sooner" signal.
+	@./scripts/wait_for_deploy.sh $(PROD_URL) $$(git rev-parse HEAD) 420 || true
 	@echo ""
 	@echo "Running smoke tests against production..."
 	@REYTECH_URL=$(PROD_URL) REYTECH_USER=$(SMOKE_USER) REYTECH_PASS=$(SMOKE_PASS) \
