@@ -1284,10 +1284,19 @@ def _pricecheck_detail_inner(pcid):
     # Resolve existing generated PDF URLs for inline preview
     _existing_704_url = ""
     _existing_quote_url = ""
-    # Check stored paths first
+    _existing_packet_url = ""
+    # Packet has its own dedicated slot (CC-2). Resolve first so we can
+    # exclude it from the 704 probe below — the CC-2 setdefault may have
+    # landed the packet path into `output_pdf` as a fallback, and we do
+    # NOT want to mislabel it as "AMS 704" in the compose panel.
+    _pk = pc.get("cchcs_packet_output_pdf") or ""
+    if _pk and os.path.exists(_pk):
+        _existing_packet_url = f"/api/pricecheck/download/{os.path.basename(_pk)}"
+    # Check stored 704 paths. Skip any entry that matches the packet path
+    # so the packet isn't double-surfaced as a 704 attachment.
     for _op_key in ("output_pdf", "original_pdf"):
         _op = pc.get(_op_key, "")
-        if _op and os.path.exists(_op):
+        if _op and os.path.exists(_op) and _op != _pk:
             _existing_704_url = f"/api/pricecheck/download/{os.path.basename(_op)}"
             break
     _qp = pc.get("reytech_quote_pdf") or ""
@@ -1365,6 +1374,7 @@ def _pricecheck_detail_inner(pcid):
         catalog_count=catalog_count,
         existing_704_url=_existing_704_url,
         existing_quote_url=_existing_quote_url,
+        existing_packet_url=_existing_packet_url,
         scprs_staleness=_scprs_staleness,
         bundle_siblings=_bundle_siblings,
         due_date_iso=_due_date_iso,
