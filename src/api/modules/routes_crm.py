@@ -2749,14 +2749,7 @@ Our standard terms are Net 30, F.O.B. Destination, and we are registered in Cal 
 
 Please feel free to call me directly at (949) 229-1575 or reply to this email.
 
-Thank you for your time, and I look forward to the opportunity to serve {agency}.
-
-Best regards,
-Michael Guadan
-Reytech Inc.
-CA SB #2002605 | CA DVBE #2002605
-(949) 229-1575
-sales@reytechinc.com"""
+Thank you for your time, and I look forward to the opportunity to serve {agency}."""
 
     # Save to outbox
     from src.core.dal import get_outbox as _dal_ob2, upsert_outbox_email as _dal_upsert
@@ -3392,13 +3385,13 @@ def api_expansion_outreach():
     if action in ("email_and_pc", "email_only") and contact_email:
         short = facility_name.split(":")[-1].strip() if ":" in facility_name else facility_name
         plines = "\n".join(f"  - {it['description'][:60]}" for it in items[:4])
+        # Gmail auto-appends the canonical signature — do not add one here.
+        # Regression guard: tests/test_no_app_signatures.py.
         body = (f"Hello{(' ' + contact_name.split()[0]) if contact_name else ''},\n\n"
                 f"I'm reaching out from Reytech Inc., a CA-certified small business and SCPRS-registered vendor.\n\n"
                 f"We serve multiple {agency_type} facilities and would like to introduce our services to {short}:\n\n"
                 f"{plines}\n\n"
-                f"We respond to AMS 704 price checks and offer competitive SCPRS pricing.\n\n"
-                f"Best regards,\nMichael Guadan\nReytech Inc.\n(949) 229-1575 | sales@reytechinc.com\n"
-                f"CA Certified Small Business | DVBE | SCPRS Supplier")
+                f"We respond to AMS 704 price checks and offer competitive SCPRS pricing.")
         try:
             from src.core.dal import get_outbox as _ob
             outbox = _ob()

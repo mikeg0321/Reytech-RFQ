@@ -270,13 +270,12 @@ def _lookup_contact(sender_email: str) -> Optional[dict]:
 
 # ─── CS Response Draft Builder ────────────────────────────────────────────
 
-CS_SIGNATURE = (
-    "\n\nBest regards,\n"
-    "Mike Guadan\n"
-    "Reytech Inc. | CA SB/DVBE Certified\n"
-    "sales@reytechinc.com | 949-229-1575\n"
-    "www.reytechinc.com"
-)
+# CS_SIGNATURE deleted 2026-04-21 per CLAUDE.md "Gmail Handles Signatures".
+# Gmail auto-appends the configured signature on every outgoing message.
+# Any app-level signature here created a double-sig on every CS draft.
+# Retain only in-body CTAs (e.g., "call us at 949-229-1575") — those are
+# prose, not signature blocks. Regression guard: tests/test_no_app_signatures.py.
+CS_SIGNATURE = ""
 
 
 # Auto-reject list: senders whose mail is notification-only / lead-gen /
@@ -585,9 +584,7 @@ def build_cs_response_draft(
             f"Thank you for reaching out to Reytech"
             + (f" {inbound_ref}.\n\n" if inbound_ref else ".\n\n")
             + f"I've reviewed your message and will follow up with a detailed response shortly.\n\n"
-            f"For immediate assistance:\n"
-            f"  Phone: 949-229-1575\n"
-            f"  Email: sales@reytechinc.com\n\n"
+            f"If you need immediate assistance, please call us at 949-229-1575.\n\n"
             f"We typically respond within 2 business hours." + CS_SIGNATURE
         )
 
