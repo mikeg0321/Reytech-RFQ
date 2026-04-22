@@ -290,6 +290,32 @@ def token_overlap_score(tokens_a: set, tokens_b: set) -> float:
     return query_recall * 0.7 + jaccard * 0.3
 
 
+def scprs_per_unit(quote: dict) -> float:
+    """Canonical per-unit price extractor for a won_quotes / SCPRS match
+    (CP-2 helper).
+
+    Source-of-truth contract:
+      * `won_quotes.unit_price` IS ALREADY per-unit — ingestion at
+        `_sync_scprs_to_won_quotes` (won_quotes_db.py:~749) divides the
+        raw `scprs_po_lines.unit_price` (line total) by the PO quantity
+        before storing.
+      * Therefore callers reading `quote.get("unit_price")` from a
+        find_similar_items() result must NOT divide by quote["quantity"]
+        again. Doing so over-divides by the original PO qty (often 100+),
+        producing penny-valued "prices" that silently ship to dashboards.
+
+    Previous incident: `pc_enrichment_pipeline.py` had a defensive
+    divide-if-qty>1 block that was correct in a world where unit_price
+    stored line totals but became an over-divide after the ingestion
+    layer was fixed. This helper gives every consumer the same answer.
+    """
+    try:
+        p = float(quote.get("unit_price", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return p if p > 0 else 0.0
+
+
 def find_similar_items(
     item_number: str,
     description: str,

@@ -408,7 +408,9 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
                     quote = best.get("quote", best)
                     if not item.get("pricing"):
                         item["pricing"] = {}
-                    item["pricing"]["scprs_price"] = quote.get("unit_price")
+                    # CP-2: canonical per-unit extractor.
+                    from src.knowledge.won_quotes_db import scprs_per_unit
+                    item["pricing"]["scprs_price"] = scprs_per_unit(quote)
                     item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
                     scprs_found += 1
             except Exception as e:
