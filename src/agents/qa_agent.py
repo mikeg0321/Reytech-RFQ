@@ -28,6 +28,7 @@ import logging
 import threading
 import traceback
 from datetime import datetime, timezone
+from src.core.record_fields import item_unit_price, item_qty
 
 log = logging.getLogger("qa_agent")
 
@@ -750,8 +751,11 @@ def _check_sales_metrics() -> list:
             qn = q.get("quote_number", "?")
             items = q.get("line_items", [])
             if items:
+                # RFQ-P0: use shared canonical reader so bid_price /
+                # price_per_unit / pricing.recommended_price all count,
+                # not just records that happen to store `unit_price`.
                 calc_total = sum(
-                    (it.get("unit_price", 0) or 0) * (it.get("quantity", 0) or 0)
+                    item_unit_price(it) * item_qty(it)
                     for it in items
                 )
                 stated = q.get("total", 0) or 0
@@ -805,9 +809,11 @@ def _check_sales_metrics() -> list:
                     continue
                 items = pc.get("line_items") or pc.get("items") or []
                 for it in items:
-                    our_price = it.get("our_price") or it.get("unit_price") or 0
+                    # RFQ-P0: canonical reader covers bid_price / price_per_unit /
+                    # pricing.recommended_price variants, not just "unit_price".
+                    our_price = item_unit_price(it)
                     cost = it.get("cost") or it.get("vendor_price") or 0
-                    qty = it.get("quantity") or it.get("qty") or 1
+                    qty = item_qty(it)
                     revenue = our_price * qty
                     profit = (our_price - cost) * qty if cost > 0 else 0
                     total_pc_revenue += revenue
