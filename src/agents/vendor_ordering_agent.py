@@ -60,7 +60,12 @@ AMZN_MARKETPLACE_ID    = os.environ.get("AMZN_MARKETPLACE_ID", "ATVPDKIKX0DER")
 AMZN_SELLER_ID         = os.environ.get("AMZN_SELLER_ID", "")
 
 GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com")
-GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "")
+
+try:
+    from src.core import gmail_api as _gmail_api
+    _GMAIL_API_READY = bool(_gmail_api.is_configured())
+except Exception:
+    _GMAIL_API_READY = False
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -95,8 +100,8 @@ VENDOR_CATALOG = {
         "api_type": "email_po",
         "contact_email": "mbleecher@curbellmedical.com",
         "categories": ["medical equipment", "patient care", "clinical", "restraints", "hospital"],
-        "configured": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
-        "can_order": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
+        "configured": _GMAIL_API_READY,
+        "can_order": _GMAIL_API_READY,
         "env_needed": [],
         "note": "Email PO — contact already in vendor list",
     },
@@ -105,8 +110,8 @@ VENDOR_CATALOG = {
         "api_type": "email_po",
         "contact_email": "adimalanta@imsla.com",
         "categories": ["medical supplies", "nitrile", "gloves", "ppe", "medical"],
-        "configured": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
-        "can_order": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
+        "configured": _GMAIL_API_READY,
+        "can_order": _GMAIL_API_READY,
         "env_needed": [],
         "note": "Email PO — contact already in vendor list",
     },
@@ -115,8 +120,8 @@ VENDOR_CATALOG = {
         "api_type": "email_po",
         "contact_email": "c.marler@echelondistribution.com",
         "categories": ["general", "distribution", "supplies", "misc"],
-        "configured": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
-        "can_order": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
+        "configured": _GMAIL_API_READY,
+        "can_order": _GMAIL_API_READY,
         "env_needed": [],
     },
     "tsi_incorporated": {
@@ -124,8 +129,8 @@ VENDOR_CATALOG = {
         "api_type": "email_po",
         "contact_email": "psullivan@tsi.com",
         "categories": ["industrial instruments", "measurement", "testing", "scientific"],
-        "configured": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
-        "can_order": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
+        "configured": _GMAIL_API_READY,
+        "can_order": _GMAIL_API_READY,
         "env_needed": [],
     },
     "global_industrial": {
@@ -494,8 +499,9 @@ def send_email_po(
     if not contact_email:
         return {"ok": False, "error": f"No contact email for {vendor_key}"}
 
-    if not (GMAIL_ADDRESS and GMAIL_PASSWORD):
-        return {"ok": False, "error": "Gmail not configured — set GMAIL_ADDRESS/GMAIL_PASSWORD"}
+    from src.core import gmail_api
+    if not gmail_api.is_configured():
+        return {"ok": False, "error": "Gmail API not configured"}
 
     # ── Deduplication: check if we already sent a PO with this number to this vendor ──
     try:
@@ -577,24 +583,15 @@ Reytech Inc. | CA SB/DVBE #2002605
     subject = f"Purchase Order {po_number} — Reytech Inc. | {today}"
 
     try:
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(
+            service,
+            to=contact_email,
+            cc=GMAIL_ADDRESS,
+            subject=subject,
+            body_plain=body,
+        )
 
-        msg = MIMEMultipart()
-        msg["From"] = f"Michael Guadan - Reytech Inc. <{GMAIL_ADDRESS}>"
-        msg["To"] = contact_email
-        msg["Subject"] = subject
-        msg["CC"] = GMAIL_ADDRESS  # BCC ourselves for records
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
-            server.send_message(msg)
-
-        # Gmail's SMTP_SSL authenticated-relay path copies the message to the
-        # sender's Sent Mail automatically — no explicit save-to-Sent needed.
         log.info("Email PO sent: %s → %s (PO: %s)", subject[:50], contact_email, po_number)
 
         # Log to email_log
@@ -1062,7 +1059,7 @@ def get_agent_status() -> dict:
         "grainger_configured": bool(GRAINGER_CLIENT_ID and GRAINGER_CLIENT_SECRET),
         "grainger_can_order": bool(GRAINGER_CLIENT_ID and GRAINGER_CLIENT_SECRET and GRAINGER_ACCOUNT_NUM),
         "amazon_configured": bool(AMZN_ACCESS_KEY and AMZN_SECRET_KEY and AMZN_REFRESH_TOKEN),
-        "email_po_active": bool(GMAIL_ADDRESS and GMAIL_PASSWORD),
+        "email_po_active": _GMAIL_API_READY,
         "email_po_vendors": [k for k, v in VENDOR_CATALOG.items()
                               if v.get("api_type") == "email_po" and v.get("can_order")],
         "setup_guide": {
