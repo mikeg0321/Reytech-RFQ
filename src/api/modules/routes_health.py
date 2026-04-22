@@ -371,6 +371,54 @@ def _build_recent_crashes(limit: int = 10):
     return out
 
 
+# ── Aggregated gate ─────────────────────────────────────────────────────
+
+# BUILD-4: Single-field status so external monitors (Railway cron,
+# uptime robot, Mike's own dashboard) can alert on "calibration went
+# stale" without parsing every card. Ordered from best to worst: the
+# overall gate is the worst of its inputs.
+_GATE_SEVERITY = {
+    "healthy": 0,
+    "no_data": 1,
+    "losses_only": 1,
+    "stale": 2,
+    "degraded": 3,
+}
+
+
+def _build_health_gate(oracle_calibration):
+    """Aggregate card statuses into a single gate status.
+
+    Right now the only input is oracle_calibration.status — the feedback
+    loop is the most consequential degradation mode (a 14-day-stale
+    calibration means every recommendation is pricing off old data).
+    Structured so additional inputs (db_health, classifier_1d, etc.)
+    can be folded in without changing the gate's contract.
+    """
+    reasons = []
+    severity = 0
+    worst_status = "healthy"
+
+    oc_status = (oracle_calibration or {}).get("status", "healthy")
+    oc_sev = _GATE_SEVERITY.get(oc_status, 0)
+    if oc_sev > 0:
+        reasons.append({
+            "source": "oracle_calibration",
+            "status": oc_status,
+            "days_since_update": (oracle_calibration or {}).get("days_since_update"),
+        })
+    if oc_sev > severity:
+        severity = oc_sev
+        worst_status = oc_status
+
+    return {
+        "status": worst_status,
+        "severity": severity,
+        "healthy": severity == 0,
+        "reasons": reasons,
+    }
+
+
 # ── Route ───────────────────────────────────────────────────────────────
 
 @bp.route("/health/quoting")
@@ -384,6 +432,7 @@ def quoting_health_page():
         days = 7
     days = max(1, min(90, days))
 
+    oracle_cal = _build_oracle_calibration_card()
     data = {
         "days": days,
         "flag_card": _build_flag_card(),
@@ -397,8 +446,9 @@ def quoting_health_page():
         "recent_crashes": _build_recent_crashes(),
         "db_health": _build_db_health(),
         "catalog_health": _build_catalog_health(),
-        "oracle_calibration": _build_oracle_calibration_card(),
+        "oracle_calibration": oracle_cal,
         "pc_rfq_link": _build_pc_rfq_link_health(),
+        "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
 
@@ -464,6 +514,7 @@ def quoting_health_json():
     except (TypeError, ValueError):
         days = 7
     days = max(1, min(90, days))
+    oracle_cal = _build_oracle_calibration_card()
     return {
         "ok": True,
         "days": days,
@@ -478,7 +529,8 @@ def quoting_health_json():
         "recent_crashes": _build_recent_crashes(),
         "db_health": _build_db_health(),
         "catalog_health": _build_catalog_health(),
-        "oracle_calibration": _build_oracle_calibration_card(),
+        "oracle_calibration": oracle_cal,
+        "gate": _build_health_gate(oracle_cal),
     }
 
 
