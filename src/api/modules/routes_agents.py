@@ -664,14 +664,19 @@ def api_agents_batch_test():
     passed = 0
     auth = flask_req.authorization
 
+    # SY-1: pin self-test to loopback. flask_req.host_url echoes the attacker's
+    # Host header in prod (SERVER_NAME unset), which would ship admin Basic Auth
+    # creds to a spoofed host over TLS with verify=False. Loopback is safe and
+    # makes the verify flag unnecessary.
+    port = os.environ.get("PORT", "8080")
+    base = f"http://127.0.0.1:{port}"
+
     for path, name in endpoints:
         t0 = time.time()
         try:
-            base = flask_req.host_url.rstrip("/")
             resp = _req.get(f"{base}{path}",
                           auth=(auth.username, auth.password) if auth else None,
-                          timeout=8,
-                          verify=False)
+                          timeout=8)
             ms = int((time.time() - t0) * 1000)
             ok = resp.status_code == 200
             try:
