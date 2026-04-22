@@ -294,13 +294,11 @@ def _guess_agency(institution_name):
     # Use the authoritative resolver first
     try:
         from src.core.institution_resolver import resolve
+        from src.core.agency_display import agency_display
         result = resolve(institution_name)
         if result and result.get("agency"):
             agency = result["agency"]
-            agency_map = {"cchcs": "CCHCS", "cdcr": "CDCR", "calvet": "CalVet",
-                          "dsh": "DSH", "dgs": "DGS", "calfire": "CalFire",
-                          "cdph": "CDPH", "caltrans": "CalTrans", "chp": "CHP"}
-            resolved = agency_map.get(agency.lower(), agency.upper())
+            resolved = agency_display(agency)
             log.info("AGENCY_RESOLVE: '%s' → resolver=%s → %s", institution_name, agency, resolved)
             return resolved
     except Exception as e:

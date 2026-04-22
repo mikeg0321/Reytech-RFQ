@@ -19,6 +19,7 @@ _CANONICAL = {
     "cdcr": "CDCR",
     "dsh": "DSH",
     "dgs": "DGS",
+    "dhcs": "DHCS",
     "calvet": "CalVet",
     "calfire": "CalFire",
     "caltrans": "CalTrans",

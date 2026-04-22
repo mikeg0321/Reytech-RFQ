@@ -1083,10 +1083,10 @@ def _pricecheck_detail_inner(pcid):
         _canonical = _resolved.get("canonical", "") or institution
         _canonical_upper = _canonical.upper()
         _resolved_agency = _resolved.get("agency", "")
-        # Map resolver agency keys to display names
-        _agency_display = {"cchcs": "CCHCS", "cdcr": "CDCR", "calvet": "CalVet",
-                           "dsh": "DSH", "dgs": "DGS"}.get(
-                           _resolved_agency.lower(), _resolved_agency.upper()) if _resolved_agency else ""
+        # Map resolver agency keys to display names (shared helper, covers
+        # all 9 canonical keys — see src/core/agency_display.py)
+        from src.core.agency_display import agency_display as _agency_display_fn
+        _agency_display = _agency_display_fn(_resolved_agency)
 
         try:
             customers = _load_customers()
