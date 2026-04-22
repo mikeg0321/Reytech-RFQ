@@ -343,7 +343,8 @@ CREATE TABLE IF NOT EXISTS orders (
     items           TEXT,           -- JSON
     notes           TEXT,
     created_at      TEXT NOT NULL,
-    updated_at      TEXT
+    updated_at      TEXT,
+    is_test         INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS order_audit_log (
@@ -409,7 +410,8 @@ CREATE TABLE IF NOT EXISTS revenue_log (
     quote_number    TEXT,
     po_number       TEXT,
     agency          TEXT,
-    date            TEXT
+    date            TEXT,
+    is_test         INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS quote_number_ledger (
@@ -1674,6 +1676,14 @@ def _migrate_columns():
         # without re-deriving from institution. Legacy `institution` kept for
         # read compatibility — already-written rows carry agency data there.
         ("winning_quote_shapes", "agency", "TEXT DEFAULT ''"),
+        # ── BUILD-10: is_test on orders + revenue_log ──
+        # quotes.is_test gates every BI / analytics aggregate; orders and
+        # revenue_log were the two remaining revenue sources without it, so
+        # a test quote converted to an order would count toward headline
+        # won_revenue. Mirror the flag from the linked quote on INSERT and
+        # filter aggregates with AND is_test=0.
+        ("orders", "is_test", "INTEGER DEFAULT 0"),
+        ("revenue_log", "is_test", "INTEGER DEFAULT 0"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

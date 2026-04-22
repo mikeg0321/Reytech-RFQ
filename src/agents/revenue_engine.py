@@ -60,11 +60,14 @@ def reconcile_revenue() -> dict:
 
             # ── Source 1: Orders (primary revenue source) ─────────────
             # An order = confirmed purchase (PO received). This IS revenue.
+            # BUILD-10: exclude test orders from revenue sync, and inherit
+            # is_test into the derived revenue_log rows so analytics stays
+            # clean end-to-end.
             orders = conn.execute("""
                 SELECT id, quote_number, agency, institution, po_number,
-                       total, status, created_at
+                       total, status, created_at, is_test
                 FROM orders
-                WHERE total > 0
+                WHERE total > 0 AND is_test = 0
             """).fetchall()
 
             for o in orders:
@@ -92,12 +95,13 @@ def reconcile_revenue() -> dict:
                 conn.execute("""
                     INSERT INTO revenue_log
                     (id, logged_at, amount, description, source, quote_number,
-                     po_number, agency, institution, cost, margin_pct, category)
-                    VALUES (?, ?, ?, ?, 'order', ?, ?, ?, ?, ?, ?, 'product_sales')
+                     po_number, agency, institution, cost, margin_pct, category, is_test)
+                    VALUES (?, ?, ?, ?, 'order', ?, ?, ?, ?, ?, ?, 'product_sales', ?)
                 """, (rev_id, o["created_at"] or now, o["total"], desc,
                       o["quote_number"] or "", o["po_number"] or "",
                       o["agency"] or "", o["institution"] or "",
-                      cost, margin))
+                      cost, margin,
+                      1 if (o["is_test"] if "is_test" in o.keys() else 0) else 0))
                 synced += 1
                 existing_ids.add(rev_id)
 
@@ -141,11 +145,14 @@ def reconcile_revenue() -> dict:
                 if has_order_rev:
                     continue
 
+                # BUILD-10: source query already filters is_test=0, so
+                # every row written here is real (is_test=0). Write
+                # explicitly to lock in intent for future column reorders.
                 conn.execute("""
                     INSERT INTO revenue_log
                     (id, logged_at, amount, description, source, quote_number,
-                     po_number, agency, institution, cost, margin_pct, category)
-                    VALUES (?, ?, ?, ?, 'quote_won', ?, ?, ?, ?, ?, ?, 'product_sales')
+                     po_number, agency, institution, cost, margin_pct, category, is_test)
+                    VALUES (?, ?, ?, ?, 'quote_won', ?, ?, ?, ?, ?, ?, 'product_sales', 0)
                 """, (rev_id, q["updated_at"] or now, q["total"],
                       f"Quote {q['quote_number']} won",
                       q["quote_number"], q["po_number"] or "",
