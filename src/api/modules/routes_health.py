@@ -174,25 +174,39 @@ def _build_confidence_distribution(days: int):
 
 def _build_funnel(days: int):
     """Ingest → PC → RFQ → Quote counts for the window, plus the
-    PC→RFQ link rate from utilization events."""
+    PC→RFQ link rate from utilization events.
+
+    AN-P0: every price_checks / quotes query must filter out is_test rows
+    — the prod health dashboard is what ops stares at to decide whether
+    classifier_v2 is landing cleanly. Test quotes (is_test=1) inflate the
+    funnel by 5-30% and hide real classifier crashes under a pile of
+    synthetic success. Same class as CR-5 (deadlines missing is_test on
+    the RFQ loop) and IN-3/IN-4 (debug endpoints seeding ghost data).
+    """
     since = _since(days)
 
+    # `is_test IS NULL OR is_test = 0` — keeps legacy rows (NULL) while
+    # excluding any row explicitly tagged as a test fixture.
     pc_n = _safe_fetchone(
-        "SELECT COUNT(*) AS n FROM price_checks WHERE created_at >= ?",
+        "SELECT COUNT(*) AS n FROM price_checks "
+        "WHERE created_at >= ? AND (is_test IS NULL OR is_test = 0)",
         (since,),
     ) or {"n": 0}
     quote_n = _safe_fetchone(
-        "SELECT COUNT(*) AS n FROM quotes WHERE created_at >= ?",
+        "SELECT COUNT(*) AS n FROM quotes "
+        "WHERE created_at >= ? AND (is_test IS NULL OR is_test = 0)",
         (since,),
     ) or {"n": 0}
     quote_won = _safe_fetchone(
         "SELECT COUNT(*) AS n, SUM(COALESCE(total,0)) AS won_total "
-        "FROM quotes WHERE created_at >= ? AND status = 'won'",
+        "FROM quotes WHERE created_at >= ? AND status = 'won' "
+        "AND (is_test IS NULL OR is_test = 0)",
         (since,),
     ) or {"n": 0, "won_total": 0}
     quote_sent = _safe_fetchone(
         "SELECT COUNT(*) AS n FROM quotes WHERE created_at >= ? "
-        "AND (sent_at IS NOT NULL AND sent_at != '')",
+        "AND (sent_at IS NOT NULL AND sent_at != '') "
+        "AND (is_test IS NULL OR is_test = 0)",
         (since,),
     ) or {"n": 0}
 
