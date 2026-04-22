@@ -1751,15 +1751,10 @@ def api_admin_clean_activity():
     Returns before/after counts.
     """
     data = request.get_json(force=True, silent=True) or {}
-    crm_path = os.path.join(DATA_DIR, "crm_activity.json")
-    try:
-        with open(crm_path) as f:
-            activities = json.load(f)
-    except Exception:
-        activities = []
-    
+    # RE-AUDIT-11: use DAL helpers so cache invalidates + 5000-row cap applies.
+    activities = _load_crm_activity()
     before_count = len(activities)
-    
+
     if data.get("all"):
         activities = []
     elif data.get("event_types"):
@@ -1774,9 +1769,8 @@ def api_admin_clean_activity():
         activities = [a for a in activities if a.get("timestamp","") >= cutoff]
     else:
         return jsonify({"ok": False, "error": "Provide event_types, pattern, before, or all:true"})
-    
-    with open(crm_path, "w") as f:
-        json.dump(activities, f, indent=2, default=str)
+
+    _save_crm_activity(activities)
     
     log.info("ADMIN CLEAN-ACTIVITY: %d → %d entries", before_count, len(activities))
     
@@ -3612,17 +3606,16 @@ def api_admin_system_reset():
             results["processed_error"] = str(e)
     
     # Step 6: Clean stale CRM activity (auto_draft entries)
+    # RE-AUDIT-11: route through _load/_save_crm_activity DAL so the 5000-entry
+    # tail cap applies + the _cached_json_load cache is invalidated. Prior raw
+    # open()/json.dump() left callers reading pre-purge acts from the cache.
     try:
-        act_path = os.path.join(DATA_DIR, 'crm_activity.json')
-        if os.path.exists(act_path):
-            with open(act_path) as f:
-                acts = json.load(f)
-            before = len(acts)
-            cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
-            results["activity_cleaned"] = before - len(cleaned_acts)
-            if not dry_run:
-                with open(act_path, "w") as f:
-                    json.dump(cleaned_acts, f, indent=2, default=str)
+        acts = _load_crm_activity()
+        before = len(acts)
+        cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
+        results["activity_cleaned"] = before - len(cleaned_acts)
+        if not dry_run:
+            _save_crm_activity(cleaned_acts)
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
     
@@ -3761,17 +3754,13 @@ def api_admin_reset_and_poll():
                 json.dump([], f)
         steps["processed_cleared"] = True
         
-        # Clean CRM activity
-        act_path = os.path.join(DATA_DIR, 'crm_activity.json')
-        if os.path.exists(act_path):
-            try:
-                with open(act_path) as f:
-                    acts = json.load(f)
-                cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
-                with open(act_path, "w") as f:
-                    json.dump(cleaned_acts, f, indent=2, default=str)
-            except Exception as _e:
-                log.debug("Suppressed: %s", _e)
+        # Clean CRM activity (RE-AUDIT-11: via DAL so cache invalidates)
+        try:
+            acts = _load_crm_activity()
+            cleaned_acts = [a for a in acts if a.get("event_type") not in ("auto_draft_generated", "auto_draft_ready")]
+            _save_crm_activity(cleaned_acts)
+        except Exception as _e:
+            log.debug("Suppressed: %s", _e)
         
         log.info("RESET+POLL: Step 2 — reset complete (cleared %d PCs, %d quotes)", steps["pcs_before"], q_removed)
     except Exception as e:
