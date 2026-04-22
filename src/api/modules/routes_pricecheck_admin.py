@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 # src/agents/pc_enrichment_pipeline.py (unified pipeline)
 
 
-@bp.route("/api/pricechecks/bulk-reenrich", methods=["POST", "GET"])
+@bp.route("/api/pricechecks/bulk-reenrich", methods=["POST"])
 @auth_required
 @safe_route
 def api_pc_bulk_reenrich():
@@ -43,7 +43,7 @@ def api_pc_bulk_reenrich():
     return jsonify({"ok": True, "pcs_queued": len(pc_ids), "message": f"Re-enriching {len(pc_ids)} PCs in background"})
 
 
-@bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST", "GET"])
+@bp.route("/api/pricecheck/<pcid>/retry-auto-price", methods=["POST"])
 @auth_required
 @safe_route
 def api_pc_retry_auto_price(pcid):
@@ -1230,7 +1230,7 @@ def api_admin_convert_docx(pcid):
                      download_name=f"{pcid}_converted.pdf")
 
 
-@bp.route("/api/admin/cleanup", methods=["GET", "POST"])
+@bp.route("/api/admin/cleanup", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_cleanup():
@@ -1340,7 +1340,7 @@ def api_admin_cleanup():
     return jsonify(results)
 
 
-@bp.route("/api/admin/rescan-item-numbers", methods=["GET", "POST"])
+@bp.route("/api/admin/rescan-item-numbers", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_rescan_item_numbers():
@@ -1494,7 +1494,7 @@ def api_admin_status():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/counter-set", methods=["GET", "POST"])
+@bp.route("/api/admin/counter-set", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_counter_set():
@@ -1522,7 +1522,7 @@ def api_admin_counter_set():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/delete-quotes", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-quotes", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_delete_quotes():
@@ -1552,7 +1552,7 @@ def api_admin_delete_quotes():
         return jsonify({"ok": False, "error": str(e)})
 
 
-@bp.route("/api/admin/recall", methods=["GET", "POST"])
+@bp.route("/api/admin/recall", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_recall():
@@ -1668,7 +1668,7 @@ def api_admin_recall():
     return jsonify(results)
 
 
-@bp.route("/api/admin/purge-rfqs", methods=["GET", "POST"])
+@bp.route("/api/admin/purge-rfqs", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_purge_rfqs():
@@ -1737,7 +1737,7 @@ def api_admin_purge_rfqs():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
 
-@bp.route("/api/admin/clean-activity", methods=["GET", "POST"])
+@bp.route("/api/admin/clean-activity", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_clean_activity():
@@ -1788,7 +1788,7 @@ def api_admin_clean_activity():
     })
 
 
-@bp.route("/api/admin/undo-mark-won/<pcid>", methods=["GET", "POST"])
+@bp.route("/api/admin/undo-mark-won/<pcid>", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_undo_mark_won(pcid):
@@ -1843,7 +1843,7 @@ def api_admin_undo_mark_won(pcid):
     })
 
 
-@bp.route("/api/admin/backfill-wins", methods=["GET", "POST"])
+@bp.route("/api/admin/backfill-wins", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_backfill_wins():
@@ -1910,7 +1910,7 @@ def api_admin_backfill_wins():
     })
 
 
-@bp.route("/api/admin/backfill-contacts", methods=["GET", "POST"])
+@bp.route("/api/admin/backfill-contacts", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_backfill_contacts():
@@ -2001,7 +2001,7 @@ def api_admin_backfill_contacts():
     })
 
 
-@bp.route("/api/admin/import-contacts", methods=["GET", "POST"])
+@bp.route("/api/admin/import-contacts", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_import_contacts():
@@ -2096,7 +2096,7 @@ def api_pricecheck_clear_quote(pcid):
 
 
 
-@bp.route("/api/admin/rfq-cleanup", methods=["GET", "POST"])
+@bp.route("/api/admin/rfq-cleanup", methods=["POST"])
 @auth_required
 @safe_route
 def api_admin_rfq_cleanup():
