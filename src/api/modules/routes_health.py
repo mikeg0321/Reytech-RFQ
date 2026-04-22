@@ -33,9 +33,17 @@ log = logging.getLogger("reytech.health")
 from src.api.render import render_page
 from src.core.db import get_db
 from src.core.flags import get_flag, list_flags
+from src.core.security import rate_limit, _log_audit_internal
 
 from datetime import datetime, timedelta
 import json
+import threading
+
+# SY-3: single-flight lock around /api/admin/trim-rfq-files. VACUUM holds
+# an exclusive write lock on the whole DB and on a 525 MB file can stall
+# writes for tens of seconds. A double-click would queue a second VACUUM
+# behind the first; returning 409 immediately is safer than stacking.
+_TRIM_RFQ_FILES_LOCK = threading.Lock()
 
 
 def _since(days: int) -> str:
@@ -725,6 +733,7 @@ _TRIM_DEAD_PARENTS_SQL = """
 
 @bp.route("/api/admin/trim-rfq-files", methods=["POST"])
 @auth_required
+@rate_limit("heavy")
 def trim_rfq_files():
     """Reclaim space by deleting unreachable rfq_files rows.
 
@@ -769,11 +778,31 @@ def trim_rfq_files():
 
     want_vacuum = (request.args.get("vacuum", "1") != "0") and not dry_run
 
+    # SY-3: only one trim-rfq-files execution in flight at a time. Second
+    # concurrent call gets 409 instead of queueing behind the VACUUM lock.
+    # Dry runs are cheap and don't need the single-flight guard.
+    if not dry_run and not _TRIM_RFQ_FILES_LOCK.acquire(blocking=False):
+        return {
+            "ok": False,
+            "error": "trim-rfq-files already running",
+            "hint": "wait for the first call to finish (VACUUM can take 30-60s on a large DB)",
+        }, 409
+
     import os as _os
     from src.core.paths import DATA_DIR as data_dir
     db_path = _os.path.join(data_dir, "reytech.db")
     size_before = (_os.path.getsize(db_path) / 1024 / 1024) \
         if _os.path.exists(db_path) else 0
+
+    # SY-3: audit row at start — tie together the before/after snapshots
+    # and capture the caller IP/UA for any destructive run.
+    if not dry_run:
+        _log_audit_internal(
+            "trim_rfq_files_start",
+            f"mode={mode} vacuum={want_vacuum} size_before_mb={size_before:.2f}",
+            metadata={"mode": mode, "vacuum": want_vacuum,
+                      "size_before_mb": round(size_before, 2)},
+        )
 
     out = {
         "ok": True,
@@ -786,74 +815,104 @@ def trim_rfq_files():
         "sample": [],
     }
 
-    # Gather ids, dedupe across modes.
-    matched_rows = {}  # id -> row tuple
     try:
-        with get_db() as conn:
-            if mode in ("orphans", "both"):
-                for r in conn.execute(_TRIM_ORPHANS_SQL).fetchall():
-                    matched_rows[r[0]] = r
-            if mode in ("dead_parents", "both"):
-                for r in conn.execute(_TRIM_DEAD_PARENTS_SQL).fetchall():
-                    matched_rows.setdefault(r[0], r)
-
-            total_bytes = sum((r[3] or 0) for r in matched_rows.values())
-            out["matched"]["count"] = len(matched_rows)
-            out["matched"]["mb"] = round(total_bytes / 1024 / 1024, 2)
-            out["sample"] = [
-                {
-                    "id": r[0], "rfq_id": r[1], "filename": r[2],
-                    "bytes": r[3], "category": r[4], "file_type": r[5],
-                    "created_at": r[6],
-                }
-                for r in list(matched_rows.values())[:10]
-            ]
-
-            if not dry_run and matched_rows:
-                ids = list(matched_rows.keys())
-                # Chunk the DELETE so SQLite's 999-param limit doesn't bite.
-                CHUNK = 500
-                deleted = 0
-                for i in range(0, len(ids), CHUNK):
-                    chunk = ids[i:i + CHUNK]
-                    placeholders = ",".join("?" * len(chunk))
-                    cur = conn.execute(
-                        f"DELETE FROM rfq_files WHERE id IN ({placeholders})",
-                        chunk,
-                    )
-                    deleted += cur.rowcount or 0
-                conn.commit()
-                out["deleted"]["count"] = deleted
-                out["deleted"]["mb"] = round(total_bytes / 1024 / 1024, 2)
-                log.warning(
-                    "rfq_files trim (mode=%s): deleted %d rows, ~%.2f MB",
-                    mode, deleted, total_bytes / 1024 / 1024,
-                )
-    except Exception as e:
-        log.warning("trim-rfq-files failed: %s", e, exc_info=True)
-        return {"ok": False, "error": str(e), "partial": out}, 500
-
-    if want_vacuum and out["deleted"]["count"] > 0:
+        # Gather ids, dedupe across modes.
+        matched_rows = {}  # id -> row tuple
         try:
-            # VACUUM must run outside a transaction and without other
-            # writers. Use a dedicated connection that auto-commits.
-            import sqlite3
-            vc = sqlite3.connect(db_path, timeout=60, isolation_level=None)
-            vc.execute("VACUUM")
-            vc.close()
-            size_after = _os.path.getsize(db_path) / 1024 / 1024
-            out["vacuum"]["ran"] = True
-            out["vacuum"]["after_mb"] = round(size_after, 2)
-            out["vacuum"]["reclaimed_mb"] = round(size_before - size_after, 2)
-            log.warning(
-                "rfq_files trim VACUUM: %.2f MB → %.2f MB (reclaimed %.2f MB)",
-                size_before, size_after, size_before - size_after,
-            )
-        except Exception as e:
-            log.warning("VACUUM after trim failed: %s", e)
-            out["vacuum"]["error"] = str(e)
+            with get_db() as conn:
+                if mode in ("orphans", "both"):
+                    for r in conn.execute(_TRIM_ORPHANS_SQL).fetchall():
+                        matched_rows[r[0]] = r
+                if mode in ("dead_parents", "both"):
+                    for r in conn.execute(_TRIM_DEAD_PARENTS_SQL).fetchall():
+                        matched_rows.setdefault(r[0], r)
 
-    return out
+                total_bytes = sum((r[3] or 0) for r in matched_rows.values())
+                out["matched"]["count"] = len(matched_rows)
+                out["matched"]["mb"] = round(total_bytes / 1024 / 1024, 2)
+                out["sample"] = [
+                    {
+                        "id": r[0], "rfq_id": r[1], "filename": r[2],
+                        "bytes": r[3], "category": r[4], "file_type": r[5],
+                        "created_at": r[6],
+                    }
+                    for r in list(matched_rows.values())[:10]
+                ]
+
+                if not dry_run and matched_rows:
+                    ids = list(matched_rows.keys())
+                    # Chunk the DELETE so SQLite's 999-param limit doesn't bite.
+                    CHUNK = 500
+                    deleted = 0
+                    for i in range(0, len(ids), CHUNK):
+                        chunk = ids[i:i + CHUNK]
+                        placeholders = ",".join("?" * len(chunk))
+                        cur = conn.execute(
+                            f"DELETE FROM rfq_files WHERE id IN ({placeholders})",
+                            chunk,
+                        )
+                        deleted += cur.rowcount or 0
+                    conn.commit()
+                    out["deleted"]["count"] = deleted
+                    out["deleted"]["mb"] = round(total_bytes / 1024 / 1024, 2)
+                    log.warning(
+                        "rfq_files trim (mode=%s): deleted %d rows, ~%.2f MB",
+                        mode, deleted, total_bytes / 1024 / 1024,
+                    )
+        except Exception as e:
+            log.warning("trim-rfq-files failed: %s", e, exc_info=True)
+            if not dry_run:
+                _log_audit_internal(
+                    "trim_rfq_files_error",
+                    f"mode={mode} error={e}",
+                    metadata={"mode": mode, "error": str(e)[:500]},
+                )
+            return {"ok": False, "error": str(e), "partial": out}, 500
+
+        if want_vacuum and out["deleted"]["count"] > 0:
+            try:
+                # VACUUM must run outside a transaction and without other
+                # writers. Use a dedicated connection that auto-commits.
+                import sqlite3
+                vc = sqlite3.connect(db_path, timeout=60, isolation_level=None)
+                vc.execute("VACUUM")
+                vc.close()
+                size_after = _os.path.getsize(db_path) / 1024 / 1024
+                out["vacuum"]["ran"] = True
+                out["vacuum"]["after_mb"] = round(size_after, 2)
+                out["vacuum"]["reclaimed_mb"] = round(size_before - size_after, 2)
+                log.warning(
+                    "rfq_files trim VACUUM: %.2f MB → %.2f MB (reclaimed %.2f MB)",
+                    size_before, size_after, size_before - size_after,
+                )
+            except Exception as e:
+                log.warning("VACUUM after trim failed: %s", e)
+                out["vacuum"]["error"] = str(e)
+
+        # SY-3: audit row at end — records what actually shipped so ops can
+        # reconcile "who ran this, when, and how much did it reclaim".
+        if not dry_run:
+            _log_audit_internal(
+                "trim_rfq_files_done",
+                f"mode={mode} deleted={out['deleted']['count']} "
+                f"reclaimed_mb={out['vacuum']['reclaimed_mb']}",
+                metadata={
+                    "mode": mode,
+                    "deleted_count": out["deleted"]["count"],
+                    "deleted_mb": out["deleted"]["mb"],
+                    "vacuum_ran": out["vacuum"]["ran"],
+                    "reclaimed_mb": out["vacuum"]["reclaimed_mb"],
+                    "after_mb": out["vacuum"]["after_mb"],
+                },
+            )
+
+        return out
+    finally:
+        if not dry_run:
+            try:
+                _TRIM_RFQ_FILES_LOCK.release()
+            except RuntimeError:
+                pass
 
 
 @bp.route("/api/health/quote-errors")
