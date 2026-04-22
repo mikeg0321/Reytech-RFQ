@@ -1056,6 +1056,13 @@ def api_rfq_create_manual():
     except Exception:
         agency_name = agency_key
 
+    # is_test: explicit flag from caller wins; fall back to a TEST- prefix on
+    # the solicitation number. Without this field set explicitly, every
+    # downstream filter (quoting health funnel, oracle calibration, analytics
+    # revenue rollup, manager_agent) treats this RFQ as live — which is
+    # correct for real RFQs, but gives test-seeded rows no way to opt out.
+    is_test = bool(data.get("is_test")) or sol.upper().startswith("TEST")
+
     rfq = {
         "id": rid,
         "solicitation_number": sol,
@@ -1068,6 +1075,7 @@ def api_rfq_create_manual():
         "delivery_location": data.get("delivery_location", ""),
         "status": "new",
         "source": "manual",
+        "is_test": is_test,
         "created_at": datetime.now().isoformat(),
         "received_at": datetime.now().isoformat(),
         "line_items": [],
