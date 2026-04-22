@@ -3459,7 +3459,8 @@ def do_poll_check():
                         _shared_poller._processed.discard(failed_uid)
                         log.warning("Removed UID %s from processed set — will retry next poll", failed_uid)
         else:
-            POLL_STATUS["error"] = f"IMAP connect failed for {email_cfg.get('email', '?')}"
+            _backend = "Gmail API" if getattr(_shared_poller, "_use_gmail_api", False) else "IMAP"
+            POLL_STATUS["error"] = f"{_backend} connect failed for {email_cfg.get('email', '?')}"
             log.error(POLL_STATUS["error"])
     except Exception as e:
         POLL_STATUS["error"] = str(e)

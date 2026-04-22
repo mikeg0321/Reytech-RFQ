@@ -61,6 +61,17 @@ def _build_credentials(inbox_name: str = "sales"):
 
     No browser needed at runtime — the refresh token was obtained via
     scripts/gmail_oauth_setup.py and stored as an env var.
+
+    `scopes` is intentionally NOT passed. If the stored refresh token was
+    granted a narrower scope set than the SCOPES constant (e.g. the prod
+    token predates gmail.send + drive.readonly being added), forcing the
+    broader list on refresh makes Google return `invalid_scope: Bad Request`
+    and the entire Gmail API path dies — circuit breaker opens, IMAP
+    fallback fires, smoke test flags a poller error. Leaving scopes
+    unset lets the refresh carry whatever was actually granted; send and
+    Drive calls will fail gracefully if the token lacks them (see the
+    403 handling in send_message) and the user can re-run
+    scripts/gmail_oauth_setup.py to upgrade scopes when needed.
     """
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
@@ -75,7 +86,6 @@ def _build_credentials(inbox_name: str = "sales"):
         client_id=GMAIL_OAUTH_CLIENT_ID,
         client_secret=GMAIL_OAUTH_CLIENT_SECRET,
         token_uri="https://oauth2.googleapis.com/token",
-        scopes=SCOPES,
     )
 
     # Force initial token refresh
