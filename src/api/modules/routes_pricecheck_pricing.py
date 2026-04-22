@@ -41,6 +41,11 @@ def api_pricing_recommend():
         from src.core.pricing_oracle_v2 import get_pricing
         items_data = source.get("line_items", [])
         agency = source.get("agency", data.get("agency", "CCHCS"))
+        # BUILD-2: total line count narrows the volume-aware band. A
+        # qty=1 line in a 20-line quote competes differently than the
+        # same line in a 2-line quote — pass len(items_data) so the
+        # oracle hits the right (agency, qty, line_count) cell.
+        line_count = len(items_data)
         priced = []
         for item in items_data:
             r = get_pricing(
@@ -49,6 +54,7 @@ def api_pricing_recommend():
                 cost=item.get("supplier_cost") or item.get("price_per_unit"),
                 item_number=item.get("item_number", ""),
                 department=agency,
+                line_count=line_count,
             )
             priced.append(r)
         result = {
