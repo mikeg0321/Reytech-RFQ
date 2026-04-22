@@ -556,6 +556,44 @@ def api_rfq_outcome(rid):
         except Exception as e:
             log.debug("Win catalog update: %s", e)
 
+    # IN-1: Calibrate Oracle V5 from RFQ outcome. Prior to 2026-04-21 the
+    # wl_log + catalog writes happened here but `calibrate_from_outcome` was
+    # never called on this path — every RFQ win/loss evaporated from Oracle.
+    # Same shape as the Feb-Apr markQuote silent no-op that
+    # project_oracle_v5_phase1.md thought was closed. The quotes + orders
+    # paths already call calibrate_from_outcome; the RFQ-outcome path must too.
+    if outcome in ("won", "lost"):
+        try:
+            from src.core.pricing_oracle_v2 import calibrate_from_outcome
+            loss_reason = None
+            if outcome == "lost":
+                # Map coarse UI reason → oracle's price/other buckets.
+                loss_reason = "price" if "price" in (reason or "").lower() else "other"
+            winner_prices = None
+            if outcome == "lost" and competitor_price:
+                # Apply competitor_price to every line when the UI captured a
+                # single competitor figure; oracle uses the per-line delta so
+                # a single value is a reasonable proxy for "they undercut us".
+                try:
+                    cp = float(competitor_price)
+                    if cp > 0:
+                        winner_prices = {i: cp for i, _ in enumerate(r.get("line_items", []))}
+                except (TypeError, ValueError) as _e:
+                    log.debug("IN-1 competitor_price parse: %s", _e)
+            calibrate_from_outcome(
+                r.get("line_items", []),
+                outcome,
+                agency=record["agency"],
+                loss_reason=loss_reason,
+                winner_prices=winner_prices,
+            )
+            log.info(
+                "Oracle calibrated from RFQ outcome: rfq=%s outcome=%s agency=%s items=%d",
+                rid, outcome, record["agency"], len(r.get("line_items", [])),
+            )
+        except Exception as e:
+            log.warning("IN-1 calibrate_from_outcome failed for RFQ %s: %s", rid, e)
+
     log.info("Outcome recorded: %s → %s (%s) for RFQ %s", rid, outcome, reason, r.get("solicitation_number", ""))
     return jsonify({"ok": True, "outcome": outcome, "reason": reason})
 
