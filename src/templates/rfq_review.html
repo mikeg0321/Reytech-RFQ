@@ -50,7 +50,7 @@
     <div>
       <h2>📋 Package Review — RFQ #{{ sol }}</h2>
       <div style="font-size:13px;color:var(--tx2);margin-top:2px">
-        {{ manifest.agency_name or 'Unknown Agency' }} — {{ r.get('requestor_name', '?') }}
+        {{ (manifest.agency_name|agency_display) or 'Unknown Agency' }} — {{ r.get('requestor_name', '?') }}
         {% if r.get('due_date') %} — Due {{ r.due_date }}{% endif %}
       </div>
     </div>
@@ -87,7 +87,7 @@
 
   {% if manifest.missing_forms and manifest.missing_forms|length > 0 %}
   <div class="rv-error" style="margin-bottom:12px">
-    <b>Missing Forms:</b> {{ manifest.missing_forms|join(', ') }} — required by {{ manifest.agency_name }} but not generated.
+    <b>Missing Forms:</b> {{ manifest.missing_forms|join(', ') }} — required by {{ manifest.agency_name|agency_display }} but not generated.
   </div>
   {% endif %}
 
@@ -226,7 +226,7 @@
           <div class="rv-audit-item"><span>💰</span> Quote #: <b>{{ manifest.quote_number or '—' }}</b></div>
           <div class="rv-audit-item"><span>📦</span> Items: <b>{{ manifest.item_count or 0 }}</b></div>
           <div class="rv-audit-item"><span>💲</span> Total: <b>${{ "%.2f"|format(manifest.quote_total or 0) }}</b></div>
-          <div class="rv-audit-item"><span>🏢</span> Agency: <b>{{ manifest.agency_name or '?' }}</b></div>
+          <div class="rv-audit-item"><span>🏢</span> Agency: <b>{{ (manifest.agency_name|agency_display) or '?' }}</b></div>
           <div class="rv-audit-item"><span>💲</span> Tax: {% if r.get('tax_validated') %}<span style="color:#3fb950">✅ {{ r.get('tax_rate',0) }}% ({{ r.get('tax_jurisdiction','verified') }})</span>{% elif r.get('tax_rate') and r.get('tax_rate') > 0 %}<span style="color:#d29922">⚠️ {{ r.get('tax_rate',0) }}% (unverified)</span>{% else %}<span style="color:#f85149">❌ No tax rate</span>{% endif %}</div>
         </div>
 

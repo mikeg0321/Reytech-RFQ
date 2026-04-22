@@ -29,7 +29,7 @@
     <div>
       <h2>🎧 Support View — RFQ #{{ sol }}</h2>
       <div style="font-size:13px;color:var(--tx2);margin-top:4px">
-        {{ r.get('agency','') or r.get('agency_name','') }} — {{ r.get('requestor_name','?') }}
+        {{ (r.get('agency','') or r.get('agency_name',''))|agency_display }} — {{ r.get('requestor_name','?') }}
         {% if r.get('requestor_email') %} ({{ r.requestor_email }}){% endif %}
       </div>
     </div>

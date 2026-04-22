@@ -102,7 +102,7 @@
     <div class="ss-card-title">Buyer Info (from email/attachment)</div>
     <div class="ss-grid">
       <div class="ss-field"><label>Institution</label><div class="val">{{ header.institution|default('—') }}</div></div>
-      <div class="ss-field"><label>Agency</label><div class="val">{{ header.agency|default('—') }}</div></div>
+      <div class="ss-field"><label>Agency</label><div class="val">{{ (header.agency|agency_display) or '—' }}</div></div>
       <div class="ss-field"><label>Requestor</label><div class="val">{{ header.requestor|default('—') }}</div></div>
       <div class="ss-field"><label>Phone</label><div class="val">{{ header.phone|default('—') }}</div></div>
       <div class="ss-field"><label>Ship To</label><div class="val">{{ header.ship_to|default('—') }}</div></div>

@@ -75,7 +75,7 @@
   </select>
   <select name="agency" aria-label="Filter by agency" style="background:var(--sf);border:1px solid var(--bd);border-radius:6px;padding:8px 12px;color:var(--tx);font-size:15px">
    <option value="">All Agencies</option>
-   {% for a in all_agencies %}<option value="{{ a }}" {{ 'selected' if filter_agency==a }}>{{ a }}</option>{% endfor %}
+   {% for a in all_agencies %}<option value="{{ a }}" {{ 'selected' if filter_agency==a }}>{{ a|agency_display }}</option>{% endfor %}
   </select>
   <button type="submit" class="btn btn-s" style="font-size:15px;padding:8px 16px">Filter</button>
   {% if search_q or filter_status or filter_agency %}<a href="/orders" style="font-size:14px;color:var(--tx2)">✕ Clear</a>{% endif %}

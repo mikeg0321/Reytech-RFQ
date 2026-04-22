@@ -24,7 +24,7 @@
      {% if po.matched_quote %}<span style="color:#3fb950;font-size:14px;margin-left:8px">Matched: {{ po.matched_quote }}</span>{% endif %}
     </div>
     <div style="color:var(--tx2);font-size:14px;margin-top:4px">
-     {{ po.agency or '' }} {{ po.institution or '' }} · From: {{ po.sender_email or '?' }}
+     {{ po.agency|agency_display }} {{ po.institution or '' }} · From: {{ po.sender_email or '?' }}
     </div>
     <div style="color:var(--tx2);font-size:13px">Subject: {{ po.subject or '?' }}</div>
     <div style="color:var(--tx2);font-size:13px">Detected: {{ po.detected_at[:16] if po.detected_at else '?' }}</div>
@@ -74,7 +74,7 @@
   <summary style="color:var(--tx2);font-size:14px;cursor:pointer">{{ processed|length }} processed award(s)</summary>
   {% for po in processed %}
   <div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:13px;color:var(--tx2)">
-   {{ po.review_status|upper }} — PO #{{ po.po_number or '?' }} · {{ po.agency or '' }} · ${{ "%.2f"|format(po.total or 0) }}
+   {{ po.review_status|upper }} — PO #{{ po.po_number or '?' }} · {{ po.agency|agency_display }} · ${{ "%.2f"|format(po.total or 0) }}
    {% if po.order_id %} → <a href="/order/{{ po.order_id }}" style="color:var(--ac)">{{ po.order_id }}</a>{% endif %}
   </div>
   {% endfor %}

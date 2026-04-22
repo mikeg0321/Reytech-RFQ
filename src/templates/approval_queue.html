@@ -63,7 +63,7 @@
             <a href="/quoting/status/{{ r.doc_id }}" style="color:#58a6ff;font-family:'JetBrains Mono',monospace">{{ r.doc_id or '(blank)' }}</a>
           </td>
           <td style="padding:6px 8px;text-transform:uppercase;font-size:12px;color:var(--tx2)">{{ r.doc_type or '—' }}</td>
-          <td style="padding:6px 8px">{{ r.agency_key or '—' }}</td>
+          <td style="padding:6px 8px">{{ (r.agency_key|agency_display) or '—' }}</td>
           <td style="padding:6px 8px">
             <span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;color:{{ meta[1] }};background:{{ meta[1] }}1a">
               {{ meta[0] }}
