@@ -401,6 +401,7 @@ def run_weekly_report():
             urgency="info",
             channels=["email"],
             context={"html_body": html_body},
+            cooldown_key="oracle_weekly",  # IN-12: dedupe weekly sends on retry
             run_async=False,
         )
 
@@ -416,6 +417,7 @@ def run_weekly_report():
                 body=f"Email send returned: {result}. Check GMAIL_ADDRESS/GMAIL_PASSWORD env vars.",
                 urgency="warning",
                 channels=["bell"],
+                cooldown_key="oracle_weekly_send_failed",  # IN-12: suppress repeat bells on retry loop
                 run_async=False,
             )
             heartbeat("oracle-weekly-report", success=False, error="Email send failed")
@@ -439,6 +441,7 @@ def run_weekly_report():
                 body=f"Error: {e}. The Oracle feedback loop is broken. Investigate immediately.",
                 urgency="urgent",
                 channels=["bell"],
+                cooldown_key="oracle_weekly_crash",  # IN-12: crash loop must not spam bell
                 run_async=False,
             )
         except Exception as _e:
@@ -542,6 +545,11 @@ def check_report_health():
             if days_since > 9:
                 # Missed a weekly send — fire urgent alert
                 log.error("FORCING FUNCTION: Oracle weekly report overdue by %d days!", days_since)
+                # IN-14: threshold-aware cooldown so a stuck job re-escalates as it
+                # gets worse. Bucket by week (9-13d, 14-20d, 21-27d, ...) — each
+                # bucket is a fresh cooldown key so the alert fires again when
+                # the situation degrades, not once and then silent forever.
+                bucket = max(1, days_since // 7)
                 from src.agents.notify_agent import send_alert
                 send_alert(
                     event_type="oracle_weekly_overdue",
@@ -555,7 +563,7 @@ def check_report_health():
                     ),
                     urgency="urgent",
                     channels=["email", "bell"],
-                    cooldown_key="oracle_overdue",
+                    cooldown_key=f"oracle_overdue_{bucket}w",
                     run_async=False,
                 )
     except Exception as e:
