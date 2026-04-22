@@ -182,7 +182,12 @@ def api_customers_add():
         "display_name": data["display_name"],
         "company": data.get("company", data["display_name"]),
         "parent": data.get("parent", ""),
-        "agency": data.get("agency", "DEFAULT"),
+        # CR-1: never default to "DEFAULT" — every agency-aware filter
+        # downstream excludes that bucket, which silently turns a new
+        # contact into a ghost. CDCR is the statistically-dominant
+        # California agency and the project's documented default
+        # (`project_reytech_canonical_identity`, CLAUDE.md Agency rules).
+        "agency": data.get("agency") or "CDCR",
         "abbreviation": data.get("abbreviation", ""),
         "address": data.get("address", ""),
         "city": data.get("city", ""),
