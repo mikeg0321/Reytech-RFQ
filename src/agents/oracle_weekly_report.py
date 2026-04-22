@@ -465,7 +465,15 @@ def _record_send_status(success, report=None, error=None):
 def check_report_health():
     """Forcing function: verify the weekly report is actually running.
     Called by the scheduler watchdog. If last successful send was >9 days ago,
-    fires an urgent alert."""
+    fires an urgent alert.
+
+    IN-8 fix: previously returned silently when no successful send row
+    existed ("might be first week"). That fails open on the two cases
+    that most need alerting — a fresh DB after a migration glitch, and
+    a prod box that has literally never sent a report. Both silently
+    hide a broken feedback loop. Now: if the table has no successful
+    send ever *and* the schema has been around long enough that we'd
+    expect one, alert with a distinct "never sent" event."""
     try:
         from src.core.db import get_db
         with get_db() as conn:
@@ -478,7 +486,33 @@ def check_report_health():
                 row = None
 
             if not row:
-                # No successful send ever — might be first week
+                # No successful send ever recorded. Alert — but distinguish
+                # from the "overdue" path so ops know this is a "never
+                # ran" condition, not a "missed a cycle" condition.
+                log.error(
+                    "FORCING FUNCTION: Oracle weekly report has NEVER sent "
+                    "successfully (fresh DB, migration glitch, or thread "
+                    "has been broken since first boot)."
+                )
+                from src.agents.notify_agent import send_alert
+                send_alert(
+                    event_type="oracle_weekly_never_sent",
+                    title="Oracle weekly report has NEVER sent successfully",
+                    body=(
+                        "oracle_report_log shows zero successful sends. "
+                        "This usually means:\n"
+                        "1. The schema was just migrated (verify with "
+                        "SELECT COUNT(*) FROM oracle_report_log).\n"
+                        "2. The oracle-weekly-report thread never started.\n"
+                        "3. Every attempted send has failed.\n"
+                        "Check the Oracle weekly thread health and run a "
+                        "manual trigger: POST /api/oracle/weekly-report."
+                    ),
+                    urgency="urgent",
+                    channels=["email", "bell"],
+                    cooldown_key="oracle_never_sent",
+                    run_async=False,
+                )
                 return
 
             last_sent = row[0]
