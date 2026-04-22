@@ -3203,21 +3203,8 @@ def send_po_confirmation_reply(msg_obj, po_number: str, gmail_addr: str = "", gm
 
 This email confirms receipt of {po_display}. We will begin to process this order immediately. Should you have any further questions or need assistance, please let us know."""
 
-    # Generate HTML version with signature
-    try:
-        from src.core.email_signature import wrap_html_email, get_plain_signature
-        reply_body_html = wrap_html_email(reply_body)
-        reply_body += "\n\n" + get_plain_signature()
-    except ImportError:
-        reply_body_html = ""
-        reply_body += f"""
-
-Respectfully,
-
-Michael Guadan
-Reytech Inc.
-949-229-1575
-sales@reytechinc.com"""
+    # Gmail handles signatures (CLAUDE.md). No HTML wrap, no app-level sig.
+    reply_body_html = ""
     
     # Build threading headers
     references = original_references or ""
@@ -3319,14 +3306,8 @@ This email confirms receipt of the following purchase orders:
     reply_body += """
 We will begin processing these orders immediately. Should you have any further questions or need assistance, please let us know."""
 
-    # Generate HTML version with signature
-    try:
-        from src.core.email_signature import wrap_html_email, get_plain_signature
-        reply_body_html = wrap_html_email(reply_body)
-        reply_body += "\n\n" + get_plain_signature()
-    except ImportError:
-        reply_body_html = ""
-        reply_body += "\n\nRespectfully,\n\nMichael Guadan\nReytech Inc.\n949-229-1575\nsales@reytechinc.com"
+    # Gmail handles signatures (CLAUDE.md). No HTML wrap, no app-level sig.
+    reply_body_html = ""
     
     references = original_references or ""
     if original_message_id:

@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EMAIL_EMITTING_FILES = [
     ROOT / "src" / "agents" / "cs_agent.py",
     ROOT / "src" / "agents" / "email_outreach.py",
+    ROOT / "src" / "agents" / "email_poller.py",  # RE-AUDIT-7 2026-04-22
     ROOT / "src" / "api" / "modules" / "routes_crm.py",
     ROOT / "src" / "api" / "modules" / "routes_analytics.py",
     ROOT / "src" / "api" / "modules" / "routes_rfq_admin.py",
@@ -36,7 +37,7 @@ EMAIL_EMITTING_FILES = [
 # Patterns that indicate an app-level signature block. The closing value
 # names ("Michael Guadan" / "Mike Guadan") are fine in body prose (e.g.
 # "My name is Michael Guadan..."); the violation is when they appear
-# immediately after a "Best regards" closing.
+# immediately after a closing ("Best regards", "Respectfully", etc.).
 SIG_SIGNATURE_PATTERNS = [
     # Plain text sig: "Best regards,\nMichael Guadan" variants
     re.compile(r"Best regards[,\s]+\\n\s*(Michael|Mike)\s+Guadan", re.IGNORECASE),
@@ -45,6 +46,14 @@ SIG_SIGNATURE_PATTERNS = [
     re.compile(r"Best regards,<br>.*?Michael\s+Guadan", re.IGNORECASE | re.DOTALL),
     # Multi-line triple-quoted sig: "Best regards,\nMichael"
     re.compile(r"Best regards,\n(Michael|Mike)\s+Guadan", re.IGNORECASE),
+    # RE-AUDIT-7: "Respectfully,\n...\nMichael Guadan" ImportError-fallback sig.
+    re.compile(r"Respectfully,[\\\s]*n?[\\\s]*n?(Michael|Mike)\s+Guadan", re.IGNORECASE),
+    re.compile(r"Respectfully,\n+(Michael|Mike)\s+Guadan", re.IGNORECASE),
+    # RE-AUDIT-7: direct append of get_plain_signature() to an outbound body.
+    # This is how OB-3 regressed into email_poller — a compact way to inject
+    # the canonical app-sig that pattern-matches won't catch on string content.
+    re.compile(r"\+=?\s*[\"']\\n\\n[\"']\s*\+\s*get_plain_signature\(\)"),
+    re.compile(r"body\w*\s*\+=\s*.*get_plain_signature\("),
 ]
 
 
