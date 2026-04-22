@@ -192,6 +192,12 @@ def _check_templates():
     if not os.path.isdir(template_dir):
         return
     env = Environment(loader=FileSystemLoader(template_dir))
+    # Register app-level filters so templates using them parse cleanly.
+    try:
+        from src.core.agency_display import agency_display
+        env.filters["agency_display"] = agency_display
+    except Exception:
+        pass
     issues = []
     for fname in os.listdir(template_dir):
         if not fname.endswith(".html"):

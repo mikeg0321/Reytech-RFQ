@@ -14,7 +14,7 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
        <div>
         <div style="font-family:'JetBrains Mono',monospace;font-size:26px;font-weight:700">{{ oid }}</div>
-        <div style="color:var(--tx2);font-size:16px;margin-top:4px">{{ order.get('agency','') }}{{ ' · ' if order.get('agency') else '' }}Created {{ order.get('created_at','')[:10] }}</div>
+        <div style="color:var(--tx2);font-size:16px;margin-top:4px">{{ order.get('agency','')|agency_display }}{{ ' · ' if order.get('agency') else '' }}Created {{ order.get('created_at','')[:10] }}</div>
        </div>
        <span style="padding:4px 12px;border-radius:12px;font-size:16px;font-weight:600;background:var(--sf2)">{{ status_cfg.get(st, st) }}</span>
       </div>
