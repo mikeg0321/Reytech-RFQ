@@ -494,8 +494,13 @@ def send_email_po(
     if not contact_email:
         return {"ok": False, "error": f"No contact email for {vendor_key}"}
 
-    if not (GMAIL_ADDRESS and GMAIL_PASSWORD):
-        return {"ok": False, "error": "Gmail not configured — set GMAIL_ADDRESS/GMAIL_PASSWORD"}
+    # RE-AUDIT-10: Gmail API OAuth path (not the legacy app-password
+    # smtplib route). Guard on gmail_api.is_configured() so a
+    # misconfigured prod surfaces a clear error instead of 500ing
+    # inside the send call.
+    from src.core import gmail_api as _gm
+    if not _gm.is_configured():
+        return {"ok": False, "error": "Gmail API not configured"}
 
     # ── Deduplication: check if we already sent a PO with this number to this vendor ──
     try:
@@ -577,21 +582,14 @@ Reytech Inc. | CA SB/DVBE #2002605
     subject = f"Purchase Order {po_number} — Reytech Inc. | {today}"
 
     try:
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-
-        msg = MIMEMultipart()
-        msg["From"] = f"Michael Guadan - Reytech Inc. <{GMAIL_ADDRESS}>"
-        msg["To"] = contact_email
-        msg["Subject"] = subject
-        msg["CC"] = GMAIL_ADDRESS  # BCC ourselves for records
-        msg.attach(MIMEText(body, "plain"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
-            server.send_message(msg)
+        service = _gm.get_send_service()
+        _gm.send_message(
+            service,
+            to=contact_email,
+            subject=subject,
+            body_plain=body,
+            cc=GMAIL_ADDRESS,
+        )
 
         # Gmail's SMTP_SSL authenticated-relay path copies the message to the
         # sender's Sent Mail automatically — no explicit save-to-Sent needed.
