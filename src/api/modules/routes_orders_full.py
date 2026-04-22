@@ -617,6 +617,11 @@ def api_order_update_line(oid, lid):
                     # Legacy read-alias: mirror unit_cost → cost for templates that still read it.
                     if field == "unit_cost":
                         it["cost"] = data[field]
+                    # O-1 (alias shadow): save_line_items_batch prefers supplier_name
+                    # over the supplier alias. Without this mirror the user edit
+                    # silently reverts to the stale column value on next save.
+                    elif field == "supplier":
+                        it["supplier_name"] = data[field]
                     if field == "sourcing_status" and old_val != data[field]:
                         _log_crm_activity(order.get("quote_number",""), f"line_{data[field]}",
                                           f"Order {oid} line {lid}: {old_val} → {data[field]} — {it.get('description','')[:60]}",
