@@ -772,7 +772,7 @@ def test_trace_pipeline_health():
     - 'bp not defined' (routes_rfq import failure)
     - Stale cache / wrong filename dedup
     - PC routing failures
-    - IMAP connection failures
+    - Gmail API connection failures
     - Silent email drops
     """
     results = []
@@ -831,17 +831,17 @@ def test_trace_pipeline_health():
                 results.append(_result("trace_pc_routing", PASS,
                     f"PC routing OK: {pc_ok} PCs, {rfq_ok} RFQs"))
         
-        # Check IMAP
+        # Check Gmail API poll
         polls = get_traces(workflow="email_poll", limit=5)
         poll_fails = [t for t in polls if t["status"] == "fail"]
         if poll_fails:
             last_err = poll_fails[0].get("steps",[{}])[-1].get("msg","?")
-            results.append(_result("trace_imap", FAIL,
-                f"IMAP poll failing: {last_err[:80]}",
-                fix="Check email credentials and IMAP server"))
+            results.append(_result("trace_gmail_api", FAIL,
+                f"Gmail API poll failing: {last_err[:80]}",
+                fix="Check GMAIL_OAUTH_REFRESH_TOKEN env var and re-run scripts/gmail_oauth_setup.py"))
         elif polls:
-            results.append(_result("trace_imap", PASS,
-                f"IMAP OK ({len(polls)} recent polls)"))
+            results.append(_result("trace_gmail_api", PASS,
+                f"Gmail API OK ({len(polls)} recent polls)"))
         
     except ImportError:
         results.append(_result("trace_health", PASS, "Trace module not yet loaded"))

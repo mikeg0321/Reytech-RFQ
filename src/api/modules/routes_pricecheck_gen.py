@@ -1573,26 +1573,19 @@ def api_poll_reset_processed():
 @auth_required
 @safe_route
 def api_inbox_peek():
-    """Show all emails in inbox with filter decisions - NO processing."""
-    import imaplib, email as email_mod
-    from email.header import decode_header
+    """Show recent inbox messages + filter decisions via Gmail API — NO processing."""
     try:
-        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
-        if not gmail_user or not gmail_pass:
-            return jsonify({"error": "No email credentials"})
-        
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(gmail_user, gmail_pass)
-        mail.select("INBOX", readonly=True)
-        
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return jsonify({"error": "Gmail API not configured"}), 503
+
+        service = gmail_api.get_service("sales")
         from datetime import datetime, timedelta
-        since = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
-        # Use UID search to match what the poller uses
-        _, data = mail.uid("search", None, f'(SINCE "{since}")')
-        uids = data[0].split() if data[0] else []
-        
-        # Load processed UIDs from JSON
+        since = (datetime.now() - timedelta(days=7)).strftime("%Y/%m/%d")
+        query = f"in:inbox after:{since}"
+        ids = gmail_api.list_message_ids(service, query=query, max_results=100)
+
+        # Load processed IDs from JSON
         proc_file = os.path.join(DATA_DIR, "processed_emails.json")
         processed_json = set()
         try:
@@ -1602,8 +1595,8 @@ def api_inbox_peek():
                     processed_json = set(str(x) for x in _j.load(f))
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
-        
-        # Load processed UIDs from SQLite
+
+        # Load processed IDs from SQLite
         processed_db = set()
         try:
             from src.core.db import get_db
@@ -1612,40 +1605,25 @@ def api_inbox_peek():
                 processed_db = set(str(r[0]) for r in rows)
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
-        
-        all_processed = processed_json | processed_db
-        
+
         emails = []
-        for uid in uids[-10:]:  # Last 10
-            uid_str = uid.decode()
-            _, msg_data = mail.uid("fetch", uid, "(RFC822.HEADER)")
-            if not msg_data or not msg_data[0]:
-                continue
-            raw = msg_data[0][1] if isinstance(msg_data[0], tuple) else b""
-            msg = email_mod.message_from_bytes(raw)
-            
-            subj = ""
-            for part, enc in decode_header(msg.get("Subject", "")):
-                if isinstance(part, bytes):
-                    subj += part.decode(enc or "utf-8", errors="replace")
-                else:
-                    subj += part
-            
-            sender = msg.get("From", "")
-            sender_email = ""
+        for msg_id in ids[-10:]:
+            meta = gmail_api.get_message_metadata(service, msg_id)
+            subj = meta.get("subject", "")
+            sender = meta.get("from", "")
             if "<" in sender:
                 sender_email = sender.split("<")[1].split(">")[0].lower()
             else:
                 sender_email = sender.lower().strip()
-            
+
             our_domains = ["reytechinc.com", "reytech.com"]
             is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
             is_fwd_subj = any(subj.lower().strip().startswith(p) for p in ["fwd:", "fw:"])
-            in_json = uid_str in processed_json
-            in_db = uid_str in processed_db
-            
+            in_json = msg_id in processed_json
+            in_db = msg_id in processed_db
+
             emails.append({
-                "uid": uid_str,
+                "uid": msg_id,
                 "subject": subj[:80],
                 "sender": sender_email,
                 "is_self": is_self,
@@ -1653,19 +1631,17 @@ def api_inbox_peek():
                 "in_json": in_json,
                 "in_db": in_db,
                 "blocked": in_json or in_db,
-                "date": msg.get("Date", "")[:30],
+                "date": meta.get("date", "")[:30],
             })
-        
-        mail.logout()
+
         return jsonify({
             "ok": True,
-            "total_in_window": len(uids),
+            "total_in_window": len(ids),
             "processed_json": sorted(list(processed_json))[:20],
             "processed_db": sorted(list(processed_db))[:20],
             "emails": emails,
         })
     except Exception as e:
-        import traceback
         log.error("Route error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
 
@@ -1892,25 +1868,22 @@ def api_diag():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 def _api_diag_inner():
-    import traceback
     email_cfg = CONFIG.get("email", {})
     addr = email_cfg.get("email", "NOT SET")
     has_pw = bool(email_cfg.get("email_password"))
-    host = email_cfg.get("imap_host", "imap.gmail.com")
-    port = email_cfg.get("imap_port", 993)
-    
+
     diag = {
         "config": {
             "email_address": addr,
             "has_password": has_pw,
             "password_length": len(email_cfg.get("email_password", "")),
-            "imap_host": host,
-            "imap_port": port,
-            "imap_folder": email_cfg.get("imap_folder", "INBOX"),
+            "backend": "gmail_api",
         },
         "env_vars": {
             "GMAIL_ADDRESS_set": bool(os.environ.get("GMAIL_ADDRESS")),
-            "GMAIL_PASSWORD_set": bool(os.environ.get("GMAIL_PASSWORD")),
+            "GMAIL_OAUTH_CLIENT_ID_set": bool(os.environ.get("GMAIL_OAUTH_CLIENT_ID")),
+            "GMAIL_OAUTH_CLIENT_SECRET_set": bool(os.environ.get("GMAIL_OAUTH_CLIENT_SECRET")),
+            "GMAIL_OAUTH_REFRESH_TOKEN_set": bool(os.environ.get("GMAIL_OAUTH_REFRESH_TOKEN")),
             "GMAIL_ADDRESS_value": os.environ.get("GMAIL_ADDRESS", "NOT SET"),
         },
         # Filter out underscore-prefixed keys — they hold live objects like
@@ -1921,68 +1894,52 @@ def _api_diag_inner():
         "connection_test": None,
         "inbox_test": None,
     }
-    
-    # Test IMAP connection
+
+    # Test Gmail API connection
     try:
-        import imaplib
-        mail = imaplib.IMAP4_SSL(host, port)
-        diag["connection_test"] = "SSL connected OK"
-        
-        try:
-            mail.login(addr, email_cfg.get("email_password", ""))
-            diag["connection_test"] = f"Logged in as {addr} OK"
-            
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            diag["connection_test"] = "Gmail API not configured (missing OAuth env vars)"
+        else:
+            service = gmail_api.get_service("sales")
+            diag["connection_test"] = f"Gmail API authenticated as {addr} OK"
             try:
-                mail.select("INBOX")
-                # Check total
-                status, messages = mail.search(None, "ALL")
-                total = len(messages[0].split()) if status == "OK" and messages[0] else 0
-                # Check recent (last 3 days) — same as poller
-                since_date = (datetime.now() - timedelta(days=3)).strftime("%d-%b-%Y")
-                status3, recent = mail.uid("search", None, f"(SINCE {since_date})")
-                recent_count = len(recent[0].split()) if status3 == "OK" and recent[0] else 0
-                
-                # Check how many already processed
+                since_date = (datetime.now() - timedelta(days=3)).strftime("%Y/%m/%d")
+                recent_ids = gmail_api.list_message_ids(
+                    service, query=f"in:inbox after:{since_date}", max_results=100
+                )
+                recent_count = len(recent_ids)
+
                 proc_file = os.path.join(DATA_DIR, "processed_emails.json")
                 processed_uids = set()
                 if os.path.exists(proc_file):
                     try:
                         with open(proc_file) as pf:
-                            processed_uids = set(json.load(pf))
+                            processed_uids = set(str(x) for x in json.load(pf))
                     except Exception as e:
-
                         log.debug("Suppressed: %s", e)
-                
-                recent_uids = recent[0].split() if status3 == "OK" and recent[0] else []
-                new_to_process = [u.decode() for u in recent_uids if u.decode() not in processed_uids]
-                
+
+                new_to_process = [m for m in recent_ids if m not in processed_uids]
+
                 diag["inbox_test"] = {
-                    "total_emails": total,
                     "recent_3_days": recent_count,
                     "already_processed": recent_count - len(new_to_process),
                     "new_to_process": len(new_to_process),
                 }
-                
-                # Show subjects of emails that would be processed
+
                 if new_to_process:
                     subjects = []
-                    for uid_str in new_to_process[:5]:
-                        st, data = mail.uid("fetch", uid_str.encode(), "(BODY.PEEK[HEADER.FIELDS (SUBJECT FROM)])")
-                        if st == "OK":
-                            subjects.append(data[0][1].decode("utf-8", errors="replace").strip())
+                    for msg_id in new_to_process[:5]:
+                        meta = gmail_api.get_message_metadata(service, msg_id)
+                        subjects.append(
+                            f"Subject: {meta.get('subject', '')}\nFrom: {meta.get('from', '')}"
+                        )
                     diag["inbox_test"]["new_email_subjects"] = subjects
-                
             except Exception as e:
-                diag["inbox_test"] = f"SELECT/SEARCH failed: {e}"
-            
-            mail.logout()
-        except imaplib.IMAP4.error as e:
-            diag["connection_test"] = f"LOGIN FAILED: {e}"
-        except Exception as e:
-            diag["connection_test"] = f"LOGIN ERROR: {e}"
+                diag["inbox_test"] = f"Gmail API list/metadata failed: {e}"
     except Exception as e:
-        diag["connection_test"] = f"SSL CONNECT FAILED: {e}"
-        log.error("IMAP connection test failed: %s", e, exc_info=True)
+        diag["connection_test"] = f"Gmail API connect failed: {e}"
+        log.error("Gmail API diag test failed: %s", e, exc_info=True)
     
     # Check processed emails file
     proc_file = email_cfg.get("processed_file", os.path.join(DATA_DIR, "processed_emails.json"))

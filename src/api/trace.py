@@ -9,7 +9,7 @@ Usage:
 
     # Start a trace
     t = Trace("email_pipeline", subject="Quote - Med OS")
-    t.step("IMAP connected")
+    t.step("Gmail API connected")
     t.step("PDF detected", filename="AMS 704 - Med OS.pdf", is_pc=True)
     t.step("PC created", pc_id="pc_abc123", items=5)
     t.ok("Pipeline complete")    # marks success

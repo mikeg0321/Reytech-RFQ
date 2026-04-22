@@ -19,7 +19,6 @@ import json
 import time
 import email
 import logging
-import imaplib
 import threading
 from datetime import datetime
 from typing import Optional
@@ -36,35 +35,25 @@ POLL_INTERVAL = 300  # 5 minutes
 _running = False
 
 
-def _get_email_config():
-    """Get Gmail IMAP config from env."""
-    return {
-        "email": os.environ.get("GMAIL_ADDRESS", ""),
-        "password": os.environ.get("GMAIL_PASSWORD", ""),
-        "imap_server": "imap.gmail.com",
-    }
-
-
 def poll_for_qb_invoices():
-    """Check Gmail for QuickBooks invoice emails, process attachments."""
-    cfg = _get_email_config()
-    if not cfg["email"] or not cfg["password"]:
-        return {"ok": False, "error": "Email not configured"}
-
+    """Check Gmail via API for QuickBooks invoice emails, process attachments."""
     try:
-        mail = imaplib.IMAP4_SSL(cfg["imap_server"])
-        mail.login(cfg["email"], cfg["password"])
-        mail.select("INBOX")
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return {"ok": False, "error": "Gmail API not configured"}
 
-        # Search for QB invoice emails not yet processed
-        # QB subjects: "Invoice #25-040 from Reytech Inc."
-        _, msg_ids = mail.search(None, '(SUBJECT "Invoice" SUBJECT "Reytech" UNSEEN)')
-        ids = msg_ids[0].split() if msg_ids[0] else []
+        service = gmail_api.get_service("sales")
+
+        # Gmail search query — same intent as the old IMAP UNSEEN + subject filter.
+        ids = gmail_api.list_message_ids(
+            service,
+            query='is:unread subject:"Invoice" subject:"Reytech"',
+            max_results=10,
+        )
 
         processed = 0
-        for mid in ids[-10:]:  # Process up to 10 at a time
-            _, msg_data = mail.fetch(mid, "(BODY.PEEK[])")
-            raw = msg_data[0][1]
+        for mid in ids:
+            raw = gmail_api.get_raw_message(service, mid)
             msg = email.message_from_bytes(raw)
 
             subject = str(msg.get("Subject", ""))
@@ -74,14 +63,12 @@ def poll_for_qb_invoices():
             if not any(k in sender.lower() for k in ["intuit", "quickbooks", "reytechinc"]):
                 continue
 
-            # Extract invoice number from subject
             inv_match = re.search(r'Invoice\s*#?\s*(\d{2}-\d{3})', subject)
             if not inv_match:
                 continue
             inv_number = inv_match.group(1)
             log.info("Found QB invoice email: #%s from %s", inv_number, sender)
 
-            # Extract PDF attachment
             pdf_data = None
             pdf_name = ""
             for part in msg.walk():
@@ -96,15 +83,12 @@ def poll_for_qb_invoices():
                 log.warning("QB invoice #%s email has no PDF attachment", inv_number)
                 continue
 
-            # Save raw PDF
             raw_path = os.path.join(DATA_DIR, f"qb_invoice_{inv_number}_raw.pdf")
             with open(raw_path, "wb") as f:
                 f.write(pdf_data)
 
-            # Match to order by invoice number
             order_id = _find_order_by_invoice(inv_number)
             if order_id:
-                # Enhance PDF with UOM + PO#
                 enhanced_path = _enhance_invoice_pdf(raw_path, order_id, inv_number)
                 _update_order_invoice_status(order_id, raw_path, enhanced_path, inv_number)
                 processed += 1
@@ -112,10 +96,15 @@ def poll_for_qb_invoices():
             else:
                 log.info("QB invoice #%s: no matching order found, PDF saved at %s", inv_number, raw_path)
 
-            # Mark as read
-            mail.store(mid, "+FLAGS", "\\Seen")
+            # Mark as read via Gmail API label modify
+            try:
+                service.users().messages().modify(
+                    userId="me", id=mid,
+                    body={"removeLabelIds": ["UNREAD"]},
+                ).execute()
+            except Exception as _e:
+                log.debug("Invoice mark-read failed: %s", _e)
 
-        mail.logout()
         return {"ok": True, "processed": processed, "checked": len(ids)}
 
     except Exception as e:

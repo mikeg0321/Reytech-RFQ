@@ -2229,42 +2229,27 @@ def process_bounceback(email_address: str, reason: str = "") -> dict:
 
 
 def scan_inbox_for_bounces() -> dict:
-    """Check inbox for bounceback emails and process them."""
-    try:
-        from src.agents.email_poller import EmailSender
-        config = {
-            "email": os.environ.get("GMAIL_ADDRESS", ""),
-            "email_password": os.environ.get("GMAIL_PASSWORD", ""),
-        }
-        if not config["email"] or not config["email_password"]:
-            return {"ok": False, "error": "Gmail not configured"}
-        sender = EmailSender(config)
-    except ImportError:
-        return {"ok": False, "error": "EmailSender not available"}
-
+    """Check inbox (Gmail API) for bounceback emails and process them."""
     bounces_found = 0
     try:
-        # Check recent emails for bouncebacks
-        import imaplib, email as email_lib
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(config["email"], config["email_password"])
-        imap.select("INBOX")
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return {"ok": False, "error": "Gmail API not configured"}
 
-        # Search last 7 days
-        from_date = (datetime.now() - timedelta(days=7)).strftime("%d-%b-%Y")
-        _, msg_ids = imap.search(None, f'(SINCE "{from_date}" FROM "mailer-daemon")')
+        import email as email_lib
+        service = gmail_api.get_service("sales")
 
-        # Also check for delivery failure subjects
-        _, msg_ids2 = imap.search(None, f'(SINCE "{from_date}" SUBJECT "delivery")')
+        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y/%m/%d")
+        # One combined Gmail search: mailer-daemon OR delivery-failure subjects
+        query = (
+            f'after:{from_date} '
+            '(from:mailer-daemon OR subject:delivery OR subject:"undelivered")'
+        )
+        ids = gmail_api.list_message_ids(service, query=query, max_results=50)
 
-        all_ids = set()
-        for ids in [msg_ids[0], msg_ids2[0]]:
-            if ids:
-                all_ids.update(ids.split())
-
-        for msg_id in list(all_ids)[:50]:
-            _, data = imap.fetch(msg_id, "(BODY.PEEK[])")
-            msg = email_lib.message_from_bytes(data[0][1])
+        for msg_id in ids:
+            raw = gmail_api.get_raw_message(service, msg_id)
+            msg = email_lib.message_from_bytes(raw)
             subject = str(msg.get("Subject", ""))
             sender_addr = str(msg.get("From", ""))
             body = ""
@@ -2287,8 +2272,6 @@ def scan_inbox_for_bounces() -> dict:
                 result = process_bounceback(bounce["recipient"], f"Auto-detected: {subject[:60]}")
                 if result.get("ok"):
                     bounces_found += 1
-
-        imap.logout()
 
     except Exception as e:
         log.warning(f"Bounce scan error: {e}")

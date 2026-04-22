@@ -3,7 +3,7 @@ email_pipeline_qa.py — Email Pipeline QA System for Reytech
 Tests the full email → PC/RFQ/CS pipeline against expected outcomes.
 
 Capabilities:
-  1. INBOX AUDIT: Connects to IMAP, lists all recent emails, classifies each,
+  1. INBOX AUDIT: Connects via Gmail API, lists all recent emails, classifies each,
      compares against what's actually in PCs + RFQs + CS outbox
   2. CLASSIFICATION TESTS: Runs known email samples through is_rfq_email(),
      is_recall_email(), is_reply_followup(), CS classify — checks accuracy
@@ -67,7 +67,7 @@ GROUND_TRUTH = [
 # ── Extract Expected Items from Inbox ────────────────────────────────────────
 
 def parse_inbox_expectations(emails: list) -> list:
-    """Given a list of email dicts (from IMAP), determine what each SHOULD produce.
+    """Given a list of email dicts (from Gmail API), determine what each SHOULD produce.
     
     Returns list of {email, expected_type, expected_id, confidence, reasons}
     """
@@ -506,63 +506,48 @@ def get_qa_trends() -> dict:
         return {"runs": 0, "trend": "error"}
 
 
-# ── Full Pipeline Audit (connects to IMAP) ───────────────────────────────────
+# ── Full Pipeline Audit (connects via Gmail API) ─────────────────────────────
 
 def full_inbox_audit(email_config: dict = None) -> dict:
-    """Connect to IMAP, pull recent emails, audit the full pipeline.
-    
+    """Pull recent emails via Gmail API and audit the full pipeline.
+
     This is the main entry point for the QA system.
     """
-    import imaplib
     import email as email_lib
     from email.header import decode_header
-    
+
     if not email_config:
         try:
             from src.api.dashboard import CONFIG
             email_config = CONFIG.get("email", {})
         except Exception:
             return {"error": "No email config available"}
-    
-    # Connect to IMAP
+
     try:
-        mail = imaplib.IMAP4_SSL(
-            email_config.get("imap_host", "imap.gmail.com"),
-            email_config.get("imap_port", 993)
-        )
-        mail.login(
-            email_config.get("email", ""),
-            email_config.get("email_password", "")
-        )
-        mail.select("INBOX")
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return {"error": "Gmail API not configured"}
+        service = gmail_api.get_service("sales")
     except Exception as e:
-        return {"error": f"IMAP connection failed: {e}"}
-    
-    # Fetch recent emails (last 5 days)
-    since_date = (datetime.now() - timedelta(days=5)).strftime("%d-%b-%Y")
-    status, messages = mail.uid("search", None, f"(SINCE {since_date})")
-    
-    if status != "OK":
-        return {"error": "IMAP search failed"}
-    
-    uids = messages[0].split() if messages[0] else []
-    
+        return {"error": f"Gmail API connection failed: {e}"}
+
+    since_date = (datetime.now() - timedelta(days=5)).strftime("%Y/%m/%d")
+    try:
+        ids = gmail_api.list_message_ids(
+            service, query=f"in:inbox after:{since_date}", max_results=200
+        )
+    except Exception as e:
+        return {"error": f"Gmail API list failed: {e}"}
+
     emails = []
-    for uid_bytes in uids:
-        uid = uid_bytes.decode()
+    for msg_id in ids:
         try:
-            # Use same fetch approach as EmailPoller (known working)
-            status, data = mail.uid("fetch", uid_bytes, "(BODY.PEEK[])")
-            if status != "OK" or not data or not data[0]:
-                continue
-            
-            raw_email = data[0][1] if isinstance(data[0], tuple) else None
+            raw_email = gmail_api.get_raw_message(service, msg_id)
             if not raw_email:
                 continue
-            
+
             msg = email_lib.message_from_bytes(raw_email)
-            
-            # Decode subject
+
             raw_subj = msg.get("Subject", "")
             if raw_subj:
                 parts = decode_header(raw_subj)
@@ -572,8 +557,7 @@ def full_inbox_audit(email_config: dict = None) -> dict:
                 )
             else:
                 subject = ""
-            
-            # Decode sender
+
             raw_from = msg.get("From", "")
             if raw_from:
                 parts = decode_header(raw_from)
@@ -583,21 +567,18 @@ def full_inbox_audit(email_config: dict = None) -> dict:
                 )
             else:
                 sender = ""
-            
+
             sender_email = ""
             em = re.search(r'[\w.+-]+@[\w.-]+\.\w+', sender)
             if em:
                 sender_email = em.group(0)
-            
-            # Get PDF attachment names and body text
+
             pdf_names = []
             body_text = ""
-            
+
             for part in msg.walk():
-                # Get PDF filenames
                 fn = part.get_filename()
                 if fn:
-                    # Decode filename
                     fn_parts = decode_header(fn)
                     fn_decoded = "".join(
                         p.decode(enc or "utf-8", errors="replace") if isinstance(p, bytes) else str(p)
@@ -605,8 +586,7 @@ def full_inbox_audit(email_config: dict = None) -> dict:
                     )
                     if fn_decoded.lower().endswith(".pdf"):
                         pdf_names.append(fn_decoded)
-                
-                # Get body text (first text/plain part)
+
                 if not body_text and part.get_content_type() == "text/plain":
                     try:
                         payload = part.get_payload(decode=True)
@@ -614,9 +594,9 @@ def full_inbox_audit(email_config: dict = None) -> dict:
                             body_text = payload.decode("utf-8", errors="replace")[:800]
                     except Exception as _e:
                         log.debug("suppressed: %s", _e)
-            
+
             emails.append({
-                "uid": uid,
+                "uid": msg_id,
                 "subject": subject.strip(),
                 "sender": sender,
                 "sender_email": sender_email,
@@ -626,10 +606,8 @@ def full_inbox_audit(email_config: dict = None) -> dict:
                 "body_preview": body_text[:300],
             })
         except Exception as e:
-            log.debug("QA: failed to parse email %s: %s", uid, e)
+            log.debug("QA: failed to parse email %s: %s", msg_id, e)
             continue
-    
-    mail.logout()
     
     # Parse expectations
     expectations = parse_inbox_expectations(emails)
