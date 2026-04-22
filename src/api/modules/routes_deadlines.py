@@ -164,6 +164,11 @@ def api_deadlines():
         for rid, r in rfqs.items():
             if r.get("status", "") in _SENT_STATUSES:
                 continue
+            # CR-5: test RFQs inside 4h were triggering the base.html
+            # hard-alert modal, which blocks the entire UI. PC loop
+            # already filtered is_test; parity it here.
+            if r.get("is_test"):
+                continue
             dl = _build_deadline_item("rfq", rid, r)
             if dl:
                 deadlines.append(dl)
@@ -206,6 +211,10 @@ def api_deadlines_critical():
         rfqs = load_rfqs()
         for rid, r in rfqs.items():
             if r.get("status", "") in _SENT_STATUSES:
+                continue
+            # CR-5: same reason as /api/deadlines above — a test RFQ
+            # sub-4h was triggering the hard-alert modal.
+            if r.get("is_test"):
                 continue
             dl = _build_deadline_item("rfq", rid, r)
             if dl and dl["urgency"] in ("overdue", "critical"):
