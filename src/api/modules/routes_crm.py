@@ -2335,22 +2335,54 @@ def api_email_log_entry():
 
 
 @bp.route("/outbox")
-@auth_required  
+@auth_required
 @safe_page
 def page_outbox():
     """Email outbox — review and approve all pending drafts (sales + CS)."""
+    # OB-2: load each collaborator in its own try so a single failure doesn't
+    # silently render an empty outbox (which caused Mike to miss 261 queued
+    # CS drafts during the 2026-04-21 audit). Errors are logged AND surfaced
+    # to the template as `load_error` so the UI can show a banner.
+    load_error = ""
+    sales_drafts: list = []
+    cs_drafts: list = []
+    sent_today: list = []
+    notifications: list = []
     try:
         from src.agents.email_outreach import get_outbox
-        from src.agents.cs_agent import get_cs_drafts
-        from src.agents.notify_agent import get_unread_count, get_notifications
-        
         sales_drafts = get_outbox(status="draft")
-        cs_drafts = get_cs_drafts(limit=50)
         sent_today = [e for e in get_outbox() if e.get("status") == "sent" and
                       e.get("sent_at","").startswith(datetime.now().strftime("%Y-%m-%d"))]
+    except Exception as e:
+        log.error("page_outbox: sales-outbox load failed: %s", e, exc_info=True)
+        load_error += f"sales outbox load failed: {e}; "
+    try:
+        from src.agents.cs_agent import get_cs_drafts
+        cs_drafts = get_cs_drafts(limit=50)
+    except Exception as e:
+        log.error("page_outbox: cs-drafts load failed: %s", e, exc_info=True)
+        load_error += f"CS drafts load failed: {e}; "
+    try:
+        from src.agents.notify_agent import get_notifications
         notifications = get_notifications(limit=10, unread_only=True)
-    except Exception:
-        sales_drafts, cs_drafts, sent_today, notifications = [], [], [], []
+    except Exception as e:
+        log.debug("page_outbox: notifications load failed: %s", e)
+
+    # OB-11: filter empty-To drafts from the queue. A bug upstream (e.g. the
+    # po_confirm flow) occasionally creates a draft with `to=""`; clicking
+    # Approve then blows up at SMTP. Drop them from the UI and log so the
+    # upstream bug is still findable.
+    bad_sales = [d for d in sales_drafts if not (d.get("to") or "").strip()]
+    bad_cs = [d for d in cs_drafts if not (d.get("to") or "").strip()]
+    if bad_sales or bad_cs:
+        log.warning(
+            "page_outbox: dropped %d sales + %d CS drafts with empty 'to' "
+            "field (ids=%s)",
+            len(bad_sales), len(bad_cs),
+            [d.get("id") for d in (bad_sales + bad_cs)][:10],
+        )
+    sales_drafts = [d for d in sales_drafts if (d.get("to") or "").strip()]
+    cs_drafts = [d for d in cs_drafts if (d.get("to") or "").strip()]
 
     total_pending = len(sales_drafts) + len(cs_drafts)
     
@@ -2397,7 +2429,8 @@ def page_outbox():
         cs_drafts=cs_drafts,
         sales_drafts=sales_drafts,
         sent_today=sent_today,
-        total_pending=total_pending)
+        total_pending=total_pending,
+        load_error=load_error.strip("; ") or None)
     return html
 
 
