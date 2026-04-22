@@ -505,38 +505,6 @@ def po_tracking_dashboard():
     return redirect("/orders", code=301)
 
 
-@bp.route("/po-tracking-legacy")
-@auth_required
-@safe_page
-def po_tracking_dashboard_legacy():
-    """Purchase Order tracking dashboard (legacy — kept for reference)."""
-    from src.core.db import get_db
-    pos = []
-    try:
-        with get_db() as conn:
-            conn.row_factory = _sqlite3.Row
-            rows = conn.execute(
-                "SELECT * FROM purchase_orders ORDER BY created_at DESC LIMIT 200"
-            ).fetchall()
-            pos = [dict(r) for r in rows]
-    except Exception as e:
-        log.warning("PO tracking query failed: %s", e)
-
-    # Compute summary stats
-    stats = {
-        "total": len(pos),
-        "received": sum(1 for p in pos if p.get("status") == "received"),
-        "processing": sum(1 for p in pos if p.get("status") == "processing"),
-        "shipped": sum(1 for p in pos if p.get("status") in ("shipped", "partial_shipped")),
-        "delivered": sum(1 for p in pos if p.get("status") == "delivered"),
-        "invoiced": sum(1 for p in pos if p.get("status") == "invoiced"),
-        "backordered": sum(1 for p in pos if p.get("status") == "backordered"),
-    }
-
-    poll_status = dict(_PO_POLL_STATUS)
-    return render_page("po_tracking.html", active_page="Orders", pos=pos, stats=stats, poll_status=poll_status)
-
-
 @bp.route("/po-tracking/<po_id>")
 @auth_required
 @safe_page
