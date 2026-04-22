@@ -370,17 +370,49 @@ def _get_price_alerts(threshold_pct=10.0, limit=20):
                 scprs_price = prod["scprs_last_price"] or 0
                 if sell > 0 and scprs_price > 0:
                     if sell > scprs_price * 1.15:
+                        _pct = (sell / scprs_price - 1) * 100
                         alerts.append({
                             "type": "scprs_undercut",
                             "severity": "high",
                             "product_id": pid,
                             "product_name": name[:60],
-                            "message": f"Your price ${sell:.2f} is {((sell/scprs_price - 1)*100):.0f}% above SCPRS ${scprs_price:.2f}",
+                            "message": f"Your price ${sell:.2f} is {_pct:.0f}% above SCPRS ${scprs_price:.2f}",
                             "your_price": sell,
                             "scprs_price": scprs_price,
-                            "pct_change": round((sell/scprs_price - 1) * 100, 1),
+                            "pct_change": round(_pct, 1),
                             "date": prod["scprs_last_date"] or "",
                         })
+                        # IN-13: surface the undercut actively. Dashboard polling
+                        # was the only path before — a bidder who never opened
+                        # the page would miss every opportunity. Log always;
+                        # bell-alert only when the gap is ≥30% (high-value leak).
+                        log.warning(
+                            "SCPRS undercut: product=%s sell=%.2f scprs=%.2f pct=%.1f%%",
+                            pid, sell, scprs_price, _pct,
+                        )
+                        if _pct >= 30:
+                            try:
+                                from src.agents.notify_agent import send_alert
+                                send_alert(
+                                    event_type="scprs_undercut",
+                                    title=f"SCPRS undercut: {name[:40]} is {_pct:.0f}% above state price",
+                                    body=(
+                                        f"Product: {name[:120]}\n"
+                                        f"Your price: ${sell:.2f}\n"
+                                        f"SCPRS last: ${scprs_price:.2f} "
+                                        f"({prod['scprs_last_date'] or 'unknown date'})\n"
+                                        f"Gap: {_pct:.1f}% — likely losing bids on this SKU."
+                                    ),
+                                    urgency="warning",
+                                    channels=["bell"],
+                                    # Per-product cooldown so repeated dashboard
+                                    # hits on the same item don't re-alert, but
+                                    # different products each get their own bell.
+                                    cooldown_key=f"scprs_undercut_{pid}",
+                                    run_async=False,
+                                )
+                            except Exception as _e:
+                                log.debug("scprs_undercut alert suppressed: %s", _e)
 
                 # Alert: Margin erosion (cost > 80% of sell price)
                 cost = prod["cost"] or prod["best_cost"] or 0
