@@ -51,7 +51,7 @@ def admin_backups():
     })
 
 
-@bp.route("/api/admin/backup-now", methods=["GET", "POST"])
+@bp.route("/api/admin/backup-now", methods=["POST"])
 @auth_required
 @safe_route
 def admin_backup_now():
@@ -435,7 +435,7 @@ def api_route_map():
 
 # ── SCPRS Sync ───────────────────────────────────────────────────────────────
 
-@bp.route("/api/system/resync-scprs", methods=["POST", "GET"])
+@bp.route("/api/system/resync-scprs", methods=["POST"])
 @auth_required
 @safe_route
 def api_resync_scprs():
@@ -454,7 +454,7 @@ def api_resync_scprs():
     return jsonify({"ok": True, **result})
 
 
-@bp.route("/api/system/sync-scprs", methods=["POST", "GET"])
+@bp.route("/api/system/sync-scprs", methods=["POST"])
 @auth_required
 @safe_route
 def api_sync_scprs():
