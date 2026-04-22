@@ -581,16 +581,16 @@ def _run_pipeline(pc_id: str, force: bool):
             if matches:
                 best = matches[0]
                 q = best.get("quote", best)
-                scprs_price = q.get("unit_price", 0)
+                # CP-2: won_quotes.unit_price is already per-unit (divided
+                # by qty at ingestion). Use the canonical helper — the
+                # previous code here divided AGAIN by quote.quantity, which
+                # over-divided every multi-unit PO by its qty.
+                from src.knowledge.won_quotes_db import scprs_per_unit
+                per_unit = scprs_per_unit(q)
                 scprs_qty = q.get("quantity", 1) or 1
-                # Derive per-unit price if SCPRS stored line totals
-                if scprs_qty > 1 and scprs_price > 0:
-                    per_unit = round(scprs_price / scprs_qty, 2)
-                else:
-                    per_unit = scprs_price
-                if scprs_price and scprs_price > 0:
+                if per_unit and per_unit > 0:
                     it["pricing"]["scprs_price"] = per_unit
-                    it["pricing"]["scprs_line_total"] = scprs_price
+                    it["pricing"]["scprs_line_total"] = round(per_unit * scprs_qty, 2)
                     it["pricing"]["scprs_qty"] = scprs_qty
                     it["pricing"]["scprs_match"] = (q.get("description", "") or "")[:60]
                     it["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)

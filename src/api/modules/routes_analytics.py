@@ -2646,7 +2646,9 @@ def rfq_relink_pc(rid):
                                 if smatches:
                                     best = smatches[0]
                                     quote = best.get("quote", best)
-                                    price = quote.get("unit_price", 0)
+                                    # CP-2: canonical per-unit extractor.
+                                    from src.knowledge.won_quotes_db import scprs_per_unit
+                                    price = scprs_per_unit(quote)
                                     if price and price > 0:
                                         if not item.get("pricing"): item["pricing"] = {}
                                         item["pricing"]["scprs_price"] = price

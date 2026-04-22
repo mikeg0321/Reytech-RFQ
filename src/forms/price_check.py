@@ -2369,7 +2369,11 @@ def lookup_prices(parsed_pc: dict) -> dict:
                 if matches:
                     best = matches[0]
                     quote = best.get("quote", best)
-                    pricing["scprs_price"] = quote.get("unit_price")
+                    # CP-2: canonical per-unit extractor (won_quotes
+                    # stores per-unit; guard against re-introducing the
+                    # pre-2026-04-22 over-divide or under-divide bugs).
+                    from src.knowledge.won_quotes_db import scprs_per_unit
+                    pricing["scprs_price"] = scprs_per_unit(quote)
             except Exception as e:
                 log.error(f"SCPRS lookup error for '{desc[:50]}': {e}")
 

@@ -1478,7 +1478,9 @@ def pricecheck_scprs_lookup(pcid):
                     quote = best.get("quote", best)
                     if not item.get("pricing"):
                         item["pricing"] = {}
-                    scprs_price = quote.get("unit_price")
+                    # CP-2: canonical per-unit extractor.
+                    from src.knowledge.won_quotes_db import scprs_per_unit
+                    scprs_price = scprs_per_unit(quote)
                     item["pricing"]["scprs_price"]      = scprs_price
                     item["pricing"]["scprs_match"]      = quote.get("description", "")[:60]
                     item["pricing"]["scprs_confidence"] = best.get("match_confidence", 0)
