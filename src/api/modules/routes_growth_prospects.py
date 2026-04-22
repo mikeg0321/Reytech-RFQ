@@ -432,25 +432,12 @@ def api_growth_outreach():
         return jsonify({"ok": False, "error": "Growth agent not available"})
     dry_run = request.args.get("dry_run", "true").lower() != "false"
 
-    # Live-send guard — dry runs always allowed
+    # Live-send guard — dry runs always allowed (IN-7 shared helper)
     if not dry_run:
-        try:
-            from src.core.flags import get_flag
-            if not get_flag("outbox.send_approved_enabled", False):
-                return jsonify({
-                    "ok": False,
-                    "error": "BLOCKED: Live growth outreach is disabled "
-                             "until the CS-reply agent rewrite ships. "
-                             "Use ?dry_run=true to preview drafts.",
-                    "blocked_reason": "ux_audit_p0_2",
-                }), 423
-        except Exception as e:
-            log.debug("growth outreach flag check failed: %s", e)
-            return jsonify({
-                "ok": False,
-                "error": "BLOCKED: feature flag layer unavailable, "
-                         "defaulting to deny for live growth outreach.",
-            }), 423
+        from src.core.flags import send_approved_guard_ok
+        ok, blocked = send_approved_guard_ok(label="Live growth outreach")
+        if not ok:
+            return jsonify(blocked), 423
 
     try:
         max_p = max(1, min(int(request.args.get("max", 50)), 500))
@@ -492,6 +479,15 @@ def api_growth_distro_campaign():
     else:
         body = request.get_json(silent=True) or {}
         dry_run = body.get("dry_run", True)
+
+    # Live-send guard — dry runs always allowed (IN-7: previously absent
+    # on this path, so the distro campaign bypassed the killswitch that
+    # the sibling outreach endpoint honored).
+    if not dry_run:
+        from src.core.flags import send_approved_guard_ok
+        ok, blocked = send_approved_guard_ok(label="Distro-list campaign")
+        if not ok:
+            return jsonify(blocked), 423
 
     args = request.get_json(silent=True) or {} if request.method == "POST" else {}
     try:
