@@ -237,20 +237,18 @@ def _auto_alert_failures(results):
         body += f"❌ {c['name']}: {c['detail']}\n"
     body += f"\nFull results: /api/health/startup"
 
-    # 1. Email alert
+    # 1. Email alert (Gmail API — sixth and final outbound smtplib migration)
     try:
-        gmail = os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pw = os.environ.get("GMAIL_PASSWORD", "")
-        if gmail and gmail_pw:
-            import smtplib
-            from email.mime.text import MIMEText
-            msg = MIMEText(body)
-            msg["Subject"] = subject
-            msg["From"] = gmail
-            msg["To"] = gmail  # Send to self
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as s:
-                s.login(gmail, gmail_pw)
-                s.send_message(msg)
+        from src.core import gmail_api
+        if gmail_api.is_configured():
+            gmail = os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com")
+            service = gmail_api.get_send_service()
+            gmail_api.send_message(
+                service,
+                to=gmail,
+                subject=subject,
+                body_plain=body,
+            )
             log.info("Startup alert emailed to %s", gmail)
     except Exception as e:
         log.warning("Startup email alert failed: %s", e)
