@@ -81,6 +81,13 @@ def seed_calibration_from_history():
 
             # Process LOST quotes (from competitor_intel)
             # Try quote items first, fall back to competitor_intel.items_detail or item_summary
+            # IN-13: A quote may have multiple competitor_intel rows (each
+            # competitor that beat us). Without dedupe the same quote gets
+            # calibrated N times and losses get inflated Nx in oracle
+            # calibration stats. We dedupe by quote_number in Python —
+            # cleaner than SQL DISTINCT because we also need to pick one
+            # winning row per group, and ORDER BY found_at ASC below means
+            # the first row seen per quote is the earliest reported loss.
             loss_rows = conn.execute("""
                 SELECT ci.quote_number, ci.agency, ci.competitor_price,
                        ci.loss_reason_class, q.items_detail,
@@ -91,7 +98,12 @@ def seed_calibration_from_history():
                 ORDER BY ci.found_at ASC
             """).fetchall()
 
+            _seen_quote_numbers = set()
             for row in loss_rows:
+                _qn = row[0]
+                if _qn in _seen_quote_numbers:
+                    continue
+                _seen_quote_numbers.add(_qn)
                 try:
                     # Try quote items, then CI items_detail, then build from summary
                     items_json = row[4] or row[5]
