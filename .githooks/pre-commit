@@ -1,0 +1,73 @@
+#!/bin/bash
+# Pre-commit hook: fast guardrails that run before every commit.
+# Install: git config core.hooksPath .githooks
+#
+# Unlike the pre-push hook (which runs the critical test suite, ~90s), this
+# hook is grep-only and targets obvious drift that shouldn't even reach a
+# branch — let alone a push. Keep it fast (< 2s total).
+
+FAILED=0
+
+# ── IN-6: canonical-identity drift grep ─────────────────────────────────────
+# Per `project_reytech_canonical_identity`: all outbound identity strings are
+# Michael Guadan / sales@reytechinc.com / (949) 229-1575. The audit sweep
+# (PR #335) caught three wrong-identity variants that had been silently going
+# to real buyers. This grep blocks re-introduction.
+#
+# Scope: only staged files under src/api/modules/routes_*.py (the path the
+# audit identified as the leak surface). Not a project-wide ban — test
+# fixtures and archived email samples legitimately contain historic variants.
+
+STAGED_ROUTES=$(git diff --cached --name-only --diff-filter=AM | grep -E '^src/api/modules/routes_.*\.py$')
+
+if [ -n "$STAGED_ROUTES" ]; then
+    # Forbidden non-canonical identity tokens. Mirrors
+    # tests/test_canonical_identity_sweep.py::FORBIDDEN_IDENTITY_TOKENS so the
+    # pre-commit and pre-push defences agree on what "wrong" means.
+    FORBIDDEN=(
+        'Mike Guzman'
+        'Mike Gorzell'
+        'Mike Gonzales'
+        'mike@reytechinc.com'
+        '(949) 872-8676'
+        '(916) 995-4713'
+        '(916) 548-9484'
+        '9498728676'
+        '9169954713'
+        '9165489484'
+    )
+
+    OFFENDERS=""
+    for file in $STAGED_ROUTES; do
+        for token in "${FORBIDDEN[@]}"; do
+            # Grep staged content (what's about to be committed), not the
+            # working tree — survives `git add -p` partial stages.
+            if git show ":$file" 2>/dev/null | grep -F -q -- "$token"; then
+                line=$(git show ":$file" 2>/dev/null | grep -F -n -- "$token" | head -1 | cut -d: -f1)
+                OFFENDERS="${OFFENDERS}\n  $file:$line  token='$token'"
+            fi
+        done
+    done
+
+    if [ -n "$OFFENDERS" ]; then
+        echo ""
+        echo "============================================================"
+        echo "  COMMIT BLOCKED: Non-canonical identity in route module(s)"
+        echo "============================================================"
+        echo ""
+        echo "  Canonical identity (project_reytech_canonical_identity):"
+        echo "    Michael Guadan  /  sales@reytechinc.com  /  (949) 229-1575"
+        echo ""
+        echo "  Offending staged content:"
+        printf "$OFFENDERS"
+        echo ""
+        echo ""
+        echo "  Fix the strings and re-stage, or bypass with --no-verify"
+        echo "  if you are intentionally adding a historical fixture"
+        echo "  (discouraged in route modules)."
+        echo "============================================================"
+        FAILED=1
+    fi
+fi
+
+exit $FAILED
