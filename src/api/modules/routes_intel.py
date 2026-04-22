@@ -1313,6 +1313,34 @@ def api_debug_run():
     results["elapsed_ms"] = round((time.time() - start) * 1000)
     results["ok"] = True
     results["timestamp"] = datetime.now().isoformat()
+
+    # IN-21: top-line status roll-up so operator sees green/yellow/red at a
+    # glance instead of eyeballing 9 sub-sections. Any `ok=False` in a
+    # sub-check flips the page red; a sync delta >0 or empty CRM makes it
+    # yellow; otherwise green. This sits adjacent to the per-check detail,
+    # not replacing it.
+    _failed = []
+    _warnings = []
+    for _key in ("db", "quote_counter", "sync", "funnel", "qa"):
+        _sub = results.get(_key) or {}
+        if isinstance(_sub, dict) and _sub.get("ok") is False:
+            _failed.append(_key)
+    if results.get("sync", {}).get("delta", 0) > 0:
+        _warnings.append("sync_delta")
+    if results.get("auto_seed", {}).get("needed"):
+        _warnings.append("crm_empty")
+    if _failed:
+        _level = "red"
+    elif _warnings:
+        _level = "yellow"
+    else:
+        _level = "green"
+    results["status_summary"] = {
+        "level": _level,
+        "failed": _failed,
+        "warnings": _warnings,
+        "checks_run": 9,
+    }
     return jsonify(results)
 
 
@@ -1762,15 +1790,26 @@ def quotes_list():
         items_text = qt.get("items_text", "")
 
         # Build expandable detail row
+        # IN-18: escape user-supplied content (descriptions from buyer PDFs,
+        # part numbers). Buyer PDF text can carry angle brackets and quote
+        # characters — unescaped concat into inline HTML is XSS-flavored and
+        # even when not exploitable, breaks layout silently. `esc()` is the
+        # markupsafe escape already imported at top of module.
         detail_rows = ""
         if items_detail:
             for it in items_detail[:10]:
-                desc = str(it.get("description", ""))[:80]
-                pn = it.get("part_number", "")
-                pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:13px">{pn}</a>' if pn and pn.startswith("B0") else (f'<span style="color:#8b949e;font-size:13px">{pn}</span>' if pn else "")
+                desc = esc(str(it.get("description", ""))[:80])
+                pn_raw = str(it.get("part_number", ""))
+                pn = esc(pn_raw)
+                if pn_raw and pn_raw.startswith("B0"):
+                    pn_link = f'<a href="https://amazon.com/dp/{pn}" target="_blank" style="color:#58a6ff;font-size:13px">{pn}</a>'
+                elif pn_raw:
+                    pn_link = f'<span style="color:#8b949e;font-size:13px">{pn}</span>'
+                else:
+                    pn_link = ""
                 detail_rows += f'<div style="display:flex;gap:8px;align-items:baseline;padding:2px 0"><span style="color:var(--tx2);font-size:14px;flex:1">{desc}</span>{pn_link}<span style="font-family:monospace;font-size:14px;color:#d29922">${it.get("unit_price",0):.2f} × {it.get("qty",0)}</span></div>'
         elif items_text:
-            detail_rows = f'<div style="color:var(--tx2);font-size:14px;padding:2px 0">{items_text[:200]}</div>'
+            detail_rows = f'<div style="color:var(--tx2);font-size:14px;padding:2px 0">{esc(items_text[:200])}</div>'
 
         detail_id = f"detail-{qn.replace(' ','')}"
         toggle = f"""<button onclick="document.getElementById('{detail_id}').style.display=document.getElementById('{detail_id}').style.display==='none'?'table-row':'none'" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--tx2);padding:0" title="Show items">▶ {qt.get('items_count',0)}</button>""" if (items_detail or items_text) else str(qt.get('items_count', 0))
