@@ -11,7 +11,7 @@
 # Direct deploy (legacy, use only when branch protection is not yet enabled):
 #   make deploy                         # test + check + push main
 
-.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds
+.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds await-idle
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
@@ -148,7 +148,10 @@ worktree-remove:  ## Remove a worktree: make worktree-remove name=feat/my-topic
 worktree-list:  ## List all active worktrees
 	@git worktree list
 
-ship: check  ## Push branch + create PR (pre-push hook runs tests; pass auto=1 to auto-merge on green)
+await-idle:  ## Wait until Railway has no in-flight deploys (fail-safe; never blocks on error)
+	@./scripts/await_deploy_idle.sh $(or $(max),600)
+
+ship: check  ## Push branch + create PR (auto=1 to auto-merge; serial=1 to wait for Railway idle first)
 	@if [ "$(BRANCH)" = "main" ]; then \
 		echo ""; \
 		echo "ERROR: Cannot ship directly from main."; \
@@ -171,6 +174,11 @@ ship: check  ## Push branch + create PR (pre-push hook runs tests; pass auto=1 t
 		echo "  git commit -m 'your message'"; \
 		echo "  make ship"; \
 		exit 1; \
+	fi
+	@if [ "$(serial)" = "1" ]; then \
+		echo ""; \
+		echo "serial=1 — waiting for Railway to be idle before pushing..."; \
+		./scripts/await_deploy_idle.sh 600; \
 	fi
 	@echo ""
 	@echo "Pushing branch (pre-push hook runs critical tests)..."
