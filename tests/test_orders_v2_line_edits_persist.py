@@ -319,3 +319,54 @@ def test_clone_creates_new_order_with_lines(auth_client, temp_data_dir):
     assert new_line["sourcing_status"] == "pending"
     assert new_line["tracking_number"] == ""
     assert new_line["invoice_status"] == "pending"
+
+
+# ── RE-AUDIT-3: supplier-lookup alias drift (2026-04-22) ────────────────
+
+def test_supplier_lookup_mirrors_supplier_name_on_auto_populate(
+    auth_client, temp_data_dir, monkeypatch
+):
+    """Supplier auto-lookup must write BOTH `supplier` and `supplier_name`.
+
+    Bug: api_order_lookup_suppliers wrote only it["supplier"]="Amazon". When
+    get_order hydrated the line, supplier_name from DB was already set → the
+    next save_line_items_batch round-trip read supplier_name first, silently
+    discarding the lookup. The row in order_line_items kept its old supplier_name.
+
+    Fix: mirror supplier_name alongside supplier on auto-populate.
+    """
+    # Seed with unit_cost=0 so the auto-populate branch runs (route skips
+    # when a cost already exists), then pre-set an old supplier_name so the
+    # bug would manifest as supplier_name staying at "OldSupplier" post-lookup.
+    oid, _ = _seed_order(temp_data_dir, oid="ORD-PO-SUPP-LOOKUP",
+                         old_unit_cost=0.0)
+    db_path = os.path.join(temp_data_dir, "reytech.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "UPDATE order_line_items SET supplier_name=?, part_number=? WHERE order_id=?",
+        ("OldSupplier", "B0TESTASIN", oid),
+    )
+    conn.commit()
+    conn.close()
+
+    # Stub research_product so the test is hermetic — no Amazon/SerpApi call.
+    import src.agents.product_research as pr
+    monkeypatch.setattr(
+        pr, "research_product",
+        lambda item_number=None, description=None: {
+            "found": True, "price": 19.99, "title": "Stub Amazon",
+            "url": "https://amazon.com/dp/B0TESTASIN", "asin": "B0TESTASIN",
+        },
+    )
+
+    resp = auth_client.post(f"/api/order/{oid}/lookup-suppliers", json={})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert body.get("ok") is True, body
+
+    row = _read_line(temp_data_dir, oid, line_number=1)
+    assert row["supplier_name"] == "Amazon", (
+        f"RE-AUDIT-3: supplier_name not mirrored — got {row['supplier_name']!r}"
+    )
+    assert row["unit_cost"] == 19.99
+    assert row["supplier_url"].endswith("B0TESTASIN")

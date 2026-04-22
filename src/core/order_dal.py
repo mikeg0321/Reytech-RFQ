@@ -487,6 +487,21 @@ def save_line_items_batch(order_id: str, items: list[dict]) -> bool:
                 qty = item.get("qty", item.get("qty_ordered", 0)) or 0
                 price = item.get("unit_price", 0) or 0
                 cost = item.get("unit_cost", item.get("cost", 0)) or 0
+                # Drift detection: routes that mutate one alias but not its
+                # pair silently lose the edit here (supplier_name wins over
+                # supplier, unit_cost over cost). Log at warning so the next
+                # field-name-mismatch bug surfaces in Railway logs instead
+                # of waiting for the next audit round. (re-audit 2026-04-22)
+                sn = item.get("supplier_name")
+                sa = item.get("supplier")
+                if sn is not None and sa is not None and sn != sa:
+                    log.warning("order_dal.save_line_items_batch(%s) alias drift: supplier_name=%r supplier=%r — supplier_name wins",
+                                order_id, sn, sa)
+                uc = item.get("unit_cost")
+                cc = item.get("cost")
+                if uc is not None and cc is not None and uc != cc:
+                    log.warning("order_dal.save_line_items_batch(%s) alias drift: unit_cost=%r cost=%r — unit_cost wins",
+                                order_id, uc, cc)
                 conn.execute("""
                     INSERT INTO order_line_items
                     (order_id, line_number, description, part_number, mfg_number,
