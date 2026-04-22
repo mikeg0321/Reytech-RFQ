@@ -273,7 +273,6 @@
   <button class="rfq-action-btn ab-amazon" data-testid="rfq-amazon-lookup" onclick="researchPrices()" aria-label="Amazon Lookup"><span class="ab-icon">🛒</span><span class="ab-label">Amazon Lookup</span><span class="ab-sub">Live pricing</span></button>
   <button class="rfq-action-btn ab-auto" onclick="runAutoLookup()" aria-label="Full Auto-Lookup"><span class="ab-icon">🤖</span><span class="ab-label">Full Auto-Lookup</span><span class="ab-sub">All sources</span></button>
   <button class="rfq-action-btn ab-catalog" onclick="importFromCatalog(this)" aria-label="Catalog Match"><span class="ab-icon">📦</span><span class="ab-label">Catalog Match</span><span class="ab-sub">Our products</span></button>
-  <button class="rfq-action-btn ab-autoall" onclick="applyRecommendations()" aria-label="Auto-Price All"><span class="ab-icon">⚡</span><span class="ab-label">Auto-Price All</span><span class="ab-sub">Smart fill</span></button>
   <button class="rfq-action-btn ab-import" onclick="importFromPC(this)" aria-label="Import from PC"><span class="ab-icon">📥</span><span class="ab-label">Import from PC</span><span class="ab-sub">Price check data</span></button>
   <button class="rfq-action-btn ab-supplier" onclick="uploadSupplierQuote()" aria-label="Supplier Quote"><span class="ab-icon">🏷️</span><span class="ab-label">Supplier Quote</span><span class="ab-sub">Upload file</span></button>
   <input type="file" id="sq-upload-input" accept=".pdf,.xls,.xlsx,.doc,.docx" style="display:none" onchange="handleSQUpload(this)">
@@ -2293,9 +2292,10 @@ function showRfqPreview(){
  var due={{r.get("due_date","")|tojson}};
  var delivery={{r.get("delivery_location","")|tojson}};
  var shipTo={{r.get("ship_to","")|tojson}};
+ var agencyName={{ (r.get("agency_name","") or r.get("agency","")) | tojson }};
  const html=`<div style="font-family:'Times New Roman',Times,serif;font-size:13px;color:#000;line-height:1.4;padding:20px">
   <div style="display:flex;justify-content:space-between;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:#444">
-   <span>STATE OF CALIFORNIA</span><span>${dept||'CALIFORNIA CORRECTIONAL HEALTH CARE SERVICES'}</span>
+   <span>STATE OF CALIFORNIA</span><span>${(dept||agencyName||'').toUpperCase()}</span>
   </div>
   <div style="text-align:center;padding:8px;border-bottom:2px solid #000">
    <h3 style="margin:4px 0;font-size:14px;text-transform:uppercase;letter-spacing:1px">ACQUISITION QUOTE WORKSHEET — 704B</h3>
@@ -2828,19 +2828,6 @@ function recordOutcome(outcome) {
    setTimeout(function(){location.reload()}, 1000);
   } else {
    status.innerHTML = '<span style="color:var(--rd)">❌ '+(d.error||'Failed')+'</span>';
-  }
- });
-}
-
-// E7: Apply Margin Recommendations
-function applyRecommendations(){
- fetch('/api/rfq/'+RID+'/apply-recommendations',{method:'POST'})
- .then(r=>r.json()).then(d=>{
-  if(d.ok){
-   alert('Applied '+d.applied+'/'+d.total+' recommended prices');
-   location.reload();
-  } else {
-   alert('Error: '+(d.error||'unknown'));
   }
  });
 }
