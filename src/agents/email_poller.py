@@ -1506,7 +1506,6 @@ def extract_solicitation_number(subject, body, attachments=None):
 class EmailPoller:
     def __init__(self, config):
         self.email_addr = config.get("email", os.environ.get("GMAIL_ADDRESS", ""))
-        self.password = config.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
         self.processed_file = config.get("processed_file", os.path.join(DATA_DIR, "processed_emails.json"))
         self._inbox_name = config.get("inbox_name", "sales")  # For cross-inbox dedup
         self._processed = self._load_processed()
@@ -3031,10 +3030,7 @@ class EmailSender:
     """Send bid package response emails via SMTP."""
     
     def __init__(self, config):
-        self.smtp_host = config.get("smtp_host", "smtp.gmail.com")
-        self.smtp_port = config.get("smtp_port", 587)
         self.email_addr = config.get("email", os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com"))
-        self.password = config.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
         self.from_name = config.get("from_name", "Michael Guadan - Reytech Inc.")
     
     def create_draft_email(self, rfq_data, output_files):
@@ -3090,66 +3086,40 @@ Respectfully,"""
         return draft
     
     def send(self, draft):
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.mime.base import MIMEBase
-        from email import encoders
-        
-        msg = MIMEMultipart("mixed")
-        msg["From"] = f"{self.from_name} <{self.email_addr}>"
-        msg["To"] = draft["to"]
-        msg["Subject"] = draft["subject"]
-        
-        # CC / BCC
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            raise RuntimeError("Gmail API not configured")
+
         cc_list = [x.strip() for x in draft.get("cc", "").split(",") if x.strip()]
         bcc_list = [x.strip() for x in draft.get("bcc", "").split(",") if x.strip()]
-        if cc_list:
-            msg["Cc"] = ", ".join(cc_list)
-        
-        # Threading — reply to original email thread
-        if draft.get("in_reply_to"):
-            msg["In-Reply-To"] = draft["in_reply_to"]
-            msg["References"] = draft.get("references", draft["in_reply_to"])
 
-        # Build alternative part (plain + HTML)
         body_html = draft.get("body_html", "")
         body_plain = draft.get("body", "")
-        
-        # Auto-generate HTML version with signature if not provided
+
         if not body_html and body_plain:
             try:
                 from src.core.email_signature import wrap_html_email
                 body_html = wrap_html_email(body_plain)
             except ImportError as _e:
                 log.debug("suppressed: %s", _e)
-        
-        if body_html:
-            alt = MIMEMultipart("alternative")
-            alt.attach(MIMEText(body_plain, "plain"))
-            alt.attach(MIMEText(body_html, "html"))
-            msg.attach(alt)
-        else:
-            msg.attach(MIMEText(body_plain, "plain"))
-        
-        for filepath in draft.get("attachments", []):
-            if os.path.exists(filepath):
-                with open(filepath, "rb") as f:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f"attachment; filename={os.path.basename(filepath)}")
-                msg.attach(part)
-        
-        # All recipients for SMTP envelope
-        all_recipients = [draft["to"]] + cc_list + bcc_list
-        
-        with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-            server.starttls()
-            server.login(self.email_addr, self.password)
-            server.send_message(msg, to_addrs=all_recipients)
-        # Gmail's SMTP relay auto-copies to "Sent Mail" when authenticated with
-        # the sender's credentials — no explicit save-to-sent needed.
+
+        attachments = [p for p in draft.get("attachments", []) if os.path.exists(p)]
+
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(
+            service,
+            to=draft["to"],
+            subject=draft["subject"],
+            body_plain=body_plain,
+            body_html=body_html,
+            cc=cc_list or None,
+            bcc=bcc_list or None,
+            attachments=attachments or None,
+            in_reply_to=draft.get("in_reply_to") or None,
+            references=draft.get("references") or None,
+            from_name=self.from_name,
+            from_addr=self.email_addr,
+        )
         return True
 
 
