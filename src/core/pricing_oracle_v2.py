@@ -205,6 +205,30 @@ def _get_locked_cost(db, description, item_number=""):
     return None
 
 
+def _scprs_per_unit(price, qty):
+    """Normalize SCPRS-style prices to per-unit.
+
+    SCPRS stores line totals in ``unit_price`` for multi-qty rows (a 5×$20 line
+    shows unit_price=$100). Blindly dividing by qty corrupts rows that are
+    already per-unit (qty=3, p=$5 → $1.67). The ``p > qty * 2`` guard keeps
+    small per-unit prices intact while still normalizing obvious line totals.
+
+    IN-2 (2026-04-21): ported from _search_winning_prices (the sibling that
+    already got this right) into the won_quotes/scprs_catalog/po_lines
+    searches that were dividing naively.
+    """
+    try:
+        p = float(price or 0)
+        q = float(qty or 1) or 1
+    except (TypeError, ValueError):
+        return price
+    if p <= 0:
+        return price
+    if q > 1 and p > q * 2:
+        return p / q
+    return p
+
+
 def _search_won_quotes(db, description, item_number=""):
     """Search won_quotes KB — SCPRS competitors' winning prices.
     This is the richest data source: actual prices that won contracts."""
@@ -236,8 +260,9 @@ def _search_won_quotes(db, description, item_number=""):
             p = r[1]
             qty = r[2] or 1
             if p and p > 0:
-                # Normalize to per-unit if quantity > 1 (SCPRS stores line totals)
-                per_unit = p / qty if qty > 1 else p
+                # IN-2: Normalize via shared helper (guards against dividing
+                # already-per-unit rows into pennies).
+                per_unit = _scprs_per_unit(p, qty)
                 prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "source": "won_quotes",
                                "is_reytech": "REYTECH" in (r[3] or "").upper()})
@@ -282,8 +307,8 @@ def _search_winning_prices(db, description, item_number=""):
             p = r[1]
             qty = r[2] or 1
             if p and p > 0:
-                # sell_price should already be per-unit, but normalize just in case
-                per_unit = p / qty if qty > 1 and p > qty * 2 else p
+                # IN-11: use shared helper so all sites agree on the guard.
+                per_unit = _scprs_per_unit(p, qty)
                 prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "supplier": r[3] or "", "department": r[4] or "",
                                "date": r[5] or "", "cost": r[6] or 0,
@@ -327,8 +352,8 @@ def _search_scprs_catalog(db, description, item_number=""):
         for r in rows:
             if r[1] and r[1] > 0:
                 qty = r[2] or 1
-                # Normalize to per-unit
-                per_unit = r[1] / qty if qty > 1 else r[1]
+                # IN-2: shared SCPRS per-unit normalization with false-positive guard.
+                per_unit = _scprs_per_unit(r[1], qty)
                 prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "uom": r[3] or "", "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "source": "scprs_catalog",
@@ -373,8 +398,8 @@ def _search_po_lines(db, description, item_number=""):
                 continue
             if p > 0:
                 qty = float(str(r[2] or "1").replace(",", ""))
-                # SCPRS unit_price is sometimes the line total — normalize
-                per_unit = p / qty if qty > 1 else p
+                # IN-2: SCPRS unit_price is sometimes a line total — shared guard.
+                per_unit = _scprs_per_unit(p, qty)
                 prices.append({"price": per_unit, "description": r[0],
                                "quantity": qty, "uom": r[3] or "",
                                "supplier": r[4] or "", "department": r[5] or "",
