@@ -2816,16 +2816,20 @@ def api_qb_summary_card():
 @auth_required
 @safe_route
 def api_catalog_margin_analysis():
-    """Analyze catalog products by margin tier."""
-    db_path = os.path.join(DATA_DIR, "catalog.db")
-    if not os.path.exists(db_path):
-        return jsonify({"ok": True, "tiers": {}, "total": 0})
+    """Analyze catalog products by margin tier.
+
+    CP-3: the real catalog table is `product_catalog` with column `cost`
+    (not a phantom `products` table with `cost_price`). The old query
+    silently returned empty because the table did not exist — Catalog
+    Intelligence tabs shipped blind.
+    """
     try:
-        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        from src.core.db import DB_PATH as _DB_PATH
+        conn = sqlite3.connect(_DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
         products = conn.execute("""
-            SELECT name, sell_price, cost_price, margin_pct, times_quoted, category
-            FROM products WHERE sell_price > 0 AND cost_price > 0
+            SELECT name, sell_price, cost, margin_pct, times_quoted, category
+            FROM product_catalog WHERE sell_price > 0 AND cost > 0
             ORDER BY margin_pct ASC
         """).fetchall()
         conn.close()
@@ -2833,7 +2837,7 @@ def api_catalog_margin_analysis():
         tiers = {"🔴 Negative (<0%)": [], "🟡 Low (0-10%)": [], "🟢 Mid (10-25%)": [], "🔵 High (>25%)": []}
         for p in products:
             margin = float(p["margin_pct"] or 0)
-            item = {"name": p["name"][:60], "sell": float(p["sell_price"]), "cost": float(p["cost_price"]),
+            item = {"name": p["name"][:60], "sell": float(p["sell_price"]), "cost": float(p["cost"]),
                     "margin": round(margin, 1), "quoted": p["times_quoted"] or 0, "category": p["category"] or ""}
             if margin < 0:
                 tiers["🔴 Negative (<0%)"].append(item)
@@ -2857,22 +2861,25 @@ def api_catalog_margin_analysis():
 @auth_required
 @safe_route
 def api_catalog_top_quoted():
-    """Top 20 most-quoted catalog items."""
-    db_path = os.path.join(DATA_DIR, "catalog.db")
-    if not os.path.exists(db_path):
-        return jsonify({"ok": True, "items": []})
+    """Top 20 most-quoted catalog items.
+
+    CP-3: same phantom-table fix as api_catalog_margin_analysis. The
+    real schema uses `product_catalog`, column `cost`, and
+    `last_sold_date` instead of `last_quoted`.
+    """
     try:
-        from src.core.db import DB_PATH as _DB_PATH; conn = sqlite3.connect(_DB_PATH, timeout=10); conn.row_factory = sqlite3.Row
+        from src.core.db import DB_PATH as _DB_PATH
+        conn = sqlite3.connect(_DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
         items = conn.execute("""
-            SELECT name, sell_price, cost_price, margin_pct, times_quoted, category, last_quoted
-            FROM products WHERE times_quoted > 0 ORDER BY times_quoted DESC LIMIT 20
+            SELECT name, sell_price, cost, margin_pct, times_quoted, category, last_sold_date
+            FROM product_catalog WHERE times_quoted > 0 ORDER BY times_quoted DESC LIMIT 20
         """).fetchall()
         conn.close()
         result = [{"name": i["name"][:60], "sell": float(i["sell_price"] or 0),
-                    "cost": float(i["cost_price"] or 0), "margin": round(float(i["margin_pct"] or 0), 1),
+                    "cost": float(i["cost"] or 0), "margin": round(float(i["margin_pct"] or 0), 1),
                     "times_quoted": i["times_quoted"], "category": i["category"] or "",
-                    "last_quoted": i["last_quoted"] or ""} for i in items]
+                    "last_quoted": i["last_sold_date"] or ""} for i in items]
         return jsonify({"ok": True, "items": result, "count": len(result)})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
