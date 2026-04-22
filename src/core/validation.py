@@ -167,7 +167,7 @@ def validate_header_field(field: str, val) -> tuple:
     if field in ("solicitation_number", "pc_number", "requestor_name",
                  "requestor_email", "institution", "agency_name"):
         return validate_text(val, max_len=200, default="")
-    elif field in ("due_date",):
+    elif field in ("due_date", "due_time"):
         return validate_text(val, max_len=30, default="")
     elif field in ("ship_to", "delivery_location"):
         return validate_text(val, max_len=500, default="")

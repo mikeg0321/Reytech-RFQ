@@ -453,25 +453,52 @@ def home():
         return (2, "", pc.get("created_at", ""))
     sorted_pcs = dict(sorted(active_pcs.items(), key=_pc_sort_key))
     
-    # Also compute urgency metadata for template
+    # Time-aware urgency: due_date + due_time (fallback 2:00 PM PST) sets the
+    # exact close moment. Urgency fires at hour granularity (<=4h=critical)
+    # rather than midnight — so a 2 PM deadline goes red by 10 AM, not tomorrow.
+    # _hours_left surfaces in the queue row when <24h for "3h left" display.
+    _now_pst = datetime.now(_ZI("America/Los_Angeles"))
+    def _compute_urgency(rec):
+        due = (rec.get("due_date") or "").strip()
+        rec["_days_left"] = None
+        rec["_hours_left"] = None
+        rec["_urgency"] = "normal"
+        if not due:
+            return
+        d = None
+        for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d", "%m-%d-%Y"):
+            try:
+                d = datetime.strptime(due, fmt)
+                break
+            except ValueError:
+                continue
+        if d is None:
+            return
+        raw_time = (rec.get("due_time") or "").strip()
+        hour, minute = 14, 0
+        for tfmt in ("%I:%M %p", "%I:%M%p", "%H:%M", "%I %p", "%I%p"):
+            try:
+                t = datetime.strptime(raw_time, tfmt)
+                hour, minute = t.hour, t.minute
+                break
+            except ValueError:
+                continue
+        due_dt = d.replace(hour=hour, minute=minute, tzinfo=_ZI("America/Los_Angeles"))
+        delta = due_dt - _now_pst
+        hours = delta.total_seconds() / 3600
+        rec["_hours_left"] = round(hours, 2)
+        rec["_days_left"] = (d.date() - _today.date()).days
+        if hours < 0:
+            rec["_urgency"] = "overdue"
+        elif hours <= 4:
+            rec["_urgency"] = "critical"
+        elif hours <= 24:
+            rec["_urgency"] = "urgent"
+        elif hours <= 72:
+            rec["_urgency"] = "soon"
+
     for pid, pc in sorted_pcs.items():
-        due = pc.get("due_date", "") or ""
-        pc["_days_left"] = None
-        pc["_urgency"] = "normal"
-        try:
-            for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
-                try:
-                    d = datetime.strptime(due.strip(), fmt)
-                    days = (d - _today).days
-                    pc["_days_left"] = days
-                    if days < 0: pc["_urgency"] = "overdue"
-                    elif days <= 1: pc["_urgency"] = "critical"
-                    elif days <= 3: pc["_urgency"] = "soon"
-                    break
-                except ValueError:
-                    continue
-        except Exception as _e:
-            log.debug('suppressed in _pc_sort_key: %s', _e)
+        _compute_urgency(pc)
 
     # Same for RFQs — split active from sent/completed
     _actionable_rfq = {"new", "draft", "ready", "generated", "parsed", "priced"}
@@ -484,23 +511,7 @@ def home():
     sent_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in ("sent", "won", "lost")}
     sent_rfqs = dict(sorted(sent_rfqs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
     for rid, r in active_rfqs.items():
-        due = r.get("due_date", "") or ""
-        r["_days_left"] = None
-        r["_urgency"] = "normal"
-        try:
-            for fmt in ("%m/%d/%y", "%m/%d/%Y", "%Y-%m-%d"):
-                try:
-                    d = datetime.strptime(due.strip(), fmt)
-                    days = (d - _today).days
-                    r["_days_left"] = days
-                    if days < 0: r["_urgency"] = "overdue"
-                    elif days <= 1: r["_urgency"] = "critical"
-                    elif days <= 3: r["_urgency"] = "soon"
-                    break
-                except ValueError:
-                    continue
-        except Exception as _e:
-            log.debug('suppressed in _pc_sort_key: %s', _e)
+        _compute_urgency(r)
     # Sort RFQs by urgency too
     active_rfqs = dict(sorted(active_rfqs.items(), key=lambda x: (
         3 if x[1].get("status") in ("sent","generated") else 0 if x[1].get("_urgency") in ("overdue","critical") else 1,
@@ -2249,6 +2260,19 @@ def detail(rid):
             except (ValueError, TypeError):
                 continue
 
+    # Normalize due_time to HH:MM for <input type="time"> (accepts "2:00 PM",
+    # "14:00", "2 PM"). Empty when no explicit time on file → UI shows ⚠.
+    _due_time_hhmm = ""
+    _raw_time = r.get("due_time", "")
+    if _raw_time:
+        from datetime import datetime as _ddt2
+        for _tfmt in ("%I:%M %p", "%I:%M%p", "%H:%M", "%I %p", "%I%p"):
+            try:
+                _due_time_hhmm = _ddt2.strptime(str(_raw_time).strip(), _tfmt).strftime("%H:%M")
+                break
+            except (ValueError, TypeError):
+                continue
+
     # ── Compute landed cost summary for margin truth ──
     _landed_summary = {"raw_cost": 0, "landed_cost": 0, "items": 0}
     try:
@@ -2287,6 +2311,7 @@ def detail(rid):
                        sibling_rfqs=_sibling_rfqs,
                        sibling_pcs_unconverted=_sibling_pcs_unconverted,
                        due_date_iso=_due_date_iso,
+                       due_time_hhmm=_due_time_hhmm,
                        landed_summary=_landed_summary,
                        requirements=_requirements)
 
@@ -2851,7 +2876,7 @@ def rfq_update_field(rid):
     data = request.get_json(force=True, silent=True) or {}
     changed = []
     allowed = ["solicitation_number", "requestor_name", "requestor_email",
-               "due_date", "ship_to", "delivery_location", "institution",
+               "due_date", "due_time", "ship_to", "delivery_location", "institution",
                "agency_name", "notes"]
     from src.core.validation import validate_header_field
     for field in allowed:

@@ -1368,6 +1368,18 @@ def _pricecheck_detail_inner(pcid):
             except (ValueError, TypeError):
                 continue
 
+    # Normalize due_time to HH:MM for <input type="time">. Empty → UI shows ⚠.
+    _due_time_hhmm = ""
+    _raw_time = pc.get("due_time", "")
+    if _raw_time:
+        from datetime import datetime as _ddt2
+        for _tfmt in ("%I:%M %p", "%I:%M%p", "%H:%M", "%I %p", "%I%p"):
+            try:
+                _due_time_hhmm = _ddt2.strptime(str(_raw_time).strip(), _tfmt).strftime("%H:%M")
+                break
+            except (ValueError, TypeError):
+                continue
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         tier_counts=tier_counts,
@@ -1385,6 +1397,7 @@ def _pricecheck_detail_inner(pcid):
         scprs_staleness=_scprs_staleness,
         bundle_siblings=_bundle_siblings,
         due_date_iso=_due_date_iso,
+        due_time_hhmm=_due_time_hhmm,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")
@@ -1884,6 +1897,8 @@ def _do_save_prices(pcid):
         pc["ship_to"] = data.get("ship_to", "")
     if data.get("due_date") is not None:
         pc["due_date"] = data.get("due_date", "")
+    if data.get("due_time") is not None:
+        pc["due_time"] = data.get("due_time", "")
     if data.get("requestor") is not None:
         pc["requestor"] = data.get("requestor", "")
         if "parsed" in pc and isinstance(pc["parsed"], dict):
