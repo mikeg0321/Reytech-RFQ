@@ -27,8 +27,12 @@ GMAIL_OAUTH_REFRESH_TOKEN_2 = os.environ.get("GMAIL_OAUTH_REFRESH_TOKEN_2", "")
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/drive.readonly",
 ]
+# Existing refresh tokens granted only readonly will keep working for reads.
+# Sending requires re-running scripts/gmail_oauth_setup.py so the user grants
+# the gmail.send scope; send_message() will return a 403 from Google until then.
 
 # Cached service instances per email address
 _service_cache: Dict[str, object] = {}
@@ -207,3 +211,207 @@ def get_message_metadata(service, msg_id: str) -> dict:
     except Exception as e:
         log.error("Gmail API get_message_metadata error for %s: %s", msg_id, e)
         return {"gmail_id": msg_id}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Sending (Gmail API — replaces smtplib.SMTP_SSL for outbound)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Gmail API send is strictly better than SMTP for our use case:
+#   - OAuth refresh tokens (same auth story as inbound) — no app password.
+#   - Returns a message_id + thread_id on success; no silent-success modes.
+#   - Auto-appends the user's configured Gmail signature (enforces the
+#     "Gmail Handles Signatures" rule in CLAUDE.md — callers MUST pass a
+#     body WITHOUT any app-level signature block).
+#   - Automatically writes to the authenticated user's Sent folder; no
+#     IMAP-append dance needed.
+#   - Threading via `thread_id` parameter (preferred) or In-Reply-To/References
+#     MIME headers (fallback).
+#
+# None of the 9 existing smtplib call sites are migrated by this module.
+# Migration is separate work; see project_gmail_api_send_gap_2026_04_21.md.
+
+
+def _split_list(value) -> List[str]:
+    """Accept a list or a comma-separated string; return a clean list."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [x.strip() for x in value.split(",") if x.strip()]
+    return [str(x).strip() for x in value if str(x).strip()]
+
+
+def _build_mime_message(
+    to,
+    subject: str,
+    body_plain: str = "",
+    body_html: str = "",
+    cc=None,
+    bcc=None,
+    attachments: Optional[List[str]] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
+    from_name: Optional[str] = None,
+    from_addr: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+):
+    """Build an email.message.Message suitable for Gmail API send.
+
+    Callers MUST NOT include a hardcoded Reytech signature in body_plain or
+    body_html — Gmail auto-appends the configured signature. See CLAUDE.md
+    "Gmail Handles Signatures."
+
+    Returns the MIMEMultipart (or MIMEText) message object, ready to be
+    serialized with .as_bytes() and base64url-encoded.
+    """
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.base import MIMEBase
+    from email import encoders
+
+    to_list = _split_list(to)
+    cc_list = _split_list(cc)
+    bcc_list = _split_list(bcc)
+    attachment_paths = list(attachments or [])
+
+    if not to_list:
+        raise ValueError("send_message requires a non-empty 'to' recipient")
+    if not subject:
+        raise ValueError("send_message requires a non-empty subject")
+    if not (body_plain or body_html):
+        raise ValueError("send_message requires either body_plain or body_html")
+
+    has_attachments = any(os.path.exists(p) for p in attachment_paths)
+    has_html = bool(body_html)
+
+    if has_attachments:
+        msg = MIMEMultipart("mixed")
+        if has_html:
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(body_plain or "", "plain", "utf-8"))
+            alt.attach(MIMEText(body_html, "html", "utf-8"))
+            msg.attach(alt)
+        else:
+            msg.attach(MIMEText(body_plain or "", "plain", "utf-8"))
+    elif has_html:
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body_plain or "", "plain", "utf-8"))
+        msg.attach(MIMEText(body_html, "html", "utf-8"))
+    else:
+        msg = MIMEText(body_plain, "plain", "utf-8")
+
+    msg["To"] = ", ".join(to_list)
+    msg["Subject"] = subject
+    if cc_list:
+        msg["Cc"] = ", ".join(cc_list)
+    # Bcc intentionally NOT added as a header — Gmail API handles BCC by
+    # delivering to the address without exposing it in the message.
+    if from_addr:
+        msg["From"] = f"{from_name} <{from_addr}>" if from_name else from_addr
+    if in_reply_to:
+        msg["In-Reply-To"] = in_reply_to
+        msg["References"] = references or in_reply_to
+    for name, value in (extra_headers or {}).items():
+        msg[name] = value
+
+    for path in attachment_paths:
+        if not os.path.exists(path):
+            log.warning("send_message: attachment not found, skipping: %s", path)
+            continue
+        with open(path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            f'attachment; filename="{os.path.basename(path)}"',
+        )
+        msg.attach(part)
+
+    return msg
+
+
+def send_message(
+    service,
+    to,
+    subject: str,
+    body_plain: str = "",
+    body_html: str = "",
+    cc=None,
+    bcc=None,
+    attachments: Optional[List[str]] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
+    from_name: Optional[str] = None,
+    from_addr: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> dict:
+    """Send an email via the Gmail API.
+
+    `service` is a Gmail API service object from get_service() (or
+    get_send_service() once send-scope is granted). Pass the built service
+    in explicitly so tests can inject a mock.
+
+    Returns the Gmail API response dict — typically {'id': str, 'threadId': str,
+    'labelIds': [...]}.
+
+    Raises ValueError on bad input, RuntimeError on auth issues, and allows
+    googleapiclient.errors.HttpError to propagate on 4xx/5xx from Google
+    (callers should log and handle; never swallow silently).
+    """
+    msg = _build_mime_message(
+        to=to,
+        subject=subject,
+        body_plain=body_plain,
+        body_html=body_html,
+        cc=cc,
+        bcc=bcc,
+        attachments=attachments,
+        in_reply_to=in_reply_to,
+        references=references,
+        from_name=from_name,
+        from_addr=from_addr,
+        extra_headers=extra_headers,
+    )
+
+    raw_bytes = msg.as_bytes()
+    raw_b64url = base64.urlsafe_b64encode(raw_bytes).decode("ascii")
+
+    body: Dict[str, object] = {"raw": raw_b64url}
+    if thread_id:
+        body["threadId"] = thread_id
+
+    try:
+        response = service.users().messages().send(
+            userId="me", body=body
+        ).execute()
+    except Exception as e:
+        log.error("Gmail API send_message failed: %s", e, exc_info=True)
+        raise
+
+    to_summary = to if isinstance(to, str) else ", ".join(_split_list(to))
+    log.info(
+        "Gmail API send_message ok: id=%s thread=%s to=%s",
+        response.get("id", "?"),
+        response.get("threadId", "?"),
+        to_summary,
+    )
+    return response
+
+
+def get_send_service(inbox_name: str = "sales"):
+    """Get a Gmail API service authorized for sending.
+
+    Separate from get_service() so callers self-document intent and so we can
+    fail loudly if the granted scope doesn't include gmail.send. For now this
+    is a thin wrapper that requires is_configured(); the actual 403 from Google
+    is the only signal that the refresh token lacks send scope (user must re-run
+    scripts/gmail_oauth_setup.py after deploying).
+    """
+    if not is_configured():
+        raise RuntimeError(
+            "Gmail API not configured (missing GMAIL_OAUTH_CLIENT_ID / "
+            "CLIENT_SECRET / REFRESH_TOKEN env vars). Cannot send."
+        )
+    return get_service(inbox_name)
