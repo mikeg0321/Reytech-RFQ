@@ -1170,8 +1170,11 @@ def api_catalog_update(pid):
         if not CATALOG_AVAILABLE:
             return jsonify({"ok": False, "error": "Catalog not available"})
         data = request.get_json() or {}
-        ok = update_product_pricing(pid, **data)
-        return jsonify({"ok": ok})
+        # CP-6: update_product_pricing returns a dict with `written`
+        # and `rejected` so the UI sees when it sent keys that the
+        # allowlist silently drops (e.g. msrp). Surface both.
+        result = update_product_pricing(pid, **data)
+        return jsonify(result)
     except Exception as e:
         log.error("api_catalog_update error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
