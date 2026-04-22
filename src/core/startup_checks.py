@@ -125,6 +125,15 @@ def run_all_checks():
         from jinja2 import Environment, FileSystemLoader
         tpl_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "templates")
         env = Environment(loader=FileSystemLoader(tpl_dir))
+        # Register the app's custom filters so templates that use them
+        # (|agency_display etc.) don't false-fail this check. If the filter
+        # import itself fails the check should surface that — a missing
+        # filter is still a real startup problem.
+        try:
+            from src.core.agency_display import agency_display
+            env.filters["agency_display"] = agency_display
+        except Exception as _e:
+            return False, f"agency_display filter import: {_e}"
         errors = []
         for name in env.list_templates():
             try: env.get_template(name)
