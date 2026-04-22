@@ -5442,6 +5442,24 @@ def api_pc_send_quote(pcid):
         return jsonify({"ok": False, "error": "PC not found"})
 
     data = request.get_json(force=True, silent=True) or {}
+
+    # RE-AUDIT-6 idempotency guard: a PC in status=sent has already been
+    # emailed. Re-sending without the operator explicitly overriding would
+    # ship the buyer a duplicate — every `bundle send` + every double-click
+    # on the send button used to trigger this. Require force_resend=true.
+    if pc.get("status") == "sent" and not data.get("force_resend"):
+        return jsonify({
+            "ok": False,
+            "already_sent": True,
+            "sent_at": pc.get("sent_at", ""),
+            "sent_to": pc.get("sent_to", ""),
+            "error": (
+                f"PC already sent to {pc.get('sent_to', '?')} "
+                f"at {pc.get('sent_at', '?')}. "
+                "Pass force_resend=true to send again."
+            ),
+        }), 409
+
     # Prefer original buyer email (from forwarded emails) over requestor fields
     to_email = data.get("to") or pc.get("original_sender") or pc.get("requestor_email", pc.get("requestor", ""))
     pc_num = pc.get("pc_number", pcid)
@@ -5513,43 +5531,46 @@ def api_pc_send_quote(pcid):
                      pcid, pc.get("output_pdf", ""), pc.get("reytech_quote_pdf", ""), safe)
         return jsonify({"ok": False, "error": "No generated PDF found — generate first"})
 
-    # Send via Gmail
+    # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL +
+    # GMAIL_PASSWORD app-password. Same pattern as the IN-5 migration in
+    # routes_analytics.send_quote_email and the bundle-send in
+    # routes_pricecheck_gen. gmail_api.send_message handles threading, plain
+    # text, and attachment encoding.)
     try:
-        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
-        if not gmail_user or not gmail_pass:
-            return jsonify({"ok": False, "error": "Gmail not configured"})
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
 
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.mime.base import MIMEBase
-        from email import encoders
+        # gmail_api uses os.path.basename(path) as the attachment filename.
+        # The source PDF on disk may have an internal name (Quote_...pdf,
+        # PC_...pdf, or a tempfile). Copy to a named temp file so the buyer
+        # sees the Reytech-branded filename.
+        import shutil, tempfile
+        attach_name = f"Quote_{pc_num}_Reytech.pdf"
+        tmp_dir = tempfile.mkdtemp(prefix="pc_send_")
+        named_pdf = os.path.join(tmp_dir, attach_name)
+        try:
+            shutil.copy(pdf_path, named_pdf)
 
-        msg = MIMEMultipart("mixed")
-        msg["From"] = f"Reytech Inc. <{gmail_user}>"
-        msg["To"] = to_email
-        msg["Subject"] = subject
+            # Threading — reply in buyer's email thread
+            email_message_id = pc.get("email_message_id", "") or None
 
-        # Threading — reply in buyer's email thread
-        email_message_id = pc.get("email_message_id", "")
-        if email_message_id:
-            msg["In-Reply-To"] = email_message_id
-            msg["References"] = email_message_id
-
-        # Plain text only — Gmail auto-appends the configured signature
-        msg.attach(MIMEText(body_text, "plain"))
-
-        with open(pdf_path, "rb") as f:
-            part = MIMEBase("application", "pdf")
-            part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f'attachment; filename="Quote_{pc_num}_Reytech.pdf"')
-            msg.attach(part)
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(gmail_user, gmail_pass)
-            server.sendmail(gmail_user, [to_email], msg.as_string())
+            service = gmail_api.get_send_service()
+            gmail_api.send_message(
+                service,
+                to=to_email,
+                subject=subject,
+                body_plain=body_text,
+                attachments=[named_pdf],
+                in_reply_to=email_message_id,
+                references=email_message_id,
+                from_name="Reytech Inc.",
+            )
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception as _cleanup_err:
+                log.debug("pc send tmpdir cleanup: %s", _cleanup_err)
 
         # Update PC status
         pc["status"] = "sent"
