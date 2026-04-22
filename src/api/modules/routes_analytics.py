@@ -2584,7 +2584,15 @@ def rfq_relink_pc(rid):
     # Run the existing linkage function
     try:
         from src.api.dashboard import _link_rfq_to_pc, _load_price_checks, _save_price_checks, _save_single_pc
-        
+
+        # AN-1: initialize `trace` BEFORE the inline-pricing loop. The
+        # loop's inner `except Exception as pe: trace.append(...)` handler
+        # on the first iteration otherwise hits UnboundLocalError because
+        # the original `trace = []` sat AFTER the loop. Same class as the
+        # CLAUDE.md "Never Reference Variables Across try/except
+        # Boundaries" rule (2026-04-03 incident).
+        trace = []
+
         # First: ensure matching PC actually has prices
         # If PC items have empty pricing, price them NOW before porting
         pcs = _load_price_checks()
@@ -2646,7 +2654,6 @@ def rfq_relink_pc(rid):
                 except Exception as pe:
                     trace.append(f"Inline pricing error: {pe}")
 
-        trace = []
         linked = _link_rfq_to_pc(r, trace)
         
         if linked:
