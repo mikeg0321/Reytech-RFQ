@@ -744,6 +744,14 @@ def _apply_checkbox_updates(writer: "PdfWriter", checkbox_updates: Dict[str, Any
     if not checkbox_updates:
         return 0
     written = 0
+    # CC-4: radio-group widgets (e.g. CUF "Check Box21.0..3", AMS 708
+    # Yes/No pairs) share a /Parent. Acrobat reads the group's value
+    # from parent /V, not the widget /AS. If we clobber parent /V for
+    # every matched sibling, the last iterated widget wins — usually
+    # an OFF sibling, which wipes the ON choice. Collect ON picks per
+    # parent and write parent /V once after the widget loop.
+    parent_on_pick: Dict[int, NameObject] = {}
+    parent_objs: Dict[int, Any] = {}
     for page in writer.pages:
         annots = page.get("/Annots")
         if annots is None:
@@ -778,19 +786,36 @@ def _apply_checkbox_updates(writer: "PdfWriter", checkbox_updates: Dict[str, Any
                 export = NameObject(export_name)
                 annot[NameObject("/V")] = export
                 annot[NameObject("/AS")] = export
-                # Propagate /V to parent too — some viewers (Acrobat) read
-                # the value from the parent field, not the widget.
+                # CC-4 fix: record the ON choice for the parent rather
+                # than clobbering on every widget visit. OFF siblings
+                # must NOT overwrite an already-recorded ON pick.
                 try:
                     parent = annot.get("/Parent")
                     if parent is not None:
                         pobj = parent.get_object()
-                        pobj[NameObject("/V")] = export
+                        pkey = id(pobj)
+                        parent_objs[pkey] = pobj
+                        if export_name != "/Off":
+                            parent_on_pick[pkey] = export
+                        else:
+                            # Only stamp /Off on the parent if no ON
+                            # sibling has claimed it during this run.
+                            parent_on_pick.setdefault(pkey, export)
                 except Exception as _e:
                     log.debug('suppressed in _apply_checkbox_updates: %s', _e)
                 written += 1
             except Exception as e:
                 log.debug("checkbox update: %s", e)
                 continue
+    # Second pass: apply the single resolved /V per parent.
+    for pkey, pobj in parent_objs.items():
+        pick = parent_on_pick.get(pkey)
+        if pick is None:
+            continue
+        try:
+            pobj[NameObject("/V")] = pick
+        except Exception as _e:
+            log.debug('suppressed parent /V write: %s', _e)
     return written
 
 
