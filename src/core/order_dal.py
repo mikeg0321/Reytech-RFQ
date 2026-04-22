@@ -104,6 +104,11 @@ def get_order(order_id: str) -> dict | None:
                 # No normalized line items — parse from items JSON column
                 order["line_items"] = _safe_json(order.get("items"), [])
 
+            # Hydrate status_history to list (parity with get_order_detail).
+            # Without this, api_order_invoice crashed with KeyError/AttributeError
+            # because status_history is stored as a JSON string. O-7.
+            order["status_history"] = _safe_json(order.get("status_history"), [])
+
             # Normalize legacy status
             st = order.get("status", "new")
             order["status"] = LEGACY_STATUS_MAP.get(st, st)
