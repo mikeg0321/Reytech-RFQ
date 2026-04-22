@@ -2631,6 +2631,12 @@ def _scprs_autostart():
     except Exception as _sw:
         log.debug("Stale watcher: %s", _sw)
 
+    try:
+        from src.agents.notify_agent import start_deadline_watcher
+        start_deadline_watcher()
+    except Exception as _dw:
+        log.debug("Deadline watcher: %s", _dw)
+
 def _full_scprs_scheduler_loop():
     """
     Master SCPRS intelligence scheduler.

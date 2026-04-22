@@ -139,41 +139,51 @@ def _build_deadline_item(doc_type, doc_id, doc):
     }
 
 
+def _scan_deadlines(urgencies=None):
+    """Scan all active PCs/RFQs and return deadline items.
+
+    Shared by /api/deadlines, /api/deadlines/critical, and the background
+    deadline-escalation watcher in notify_agent.py.
+
+    Args:
+        urgencies: optional set of urgency levels to include
+                   (e.g. {"overdue","critical"}). None = include all.
+    """
+    from src.api.data_layer import _load_price_checks, load_rfqs
+
+    out = []
+
+    pcs = _load_price_checks()
+    for pcid, pc in pcs.items():
+        if pc.get("status", "") in _SENT_STATUSES:
+            continue
+        if pc.get("is_test"):
+            continue
+        dl = _build_deadline_item("pc", pcid, pc)
+        if dl and (urgencies is None or dl["urgency"] in urgencies):
+            out.append(dl)
+
+    rfqs = load_rfqs()
+    for rid, r in rfqs.items():
+        if r.get("status", "") in _SENT_STATUSES:
+            continue
+        # CR-5: test RFQs inside 4h were triggering the base.html
+        # hard-alert modal. PC loop already filtered is_test; parity it here.
+        if r.get("is_test"):
+            continue
+        dl = _build_deadline_item("rfq", rid, r)
+        if dl and (urgencies is None or dl["urgency"] in urgencies):
+            out.append(dl)
+
+    return out
+
+
 @bp.route("/api/deadlines")
 @auth_required
 def api_deadlines():
     """All active PCs/RFQs with due dates, sorted by urgency."""
     try:
-        from src.api.data_layer import _load_price_checks, load_rfqs
-
-        deadlines = []
-
-        # Price Checks
-        pcs = _load_price_checks()
-        for pcid, pc in pcs.items():
-            if pc.get("status", "") in _SENT_STATUSES:
-                continue
-            if pc.get("is_test"):
-                continue
-            dl = _build_deadline_item("pc", pcid, pc)
-            if dl:
-                deadlines.append(dl)
-
-        # RFQs
-        rfqs = load_rfqs()
-        for rid, r in rfqs.items():
-            if r.get("status", "") in _SENT_STATUSES:
-                continue
-            # CR-5: test RFQs inside 4h were triggering the base.html
-            # hard-alert modal, which blocks the entire UI. PC loop
-            # already filtered is_test; parity it here.
-            if r.get("is_test"):
-                continue
-            dl = _build_deadline_item("rfq", rid, r)
-            if dl:
-                deadlines.append(dl)
-
-        # Sort by urgency: overdue first, then by hours_left ascending
+        deadlines = _scan_deadlines()
         urgency_order = {"overdue": 0, "critical": 1, "urgent": 2, "soon": 3, "normal": 4}
         deadlines.sort(key=lambda d: (urgency_order.get(d["urgency"], 5), d["hours_left"]))
 
@@ -194,32 +204,7 @@ def api_deadlines():
 def api_deadlines_critical():
     """Only items due within 4 hours or overdue — for the hard-alert modal."""
     try:
-        from src.api.data_layer import _load_price_checks, load_rfqs
-
-        critical = []
-
-        pcs = _load_price_checks()
-        for pcid, pc in pcs.items():
-            if pc.get("status", "") in _SENT_STATUSES:
-                continue
-            if pc.get("is_test"):
-                continue
-            dl = _build_deadline_item("pc", pcid, pc)
-            if dl and dl["urgency"] in ("overdue", "critical"):
-                critical.append(dl)
-
-        rfqs = load_rfqs()
-        for rid, r in rfqs.items():
-            if r.get("status", "") in _SENT_STATUSES:
-                continue
-            # CR-5: same reason as /api/deadlines above — a test RFQ
-            # sub-4h was triggering the hard-alert modal.
-            if r.get("is_test"):
-                continue
-            dl = _build_deadline_item("rfq", rid, r)
-            if dl and dl["urgency"] in ("overdue", "critical"):
-                critical.append(dl)
-
+        critical = _scan_deadlines(urgencies={"overdue", "critical"})
         critical.sort(key=lambda d: d["hours_left"])
 
         return jsonify({
