@@ -2376,9 +2376,12 @@ def api_diag_package(rid):
             except Exception as e:
                 results["steps"].append({"step": f"import_{form_id}", "ok": False, "error": str(e)})
     
-    # Check CONFIG
+    # Check CONFIG — canonical source is src.api.config (imported into
+    # dashboard + route modules). The old import from src.api.modules.routes_rfq
+    # was broken (routes_rfq never defines CONFIG at module scope), so this
+    # diagnostic always reported `config: ok=False` even on healthy deploys.
     try:
-        from src.api.modules.routes_rfq import CONFIG
+        from src.api.config import CONFIG
         results["steps"].append({"step": "config", "ok": True, "company": CONFIG.get("company", {}).get("name", "?")})
     except Exception as e:
         results["steps"].append({"step": "config", "ok": False, "error": str(e)})
