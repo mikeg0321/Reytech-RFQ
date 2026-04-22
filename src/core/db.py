@@ -1355,6 +1355,7 @@ CREATE TABLE IF NOT EXISTS institution_pricing_profile (
 CREATE TABLE IF NOT EXISTS winning_quote_shapes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     institution TEXT DEFAULT '',
+    agency TEXT DEFAULT '',
     category_mix TEXT,
     total_items INTEGER,
     avg_markup REAL,
@@ -1365,6 +1366,9 @@ CREATE TABLE IF NOT EXISTS winning_quote_shapes (
 );
 CREATE INDEX IF NOT EXISTS idx_wqs_institution ON winning_quote_shapes(institution);
 CREATE INDEX IF NOT EXISTS idx_wqs_outcome ON winning_quote_shapes(outcome);
+-- idx_wqs_agency is created by _migrate_columns AFTER the agency column is
+-- back-filled via ALTER TABLE — creating it here would fail on prod DBs
+-- that predate the column.
 
 CREATE TABLE IF NOT EXISTS winning_prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1663,6 +1667,13 @@ def _migrate_columns():
         # ── Email requirements extraction ──
         ("rfqs", "requirements_json", "TEXT DEFAULT '{}'"),
         ("price_checks", "requirements_json", "TEXT DEFAULT '{}'"),
+        # ── IN-10: winning_quote_shapes.agency ──
+        # Insert in pricing_oracle_v2.calibrate_from_outcome has always bound
+        # the agency code into the `institution` slot (see 2026-04-21 audit).
+        # Add a dedicated `agency` column so future consumers can disambiguate
+        # without re-deriving from institution. Legacy `institution` kept for
+        # read compatibility — already-written rows carry agency data there.
+        ("winning_quote_shapes", "agency", "TEXT DEFAULT ''"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)
@@ -1682,11 +1693,29 @@ def _migrate_columns():
             "CREATE INDEX IF NOT EXISTS idx_wq_upc ON won_quotes(upc)",
             "CREATE INDEX IF NOT EXISTS idx_pc_upc ON product_catalog(upc)",
             "CREATE INDEX IF NOT EXISTS idx_ps_sku ON product_suppliers(sku)",
+            # IN-10: winning_quote_shapes.agency index — created AFTER the
+            # column migration above so prod DBs don't fail on the index
+            # build before ALTER TABLE has landed the column.
+            "CREATE INDEX IF NOT EXISTS idx_wqs_agency ON winning_quote_shapes(agency)",
         ]:
             try:
                 conn.execute(_idx_sql)
             except Exception as _e:
                 log.debug("suppressed: %s", _e)
+
+        # IN-10: backfill agency from institution for rows written before the
+        # column existed. institution slot has always carried the agency code
+        # in pricing_oracle_v2.calibrate_from_outcome — preserve that data.
+        try:
+            conn.execute(
+                "UPDATE winning_quote_shapes "
+                "SET agency = institution "
+                "WHERE (agency IS NULL OR agency = '') AND institution != ''"
+            )
+        except sqlite3.OperationalError as _e:
+            # Table may not exist on a fresh install where agency column lands
+            # via CREATE TABLE (not ALTER). Nothing to backfill in that case.
+            log.debug("winning_quote_shapes backfill skipped: %s", _e)
 
         # ── SCPRS ingest idempotency (audit P0 — 2026-04-19) ──
         # Dedupe existing (po_id, line_num) collisions before creating the

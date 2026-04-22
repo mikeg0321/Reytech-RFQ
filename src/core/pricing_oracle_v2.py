@@ -1739,12 +1739,17 @@ def calibrate_from_outcome(items, outcome, agency="", loss_reason=None, winner_p
                     band = int(m / 5) * 5
                     buckets[band] = buckets.get(band, 0) + 1
                 dist = [{"pct": k, "count": v} for k, v in sorted(buckets.items())]
+                # IN-10: write `agency` to both the legacy `institution` slot
+                # (back-compat for consumers that predate the column split)
+                # and the new dedicated `agency` column. Older rows are
+                # back-filled by the `_migrate_columns` UPDATE so `agency`
+                # is the canonical readable field going forward.
                 db.execute("""
                     INSERT INTO winning_quote_shapes
-                        (institution, category_mix, total_items, avg_markup,
+                        (institution, agency, category_mix, total_items, avg_markup,
                          markup_stddev, markup_distribution, outcome, recorded_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                """, (agency, json.dumps(cat_counts), len(items),
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                """, (agency, agency, json.dumps(cat_counts), len(items),
                       round(avg_mu, 2), round(stddev, 2),
                       json.dumps(dist), outcome, now))
         except Exception as e:
