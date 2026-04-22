@@ -1422,6 +1422,13 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
     supplier = po.get("supplier_name", po.get("supplier", ""))
     po_number = po.get("po_number", "")
 
+    # CP-2: SCPRS po_lines.unit_price stores LINE TOTALS for multi-qty rows
+    # (a 5-qty PO at $20/ea ships unit_price=$100). product_catalog.scprs_last_price
+    # is read as per-unit in 5 downstream catalog sites (recommendations, ceilings,
+    # margin-opportunity). Normalize at this single writer so all readers are
+    # correct without needing to thread qty context through the catalog schema.
+    from src.core.pricing_oracle_v2 import _scprs_per_unit
+
     for line in po_lines:
         desc = (line.get("description") or "").strip()
         unit_price = line.get("unit_price", 0) or 0
@@ -1431,6 +1438,8 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
         if not desc or not unit_price or unit_price <= 0:
             continue
 
+        per_unit = _scprs_per_unit(unit_price, quantity)
+
         # 1. price_history
         try:
             conn.execute("""
@@ -1438,7 +1447,7 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
                 (found_at, description, part_number, manufacturer, quantity, unit_price,
                  source, source_url, agency, quote_number, price_check_id, notes)
                 VALUES (?,?,?,?,?,?,'scprs_award_track','',?,?,?,?)
-            """, (now, desc, item_id, supplier, quantity, unit_price,
+            """, (now, desc, item_id, supplier, quantity, per_unit,
                   agency, quote_number, "",
                   f"Lost to {supplier} — PO {po_number}"))
         except Exception as e:
@@ -1456,7 +1465,7 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
 
             for cat_match in matches:
                 existing_competitor = cat_match["competitor_low_price"] or 999999
-                if unit_price < existing_competitor:
+                if per_unit < existing_competitor:
                     conn.execute("""
                         UPDATE product_catalog SET
                             competitor_low_price = ?,
@@ -1468,8 +1477,8 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
                             times_lost = COALESCE(times_lost, 0) + 1,
                             updated_at = ?
                         WHERE id = ?
-                    """, (unit_price, f"{supplier} via SCPRS PO {po_number}", now,
-                          unit_price, now, agency, now, cat_match["id"]))
+                    """, (per_unit, f"{supplier} via SCPRS PO {po_number}", now,
+                          per_unit, now, agency, now, cat_match["id"]))
                 else:
                     # Still update times_lost and scprs data
                     conn.execute("""
@@ -1480,7 +1489,7 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
                             times_lost = COALESCE(times_lost, 0) + 1,
                             updated_at = ?
                         WHERE id = ?
-                    """, (unit_price, now, agency, now, cat_match["id"]))
+                    """, (per_unit, now, agency, now, cat_match["id"]))
 
                 # 3. catalog_price_history
                 try:
@@ -1489,7 +1498,7 @@ def _record_competitor_prices(conn, po_lines: list, po: dict,
                         (product_id, price_type, price, quantity, source,
                          agency, institution, quote_number, recorded_at)
                         VALUES (?,?,?,?,?,?,?,?,?)
-                    """, (cat_match["id"], "competitor_scprs", unit_price, quantity,
+                    """, (cat_match["id"], "competitor_scprs", per_unit, quantity,
                           f"{supplier} — PO {po_number}",
                           agency, po.get("dept", ""), quote_number, now))
                 except Exception as e:
