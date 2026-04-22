@@ -575,6 +575,65 @@ def _analyze_market_prices(market_prices, request_qty):
     }
 
 
+# BUILD-3: Dollar-floor profit guard. A %-based floor ($ cost × 1.15) gives
+# pennies of gross profit on cheap items: a $0.80 swab at 15% markup = $0.12 GP
+# per unit × 2 units = $0.24 for the whole line. That is less than the cost of
+# a single email round-trip. This guard enforces an absolute-dollar floor for
+# total line gross profit (price − cost × qty) so the system never recommends
+# a line that's not worth quoting.
+_DOLLAR_FLOOR_DEFAULT = 3.0
+
+
+def _apply_dollar_floor(result, cost, qty):
+    """Bump quote_price up so the line clears a minimum gross-profit floor in
+    absolute dollars. No-op when cost/qty are unusable or the line already
+    clears the floor. Idempotent. Feature-flag gated."""
+    try:
+        from src.core.flags import get_flag
+        if not get_flag("oracle.dollar_floor", True):
+            return result
+        min_gp = float(get_flag("oracle.min_gross_profit_dollars",
+                                _DOLLAR_FLOOR_DEFAULT))
+    except Exception:
+        min_gp = _DOLLAR_FLOOR_DEFAULT
+    if min_gp <= 0:
+        return result
+    try:
+        c = float(cost) if cost is not None else 0.0
+        q = float(qty) if qty else 0.0
+    except (TypeError, ValueError):
+        return result
+    if c <= 0 or q <= 0:
+        return result
+    qp = result.get("quote_price")
+    if qp is None:
+        return result
+    try:
+        qp = float(qp)
+    except (TypeError, ValueError):
+        return result
+    gp_total = (qp - c) * q
+    if gp_total >= min_gp:
+        return result
+    floor_price = round(c + (min_gp / q), 2)
+    if floor_price <= qp:
+        return result
+    new_markup = ((floor_price - c) / c * 100) if c > 0 else 0
+    result["dollar_floor_applied"] = {
+        "original_price": round(qp, 2),
+        "floor_price": floor_price,
+        "min_gross_profit": round(min_gp, 2),
+        "original_gp_total": round(gp_total, 2),
+        "qty": q,
+    }
+    result["quote_price"] = floor_price
+    result["markup_pct"] = round(new_markup, 1)
+    note = (f" | Bumped to ${floor_price:.2f} to clear "
+            f"${min_gp:.2f} min GP (was ${gp_total:.2f})")
+    result["rationale"] = (result.get("rationale") or "") + note
+    return result
+
+
 def _calculate_recommendation(cost, market, quantity, category=None, agency=None,
                                _db=None, qty_per_uom=1, win_history=None):
     result = {"strategies": [], "tiers": [], "rationale": "",
@@ -735,6 +794,7 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
                                      "beats_avg": tp < (comp_avg or 99999), "beats_low": tp < (comp_low or 99999)})
         result.update({"quote_price": ceiling, "markup_pct": round(ceiling_m, 1), "confidence": "high",
                        "rationale": f"Won {win_times}x at ${ceiling:.2f} ({ceiling_m:.0f}% on ${cost:.2f})"})
+        _apply_dollar_floor(result, cost, qty)
         return result
 
     # Phase B: Volume-Aware band (agency × qty_bucket historical median margin).
@@ -863,6 +923,7 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
     else:
         result["data_confidence"] = "blind"
         result["rationale"] = "No data. Manual research needed."
+    _apply_dollar_floor(result, cost, qty)
     return result
 
 
