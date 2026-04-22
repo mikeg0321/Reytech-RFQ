@@ -184,6 +184,9 @@ _rate_limiter_lock  = threading.Lock()
 _json_cache_lock    = threading.Lock()
 _save_rfqs_lock     = threading.Lock()
 _save_pcs_lock      = threading.Lock()
+# RE-AUDIT-8: VACUUM takes an exclusive write lock on the DB; concurrent callers
+# would stack 30-60s blocked behind the running VACUUM. Second caller gets 409.
+_vacuum_lock        = threading.Lock()
 
 # ── TTL JSON cache — eliminates redundant disk reads on hot routes ───────────
 _json_cache: dict = {}   # path → {"data": ..., "mtime": float, "ts": float}
@@ -4775,7 +4778,7 @@ def api_force_repoll():
                     "next": "Hit Check Now or wait for auto-poll"})
 
 
-@bp.route("/api/admin/delete-pc/<pcid>", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-pc/<pcid>", methods=["POST"])
 @auth_required
 def api_admin_delete_pc(pcid):
     """Delete a single PC by ID."""
@@ -4794,7 +4797,7 @@ def api_admin_delete_pc(pcid):
     return jsonify({"ok": True, "deleted": pcid, "sol": sol})
 
 
-@bp.route("/api/admin/delete-rfq/<rid>", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-rfq/<rid>", methods=["POST"])
 @auth_required
 def api_admin_delete_rfq(rid):
     """Delete a single RFQ by ID."""
@@ -4813,7 +4816,7 @@ def api_admin_delete_rfq(rid):
     return jsonify({"ok": True, "deleted": rid, "sol": sol})
 
 
-@bp.route("/api/admin/delete-by-sol", methods=["GET", "POST"])
+@bp.route("/api/admin/delete-by-sol", methods=["POST"])
 @auth_required
 def api_admin_delete_by_sol():
     """Delete PCs and RFQs by solicitation number.
@@ -5891,23 +5894,70 @@ def api_disk_cleanup():
         result["freed_mb"] = round(freed / 1024 / 1024, 1)
 
     if action == "vacuum":
-        # VACUUM the database to reclaim space
+        # RE-AUDIT-8: VACUUM on a 525 MB DB takes an exclusive write lock for
+        # 30-60s. Without single-flight a double-click queues two of them and
+        # the second blocks all writes. Second concurrent caller → 409.
+        if not _vacuum_lock.acquire(blocking=False):
+            return jsonify({
+                "ok": False,
+                "error": "vacuum already running",
+                "hint": "VACUUM holds an exclusive write lock; wait for the "
+                        "first call to finish before retrying",
+            }), 409
         import sqlite3 as _sq
         db_path = os.path.join(DATA_DIR, "reytech.db")
         before = os.path.getsize(db_path)
         try:
-            vc = _sq.connect(db_path, timeout=120)
-            vc.execute("VACUUM")
-            vc.close()
-            after = os.path.getsize(db_path)
-            result["action"] = "vacuumed"
-            result["db_before_mb"] = round(before / 1024 / 1024, 1)
-            result["db_after_mb"] = round(after / 1024 / 1024, 1)
-            result["freed_mb"] = round((before - after) / 1024 / 1024, 1)
-            log.info("VACUUM: %.1fMB → %.1fMB (freed %.1fMB)", before/1048576, after/1048576, (before-after)/1048576)
-        except Exception as e:
-            result["action"] = "vacuum_failed"
-            result["error"] = str(e)
+            try:
+                from src.core.security import _log_audit_internal as _audit
+                _audit(
+                    "db_vacuum_start",
+                    f"before_mb={before/1048576:.1f}",
+                    metadata={"before_mb": round(before / 1048576, 2)},
+                )
+            except Exception as _e:
+                log.debug("db_vacuum_start audit suppressed: %s", _e)
+            try:
+                vc = _sq.connect(db_path, timeout=120, isolation_level=None)
+                vc.execute("VACUUM")
+                vc.close()
+                after = os.path.getsize(db_path)
+                result["action"] = "vacuumed"
+                result["db_before_mb"] = round(before / 1024 / 1024, 1)
+                result["db_after_mb"] = round(after / 1024 / 1024, 1)
+                result["freed_mb"] = round((before - after) / 1024 / 1024, 1)
+                log.info("VACUUM: %.1fMB → %.1fMB (freed %.1fMB)", before/1048576, after/1048576, (before-after)/1048576)
+                try:
+                    from src.core.security import _log_audit_internal as _audit
+                    _audit(
+                        "db_vacuum_done",
+                        f"before_mb={before/1048576:.1f} after_mb={after/1048576:.1f} "
+                        f"freed_mb={(before-after)/1048576:.1f}",
+                        metadata={
+                            "before_mb": round(before / 1048576, 2),
+                            "after_mb": round(after / 1048576, 2),
+                            "freed_mb": round((before - after) / 1048576, 2),
+                        },
+                    )
+                except Exception as _e:
+                    log.debug("db_vacuum_done audit suppressed: %s", _e)
+            except Exception as e:
+                result["action"] = "vacuum_failed"
+                result["error"] = str(e)
+                try:
+                    from src.core.security import _log_audit_internal as _audit
+                    _audit(
+                        "db_vacuum_error",
+                        f"error={e}",
+                        metadata={"error": str(e)[:500]},
+                    )
+                except Exception as _e2:
+                    log.debug("db_vacuum_error audit suppressed: %s", _e2)
+        finally:
+            try:
+                _vacuum_lock.release()
+            except Exception as _e:
+                log.debug("vacuum lock release: %s", _e)
     
     if action == "trim-data":
         # Trim large data files: truncate logs, compact JSON, remove caches
