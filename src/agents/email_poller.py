@@ -2122,6 +2122,7 @@ class EmailPoller:
                                     log.debug("suppressed: %s", _e)
 
                                 # Bridge: notify award tracker this quote is won (stop SCPRS checking)
+                                _won_rowcount = 0
                                 try:
                                     import sqlite3 as _sql
                                     from src.core.paths import DATA_DIR as _DD
@@ -2135,13 +2136,14 @@ class EmailPoller:
                                           f"PO {po_number or '?'} detected via email — "
                                           f"${po_total or 0:,.2f} from {po_agency}"))
                                     # Also close the quote in quotes table
-                                    _aconn.execute("""
+                                    _wc = _aconn.execute("""
                                         UPDATE quotes SET status='won',
                                             status_notes=?, closed_by_agent='email_poller',
                                             updated_at=?
                                         WHERE quote_number=? AND status='sent'
                                     """, (f"PO {po_number} received via email",
                                           datetime.now().isoformat(), matched_quote))
+                                    _won_rowcount = _wc.rowcount or 0
                                     _aconn.commit()
                                     _aconn.close()
                                     POLL_STATUS["pos_detected"] = POLL_STATUS.get("pos_detected", 0) + 1
@@ -2149,6 +2151,31 @@ class EmailPoller:
                                              matched_quote, po_number)
                                 except Exception as _abe:
                                     log.debug("Award tracker bridge: %s", _abe)
+
+                                # BUILD-9: calibrate oracle on the email-detected won
+                                # path. Prior to BUILD-9 this path marked the quote
+                                # won in SQLite (line above) but never reached
+                                # calibrate_from_outcome — oracle silently lost every
+                                # email-PO-detected win. Same shape as BUILD-1 but
+                                # for the email_poller route. Fires only when the
+                                # sent→won transition actually flipped a row
+                                # (rowcount>0) so a forwarded PO email doesn't
+                                # double-count into the EMA. conn already committed
+                                # above, matching the BUILD-5 lock-contention fix.
+                                if _won_rowcount > 0:
+                                    try:
+                                        from src.core.pricing_oracle_v2 import calibrate_from_outcome
+                                        calibrate_from_outcome(
+                                            po_items or [],
+                                            "won",
+                                            agency=po_agency or "",
+                                            winner_prices=None,
+                                        )
+                                        log.info("BUILD-9 oracle calibrated from email-won: quote=%s agency=%s items=%d",
+                                                 matched_quote, po_agency, len(po_items or []))
+                                    except Exception as _ce:
+                                        log.warning("BUILD-9 calibrate_from_outcome failed for %s: %s",
+                                                    matched_quote, _ce)
 
                             # Normalize institution name via resolver
                             try:
