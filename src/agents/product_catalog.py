@@ -3382,7 +3382,18 @@ def calculate_recommended_price(product_id: int, target_margin: float = 15.0,
 
 
 def update_product_pricing(product_id: int, **kwargs):
-    """Update pricing fields on a product."""
+    """Update pricing fields on a product.
+
+    Returns a dict with `ok`, `written`, `rejected` instead of a bare bool.
+    CP-6: the old version silently dropped any key not in ALLOWED and
+    still returned True when at least one key landed, so operators saw
+    "Saved" while fields like msrp / web_lowest_source never persisted.
+    The dict shape lets callers surface rejected keys to the UI.
+
+    Backwards compatibility: the returned dict is truthy when any field
+    actually lands (matches the prior bool==True case), so callers that
+    used `if update_product_pricing(...):` still work.
+    """
     ALLOWED = {
         'sell_price', 'cost', 'scprs_last_price', 'scprs_last_date', 'scprs_agency',
         'competitor_low_price', 'competitor_source', 'competitor_date',
@@ -3392,26 +3403,33 @@ def update_product_pricing(product_id: int, **kwargs):
         'times_quoted', 'times_won', 'times_lost', 'win_rate', 'avg_margin_won',
     }
     updates = {k: v for k, v in kwargs.items() if k in ALLOWED}
+    rejected = sorted(k for k in kwargs if k not in ALLOWED)
+    if rejected:
+        log.warning(
+            "update_product_pricing: %d key(s) not in ALLOWED for product %s: %s",
+            len(rejected), product_id, rejected,
+        )
     if not updates:
-        return False
-    
+        return {"ok": False, "written": [], "rejected": rejected,
+                "error": "no_allowed_keys" if rejected else "no_updates"}
+
     conn = _get_conn()
     sets = ", ".join(f"{k} = ?" for k in updates)
     vals = list(updates.values()) + [datetime.now(timezone.utc).isoformat(), product_id]
     conn.execute("UPDATE product_catalog SET " + sets + ", updated_at = ? WHERE id = ?", vals)
-    
+
     # Recalculate margin
     conn.execute("""
-        UPDATE product_catalog SET margin_pct = 
-            CASE WHEN sell_price > 0 AND cost > 0 
+        UPDATE product_catalog SET margin_pct =
+            CASE WHEN sell_price > 0 AND cost > 0
                  THEN ROUND((sell_price - cost) / sell_price * 100, 2)
                  ELSE 0 END
         WHERE id = ?
     """, (product_id,))
-    
+
     conn.commit()
     conn.close()
-    return True
+    return {"ok": True, "written": sorted(updates.keys()), "rejected": rejected}
 
 
 def record_won_price(product_name: str, price: float, agency: str = "",
