@@ -39,6 +39,10 @@ def backfill_all(dry_run: bool = False) -> dict:
         "pcs_won": 0, "pcs_lost": 0,
         "calibrations_written": 0,
         "errors": [],
+        # IN-12: per-agency error histogram. Operator asking "52 errors,
+        # is one agency broken or is this scatter?" couldn't tell before.
+        # Now the ops dashboard shows {"CCHCS": 47, "CDCR": 3, ...}.
+        "errors_by_agency": {},
         "dry_run": dry_run,
     }
 
@@ -87,6 +91,9 @@ def backfill_all(dry_run: bool = False) -> dict:
 
             except Exception as e:
                 result["errors"].append(f"quote {r['quote_number']}: {e}")
+                # IN-12: bucket by agency so a broken-agency pattern shows up
+                _ag = (r["agency"] or r["institution"] or "unknown").strip() or "unknown"
+                result["errors_by_agency"][_ag] = result["errors_by_agency"].get(_ag, 0) + 1
                 log.debug("backfill quote %s: %s", r["quote_number"], e)
 
     except Exception as e:
@@ -134,6 +141,8 @@ def backfill_all(dry_run: bool = False) -> dict:
 
             except Exception as e:
                 result["errors"].append(f"match {m['quote_number']}: {e}")
+                # IN-12: match table has no agency column, log under generic bucket
+                result["errors_by_agency"]["po_match"] = result["errors_by_agency"].get("po_match", 0) + 1
 
     except Exception as e:
         result["errors"].append(f"quote_po_matches: {e}")

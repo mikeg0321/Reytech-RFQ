@@ -634,9 +634,36 @@ def api_win_loss_analytics():
     lost_value = sum(q.get("total", 0) for q in quotes if q.get("status") == "lost")
 
     # Reason breakdown
+    # IN-16: canonicalize reason strings before bucketing. Raw user input
+    # had "Price Too High", "price too high", " Price too high " landing
+    # in three separate buckets, destroying the signal. Alias map folds
+    # common variants into five canonical buckets.
+    _REASON_ALIASES = {
+        "price_too_high": "price_too_high",
+        "price too high": "price_too_high",
+        "too expensive": "price_too_high",
+        "priced out": "price_too_high",
+        "price": "price_too_high",
+        "availability": "availability",
+        "out of stock": "availability",
+        "no stock": "availability",
+        "lead time": "availability",
+        "spec_mismatch": "spec_mismatch",
+        "spec mismatch": "spec_mismatch",
+        "wrong spec": "spec_mismatch",
+        "incompatible": "spec_mismatch",
+        "relationship": "relationship",
+        "existing vendor": "relationship",
+        "incumbent": "relationship",
+    }
+
+    def _canon_reason(raw):
+        s = (raw or "unknown").strip().lower()
+        return _REASON_ALIASES.get(s, s if s else "other")
+
     reason_counts = _defaultdict(int)
     for r in wl_log:
-        key = f"{r.get('outcome', '?')}:{r.get('reason', 'unknown')}"
+        key = f"{r.get('outcome', '?')}:{_canon_reason(r.get('reason'))}"
         reason_counts[key] += 1
 
     # Agency win rate
@@ -1118,9 +1145,22 @@ def growth_intel_page():
 
 
 def _scprs_pull_freshness() -> dict:
-    """Return {last_pull, next_pull, last_relative, stale} for the most recent
-    SCPRS pull across all agencies. `stale=True` when last_pull is older than
-    48h — the dashboard flips the banner red."""
+    """Return {last_pull, next_pull, last_relative, stale, state} for the
+    most recent SCPRS pull across all agencies. `stale=True` when last_pull
+    is older than 48h — the dashboard flips the banner red.
+
+    IN-14: `state` distinguishes four actionable conditions so operators
+    can tell *why* the banner is red:
+        - "fresh"     — last_pull < 48h ago, scraper is healthy
+        - "stale"     — last_pull >= 48h but last_pull parses cleanly
+        - "never"     — no row in scprs_pull_schedule (scraper has never
+                        run — different fix: start the scheduler)
+        - "malformed" — row exists but last_pull unparseable (scraper
+                        wrote garbage — different fix: investigate the
+                        writer path)
+        - "error"     — DB query itself failed (different fix: check DB)
+    The UI banner renders a different hint per state.
+    """
     from datetime import datetime as _dt, timezone as _tz
     try:
         conn = get_db()
@@ -1132,10 +1172,12 @@ def _scprs_pull_freshness() -> dict:
         conn.close()
     except Exception as e:
         log.debug("scprs freshness query failed: %s", e)
-        return {"last_pull": "", "next_pull": "", "last_relative": "unknown", "stale": True}
+        return {"last_pull": "", "next_pull": "",
+                "last_relative": "unknown", "stale": True, "state": "error"}
 
     if not row:
-        return {"last_pull": "", "next_pull": "", "last_relative": "never", "stale": True}
+        return {"last_pull": "", "next_pull": "",
+                "last_relative": "never", "stale": True, "state": "never"}
 
     last = row["last_pull"] if hasattr(row, "keys") else row[1]
     nxt = (row["next_pull"] if hasattr(row, "keys") else row[2]) or ""
@@ -1152,7 +1194,10 @@ def _scprs_pull_freshness() -> dict:
         else:
             rel = f"{secs // 86400} d ago"
         stale = secs > 48 * 3600
+        state = "stale" if stale else "fresh"
     except Exception:
         rel = "unknown"
         stale = True
-    return {"last_pull": last, "next_pull": nxt, "last_relative": rel, "stale": stale}
+        state = "malformed"
+    return {"last_pull": last, "next_pull": nxt,
+            "last_relative": rel, "stale": stale, "state": state}
