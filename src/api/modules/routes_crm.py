@@ -2809,9 +2809,13 @@ Thank you for your time, and I look forward to the opportunity to serve {agency}
         "notes": f"Market intel outreach — {agency} | ${spend:,.0f} spend signal"
     }
     outbox.append(draft)
+    # CR-6: only upsert the draft we just created — iterating the full
+    # outbox wrote ~N redundant upserts on every call (261 seen in prod).
+    # upsert is idempotent on `id`, so prior rows already exist; touching
+    # them on every draft creation was O(N) DB churn + a cross-session
+    # write-amp hazard on fields that might move underneath us.
     from src.core.dal import upsert_outbox_email as _upsert_ob
-    for _e in outbox:
-        if _e.get("id"): _upsert_ob(_e)
+    _upsert_ob(draft)
 
     # Log activity + bell notification
     try:
