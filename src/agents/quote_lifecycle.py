@@ -156,10 +156,22 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
 
     now = datetime.now(timezone.utc).isoformat()
 
+    # BUILD-11: track which outcome to feed calibrate_from_outcome AFTER
+    # the with-block exits (releases the write lock — BUILD-5 pattern). The
+    # rowcount gate on the UPDATEs matches BUILD-6: only calibrate when the
+    # status actually transitioned, so replayed signals can't double-count
+    # into the oracle's EMA.
+    _calibrate_outcome = None
+    _calibrate_items = []
+    _calibrate_agency = ""
+    _calibrate_reason = ""
+    _rowcount = 0
+
     try:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT status, status_history FROM quotes WHERE quote_number = ?",
+                """SELECT status, status_history, agency, line_items, total
+                   FROM quotes WHERE quote_number = ?""",
                 (quote_number,)
             ).fetchone()
 
@@ -172,19 +184,24 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
 
             history = json.loads(row["status_history"] or "[]")
             action = "none"
+            _quote_agency = row["agency"] or ""
 
             if signal == "win" and confidence >= 0.6:
                 new_status = "won"
                 history.append({"from": current_status, "to": new_status,
                                 "at": now, "by": source, "reason": f"Win signal (conf={confidence:.0%})"})
-                conn.execute("""
+                # BUILD-11: gate on status IN ('pending','sent') so a replay
+                # of an already-transitioned quote can't re-fire calibrate.
+                _cur = conn.execute("""
                     UPDATE quotes
                     SET status = 'won', po_number = COALESCE(NULLIF(?, ''), po_number),
                         closed_by_agent = ?, close_reason = ?,
                         status_history = ?, updated_at = ?
                     WHERE quote_number = ?
+                      AND status NOT IN ('won','lost','expired','cancelled')
                 """, (po_number, source, f"Win detected: {reason}",
                       json.dumps(history), now, quote_number))
+                _rowcount = _cur.rowcount or 0
                 action = "won"
                 _auto_create_order(conn, quote_number, po_number)
                 log.info("Quote %s → WON (PO: %s, conf: %.0f%%)", quote_number, po_number, confidence * 100)
@@ -192,7 +209,7 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
                 # Learn item mappings + lock costs from won quote
                 try:
                     from src.core.pricing_oracle_v2 import confirm_item_mapping, lock_cost
-                    _items_raw = row["line_items"] or row["items_detail"] or "[]"
+                    _items_raw = row["line_items"] or "[]"
                     _items = json.loads(_items_raw) if isinstance(_items_raw, str) else _items_raw
                     for _it in (_items or []):
                         _desc = _it.get("description", "")
@@ -214,19 +231,44 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
                 except Exception as _e:
                     log.debug('suppressed in process_reply_signal: %s', _e)
 
+                # BUILD-11: stash outcome payload for post-commit calibrate.
+                if _rowcount > 0:
+                    _calibrate_outcome = "won"
+                    _calibrate_agency = _quote_agency
+                    try:
+                        _ir = row["line_items"] or "[]"
+                        _calibrate_items = json.loads(_ir) if isinstance(_ir, str) else (_ir or [])
+                    except Exception:
+                        _calibrate_items = []
+
             elif signal == "loss" and confidence >= 0.6:
                 new_status = "lost"
                 history.append({"from": current_status, "to": new_status,
                                 "at": now, "by": source, "reason": reason or "Loss signal detected"})
-                conn.execute("""
+                _cur = conn.execute("""
                     UPDATE quotes
                     SET status = 'lost', closed_by_agent = ?, close_reason = ?,
                         status_history = ?, updated_at = ?
                     WHERE quote_number = ?
+                      AND status NOT IN ('won','lost','expired','cancelled')
                 """, (source, reason or "Loss detected from reply",
                       json.dumps(history), now, quote_number))
+                _rowcount = _cur.rowcount or 0
                 action = "lost"
                 log.info("Quote %s → LOST (reason: %s)", quote_number, reason)
+
+                # BUILD-11: loss path must also feed calibrate so the oracle
+                # learns from the competitive price that beat us. Without
+                # this, loss_reason data never reaches the EMA.
+                if _rowcount > 0:
+                    _calibrate_outcome = "lost"
+                    _calibrate_agency = _quote_agency
+                    _calibrate_reason = reason or "reply_loss"
+                    try:
+                        _ir = row["line_items"] or "[]"
+                        _calibrate_items = json.loads(_ir) if isinstance(_ir, str) else (_ir or [])
+                    except Exception:
+                        _calibrate_items = []
 
             elif signal == "question":
                 # Reset expiration clock — buyer is engaged
@@ -238,11 +280,33 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
                 action = "extended"
                 log.info("Quote %s — question reply, extended expiration", quote_number)
 
-            return {"ok": True, "action": action, "quote_number": quote_number, "signal": signal}
+            _result = {"ok": True, "action": action, "quote_number": quote_number, "signal": signal}
 
     except Exception as e:
         log.error("process_reply_signal: %s", e)
         return {"ok": False, "error": str(e)}
+
+    # BUILD-11: calibrate AFTER the with-block exits so the outer write
+    # lock is released before calibrate_from_outcome opens its own
+    # SQLite connection (BUILD-5 lock-contention pattern). Gated on
+    # _rowcount > 0 for idempotency against replayed signals.
+    if _calibrate_outcome and _rowcount > 0:
+        try:
+            from src.core.pricing_oracle_v2 import calibrate_from_outcome
+            calibrate_from_outcome(
+                _calibrate_items,
+                _calibrate_outcome,
+                agency=_calibrate_agency,
+                loss_reason=_calibrate_reason if _calibrate_outcome == "lost" else "",
+                winner_prices=None,
+            )
+            log.info("BUILD-11 oracle calibrated from reply-signal: %s outcome=%s",
+                     quote_number, _calibrate_outcome)
+        except Exception as _ce:
+            log.warning("BUILD-11 calibrate_from_outcome failed for %s: %s",
+                        quote_number, _ce)
+
+    return _result
 
 
 def _auto_create_order(conn, quote_number: str, po_number: str):
