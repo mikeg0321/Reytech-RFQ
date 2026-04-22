@@ -3462,16 +3462,27 @@ def api_expansion_outreach():
             results["email_drafted"] = True; results["email_to"] = contact_email
         except Exception as e: results["email_error"] = str(e)
 
-    # Activity log
+    # RE-AUDIT-11: route through _log_crm_activity so the write is (a) funneled
+    # through the same JSON load/save helpers that the rest of the module uses
+    # (no raw open()+dump racing concurrent writers) and (b) dual-written to the
+    # activity_log SQLite table for the unified feed. Prior code wrote directly
+    # to crm_activity.json and bypassed both.
     try:
-        act_path = os.path.join(DATA_DIR, "crm_activity.json")
-        acts = _json.load(open(act_path)) if os.path.exists(act_path) else []
-        acts.append({"type": "expansion_outreach", "facility": facility_name,
-            "agency_type": agency_type, "action": action, "email": contact_email,
-            "timestamp": datetime.now().isoformat(), "total": round(total, 2)})
-        with open(act_path, "w") as f: _json.dump(acts, f, indent=2, default=str)
-    except (ValueError, OSError, TypeError) as e:
-        log.debug("expansion crm_activity write: %s", e)
+        _log_crm_activity(
+            contact_email or facility_name,
+            "expansion_outreach",
+            f"Outreach to {facility_name} ({agency_type}) — {action}, total ${round(total, 2)}",
+            actor="system",
+            metadata={
+                "facility": facility_name,
+                "agency_type": agency_type,
+                "action": action,
+                "email": contact_email,
+                "total": round(total, 2),
+            },
+        )
+    except Exception as e:
+        log.debug("expansion _log_crm_activity: %s", e)
     try:
         from src.agents.notify_agent import send_alert
         send_alert("bell", f"Outreach: {facility_name} ({agency_type})", {"type": "expansion_target"})
