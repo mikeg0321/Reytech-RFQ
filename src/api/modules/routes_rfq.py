@@ -2161,33 +2161,11 @@ def detail(rid):
     if not r.get("solicitation_number") and r.get("rfq_number"):
         r["solicitation_number"] = r["rfq_number"]
 
-    # Show link suggestion if unlinked (read-only — no save_rfqs here)
-    if not r.get("linked_pc_id"):
-        try:
-            from src.core.pc_rfq_linker import find_matching_pc, expand_to_bundle
-            from src.api.dashboard import _load_price_checks as _dash_load_pcs
-            pcs = _dash_load_pcs()
-            pc_id, pc_data, reason = find_matching_pc(r, pcs)
-            if pc_id:
-                r["_suggested_pc"] = pc_id
-                r["_suggested_pc_reason"] = reason
-                pc_inner = pc_data.get("pc_data", pc_data)
-                if isinstance(pc_inner, str):
-                    try:
-                        import json as _json
-                        pc_inner = _json.loads(pc_inner)
-                    except Exception:
-                        pc_inner = {}
-                r["_suggested_pc_number"] = pc_inner.get("pc_number", pc_data.get("pc_number", ""))
-                r["_suggested_pc_items"] = len(pc_inner.get("items", pc_data.get("items", [])))
-                # Bundle context: if suggested PC is bundled, show bundle info
-                bid = pc_inner.get("bundle_id") or pc_data.get("bundle_id", "")
-                if bid:
-                    siblings = expand_to_bundle(pc_id, pcs)
-                    r["_suggested_bundle_id"] = bid
-                    r["_suggested_bundle_pcs"] = len(siblings)
-        except Exception as _e:
-            log.debug('suppressed in detail: %s', _e)
+    # Link suggestions render via the cchcs-pc-link-panel on the template, which
+    # fetches /api/rfq/<rid>/pc-link-suggestions client-side. The old inline
+    # bundle-suggestion banner was removed 2026-04-21 (RFQ-4) — no template consumes
+    # `_suggested_pc*` / `_suggested_bundle*` anymore, so the find_matching_pc /
+    # expand_to_bundle side-effects here are dead code. Removed.
 
     # ── Sibling RFQ/PC discovery for bundle-linked RFQs ──
     _sibling_rfqs = []

@@ -347,18 +347,6 @@
  </div>
  {% endif %}
 
- {% if r.get('_suggested_bundle_id') and not r.get('linked_pc_id') %}
- {# ── Bundle suggestion (unlinked RFQ that matches a bundled PC) ── #}
- <div style="background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);border-radius:8px;padding:10px 16px;margin-bottom:10px;display:flex;align-items:center;gap:12px;font-size:14px">
-  <span style="font-size:18px">&#x1F4A1;</span>
-  <div style="flex:1">
-   <span style="color:#d29922;font-weight:600">Suggested link: PC #{{ r.get('_suggested_pc_number','') }}</span>
-   <span style="color:#8b949e"> &middot; Part of a {{ r._suggested_bundle_pcs }}-PC bundle</span>
-   <span style="color:#8b949e;font-size:12px"> &middot; {{ r.get('_suggested_pc_reason','') }}</span>
-  </div>
- </div>
- {% endif %}
-
  {# ── CCHCS PC link suggestions (operator-confirmed; prices port verbatim) ── #}
  {# agency_name is the display badge field (line 29) — include it so the panel
     renders on any RFQ the UI labels CCHCS, not just ones with r.agency set.
