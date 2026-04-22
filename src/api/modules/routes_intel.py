@@ -1322,6 +1322,15 @@ def api_debug_run():
 def api_debug_fix(fix_name):
     """Run an automated fix. fix_name: seed_demo | sync_crm | clear_cache | reset_counter"""
     if fix_name == "seed_demo":
+        # IN-4: block ghost-data seeding on prod unless explicitly opted in.
+        on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"))
+        opt_in = os.environ.get("ENABLE_TEST_ROUTES", "").lower() in ("1", "true", "yes")
+        if on_railway and not opt_in:
+            return jsonify({
+                "ok": False,
+                "error": "disabled_on_production",
+                "hint": "Set ENABLE_TEST_ROUTES=1 to re-enable seed_demo.",
+            }), 403
         if INTEL_AVAILABLE:
             from src.agents.sales_intel import seed_demo_data
             r = seed_demo_data()

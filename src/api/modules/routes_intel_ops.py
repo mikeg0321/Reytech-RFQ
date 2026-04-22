@@ -28,6 +28,26 @@ except ImportError:
 # Test Mode — QA/QC Infrastructure (Phase 12 Ready)
 # ═══════════════════════════════════════════════════════════════════════
 
+
+def _require_test_env():
+    """IN-3/IN-4: Block /api/test/* and seed_demo on prod unless explicitly
+    opted-in via ENABLE_TEST_ROUTES=1.
+
+    Ghost-data from these endpoints was polluting production PCs + quote
+    counter. Returns a (response, status) tuple when the caller should bail,
+    else None.
+    """
+    on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("PORT"))
+    opt_in = os.environ.get("ENABLE_TEST_ROUTES", "").lower() in ("1", "true", "yes")
+    if on_railway and not opt_in:
+        return jsonify({
+            "ok": False,
+            "error": "disabled_on_production",
+            "hint": "Set ENABLE_TEST_ROUTES=1 to re-enable these fixtures.",
+        }), 403
+    return None
+
+
 # Standard test fixture — realistic PC that exercises the full pipeline
 TEST_PC_FIXTURE = {
     "header": {
@@ -54,6 +74,9 @@ TEST_PC_FIXTURE = {
 @safe_route
 def api_test_create_pc():
     """Create a test Price Check with fixture data. Flagged as is_test=True."""
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     from copy import deepcopy
 
     fixture = deepcopy(TEST_PC_FIXTURE)
@@ -95,6 +118,9 @@ def api_test_create_pc():
 @safe_route
 def api_test_cleanup():
     """Remove all test records and optionally reset quote counter."""
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     reset_counter = request.args.get("reset_counter", "false").lower() == "true"
 
     # Clean PCs
@@ -160,6 +186,9 @@ def api_test_cleanup():
 @safe_route
 def api_test_status():
     """Show current test data in the system."""
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     pcs = _load_price_checks()
     test_pcs = {k: {"pc_number": v.get("pc_number"), "status": v.get("status"), "institution": v.get("institution")}
                 for k, v in pcs.items() if v.get("is_test")}
@@ -3026,6 +3055,9 @@ def api_intel_buyers_import_csv():
 @safe_route
 def api_intel_seed_demo():
     """Seed the intel DB with realistic CA agency demo data (for testing/demo when SCPRS is unreachable)."""
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     if not INTEL_AVAILABLE:
         return jsonify({"ok": False, "error": "Sales intel not available"})
     return jsonify(seed_demo_data())
@@ -3080,6 +3112,9 @@ def api_cleanup_duplicates():
     Safe to run multiple times — idempotent after first run.
     Hit: /api/test/cleanup-duplicates?dry_run=true to preview without writing.
     """
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     if not QUOTE_GEN_AVAILABLE:
         return jsonify({"ok": False, "error": "quote_generator not available"})
 
@@ -3328,9 +3363,12 @@ def api_data_sync_clean():
 @safe_route
 def api_renumber_quote():
     """Renumber a quote. Usage: ?old=R26Q1&new=R26Q16
-    
+
     Also updates any PC that references the old quote number.
     """
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     old = request.args.get("old", "").strip()
     new = request.args.get("new", "").strip()
     dry_run = request.args.get("dry_run", "false").lower() == "true"
@@ -3418,6 +3456,9 @@ def api_delete_quotes():
 
     Backs up before deleting. Also cleans linked PCs.
     """
+    _gate = _require_test_env()
+    if _gate:
+        return _gate
     numbers_str = request.args.get("numbers", "").strip()
     dry_run = request.args.get("dry_run", "false").lower() == "true"
 
