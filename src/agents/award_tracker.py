@@ -332,17 +332,51 @@ def run_award_check(force: bool = False) -> dict:
                 if phase == "expired":
                     # Auto-expire this quote
                     total_days = (now.replace(tzinfo=None) - sent_at_dt).days
+                    expired_stored = False
                     try:
-                        conn.execute("""
+                        cur = conn.execute("""
                             UPDATE quotes SET status='expired',
                                 status_notes=?, closed_by_agent='award_tracker',
                                 updated_at=?
                             WHERE quote_number=? AND status='sent'
                         """, (f"No award found after {total_days} days", now_iso, quote_num))
-                        log.info("SCHEDULE: %s EXPIRED — %d days since sent, no award found",
-                                 quote_num, total_days)
+                        expired_stored = (cur.rowcount or 0) > 0
+                        if expired_stored:
+                            log.info("SCHEDULE: %s EXPIRED — %d days since sent, no award found",
+                                     quote_num, total_days)
                     except Exception as e:
                         log.debug("Expire quote: %s", e)
+
+                    # ── Oracle calibration from expired-no-match signal ───
+                    # Runtime counterpart to the SCPRS-loss calibrate call
+                    # below. A quote that goes 45 days with no match is a
+                    # real signal: the buyer either went silent (we never
+                    # get a positive price comparison) or bought off-SCPRS.
+                    # Calibrate as loss_reason="other" — no winner_prices,
+                    # so avg_losing_delta stays untouched, but sample_size
+                    # + loss_on_other increment so the oracle's "exposure"
+                    # denominator reflects reality. Without this, the
+                    # calibration table only ever learns from matched
+                    # losses and overstates win-rate.
+                    if _should_calibrate_expired(expired_stored):
+                        try:
+                            # Release the outer write lock before calibrate
+                            # opens its own connection — see BUILD-5.
+                            conn.commit()
+                            from src.core.pricing_oracle_v2 import calibrate_from_outcome
+                            _exp_items = _items_for_expired_calibration(q)
+                            if _exp_items:
+                                calibrate_from_outcome(
+                                    _exp_items, "lost",
+                                    agency=q.get("agency") or "",
+                                    loss_reason="other",
+                                    winner_prices=None,
+                                )
+                                log.info("ORACLE_CALIBRATE: %s expired-no-match (loss_other, %d items)",
+                                         quote_num, len(_exp_items))
+                        except Exception as _ce:
+                            log.warning("Oracle expire calibration: %s", _ce)
+
                     expired_count += 1
                     continue
 
@@ -1047,6 +1081,31 @@ def _should_calibrate_loss(already_matched: bool, match_stored: bool) -> bool:
         would re-fire calibrate on every poll → double-count retry storm.
     """
     return (not already_matched) and match_stored
+
+
+def _should_calibrate_expired(expired_stored: bool) -> bool:
+    """Gate for Oracle calibration on day-45 expired-no-match sweeps.
+
+    Fires only when the UPDATE quotes SET status='expired' actually
+    changed a row (rowcount > 0). Without this, a silently-failed
+    UPDATE (no matching row, concurrent status change, DB lock) would
+    re-fire calibrate on every 8h poll. Once the row flips to 'expired',
+    the sent_quotes filter at the top of run_award_check excludes it,
+    so one-shot gating via expired_stored is sufficient.
+    """
+    return bool(expired_stored)
+
+
+def _items_for_expired_calibration(quote: dict) -> list:
+    """Extract the line_items list from a quote for expired-sweep
+    calibration. Returns [] when the column is missing / malformed so
+    calibrate_from_outcome is skipped rather than fed junk."""
+    if not isinstance(quote, dict):
+        return []
+    return _parse_line_items_safely(
+        quote.get("line_items"),
+        where="expired_sweep.line_items",
+    )
 
 
 def _winner_prices_from_analysis(our_items: list, line_comparison: list) -> dict:
