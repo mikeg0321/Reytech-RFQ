@@ -106,7 +106,7 @@
         <div style="font-size:12px;color:var(--tx2,#8b949e);margin-bottom:6px">Agencies</div>
         {% for agency, n in confidence.top_agencies %}
           <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;border-bottom:1px solid var(--bd,#30363d)">
-            <span>{{ agency }}</span><strong style="color:#58a6ff">{{ n }}</strong>
+            <span>{{ agency|agency_display }}</span><strong style="color:#58a6ff">{{ n }}</strong>
           </div>
         {% else %}
           <div style="color:var(--tx2,#8b949e);font-size:13px">--</div>

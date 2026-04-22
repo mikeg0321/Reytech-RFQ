@@ -169,7 +169,7 @@ tr:hover td{background:rgba(255,255,255,.03)}
         {% for q in auto_closed_quotes[:5] %}
         <div style="padding:8px 12px;border-bottom:1px solid var(--bd);font-size:14px">
           <span style="font-weight:600">{{ q.get("quote_number","") }}</span>
-          <span style="color:var(--tx2);margin:0 8px">{{ q.get("agency","") }}</span>
+          <span style="color:var(--tx2);margin:0 8px">{{ q.get("agency","")|agency_display }}</span>
           <span style="color:var(--rd)">{{ (q.get("status_notes",""))[:100] }}</span>
         </div>
         {% endfor %}

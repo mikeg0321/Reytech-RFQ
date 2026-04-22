@@ -26,7 +26,7 @@
  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
   <div>
    <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700">#<input type="text" value="{{r.get('solicitation_number') or r.get('rfq_number') or ''}}" class="editable-field" data-field="solicitation_number" aria-label="Solicitation Number" onblur="saveField(this,'solicitation_number')" placeholder="Sol #" style="font-family:inherit;font-size:inherit;font-weight:inherit;background:transparent;border:1px solid transparent;border-radius:4px;padding:0 4px;color:inherit;width:200px" onfocus="this.style.borderColor='#58a6ff'" onblur="saveField(this,'solicitation_number');this.style.borderColor='transparent'"></div>
-   <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name }}</span>{% endif %}</div>
+   <div style="color:var(--tx2);font-size:14px;margin-top:2px">{{r.get('award_method','all_or_none')|replace('_',' ')|title}}{% if r.source=='email' %} · 📧 Auto-imported{% endif %}{% if r.get('agency_name') %} · <span style="padding:2px 8px;border-radius:4px;font-size:13px;font-weight:600;{% if r.get('form_type')=='generic_rfq' %}background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3){% else %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% endif %}">{{ r.agency_name|agency_display }}</span>{% endif %}</div>
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
   <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--ac);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
@@ -52,7 +52,7 @@
   <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
    <span style="font-weight:700;color:#58a6ff">🤖 Auto-Classification</span>
    <span><span style="color:#8b949e">shape:</span> <b style="color:#c9d1d9">{{ _cls.shape }}</b></span>
-   <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ _cls.agency_name or _cls.agency }}</b></span>
+   <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ (_cls.agency_name or _cls.agency)|agency_display }}</b></span>
    {% if _cls.solicitation_number %}<span><span style="color:#8b949e">sol#:</span> <b style="color:#c9d1d9">{{ _cls.solicitation_number }}</b></span>{% endif %}
    {% set _conf = _cls.confidence|default(0)|float %}
    {% set _conf_color = '#3fb950' if _conf >= 0.75 else ('#d29922' if _conf >= 0.5 else '#f85149') %}
@@ -791,7 +791,7 @@
  {% if is_generic %}
  {# ── Generic Agency (Cal Vet, CalFire, DGS, etc.) — No 704 forms ── #}
  <div style="padding:10px 14px;border-radius:8px;font-size:14px;margin-bottom:12px;background:rgba(167,139,250,.06);border:1px solid rgba(167,139,250,.15);color:#a78bfa">
-  ℹ️ <b>{{ r.get('agency_name', 'This agency') }}</b> uses a formal Reytech quote — no 704B form filling needed.
+  ℹ️ <b>{{ (r.get('agency_name','')|agency_display) or 'This agency' }}</b> uses a formal Reytech quote — no 704B form filling needed.
   The response package will include your Reytech quote{% if r.get('attachments_raw') %} plus the original RFQ attachments{% endif %}.
  </div>
  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">

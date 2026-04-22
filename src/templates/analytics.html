@@ -233,7 +233,7 @@
    <tbody>
    {% for a in growth_top %}
    <tr>
-    <td style="font-weight:600;font-size:13px">{{a.agency or '—'}}</td>
+    <td style="font-weight:600;font-size:13px">{{ (a.agency|agency_display) or '—' }}</td>
     <td style="text-align:right;font-family:'JetBrains Mono',monospace;font-size:13px">${{"${:,.0f}".format(a.total_spend or 0)}}</td>
     <td style="text-align:center"><span style="color:#3fb950;font-weight:700">{{a.responded or 0}}</span></td>
     <td style="text-align:center"><span style="color:#fbbf24;font-weight:700">{{a.won or 0}}</span></td>
@@ -382,7 +382,7 @@
    <tbody>
     {% for c in bi.customer_ltv[:10] %}
     <tr style="border-bottom:1px solid rgba(139,148,158,.1)">
-     <td style="padding:6px 8px;font-weight:500">{{ c.agency[:25] }}</td>
+     <td style="padding:6px 8px;font-weight:500">{{ (c.agency|agency_display)[:25] }}</td>
      <td style="padding:6px 8px;text-align:right;color:#3fb950;font-family:'JetBrains Mono',monospace">${{ "%.0f"|format(c.total_revenue) }}</td>
      <td style="padding:6px 8px;text-align:right;color:var(--tx2)">{{ c.total_quotes }}</td>
      <td style="padding:6px 8px;text-align:right">
@@ -720,7 +720,7 @@ fetch('/api/suppliers/performance',{credentials:'same-origin'})
    {% if data.top_agencies %}
      {% for ag in data.top_agencies %}
      <tr>
-      <td style="font-size:14px;font-weight:600">{{ ag.agency }}</td>
+      <td style="font-size:14px;font-weight:600">{{ ag.agency|agency_display }}</td>
       <td>{{ ag.wins }}</td>
       <td style="font-weight:600">${{ "{:,.2f}".format(ag.total_revenue) }}</td>
       <td>{{ "%.1f"|format(ag.avg_margin) }}%</td>

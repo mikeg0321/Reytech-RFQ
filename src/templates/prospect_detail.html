@@ -58,12 +58,12 @@
 <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-size:14px">
  <a href="/contacts" style="color:var(--ac)">👥 CRM</a>
  <span style="color:var(--tx2)">›</span>
- <span>{{ agency }}</span>
+ <span>{{ agency|agency_display }}</span>
 </div>
 
 <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
  <div>
-  <h1 style="font-size:26px;font-weight:700;margin-bottom:8px">{{ pr.get('buyer_name') or agency }}</h1>
+  <h1 style="font-size:26px;font-weight:700;margin-bottom:8px">{{ pr.get('buyer_name') or (agency|agency_display) }}</h1>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px">
    <span style="padding:4px 14px;border-radius:14px;font-size:14px;font-weight:700;text-transform:uppercase;background:{{ stat_color }}22;color:{{ stat_color }};border:1px solid {{ stat_color }}44">{{ stat }}</span>
    {% if win_data is defined and win_data.win_probability is defined %}<span style="padding:4px 12px;border-radius:14px;font-size:14px;font-weight:700;background:{% if win_data.win_probability >= 70 %}rgba(52,211,153,.15);color:#3fb950{% elif win_data.win_probability >= 40 %}rgba(251,191,36,.15);color:#fbbf24{% else %}rgba(139,148,158,.15);color:#8b949e{% endif %};font-family:'JetBrains Mono',monospace">{{ "%.0f"|format(win_data.win_probability) }}% win</span>{% endif %}
@@ -181,7 +181,7 @@
   {% if linked_quotes %}{% for q in linked_quotes[:10] %}
   <a href="/quote/{{ q.get('quote_number','') }}" class="linked-item">
    <span style="color:var(--ac);font-family:'JetBrains Mono',monospace;font-weight:700">{{ q.get('quote_number','—') }}</span>
-   <span style="flex:1;font-size:14px">{{ q.get('agency','') or q.get('institution','') }}</span>
+   <span style="flex:1;font-size:14px">{{ (q.get('agency','')|agency_display) or q.get('institution','') }}</span>
    <span class="mono" style="color:#3fb950">${{ "{:,.0f}".format(q.get('total',0) or 0) }}</span>
   </a>{% endfor %}{% else %}<div style="color:var(--tx2);font-size:14px;padding:8px 0">No linked quotes</div>{% endif %}
  </div>

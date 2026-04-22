@@ -119,7 +119,7 @@
      {% for r in wl_log %}
      <div style="padding:6px 12px;border-top:1px solid var(--bd);font-size:14px;display:flex;gap:8px;align-items:center">
       <span>{% if r.outcome == 'won' %}🏆{% elif r.outcome == 'lost' %}❌{% else %}⏰{% endif %}</span>
-      <span style="flex:1">{{ r.solicitation or r.rfq_id }} — {{ r.agency }}</span>
+      <span style="flex:1">{{ r.solicitation or r.rfq_id }} — {{ r.agency|agency_display }}</span>
       <span style="color:var(--tx2)">{{ r.reason }}</span>
       <span style="color:var(--tx2)">{{ r.recorded_at[:10] if r.recorded_at else '' }}</span>
      </div>
@@ -161,7 +161,7 @@
      <div style="padding:8px 10px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:8px" id="target-{{ loop.index }}">
       <div style="flex:1">
        <div style="font-size:14px;font-weight:600">{{ t.name or t.email }}</div>
-       <div style="font-size:14px;color:var(--tx2)">{{ t.agency }}{% if t.facility %} · {{ t.facility }}{% endif %}{% if t.title %} · {{ t.title }}{% endif %}</div>
+       <div style="font-size:14px;color:var(--tx2)">{{ t.agency|agency_display }}{% if t.facility %} · {{ t.facility }}{% endif %}{% if t.title %} · {{ t.title }}{% endif %}</div>
        <div style="font-size:13px;color:var(--tx2)">{{ t.email }}</div>
       </div>
       <div style="display:flex;gap:4px;align-items:center">
@@ -192,7 +192,7 @@
       <span>{% if q.replied %}💬{% elif q.get('follow_up_due') %}⚠️{% else %}📨{% endif %}</span>
       <div style="flex:1">
        <span style="font-weight:600">{{ q.name or q.email }}</span>
-       <span style="color:var(--tx2)"> — {{ q.agency }}</span>
+       <span style="color:var(--tx2)"> — {{ q.agency|agency_display }}</span>
       </div>
       <span style="color:var(--tx2)">{{ q.sent_at[:10] if q.sent_at else '' }}</span>
       {% if q.get('follow_up_due') and not q.replied %}

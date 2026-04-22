@@ -17,7 +17,7 @@
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
        <div>
         <div style="font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700">{{ qn }}</div>
-        <div style="color:var(--tx2);font-size:14px;margin-top:4px">{{ agency }}{% if agency %} · {% endif %}Generated {{ qt.get('date','') }}</div>
+        <div style="color:var(--tx2);font-size:14px;margin-top:4px">{{ agency|agency_display }}{% if agency %} · {% endif %}Generated {{ qt.get('date','') }}</div>
        </div>
        <span style="padding:4px 12px;border-radius:12px;font-size:14px;font-weight:600;color:{{ color }};background:{{ bg }}">{{ lbl }}</span>
       </div>

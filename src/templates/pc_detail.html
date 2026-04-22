@@ -254,7 +254,7 @@
      {% if scprs_staleness %}
      <div style="padding:8px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922;margin-bottom:10px">
       <span style="font-size:18px">⚠️</span>
-      <div><b>SCPRS data stale</b> — {{ scprs_staleness.agency|upper }} prices are {{ scprs_staleness.hours_old }}h old (expected every {{ scprs_staleness.interval }}h). Verify prices manually before quoting.</div>
+      <div><b>SCPRS data stale</b> — {{ scprs_staleness.agency|agency_display }} prices are {{ scprs_staleness.hours_old }}h old (expected every {{ scprs_staleness.interval }}h). Verify prices manually before quoting.</div>
      </div>
      {% endif %}
 
@@ -302,7 +302,7 @@
       <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
        <span style="font-weight:700;color:#58a6ff">🤖 Auto-Classification</span>
        <span><span style="color:#8b949e">shape:</span> <b style="color:#c9d1d9">{{ _cls.shape }}</b></span>
-       <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ _cls.agency_name or _cls.agency }}</b></span>
+       <span><span style="color:#8b949e">agency:</span> <b style="color:#a78bfa">{{ (_cls.agency_name or _cls.agency)|agency_display }}</b></span>
        {% if _cls.solicitation_number %}<span><span style="color:#8b949e">sol#:</span> <b style="color:#c9d1d9">{{ _cls.solicitation_number }}</b></span>{% endif %}
        {% set _conf = _cls.confidence|default(0)|float %}
        {% set _conf_color = '#3fb950' if _conf >= 0.75 else ('#d29922' if _conf >= 0.5 else '#f85149') %}
