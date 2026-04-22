@@ -2162,7 +2162,16 @@ def api_win_loss_analysis():
 
         by_month[month_key][status if status in ("won", "lost", "sent") else "pending"] += 1
 
-        # Categorize by items
+        # Categorize by items. AN-4: count each QUOTE at most once per
+        # category bucket. The outer loop runs once per quote, so a 5-line
+        # won quote used to record 5 wins against its category — and if
+        # the quote's items spanned 3 categories, the same quote would
+        # contribute 1 win to EACH of 3 buckets. Track which categories
+        # this quote has already charged, and only increment the
+        # outcome counter the first time. Value still accumulates
+        # per-item (line value is the intended aggregation).
+        _outcome_key = status if status in ("won", "lost") else "pending"
+        _cats_counted_this_quote = set()
         for item in (q.get("items_detail") or []):
             desc = (item.get("description", "") or "").lower()
             cat = "Other"
@@ -2176,8 +2185,10 @@ def api_win_loss_analysis():
                 cat = "Food Service"
             elif any(k in desc for k in ["cloth", "uniform", "garment", "boot"]):
                 cat = "Clothing"
-            by_category[cat][status if status in ("won", "lost") else "pending"] = \
-                by_category[cat].get(status if status in ("won", "lost") else "pending", 0) + 1
+            if cat not in _cats_counted_this_quote:
+                by_category[cat][_outcome_key] = \
+                    by_category[cat].get(_outcome_key, 0) + 1
+                _cats_counted_this_quote.add(cat)
             by_category[cat]["value"] += item.get("qty", 1) * (item.get("unit_price", 0) or 0)
 
         if status == "won":
