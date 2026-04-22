@@ -54,8 +54,12 @@ def main():
         print("  pip install google-auth-oauthlib")
         sys.exit(1)
 
+    # Must match SCOPES in src/core/gmail_api.py. If these diverge, refresh
+    # will fail with `invalid_scope: Bad Request` the moment the runtime
+    # asks for a scope the stored token was never granted.
     SCOPES = [
         "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/drive.readonly",
     ]
 
