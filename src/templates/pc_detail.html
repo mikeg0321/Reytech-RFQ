@@ -4386,8 +4386,10 @@
       var statusEl = document.getElementById('compose-status');
       var attachEl = document.getElementById('compose-attachments');
 
-      // Pre-fill To and Subject from server data
-      var buyerEmail = {{ (pc.get('original_sender', '') or pc.get('requestor_email', '') or pc.get('requestor', '') or '')|tojson }};
+      // PC-15: do NOT fall back to pc.requestor — that's a DISPLAY NAME, not an address.
+      // Name in the To: field trips the validator → Send button disabled. If we have no
+      // real buyer email on file, leave To: blank so the banner surfaces.
+      var buyerEmail = {{ (pc.get('original_sender', '') or pc.get('requestor_email', '') or '')|tojson }};
       var origSubject = {{ (pc.get('email_subject', '') or '')|tojson }};
       var cleanSubj = origSubject.replace(/^(Re:\s*|Fwd?:\s*|FW:\s*)*/gi, '').trim();
       var pcNum = {{ (pc.get('pc_number', '') or pcid)|tojson }};
