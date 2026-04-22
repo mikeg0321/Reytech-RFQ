@@ -251,7 +251,7 @@ def _auto_create_order(conn, quote_number: str, po_number: str):
         row = conn.execute("""
             SELECT agency, institution, total, subtotal, tax,
                    contact_name, contact_email, ship_to_name, ship_to_address,
-                   line_items
+                   line_items, is_test
             FROM quotes WHERE quote_number = ?
         """, (quote_number,)).fetchone()
 
@@ -260,22 +260,25 @@ def _auto_create_order(conn, quote_number: str, po_number: str):
 
         order_id = f"ORD-{quote_number}"
         now = datetime.now(timezone.utc).isoformat()
+        # BUILD-10: inherit is_test from the source quote so derived
+        # orders/revenue rows don't pollute analytics aggregates.
+        _is_test = 1 if (row["is_test"] if "is_test" in row.keys() else 0) else 0
 
         conn.execute("""
             INSERT OR IGNORE INTO orders
             (id, quote_number, agency, institution, po_number, status,
-             total, items, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?, ?)
+             total, items, created_at, updated_at, is_test)
+            VALUES (?, ?, ?, ?, ?, 'new', ?, ?, ?, ?, ?)
         """, (order_id, quote_number, row["agency"], row["institution"],
-              po_number, row["total"], row["line_items"] or "[]", now, now))
+              po_number, row["total"], row["line_items"] or "[]", now, now, _is_test))
         log.info("Auto-created order %s from won quote %s", order_id, quote_number)
 
         # Also log revenue
         conn.execute("""
-            INSERT INTO revenue_log (id, logged_at, amount, description, source, quote_number, po_number, agency)
-            VALUES (?, ?, ?, ?, 'quote_won', ?, ?, ?)
+            INSERT INTO revenue_log (id, logged_at, amount, description, source, quote_number, po_number, agency, is_test)
+            VALUES (?, ?, ?, ?, 'quote_won', ?, ?, ?, ?)
         """, (f"rev-{quote_number}", now, row["total"] or 0,
-              f"Quote {quote_number} won", quote_number, po_number, row["agency"]))
+              f"Quote {quote_number} won", quote_number, po_number, row["agency"], _is_test))
 
     except Exception as e:
         log.warning("_auto_create_order: %s", e)

@@ -300,13 +300,28 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
             st = order.get("status", "new")
             st = LEGACY_STATUS_MAP.get(st, st)
 
+            # BUILD-10: mirror is_test from the linked quote row. If the
+            # order itself carries the flag, trust it; otherwise resolve
+            # from the quote so a test quote that converts to an order
+            # doesn't pollute headline revenue aggregates.
+            _is_test = 1 if order.get("is_test") else 0
+            if not _is_test and order.get("quote_number"):
+                try:
+                    _qr = conn.execute(
+                        "SELECT is_test FROM quotes WHERE quote_number=?",
+                        (order.get("quote_number"),)
+                    ).fetchone()
+                    if _qr and _qr[0]:
+                        _is_test = 1
+                except Exception as _e:
+                    log.debug("is_test lookup suppressed: %s", _e)
             conn.execute("""
                 INSERT INTO orders
                 (id, quote_number, po_number, agency, institution,
                  total, status, items, created_at, updated_at,
                  buyer_name, buyer_email, ship_to, ship_to_address,
-                 total_cost, margin_pct, po_pdf_path, fulfillment_type, notes)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 total_cost, margin_pct, po_pdf_path, fulfillment_type, notes, is_test)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET
                     quote_number=excluded.quote_number,
                     po_number=excluded.po_number,
@@ -324,7 +339,8 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
                     margin_pct=excluded.margin_pct,
                     po_pdf_path=excluded.po_pdf_path,
                     fulfillment_type=excluded.fulfillment_type,
-                    notes=excluded.notes
+                    notes=excluded.notes,
+                    is_test=excluded.is_test
             """, (
                 order_id,
                 order.get("quote_number", ""),
@@ -345,6 +361,7 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
                 order.get("po_pdf_path", order.get("po_pdf", "")),
                 order.get("fulfillment_type", "dropship"),
                 order.get("notes", ""),
+                _is_test,
             ))
 
             # Audit log

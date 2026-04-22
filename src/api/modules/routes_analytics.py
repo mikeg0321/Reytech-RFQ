@@ -4185,7 +4185,7 @@ def _build_bi_data(conn):
     won_revenue_orders = 0
     try:
         won_revenue_orders = float(conn.execute(
-            "SELECT COALESCE(SUM(total),0) FROM orders WHERE status IN ('paid','invoiced','delivered','shipped','active')"
+            "SELECT COALESCE(SUM(total),0) FROM orders WHERE is_test=0 AND status IN ('paid','invoiced','delivered','shipped','active')"
         ).fetchone()[0] or 0)
     except Exception as _e:
         log.debug('suppressed in _build_bi_data: %s', _e)
@@ -4193,7 +4193,7 @@ def _build_bi_data(conn):
     revenue_logged = 0
     try:
         revenue_logged = float(conn.execute(
-            "SELECT COALESCE(SUM(amount),0) FROM revenue_log WHERE logged_at >= strftime('%Y-01-01', 'now')"
+            "SELECT COALESCE(SUM(amount),0) FROM revenue_log WHERE is_test=0 AND logged_at >= strftime('%Y-01-01', 'now')"
         ).fetchone()[0] or 0)
     except Exception as _e:
         log.debug('suppressed in _build_bi_data: %s', _e)

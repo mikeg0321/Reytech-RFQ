@@ -1111,22 +1111,38 @@ def save_order(order: dict, actor: str = "system") -> bool:
             _existing = conn.execute("SELECT id FROM orders WHERE id=?", (order_id,)).fetchone()
             if _existing:
                 _snapshot_before_update("order", order_id, get_order)
+            # BUILD-10: mirror is_test from the linked quote so analytics
+            # can filter test orders out of headline revenue. If the order
+            # dict carries is_test directly, trust that; else resolve from
+            # the quote row.
+            _is_test = 1 if order.get("is_test") else 0
+            if not _is_test and order.get("quote_number"):
+                try:
+                    _qr = conn.execute(
+                        "SELECT is_test FROM quotes WHERE quote_number=?",
+                        (order.get("quote_number"),)
+                    ).fetchone()
+                    if _qr and _qr[0]:
+                        _is_test = 1
+                except Exception as _e:
+                    log.debug("is_test lookup suppressed: %s", _e)
             conn.execute("""
                 INSERT INTO orders (id, quote_number, agency, institution, po_number,
-                    po_date, status, total, items, notes, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
+                    po_date, status, total, items, notes, created_at, updated_at, is_test)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
                 ON CONFLICT(id) DO UPDATE SET
                     quote_number=excluded.quote_number, agency=excluded.agency,
                     institution=excluded.institution, po_number=excluded.po_number,
                     po_date=excluded.po_date, status=excluded.status,
                     total=excluded.total, items=excluded.items,
-                    notes=excluded.notes, updated_at=excluded.updated_at
+                    notes=excluded.notes, updated_at=excluded.updated_at,
+                    is_test=excluded.is_test
             """, (order_id, order.get("quote_number", ""), order.get("agency", ""),
                   order.get("institution", ""), order.get("po_number", ""),
                   order.get("po_date", ""), order.get("status", "new"),
                   order.get("total", 0),
                   json.dumps(order.get("items", order.get("line_items", [])), default=str),
-                  order.get("notes", ""), order.get("created_at", "")))
+                  order.get("notes", ""), order.get("created_at", ""), _is_test))
         # Audit trail
         try:
             _audit("order", order_id, "create" if not _existing else "update", actor,
