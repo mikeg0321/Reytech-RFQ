@@ -1483,7 +1483,7 @@ def api_email_health():
                            "value": gmail_addr[:4] + "***" + gmail_addr[gmail_addr.index("@"):] if "@" in gmail_addr else "***"})
         else:
             checks.append({"check": "GMAIL_ADDRESS", "status": "FAIL", "value": "(not set)",
-                           "fix": "Set GMAIL_ADDRESS=sales@raytechinc.com in Railway env vars"})
+                           "fix": "Set GMAIL_ADDRESS=sales@reytechinc.com in Railway env vars"})
 
         # Check 3: Gmail password
         if gmail_pass:
