@@ -3922,6 +3922,12 @@
          if (warnCount > 0 && d.gate.warnings) {
            console.warn('CCHCS packet warnings:', d.gate.warnings);
          }
+         // UI-1: surface the freshly-generated packet in the compose
+         // attachments panel. Without this, the operator has to reload
+         // the page before the packet shows up as an emailable attachment.
+         if (d.download_url && typeof _refreshComposeAttachments === 'function') {
+           _refreshComposeAttachments(null, null, d.download_url);
+         }
        } else if (status === 422 && d.gate) {
          // Gate validation failed — show the issues list
          const issues = d.gate.critical_issues || [];
@@ -4409,18 +4415,28 @@
       var attachments = [];
       var quotePdf = {{ (pc.get('reytech_quote_pdf', '') or '')|tojson }};
       var outputPdf = {{ (pc.get('output_pdf', '') or '')|tojson }};
+      var packetPdf = {{ (pc.get('cchcs_packet_output_pdf', '') or '')|tojson }};
       var existing704 = {{ (existing_704_url|default(''))|tojson }};
       var existingQuote = {{ (existing_quote_url|default(''))|tojson }};
+      var existingPacket = {{ (existing_packet_url|default(''))|tojson }};
 
       function refreshAttachments() {
         attachments = [];
-        // Check all possible PDF sources
-        if (quotePdf) attachments.push({name: 'Reytech Quote', path: quotePdf, url: existingQuote});
-        if (outputPdf) attachments.push({name: 'AMS 704', path: outputPdf, url: existing704});
-        // If no server-rendered PDFs, check if URLs exist from generation
-        if (!attachments.length) {
-          if (existing704) attachments.push({name: 'AMS 704', path: '', url: existing704});
-          if (existingQuote) attachments.push({name: 'Reytech Quote', path: '', url: existingQuote});
+        // CCHCS packet — dedicated slot (CC-2). Rendered separately from 704
+        // because operators often generate both; mislabeling the packet as
+        // "AMS 704" misleads the send flow.
+        if (packetPdf || existingPacket) {
+          attachments.push({name: 'CCHCS Packet', path: packetPdf, url: existingPacket});
+        }
+        // 704 — only surface if it's not the same file as the packet (the
+        // CC-2 setdefault can land the packet path into pc.output_pdf).
+        if (outputPdf && outputPdf !== packetPdf) {
+          attachments.push({name: 'AMS 704', path: outputPdf, url: existing704});
+        } else if (existing704) {
+          attachments.push({name: 'AMS 704', path: '', url: existing704});
+        }
+        if (quotePdf || existingQuote) {
+          attachments.push({name: 'Reytech Quote', path: quotePdf, url: existingQuote});
         }
 
         if (attachEl) {
@@ -4443,10 +4459,14 @@
       }
       refreshAttachments();
 
-      // Global hook: after PDF generation, refresh attachments
-      window._refreshComposeAttachments = function(newQuoteUrl, new704Url) {
+      // Global hook: after PDF generation, refresh attachments.
+      // Third arg (newPacketUrl) added for CCHCS packet generator so the
+      // packet surfaces as its own attachment instead of hiding behind
+      // output_pdf. Callers that only know about quote/704 can omit it.
+      window._refreshComposeAttachments = function(newQuoteUrl, new704Url, newPacketUrl) {
         if (newQuoteUrl) { existingQuote = newQuoteUrl; quotePdf = newQuoteUrl; }
         if (new704Url) { existing704 = new704Url; outputPdf = new704Url; }
+        if (newPacketUrl) { existingPacket = newPacketUrl; packetPdf = newPacketUrl; }
         refreshAttachments();
       };
 
