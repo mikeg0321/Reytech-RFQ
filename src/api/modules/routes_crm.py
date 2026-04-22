@@ -1521,7 +1521,7 @@ def api_email_health():
                 "started_at": POLL_STATUS.get("started_at"),
             },
             "diag": {
-                "imap_connected": diag.get("imap_connected"),
+                "gmail_connected": diag.get("gmail_connected"),
                 "rfqs_returned": diag.get("rfqs_returned"),
                 "pcs_routed": diag.get("pcs_routed", 0),
                 "errors": diag.get("errors", [])[-5:],

@@ -593,26 +593,8 @@ Reytech Inc. | CA SB/DVBE #2002605
             server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
             server.send_message(msg)
 
-        # Save copy to Gmail Sent folder
-        try:
-            import imaplib
-            import time as _time
-            imap = imaplib.IMAP4_SSL("imap.gmail.com")
-            imap.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
-            for folder in ['"[Gmail]/Sent Mail"', "[Gmail]/Sent Mail"]:
-                try:
-                    result = imap.append(folder, "\\Seen",
-                                         imaplib.Time2Internaldate(_time.time()),
-                                         msg.as_bytes())
-                    if result[0] == "OK":
-                        log.info("PO email saved to Sent folder via IMAP")
-                        break
-                except Exception:
-                    continue
-            imap.logout()
-        except Exception as _e:
-            log.warning("IMAP save-to-sent: %s", _e)
-
+        # Gmail's SMTP_SSL authenticated-relay path copies the message to the
+        # sender's Sent Mail automatically — no explicit save-to-Sent needed.
         log.info("Email PO sent: %s → %s (PO: %s)", subject[:50], contact_email, po_number)
 
         # Log to email_log

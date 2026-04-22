@@ -3,12 +3,11 @@
 
 #!/usr/bin/env python3
 """
-Email Poller v2 — monitors IMAP inbox for RFQ emails.
+Email Poller v2 — monitors Gmail inbox for RFQ emails via Gmail API.
 Improved: broader detection (dedicated inbox assumption), forwarded email handling,
 robust reconnection, manual trigger support.
 """
 
-import imaplib
 import email
 from email.header import decode_header
 import os, time, json, re, logging, threading
@@ -1506,28 +1505,14 @@ def extract_solicitation_number(subject, body, attachments=None):
 
 class EmailPoller:
     def __init__(self, config):
-        self.host = config.get("imap_host", "imap.gmail.com")
-        self.port = config.get("imap_port", 993)
         self.email_addr = config.get("email", os.environ.get("GMAIL_ADDRESS", ""))
         self.password = config.get("email_password", os.environ.get("GMAIL_PASSWORD", ""))
-        self.folder = config.get("imap_folder", "INBOX")
         self.processed_file = config.get("processed_file", os.path.join(DATA_DIR, "processed_emails.json"))
         self._inbox_name = config.get("inbox_name", "sales")  # For cross-inbox dedup
         self._processed = self._load_processed()
-        self.mail = None
         self._connected = False
-        # Gmail API backend (preferred over IMAP when configured)
-        self._use_gmail_api = False
         self._gmail_service = None
         self._drive_service = None
-        if not config.get("force_imap"):
-            try:
-                from src.core.gmail_api import is_configured
-                if is_configured():
-                    self._use_gmail_api = True
-                    log.info("Gmail API backend enabled for %s", self.email_addr)
-            except ImportError as _e:
-                log.debug("suppressed: %s", _e)
 
     def _load_processed(self):
         """Load processed UIDs from both JSON file and SQLite for durability."""
@@ -1581,95 +1566,41 @@ class EmailPoller:
             log.debug("SQLite processed_emails save: %s", e)
 
     def connect(self):
-        """Connect to email backend. Returns True on success.
-        Uses Gmail API if configured, otherwise falls back to IMAP.
+        """Connect to the Gmail API backend. Returns True on success.
         Protected by circuit breaker — stops hammering Gmail if connection
         fails repeatedly (3 failures → 5min cooldown).
         """
-        # ── Gmail API backend ──
-        if self._use_gmail_api:
-            try:
-                if self._gmail_service and self._connected:
-                    return True
-                # Check circuit breaker
-                try:
-                    from src.core.circuit_breaker import get_breaker
-                    breaker = get_breaker("gmail")
-                    if breaker.state == "open":
-                        log.warning("Gmail circuit breaker OPEN — skipping connect")
-                        return False
-                except ImportError as _e:
-                    log.debug("suppressed: %s", _e)
-
-                from src.core.gmail_api import get_service, get_drive_service
-                self._gmail_service = get_service(self._inbox_name)
-                try:
-                    self._drive_service = get_drive_service(self._inbox_name)
-                except Exception as _de:
-                    log.warning("Drive API service failed (Drive links won't be downloaded): %s", _de)
-                    self._drive_service = None
-                self._connected = True
-                log.info("Connected via Gmail API as %s (inbox=%s)", self.email_addr, self._inbox_name)
-                try:
-                    from src.core.circuit_breaker import get_breaker
-                    get_breaker("gmail")._on_success()
-                except Exception as _e:
-                    log.debug("suppressed: %s", _e)
-                return True
-            except Exception as e:
-                log.error("Gmail API connect failed: %s", e)
-                self._connected = False
-                self._gmail_service = None
-                try:
-                    from src.core.circuit_breaker import get_breaker
-                    get_breaker("gmail")._on_failure(e)
-                except Exception as _e:
-                    log.debug("suppressed: %s", _e)
-                return False
-
-        # ── IMAP backend (fallback) ──
         try:
-            if self.mail and self._connected:
-                try:
-                    self.mail.noop()
-                    return True
-                except Exception:
-                    self._connected = False
-
-            # Check circuit breaker before attempting connection
+            if self._gmail_service and self._connected:
+                return True
             try:
-                from src.core.circuit_breaker import get_breaker, CircuitOpenError
+                from src.core.circuit_breaker import get_breaker
                 breaker = get_breaker("gmail")
                 if breaker.state == "open":
-                    log.warning("Gmail circuit breaker OPEN — skipping IMAP connect")
+                    log.warning("Gmail circuit breaker OPEN — skipping connect")
                     return False
             except ImportError as _e:
                 log.debug("suppressed: %s", _e)
 
-            self.mail = imaplib.IMAP4_SSL(self.host, self.port)
-            self.mail.login(self.email_addr, self.password)
-            self.mail.select(self.folder)
+            from src.core.gmail_api import get_service, get_drive_service
+            self._gmail_service = get_service(self._inbox_name)
+            try:
+                self._drive_service = get_drive_service(self._inbox_name)
+            except Exception as _de:
+                log.warning("Drive API service failed (Drive links won't be downloaded): %s", _de)
+                self._drive_service = None
             self._connected = True
-            log.info(f"Connected to {self.host} as {self.email_addr}")
-            # Record success with circuit breaker
+            log.info("Connected via Gmail API as %s (inbox=%s)", self.email_addr, self._inbox_name)
             try:
                 from src.core.circuit_breaker import get_breaker
                 get_breaker("gmail")._on_success()
             except Exception as _e:
                 log.debug("suppressed: %s", _e)
             return True
-        except imaplib.IMAP4.error as e:
-            log.error(f"IMAP auth failed: {e}")
-            self._connected = False
-            try:
-                from src.core.circuit_breaker import get_breaker
-                get_breaker("gmail")._on_failure(e)
-            except Exception as _e:
-                log.debug("suppressed: %s", _e)
-            return False
         except Exception as e:
-            log.error(f"IMAP connection failed: {e}")
+            log.error("Gmail API connect failed: %s", e)
             self._connected = False
+            self._gmail_service = None
             try:
                 from src.core.circuit_breaker import get_breaker
                 get_breaker("gmail")._on_failure(e)
@@ -1680,48 +1611,33 @@ class EmailPoller:
     def check_for_rfqs(self, save_dir="uploads"):
         """Check inbox for new RFQ emails. Returns list of parsed RFQ dicts.
         Uses UID tracking + date search so Gmail read status doesn't matter.
-        Supports Gmail API (preferred) and IMAP (fallback) backends.
         """
         results = []
 
         try:
-            # ── Fetch message IDs: Gmail API or IMAP ──
-            if self._use_gmail_api and self._gmail_service:
-                # Gmail API: search with query string
-                since_date = (datetime.now() - timedelta(days=30)).strftime("%Y/%m/%d")
-                query = (f"in:inbox after:{since_date} "
-                         f"-from:noreply -from:no-reply -from:mailer-daemon "
-                         f"-from:notifications@ -from:newsletter@ -from:marketing@")
-                try:
-                    from src.core.gmail_api import list_message_ids
-                    all_ids = list_message_ids(self._gmail_service, query, max_results=500)
-                except Exception as _ge:
-                    log.error("Gmail API list_message_ids failed: %s", _ge)
-                    return results
-                new_ids = [mid for mid in all_ids if mid not in self._processed]
-                if all_ids:
-                    log.info("Found %d emails from last 30 days, %d new to process",
-                             len(all_ids), len(new_ids))
-                _backend = "gmail_api"
-            else:
-                # IMAP: UID search
-                since_date = (datetime.now() - timedelta(days=30)).strftime("%d-%b-%Y")
-                status, messages = self.mail.uid("search", None, f"(SINCE {since_date})")
-                if status != "OK":
-                    log.warning(f"IMAP UID search failed: {status}")
-                    return results
-                uids = messages[0].split() if messages[0] else []
-                new_ids = [u.decode() for u in uids if u.decode() not in self._processed]
-                all_ids = [u.decode() for u in uids]
-                if all_ids:
-                    log.info(f"Found {len(all_ids)} emails from last 30 days, {len(new_ids)} new to process")
-                _backend = "imap"
+            if not self._gmail_service:
+                log.error("Gmail API service not connected — cannot poll")
+                return results
+            since_date = (datetime.now() - timedelta(days=30)).strftime("%Y/%m/%d")
+            query = (f"in:inbox after:{since_date} "
+                     f"-from:noreply -from:no-reply -from:mailer-daemon "
+                     f"-from:notifications@ -from:newsletter@ -from:marketing@")
+            try:
+                from src.core.gmail_api import list_message_ids
+                all_ids = list_message_ids(self._gmail_service, query, max_results=500)
+            except Exception as _ge:
+                log.error("Gmail API list_message_ids failed: %s", _ge)
+                return results
+            new_ids = [mid for mid in all_ids if mid not in self._processed]
+            if all_ids:
+                log.info("Found %d emails from last 30 days, %d new to process",
+                         len(all_ids), len(new_ids))
 
             # Diagnostic counters
             self._diag = {
                 "total_uids": len(all_ids),
                 "new_uids": len(new_ids),
-                "backend": _backend,
+                "backend": "gmail_api",
                 "recalled": 0,
                 "followup": 0,
                 "not_rfq": 0,
@@ -1745,21 +1661,13 @@ class EmailPoller:
             for uid in new_ids:
 
                 try:
-                    # ── Fetch raw message: Gmail API or IMAP ──
-                    if self._use_gmail_api and self._gmail_service:
-                        try:
-                            from src.core.gmail_api import get_raw_message
-                            raw_bytes = get_raw_message(self._gmail_service, uid)
-                        except Exception as _gfe:
-                            log.warning("Gmail API fetch failed for %s: %s", uid, _gfe)
-                            continue
-                        msg = email.message_from_bytes(raw_bytes)
-                    else:
-                        # IMAP: BODY.PEEK[] = fetch without marking as read
-                        status, data = self.mail.uid("fetch", uid.encode(), "(BODY.PEEK[])")
-                        if status != "OK":
-                            continue
-                        msg = email.message_from_bytes(data[0][1])
+                    try:
+                        from src.core.gmail_api import get_raw_message
+                        raw_bytes = get_raw_message(self._gmail_service, uid)
+                    except Exception as _gfe:
+                        log.warning("Gmail API fetch failed for %s: %s", uid, _gfe)
+                        continue
+                    msg = email.message_from_bytes(raw_bytes)
                     
                     subject = self._decode_header(msg["Subject"]) or ""
                     sender = self._decode_header(msg["From"]) or ""
@@ -2789,16 +2697,10 @@ class EmailPoller:
             except Exception as _bpe:
                 log.error("Batch PO confirmation error: %s", _bpe)
             
-        except imaplib.IMAP4.abort:
-            log.warning("IMAP connection aborted — will reconnect next cycle")
-            self._connected = False
-            if self._use_gmail_api:
-                self._gmail_service = None
         except Exception as e:
             log.error(f"Error checking emails: {e}")
             self._connected = False
-            if self._use_gmail_api:
-                self._gmail_service = None
+            self._gmail_service = None
         
         return results
 
@@ -3056,66 +2958,27 @@ class EmailPoller:
         buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh", "calfire", "chp", "dgs"]
         our_domains = ["reytechinc.com", "reytech.com"]
 
-        # ── Gmail API path ──
-        if self._use_gmail_api and self._gmail_service:
-            try:
-                from src.core.gmail_api import list_message_ids, get_message_metadata
-                since_date = (datetime.now() - timedelta(days=days)).strftime("%Y/%m/%d")
-                all_ids = list_message_ids(self._gmail_service,
-                                           f"in:inbox after:{since_date}", max_results=200)
-                for mid in all_ids:
-                    if mid in created_uids:
-                        continue
-                    try:
-                        meta = get_message_metadata(self._gmail_service, mid)
-                        sender_email = self._extract_email(meta.get("from", "")).lower()
-                        subj = meta.get("subject", "")
-                        is_buyer = any(d in sender_email for d in buyer_domains)
-                        is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
-                        was_processed = mid in self._processed
-                        if (is_buyer or is_self) and was_processed:
-                            missed.append({
-                                "uid": mid,
-                                "sender_email": sender_email,
-                                "subject": subj[:120],
-                                "is_forward": is_self,
-                                "is_buyer": is_buyer,
-                            })
-                    except Exception:
-                        continue
-            except Exception as e:
-                log.warning("Gmail API missed email audit: %s", e)
+        if not self._gmail_service:
             return missed
 
-        # ── IMAP path (fallback) ──
-        import imaplib
-        import email as email_mod
-        since = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
         try:
-            imap = imaplib.IMAP4_SSL("imap.gmail.com")
-            imap.login(self.email_addr, self.password)
-            imap.select("INBOX", readonly=True)
-            _, data = imap.uid("search", None, f"(SINCE {since})")
-            uids = data[0].split() if data[0] else []
-
-            for uid_bytes in uids[-200:]:
-                uid_str = uid_bytes.decode()
-                if uid_str in created_uids:
+            from src.core.gmail_api import list_message_ids, get_message_metadata
+            since_date = (datetime.now() - timedelta(days=days)).strftime("%Y/%m/%d")
+            all_ids = list_message_ids(self._gmail_service,
+                                       f"in:inbox after:{since_date}", max_results=200)
+            for mid in all_ids:
+                if mid in created_uids:
                     continue
                 try:
-                    _, msg_data = imap.uid("fetch", uid_bytes, "(BODY.PEEK[HEADER])")
-                    if not msg_data or not msg_data[0]:
-                        continue
-                    header = email_mod.message_from_bytes(msg_data[0][1])
-                    from_hdr = header.get("From", "")
-                    subj = self._decode_header(header.get("Subject", ""))
-                    sender_email = self._extract_email(from_hdr).lower()
+                    meta = get_message_metadata(self._gmail_service, mid)
+                    sender_email = self._extract_email(meta.get("from", "")).lower()
+                    subj = meta.get("subject", "")
                     is_buyer = any(d in sender_email for d in buyer_domains)
                     is_self = any(sender_email.endswith(f"@{d}") for d in our_domains)
-                    was_processed = uid_str in self._processed
+                    was_processed = mid in self._processed
                     if (is_buyer or is_self) and was_processed:
                         missed.append({
-                            "uid": uid_str,
+                            "uid": mid,
                             "sender_email": sender_email,
                             "subject": subj[:120],
                             "is_forward": is_self,
@@ -3123,22 +2986,13 @@ class EmailPoller:
                         })
                 except Exception:
                     continue
-            imap.close()
-            imap.logout()
         except Exception as e:
-            log.warning("Missed email audit: %s", e)
+            log.warning("Gmail API missed email audit: %s", e)
         return missed
 
     def disconnect(self):
-        if self._use_gmail_api:
-            self._gmail_service = None
-            self._drive_service = None
-        else:
-            try:
-                if self.mail:
-                    self.mail.logout()
-            except Exception as _e:
-                log.debug("suppressed: %s", _e)
+        self._gmail_service = None
+        self._drive_service = None
         self._connected = False
 
 
@@ -3267,54 +3121,8 @@ Respectfully,"""
             server.starttls()
             server.login(self.email_addr, self.password)
             server.send_message(msg, to_addrs=all_recipients)
-        
-        # Save copy to Gmail "Sent Mail" folder via IMAP
-        try:
-            import imaplib
-            import time as _time
-            imap = imaplib.IMAP4_SSL("imap.gmail.com")
-            imap.login(self.email_addr, self.password)
-            # List folders to find the right name (varies by Gmail locale)
-            _status, _folders = imap.list()
-            _folder_strs = [f.decode() if isinstance(f, bytes) else str(f) for f in (_folders or [])]
-            log.info("IMAP folders: %s", _folder_strs)
-            saved = False
-            # Try well-known names first
-            for folder in ['"[Gmail]/Sent Mail"', "[Gmail]/Sent Mail",
-                           '"[Gmail]/Sent"', "[Gmail]/Sent", "Sent", "SENT"]:
-                try:
-                    res = imap.append(folder, "\\Seen",
-                                      imaplib.Time2Internaldate(_time.time()),
-                                      msg.as_bytes())
-                    if res[0] == "OK":
-                        saved = True
-                        log.info("Saved to Sent folder: %s", folder)
-                        break
-                except Exception as _fe:
-                    log.debug("IMAP append %s failed: %s", folder, _fe)
-            # If still not saved, scan folder list for anything with "sent"
-            if not saved:
-                import re as _re
-                for _raw in _folder_strs:
-                    if "sent" in _raw.lower():
-                        _m = _re.search(r'"([^"]+)"\s*$', _raw) or _re.search(r'(\S+)$', _raw)
-                        if _m:
-                            _fn = _m.group(1)
-                            try:
-                                res = imap.append(_fn, "\\Seen",
-                                                  imaplib.Time2Internaldate(_time.time()),
-                                                  msg.as_bytes())
-                                if res[0] == "OK":
-                                    saved = True
-                                    log.info("Saved to detected Sent folder: %s", _fn)
-                                    break
-                            except Exception as _e:
-                                log.debug("suppressed: %s", _e)
-            if not saved:
-                log.warning("IMAP save-to-sent failed. Folders: %s", _folder_strs)
-            imap.logout()
-        except Exception as _e:
-            log.warning("IMAP save-to-sent failed: %s", _e)
+        # Gmail's SMTP relay auto-copies to "Sent Mail" when authenticated with
+        # the sender's credentials — no explicit save-to-sent needed.
         return True
 
 

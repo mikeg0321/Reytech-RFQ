@@ -3178,16 +3178,13 @@ def api_v1_rfq_backfill_metadata():
 @auth_required
 @safe_route
 def api_v1_rfq_imap_backfill():
-    """Re-fetch original emails from IMAP to recover metadata and PDFs.
-    ?dry_run=1 — show what would be recovered without saving
+    """DEPRECATED: IMAP backfill removed with the Gmail API migration.
+    Route is kept so existing bookmarks return a clear 410.
     """
-    try:
-        dry = request.args.get("dry_run", "0") == "1"
-        result = imap_backfill_rfq_metadata(dry_run=dry)
-        return api_response(result)
-    except Exception as e:
-        log.error("imap-backfill error: %s", e, exc_info=True)
-        return api_response(error=str(e), status=500)
+    return api_response(
+        error="imap-backfill removed — port to Gmail API not yet implemented",
+        status=410,
+    )
 
 
 @bp.route("/api/v1/rfq/diagnose-files")
@@ -4457,38 +4454,10 @@ def api_v1_email_reprocess(uid):
             cleared.append("sqlite")
         except Exception as _e:
             log.debug('suppressed in api_v1_email_reprocess: %s', _e)
-        # Also clear cross-inbox fingerprint (uses subject+sender hash, not UID)
-        # Fetch the email header to compute the fingerprint
-        try:
-            import imaplib, email as _em
-            _addr = os.environ.get("GMAIL_ADDRESS", "")
-            _pwd = os.environ.get("GMAIL_PASSWORD", "")
-            if _addr and _pwd:
-                _imap = imaplib.IMAP4_SSL("imap.gmail.com")
-                _imap.login(_addr, _pwd)
-                _imap.select("INBOX", readonly=True)
-                _, _data = _imap.uid("fetch", uid.encode(), "(BODY.PEEK[HEADER])")
-                if _data and _data[0]:
-                    _msg = _em.message_from_bytes(_data[0][1])
-                    _subj = _msg.get("Subject", "")
-                    _sender = ""
-                    _from = _msg.get("From", "")
-                    import re as _re
-                    _m = _re.search(r'[\w.+-]+@[\w.-]+', _from)
-                    if _m:
-                        _sender = _m.group(0)
-                    _date = _msg.get("Date", "")
-                    import hashlib
-                    _raw = f"{_subj.strip().lower()}|{_sender.strip().lower()}|{_date[:16]}"
-                    _fp = hashlib.sha256(_raw.encode()).hexdigest()[:32]
-                    from src.core.db import get_db
-                    with get_db() as conn:
-                        _del = conn.execute("DELETE FROM email_fingerprints WHERE fingerprint=?", (_fp,)).rowcount
-                        if _del:
-                            cleared.append(f"fingerprint")
-                _imap.logout()
-        except Exception as _e:
-            log.debug('suppressed in api_v1_email_reprocess: %s', _e)
+        # Cross-inbox fingerprint cleanup requires the email header; the
+        # original IMAP fetch path was removed with the Gmail API migration.
+        # Without a Gmail API message-id for this old IMAP uid we can't
+        # recompute the fingerprint, so we skip that step.
         return api_response({"ok": True, "uid": uid, "cleared_from": cleared})
     except Exception as e:
         return api_response(error=str(e), status=500)
@@ -4524,145 +4493,18 @@ def api_v1_email_reprocess_all():
 @auth_required
 @safe_route
 def api_v1_recover_stuck():
-    """Find ALL emails processed but never created a record. Covers:
-    - Forwards from our domain (CalVet via mike@)
-    - Direct buyer emails before PC detection existed (Katrina)
-    - Emails misclassified as CS inquiries
-    - Any .ca.gov email swallowed silently
-    Removes UIDs from _processed so current detection logic can reclassify.
+    """DEPRECATED: IMAP-UID-based stuck-email recovery.
+
+    Existing ``_processed`` entries from the IMAP era store numeric UIDs
+    that are not resolvable via the Gmail API (which uses opaque message
+    IDs). Use /api/v1/email/reprocess-all-missed which goes through the
+    poller's Gmail-API-backed audit instead.
     """
-    try:
-        from src.api.dashboard import POLL_STATUS, _load_price_checks
-        import imaplib
-        import email as _email_mod
-        from datetime import datetime as _dt, timedelta as _td
-
-        poller = POLL_STATUS.get("_poller_instance")
-        if not poller:
-            return api_response(error="Poller not running — wait for first poll cycle")
-
-        addr = os.environ.get("GMAIL_ADDRESS", "")
-        pwd = os.environ.get("GMAIL_PASSWORD", "")
-        if not addr or not pwd:
-            return api_response(error="Email credentials not configured")
-
-        # Get UIDs that already created records — DON'T touch these
-        created_uids = set()
-        try:
-            pcs = _load_price_checks()
-            rfqs = load_rfqs()
-            for pc in pcs.values():
-                u = pc.get("email_uid", "")
-                if u:
-                    created_uids.add(str(u))
-            for r in rfqs.values():
-                u = r.get("email_uid", "")
-                if u:
-                    created_uids.add(str(u))
-        except Exception as _e:
-            log.debug('suppressed in api_v1_recover_stuck: %s', _e)
-
-        days = int(request.args.get("days", 30))
-        buyer_domains = [".ca.gov", "cdcr", "calvet", "cdph", "cchcs", "dsh",
-                        "calfire", "caltrans", "chp", "dgs", "edd", "dca"]
-        our_domains = ["reytechinc.com", "reytech.com"]
-        noise_senders = ["no-reply@", "noreply@", "mailer-daemon", "postmaster",
-                        "notifications@", "alerts@", "support@"]
-
-        recovered = []
-        skipped = []
-
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(addr, pwd)
-        imap.select("INBOX", readonly=True)
-
-        since = (_dt.now() - _td(days=days)).strftime("%d-%b-%Y")
-        _, data = imap.uid("search", None, f"(SINCE {since})")
-        all_uids = data[0].split() if data[0] else []
-
-        for uid_bytes in all_uids:
-            uid_str = uid_bytes.decode()
-
-            # Only look at UIDs that ARE in processed (stuck ones)
-            if uid_str not in poller._processed:
-                continue
-            # Skip if it already created a record
-            if uid_str in created_uids:
-                continue
-
-            try:
-                _, msg_data = imap.uid("fetch", uid_bytes, "(BODY.PEEK[HEADER])")
-                if not msg_data or not msg_data[0]:
-                    continue
-                header = _email_mod.message_from_bytes(msg_data[0][1])
-                from_hdr = header.get("From", "")
-                subj = header.get("Subject", "") or ""
-                sender = ""
-                _em = __import__("re").search(r'[\w.+-]+@[\w.-]+', from_hdr)
-                if _em:
-                    sender = _em.group(0).lower()
-
-                # Skip noise
-                if any(n in sender for n in noise_senders):
-                    continue
-
-                # Is this a buyer email or our forward?
-                is_buyer = any(d in sender for d in buyer_domains)
-                is_self = any(sender.endswith(f"@{d}") for d in our_domains)
-                is_forward = any(subj.lower().strip().startswith(p) for p in ["fwd:", "fw:"])
-
-                # Recover if: buyer email OR our forward with fwd: subject
-                should_recover = False
-                reason = ""
-                if is_buyer:
-                    should_recover = True
-                    reason = "buyer_email"
-                elif is_self and is_forward:
-                    should_recover = True
-                    reason = "self_forward"
-
-                if should_recover:
-                    poller.reprocess_uid(uid_str)
-                    # Also clear from mike@ processed file
-                    try:
-                        import json as _jrm
-                        _mike_path = os.path.join(
-                            os.environ.get("DATA_DIR", "/data"), "processed_emails_mike.json")
-                        if os.path.exists(_mike_path):
-                            with open(_mike_path) as _f:
-                                _muids = _jrm.load(_f)
-                            if uid_str in _muids:
-                                _muids.remove(uid_str)
-                                with open(_mike_path, "w") as _f:
-                                    _jrm.dump(_muids, _f)
-                    except Exception as _e:
-                        log.debug('suppressed in api_v1_recover_stuck: %s', _e)
-
-                    recovered.append({
-                        "uid": uid_str,
-                        "sender": sender,
-                        "subject": subj[:100],
-                        "reason": reason,
-                    })
-                    log.info("RECOVERED stuck: uid=%s sender=%s reason=%s subj=%s",
-                            uid_str, sender, reason, subj[:60])
-                else:
-                    skipped.append({"uid": uid_str, "sender": sender, "subject": subj[:60]})
-            except Exception:
-                continue
-
-        imap.close()
-        imap.logout()
-        return api_response({
-            "recovered": len(recovered),
-            "skipped": len(skipped),
-            "details": recovered,
-            "skipped_details": skipped[:20],
-            "next_step": "Hit Check Now or wait for next poll cycle"
-        })
-    except Exception as e:
-        log.error("recover-stuck: %s", e, exc_info=True)
-        return api_response(error=str(e), status=500)
+    return api_response(
+        error=("recover-stuck removed — IMAP backend gone. Use "
+               "/api/v1/email/reprocess-all-missed (Gmail API backed)."),
+        status=410,
+    )
 
 
 # Keep old URL as alias
@@ -4678,230 +4520,24 @@ def api_v1_recover_forwards():
 @auth_required
 @safe_route
 def api_v1_email_diagnose(uid):
-    """Trace exactly what the poller would do with a specific email UID."""
-    try:
-        import imaplib
-        import email as _em
-        addr = os.environ.get("GMAIL_ADDRESS", "")
-        pwd = os.environ.get("GMAIL_PASSWORD", "")
-        if not addr or not pwd:
-            return api_response(error="No email credentials")
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(addr, pwd)
-        # Try sales@ first
-        imap.select("INBOX")
-        _, data = imap.uid("fetch", uid.encode(), "(BODY.PEEK[])")
-        if not data or not data[0] or data[0] == b"":
-            # Try searching by UID
-            _, search = imap.uid("search", None, "ALL")
-            all_uids = search[0].split() if search[0] else []
-            found = uid.encode() in all_uids
-            imap.logout()
-            return api_response({"error": f"UID {uid} not found in sales@ INBOX", "total_uids": len(all_uids), "uid_in_list": found})
-
-        msg = _em.message_from_bytes(data[0][1])
-        subj = msg.get("Subject", "")
-        from_hdr = msg.get("From", "")
-        # Analyze structure
-        parts = []
-        pdf_count = 0
-        nested_pdf_count = 0
-        for part in msg.walk():
-            ct = part.get_content_type()
-            fn = part.get_filename() or ""
-            parts.append({"type": ct, "filename": fn[:60]})
-            if fn.lower().endswith(".pdf"):
-                pdf_count += 1
-            if ct == "message/rfc822":
-                payload = part.get_payload()
-                inners = payload if isinstance(payload, list) else ([payload] if hasattr(payload, 'walk') else [])
-                for inner in inners:
-                    if hasattr(inner, 'walk'):
-                        for ip in inner.walk():
-                            ipfn = ip.get_filename() or ""
-                            if ipfn.lower().endswith(".pdf"):
-                                nested_pdf_count += 1
-                                parts.append({"type": "NESTED_PDF", "filename": ipfn[:60]})
-        # Check forward signals
-        subj_lower = subj.lower().strip()
-        is_fwd = any(subj_lower.startswith(p) for p in ["fwd:", "fw:"])
-        body = ""
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                try: body = part.get_payload(decode=True).decode(errors="replace")
-                except (AttributeError, UnicodeDecodeError) as e: log.debug("email body decode: %s", e)
-                break
-        has_fwd_body = any(m in body.lower() for m in ["forwarded message", "begin forwarded", "---------- forwarded"])
-        has_rfc822 = any(p.get_content_type() == "message/rfc822" for p in msg.walk())
-        signals = sum([is_fwd, has_fwd_body, bool(pdf_count), bool(nested_pdf_count), has_rfc822])
-
-        # Check processed status
-        from src.api.dashboard import POLL_STATUS
-        poller = POLL_STATUS.get("_poller_instance")
-        in_processed = uid in poller._processed if poller else "unknown"
-
-        imap.logout()
-        return api_response({
-            "uid": uid,
-            "subject": subj[:120],
-            "from": from_hdr[:80],
-            "parts": parts[:20],
-            "top_level_pdfs": pdf_count,
-            "nested_pdfs": nested_pdf_count,
-            "forward_signals": {
-                "fwd_subject": is_fwd,
-                "fwd_body": has_fwd_body,
-                "has_rfc822": has_rfc822,
-                "top_pdfs": pdf_count,
-                "nested_pdfs": nested_pdf_count,
-                "total_signals": signals,
-                "would_pass": signals >= 2,
-            },
-            "in_processed": in_processed,
-            "body_preview": body[:500],
-        })
-    except Exception as e:
-        log.error("email diagnose: %s", e, exc_info=True)
-        return api_response(error=str(e), status=500)
+    """DEPRECATED: IMAP-UID diagnostic. Gmail API uses opaque message IDs."""
+    return api_response(
+        error="diagnose/<uid> removed with IMAP backend",
+        status=410,
+    )
 
 
 @bp.route("/api/v1/email/force-process/<uid>", methods=["GET", "POST"])
 @auth_required
 @safe_route
 def api_v1_email_force_process(uid):
-    """Bypass poller — fetch email by UID, extract attachments (including ZIP), create RFQ/PC directly."""
-    try:
-        import imaplib
-        import email as _em
-        import zipfile
-        import io
-        import re as _re
-        import uuid as _uuid
-        from datetime import datetime as _dt
-
-        addr = os.environ.get("GMAIL_ADDRESS", "")
-        pwd = os.environ.get("GMAIL_PASSWORD", "")
-        if not addr or not pwd:
-            return api_response(error="No email credentials")
-
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(addr, pwd)
-        imap.select("INBOX")
-        _, data = imap.uid("fetch", uid.encode(), "(BODY.PEEK[])")
-        if not data or not data[0]:
-            imap.logout()
-            return api_response(error=f"UID {uid} not found")
-
-        msg = _em.message_from_bytes(data[0][1])
-        subj = msg.get("Subject", "")
-        from_hdr = msg.get("From", "")
-        sender_email = _re.search(r'[\w.+-]+@[\w.-]+', from_hdr)
-        sender_email = sender_email.group(0).lower() if sender_email else ""
-
-        # Extract forwarded sender
-        body = ""
-        for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                try:
-                    body = part.get_payload(decode=True).decode(errors="replace")
-                except Exception as _e:
-                    log.debug('suppressed in api_v1_email_force_process: %s', _e)
-                break
-        orig_sender = ""
-        _fm = _re.search(r'From:.*?([\w.+-]+@[\w.-]+)', body, _re.IGNORECASE)
-        if _fm:
-            _addr = _fm.group(1).lower()
-            if not any(_addr.endswith(f"@{d}") for d in ["reytechinc.com", "reytech.com"]):
-                orig_sender = _addr
-
-        # Extract ALL attachments — PDFs + PDFs from ZIPs
-        try:
-            from src.core.paths import UPLOAD_DIR
-        except Exception:
-            UPLOAD_DIR = os.path.join(os.environ.get("DATA_DIR", "/data"), "uploads")
-        save_dir = os.path.join(UPLOAD_DIR, f"force_{uid}_{_dt.now().strftime('%H%M%S')}")
-        os.makedirs(save_dir, exist_ok=True)
-
-        pdfs = []
-        for part in msg.walk():
-            fn = part.get_filename()
-            if not fn:
-                continue
-            fn_lower = fn.lower()
-            if fn_lower.endswith(".pdf"):
-                safe = _re.sub(r'[^\w\-_. ()]+', '_', fn)
-                path = os.path.join(save_dir, safe)
-                payload = part.get_payload(decode=True)
-                if payload:
-                    with open(path, "wb") as f:
-                        f.write(payload)
-                    pdfs.append({"path": path, "filename": safe, "type": "unknown"})
-            elif fn_lower.endswith(".zip"):
-                payload = part.get_payload(decode=True)
-                if payload:
-                    try:
-                        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-                            for zn in zf.namelist():
-                                if zn.lower().endswith(".pdf") and not zn.startswith("__MACOSX"):
-                                    safe = _re.sub(r'[^\w\-_. ()]+', '_', os.path.basename(zn))
-                                    path = os.path.join(save_dir, safe)
-                                    with open(path, "wb") as f:
-                                        f.write(zf.read(zn))
-                                    pdfs.append({"path": path, "filename": safe, "type": "unknown"})
-                    except Exception as _ze:
-                        log.warning("ZIP extract: %s", _ze)
-
-        if not pdfs:
-            imap.logout()
-            return api_response({"error": "No PDFs found (even after ZIP extraction)", "parts": [
-                {"filename": p.get_filename() or "", "type": p.get_content_type()} for p in msg.walk() if p.get_filename()
-            ]})
-
-        # Identify form types
-        from src.forms.rfq_parser import identify_attachments
-        id_map = identify_attachments([p["path"] for p in pdfs])
-        for p in pdfs:
-            for ftype, fpath in id_map.items():
-                if fpath == p["path"]:
-                    p["type"] = ftype
-
-        # Build RFQ email info dict
-        rfq_id = _dt.now().strftime("%Y%m%d_%H%M%S") + "_" + uid[:4]
-        rfq_email = {
-            "id": rfq_id,
-            "email_uid": uid,
-            "message_id": msg.get("Message-ID", ""),
-            "subject": subj,
-            "sender": from_hdr,
-            "sender_email": orig_sender or sender_email,
-            "body_text": body[:3000],
-            "attachments": pdfs,
-            "solicitation_hint": "",
-        }
-
-        # Extract solicitation from body
-        _sol_m = _re.search(r'Requisition\s*\[?(\d+)\]?', body)
-        if _sol_m:
-            rfq_email["solicitation_hint"] = _sol_m.group(1)
-
-        # Process through normal pipeline
-        from src.api.dashboard import process_rfq_email
-        result = process_rfq_email(rfq_email)
-
-        imap.logout()
-        return api_response({
-            "processed": True,
-            "rfq_id": rfq_id,
-            "subject": subj[:100],
-            "original_sender": orig_sender,
-            "pdfs_found": len(pdfs),
-            "pdf_files": [p["filename"] for p in pdfs],
-            "form_types": {p["filename"]: p["type"] for p in pdfs},
-            "result": "created" if result else "routed_to_pc_or_skipped",
-        })
-    except Exception as e:
-        log.error("force-process: %s", e, exc_info=True)
-        return api_response(error=str(e), status=500)
+    """DEPRECATED: bypassed poller via IMAP UID. Gmail API uses opaque
+    message IDs — reprocessing by UID is no longer possible.
+    """
+    return api_response(
+        error="force-process/<uid> removed with IMAP backend",
+        status=410,
+    )
 
 
 @bp.route("/api/v1/data/fix-buyer-names", methods=["GET", "POST"])

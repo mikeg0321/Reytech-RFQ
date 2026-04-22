@@ -24,7 +24,6 @@ from src.api.render import render_page
 
 import json
 import re as _re
-import imaplib as _imaplib
 import email as _email_lib
 from email.header import decode_header as _decode_header
 import threading as _threading
@@ -139,59 +138,54 @@ _PO_POLL_STATUS = {"running": False, "last_poll": None, "emails_processed": 0, "
 _PO_POLL_INTERVAL = 300  # 5 minutes
 
 def _get_po_email_config():
-    """Get PO inbox credentials. Falls back to main Gmail (POs come to same inbox)."""
+    """Return the PO inbox address (Gmail API path uses it for display only)."""
     return {
         "email": os.environ.get("PO_GMAIL_ADDRESS", "") or os.environ.get("GMAIL_ADDRESS", ""),
-        "password": os.environ.get("PO_GMAIL_PASSWORD", "") or os.environ.get("GMAIL_PASSWORD", ""),
-        "imap_server": os.environ.get("PO_IMAP_SERVER", "imap.gmail.com"),
     }
 
 
 def _poll_po_inbox():
-    """Poll the PO-dedicated email inbox for order updates."""
-    cfg = _get_po_email_config()
-    if not cfg["email"] or not cfg["password"]:
-        return {"ok": False, "error": "PO email not configured"}
-
+    """Poll Gmail via API for PO-related messages and update order state."""
     try:
-        mail = _imaplib.IMAP4_SSL(cfg["imap_server"])
-        mail.login(cfg["email"], cfg["password"])
-        mail.select("INBOX")
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return {"ok": False, "error": "Gmail API not configured"}
 
-        # Search for unread messages
-        status, messages = mail.search(None, "UNSEEN")
-        if status != "OK":
-            return {"ok": False, "error": "IMAP search failed"}
+        service = gmail_api.get_service("sales")
 
-        msg_nums = messages[0].split()
+        # Look at unread inbox messages (Gmail query — same intent as IMAP UNSEEN)
+        msg_ids = gmail_api.list_message_ids(
+            service, query="in:inbox is:unread", max_results=50
+        )
         processed = 0
 
-        for num in msg_nums[-50:]:  # Process last 50 unread
+        for msg_id in msg_ids:
             try:
-                status, data = mail.fetch(num, "(BODY.PEEK[])")
-                if status != "OK":
-                    continue
-
-                msg = _email_lib.message_from_bytes(data[0][1])
+                raw = gmail_api.get_raw_message(service, msg_id)
+                msg = _email_lib.message_from_bytes(raw)
                 subject = _decode_email_header(msg.get("Subject", ""))
                 sender = _decode_email_header(msg.get("From", ""))
                 body = _extract_email_body(msg)
-                email_uid = msg.get("Message-ID", str(num))
+                email_uid = msg.get("Message-ID", msg_id)
 
-                # Parse and process
                 result = _process_po_email(subject, sender, body, email_uid)
                 if result.get("matched"):
                     processed += 1
-                    # Mark as read
-                    mail.store(num, "+FLAGS", "\\Seen")
+                    # Mark as read via Gmail API label modify
+                    try:
+                        service.users().messages().modify(
+                            userId="me", id=msg_id,
+                            body={"removeLabelIds": ["UNREAD"]},
+                        ).execute()
+                    except Exception as _e:
+                        log.debug("PO mark-read failed: %s", _e)
 
             except Exception as e:
                 log.warning("PO email processing error: %s", e)
 
-        mail.logout()
         _PO_POLL_STATUS["last_poll"] = datetime.now().isoformat()
         _PO_POLL_STATUS["emails_processed"] += processed
-        return {"ok": True, "processed": processed, "total_checked": len(msg_nums)}
+        return {"ok": True, "processed": processed, "total_checked": len(msg_ids)}
 
     except Exception as e:
         _PO_POLL_STATUS["errors"].append(str(e))

@@ -1,11 +1,12 @@
 """
 Gmail API Integration — Core Wrapper
 
-Replaces IMAP polling with Gmail API for better reliability and access to
-Google Drive-linked attachments that IMAP cannot see.
+The sole inbound email backend. Replaced IMAP polling 2026-04-21 (IMAP
+support was ripped out entirely — there is no longer a fallback).
 
 Auth: OAuth2 with stored refresh token (one-time browser consent, then permanent).
-Falls back to IMAP if GMAIL_OAUTH_REFRESH_TOKEN is not set.
+If GMAIL_OAUTH_REFRESH_TOKEN is unset, inbound email is disabled — the poller
+and all Gmail-dependent features fail loudly rather than silently.
 """
 
 import os
@@ -405,6 +406,63 @@ def send_message(
         "Gmail API send_message ok: id=%s thread=%s to=%s",
         response.get("id", "?"),
         response.get("threadId", "?"),
+        to_summary,
+    )
+    return response
+
+
+def save_draft(
+    service,
+    to,
+    subject: str,
+    body_plain: str = "",
+    body_html: str = "",
+    cc=None,
+    bcc=None,
+    attachments: Optional[List[str]] = None,
+    from_name: Optional[str] = None,
+    from_addr: Optional[str] = None,
+    extra_headers: Optional[Dict[str, str]] = None,
+) -> dict:
+    """Save an email as a Gmail draft via the Gmail API.
+
+    Mirrors send_message() semantics but calls users.drafts.create instead of
+    messages.send. Returns the Gmail API draft response (typically
+    {'id': str, 'message': {'id': str, 'threadId': str, 'labelIds': [...]}}).
+
+    Requires the same gmail.send (or gmail.compose) scope as send_message —
+    refresh token must include it or Google returns 403.
+    """
+    msg = _build_mime_message(
+        to=to,
+        subject=subject,
+        body_plain=body_plain,
+        body_html=body_html,
+        cc=cc,
+        bcc=bcc,
+        attachments=attachments,
+        from_name=from_name,
+        from_addr=from_addr,
+        extra_headers=extra_headers,
+    )
+
+    raw_bytes = msg.as_bytes()
+    raw_b64url = base64.urlsafe_b64encode(raw_bytes).decode("ascii")
+
+    body: Dict[str, object] = {"message": {"raw": raw_b64url}}
+
+    try:
+        response = service.users().drafts().create(
+            userId="me", body=body
+        ).execute()
+    except Exception as e:
+        log.error("Gmail API save_draft failed: %s", e, exc_info=True)
+        raise
+
+    to_summary = to if isinstance(to, str) else ", ".join(_split_list(to))
+    log.info(
+        "Gmail API save_draft ok: draft_id=%s to=%s",
+        response.get("id", "?"),
         to_summary,
     )
     return response

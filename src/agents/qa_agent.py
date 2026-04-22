@@ -1455,7 +1455,7 @@ def _check_email_pipeline_traces() -> list:
                 results.append({"check": "email_pipeline_traces", "status": "fail",
                                 "severity": "critical",
                                 "message": f"Email poll failing: {last_err}",
-                                "recommendation": "Check IMAP: fetch('/api/admin/traces?workflow=email_poll&status=fail').then(r=>r.json()).then(d=>console.log(d.traces[0].steps))"})
+                                "recommendation": "Check Gmail API: fetch('/api/admin/traces?workflow=email_poll&status=fail').then(r=>r.json()).then(d=>console.log(d.traces[0].steps))"})
             else:
                 results.append({"check": "email_pipeline_traces", "status": "pass",
                                 "message": f"Email polling OK ({len(poll_traces)} recent polls)"})
