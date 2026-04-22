@@ -634,6 +634,12 @@ def run_award_check(force: bool = False) -> dict:
                 # just a count.
                 if _should_calibrate_loss(already_matched, match_stored):
                     try:
+                        # Release the outer write lock before calibrate opens
+                        # its own connection — otherwise calibrate's CREATE
+                        # TABLE / upsert blocks on this conn's open BEGIN and
+                        # loses the race to busy_timeout, silently swallowing
+                        # the Oracle write.
+                        conn.commit()
                         from src.core.pricing_oracle_v2 import calibrate_from_outcome
                         _winner_prices = _winner_prices_from_analysis(
                             our_items, analysis.get("line_comparison", [])
