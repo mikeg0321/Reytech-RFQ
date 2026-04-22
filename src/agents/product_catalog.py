@@ -83,6 +83,8 @@ CREATE TABLE IF NOT EXISTS product_catalog (
     created_at TEXT,
     updated_at TEXT,
 
+    is_test INTEGER DEFAULT 0,
+
     UNIQUE(name)
 );
 """
@@ -394,6 +396,9 @@ def init_catalog_db():
         ("mfg_number", "TEXT"),
         ("upc", "TEXT"),
         ("search_tokens", "TEXT"),
+        # RE-AUDIT-4: test items written by pytest fixtures or staging seeds
+        # must not pollute search/recommendation rankings for real quotes.
+        ("is_test", "INTEGER DEFAULT 0"),
     ]:
         try:
             conn.execute("ALTER TABLE product_catalog ADD COLUMN " + re.sub(r"[^a-zA-Z0-9_]", "", col_def[0]) + " " + col_def[1])
@@ -2083,9 +2088,11 @@ def smart_search(query: str, limit: int = 20, category: str = "",
     # become ["glv","nit","100"] and miss the exact-id branch entirely.
     _q = (query or "").strip()
     if _q and len(_q) >= 4 and re.search(r"[A-Za-z]", _q) and re.search(r"\d|-", _q):
+        # RE-AUDIT-4: is_test=0 filter keeps staging/pytest rows out of ranks.
         exact = conn.execute(
             "SELECT * FROM product_catalog "
-            "WHERE LOWER(sku)=LOWER(?) OR LOWER(mfg_number)=LOWER(?) OR upc=? "
+            "WHERE (LOWER(sku)=LOWER(?) OR LOWER(mfg_number)=LOWER(?) OR upc=?) "
+            "AND COALESCE(is_test,0)=0 "
             "LIMIT 1",
             (_q, _q, _q),
         ).fetchone()
@@ -2104,7 +2111,9 @@ def smart_search(query: str, limit: int = 20, category: str = "",
 
     # Empty/garbage query → popularity sort with optional filters
     if not tokens:
-        where, params = ["1=1"], []
+        # RE-AUDIT-4: is_test=0 keeps pytest / staging rows out of the
+        # popularity-sorted "top of catalog" view.
+        where, params = ["COALESCE(is_test,0)=0"], []
         if category:
             where.append("category = ?"); params.append(category)
         if min_margin is not None:
@@ -2124,9 +2133,11 @@ def smart_search(query: str, limit: int = 20, category: str = "",
     # Exact SKU / MFG# short-circuit
     if len(tokens) == 1 and len(tokens[0]) >= 4 and not tokens[0].isdigit():
         t = tokens[0]
+        # RE-AUDIT-4: filter test rows so pytest-seeded SKUs don't short-circuit.
         exact = conn.execute(
             "SELECT * FROM product_catalog "
-            "WHERE LOWER(sku)=? OR LOWER(mfg_number)=? LIMIT 1",
+            "WHERE (LOWER(sku)=? OR LOWER(mfg_number)=?) "
+            "AND COALESCE(is_test,0)=0 LIMIT 1",
             (t, t),
         ).fetchone()
         if exact:
@@ -2165,6 +2176,8 @@ def _smart_rank(conn, tokens: list, limit: int, category: str = "",
         token_params.extend([wild] * 7)
     where = ["(" + " OR ".join(token_clauses) + ")"]
     params = list(token_params)
+    # RE-AUDIT-4: exclude is_test rows from the ranked candidate pool.
+    where.append("COALESCE(is_test,0)=0")
     if category:
         where.append("category = ?"); params.append(category)
     if min_margin is not None:
@@ -2290,8 +2303,10 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
         _upc = part_number.strip()
     if _upc:
         try:
+            # RE-AUDIT-4: suppress test rows from auto-match results.
             upc_rows = conn.execute(
-                "SELECT * FROM product_catalog WHERE upc=? LIMIT 5", (_upc,)
+                "SELECT * FROM product_catalog WHERE upc=? AND COALESCE(is_test,0)=0 LIMIT 5",
+                (_upc,),
             ).fetchall()
             for r in upc_rows:
                 if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
@@ -2307,9 +2322,12 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
     # Strategy 1: Exact part number match (highest confidence)
     if part_number and part_number.strip():
         pn = part_number.strip()
+        # RE-AUDIT-4: exclude is_test rows.
         rows = conn.execute(
-            "SELECT * FROM product_catalog WHERE name=? OR sku=? OR mfg_number=? LIMIT 5",
-            (pn, pn, pn)
+            "SELECT * FROM product_catalog "
+            "WHERE (name=? OR sku=? OR mfg_number=?) "
+            "AND COALESCE(is_test,0)=0 LIMIT 5",
+            (pn, pn, pn),
         ).fetchall()
         for r in rows:
             if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
@@ -2323,8 +2341,10 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
     if not matches and description:
         potential_parts = re.findall(r'\b([A-Z0-9][\w\-]{3,19})\b', description, re.IGNORECASE)
         for pp in potential_parts[:5]:
+            # RE-AUDIT-4: exclude is_test rows.
             row = conn.execute(
-                "SELECT * FROM product_catalog WHERE name=? LIMIT 1", (pp,)
+                "SELECT * FROM product_catalog WHERE name=? AND COALESCE(is_test,0)=0 LIMIT 1",
+                (pp,),
             ).fetchone()
             if row and row["id"] not in seen_ids and str(row["id"]) not in _rejected_ids:
                 m = dict(row)
@@ -2343,9 +2363,11 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
                 search_terms = sorted(desc_tokens, key=len, reverse=True)[:3]
                 conditions = " OR ".join(["search_tokens LIKE ?" for _ in search_terms])
                 params = [f"%{t}%" for t in search_terms]
+                # RE-AUDIT-4: exclude is_test rows from token-match candidates.
                 candidates = conn.execute(
-                    f"SELECT * FROM product_catalog WHERE {conditions} LIMIT 50",
-                    params
+                    f"SELECT * FROM product_catalog WHERE ({conditions}) "
+                    "AND COALESCE(is_test,0)=0 LIMIT 50",
+                    params,
                 ).fetchall()
 
                 for r in candidates:
@@ -2373,9 +2395,11 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
     # Strategy 4: Description LIKE (broadest)
     if len(matches) < top_n and description and len(description) > 5:
         first_words = " ".join(description.split()[:3])
+        # RE-AUDIT-4: exclude is_test rows.
         rows = conn.execute(
-            "SELECT * FROM product_catalog WHERE description LIKE ? LIMIT 10",
-            (f"%{first_words}%",)
+            "SELECT * FROM product_catalog "
+            "WHERE description LIKE ? AND COALESCE(is_test,0)=0 LIMIT 10",
+            (f"%{first_words}%",),
         ).fetchall()
         for r in rows:
             if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
