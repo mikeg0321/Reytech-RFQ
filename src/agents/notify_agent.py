@@ -285,15 +285,15 @@ def _send_sms(title: str, body: str, context: dict) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> dict:
-    """Send alert email via Gmail to Mike's personal address."""
-    if not all([GMAIL_ADDRESS, GMAIL_PASSWORD, NOTIFY_EMAIL]):
-        return {"ok": False, "reason": "Gmail or NOTIFY_EMAIL not configured"}
-    
-    try:
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
+    """Send alert email via Gmail API to Mike's personal address."""
+    if not NOTIFY_EMAIL:
+        return {"ok": False, "reason": "NOTIFY_EMAIL not configured"}
 
+    from src.core import gmail_api
+    if not gmail_api.is_configured():
+        return {"ok": False, "reason": "Gmail API not configured"}
+
+    try:
         URGENCY_SUBJECT_PREFIX = {
             "cs_draft_ready":    "📬 [ACTION] CS Draft Ready",
             "rfq_arrived":       "🚨 [URGENT] New RFQ Arrived",
@@ -343,17 +343,14 @@ def _send_alert_email(event_type: str, title: str, body: str, context: dict) -> 
         if context.get("html_body"):
             html = context["html_body"]
 
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"Reytech Dashboard <{GMAIL_ADDRESS}>"
-        msg["To"] = NOTIFY_EMAIL
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-        msg.attach(MIMEText(html, "html"))
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(GMAIL_ADDRESS, GMAIL_PASSWORD)
-            server.send_message(msg)
+        service = gmail_api.get_send_service()
+        gmail_api.send_message(
+            service,
+            to=NOTIFY_EMAIL,
+            subject=subject,
+            body_plain=body,
+            body_html=html,
+        )
 
         log.info("Alert email sent: %s → %s", subject[:50], NOTIFY_EMAIL)
         return {"ok": True, "to": NOTIFY_EMAIL}
@@ -691,7 +688,12 @@ def get_unread_count() -> int:
 
 def get_agent_status() -> dict:
     sms_ok = bool(TWILIO_SID and TWILIO_TOKEN and TWILIO_FROM and NOTIFY_PHONE and SMS_ENABLED)
-    email_ok = bool(GMAIL_ADDRESS and GMAIL_PASSWORD and NOTIFY_EMAIL and EMAIL_ENABLED)
+    try:
+        from src.core import gmail_api
+        _gmail_ready = gmail_api.is_configured()
+    except Exception:
+        _gmail_ready = False
+    email_ok = bool(_gmail_ready and NOTIFY_EMAIL and EMAIL_ENABLED)
     return {
         "agent": "notify_agent",
         "version": "1.0.0",
