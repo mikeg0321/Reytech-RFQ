@@ -105,8 +105,9 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     # Step 4: Analyze market
     result["market"] = _analyze_market_prices(market_prices, quantity)
 
-    # Step 5: Competitors
-    result["competitors"] = _get_competitor_breakdown(market_prices)
+    # Step 5: Competitors (BUILD-8: scoped to the quoting agency first,
+    # falls back to global when the per-agency slice is too thin).
+    result["competitors"] = _get_competitor_breakdown(market_prices, department)
 
     # Step 6: Recommendation (V3: with calibration + win history)
     category = _classify_item_category(description)
@@ -270,6 +271,7 @@ def _search_won_quotes(db, description, item_number=""):
                 # already-per-unit rows into pennies).
                 per_unit = _scprs_per_unit(p, qty)
                 prices.append({"price": per_unit, "description": r[0], "quantity": qty,
+                               "supplier": r[3] or "", "department": r[4] or "",
                                "source": "won_quotes",
                                "is_reytech": "REYTECH" in (r[3] or "").upper()})
     except Exception as e:
@@ -937,30 +939,62 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
     return result
 
 
-def _get_competitor_breakdown(market_prices):
-    """Top competitors with normalized per-unit prices."""
-    by_sup = {}
-    for mp in market_prices:
-        s = mp.get("supplier", "")
-        if not s or mp.get("is_reytech"):
-            continue
-        norm = _normalize_to_per_unit(mp.get("price", 0), mp.get("description", ""),
-                                      mp.get("quantity", 1), mp.get("uom", ""))
-        if norm["per_unit"] < 0.001 or norm["per_unit"] > 50000:
-            continue
-        if s not in by_sup:
-            by_sup[s] = {"supplier": s, "prices": [], "department": mp.get("department", ""),
-                         "buyer_email": mp.get("buyer_email", "")}
-        by_sup[s]["prices"].append(norm["per_unit"])
-    result = []
-    for s, data in by_sup.items():
-        avg = sum(data["prices"]) / len(data["prices"])
-        result.append({"supplier": s, "avg_price": round(avg, 4),
-                       "low": round(min(data["prices"]), 4), "high": round(max(data["prices"]), 4),
-                       "data_points": len(data["prices"]), "department": data["department"],
-                       "buyer_email": data["buyer_email"]})
-    result.sort(key=lambda x: x["avg_price"])
-    return result[:8]
+def _norm_agency_key(agency):
+    """Canonicalize an agency string for equality comparison: upper, no
+    whitespace. So 'CDCR', 'cdcr', ' CDCR ' all map to the same key."""
+    if not agency:
+        return ""
+    return re.sub(r"\s+", "", str(agency).upper())
+
+
+def _get_competitor_breakdown(market_prices, agency=""):
+    """Top competitors with normalized per-unit prices.
+
+    BUILD-8: when `agency` is provided, return a per-agency leaderboard —
+    each competitor's avg/low/high is computed ONLY over their prices
+    against that agency (not cross-agency averages). Suppliers with no
+    data for the requested agency are dropped entirely.
+
+    Falls back to the global breakdown when the per-agency slice yields
+    fewer than 3 competitors (too sparse to trust — a thin slice would
+    hide real market context). The `scope` field on each row records
+    which regime produced the row so callers / the UI can disclose it.
+    """
+    def _build(prices_subset, scope):
+        by_sup = {}
+        for mp in prices_subset:
+            s = mp.get("supplier", "")
+            if not s or mp.get("is_reytech"):
+                continue
+            norm = _normalize_to_per_unit(mp.get("price", 0), mp.get("description", ""),
+                                          mp.get("quantity", 1), mp.get("uom", ""))
+            if norm["per_unit"] < 0.001 or norm["per_unit"] > 50000:
+                continue
+            if s not in by_sup:
+                by_sup[s] = {"supplier": s, "prices": [], "department": mp.get("department", ""),
+                             "buyer_email": mp.get("buyer_email", "")}
+            by_sup[s]["prices"].append(norm["per_unit"])
+        rows = []
+        for s, data in by_sup.items():
+            avg = sum(data["prices"]) / len(data["prices"])
+            rows.append({"supplier": s, "avg_price": round(avg, 4),
+                         "low": round(min(data["prices"]), 4),
+                         "high": round(max(data["prices"]), 4),
+                         "data_points": len(data["prices"]),
+                         "department": data["department"],
+                         "buyer_email": data["buyer_email"],
+                         "scope": scope})
+        rows.sort(key=lambda x: x["avg_price"])
+        return rows[:8]
+
+    agency_key = _norm_agency_key(agency)
+    if agency_key:
+        scoped = [mp for mp in market_prices
+                  if _norm_agency_key(mp.get("department", "")) == agency_key]
+        per_agency = _build(scoped, scope="per_agency")
+        if len(per_agency) >= 3:
+            return per_agency
+    return _build(market_prices, scope="global")
 
 
 def _get_cross_sell(db, description):
