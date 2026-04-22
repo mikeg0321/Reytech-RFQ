@@ -454,6 +454,8 @@ def api_order_add_line(oid):
     order["total"] = sum(it.get("extended", 0) for it in items)
     order["updated_at"] = datetime.now().isoformat()
     _save_single_order(oid, order)
+    log_order_event(oid, "line_added", "line_id", "", new_item["line_id"],
+                    "user", f"{new_item.get('description','')[:40]} x{new_item.get('qty',0)} @ ${new_item.get('unit_price',0)}")
     return jsonify({"ok": True, "line_id": new_item["line_id"], "total_items": len(items)})
 
 
@@ -563,6 +565,9 @@ def api_order_import_po(oid):
     order["po_pdf"] = pdf_path
     order["updated_at"] = datetime.now().isoformat()
     _save_single_order(oid, order)
+    log_order_event(oid, "po_imported", "po_number",
+                    "", parsed.get("po_number", "") or "",
+                    "user", f"{len(new_items)} items, ${total:,.2f}")
 
     log.info("PO PDF imported for %s: %d items, $%.2f, po=%s",
              oid, len(new_items), total, parsed.get("po_number", "?"))
@@ -600,11 +605,14 @@ def api_order_update_line(oid, lid):
                 if field in data:
                     old_val = it.get(field, "")
                     it[field] = data[field]
-                    # V2: sync unit_cost ↔ cost (legacy name)
+                    # V2: sync legacy field aliases so save_line_items_batch (which
+                    # prefers the canonical column names) doesn't shadow user edits.
                     if field == "unit_cost":
                         it["cost"] = data[field]
                     elif field == "cost":
                         it["unit_cost"] = data[field]
+                    elif field == "supplier":
+                        it["supplier_name"] = data[field]
                     if field == "sourcing_status" and old_val != data[field]:
                         _log_crm_activity(order.get("quote_number",""), f"line_{data[field]}",
                                           f"Order {oid} line {lid}: {old_val} → {data[field]} — {it.get('description','')[:60]}",
@@ -686,6 +694,9 @@ def api_order_bulk_update(oid):
     order["updated_at"] = datetime.now().isoformat()
     _save_single_order(oid, order)
     _update_order_status(oid)
+    log_order_event(oid, "bulk_update", "",
+                    "", ", ".join(f"{k}={v}" for k, v in data.items()),
+                    "user", f"{len(order.get('line_items', []))} lines updated")
     _log_crm_activity(order.get("quote_number",""), "order_bulk_update",
                       f"Order {oid}: bulk update — {data}",
                       actor="user", metadata={"order_id": oid})
@@ -715,6 +726,9 @@ def api_order_bulk_tracking(oid):
     order["updated_at"] = datetime.now().isoformat()
     _save_single_order(oid, order)
     _update_order_status(oid)
+    log_order_event(oid, "bulk_tracking", "tracking_number",
+                    "", tracking, "user",
+                    f"{updated} lines → shipped via {carrier or 'unknown carrier'}")
     _log_crm_activity(order.get("quote_number",""), "tracking_added",
                       f"Order {oid}: tracking {tracking} ({carrier}) added to {updated} items",
                       actor="user", metadata={"order_id": oid, "tracking": tracking})
@@ -756,14 +770,26 @@ def api_order_invoice(oid):
 
     order["invoice_number"] = inv_num
     order["updated_at"] = datetime.now().isoformat()
-    order["status_history"].append({
+    hist_raw = order.get("status_history") or "[]"
+    if isinstance(hist_raw, str):
+        try:
+            hist = json.loads(hist_raw) or []
+        except (ValueError, TypeError):
+            hist = []
+    else:
+        hist = hist_raw if isinstance(hist_raw, list) else []
+    hist.append({
         "status": f"invoice_{inv_type}",
         "timestamp": datetime.now().isoformat(),
         "actor": "user",
         "invoice_number": inv_num,
     })
+    order["status_history"] = json.dumps(hist)
     _save_single_order(oid, order)
     _update_order_status(oid)
+    log_order_event(oid, f"invoice_{inv_type}", "invoice_number",
+                    "", inv_num, "user",
+                    f"{inv_type} invoice #{inv_num} — ${order.get('invoice_total', 0):,.2f}")
     _log_crm_activity(order.get("quote_number",""), f"invoice_{inv_type}",
                       f"Order {oid}: {inv_type} invoice #{inv_num} — ${order.get('invoice_total',0):,.2f}",
                       actor="user", metadata={"order_id": oid, "invoice": inv_num})
@@ -3306,32 +3332,40 @@ def api_order_line_margins(oid):
 @auth_required
 @safe_route
 def api_order_line_cost(oid, lid):
-    """Update cost for a single line item."""
+    """Update unit_cost for a single line item via the V2 DAL.
+
+    Uses update_line_status for an atomic per-line UPDATE (no full-order
+    rewrite, no cost/unit_cost alias shadowing, audit row written by the DAL).
+    """
     try:
-        orders = _load_orders()
-        order = orders.get(oid)
+        from src.core.order_dal import get_order as _get_order, update_line_status
+        order = _get_order(oid)
         if not order:
             return jsonify({"ok": False, "error": "Not found"})
 
         data = request.get_json(silent=True) or {}
-        cost = data.get("cost", 0)
+        cost = float(data.get("cost", 0) or 0)
 
+        target = None
         for it in order.get("line_items", []):
             if it.get("line_id") == lid:
-                old_cost = it.get("cost", 0)
-                it["cost"] = float(cost)
-                sell = it.get("unit_price", 0) or 0
-                it["margin_pct"] = round(((sell - float(cost)) / sell * 100), 1) if sell > 0 else 0
+                target = it
+                break
+        if not target:
+            return jsonify({"ok": False, "error": "Line not found"})
 
-                log_order_event(oid, "cost_updated", "cost",
-                                f"${old_cost:.2f}", f"${float(cost):.2f}",
-                                "user", f"Line {lid}: {it.get('description', '')[:40]}")
+        ok = update_line_status(oid, lid, "unit_cost", cost, actor="user")
+        if not ok:
+            return jsonify({"ok": False, "error": "Persist failed"})
 
-                orders[oid] = order
-                _save_orders(orders)
-                return jsonify({"ok": True, "margin_pct": it["margin_pct"]})
+        sell = target.get("unit_price", 0) or 0
+        margin_pct = round(((sell - cost) / sell * 100), 1) if sell > 0 else 0
 
-        return jsonify({"ok": False, "error": "Line not found"})
+        log_order_event(oid, "cost_updated", "unit_cost",
+                        f"${target.get('unit_cost', 0) or 0:.2f}", f"${cost:.2f}",
+                        "user", f"Line {lid}: {target.get('description', '')[:40]}")
+
+        return jsonify({"ok": True, "margin_pct": margin_pct})
     except Exception as e:
         log.error("api_order_line_cost error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
