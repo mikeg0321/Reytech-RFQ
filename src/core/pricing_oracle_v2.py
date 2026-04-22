@@ -145,6 +145,46 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     return result
 
 
+def recommend_for_item(description, part_number="", qty=1):
+    """Flat-shape adapter over get_pricing() for quote_engine.enrich_pricing.
+
+    quote_engine imports this symbol and expects a flat dict with keys
+    {catalog_cost, supplier_cost, supplier, confidence, source, asin,
+    source_url, amazon_price, scprs_price, unit_cost}. get_pricing()
+    returns a nested shape (cost/market/matched_item sub-dicts) — this
+    adapter flattens it. CP-1 (2026-04-22): before this shim existed,
+    the import silently ImportError'd and the whole enrich_pricing path
+    was dead on every orchestrated quote run.
+    """
+    try:
+        out = get_pricing(description, quantity=qty, item_number=part_number or "")
+    except Exception as e:
+        log.warning("recommend_for_item: get_pricing failed for %r: %s", description, e)
+        return None
+
+    if not out:
+        return None
+
+    locked = out.get("cost") or {}
+    matched = out.get("matched_item") or {}
+    cost_basis = locked.get("locked_cost")
+
+    return {
+        # Cost-basis path (what apply=True actually writes via set_price):
+        "unit_cost": cost_basis if locked.get("cost_fresh") else None,
+        "catalog_cost": cost_basis,
+        "supplier_cost": cost_basis,
+        "supplier": locked.get("cost_supplier") or matched.get("supplier") or "",
+        "source": locked.get("cost_source") or (out.get("sources_used") or ["oracle"])[-1],
+        # Reference fields for UI badges (enrich_pricing only writes when blank):
+        "asin": matched.get("asin") or "",
+        "source_url": matched.get("product_url") or matched.get("supplier_url") or "",
+        "amazon_price": None,   # Amazon lives in SerpAPI path, not in the oracle
+        "scprs_price": None,    # SCPRS ceiling is surfaced via market.competitor_high, not per-item here
+        "confidence": out.get("confidence"),
+    }
+
+
 def _check_item_memory(db, description, item_number=""):
     """Return ALL stored fields for a matched item."""
     _cols = """canonical_description, canonical_item_number, product_url, mfg_number,
