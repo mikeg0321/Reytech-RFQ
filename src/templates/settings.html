@@ -476,7 +476,7 @@ loadHealth();
    <span style="font-size:12px;color:var(--tx2)">Light version — just clears the processed list</span>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-   <a href="/api/admin/backup-now" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2);min-width:220px;text-align:center;text-decoration:none">💾 Backup to Drive Now</a>
+   <button type="button" onclick="if(confirm('Trigger a manual backup now?')){fetch('/api/admin/backup-now',{method:'POST',credentials:'same-origin'}).then(r=>r.json()).then(d=>alert(d.ok===false?('Backup failed: '+(d.error||'unknown')):('Backup triggered: '+JSON.stringify(d)))).catch(e=>alert('Backup request failed: '+e));}" class="btn btn-sm" style="font-size:13px;padding:8px 16px;background:rgba(63,185,80,.1);color:#3fb950;border:1px solid rgba(63,185,80,.2);min-width:220px;text-align:center;cursor:pointer">💾 Backup to Drive Now</button>
    <span style="font-size:12px;color:var(--tx2)">Manual Google Drive backup</span>
   </div>
  </div>
