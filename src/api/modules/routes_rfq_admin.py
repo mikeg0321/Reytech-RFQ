@@ -432,8 +432,8 @@ def _build_default_signature():
   <td style="vertical-align:top;font-size:13px;color:#444;line-height:1.5">
    <strong style="font-size:14px;color:#1a1a2e">Michael Guadan</strong><br>
    <strong>Reytech Inc.</strong><br>
-   <a href="tel:9498728676" style="color:#2563eb;text-decoration:none">(949) 872-8676</a><br>
-   <a href="mailto:mike@reytechinc.com" style="color:#2563eb;text-decoration:none">mike@reytechinc.com</a><br>
+   <a href="tel:9492291575" style="color:#2563eb;text-decoration:none">(949) 229-1575</a><br>
+   <a href="mailto:sales@reytechinc.com" style="color:#2563eb;text-decoration:none">sales@reytechinc.com</a><br>
    DVBE / Small Business Certified<br>
    <a href="https://www.reytechinc.com" style="color:#2563eb;text-decoration:none">www.reytechinc.com</a>
   </td>

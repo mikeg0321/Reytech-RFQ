@@ -3362,7 +3362,7 @@ def api_expansion_outreach():
                 f"We serve multiple {agency_type} facilities and would like to introduce our services to {short}:\n\n"
                 f"{plines}\n\n"
                 f"We respond to AMS 704 price checks and offer competitive SCPRS pricing.\n\n"
-                f"Best regards,\nMike Guzman\nReytech Inc.\n(916) 995-4713 | mike@reytechinc.com\n"
+                f"Best regards,\nMichael Guadan\nReytech Inc.\n(949) 229-1575 | sales@reytechinc.com\n"
                 f"CA Certified Small Business | DVBE | SCPRS Supplier")
         try:
             from src.core.dal import get_outbox as _ob
