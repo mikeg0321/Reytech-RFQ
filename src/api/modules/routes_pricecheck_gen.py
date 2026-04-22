@@ -164,33 +164,36 @@ def api_bundle_send(bundle_id):
             + "\n\nThank you,\nReytech Inc."
         )
 
-        gmail_user = os.environ.get("GMAIL_ADDRESS", "")
-        gmail_pass = os.environ.get("GMAIL_PASSWORD", "")
-        if not gmail_user or not gmail_pass:
-            return jsonify({"ok": False, "error": "Gmail not configured"})
+        # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL
+        # + GMAIL_PASSWORD app-password. Same pattern as the IN-5 migration
+        # of send_quote_email in routes_analytics.py.)
+        from src.core import gmail_api
+        if not gmail_api.is_configured():
+            return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
 
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        from email.mime.base import MIMEBase
-        from email import encoders
-
-        msg = MIMEMultipart()
-        msg["From"] = f"Reytech Inc. <{gmail_user}>"
-        msg["To"] = to_email
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body_text, "plain"))
-
-        with open(bundle_pdf, "rb") as f:
-            part = MIMEBase("application", "pdf")
-            part.set_payload(f.read())
-            encoders.encode_base64(part)
-            part.add_header("Content-Disposition", f'attachment; filename="{attach_name}"')
-            msg.attach(part)
-
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(gmail_user, gmail_pass)
-            server.sendmail(gmail_user, [to_email], msg.as_string())
+        # gmail_api.send_message derives the attachment filename from
+        # os.path.basename(path). The bundle PDF on disk has an internal
+        # name (e.g. bundle_<id>.pdf); we want the buyer to see the
+        # Reytech-branded attach_name. Copy to a temp file with the
+        # desired filename before sending.
+        import shutil, tempfile
+        tmp_dir = tempfile.mkdtemp(prefix="bundle_send_")
+        named_pdf = os.path.join(tmp_dir, attach_name)
+        try:
+            shutil.copy(bundle_pdf, named_pdf)
+            service = gmail_api.get_send_service()
+            gmail_api.send_message(
+                service,
+                to=to_email,
+                subject=subject,
+                body_plain=body_text,
+                attachments=[named_pdf],
+            )
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception as _cleanup_err:
+                log.debug("bundle send tmpdir cleanup: %s", _cleanup_err)
 
         # Mark all PCs as sent
         now_iso = datetime.now().isoformat()
