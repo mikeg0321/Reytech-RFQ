@@ -312,9 +312,14 @@ def format_report_email(report):
         html += '<tr style="color:#8b949e;border-bottom:1px solid #30363d"><th style="text-align:left;padding:4px">Category</th><th>Samples</th><th>Win Rate</th><th>Avg Win Margin</th><th>Max Markup</th><th>Why</th></tr>'
         for c in cals:
             wr_color = "#3fb950" if c["win_rate"] >= 70 else ("#d29922" if c["win_rate"] >= 40 else "#f85149")
+            # IN-20: losses_price fallback was dead — report["calibrations"]
+            # builder at ~line 181 always sets losses_total explicitly, so the
+            # c.get("losses_price", 0) branch can never fire. Removing the
+            # fallback lets a real schema change surface loudly instead of
+            # silently masking a rename regression.
             why = _calibration_why(
                 wins=c.get("wins", 0),
-                losses_total=c.get("losses_total", c.get("losses_price", 0)),
+                losses_total=c.get("losses_total", 0),
                 win_rate=c["win_rate"],
             )
             html += f'<tr style="border-bottom:1px solid #21262d"><td style="padding:4px;color:#e6edf3;text-transform:capitalize">{c["category"]}</td><td style="color:#8b949e">{c["samples"]}</td><td style="color:{wr_color};font-weight:600">{c["win_rate"]}%</td><td style="color:#8b949e">{c["avg_win_margin"]}%</td><td style="color:#58a6ff;font-weight:600">{c["rec_max_markup"]}%</td><td style="color:#8b949e;font-size:11px">{why}</td></tr>'

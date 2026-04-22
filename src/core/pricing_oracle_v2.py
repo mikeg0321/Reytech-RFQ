@@ -2046,7 +2046,15 @@ def buyer_win_probability(institution: str, markup_pct: float,
     if curve is None and db is not None:
         curve = _fit_buyer_curve(db, institution)
     if curve is None or curve.get("total_samples", 0) == 0:
-        return 0.5  # uninformed prior
+        # IN-19: flat 0.5 prior makes EV = markup * 0.5 a strictly increasing
+        # function of markup, so the optimizer always rides to markup_max for
+        # unknown buyers — the opposite of Reytech's competitive posture.
+        # Use a monotone decreasing prior so EV has an interior optimum:
+        # P(win) = 0.85 at 0% markup, decaying linearly to 0.30 at max.
+        # With that prior, EV = markup * P(win) peaks in the middle of the
+        # range, which is a sane default for cold buyers.
+        m = max(0.0, min(float(markup_pct), float(_CURVE_MARKUP_MAX)))
+        return 0.85 - (0.55 * m / float(_CURVE_MARKUP_MAX))
 
     buckets = curve.get("buckets") or []
     if not buckets:
