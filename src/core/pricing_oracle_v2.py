@@ -590,6 +590,53 @@ def _analyze_market_prices(market_prices, request_qty):
 _DOLLAR_FLOOR_DEFAULT = 3.0
 
 
+def _apply_win_probability(result, agency, _db):
+    """Enrich `result` with P(win) evaluated at the FINAL recommended markup.
+
+    The buyer_curve block (when present) reports P(win) at the EV-optimal
+    markup — but the actual shipped markup_pct may differ after ceiling,
+    floor, dollar-floor, and win-anchor adjustments. This helper evaluates
+    `buyer_win_probability` at the *final* markup so the UI can surface
+    the probability the quote we're about to send will actually win.
+
+    Runs AFTER _apply_dollar_floor so it sees the bumped markup_pct.
+    Falls through silently when the markup is missing or the curve lookup
+    raises — the result just lacks the key, never dies.
+    """
+    try:
+        from src.core.flags import get_flag
+        if not get_flag("oracle.win_probability_in_result", True):
+            return result
+    except Exception:
+        pass
+    try:
+        markup = result.get("markup_pct")
+        if markup is None:
+            return result
+        # Pass the buyer_curve back through (already fetched upstream) so
+        # this helper doesn't re-hit the DB. When absent, buyer_win_probability
+        # still works via the cold-start prior (0.85 decaying to 0.30).
+        cached = None
+        bc = result.get("buyer_curve") or {}
+        buckets = bc.get("buckets") or []
+        ts = bc.get("total_samples", 0)
+        if buckets and ts > 0:
+            won = bc.get("won", 0)
+            cached = {
+                "buckets": buckets,
+                "total_samples": ts,
+                "won": won,
+                "lost": bc.get("lost", 0),
+                "global_win_rate": (won / ts) if ts > 0 else 0.0,
+            }
+        p = buyer_win_probability(agency or "", float(markup),
+                                   db=_db, _curve=cached)
+        result["win_probability"] = round(float(p), 3)
+    except Exception as e:
+        log.debug("win_probability enrich skipped: %s", e)
+    return result
+
+
 def _apply_dollar_floor(result, cost, qty):
     """Bump quote_price up so the line clears a minimum gross-profit floor in
     absolute dollars. No-op when cost/qty are unusable or the line already
@@ -802,6 +849,7 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
         result.update({"quote_price": ceiling, "markup_pct": round(ceiling_m, 1), "confidence": "high",
                        "rationale": f"Won {win_times}x at ${ceiling:.2f} ({ceiling_m:.0f}% on ${cost:.2f})"})
         _apply_dollar_floor(result, cost, qty)
+        _apply_win_probability(result, agency, _db)
         return result
 
     # Phase B: Volume-Aware band (agency × qty_bucket historical median margin).
@@ -934,6 +982,7 @@ def _calculate_recommendation(cost, market, quantity, category=None, agency=None
         result["data_confidence"] = "blind"
         result["rationale"] = "No data. Manual research needed."
     _apply_dollar_floor(result, cost, qty)
+    _apply_win_probability(result, agency, _db)
     return result
 
 
