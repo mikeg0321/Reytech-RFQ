@@ -3489,7 +3489,8 @@ def record_won_price(product_name: str, price: float, agency: str = "",
 def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                    sell_price: float = 0, supplier_url: str = "", supplier_name: str = "",
                    uom: str = "EA", manufacturer: str = "", mfg_number: str = "",
-                   photo_url: str = "", source: str = "price_check") -> Optional[int]:
+                   photo_url: str = "", source: str = "price_check",
+                   is_test: int = 0) -> Optional[int]:
     """
     Add a NEW product to the catalog from a Price Check line item.
     This is the critical growth mechanism — every sourced item enriches the catalog.
@@ -3617,14 +3618,14 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
                 price_strategy, manufacturer, mfg_number, photo_url,
                 best_cost, best_supplier,
                 times_quoted, times_won, times_lost, win_rate,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_at, updated_at, is_test
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (name, part_number, description, category, "Non-Inventory", uom,
               sell_price, cost, margin_pct, search_tokens,
               strategy, manufacturer, mfg_number, photo_url,
               cost if cost > 0 else None, supplier_name or None,
               1, 0, 0, 0,  # times_quoted=1, haven't won/lost yet
-              now, now))
+              now, now, int(bool(is_test))))
 
         pid = cursor.lastrowid
 
@@ -3675,6 +3676,10 @@ def save_pc_items_to_catalog(pc: dict) -> dict:
     init_catalog_db()
     result = {"added": 0, "existing": 0, "skipped": 0}
 
+    # RE-AUDIT-4: propagate is_test from source PC so test rows don't pollute
+    # the smart_search / _smart_rank pool used for live quoting.
+    pc_is_test = int(bool(pc.get("is_test")))
+
     for item in pc.get("items", []):
         desc = (item.get("description") or "").strip()
         pn = str(item.get("item_number") or "").strip()
@@ -3713,7 +3718,8 @@ def save_pc_items_to_catalog(pc: dict) -> dict:
                 mfg_number=_mfg,
                 photo_url=item.get("photo_url", ""),
                 manufacturer=item.get("manufacturer", ""),
-                source="price_check"
+                source="price_check",
+                is_test=pc_is_test,
             )
             if pid and _supplier and cost:
                 add_supplier_price(pid, _supplier, float(cost), url=link)
@@ -3743,6 +3749,9 @@ def record_outcome_to_catalog(pc: dict, outcome: str = "won",
     items = pc.get("items", [])
     agency = pc.get("institution", "") or pc.get("agency", "")
     quote_num = pc.get("reytech_quote_number", "") or pc.get("pc_number", "")
+    # RE-AUDIT-4: propagate is_test from PC so test wins/losses don't seed
+    # production catalog rows through the outcome feedback path.
+    pc_is_test = int(bool(pc.get("is_test")))
 
     for item in items:
         if item.get("no_bid"):
@@ -3764,7 +3773,8 @@ def record_outcome_to_catalog(pc: dict, outcome: str = "won",
                 description=desc, part_number=pn,
                 cost=float(unit_cost) if unit_cost else 0,
                 sell_price=float(unit_price) if unit_price else 0,
-                supplier_url=link, source=f"pc_{outcome}"
+                supplier_url=link, source=f"pc_{outcome}",
+                is_test=pc_is_test,
             )
             if pid and outcome == "won":
                 # Mark the new product as having 1 win
