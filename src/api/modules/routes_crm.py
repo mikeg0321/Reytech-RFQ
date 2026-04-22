@@ -3442,12 +3442,21 @@ def api_expansion_outreach():
             # CR-4: go through the DAL instead of loading the full outbox
             # and rewriting outbox.json raw. The previous path both bypassed
             # DB persistence and race-stomped concurrent writers.
+            # CR-4b: upsert_outbox_email only persists columns in its
+            # INSERT list, so `facility`/`agency_type` at the top level
+            # get silently dropped. Nest them into `metadata` per the
+            # existing pattern (routes_crm.py:1897, 1909).
             from src.core.dal import upsert_outbox_email as _upsert_ob
             draft = {
                 "id": f"draft-expand-{int(__import__('time').time())}",
                 "to": contact_email, "subject": f"Reytech Inc — Medical Supplies for {short}",
                 "body": body, "status": "draft", "type": "expansion_outreach",
-                "facility": facility_name, "created_at": datetime.now().isoformat(),
+                "created_at": datetime.now().isoformat(),
+                "metadata": {
+                    "facility": facility_name,
+                    "agency_type": agency_type,
+                    "pc_id": results.get("pc_id", ""),
+                },
             }
             _upsert_ob(draft)
             results["email_drafted"] = True; results["email_to"] = contact_email
