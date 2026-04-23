@@ -792,11 +792,112 @@ def api_pricecheck_mark_sent(pcid):
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
     
-    log.info("PC %s marked SENT: pc#=%s institution=%s doc_id=%s", 
+    log.info("PC %s marked SENT: pc#=%s institution=%s doc_id=%s",
              pcid, pc.get("pc_number"), pc.get("institution"), doc_id)
-    return jsonify({"ok": True, "status": "sent", "sent_at": now, 
+    return jsonify({"ok": True, "status": "sent", "sent_at": now,
                     "doc_id": doc_id,
                     "doc_url": f"/pricecheck/{pcid}/document/{doc_id}" if doc_id else ""})
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Manual mark-as-sent for PCs (Bundle-5 PR-5b, audit AA 2026-04-22).
+# Parallel to /api/rfq/<rid>/mark-sent-manually. Accepts multipart with
+# an attachment the operator actually sent; stamps manual_sent metadata;
+# fires Drive + lifecycle + activity hooks. See routes_rfq_admin.py for
+# rationale.
+# ═══════════════════════════════════════════════════════════════════════
+
+
+@bp.route("/api/pricecheck/<pcid>/mark-sent-manually", methods=["POST"])
+@auth_required
+@safe_route
+def api_pricecheck_mark_sent_manually(pcid):
+    """Mark PC as sent when operator emailed it outside the app's Send flow."""
+    pcs = _load_price_checks()
+    if pcid not in pcs:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+    pc = pcs[pcid]
+
+    is_multipart = (request.content_type or "").startswith("multipart/")
+    if is_multipart:
+        payload = request.form.to_dict()
+        uploaded = request.files.get("attachment")
+    else:
+        payload = request.get_json(force=True, silent=True) or {}
+        uploaded = None
+
+    now_iso = datetime.now().isoformat()
+    sent_to = (payload.get("sent_to")
+               or pc.get("requestor_email") or pc.get("requestor") or "").strip()
+    sent_at = (payload.get("sent_at") or now_iso).strip()
+    notes = (payload.get("notes") or "").strip()
+
+    # Save attachment under uploads/manual_sent/pc_<id>/
+    attachment = {}
+    if uploaded and getattr(uploaded, "filename", ""):
+        fname = os.path.basename(uploaded.filename)
+        fname = re.sub(r"[\\\\/]", "_", fname)[:200] or "attachment.pdf"
+        dest_dir = os.path.join(DATA_DIR, "uploads", "manual_sent", pcid)
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            dest = os.path.join(dest_dir, fname)
+            uploaded.save(dest)
+            attachment = {"filename": fname, "path": dest,
+                          "size": os.path.getsize(dest)}
+        except OSError as _e:
+            log.error("PC manual-sent attachment save failed: %s", _e)
+
+    old_status = pc.get("status", "")
+    _transition_status(pc, "sent", actor="user",
+                       notes=notes or "Marked sent manually (out-of-band)")
+    pc["sent_at"] = sent_at
+    pc["sent_to"] = sent_to
+    pc["sent_method"] = "manual"
+    pc["manual_sent_metadata"] = {
+        "marked_at": now_iso,
+        "sent_at_reported": sent_at,
+        "sent_to": sent_to,
+        "actor": "user",
+        "notes": notes,
+        "attachment": attachment or None,
+        "prior_status": old_status,
+    }
+
+    _save_single_pc(pcid, pc)
+    try:
+        from src.core.dal import save_pc as _dal_save_pc
+        _dal_save_pc(pc)
+    except Exception as _e:
+        log.debug("DAL save_pc (manual sent) suppressed: %s", _e)
+
+    # On-sent hooks, each wrapped so one failure can't block the flip.
+    try:
+        _log_crm_activity(pc.get("reytech_quote_number", pcid),
+                          "quote_sent_manually",
+                          f"Quote for PC #{pc.get('pc_number','')} marked sent manually"
+                          + (f" to {sent_to}" if sent_to else ""),
+                          actor="user")
+    except Exception as _e:
+        log.debug("_log_crm_activity (manual sent) suppressed: %s", _e)
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("pc", pcid, "quote_sent_manual",
+                            f"Marked sent manually to {sent_to or '—'}"
+                            + (f" · {notes}" if notes else ""),
+                            actor="user")
+    except Exception as _e:
+        log.debug("log_lifecycle_event(pc sent manual) suppressed: %s", _e)
+
+    log.info("PC %s marked SENT manually: sent_to=%s attachment=%s prior=%s",
+             pcid, sent_to, bool(attachment), old_status)
+    return jsonify({
+        "ok": True,
+        "status": "sent",
+        "sent_at": sent_at,
+        "sent_to": sent_to,
+        "attachment": attachment or None,
+        "prior_status": old_status,
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════

@@ -206,6 +206,156 @@ def rfq_update_status(rid):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Manual mark-as-sent — escape valve for out-of-band submissions
+# (Bundle-5 PR-5b, audit AA 2026-04-22).
+#
+# When the operator emails a quote outside the app (manual Gmail, merged
+# PDF attached by hand — see scripts/merge_rfq_package_10840486.py), the
+# in-app send path never fires and the record stays in status=generated
+# forever. This endpoint is the explicit "I sent this myself" escape
+# hatch: stamps the same metadata an in-app send would, uploads the
+# attachment the operator actually sent (so the record reflects reality
+# rather than the app's stale auto-generated PDF), and fires the on_sent
+# hooks (Drive archive + lifecycle log + activity log).
+#
+# NOT called automatically — operator must click the "Mark Sent Manually"
+# button on RFQ detail. Double-click is idempotent: resending to status=sent
+# a record already at sent overwrites the manual metadata but never
+# re-fires Drive uploads (the hook no-ops when re-run).
+# ═══════════════════════════════════════════════════════════════════════
+
+
+def _save_manual_attachment(rid: str, file_storage) -> dict:
+    """Persist an uploaded attachment into `uploads/manual_sent/` and return
+    `{filename, path, size}`. Returns {} on no-file or save failure."""
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return {}
+    fname = os.path.basename(file_storage.filename)
+    # Strip path traversal; keep spaces and extensions.
+    fname = re.sub(r"[\\\\/]", "_", fname)[:200] or "attachment.pdf"
+    dest_dir = os.path.join(UPLOAD_DIR, "manual_sent", rid)
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, fname)
+        file_storage.save(dest)
+        return {
+            "filename": fname,
+            "path": dest,
+            "size": os.path.getsize(dest),
+        }
+    except OSError as e:
+        log.error("manual-sent attachment save failed for %s: %s", rid, e)
+        return {}
+
+
+@bp.route("/api/rfq/<rid>/mark-sent-manually", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_mark_sent_manually(rid):
+    """Mark RFQ as sent when the operator emailed it outside the app.
+
+    Accepts multipart form data OR JSON:
+      sent_to       — recipient email (defaults to buyer email on record)
+      sent_at       — ISO datetime (defaults to now)
+      notes         — freeform note saved to activity log
+      attachment    — file operator actually sent (stored under
+                      uploads/manual_sent/<rid>/)
+
+    Writes: status=sent, sent_at, sent_to, sent_method="manual",
+            manual_sent_metadata={source, attachment, actor, timestamp}.
+    Fires: Drive archive hook, lifecycle event, CRM activity entry.
+    """
+    from src.api.data_layer import load_rfqs, _save_single_rfq
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    # Multipart form for attachment uploads; JSON for attachment-less
+    # callers. Request.form covers both when multipart is the content type.
+    is_multipart = (request.content_type or "").startswith("multipart/")
+    if is_multipart:
+        payload = request.form.to_dict()
+        uploaded = request.files.get("attachment")
+    else:
+        payload = request.get_json(force=True, silent=True) or {}
+        uploaded = None
+
+    now_iso = datetime.now().isoformat()
+    sent_to = (payload.get("sent_to") or r.get("requestor_email", "") or "").strip()
+    sent_at = (payload.get("sent_at") or now_iso).strip()
+    notes = (payload.get("notes") or "").strip()
+
+    attachment = _save_manual_attachment(rid, uploaded)
+
+    old_status = r.get("status", "")
+    from src.api.modules.routes_rfq import _transition_status
+    _transition_status(r, "sent", actor="user",
+                       notes=notes or "Marked sent manually (out-of-band)")
+    r["sent_at"] = sent_at
+    r["sent_to"] = sent_to
+    r["sent_method"] = "manual"
+    r["manual_sent_metadata"] = {
+        "marked_at": now_iso,
+        "sent_at_reported": sent_at,
+        "sent_to": sent_to,
+        "actor": "user",
+        "notes": notes,
+        "attachment": attachment or None,
+        "prior_status": old_status,
+    }
+
+    # Persist — JSON + SQLite (via _save_single_rfq) + DAL update so every
+    # consumer sees the flip. Mirror the defensive pattern used elsewhere in
+    # this module: DAL errors are logged, not raised — the JSON write is
+    # still considered authoritative.
+    _save_single_rfq(rid, r)
+    try:
+        from src.core.dal import update_rfq_status
+        update_rfq_status(rid, "sent", actor="user")
+    except Exception as _e:
+        log.debug("DAL update_rfq_status(sent) suppressed: %s", _e)
+
+    # Fire on_sent hooks. Each wrapped so one failure cannot block the
+    # mark-sent flip — the status write is the source of truth; hooks are
+    # best-effort archive/log side-effects.
+    try:
+        from src.agents.drive_triggers import on_quote_sent
+        on_quote_sent(r, email_body=notes, to_email=sent_to)
+    except Exception as _e:
+        log.debug("on_quote_sent suppressed: %s", _e)
+    try:
+        from src.core.dal import log_lifecycle_event
+        log_lifecycle_event("rfq", rid, "package_sent_manual",
+                            f"Marked sent manually to {sent_to or '—'}"
+                            + (f" · {notes}" if notes else ""),
+                            actor="user")
+    except Exception as _e:
+        log.debug("log_lifecycle_event(rfq sent manual) suppressed: %s", _e)
+    try:
+        _log_rfq_activity(rid, "sent_manually",
+                          f"RFQ #{r.get('solicitation_number','?')} marked sent manually"
+                          + (f" (attachment: {attachment.get('filename')})" if attachment else ""),
+                          actor="user",
+                          metadata={"sent_to": sent_to, "sent_at": sent_at,
+                                    "attachment": bool(attachment),
+                                    "prior_status": old_status})
+    except Exception as _e:
+        log.debug("_log_rfq_activity(sent_manually) suppressed: %s", _e)
+
+    log.info("RFQ %s marked SENT manually: sent_to=%s attachment=%s prior=%s",
+             rid, sent_to, bool(attachment), old_status)
+    return jsonify({
+        "ok": True,
+        "status": "sent",
+        "sent_at": sent_at,
+        "sent_to": sent_to,
+        "attachment": attachment or None,
+        "prior_status": old_status,
+    })
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # RFQ Activity Log
 # ═══════════════════════════════════════════════════════════════════════
 
