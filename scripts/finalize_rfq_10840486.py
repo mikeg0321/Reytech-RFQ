@@ -119,18 +119,24 @@ def _regenerate_quote(r, output_dir):
     )
     print(f"[QUOTE NUMBER] reusing existing: {existing_qn}")
 
-    # Build quote_data explicitly — no resolver, no facility lookup.
+    # Build quote_data explicitly. "To" and "Ship to" must be IDENTICAL per
+    # Mike's rule — same institution name both columns. We previously kept
+    # them different to dodge the resolver-overwrite at quote_generator.py:908
+    # (which triggers when ship_name == to_name). But that branch only runs
+    # when `ship_to` OR `delivery_location` is present in quote_data. By
+    # OMITTING both keys from the dict, _ship_to_raw resolves to "" and the
+    # resolver-overwrite short-circuits harmlessly — keeping ship_to_name as
+    # we set it regardless of equality with institution.
     quote_data = {
-        # institution != ship_to_name → resolver-overwrite skipped
-        "institution": "Dept. of Corrections and Rehabilitation",
+        "institution": OVERRIDES["ship_to_name"],             # same as ship_to
         "ship_to_name": OVERRIDES["ship_to_name"],
         "ship_to_address": list(OVERRIDES["ship_to_address"]),
         "to_address": list(OVERRIDES["ship_to_address"]),
-        # Buyer's solicitation number
+        # NO "ship_to" / "delivery_location" keys — starves the resolver
+        # branch and keeps the names identical.
         "rfq_number": SOL,
         "source_rfq_id": r.get("id", RID),
         "requestor_email": r.get("requestor_email", ""),
-        # Line items from the RFQ — quote generator normalizes each item
         "line_items": list(r.get("line_items", []) or []),
     }
 
