@@ -911,6 +911,53 @@ def fill_704b(input_path, rfq_data, config, output_path):
     print(f"  ✓ 704B filled + signed — ${merchandise_subtotal:,.2f}")
 
 
+_LPA_PRICE_KEYS = (
+    "unit_price", "bid_price", "our_price",
+    "price_per_unit", "price", "sell_price",
+    "supplier_cost",  # last-resort — vendor cost is NOT sell price, but better than $0
+)
+
+
+def _lpa_item_price(item: dict) -> float:
+    """Pull a per-unit sell price from a line item dict, tolerating every
+    historical/parallel key this codebase uses. Returns 0.0 if none set.
+
+    System-level audit E fix: the gap test showed fill_cchcs_it_rfq
+    produced $0.00 because the record's line_items use `price_per_unit`
+    (set by Quote Model V2) while the original fallback only looked at
+    unit_price/bid_price/our_price. This tuple is the canonical order —
+    copy it anywhere line-item price is consumed if this list grows.
+    """
+    for k in _LPA_PRICE_KEYS:
+        v = item.get(k)
+        if v is None:
+            continue
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if fv > 0:
+            return fv
+    return 0.0
+
+
+def _us_date(raw: str) -> str:
+    """Normalize any date-ish string to US m/d/yyyy form. Used on LPA
+    `before` field (quote due date) which the north star has as `4/22/2026`
+    but the RFQ record stores as ISO `2026-04-22`. Gap-report audit C."""
+    if not raw or not isinstance(raw, str):
+        return raw or ""
+    raw = raw.strip()
+    from datetime import datetime as _dt
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y"):
+        try:
+            d = _dt.strptime(raw, fmt)
+            return f"{d.month}/{d.day}/{d.year}"
+        except ValueError:
+            continue
+    return raw  # unrecognized — leave alone
+
+
 def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
     """Fill the CCHCS LPA IT Goods & Services RFQ template (shape=cchcs_it_rfq).
 
@@ -923,6 +970,13 @@ def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
     routes_rfq_gen.py when the uploaded "703b" slot actually carries an
     LPA IT RFQ template (detected by fingerprint, see _is_cchcs_it_rfq
     below). Closes audit item M — PR #238's deferred fill-engine wiring.
+
+    PR-A polish (2026-04-23 gap report vs north star fixture):
+      E. Price-key fallback — pulls from price_per_unit / bid_price /
+         unit_price / our_price etc. so V2 records don't produce $0.00.
+      B. State / Zip short fields (Text7 / Text8) populated from
+         profile defaults (CA / 92679).
+      C. Due date normalized to US m/d/yyyy before writing `before` field.
     """
     import os as _os
     from src.forms.profile_registry import load_profile, PROFILES_DIR
@@ -946,31 +1000,35 @@ def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
     semantic_values = dict(profile.defaults or {})
 
     # Header (buyer-issued — usually preserved when template comes pre-populated,
-    # but fill defensively in case the buyer sent a fresh blank).
+    # but fill defensively in case the buyer sent a fresh blank). PR-A C: due
+    # date rendered as US m/d/yyyy to match north-star `before` field.
     semantic_values.setdefault(
         "header.solicitation_number",
         _sol_display(rfq_data.get("solicitation_number", "")),
     )
-    semantic_values.setdefault("header.due_date", rfq_data.get("due_date", ""))
+    semantic_values.setdefault(
+        "header.due_date",
+        _us_date(rfq_data.get("due_date", "")),
+    )
 
-    # Signature / cert dates
-    semantic_values["vendor.signature_date"] = sign_date
-    semantic_values["vendor.cert_date"] = sign_date
-    semantic_values["genai.sign_date"] = sign_date
+    # Signature / cert dates — sign_date is already PST-local US format.
+    semantic_values["vendor.signature_date"] = _us_date(sign_date)
+    semantic_values["vendor.cert_date"] = _us_date(sign_date)
+    semantic_values["genai.sign_date"] = _us_date(sign_date)
 
     # SB/DVBE expiration comes from config/cert registry, not hardcoded defaults
     try:
         _cert_exp = (config.get("company", {}) or {}).get("cert_expiration", "")
         if _cert_exp:
-            semantic_values["cert.sb_dvbe_expiration"] = _cert_exp
+            semantic_values["cert.sb_dvbe_expiration"] = _us_date(_cert_exp)
     except Exception as _e:
         log.debug("cert_expiration lookup failed: %s", _e)
 
-    # Totals from line items + tax_rate on the record
+    # Totals — PR-A E price-key fallback via _lpa_item_price.
     subtotal = 0.0
     for li in line_items:
         qty = float(li.get("qty") or 1)
-        up = float(li.get("unit_price") or li.get("bid_price") or li.get("our_price") or 0)
+        up = _lpa_item_price(li)
         subtotal += qty * up
     tax_pct = float(rfq_data.get("tax_rate", 0) or 0)
     tax_decimal = tax_pct / 100.0 if tax_pct > 1 else tax_pct  # tolerate 7.75 or 0.0775
@@ -990,11 +1048,33 @@ def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
         if fm and fm.pdf_field:
             pdf_values[fm.pdf_field] = val
 
+    # PR-A B: Supplier State/Zip short fields on the LPA (Text7 / Text8).
+    # North star has these populated; the yaml mapping doesn't reach them
+    # because the genai.supplier_state/zip fields target "AMS 708 ..." which
+    # are absent from many LPA variants. Force-set the plain Text7/Text8
+    # AcroForm fields here so every LPA variant gets state/zip.
+    vendor = (config.get("company", {}) or {}) if isinstance(config, dict) else {}
+    _state = "CA"  # Reytech HQ is California — invariant for this business.
+    _zip = ""
+    # Parse zip from company.address (e.g., "30 Carnoustie Way Trabuco Canyon CA 92679").
+    try:
+        import re as _re
+        addr = vendor.get("address", "") or "30 Carnoustie Way Trabuco Canyon CA 92679"
+        m = _re.search(r"\b(\d{5})\b", addr)
+        if m:
+            _zip = m.group(1)
+    except Exception:
+        _zip = "92679"  # Reytech HQ default
+    if not _zip:
+        _zip = "92679"
+    pdf_values.setdefault("Text7", _state)
+    pdf_values.setdefault("Text8", _zip)
+
     # Row expansion (items[n].* — yaml pattern "Item Description{n}" etc).
     for idx, item in enumerate(line_items, start=1):
         row_map = profile.get_row_fields(idx, page=1)
         qty = item.get("qty") or 1
-        up = float(item.get("unit_price") or item.get("bid_price") or item.get("our_price") or 0)
+        up = _lpa_item_price(item)
         ext = float(qty) * up
         row_values = {
             f"items[{idx}].description": item.get("description", "") or item.get("name", ""),
@@ -1010,33 +1090,74 @@ def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
                 pdf_values[pdf_name] = val
 
     print(f"  cchcs_it_rfq: {len(pdf_values)} fields resolved from profile"
-          f" ({n_items} line items)")
+          f" ({n_items} line items, subtotal=${subtotal:,.2f})")
 
     fill_and_sign_pdf(input_path, pdf_values, output_path, sign_date=sign_date)
     print(f"  ✓ CCHCS IT RFQ filled + signed — ${total:,.2f}")
 
 
+_LPA_PAGE1_MARKERS = (
+    "Request For Quotation",
+    "IT Goods and Services",
+    "LPA #",
+    "LPA IT Goods",
+)
+
+
+def _lpa_page1_text_signal(pdf_path):
+    """Return True when page 1 text contains LPA IT RFQ header markers.
+
+    Mike's 2026-04-23 directive: 'visual page 1 check will tell you 100%'.
+    Some buyer variants strip AcroForm fields (flattened PDFs) or rename
+    them, defeating fingerprint detection. Page-1 text headers are
+    printed content — survive flattening and variant remapping."""
+    try:
+        import pdfplumber as _pp
+        with _pp.open(pdf_path) as _p:
+            if not _p.pages:
+                return False
+            t = (_p.pages[0].extract_text() or "")
+    except Exception as _e:
+        log.debug("LPA page1 text read failed for %s: %s", pdf_path, _e)
+        return False
+    return any(m in t for m in _LPA_PAGE1_MARKERS)
+
+
+def _lpa_filename_signal(pdf_path):
+    """Filename hint — supplementary signal, not authoritative alone.
+    Buyers often name the file `RFQ <sol>.pdf` or `CCHCS_IT_RFQ_*.pdf`."""
+    import os as _os
+    _n = _os.path.basename(pdf_path or "").lower()
+    return any(m in _n for m in ("rfq_", "rfq ", "cchcs_it", "lpa_", "it_goods"))
+
+
 def _is_cchcs_it_rfq(pdf_path):
     """Return True when the uploaded 703b-slot template is actually a CCHCS
-    LPA IT Goods RFQ (different form, different field namespace).
-
-    Checked via AcroForm fingerprint — the LPA template uses "Supplier Name" /
-    "Supplier Address 1" etc., while true 703B uses "Business Name" / "Address"
-    (with or without 703B_ prefix). Fingerprint is the authoritative signal;
-    filename is untrustworthy because buyers sometimes email an LPA PDF named
-    "703B.pdf" or similar.
+    LPA IT Goods RFQ. Combines three independent signals per Mike 2026-04-23:
+    AcroForm field markers, page-1 header text, and filename pattern. ANY
+    one is sufficient (text is the most reliable because it survives
+    flattening). No single signal is required — defends against template
+    variants that strip fields, rename fields, or are renamed by the sender.
     """
     try:
         _reader = PdfReader(pdf_path)
         _fields = set((_reader.get_fields() or {}).keys())
     except Exception as _e:
         log.debug("cchcs_it_rfq fingerprint read failed for %s: %s", pdf_path, _e)
-        return False
-    # Any one of these fields is a strong LPA signal. "Supplier Address 1" is
-    # the most unique — no other CA state form uses that specific label.
+        _fields = set()
+
+    # Field-marker signal (the strongest when fields survive).
     _lpa_markers = {"Supplier Address 1", "Supplier Address 2", "Supplier Email",
                     "Item Description1", "Extension TotalSubtotal"}
-    return bool(_fields & _lpa_markers)
+    field_signal = bool(_fields & _lpa_markers)
+
+    # Page-1 text signal (survives flattening — Mike's 100% visual check).
+    text_signal = _lpa_page1_text_signal(pdf_path)
+
+    # Filename signal (supplementary).
+    name_signal = _lpa_filename_signal(pdf_path)
+
+    return field_signal or text_signal or name_signal
 
 
 def _classify_703b_slot_template(pdf_path):
@@ -1044,24 +1165,29 @@ def _classify_703b_slot_template(pdf_path):
 
     Returns one of: "cchcs_it_rfq", "703b", "703c", "unknown".
 
-    Per Mike's directive (2026-04-22 Q7): only fill forms we have a profile
-    for; nothing should be a surprise. An unrecognized template must be
-    surfaced for manual profile registration, not blind-filled with
-    703B field names that don't exist on it (which is the exact bug that
-    made RFQ 10840486 fill mostly-blank — audit item M).
+    Signals (Mike 2026-04-23):
+      1. AcroForm field names (strongest when fields survive)
+      2. Page-1 header text ("Request For Quotation / IT Goods and Services")
+      3. Filename pattern
+    Any single signal is enough for LPA detection. 703B/703C still require
+    field-name match because their distinguishing text is too generic.
+    Unknown templates surface for manual profile registration — never
+    blind-fill (Q7 directive, audit M root cause).
     """
     try:
         _reader = PdfReader(pdf_path)
         _fields = set((_reader.get_fields() or {}).keys())
     except Exception as _e:
         log.debug("703b-slot classifier read failed for %s: %s", pdf_path, _e)
-        return "unknown"
+        _fields = set()
+
+    # LPA IT RFQ — any one of three signals.
+    if _is_cchcs_it_rfq(pdf_path):
+        return "cchcs_it_rfq"
+
     if not _fields:
         return "unknown"
-    # LPA IT RFQ markers (most specific).
-    if _fields & {"Supplier Address 1", "Supplier Address 2", "Supplier Email",
-                  "Item Description1", "Extension TotalSubtotal"}:
-        return "cchcs_it_rfq"
+
     # 703C markers — see form_classifier.get_field_prefix / detect_field_prefix.
     try:
         from src.forms.form_classifier import detect_field_prefix
