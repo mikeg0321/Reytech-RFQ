@@ -1433,8 +1433,26 @@ def generate_rfq_package(rid):
         try:
             from src.core.agency_config import match_agency
             _agency_key, _agency_cfg = match_agency(r)
-            _req_forms = set(_agency_cfg.get("required_forms", []))
+            _req_forms_raw = list(_agency_cfg.get("required_forms", []))
             _opt_forms = set(_agency_cfg.get("optional_forms", []))
+            # Narrow by classifier shape + uploaded templates: an LPA /
+            # generic / email-only RFQ from a packet-agency must not require
+            # 703B/704B/bidpkg the buyer never sent. Unknown shape falls back
+            # to "uploaded only" so a manual-upload record with no stored
+            # classification still behaves correctly.
+            from src.core.request_classifier import filter_required_forms_by_shape
+            _rfq_shape = ((r.get("_classification") or {}).get("shape") or "")
+            _uploaded_tmpls = [
+                _k for _k, _v in (tmpl or {}).items()
+                if _v and os.path.exists(str(_v))
+            ]
+            _req_forms_filtered = filter_required_forms_by_shape(
+                _req_forms_raw, _rfq_shape, uploaded_templates=_uploaded_tmpls,
+            )
+            _req_forms = set(_req_forms_filtered)
+            _dropped = set(_req_forms_raw) - _req_forms
+            if _dropped:
+                t.step(f"Dropped non-applicable forms for shape={_rfq_shape or 'unknown'}: {', '.join(sorted(_dropped))}")
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")

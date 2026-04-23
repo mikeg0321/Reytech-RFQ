@@ -61,6 +61,67 @@ ALL_SHAPES = {
 }
 
 
+# Buyer-supplied templates: the operator can only fill these if the BUYER
+# sent one. Agency config may list them as required, but they only actually
+# apply when the classifier shape indicates the buyer included them. An LPA
+# IT Goods RFQ (shape=email_only / generic_rfq_pdf / generic_rfq_docx) from
+# CCHCS must NOT require 703B/704B/bidpkg just because the agency is cchcs —
+# the buyer never sent those templates, so Reytech has nothing to fill.
+BUYER_TEMPLATE_FORMS = frozenset({"703b", "703c", "704b", "bidpkg"})
+
+# Which buyer-template forms each shape legitimately requires. A shape not
+# listed here falls into the "unknown/permissive" bucket — don't strip.
+_SHAPE_BUYER_TEMPLATE_REQUIREMENTS: Dict[str, frozenset] = {
+    SHAPE_CCHCS_PACKET: frozenset({"703b", "703c", "704b", "bidpkg"}),
+    SHAPE_PC_704_DOCX: frozenset({"704b"}),
+    SHAPE_PC_704_PDF_DOCUSIGN: frozenset({"704b"}),
+    SHAPE_PC_704_PDF_FILLABLE: frozenset({"704b"}),
+    SHAPE_GENERIC_RFQ_XLSX: frozenset(),
+    SHAPE_GENERIC_RFQ_PDF: frozenset(),
+    SHAPE_GENERIC_RFQ_DOCX: frozenset(),
+    SHAPE_EMAIL_ONLY: frozenset(),
+}
+
+
+def filter_required_forms_by_shape(required_forms, shape, uploaded_templates=None):
+    """Narrow agency-level required_forms to what actually applies for this shape.
+
+    Buyer-template forms (703B/703C/704B/bidpkg) survive the filter only when:
+      1. the classifier shape indicates the buyer sent that template, OR
+      2. the operator has explicitly uploaded a matching template for this record.
+
+    Non-buyer-template forms (quote, sellers_permit, std204, dvbe843, etc.)
+    always pass through — they are Reytech-supplied and unrelated to shape.
+
+    Unknown or missing shapes fall back to "uploaded only" for buyer templates,
+    so a manually-created record without stored classification still behaves
+    correctly: don't require a 704B unless the operator uploaded one.
+
+    Returns a new list preserving input order.
+    """
+    if not required_forms:
+        return []
+    uploaded = {str(k).lower() for k in (uploaded_templates or ())}
+    shape_allowed = _SHAPE_BUYER_TEMPLATE_REQUIREMENTS.get(shape or "")
+    # 703B and 703C are interchangeable — uploading either satisfies both.
+    if "703b" in uploaded or "703c" in uploaded:
+        uploaded.update({"703b", "703c"})
+    out = []
+    for f in required_forms:
+        fl = str(f).lower()
+        if fl not in BUYER_TEMPLATE_FORMS:
+            out.append(f)
+            continue
+        if shape_allowed is None:
+            # Unknown shape → only require if operator uploaded this template.
+            if fl in uploaded:
+                out.append(f)
+            continue
+        if fl in shape_allowed or fl in uploaded:
+            out.append(f)
+    return out
+
+
 # ── Data model ───────────────────────────────────────────────────────────
 
 @dataclass
@@ -341,8 +402,19 @@ def classify_request(
         from src.core.agency_config import DEFAULT_AGENCY_CONFIGS
         cfg = DEFAULT_AGENCY_CONFIGS.get(result.agency, {})
         result.agency_name = cfg.get("name", "")
-        result.required_forms = list(cfg.get("required_forms", []))
+        raw_required = list(cfg.get("required_forms", []))
+        # Narrow by classifier shape: an LPA / generic / email-only RFQ from a
+        # packet-agency must not require 703B/704B/bidpkg that the buyer never
+        # sent. See BUYER_TEMPLATE_FORMS + _SHAPE_BUYER_TEMPLATE_REQUIREMENTS.
+        result.required_forms = filter_required_forms_by_shape(
+            raw_required, result.shape
+        )
         result.optional_forms = list(cfg.get("optional_forms", []))
+        if len(result.required_forms) != len(raw_required):
+            _dropped = set(raw_required) - set(result.required_forms)
+            result.reasons.append(
+                f"required_forms: dropped {sorted(_dropped)} — not applicable to shape={result.shape}"
+            )
     except Exception as e:
         log.debug("agency_config lookup failed: %s", e)
 
