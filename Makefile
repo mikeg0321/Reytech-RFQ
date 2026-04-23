@@ -11,7 +11,7 @@
 # Direct deploy (legacy, use only when branch protection is not yet enabled):
 #   make deploy                         # test + check + push main
 
-.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds await-idle run-backfill-sent-status
+.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds await-idle run-backfill-sent-status run-backfill-unit-price
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
@@ -158,6 +158,15 @@ run-backfill-sent-status:  ## Backfill sent-status for stuck PCs/RFQs. Dry-run b
 	else \
 		echo "DRY-RUN (pass apply=1 to commit)"; \
 		python scripts/backfill_sent_status.py $(if $(db),--db $(db),) $(if $(only),--only $(only),); \
+	fi
+
+run-backfill-unit-price:  ## Heal stale unit_price on PC/RFQ line items (PC-1). Dry-run by default; apply=1 to commit.
+	@if [ "$(apply)" = "1" ]; then \
+		echo "APPLY mode — will heal stale unit_price in $(or $(db),/data/reytech.db)"; \
+		python scripts/backfill_unit_price.py --apply $(if $(db),--db $(db),) $(if $(only),--only $(only),); \
+	else \
+		echo "DRY-RUN (pass apply=1 to commit)"; \
+		python scripts/backfill_unit_price.py $(if $(db),--db $(db),) $(if $(only),--only $(only),); \
 	fi
 
 ship: check  ## Push branch + create PR (auto=1 to auto-merge; serial=1 to wait for Railway idle first)

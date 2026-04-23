@@ -1800,7 +1800,7 @@ def _validate_item_field(field_type, val):
 
 
 def _recompute_unit_price(item: dict) -> None:
-    """Re-derive unit_price from cost × (1 + markup_pct/100).
+    """Re-derive unit_price from cost × (1 + markup_pct/100), in-place.
 
     Called after cost or markup edits so persisted `unit_price` +
     `pricing.recommended_price` stay in sync with what the UI renders
@@ -1808,26 +1808,28 @@ def _recompute_unit_price(item: dict) -> None:
     `unit_price` and ship the wrong price to the customer (incident
     2026-04-21: pc_f7ba7a6b Cortech mattress, $558.48 shipped vs
     $567.79 displayed).
+
+    Delegates to `src.core.pricing_math.canonical_unit_price` so every
+    read + write path uses the same derivation rule. The canonical
+    helper returns 0 when cost or markup is missing; we check the same
+    cost+markup presence locally to decide whether to overwrite the
+    persisted `unit_price` (since `canonical_unit_price` would fall
+    back to the existing `unit_price` in that case, making the write
+    a no-op that still shows intent-to-heal).
     """
-    p = item.get("pricing") or {}
-    try:
-        cost = p.get("unit_cost")
-        if cost is None:
-            cost = item.get("vendor_cost")
-        markup = p.get("markup_pct")
-        if markup is None:
-            markup = item.get("markup_pct")
-        if cost is None or markup is None:
-            return
-        cost_f = float(cost)
-        markup_f = float(markup)
-        if cost_f <= 0:
-            return
-        new_price = round(cost_f * (1 + markup_f / 100.0), 2)
-        item["unit_price"] = new_price
-        item["pricing"]["recommended_price"] = new_price
-    except (TypeError, ValueError):
+    from src.core.pricing_math import canonical_unit_price, _coerce_float
+    p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
+    cost = _coerce_float(item.get("vendor_cost")) or _coerce_float(p.get("unit_cost"))
+    markup = _coerce_float(item.get("markup_pct"))
+    if markup is None:
+        markup = _coerce_float(p.get("markup_pct"))
+    if cost is None or markup is None or cost <= 0:
+        return  # leave the persisted price alone if we can't derive
+    new_price = canonical_unit_price(item)
+    if new_price <= 0:
         return
+    item["unit_price"] = new_price
+    item.setdefault("pricing", {})["recommended_price"] = new_price
 
 
 def _do_save_prices(pcid):

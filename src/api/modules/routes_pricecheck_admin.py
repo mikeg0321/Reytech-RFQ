@@ -5376,17 +5376,23 @@ def _resolve_buyer_name(pc, buyer_email):
 
 
 def _build_item_summary(pc, max_items=5):
-    """Build a short text summary of quote line items for email body."""
+    """Build a short text summary of quote line items for email body.
+
+    Reads the price via canonical_unit_price so the number the buyer
+    sees in the email body matches the number the UI displays (cost ×
+    (1 + markup/100)). Before PC-1 fix, this function read
+    item['unit_price'] first, which was stale on records saved before
+    PR #321 — the email body undercharged by up to $9/unit while the UI
+    looked correct.
+    """
+    from src.core.pricing_math import canonical_unit_price
     items = pc.get("items", [])
     lines = []
     for it in items[:max_items]:
         if it.get("no_bid"):
             continue
         desc = (it.get("description") or "")[:50]
-        price = it.get("unit_price") or 0
-        if not price:
-            pricing = it.get("pricing") or {}
-            price = pricing.get("recommended_price") or pricing.get("bid_price") or 0
+        price = canonical_unit_price(it)
         qty = it.get("qty", 1)
         if desc:
             try:
