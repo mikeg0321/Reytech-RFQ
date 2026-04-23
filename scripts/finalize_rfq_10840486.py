@@ -101,22 +101,42 @@ def _regenerate_quote(r, output_dir):
     directly. This is also why institution != ship_to_name: the resolver-
     overwrite at quote_generator.py:908 triggers when `ship_name == to_name`,
     and we set them different so it stays skipped.
+
+    REUSE existing quote_number. Re-running this script must NOT allocate a
+    new sequential number on every regen (ghost counter bumps). Pull the
+    already-assigned number from the record; if none, fall back to the one
+    written on the CORRECTED PDF; else the first hard-coded R26Q37 from
+    the original 04/22 generate-package run. Counter is NOT advanced.
     """
     from src.forms import quote_generator
     out_path = os.path.join(output_dir, f"{SOL}_Quote_Reytech_CORRECTED.pdf")
 
-    # Build quote_data explicitly — no resolver, no facility lookup.
+    existing_qn = (
+        r.get("quote_number")
+        or r.get("last_quote_number")
+        or r.get("generated_quote_number")
+        or "R26Q37"  # original allocated for this RFQ per 2026-04-23 04:07 logs
+    )
+    print(f"[QUOTE NUMBER] reusing existing: {existing_qn}")
+
+    # Build quote_data explicitly. "To" and "Ship to" must be IDENTICAL per
+    # Mike's rule — same institution name both columns. We previously kept
+    # them different to dodge the resolver-overwrite at quote_generator.py:908
+    # (which triggers when ship_name == to_name). But that branch only runs
+    # when `ship_to` OR `delivery_location` is present in quote_data. By
+    # OMITTING both keys from the dict, _ship_to_raw resolves to "" and the
+    # resolver-overwrite short-circuits harmlessly — keeping ship_to_name as
+    # we set it regardless of equality with institution.
     quote_data = {
-        # institution != ship_to_name → resolver-overwrite skipped
-        "institution": "Dept. of Corrections and Rehabilitation",
+        "institution": OVERRIDES["ship_to_name"],             # same as ship_to
         "ship_to_name": OVERRIDES["ship_to_name"],
         "ship_to_address": list(OVERRIDES["ship_to_address"]),
         "to_address": list(OVERRIDES["ship_to_address"]),
-        # Buyer's solicitation number
+        # NO "ship_to" / "delivery_location" keys — starves the resolver
+        # branch and keeps the names identical.
         "rfq_number": SOL,
         "source_rfq_id": r.get("id", RID),
         "requestor_email": r.get("requestor_email", ""),
-        # Line items from the RFQ — quote generator normalizes each item
         "line_items": list(r.get("line_items", []) or []),
     }
 
@@ -127,9 +147,26 @@ def _regenerate_quote(r, output_dir):
         quote_data,
         output_path=out_path,
         agency="CCHCS",
+        quote_number=existing_qn,   # reuse — do NOT allocate new
         tax_rate=tax_decimal,
         shipping=0.0,
     )
+
+    # Rollback the counter if earlier runs of this script allocated ghost
+    # numbers (R26Q38/39/40 while the real quote is R26Q37). Parse the
+    # sequence from the reused quote_number and set the stored counter
+    # back to it. Max-jump guard in set_quote_counter will accept rollbacks
+    # because the jump is negative.
+    try:
+        import re as _re
+        m = _re.search(r'R\d{2}Q(\d+)', existing_qn)
+        if m:
+            seq = int(m.group(1))
+            quote_generator.set_quote_counter(seq=seq, year=datetime.now().year)
+            print(f"[COUNTER] reset to seq={seq} (next real quote = R{datetime.now().year%100}Q{seq+1})")
+    except Exception as _ce:
+        print(f"[COUNTER] rollback skipped: {_ce}")
+
     return out_path, result
 
 
