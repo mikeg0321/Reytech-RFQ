@@ -96,6 +96,10 @@ def normalize_queue_item(raw, queue_type, item_id):
         # the UI flags the 2:00 PM default via "_time_explicit=False".
         "_hours_left": raw.get("_hours_left"),
         "_time_explicit": bool(raw.get("due_time")),
+        # PR #429/#430/#432 + 2026-04-22 incident: a default-stamped deadline
+        # is a guess, not a fact. UI must distinguish `default` from `email`
+        # or `header` so operators don't treat 10+ "2d left" defaults as real.
+        "due_date_source": (raw.get("due_date_source") or "").lower(),
         "item_count": _item_count(raw, queue_type),
         "_readiness": raw.get("_readiness", {}),
         "quote_number": quote_number,

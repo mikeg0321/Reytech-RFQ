@@ -96,6 +96,11 @@
      {% if r.due_date %}
       {% if r.due_time %}<span style="font-size:12px;color:var(--tx2);margin-left:4px">{{ r.due_time }}</span>
       {% else %}<span title="No explicit close time — defaulting urgency to 2 PM PST" style="display:inline-block;margin-left:4px;font-size:10px;padding:1px 5px;border-radius:8px;background:rgba(230,167,0,.14);color:#e6a700;border:1px solid rgba(230,167,0,.35);font-weight:700;letter-spacing:.3px">&#9888; 2 PM?</span>{% endif %}
+      {# ⚠ DEFAULT badge: the due date itself is a fallback guess (2 biz days
+         from ingest), not a parsed buyer deadline. Without this badge 10+
+         records all stamped "2d left" look identical to real deadlines —
+         operator has no way to know which are fact vs. placeholder. #}
+      {% if r.due_date_source == 'default' %}<span title="Deadline defaulted to ~2 business days from ingest — no real due date found in header or email body. Verify before ranking urgency." style="display:inline-block;margin-left:4px;font-size:10px;padding:1px 5px;border-radius:8px;background:rgba(240,136,62,.14);color:#f0883e;border:1px solid rgba(240,136,62,.45);font-weight:700;letter-spacing:.3px">&#9888; DEFAULT</span>{% endif %}
      {% endif %}
      {% if r._hours_left is not none and r._hours_left <= 24 %}
       <div style="font-size:13px;font-weight:600;color:{% if r._hours_left < 0 %}#f85149{% elif r._hours_left <= 4 %}#f0883e{% else %}#e6a700{% endif %}">

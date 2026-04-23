@@ -343,7 +343,8 @@ function uploadDoc(e){
       document.getElementById('triage-next-up-title').textContent = (nu.doc_type||'').toUpperCase() + ' #' + (nu.pc_number||'');
       document.getElementById('triage-next-up-meta').textContent = nu.institution || '';
       var timeEl = document.getElementById('triage-next-up-time');
-      timeEl.textContent = fmtTime(nu.hours_left);
+      timeEl.innerHTML = esc(fmtTime(nu.hours_left))
+        + (nu.due_date_source === 'default' ? ' <span title="Deadline is a 2-biz-day default, not a parsed buyer date. Verify before trusting urgency." style="display:inline-block;margin-left:6px;font-size:10px;padding:1px 6px;border-radius:8px;background:rgba(240,136,62,.18);color:#f0883e;border:1px solid rgba(240,136,62,.5);font-weight:700;letter-spacing:.3px;vertical-align:middle">&#9888; DEFAULT</span>' : '');
       timeEl.style.color = c;
       document.getElementById('triage-next-up-items').textContent = (nu.item_count || 0) + ' items';
       document.getElementById('triage-next-up-loe').textContent = '~' + (nu.loe_text || '?');
@@ -362,9 +363,11 @@ function uploadDoc(e){
       var html = '';
       d.queue.slice(0, 12).forEach(function(q){
         var col = urgencyColor(q.hours_left, q.loe_minutes);
-        html += '<a href="' + esc(q.url) + '" style="display:grid;grid-template-columns:100px 1fr 90px 80px 100px;gap:12px;padding:8px 4px;border-bottom:1px solid rgba(139,148,158,.08);text-decoration:none;color:var(--tx);font-size:13px;align-items:center" '
+        var timeCell = '<span style="color:' + col + ';font-weight:600;font-variant-numeric:tabular-nums">' + fmtTime(q.hours_left) + '</span>'
+          + (q.due_date_source === 'default' ? ' <span title="Default deadline — not parsed from buyer data" style="display:inline-block;margin-left:4px;font-size:9px;padding:0 4px;border-radius:6px;background:rgba(240,136,62,.15);color:#f0883e;border:1px solid rgba(240,136,62,.4);font-weight:700;letter-spacing:.2px;vertical-align:middle">&#9888;</span>' : '');
+        html += '<a href="' + esc(q.url) + '" style="display:grid;grid-template-columns:120px 1fr 90px 80px 100px;gap:12px;padding:8px 4px;border-bottom:1px solid rgba(139,148,158,.08);text-decoration:none;color:var(--tx);font-size:13px;align-items:center" '
           + 'onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
-          + '<span style="color:' + col + ';font-weight:600;font-variant-numeric:tabular-nums">' + fmtTime(q.hours_left) + '</span>'
+          + timeCell
           + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>' + esc((q.doc_type||'').toUpperCase()) + ' #' + esc(q.pc_number) + '</b> · <span style="color:var(--tx2)">' + esc(q.institution || '') + '</span></span>'
           + '<span style="color:var(--tx2);text-align:right">' + (q.item_count||0) + ' items</span>'
           + '<span style="color:var(--tx2);text-align:right">~' + esc(q.loe_text || '?') + '</span>'
