@@ -102,8 +102,12 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
             result["sources_used"].append(name)
     result["source_counts"] = source_counts
 
-    # Step 4: Analyze market
-    result["market"] = _analyze_market_prices(market_prices, quantity)
+    # Step 4: Analyze market.
+    # Pass `target_quantity=quantity` so the aggregator can downweight
+    # rows whose own qty differs by more than 10x — state buyers get
+    # bulk pricing on qty=500 that doesn't apply to a 2-unit RFQ.
+    result["market"] = _analyze_market_prices(market_prices, quantity,
+                                              target_quantity=quantity)
 
     # Step 5: Competitors (BUILD-8: scoped to the quoting agency first,
     # falls back to global when the per-agency slice is too thin).
@@ -300,7 +304,7 @@ def _search_won_quotes(db, description, item_number=""):
             params.append(item_number.lower())
         rows = db.execute(f"""
             SELECT description, unit_price, quantity, supplier, department,
-                   award_date, category, confidence
+                   award_date, category, confidence, po_number
             FROM won_quotes WHERE {where} ORDER BY award_date DESC LIMIT 20
         """, params).fetchall()
         for r in rows:
@@ -312,6 +316,8 @@ def _search_won_quotes(db, description, item_number=""):
                 per_unit = _scprs_per_unit(p, qty)
                 prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "supplier": r[3] or "", "department": r[4] or "",
+                               "date": r[5] or "",
+                               "po_number": r[8] or "",
                                "source": "won_quotes",
                                "is_reytech": "REYTECH" in (r[3] or "").upper()})
     except Exception as e:
@@ -435,7 +441,8 @@ def _search_po_lines(db, description, item_number=""):
         where = " AND ".join(where_parts)
         rows = db.execute(f"""
             SELECT l.description, l.unit_price, l.quantity, l.uom,
-                   m.supplier, m.dept_name, m.start_date, m.buyer_email
+                   m.supplier, m.dept_name, m.start_date, m.buyer_email,
+                   l.po_number
             FROM scprs_po_lines l JOIN scprs_po_master m ON l.po_number=m.po_number
             WHERE {where} ORDER BY m.start_date DESC LIMIT 25
         """, params).fetchall()
@@ -452,6 +459,7 @@ def _search_po_lines(db, description, item_number=""):
                                "quantity": qty, "uom": r[3] or "",
                                "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "buyer_email": r[7] or "",
+                               "po_number": r[8] or "",
                                "source": "scprs_po_lines",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
     except Exception as e:
@@ -532,12 +540,29 @@ def _normalize_to_per_unit(price, description, quantity=1, uom=""):
             "detected": detected, "original_price": price}
 
 
-def _analyze_market_prices(market_prices, request_qty):
-    """Time-weighted market analysis with proper UOM normalization."""
+def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
+    """Time-weighted market analysis with proper UOM normalization.
+
+    target_quantity (optional): the quote line's quantity. When provided,
+    rows whose own quantity differs by more than 10x get heavily
+    downweighted (×0.2) and tagged `qty_band_match=False` — they remain
+    visible as reference data but no longer dominate the average.
+
+    Returns the same shape as before plus:
+      - `samples`: top 10 contributing rows (sorted by weight desc) with
+        full source detail (po_number, description, supplier, date, qty,
+        unit_price, weight, qty_band_match, source).
+      - `qty_band_downweighted`: count of rows downweighted by qty band.
+    """
     if not market_prices:
-        return {"data_points": 0, "freshness": "none"}
+        return {"data_points": 0, "freshness": "none", "samples": []}
     now = datetime.now()
+    try:
+        target_q = float(target_quantity) if target_quantity is not None else None
+    except (TypeError, ValueError):
+        target_q = None
     weighted = []
+    qty_band_downweighted = 0
     for mp in market_prices:
         price = mp.get("price", 0)
         if not price or price <= 0:
@@ -567,11 +592,36 @@ def _analyze_market_prices(market_prices, request_qty):
                     break
                 except (ValueError, TypeError):
                     continue
+        # Qty-band downweight: state buyers at qty=500 get bulk pricing
+        # that doesn't apply to a 2-unit RFQ. When the row's own quantity
+        # is more than 10x larger or smaller than ours, it's the wrong
+        # tier — keep it visible (reference) but stop letting it dominate
+        # the weighted average.
+        qty_band_match = None
+        if target_q and target_q > 0:
+            try:
+                row_q = float(mp.get("quantity") or 1) or 1
+            except (TypeError, ValueError):
+                row_q = 1
+            if row_q > 0:
+                ratio = max(row_q, target_q) / min(row_q, target_q)
+                if ratio > 10:
+                    weight *= 0.2
+                    qty_band_match = False
+                    qty_band_downweighted += 1
+                else:
+                    qty_band_match = True
         weighted.append({"price": per_unit, "raw_price": price,
                          "total_units": norm["total_units"], "pack_detected": norm["detected"],
                          "weight": round(weight, 4), "supplier": mp.get("supplier", ""),
                          "date": date_str, "is_reytech": mp.get("is_reytech", False),
-                         "source": mp.get("source", "")})
+                         "source": mp.get("source", ""),
+                         "po_number": mp.get("po_number", ""),
+                         "description": mp.get("description", ""),
+                         "quantity": mp.get("quantity", 1),
+                         "uom": mp.get("uom", ""),
+                         "department": mp.get("department", ""),
+                         "qty_band_match": qty_band_match})
 
     # Outlier removal: median-based clustering
     # Problem: $652/case and $8/box are in different UOMs.
@@ -610,6 +660,27 @@ def _analyze_market_prices(market_prices, request_qty):
     best_w = max(w["weight"] for w in weighted)
     freshness = "stale" if best_w < 0.3 else ("aging" if best_w < 0.5 else "fresh")
     all_p = [w["price"] for w in weighted]
+    # Top 10 contributing samples by weight, projected to a UI-friendly
+    # shape. Operator clicks the row to drill into these — each sample
+    # carries enough provenance (po_number, supplier, qty, date) to
+    # verify the comp on caleprocure manually.
+    samples = sorted(weighted, key=lambda w: -w["weight"])[:10]
+    samples_out = [{
+        "source": s["source"],
+        "po_number": s.get("po_number", ""),
+        "description": (s.get("description") or "")[:140],
+        "quantity": s.get("quantity"),
+        "uom": s.get("uom", ""),
+        "unit_price": round(s["price"], 4),
+        "raw_price": round(s["raw_price"], 4),
+        "supplier": s.get("supplier", ""),
+        "department": s.get("department", ""),
+        "date": s.get("date", ""),
+        "weight": s["weight"],
+        "qty_band_match": s.get("qty_band_match"),
+        "is_reytech": s.get("is_reytech", False),
+        "pack_detected": s.get("pack_detected", ""),
+    } for s in samples]
     return {
         "data_points": len(weighted), "freshness": freshness,
         "weighted_avg": round(wavg, 4) if wavg else None,
@@ -620,6 +691,9 @@ def _analyze_market_prices(market_prices, request_qty):
         "competitor_high": round(comp_high, 4) if comp_high else None,
         "unique_suppliers": len(set(w["supplier"] for w in weighted if w["supplier"])),
         "normalization": "All prices normalized to per-unit",
+        "samples": samples_out,
+        "qty_band_downweighted": qty_band_downweighted,
+        "target_quantity": target_q,
     }
 
 

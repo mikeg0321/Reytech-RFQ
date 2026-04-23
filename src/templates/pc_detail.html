@@ -2293,6 +2293,16 @@
       if(ab)ab.style.display='none';
     }
 
+    // Quote-analysis row drill-down: show the SCPRS / won-quote rows
+    // that produced the SCPRS Avg + Comp Low for the clicked line.
+    function toggleQaSamples(idx){
+      var row=document.querySelector('tr[data-qa-samples="'+idx+'"]');
+      var caret=document.getElementById('qa_caret_'+idx);
+      if(!row)return;
+      var open=row.style.display==='none';
+      row.style.display=open?'':'none';
+      if(caret)caret.textContent=open?'▾':'▸';
+    }
     function runQuoteAnalysis() {
      var btn=document.getElementById('quoteAnalysisBtn');
      var panel=document.getElementById('quote-analysis-panel');
@@ -2324,12 +2334,31 @@
       // Item breakdown
       if(d.items&&d.items.length){
         html+='<div style="border-top:1px solid #30363d;padding-top:10px;margin-top:4px">';
-        html+='<table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.3px"><th style="text-align:left;padding:4px 6px">#</th><th style="text-align:left;padding:4px 6px">Description</th><th style="text-align:right;padding:4px 6px">Your Price</th><th style="text-align:right;padding:4px 6px">SCPRS Avg</th><th style="text-align:right;padding:4px 6px">Comp Low</th><th style="text-align:center;padding:4px 6px">Status</th><th style="text-align:right;padding:4px 6px">Markup</th></tr>';
-        d.items.forEach(function(it){
+        html+='<div style="font-size:11px;color:#8b949e;margin-bottom:6px">Click a row to see the SCPRS / won-quote rows that produced the average. PO# links open the SCPRS public search so you can verify each comp.</div>';
+        html+='<table style="width:100%;font-size:12px;border-collapse:collapse" data-testid="quote-analysis-table"><tr style="color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:.3px"><th style="width:18px"></th><th style="text-align:left;padding:4px 6px">#</th><th style="text-align:left;padding:4px 6px">Description</th><th style="text-align:right;padding:4px 6px">Your Price</th><th style="text-align:right;padding:4px 6px">SCPRS Avg</th><th style="text-align:right;padding:4px 6px">Comp Low</th><th style="text-align:center;padding:4px 6px">Status</th><th style="text-align:right;padding:4px 6px">Markup</th></tr>';
+        d.items.forEach(function(it,_i){
           var statusColor=it.status==='competitive'?'#3fb950':it.status==='at_risk'?'#f85149':'#8b949e';
           var statusLabel=it.status==='competitive'?'✓ Competitive':it.status==='at_risk'?'⚠ Above Market':'— No Data';
           var desc=it.description||'';if(desc.length>40)desc=desc.substring(0,37)+'...';
-          html+='<tr style="border-top:1px solid #21262d"><td style="padding:4px 6px;color:#8b949e">'+it.line_num+'</td><td style="padding:4px 6px;color:#c9d1d9" title="'+(it.description||'').replace(/"/g,'&quot;')+'">'+desc+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#e6edf3">'+_p(it.your_price)+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#58a6ff">'+(it.scprs_avg?_p(it.scprs_avg):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#f0883e">'+(it.comp_low?_p(it.comp_low):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:center;color:'+statusColor+';font-size:11px">'+statusLabel+'</td><td style="padding:4px 6px;text-align:right;color:#8b949e">'+(it.markup_pct!=null?it.markup_pct.toFixed(0)+'%':'—')+'</td></tr>';
+          var hasSamples=(it.samples&&it.samples.length);
+          var caret=hasSamples?'<span id="qa_caret_'+_i+'" style="color:#58a6ff;font-family:monospace">▸</span>':'<span style="color:#484f58">·</span>';
+          var rowCursor=hasSamples?'cursor:pointer':'cursor:default';
+          html+='<tr data-qa-row="'+_i+'" style="border-top:1px solid #21262d;'+rowCursor+'" onclick="toggleQaSamples('+_i+')"><td style="padding:4px 6px;text-align:center">'+caret+'</td><td style="padding:4px 6px;color:#8b949e">'+it.line_num+'</td><td style="padding:4px 6px;color:#c9d1d9" title="'+(it.description||'').replace(/"/g,'&quot;')+'">'+desc+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#e6edf3">'+_p(it.your_price)+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#58a6ff">'+(it.scprs_avg?_p(it.scprs_avg):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#f0883e">'+(it.comp_low?_p(it.comp_low):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:center;color:'+statusColor+';font-size:11px">'+statusLabel+'</td><td style="padding:4px 6px;text-align:right;color:#8b949e">'+(it.markup_pct!=null?it.markup_pct.toFixed(0)+'%':'—')+'</td></tr>';
+          if(hasSamples){
+            html+='<tr data-qa-samples="'+_i+'" style="display:none;background:#161b22"><td colspan="8" style="padding:8px 12px"><div style="font-size:11px;color:#8b949e;margin-bottom:4px">Top '+it.samples.length+' contributing rows · target qty: <b>'+(it.target_quantity||1)+'</b>'+(it.qty_band_downweighted>0?' · <span style="color:#d29922">'+it.qty_band_downweighted+' rows downweighted (qty &gt;10× off target)</span>':'')+'</div>';
+            html+='<table style="width:100%;font-size:11px;border-collapse:collapse"><tr style="color:#8b949e;font-size:10px;text-transform:uppercase"><th style="text-align:left;padding:3px 4px">Source</th><th style="text-align:left;padding:3px 4px">Description</th><th style="text-align:right;padding:3px 4px">Qty</th><th style="text-align:right;padding:3px 4px">Unit $</th><th style="text-align:left;padding:3px 4px">Supplier</th><th style="text-align:left;padding:3px 4px">Date</th><th style="text-align:right;padding:3px 4px">Weight</th><th style="text-align:left;padding:3px 4px">PO# / Verify</th></tr>';
+            it.samples.forEach(function(s){
+              var srcColor=s.is_reytech?'#3fb950':s.source==='won_quotes'?'#58a6ff':s.source==='scprs_po_lines'?'#a5a5ff':s.source==='scprs_catalog'?'#d29922':'#8b949e';
+              var bandTag=s.qty_band_match===false?' <span title="Qty &gt;10× off target — downweighted to reference only" style="color:#d29922;font-size:10px">⚠ off-tier</span>':'';
+              var sdesc=(s.description||'').substring(0,60).replace(/</g,'&lt;');
+              var poLink='—';
+              if(s.po_number){
+                poLink='<a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" rel="noopener" title="Opens SCPRS public search — paste PO# to verify" style="color:#58a6ff;text-decoration:none;font-family:JetBrains Mono,monospace">'+s.po_number+' ↗</a>';
+              }
+              html+='<tr style="border-top:1px solid #21262d"><td style="padding:3px 4px;color:'+srcColor+';font-size:10px">'+(s.source||'')+'</td><td style="padding:3px 4px;color:#c9d1d9">'+sdesc+'</td><td style="padding:3px 4px;text-align:right;color:#8b949e;font-family:JetBrains Mono,monospace">'+(s.quantity!=null?s.quantity:'—')+bandTag+'</td><td style="padding:3px 4px;text-align:right;color:#e6edf3;font-family:JetBrains Mono,monospace">'+_p(s.unit_price)+'</td><td style="padding:3px 4px;color:#8b949e">'+(s.supplier||'').substring(0,30)+'</td><td style="padding:3px 4px;color:#8b949e;font-size:10px">'+(s.date||'')+'</td><td style="padding:3px 4px;text-align:right;color:#8b949e;font-family:JetBrains Mono,monospace;font-size:10px">'+(s.weight!=null?s.weight.toFixed(2):'')+'</td><td style="padding:3px 4px">'+poLink+'</td></tr>';
+            });
+            html+='</table></td></tr>';
+          }
         });
         html+='</table></div>';
       }
