@@ -1198,6 +1198,124 @@ def api_rfq_upload_manual():
     return jsonify(result.to_dict())
 
 
+@bp.route("/api/rfq/upload-preview", methods=["POST"])
+@auth_required
+@safe_route
+@rate_limit("heavy")
+def api_rfq_upload_preview():
+    """Preview an RFQ/PC upload WITHOUT creating any record.
+
+    Bundle-2 PR-2a (audit item B): the two-step ingest UI drops files
+    here first, renders the detected shape/agency/facility/deadline/
+    required-forms/line-items in an editable preview card, then on
+    operator confirm POSTs to `/api/rfq/upload-manual` for the real
+    create. Separating detect from create means:
+
+      - Bad parses don't pollute the queue with ghost records.
+      - Classifier-confidence-below-threshold can route into an
+        operator review lane (PR-2b) before a record is written.
+      - The facility resolver's pick is visible BEFORE anything
+        stamps "CSP-SAC → FSP" onto a quote PDF (audit item W).
+
+    Form fields mirror `/api/rfq/upload-manual`:
+      files (multi):   one or more PDFs
+      email_subject:   subject line
+      email_sender:    from-address
+      email_body:      plain-text body paste
+
+    Returns:
+      { ok, shape, agency, confidence, solicitation_number,
+        required_forms, primary_file, items[], items_parsed,
+        header{}, facility{code,name,agency,confidence,raw},
+        deadline{due_date,due_time,source},
+        warnings[], errors[], reasons[] }
+
+    Files are saved to a tempdir that is cleaned up on exit —
+    preview never persists anything to /data/uploads.
+    """
+    import re as _re_fn
+    import tempfile
+    import shutil
+
+    files = request.files.getlist("files")
+    if not files:
+        return jsonify({"ok": False, "error": "Drop at least one PDF."}), 400
+
+    tmp_dir = tempfile.mkdtemp(prefix="rfq_preview_")
+    saved_paths: list = []
+    try:
+        for idx, f in enumerate(files):
+            if not f or not f.filename:
+                continue
+            if not f.filename.lower().endswith(".pdf"):
+                return jsonify({
+                    "ok": False,
+                    "error": f"File {f.filename!r} is not a PDF.",
+                }), 400
+            safe_fn = _re_fn.sub(
+                r'[^a-zA-Z0-9._-]', '_', os.path.basename(f.filename)
+            )
+            dest = os.path.join(tmp_dir, f"{idx:02d}_{safe_fn}")
+            f.save(dest)
+            saved_paths.append(dest)
+
+        if not saved_paths:
+            return jsonify({"ok": False, "error": "No valid PDF uploads."}), 400
+
+        email_subject = (request.form.get("email_subject") or "").strip()
+        email_sender = (request.form.get("email_sender") or "").strip()
+        email_body = request.form.get("email_body") or ""
+
+        try:
+            from src.core.ingest_pipeline import preview_buyer_request
+        except Exception as e:
+            log.error("ingest_pipeline import failed: %s", e, exc_info=True)
+            return jsonify({
+                "ok": False,
+                "error": f"ingest pipeline unavailable: {e}",
+            }), 500
+
+        try:
+            preview = preview_buyer_request(
+                files=saved_paths,
+                email_body=email_body,
+                email_subject=email_subject,
+                email_sender=email_sender,
+            )
+        except Exception as e:
+            log.error("preview crashed: %s", e, exc_info=True)
+            return jsonify({
+                "ok": False,
+                "error": f"preview crashed: {e}",
+            }), 500
+
+        # Telemetry: same pattern as upload-manual so we can see how
+        # often preview fires vs. how often it converts to a real
+        # create via upload-manual.
+        try:
+            from src.core.utilization import record_feature_use
+            record_feature_use("rfq.upload_preview", context={
+                "files": len(saved_paths),
+                "agency": preview.get("agency", ""),
+                "shape": preview.get("shape", ""),
+                "confidence": preview.get("confidence", 0.0),
+                "items_parsed": preview.get("items_parsed", 0),
+                "has_facility": bool(preview.get("facility")),
+                "has_deadline": bool(preview.get("deadline")),
+                "ok": preview.get("ok", False),
+            })
+        except Exception as _e:
+            log.debug("preview telemetry suppressed: %s", _e)
+
+        return jsonify(preview)
+    finally:
+        # Preview never persists — always clean up the tempdir.
+        try:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        except Exception as _e:
+            log.debug("preview tempdir cleanup suppressed: %s", _e)
+
+
 @bp.route("/api/rfq/<rid>/upload-parse-doc", methods=["POST"])
 @auth_required
 @safe_route
