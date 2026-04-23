@@ -3094,6 +3094,13 @@ def api_pc_quote_analysis(pcid):
                 "status": status,
                 "markup_pct": round(mkp, 1) if mkp is not None else None,
                 "data_points": market.get("data_points", 0),
+                # Source drill-down: top contributing rows (qty, supplier,
+                # date, PO#). Lets the operator click into the row and see
+                # WHICH SCPRS records produced the average — and then
+                # paste the PO# into the SCPRS public search to verify.
+                "samples": market.get("samples", []),
+                "qty_band_downweighted": market.get("qty_band_downweighted", 0),
+                "target_quantity": qty,
             })
 
         total_items = len(analysis_items)
