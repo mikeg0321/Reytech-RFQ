@@ -122,6 +122,20 @@ def parse_identifiers(description):
     for m in re.finditer(r'\b(OD[\-]?\d{6,9})\b', desc_upper):
         supplier_skus.setdefault("officedepot", m.group(1))
 
+    # Walmart — explicit "Walmart #NNN..." / "WMT #NNN..." /
+    # walmart.com/ip/.../<id> URLs. Walmart's own item numbers are
+    # typically 8-10 digit numerics — not distinctive enough on their
+    # own to claim without a "Walmart" label nearby, so we only
+    # capture when the retailer name is explicit. Closes the SKU
+    # reverse-lookup plan's Walmart pattern gap (2026-04-23).
+    for m in re.finditer(r'(?:WALMART|WMT)\s*#?\s*:?\s*(\d{6,12})', desc_upper):
+        supplier_skus.setdefault("walmart", m.group(1))
+    for m in re.finditer(
+        r'walmart\.com/(?:ip|product)/[^/\s]+/(\d{6,12})',
+        desc, re.IGNORECASE,
+    ):
+        supplier_skus.setdefault("walmart", m.group(1))
+
     # Primary MFG number
     primary_mfg = ""
     if result["mfg_numbers"]:
