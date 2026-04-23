@@ -926,16 +926,34 @@ def generate_quote(
     # Stash the raw value as `_ship_to_raw_for_audit` on `quote_data`
     # so a future PR (1d) can persist it on the saved record for the
     # "what did the buyer literally type vs. what we shipped" audit.
+    # Bundle-1 PR-1d: always persist the buyer's literal ship-to text
+    # AND track resolver outcome for downstream audit / blocking. The
+    # resolution branch below is unchanged; the new bookkeeping is:
+    #   quote_data["ship_to_raw"]            — buyer's literal text
+    #   quote_data["ship_to_canonical_code"] — facility code or ""
+    #   quote_data["ship_to_resolved"]       — True iff registry hit
+    #   quote_data["ship_to_resolve_reason"] — slug from resolver
+    # Saved on the quote so a future "what did the buyer literally
+    # type vs what we shipped" audit doesn't lose the input.
     if not ship_name or ship_name == to_name:
         _ship_to_raw = quote_data.get(
             "ship_to", quote_data.get("delivery_location", "")
         )
+        # Always stash the literal input on the quote data, even when
+        # there's no facility match — operator-typed text is the audit
+        # trail of record.
+        quote_data["ship_to_raw"] = _ship_to_raw or ""
         if _ship_to_raw:
             try:
                 from src.core.facility_registry import (
                     resolve_with_reason as _resolve_facility,
                 )
                 _record, _reason = _resolve_facility(_ship_to_raw)
+                quote_data["ship_to_resolve_reason"] = _reason
+                quote_data["ship_to_resolved"] = bool(_record)
+                quote_data["ship_to_canonical_code"] = (
+                    _record.code if _record else ""
+                )
                 if _record:
                     # Use friendly short names for CalVet (legacy
                     # quote-PDF convention preserved).
@@ -968,8 +986,46 @@ def generate_quote(
                         "ship-to NOT resolved (%s): %r — using raw text",
                         _reason, _ship_to_raw[:80],
                     )
+                    # Bundle-1 PR-1d: optional hard-block. Flag-gated
+                    # so the first deploy is shadow-mode (default
+                    # False). Operator flips
+                    # `quote.block_unresolved_ship_to` via
+                    # /api/admin/flags after audit-log telemetry
+                    # confirms the resolver covers real traffic.
+                    # Skips when operator set ship_addr explicitly —
+                    # that's the escape hatch for non-canonical
+                    # delivery (satellite warehouses, one-off addresses).
+                    _operator_override = bool(
+                        ship_addr and ship_addr != to_addr
+                    )
+                    if not _operator_override:
+                        try:
+                            from src.core.flags import get_flag
+                            _block = bool(get_flag(
+                                "quote.block_unresolved_ship_to", False
+                            ))
+                        except Exception:
+                            _block = False
+                        if _block:
+                            raise ValueError(
+                                f"quote_generator: ship-to '{_ship_to_raw[:120]}' "
+                                f"did not resolve to a canonical facility "
+                                f"({_reason}); set quote.block_unresolved_ship_to "
+                                f"to False to allow raw-text fallback, or "
+                                f"set ship_to_address explicitly to override."
+                            )
+            except ValueError:
+                # Re-raise the explicit block — caller (route handler)
+                # converts to a 422 with the disambiguation prompt.
+                raise
             except Exception as _e:
                 log.debug("ship-to resolve crashed: %s", _e, exc_info=True)
+        else:
+            # Empty ship-to text. Mark unresolved + reason so a future
+            # admin view can spot quotes generated with no input data.
+            quote_data["ship_to_resolved"] = False
+            quote_data["ship_to_resolve_reason"] = "empty_input"
+            quote_data["ship_to_canonical_code"] = ""
 
     show_bill    = cfg["show_bill_to"]
     bill_name    = quote_data.get("bill_to_name", cfg.get("bill_to_name", ""))
