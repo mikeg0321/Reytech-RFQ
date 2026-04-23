@@ -39,6 +39,7 @@ log = logging.getLogger("reytech.classifier")
 # ── Shape taxonomy ────────────────────────────────────────────────────────
 
 SHAPE_CCHCS_PACKET = "cchcs_packet"            # 18-page CCHCS buyer-issued packet
+SHAPE_CCHCS_IT_RFQ = "cchcs_it_rfq"            # CCHCS LPA IT Goods & Services RFQ (Non-Cloud)
 SHAPE_PC_704_DOCX = "pc_704_docx"              # DOCX AMS 704 worksheet
 SHAPE_PC_704_PDF_DOCUSIGN = "pc_704_pdf_docusign"  # flat DocuSign PDF (overlay path)
 SHAPE_PC_704_PDF_FILLABLE = "pc_704_pdf_fillable"  # fillable PDF (form-field path)
@@ -50,6 +51,7 @@ SHAPE_UNKNOWN = "unknown"                      # cannot classify
 
 ALL_SHAPES = {
     SHAPE_CCHCS_PACKET,
+    SHAPE_CCHCS_IT_RFQ,
     SHAPE_PC_704_DOCX,
     SHAPE_PC_704_PDF_DOCUSIGN,
     SHAPE_PC_704_PDF_FILLABLE,
@@ -233,6 +235,26 @@ CCHCS_PACKET_FIELD_NAMES = {
     "Qty1", "SBMBDVBE Certification  if applicable",
 }
 
+# Strong "this is a CCHCS LPA IT Goods RFQ" signal — AcroForm field markers
+# unique to the LPA template (see `cchcs_it_rfq_reytech_standard.yaml` +
+# `fill_cchcs_it_rfq` dispatcher). Mutually exclusive with CCHCS_PACKET
+# because the LPA is a different form with different field naming.
+CCHCS_IT_RFQ_FIELD_NAMES = {
+    "Supplier Address 1", "Supplier Address 2", "Supplier Email",
+    "Extension TotalSubtotal", "Extension TotalSales Tax",
+    "AMS 708 GenAI No", "Item Description1",
+}
+
+# Body/subject keywords that flag an LPA IT RFQ (classifier Pass 1, per
+# feedback_ghost_record_heuristics "read email 3x" rule). At least one
+# pair of LPA-specific + agency-specific tokens should be present.
+CCHCS_IT_RFQ_BODY_PATTERNS = [
+    r"\bLPA\s*#",
+    r"LPA\s*IT\s*(?:Goods|Services)",
+    r"Request\s+For\s+Quotation.{0,40}IT\s*(?:Goods|Services)",
+    r"IT\s*Goods\s*and\s*Services",
+]
+
 # Strong "this is an AMS 704 worksheet" signals (text content)
 AMS_704_HEADLINE_PATTERNS = [
     r"PRICE\s+CHECK\s+WORKSHEET",
@@ -243,6 +265,17 @@ AMS_704_HEADLINE_PATTERNS = [
 # Strong "this is a DocuSign PDF" signal
 DOCUSIGN_PRODUCER = "docusign"
 DOCUSIGN_ENVELOPE_PATTERN = r"Docusign\s*Envelope\s*ID"
+
+
+def _has_lpa_body_signal(*text_blobs: str) -> bool:
+    """Return True if any blob contains an LPA IT RFQ keyword pattern."""
+    corpus = " ".join(t for t in text_blobs if t)
+    if not corpus:
+        return False
+    for pat in CCHCS_IT_RFQ_BODY_PATTERNS:
+        if re.search(pat, corpus, re.IGNORECASE):
+            return True
+    return False
 
 
 # ── Main entry point ─────────────────────────────────────────────────────
@@ -379,13 +412,16 @@ def classify_request(
         if re.search(rf"\b{re.escape(prefix)}\b", corpus):
             agency_matches.append(agency_key)
 
-    # Shape-implies-agency fallback: a CCHCS packet by definition IS
-    # a CCHCS request (no other agency uses the 18-page Non-Cloud
-    # packet format). This handles the case where the page-1 logo is
-    # an image and no text-based agency keyword matches.
+    # Shape-implies-agency fallback: a CCHCS packet / LPA IT RFQ by definition
+    # IS a CCHCS request (no other agency uses these form layouts). Handles
+    # the case where the page-1 logo is an image and no text-based agency
+    # keyword matches.
     if result.shape == SHAPE_CCHCS_PACKET and "cchcs" not in agency_matches:
         agency_matches.append("cchcs")
         result.reasons.append("agency: cchcs (implied by cchcs_packet shape)")
+    if result.shape == SHAPE_CCHCS_IT_RFQ and "cchcs" not in agency_matches:
+        agency_matches.append("cchcs")
+        result.reasons.append("agency: cchcs (implied by cchcs_it_rfq shape)")
 
     # Pick most-specific match: Barstow > CalVet > CCHCS > DSH > DGS
     if agency_matches:
@@ -483,8 +519,13 @@ def _classify_pdf(path: str) -> Tuple[str, Dict[str, Any]]:
             continue
     info["field_value_text"] = " ".join(field_value_text)
 
-    # ── CCHCS packet detection (strongest signal) ──
     field_names = set(fields.keys())
+
+    # ── CCHCS packet detection (checked first — packet is a superset) ──
+    # The 18-page CCHCS packet fixture contains ALL LPA field names AS WELL
+    # AS packet-specific ones (Institution Name, Check Box11, larger page
+    # count). Ordering: packet first so LPA doesn't steal packet-class
+    # templates. LPA falls through to its own narrower check below.
     cchcs_field_overlap = len(field_names & CCHCS_PACKET_FIELD_NAMES)
     if (info["page_count"] >= 10 and cchcs_field_overlap >= 4) or info["field_count"] > 100:
         # Double-check with a headline scan so we don't mis-identify
@@ -495,6 +536,22 @@ def _classify_pdf(path: str) -> Tuple[str, Dict[str, Any]]:
                 or "Non-Cloud" in text_sample
                 or cchcs_field_overlap >= 5):
             return SHAPE_CCHCS_PACKET, info
+
+    # ── CCHCS LPA IT Goods & Services RFQ detection ──
+    # Standalone LPA templates are ~13 pages and ~100-180 fields — page
+    # count is the primary discriminator from the full 18-page packet which
+    # contains the LPA pages plus 703B/704B/bid-package pages. Real LPA
+    # observed 2026-04-22 on RFQ 10840486: 13 pages, 181 fields.
+    # Packet check above has already consumed 18+ page fixtures with
+    # packet-specific markers. Anything reaching here is LPA-candidate.
+    lpa_field_overlap = len(field_names & CCHCS_IT_RFQ_FIELD_NAMES)
+    if (info["page_count"] < 16 and lpa_field_overlap >= 2):
+        _lpa_text = _pdf_headline(path)
+        info["text_sample"] = _lpa_text + " " + info["field_value_text"]
+        # Belt-and-suspenders: body keyword confirms, OR strong fingerprint
+        # (≥4 unique markers) is enough on its own.
+        if _has_lpa_body_signal(_lpa_text, info["field_value_text"]) or lpa_field_overlap >= 4:
+            return SHAPE_CCHCS_IT_RFQ, info
 
     # ── DocuSign PDF detection ──
     text_sample = _pdf_headline(path)
@@ -606,6 +663,7 @@ def _pdf_headline(path: str, max_chars: int = 500) -> str:
 
 _SHAPE_RANK = {
     SHAPE_CCHCS_PACKET: 100,
+    SHAPE_CCHCS_IT_RFQ: 95,          # just below packet — both are strong CCHCS signals
     SHAPE_PC_704_PDF_FILLABLE: 80,
     SHAPE_PC_704_DOCX: 70,
     SHAPE_PC_704_PDF_DOCUSIGN: 60,
@@ -688,6 +746,8 @@ def _score_confidence(
     # Shape confidence
     if result.shape == SHAPE_CCHCS_PACKET:
         score += 0.40
+    elif result.shape == SHAPE_CCHCS_IT_RFQ:
+        score += 0.40  # LPA is as specific as packet — unique field namespace
     elif result.shape in (SHAPE_PC_704_DOCX, SHAPE_PC_704_PDF_FILLABLE):
         score += 0.35
     elif result.shape == SHAPE_PC_704_PDF_DOCUSIGN:
