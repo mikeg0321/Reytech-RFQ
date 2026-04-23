@@ -1785,8 +1785,44 @@ def process_rfq_email(rfq_email):
                     "classifier_v2 rejected, legacy fallthrough: errors=%s",
                     _v2_result.errors,
                 )
+                _v2_rejected_msg = (
+                    f"classifier_v2 rejected: {_v2_result.errors}"
+                )
     except Exception as _v2_err:
         log.debug("classifier_v2 wire-in failed, legacy path: %s", _v2_err)
+        _v2_err_msg = (
+            f"classifier_v2 wire-in {type(_v2_err).__name__}: {_v2_err}"
+        )
+    finally:
+        # Pre-deletion canary (Bundle-1 follow-up, see
+        # `project_old_route_audit_2026_04_14.md`). The legacy
+        # fallback path below is dead-after-flip code that we want
+        # to delete, but only after confirming zero real-traffic
+        # use over a 24-48h window. The
+        # `ingest.legacy_fallback_loud` flag (default OFF) replaces
+        # the silent fall-through with a loud RuntimeError so
+        # operators see the first miss instead of guessing from
+        # log volume. Flip it on for 48h via /api/admin/flags;
+        # zero crashes = safe to delete the legacy block in the
+        # next PR.
+        try:
+            from src.core.flags import get_flag
+            _loud = bool(get_flag("ingest.legacy_fallback_loud", False))
+        except Exception:
+            _loud = False
+        _msg = (
+            locals().get("_v2_err_msg")
+            or locals().get("_v2_rejected_msg")
+        )
+        if _loud and _msg:
+            raise RuntimeError(
+                f"ingest.legacy_fallback_loud=True: {_msg}. "
+                f"This email would have flowed to the legacy "
+                f"fallback path that we plan to delete. Flip the "
+                f"flag OFF via /api/admin/flags to restore the "
+                f"silent fallthrough, or fix classifier_v2 to "
+                f"handle this shape."
+            )
 
     # ── Route 704 price checks to PC queue, NOT the RFQ queue ──────────────
     attachments = rfq_email.get("attachments", [])
