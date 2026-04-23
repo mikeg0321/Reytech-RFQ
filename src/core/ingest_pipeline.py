@@ -226,6 +226,93 @@ def process_buyer_request(
         result.errors.append(f"record save failed: {e}")
         return result
 
+    # ── Step 4b: ghost-record detection (Bundle-2 PR-2c) ──
+    # Marks-not-deletes: a matching ghost pattern stamps `hidden_reason`
+    # on the record so the triage / queue / NEXT UP filters skip it.
+    # Always emits telemetry; only stamps when the
+    # `ingest.ghost_quarantine_enabled` flag is on (default False for
+    # the first deploy — shadow-compare period).
+    if record_id:
+        try:
+            from src.core.ghost_detection import detect_ghost_pattern
+            from src.core.flags import get_flag
+            # Re-read the freshly-saved record so we reason against the
+            # canonical post-create dict (with normalized fields, agency
+            # resolution side-effects, etc.).
+            _saved = None
+            try:
+                if record_type == "pc":
+                    from src.api.data_layer import _load_price_checks
+                    _saved = _load_price_checks().get(record_id)
+                else:
+                    from src.api.data_layer import load_rfqs
+                    _saved = load_rfqs().get(record_id)
+            except Exception as _re:
+                log.debug("ghost-detect re-read failed: %s", _re)
+            ghost_record = _saved or {
+                "buyer_name": header.get("buyer_name", ""),
+                "institution": header.get("institution", "")
+                                or classification.agency,
+                "pc_number": classification.solicitation_number or "",
+            }
+            reason = detect_ghost_pattern(
+                ghost_record,
+                email_sender=email_sender,
+                items_parsed=len(items),
+            )
+            if reason:
+                _quarantine_on = bool(get_flag(
+                    "ingest.ghost_quarantine_enabled", False
+                ))
+                if _quarantine_on:
+                    # Mark in place + persist the stamp.
+                    try:
+                        from datetime import datetime
+                        ghost_record["hidden_reason"] = reason
+                        ghost_record["hidden_at"] = datetime.utcnow().isoformat()
+                        if record_type == "pc":
+                            from src.api.dashboard import _save_single_pc
+                            _save_single_pc(record_id, ghost_record)
+                        else:
+                            from src.api.dashboard import _save_single_rfq
+                            _save_single_rfq(record_id, ghost_record)
+                        result.warnings.append(
+                            f"quarantined: {reason}"
+                        )
+                        result.reasons.append(
+                            f"ghost-detected: {reason} (quarantined)"
+                        )
+                    except Exception as _se:
+                        log.error(
+                            "ghost-stamp save failed: %s", _se, exc_info=True
+                        )
+                        result.warnings.append(
+                            f"ghost-stamp save failed: {_se}"
+                        )
+                else:
+                    # Shadow mode: don't stamp; record telemetry so we
+                    # can verify detection accuracy before flipping the
+                    # flag on.
+                    result.reasons.append(
+                        f"ghost-detected (shadow): {reason}"
+                    )
+                # Telemetry — always fires regardless of flag state.
+                try:
+                    from src.core.utilization import record_feature_use
+                    record_feature_use("ingest.ghost_detected", context={
+                        "reason": reason,
+                        "record_type": record_type,
+                        "record_id": record_id,
+                        "quarantined": _quarantine_on,
+                        "items_parsed": len(items),
+                        "sender_domain": (email_sender or "").split("@", 1)[-1][:80],
+                    })
+                except Exception as _te:
+                    log.debug("ghost telemetry suppressed: %s", _te)
+        except Exception as _ge:
+            log.error("ghost-detection crashed: %s", _ge, exc_info=True)
+            result.warnings.append(f"ghost-detect: {_ge}")
+
     # ── Step 5: link to PC (only if this is an RFQ) ──
     if record_type == "rfq" and record_id:
         try:

@@ -237,12 +237,19 @@ def api_triage():
         from src.api.data_layer import _load_price_checks, load_rfqs
         from src.core.quote_triage import triage
 
+        # Bundle-2 PR-2c: skip records carrying a ghost-quarantine
+        # `hidden_reason`. Marks-not-deletes — the records still exist
+        # in storage; they're just out of the operator's main queue.
+        from src.core.ghost_detection import is_quarantined as _is_q
+
         deadlines = []
         pcs = _load_price_checks()
         for pcid, pc in pcs.items():
             if pc.get("status", "") in _SENT_STATUSES:
                 continue
             if pc.get("is_test"):
+                continue
+            if _is_q(pc):
                 continue
             dl = _build_deadline_item("pc", pcid, pc)
             if dl:
@@ -253,6 +260,8 @@ def api_triage():
             if r.get("status", "") in _SENT_STATUSES:
                 continue
             if r.get("is_test"):
+                continue
+            if _is_q(r):
                 continue
             dl = _build_deadline_item("rfq", rid, r)
             if dl:
