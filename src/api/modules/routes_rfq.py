@@ -2627,6 +2627,96 @@ def api_add_buyer_pref(rid):
     return jsonify({"ok": ok})
 
 
+@bp.route("/api/rfq/<rid>/toggle-required-form", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_toggle_required_form(rid):
+    """Per-RFQ escape hatch — dismiss or restore a required-form demand.
+
+    Bundle-2 PR-2e (audit item L 2026-04-22): the classifier picks a
+    `forms_required` list on ingest (703b, 704b, bidpkg, quote, etc.).
+    When the shape is mis-classified — LPA IT RFQ shows up as packet
+    and demands BidPkg when no packet exists — the operator needs an
+    escape hatch that's scoped to THIS RFQ only. Agency-level
+    `required_forms` stays authoritative for future records; this
+    just marks "for this one RFQ, we've decided the classifier was
+    wrong about X."
+
+    Body: `{"form": "bidpkg", "dismiss": true}` (or `false` to restore).
+
+    Stores a per-RFQ `dismissed_required_forms` list. Re-dismiss on
+    an already-dismissed form is a no-op. Restore removes the slug
+    from the list. Never touches agency config.
+    """
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    data = request.get_json(force=True, silent=True) or {}
+    form_slug = str(data.get("form", "")).strip().lower()
+    dismiss = bool(data.get("dismiss", True))
+    if not form_slug:
+        return jsonify({"ok": False, "error": "form slug required"}), 400
+    # Guard: only allow slugs the classifier has actually picked for
+    # this RFQ. Prevents a caller from seeding arbitrary strings onto
+    # the record, and keeps the dismiss list meaningful when displayed.
+    reqs = r.get("requirements_json") or {}
+    if isinstance(reqs, str):
+        try:
+            import json as _json
+            reqs = _json.loads(reqs)
+        except Exception:
+            reqs = {}
+    classifier_picked = [
+        str(f).strip().lower()
+        for f in (reqs.get("forms_required") or [])
+    ]
+    if form_slug not in classifier_picked:
+        return jsonify({
+            "ok": False,
+            "error": (
+                f"form {form_slug!r} is not in this RFQ's forms_required; "
+                "dismiss only applies to classifier-picked slugs"
+            ),
+        }), 400
+
+    current = list(r.get("dismissed_required_forms") or [])
+    if dismiss:
+        if form_slug not in current:
+            current.append(form_slug)
+    else:
+        current = [f for f in current if f != form_slug]
+
+    r["dismissed_required_forms"] = current
+    try:
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as e:
+        log.error("toggle-required-form save failed: %s", e, exc_info=True)
+        return jsonify({
+            "ok": False, "error": f"save failed: {e}",
+        }), 500
+
+    try:
+        from src.core.utilization import record_feature_use
+        record_feature_use("rfq.toggle_required_form", context={
+            "rid": rid,
+            "form": form_slug,
+            "dismiss": dismiss,
+            "dismissed_count": len(current),
+        })
+    except Exception as _e:
+        log.debug("toggle-required-form telemetry suppressed: %s", _e)
+
+    return jsonify({
+        "ok": True,
+        "dismissed_required_forms": current,
+    })
+
+
 @bp.route("/api/rfq/<rid>/lookup-tax-rate", methods=["POST"])
 @auth_required
 @safe_route
