@@ -120,6 +120,77 @@ def test_apply_default_is_noop_when_set():
     assert doc["due_date"] == "04/25/2026"
 
 
+# ── 4b. body-key fallback — regression for the 2026-04-22 incident ─────────
+# Before the fix, apply_default_if_missing only looked at explicit email_body
+# arg or doc["email_body"]. Ingest writes the buyer text under body_text /
+# body / body_preview, so callers that pass only the doc silently lost email-
+# extracted due dates and fell through to the 2-biz-day default.
+
+def test_apply_default_reads_body_text_from_doc():
+    """body_text is the canonical ingest key — must be picked up automatically."""
+    doc = {
+        "id": "rfq_x", "status": "new", "due_date": "",
+        "body_text": "Please respond no later than 04/23/2026.",
+    }
+    src = apply_default_if_missing(doc)
+    assert src == "email", "body_text should have fed the email-extract path"
+    assert doc["due_date"] == "2026-04-23"
+
+
+def test_apply_default_reads_body_from_doc():
+    """Secondary ingest key — same precedence logic."""
+    doc = {
+        "id": "pc_x", "status": "new", "due_date": "",
+        "body": "Quotes due by 05/01/2026 at 2:00 PM",
+    }
+    src = apply_default_if_missing(doc)
+    assert src == "email"
+    assert doc["due_date"] == "2026-05-01"
+
+
+def test_apply_default_reads_body_preview_from_doc():
+    """Tertiary ingest key — covers the narrow Gmail-preview-only case."""
+    doc = {
+        "id": "pc_x", "status": "new", "due_date": "",
+        "body_preview": "... no later than 06/15/2026 ...",
+    }
+    src = apply_default_if_missing(doc)
+    assert src == "email"
+    assert doc["due_date"] == "2026-06-15"
+
+
+def test_apply_default_prefers_email_body_when_multiple_keys_present():
+    """Precedence: email_body > body_text > body > body_preview. Admin edits
+    sometimes re-save with email_body; that value wins when both are present."""
+    doc = {
+        "id": "rfq_x", "status": "new", "due_date": "",
+        "email_body": "... due 04/23/2026 ...",
+        "body_text": "... due 05/01/2026 ...",
+    }
+    src = apply_default_if_missing(doc)
+    assert src == "email"
+    assert doc["due_date"] == "2026-04-23"
+
+
+def test_apply_default_falls_to_default_when_no_body_keys():
+    """Clean doc with no body text anywhere — must still stamp the default."""
+    doc = {"id": "pc_x", "status": "new", "due_date": ""}
+    src = apply_default_if_missing(doc)
+    assert src == "default"
+    assert doc["due_date_source"] == "default"
+
+
+def test_apply_default_explicit_arg_overrides_doc_body():
+    """Caller-provided email_body wins over any doc-level body keys."""
+    doc = {
+        "id": "rfq_x", "status": "new", "due_date": "",
+        "body_text": "... due 05/01/2026 ...",
+    }
+    src = apply_default_if_missing(doc, email_body="... due 04/23/2026 ...")
+    assert src == "email"
+    assert doc["due_date"] == "2026-04-23"
+
+
 # ── 5. Save hooks centralize the default ────────────────────────────────────
 
 def test_save_single_pc_invokes_default_helper():
