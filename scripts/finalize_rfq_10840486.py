@@ -52,10 +52,10 @@ SOL = "10840486"
 # 300 Prison Road (data bug logged as audit item W). Trusting the buyer's
 # stated address here — this is the address the quote must print.
 OVERRIDES = {
-    "delivery_location": "CSP-Sacramento, 100 Prison Road, Folsom, CA 95671",
-    "ship_to_name": "CSP Sacramento - New Folsom",
+    "delivery_location": "CA State Prison Sacramento, 100 Prison Road, Folsom, CA 95671",
+    "ship_to_name": "CA State Prison Sacramento",
     "ship_to_address": ["100 Prison Road", "Folsom, CA 95671"],
-    "institution": "CSP Sacramento - New Folsom",
+    "institution": "CA State Prison Sacramento",
     "agency": "CCHCS",
     "agency_name": "CCHCS / CDCR",
     # Tax — 95671 Folsom area = 7.75% per CDTFA (matches the hit from
