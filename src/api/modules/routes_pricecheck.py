@@ -2674,13 +2674,31 @@ def api_pc_lookup_tax_rate(pcid):
         result = get_tax_rate(city=_d_city, zip_code=_d_zip, force_live=_force)
         if result and result.get("rate"):
             rate_pct = round(result["rate"] * 100, 3)
+            _source = result.get("source", "")
+            # `tax_validated` requires an actual CDTFA-backed source. `default`
+            # means the lookup FAILED and we fell back to the statewide base
+            # rate — that is NOT a validation. Marking those records validated
+            # made the UI show a green ✓ next to a guess (2026-04-22 incident:
+            # pc_5063d1cd rendered "7.25% · CALIFORNIA (BASE) ✓ Verified" for
+            # a CSP-Sacramento address whose real rate is ~7.75%).
+            _CDTFA_BACKED = {"cdtfa_api", "cache", "cache_zip_match", "fallback_table"}
+            _is_validated = _source in _CDTFA_BACKED
             pc["tax_rate"] = rate_pct
-            pc["tax_validated"] = True
-            pc["tax_source"] = result.get("source", "")
+            pc["tax_validated"] = _is_validated
+            pc["tax_source"] = _source
             _save_single_pc(pcid, pc)
-            return jsonify({"ok": True, "rate": rate_pct,
+            warning = None
+            if not _is_validated:
+                warning = ("Lookup fell back to the CA base rate — CDTFA did not "
+                           "confirm this rate for the ship-to address. Verify at "
+                           "https://maps.cdtfa.ca.gov/ and correct manually.")
+            return jsonify({
+                "ok": True, "rate": rate_pct,
                 "jurisdiction": result.get("jurisdiction", ""),
-                "source": result.get("source", "")})
+                "source": _source,
+                "validated": _is_validated,
+                "warning": warning,
+            })
         return jsonify({"ok": False, "error": "Tax lookup returned no rate"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
