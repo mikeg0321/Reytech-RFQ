@@ -145,8 +145,8 @@ def main():
                     help="Apply overrides but skip quote regeneration.")
     args = ap.parse_args()
 
-    from src.api.dashboard import _load_rfqs, _save_single_rfq
-    rfqs = _load_rfqs()
+    from src.api.data_layer import load_rfqs, _save_single_rfq
+    rfqs = load_rfqs()
     r = rfqs.get(RID)
     if not r:
         print(f"ERROR: RFQ {RID} not found.")
