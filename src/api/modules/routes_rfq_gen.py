@@ -1617,22 +1617,48 @@ def generate_rfq_package(rid):
             log.debug('suppressed in _include: %s', _e)
 
         # ── Template-based forms (only if agency requires them) ──
-        # 703B or 703C — use whichever template was provided by the buyer
+        # 703B-slot dispatcher: fingerprint the uploaded template, route to
+        # the filler that matches. Per Mike's directive, unknown templates
+        # surface for manual profile registration — never blind-fill.
+        # Closes audit item M.
         if _include("703b") or _include("703c") or "703c" in tmpl or "703b" in tmpl:
             _703_key = "703c" if "703c" in tmpl else "703b"
             _703_label = "703C" if _703_key == "703c" else "703B"
             if _703_key in tmpl and os.path.exists(tmpl[_703_key]):
                 try:
-                    _fill_fn = fill_703b
-                    if _703_key == "703c":
-                        try:
-                            from src.forms.reytech_filler_v4 import fill_703c
-                            _fill_fn = fill_703c
-                        except ImportError as _e:
-                            log.debug("suppressed: %s", _e)
-                    _fill_fn(tmpl[_703_key], r, CONFIG, f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
-                    output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
-                    t.step(f"{_703_label} filled")
+                    from src.forms.reytech_filler_v4 import (
+                        _classify_703b_slot_template,
+                        fill_703b as _fn_703b,
+                        fill_703c as _fn_703c,
+                        fill_cchcs_it_rfq as _fn_lpa,
+                    )
+                    _shape = _classify_703b_slot_template(tmpl[_703_key])
+                    _label = _703_label
+                    if _shape == "cchcs_it_rfq":
+                        _fill_fn = _fn_lpa
+                        _label = "CCHCS_IT_RFQ"
+                        t.step(f"{_703_label} template recognized as LPA IT RFQ")
+                    elif _shape == "703c":
+                        _fill_fn = _fn_703c
+                    elif _shape == "703b":
+                        _fill_fn = _fn_703b
+                    else:
+                        # Unknown template — refuse rather than blind-fill.
+                        _fill_fn = None
+                        errors.append(
+                            f"{_703_label}: unrecognized template "
+                            "(not 703B/703C/LPA IT RFQ). Register a form "
+                            "profile before filling. Operator can hand-fill "
+                            "and submit manually, or a new profile YAML can "
+                            "be added under src/forms/profiles/."
+                        )
+                        t.warn(f"{_703_label} template unrecognized — "
+                               "refusing blind-fill. Hand-fill via Acrobat.")
+                    if _fill_fn is not None:
+                        _fill_fn(tmpl[_703_key], r, CONFIG,
+                                 f"{out_dir}/{sol}_{_703_label}_Reytech.pdf")
+                        output_files.append(f"{sol}_{_703_label}_Reytech.pdf")
+                        t.step(f"{_703_label} filled ({_label})")
                 except Exception as e:
                     errors.append(f"{_703_label}: {e}")
                     t.warn(f"{_703_label} fill failed", error=str(e))
