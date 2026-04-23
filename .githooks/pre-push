@@ -73,6 +73,151 @@ if [ $RESULT -ne 0 ]; then
     exit 1
 fi
 
+# ── UI change gate: Chrome visual verification required ─────────────────────
+# Memory: feedback_workflow_ui_chrome_verify — UI/UX changes MUST be exercised
+# in Chrome DevTools MCP (not just template-render pytest). Backend tests +
+# smoke + HTTP 200 don't prove the render, the JS, or the user-visible flow.
+#
+# Gate fires when the commits about to be pushed touch any UI file:
+#   - src/templates/**/*.html
+#   - src/static/** (*.js, *.css, etc.)
+#   - Any other *.html or *.css in the tree
+#
+# To pass the gate, the pusher must provide evidence that Chrome-MCP verified
+# the changes. Two equally-accepted proofs:
+#
+#   1. Set CHROME_VERIFIED=1 in the environment for the push.
+#      Example: CHROME_VERIFIED=1 make ship auto=1
+#
+#   2. Add a `CHROME-VERIFIED:` footer to at least one of the commits being
+#      pushed, describing what was visually confirmed. This preserves the
+#      evidence in git history forever.
+#      Example in the commit message body:
+#        CHROME-VERIFIED: opened /rfq/<id>, opened Mark Sent modal, filled
+#        sent_to + attachment, submitted, saw toast, reloaded, confirmed
+#        lock banner + readonly dim on inputs.
+#
+# To skip the gate (rare — chore-only pushes, reverts, docs-only), set
+# CHROME_VERIFIED_SKIP=1 with a short reason in the commit message.
+
+UI_CHANGED=""
+COMMIT_LOG=""
+
+# Pick a comparison base. Prefer origin/<branch> (re-push to an existing
+# feature branch); fall back to origin/main (first push of a feature
+# branch that forked from main). We use this for both the stdin-driven
+# and tty-driven invocations so new-branch first-pushes still get gated.
+BASE_REF=""
+if git rev-parse --verify "origin/$BRANCH" >/dev/null 2>&1; then
+    BASE_REF="origin/$BRANCH"
+elif git rev-parse --verify "origin/main" >/dev/null 2>&1; then
+    BASE_REF="origin/main"
+fi
+
+# Try to read the push-plan lines git gives us on stdin. `read` with a
+# 0.1s timeout lets us detect "stdin is empty pipe" without blocking the
+# hook in direct-invocation scenarios (CI, manual test run).
+STDIN_HAD_DATA=0
+if [ ! -t 0 ]; then
+    while IFS= read -r -t 0.5 LINE; do
+        STDIN_HAD_DATA=1
+        # shellcheck disable=SC2086
+        set -- $LINE
+        LOCAL_REF="${1:-}"; LOCAL_SHA="${2:-}"; REMOTE_REF="${3:-}"; REMOTE_SHA="${4:-}"
+        if [ "$LOCAL_SHA" = "0000000000000000000000000000000000000000" ]; then
+            continue  # branch deletion
+        fi
+        if [ -z "$REMOTE_SHA" ] || [ "$REMOTE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            # New remote branch — compare against origin/main if available.
+            if [ -n "$BASE_REF" ]; then
+                RANGE="$BASE_REF..$LOCAL_SHA"
+            else
+                RANGE="$LOCAL_SHA"
+            fi
+        else
+            RANGE="$REMOTE_SHA..$LOCAL_SHA"
+        fi
+        UI_CHANGED="$UI_CHANGED
+$(git diff --name-only "$RANGE" 2>/dev/null | \
+          grep -E '^(src/templates/.*\.html$|src/static/.*$|.*\.css$|.*\.js$)' || true)"
+        COMMIT_LOG="$COMMIT_LOG
+$(git log --format=%B "$RANGE" 2>/dev/null || true)"
+    done
+fi
+
+# If stdin gave us nothing (empty pipe or direct invocation), fall back
+# to the base-ref diff so the gate still fires.
+if [ "$STDIN_HAD_DATA" -eq 0 ] && [ -n "$BASE_REF" ]; then
+    RANGE="$BASE_REF..HEAD"
+    UI_CHANGED=$(git diff --name-only "$RANGE" 2>/dev/null | \
+                 grep -E '^(src/templates/.*\.html$|src/static/.*$|.*\.css$|.*\.js$)' || true)
+    COMMIT_LOG=$(git log --format=%B "$RANGE" 2>/dev/null || true)
+fi
+
+# Strip blank lines from UI_CHANGED so the empty-check below is reliable.
+UI_CHANGED=$(echo "$UI_CHANGED" | sed '/^$/d')
+
+if [ -n "$UI_CHANGED" ]; then
+    # Evidence of Chrome verification:
+    HAS_ENV_FLAG=0
+    if [ "${CHROME_VERIFIED:-0}" = "1" ]; then HAS_ENV_FLAG=1; fi
+    HAS_TRAILER=0
+    if echo "$COMMIT_LOG" | grep -qiE '^CHROME[-_]VERIFIED:'; then HAS_TRAILER=1; fi
+    HAS_SKIP=0
+    if [ "${CHROME_VERIFIED_SKIP:-0}" = "1" ]; then HAS_SKIP=1; fi
+
+    if [ $HAS_ENV_FLAG -eq 0 ] && [ $HAS_TRAILER -eq 0 ] && [ $HAS_SKIP -eq 0 ]; then
+        echo ""
+        echo "============================================================"
+        echo "  PUSH BLOCKED: UI file(s) changed without Chrome-MCP proof"
+        echo "============================================================"
+        echo ""
+        echo "  These files are in the push and need visual verification:"
+        echo ""
+        echo "$UI_CHANGED" | sed 's/^/    /'
+        echo ""
+        echo "  Per memory feedback_workflow_ui_chrome_verify, UI/UX"
+        echo "  changes MUST be exercised in Chrome DevTools MCP — not"
+        echo "  just pytest template-render checks. Screenshots + the"
+        echo "  Claude visualizer should confirm each state:"
+        echo "    - Empty state"
+        echo "    - Filled state"
+        echo "    - Error state"
+        echo "    - Re-run / reload state"
+        echo ""
+        echo "  TWO WAYS TO PASS THE GATE:"
+        echo ""
+        echo "  1) Run Chrome-MCP verification, then push with the env flag:"
+        echo ""
+        echo "       CHROME_VERIFIED=1 make ship auto=1"
+        echo ""
+        echo "  2) Add a CHROME-VERIFIED: footer to the commit message"
+        echo "     describing what you saw in Chrome. This preserves the"
+        echo "     evidence in git history:"
+        echo ""
+        echo "       git commit --amend"
+        echo "       # add to the body:"
+        echo "       # CHROME-VERIFIED: opened /rfq/<id>, clicked Mark Sent,"
+        echo "       # saw toast + reload + lock banner."
+        echo ""
+        echo "  RARE ESCAPE HATCH (chore/revert/docs only):"
+        echo ""
+        echo "       CHROME_VERIFIED_SKIP=1 make ship"
+        echo ""
+        echo "============================================================"
+        exit 1
+    fi
+
+    if [ $HAS_ENV_FLAG -eq 1 ]; then
+        echo "UI-change gate: CHROME_VERIFIED=1 env flag present — passing."
+    elif [ $HAS_TRAILER -eq 1 ]; then
+        echo "UI-change gate: CHROME-VERIFIED: commit trailer found — passing."
+    elif [ $HAS_SKIP -eq 1 ]; then
+        echo "UI-change gate: SKIP flag set — chore/revert/docs push; make"
+        echo "sure to visually re-audit if anything user-facing shipped."
+    fi
+fi
+
 echo ""
 echo "All pre-push checks passed."
 exit 0
