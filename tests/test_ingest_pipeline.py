@@ -256,6 +256,164 @@ class TestTriangulatedLinker:
         assert result.linked_pc_id == ""
 
 
+# ─── Strong item-match override (RFQ #10840486 regression, 2026-04-22) ─────
+# A verbatim-identical 1-item RFQ must link to its prior 1-item PC even when
+# the record-level anchors (agency/sol/institution) all fail. The prior PC
+# was an informal price check with no agency classified — item identity is
+# the only thing that ties them together, and that's strong enough.
+
+class TestStrongItemMatchOverride:
+    def test_verbatim_1item_links_across_mismatched_agency(
+        self, temp_data_dir, sample_pc
+    ):
+        """RFQ #10840486 reproduction.
+
+        RFQ: agency=cchcs, sol=10840486, institution="", 1 item "BLS …"
+        PC:  agency="",    sol="",        institution="CSP-Sacramento",
+             1 verbatim item "BLS …"
+
+        Under the old 2-anchor rule this returned no link — only
+        item-similarity fired. Strong verbatim match now promotes it.
+        """
+        from src.api.dashboard import _save_single_pc
+        from src.core.ingest_pipeline import _run_triangulated_linker
+        from src.core.request_classifier import RequestClassification, SHAPE_CCHCS_PACKET
+
+        pc = dict(sample_pc)
+        pc["id"] = "pc_bls_informal"
+        pc["solicitation_number"] = ""
+        pc["agency"] = ""
+        pc["institution"] = "csp-sacramento"
+        pc["items"] = [{"description": "BLS Provider Course Videos: USB", "qty": 2}]
+        _save_single_pc(pc["id"], pc)
+
+        classification = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="cchcs",
+            institution="",
+            solicitation_number="10840486",
+        )
+        rfq_items = [{"description": "BLS Provider Course Videos: USB", "qty": 2}]
+
+        linked_pc_id, reason, confidence = _run_triangulated_linker(
+            "rfq_test_bls", classification, rfq_items,
+        )
+        assert linked_pc_id == "pc_bls_informal", (
+            f"verbatim item match must link; got {linked_pc_id!r} ({reason})"
+        )
+        assert "items" in reason  # either items(...) anchor or items-verbatim(...)
+
+    def test_agency_fallback_via_institution_resolver(
+        self, temp_data_dir, sample_pc
+    ):
+        """Legacy PC with blank agency but set institution must still land
+        on the right agency via institution_resolver. Then agency + items
+        = 2 anchors, link stands via the normal (non-strong-item) path."""
+        from src.api.dashboard import _save_single_pc
+        from src.core.ingest_pipeline import _run_triangulated_linker
+        from src.core.request_classifier import RequestClassification, SHAPE_CCHCS_PACKET
+
+        pc = dict(sample_pc)
+        pc["id"] = "pc_legacy_no_agency"
+        pc["solicitation_number"] = ""
+        pc["agency"] = ""  # legacy PC — classifier hadn't run yet
+        pc["institution"] = "csp-sacramento"  # resolves to cchcs
+        # Item similar but not verbatim (sim ~0.76) — forces the 2-anchor
+        # path, so the agency fallback must actually provide the 2nd anchor.
+        pc["items"] = [{
+            "description": "BLS Provider Course Videos USB flash drive",
+            "qty": 2,
+        }]
+        _save_single_pc(pc["id"], pc)
+
+        classification = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="cchcs",  # CSP-Sacramento resolves to cchcs
+            institution="",  # RFQ institution blank (like the real RFQ #10840486)
+            solicitation_number="",  # no sol anchor
+        )
+        rfq_items = [{"description": "BLS Provider Course Videos: USB", "qty": 2}]
+
+        linked_pc_id, reason, _ = _run_triangulated_linker(
+            "rfq_legacy", classification, rfq_items,
+        )
+        assert linked_pc_id == "pc_legacy_no_agency", (
+            f"agency fallback failed; got {linked_pc_id!r} ({reason})"
+        )
+        assert "agency" in reason  # proves the fallback actually fired
+
+    def test_strong_item_requires_count_symmetry(
+        self, temp_data_dir, sample_pc
+    ):
+        """Safety: a 1-item RFQ must NOT link to a 10-item PC that happens
+        to contain that item. The big PC was quoting a different batch that
+        just includes this item — not the prior price-check for this RFQ."""
+        from src.api.dashboard import _save_single_pc
+        from src.core.ingest_pipeline import _run_triangulated_linker
+        from src.core.request_classifier import RequestClassification, SHAPE_CCHCS_PACKET
+
+        big_pc = dict(sample_pc)
+        big_pc["id"] = "pc_big_unrelated"
+        big_pc["solicitation_number"] = ""
+        big_pc["agency"] = ""
+        big_pc["institution"] = "unrelated"
+        big_pc["items"] = (
+            [{"description": "BLS Provider Course Videos: USB", "qty": 1}]
+            + [{"description": f"Unrelated item {i}", "qty": 1} for i in range(9)]
+        )
+        _save_single_pc(big_pc["id"], big_pc)
+
+        classification = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="cchcs",
+            institution="",
+            solicitation_number="99999",
+        )
+        rfq_items = [{"description": "BLS Provider Course Videos: USB", "qty": 2}]
+
+        linked_pc_id, reason, _ = _run_triangulated_linker(
+            "rfq_solo_item", classification, rfq_items,
+        )
+        assert linked_pc_id == "", (
+            f"1-item RFQ must not link to 10-item unrelated PC; got {linked_pc_id!r} ({reason})"
+        )
+
+    def test_strong_item_rejects_low_similarity(
+        self, temp_data_dir, sample_pc
+    ):
+        """Coverage might be 100% but if mean sim is <0.90, no strong match."""
+        from src.api.dashboard import _save_single_pc
+        from src.core.ingest_pipeline import _run_triangulated_linker
+        from src.core.request_classifier import RequestClassification, SHAPE_CCHCS_PACKET
+
+        pc = dict(sample_pc)
+        pc["id"] = "pc_weak_sim"
+        pc["solicitation_number"] = ""
+        pc["agency"] = ""
+        pc["institution"] = "nowhere"
+        # ~0.77 sim — passes the coverage threshold but not the strong-item 0.90.
+        pc["items"] = [{
+            "description": "Videos USB BLS Provider Course training set for clinical staff",
+            "qty": 2,
+        }]
+        _save_single_pc(pc["id"], pc)
+
+        classification = RequestClassification(
+            shape=SHAPE_CCHCS_PACKET,
+            agency="cchcs",
+            institution="",
+            solicitation_number="",
+        )
+        rfq_items = [{"description": "BLS Provider Course Videos: USB", "qty": 2}]
+
+        linked_pc_id, reason, _ = _run_triangulated_linker(
+            "rfq_weak_sim", classification, rfq_items,
+        )
+        assert linked_pc_id == "", (
+            f"weak-sim match must not promote; got {linked_pc_id!r} ({reason})"
+        )
+
+
 # ─── Re-parse existing record ───────────────────────────────────────────
 
 class TestReparseExistingRecord:

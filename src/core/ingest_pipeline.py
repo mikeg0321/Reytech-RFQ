@@ -477,15 +477,25 @@ def _run_triangulated_linker(
     classification: "RequestClassification",  # noqa: F821
     rfq_items: List[Dict[str, Any]],
 ) -> Tuple[str, str, float]:
-    """New linker that requires two of three anchors to match before
-    considering a PC → RFQ link:
-      ANCHOR 1: same agency (from classification)
-      ANCHOR 2: same solicitation number
-      ANCHOR 3: same item set (description similarity >= 0.6 on
-                at least 60% of items)
+    """Link an incoming RFQ to an existing PC.
 
-    This replaces the old fuzzy threshold (40 points, any single
-    signal) which was responsible for the "wrong PC linked" bug.
+    Default rule: **≥2 of 4 anchors** match.
+      ANCHOR 1: same agency (from classification)
+      ANCHOR 2: same solicitation number (substring match either way)
+      ANCHOR 3: same institution (tight string equality)
+      ANCHOR 4: item similarity ≥0.75 on ≥60% of items
+
+    Strong single-anchor override (added 2026-04-22, RFQ #10840486 incident):
+    item coverage == 100% AND mean similarity ≥0.90 alone qualifies. Verbatim
+    items on both sides is a stronger signal than any 2-anchor combo — when
+    the prior PC is an informal price check with no agency/sol/institution
+    captured, item identity is the only thing that can link them.
+
+    Agency fallback (added 2026-04-22): PCs pre-dating classification
+    enrichment may have blank `agency` but a valid `institution`. Resolve
+    institution→agency on the fly via institution_resolver before comparing,
+    so anchor #1 can still fire on legacy records.
+
     Returns (pc_id, reason, confidence).
     """
     from src.api.dashboard import _load_price_checks
@@ -512,9 +522,27 @@ def _run_triangulated_linker(
         pc_inst = qr.get_institution().strip().lower()
         pc_items = qr.get_items()
 
+        # Fallback: PC missing (or "other") agency but has institution —
+        # resolve on the fly. institution_resolver.resolve() returns a dict
+        # with "agency" key (or None when no match). QuoteRequest.get_agency()
+        # normalizes a blank field to "other", so check for both.
+        if pc_agency in ("", "other") and pc_inst:
+            try:
+                from src.core.institution_resolver import resolve as _resolve_inst
+                resolved = _resolve_inst(pc_inst)
+                if isinstance(resolved, dict):
+                    resolved_agency = (resolved.get("agency") or "").lower()
+                    if resolved_agency:
+                        pc_agency = resolved_agency
+            except Exception as _e:
+                log.debug("institution_resolver unavailable: %s", _e)
+
         anchors = []
+        item_coverage = 0.0
+        item_sim_mean = 0.0
+
         # ANCHOR 1: same agency
-        if rfq_agency != "other" and pc_agency == rfq_agency:
+        if rfq_agency and rfq_agency != "other" and pc_agency and pc_agency == rfq_agency:
             anchors.append("agency")
         # ANCHOR 2: same solicitation
         if rfq_sol and pc_sol and (rfq_sol == pc_sol
@@ -524,52 +552,85 @@ def _run_triangulated_linker(
         # ANCHOR 3: same institution (tight — no fuzzy substring)
         if rfq_inst and pc_inst and rfq_inst == pc_inst:
             anchors.append("institution")
-        # ANCHOR 4: item similarity
+        # ANCHOR 4: item similarity — track coverage AND mean sim, not just yes/no.
         if rfq_items and pc_items:
             matched = 0
+            sim_sum = 0.0
+            scored_items = 0
             for ri in rfq_items:
-                rd = (ri.get("description", "") or "").lower()
+                rd = (ri.get("description", "") or "").lower().strip()
                 if not rd or len(rd) < 5:
                     continue
+                best_sim = 0.0
                 for pi in pc_items:
-                    pd = (pi.get("description", pi.get("desc", "")) or "").lower()
+                    pd = (pi.get("description", pi.get("desc", "")) or "").lower().strip()
                     if not pd:
                         continue
-                    if SequenceMatcher(None, rd, pd).ratio() > 0.75:
-                        matched += 1
-                        break
-            coverage = matched / max(len(rfq_items), 1)
-            if coverage >= 0.60:
-                anchors.append(f"items({coverage:.0%})")
+                    s = SequenceMatcher(None, rd, pd).ratio()
+                    if s > best_sim:
+                        best_sim = s
+                if best_sim > 0.75:
+                    matched += 1
+                sim_sum += best_sim
+                scored_items += 1
+            if scored_items > 0:
+                item_coverage = matched / scored_items
+                item_sim_mean = sim_sum / scored_items
+                if item_coverage >= 0.60:
+                    anchors.append(f"items({item_coverage:.0%})")
 
-        # Require at least 2 anchors
-        if len(anchors) >= 2:
+        # Candidate qualifies on (a) ≥2 anchors OR (b) strong verbatim item match.
+        # Strong item match requires item-count symmetry too — a 1-item RFQ
+        # that finds its item inside a 10-item PC should NOT link on items
+        # alone (that big PC was quoting a different batch that just happens
+        # to include this item).
+        strong_item_match = (
+            bool(rfq_items)
+            and bool(pc_items)
+            and item_coverage >= 1.0
+            and item_sim_mean >= 0.90
+            and abs(len(rfq_items) - len(pc_items)) <= 1
+        )
+        if len(anchors) >= 2 or strong_item_match:
             candidates.append({
                 "pc_id": pc_id,
-                "anchors": anchors,
-                "score": len(anchors),
+                "anchors": anchors if anchors else [
+                    f"items-verbatim({item_sim_mean:.2f})"
+                ],
+                "score": len(anchors) if len(anchors) >= 2 else 2,
+                "item_coverage": item_coverage,
+                "item_sim_mean": item_sim_mean,
+                "strong_item": strong_item_match,
                 "created_at": pc.get("created_at", ""),
             })
 
     if not candidates:
-        return "", "no triangulated match (need >=2 anchors)", 0.0
+        return (
+            "",
+            "no triangulated match (need >=2 anchors or verbatim items)",
+            0.0,
+        )
 
-    # Solicitation number is the strongest anchor — if exactly one
-    # candidate has it, return that one regardless of anchor count.
-    # Without this, a re-sent old RFQ would tie-break to the
-    # most-recently-created PC (which just happens to be current)
-    # instead of the actually-matching sol-number PC from weeks ago.
+    # Solicitation number is the strongest anchor — if exactly one candidate
+    # has it, return that one regardless of anchor count.
     sol_candidates = [c for c in candidates if "solicitation" in c["anchors"]]
     if len(sol_candidates) == 1:
         best = sol_candidates[0]
     else:
-        # Tie-break: most anchors, then most-recent created_at
-        candidates.sort(key=lambda c: (-c["score"], -_ts(c["created_at"])))
+        # Tie-break: verbatim item-match wins over weak 2-anchor matches
+        # (item identity is the ground truth for "is this the same quote"),
+        # then most anchors, then most-recent created_at.
+        candidates.sort(key=lambda c: (
+            0 if c["strong_item"] else 1,
+            -c["item_sim_mean"],
+            -c["score"],
+            -_ts(c["created_at"]),
+        ))
         best = candidates[0]
     return (
         best["pc_id"],
         "+".join(best["anchors"]),
-        round(best["score"] / 4.0, 2),  # score normalized to 0-1
+        round(max(best["score"], 2) / 4.0, 2),  # min 0.5 for any link
     )
 
 
