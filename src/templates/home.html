@@ -96,6 +96,48 @@ function tryRenderChart(d){
 </script>
 {% endif %}
 
+<!-- ═══ Triage Widget — NEXT UP + queue sorted by (time, LOE) ═══ -->
+{# Bundle-3 PR-3c (audit U): moved ABOVE the Expiring Quotes / QA /
+   PO Award / Parse Error / Health banners so the ranked queue is
+   the first actionable block the operator sees on /. The banners
+   below are self-hiding (display:none until their fetch lands), so
+   when there's nothing to alert on, the queue owns the top of the
+   viewport. When there IS an alert, the queue still comes first —
+   alerts stack below it instead of burying it.
+
+   The corresponding <script> block that populates these elements
+   lives further down (~line 282) and addresses them by ID, so
+   moving the markup doesn't change any handler wiring. #}
+<div id="triage-widget" data-testid="dash-triage-widget" style="display:none;margin-bottom:14px">
+  <div id="triage-emergency-banner" style="display:none;padding:14px 18px;background:rgba(248,81,73,.15);border:2px solid rgba(248,81,73,.5);border-radius:10px;margin-bottom:10px">
+    <div style="font-size:12px;font-weight:700;letter-spacing:.5px;color:#f85149;margin-bottom:4px">⚠ NOT ENOUGH TIME — FOCUS HERE</div>
+    <div id="triage-emergency-body"></div>
+  </div>
+  <a id="triage-next-up" href="#" style="display:none;padding:18px 22px;background:linear-gradient(135deg,#1a2a4e,#16213e);border:1px solid #3d5a9f;border-radius:12px;margin-bottom:10px;text-decoration:none;color:inherit">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8b949e">NEXT UP</div>
+      <div id="triage-next-up-urgency" style="font-size:13px;font-weight:600"></div>
+    </div>
+    <div id="triage-next-up-title" style="font-size:20px;font-weight:700;color:#e6edf3;margin-top:6px"></div>
+    <div id="triage-next-up-meta" style="font-size:13px;color:#8b949e;margin-top:4px"></div>
+    <div style="display:flex;gap:14px;margin-top:10px;font-size:13px;flex-wrap:wrap;align-items:center">
+      <span id="triage-next-up-time" style="font-weight:600"></span>
+      <span style="color:#30363d">·</span>
+      <span id="triage-next-up-items"></span>
+      <span style="color:#30363d">·</span>
+      <span id="triage-next-up-loe"></span>
+      <span id="triage-next-up-fit" style="margin-left:auto;font-weight:600"></span>
+    </div>
+  </a>
+  <div id="triage-queue-wrap" style="display:none;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;color:var(--tx2)">Queue <span id="triage-queue-count" style="color:#8b949e"></span></div>
+      <div id="triage-stale-count" style="font-size:12px;color:#8b949e"></div>
+    </div>
+    <div id="triage-queue-rows"></div>
+  </div>
+</div>
+
 <!-- ═══ Expiring Quotes Alert ═══ -->
 <div id="expiry-alerts" style="display:none;margin-bottom:10px"></div>
 <script>
@@ -249,36 +291,12 @@ function uploadDoc(e){
  <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
  <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
 </div>
-<!-- ═══ Triage Widget — NEXT UP + queue sorted by (time, LOE) ═══ -->
-<div id="triage-widget" style="display:none;margin-bottom:14px">
-  <div id="triage-emergency-banner" style="display:none;padding:14px 18px;background:rgba(248,81,73,.15);border:2px solid rgba(248,81,73,.5);border-radius:10px;margin-bottom:10px">
-    <div style="font-size:12px;font-weight:700;letter-spacing:.5px;color:#f85149;margin-bottom:4px">⚠ NOT ENOUGH TIME — FOCUS HERE</div>
-    <div id="triage-emergency-body"></div>
-  </div>
-  <a id="triage-next-up" href="#" style="display:none;padding:18px 22px;background:linear-gradient(135deg,#1a2a4e,#16213e);border:1px solid #3d5a9f;border-radius:12px;margin-bottom:10px;text-decoration:none;color:inherit">
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
-      <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8b949e">NEXT UP</div>
-      <div id="triage-next-up-urgency" style="font-size:13px;font-weight:600"></div>
-    </div>
-    <div id="triage-next-up-title" style="font-size:20px;font-weight:700;color:#e6edf3;margin-top:6px"></div>
-    <div id="triage-next-up-meta" style="font-size:13px;color:#8b949e;margin-top:4px"></div>
-    <div style="display:flex;gap:14px;margin-top:10px;font-size:13px;flex-wrap:wrap;align-items:center">
-      <span id="triage-next-up-time" style="font-weight:600"></span>
-      <span style="color:#30363d">·</span>
-      <span id="triage-next-up-items"></span>
-      <span style="color:#30363d">·</span>
-      <span id="triage-next-up-loe"></span>
-      <span id="triage-next-up-fit" style="margin-left:auto;font-weight:600"></span>
-    </div>
-  </a>
-  <div id="triage-queue-wrap" style="display:none;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div style="font-size:13px;font-weight:600;color:var(--tx2)">Queue <span id="triage-queue-count" style="color:#8b949e"></span></div>
-      <div id="triage-stale-count" style="font-size:12px;color:#8b949e"></div>
-    </div>
-    <div id="triage-queue-rows"></div>
-  </div>
-</div>
+{# Bundle-3 PR-3c: the Triage Widget block that used to live here
+   was relocated to just below the NL-search section so it sits
+   ABOVE the Expiring / QA / PO / Parse-Error / Health banners.
+   See the comment above the moved block for rationale. The inline
+   <script> that fills this widget remains at this position
+   unchanged — it addresses the relocated DOM by id. #}
 <script>
 (function(){
   function fmtTime(hrsLeft){
@@ -303,11 +321,19 @@ function uploadDoc(e){
     return '#8b949e';
   }
   function fitBadge(hrsLeft, loeMin){
+    // Bundle-3 PR-3c (audit V): the bare FITS / TIGHT / DOESN'T FIT
+    // label didn't communicate what it was measuring. Tooltip spells
+    // out the comparison against estimated LOE so an operator hovering
+    // the badge can tell why it's red/yellow/green without having to
+    // trace this function. Keep the 1.25× / 2× thresholds unchanged —
+    // they match the same tiers the dashboard triage card uses.
     if (hrsLeft === null || hrsLeft === undefined || hrsLeft < 0 || loeMin <= 0) return '';
     var mins = hrsLeft * 60;
-    if (mins < loeMin * 1.25) return '<span style="color:#f85149">DOESN\'T FIT</span>';
-    if (mins < loeMin * 2) return '<span style="color:#d29922">TIGHT</span>';
-    return '<span style="color:#3fb950">FITS</span>';
+    var loeH = (loeMin / 60).toFixed(1);
+    var leftH = hrsLeft.toFixed(1);
+    if (mins < loeMin * 1.25) return '<span style="color:#f85149" title="Time remaining (' + leftH + 'h) is less than 1.25× the estimated LOE (' + loeH + 'h) — not enough time to work this cleanly.">DOESN\'T FIT</span>';
+    if (mins < loeMin * 2) return '<span style="color:#d29922" title="Time remaining (' + leftH + 'h) is between 1.25× and 2× the estimated LOE (' + loeH + 'h) — workable, but no slack.">TIGHT</span>';
+    return '<span style="color:#3fb950" title="Time remaining (' + leftH + 'h) is ≥ 2× the estimated LOE (' + loeH + 'h) — comfortable fit.">FITS</span>';
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
