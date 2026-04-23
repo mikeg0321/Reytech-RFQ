@@ -872,27 +872,32 @@ def generate_quote(
     quote_date  = today.strftime("%b %d, %Y")
     expiry_date = (today + timedelta(days=expiry_days)).strftime("%b %d, %Y")
 
-    # Resolve tax rate from ship-to zip if not explicitly provided
+    # Bundle-1 PR-1c (audit Y fix): unified tax-rate resolution.
+    # Both this code path AND the /api/rfq/<rid>/lookup-tax-rate
+    # endpoint must call `tax_resolver.resolve_tax(address)` so the
+    # rate the operator sees on the RFQ detail page == the rate
+    # printed on the generated quote PDF. The old split paths (one
+    # using `_lookup_facility` + `get_rate_for_facility`, the other
+    # using ad-hoc address parsing) returned different rates on the
+    # same record — see audit Y in project_2026_04_22_session_audit.
     if tax_rate is not None:
         rate = tax_rate
     else:
         rate = cfg["default_tax"]
         try:
-            from src.core.tax_rates import lookup_tax_rate, get_rate_for_facility
+            from src.core.tax_resolver import resolve_tax
             _ship_raw = quote_data.get("delivery_location",
                         quote_data.get("ship_to", ""))
-            _facility = _lookup_facility(_ship_raw) if _ship_raw else None
-            if _facility:
-                _tax_info = get_rate_for_facility(_facility)
-            elif _ship_raw:
-                _tax_info = lookup_tax_rate(address=_ship_raw)
-            else:
-                _tax_info = None
+            _tax_info = resolve_tax(_ship_raw) if _ship_raw else None
             if _tax_info and _tax_info.get("rate"):
                 rate = _tax_info["rate"]
-                log.info("Tax rate for quote %s: %.4f (%s, source=%s)",
-                         quote_number, rate, _tax_info.get("jurisdiction", "?"),
-                         _tax_info.get("source", "?"))
+                log.info(
+                    "Tax rate for quote %s: %.4f (%s, source=%s, facility=%s)",
+                    quote_number, rate,
+                    _tax_info.get("jurisdiction", "?"),
+                    _tax_info.get("source", "?"),
+                    _tax_info.get("facility_code", "") or "—",
+                )
         except Exception as _te:
             log.debug("Tax rate lookup failed, using agency default: %s", _te)
     pay_terms = terms or cfg["default_terms"]
