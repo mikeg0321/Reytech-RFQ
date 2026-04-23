@@ -64,11 +64,16 @@ class TestMarkSentPlacement:
     ):
         """Regression guard: after the consolidation the button must not
         live in both the primary bar AND the bottom lifecycle row. One
-        source of truth per action."""
+        source of truth per action.
+
+        Bundle-5 (PR #449) swapped the direct status flip for a modal
+        that records sent_at / sent_to / attachment before the flip —
+        the handler is now `openMarkSentModal()`, not
+        `updateRfqStatus('sent')`. Count the testid instead, which is
+        handler-agnostic and catches both duplicates and a missing button."""
         rid = _seed_with_status(temp_data_dir, sample_rfq, "generated")
         html = _fetch_detail(client, rid)
-        # Each rendered button contains the onclick handler. Count those.
-        count = html.count("updateRfqStatus('sent')")
+        count = html.count('data-testid="rfq-mark-sent-primary"')
         assert count == 1, (
             f"expected 1 Mark Sent button, found {count} — duplicate in lifecycle row?"
         )
