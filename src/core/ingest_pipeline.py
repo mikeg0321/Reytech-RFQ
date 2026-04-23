@@ -275,6 +275,174 @@ def process_buyer_request(
     return result
 
 
+# ── Preview variant — Bundle-2 PR-2a ────────────────────────────────────
+
+def preview_buyer_request(
+    files: List[str] = None,
+    email_body: str = "",
+    email_subject: str = "",
+    email_sender: str = "",
+) -> Dict[str, Any]:
+    """Preview-only variant of `process_buyer_request`.
+
+    Runs the same classifier + parser + institution resolver + deadline
+    extractor pipeline, but does NOT create or update any record. Used
+    by the two-step upload UI (audit item B in 2026-04-22 session audit):
+    operator drops files, app shows what it detected (shape, agency,
+    facility, deadline, required forms, line-item preview), operator
+    confirms before anything persists.
+
+    Returns a plain dict — not IngestResult — because the preview has a
+    different contract than the ingest result (no record_id, adds
+    `facility` and `deadline` subdicts that are only available after
+    resolution, omits linker + pricing-copy steps).
+
+    Safe to call with zero side effects. Designed to be a no-op on
+    error: any crash in a pipeline stage turns into a `warnings[]`
+    entry instead of bubbling up — the UI still needs something to
+    render so the operator can at least fix / retry the upload.
+    """
+    files = files or []
+    result: Dict[str, Any] = {
+        "ok": True,
+        "classification": None,
+        "shape": "",
+        "agency": "",
+        "confidence": 0.0,
+        "solicitation_number": "",
+        "required_forms": [],
+        "primary_file": "",
+        "items": [],
+        "items_parsed": 0,
+        "header": {},
+        "facility": None,
+        "deadline": None,
+        "warnings": [],
+        "errors": [],
+        "reasons": [],
+    }
+
+    # ── Step 1: classify ──
+    try:
+        from src.core.request_classifier import classify_request
+        classification = classify_request(
+            attachments=files,
+            email_body=email_body,
+            email_subject=email_subject,
+            email_sender=email_sender,
+        )
+    except Exception as e:
+        log.error("preview classifier crashed: %s", e, exc_info=True)
+        result["ok"] = False
+        result["errors"].append(f"classifier crashed: {e}")
+        return result
+
+    result["classification"] = classification.to_dict()
+    result["shape"] = classification.shape
+    result["agency"] = classification.agency
+    result["confidence"] = classification.confidence
+    result["solicitation_number"] = classification.solicitation_number or ""
+    result["required_forms"] = list(classification.required_forms or [])
+    result["primary_file"] = classification.primary_file or ""
+    result["reasons"].extend(classification.reasons)
+
+    # ── Step 2: parse items from the primary file ──
+    primary_path: Optional[str] = None
+    if classification.primary_file and files:
+        for f in files:
+            if os.path.basename(f) == classification.primary_file:
+                primary_path = f
+                break
+
+    items: List[Dict[str, Any]] = []
+    header: Dict[str, Any] = {}
+    if primary_path:
+        try:
+            items, header, parse_error = _dispatch_parser(
+                primary_path, classification
+            )
+            if parse_error:
+                result["warnings"].append(f"parse: {parse_error}")
+        except Exception as e:
+            log.error("preview parser crashed: %s", e, exc_info=True)
+            result["warnings"].append(f"parser crashed: {e}")
+
+    result["items"] = items
+    result["items_parsed"] = len(items)
+    result["header"] = header
+
+    # ── Step 3: resolve facility / institution ──
+    # institution_resolver.resolve() returns a dict with canonical
+    # code + name when it can map; None when it can't. Fed by header
+    # fields first (buyer's explicit delivery address beats email
+    # metadata), falling back to classifier-derived agency.
+    try:
+        from src.core.institution_resolver import resolve as _resolve_inst
+        inst_seed = (
+            header.get("institution")
+            or header.get("ship_to")
+            or header.get("delivery_location")
+            or header.get("agency")
+            or classification.agency
+            or ""
+        )
+        if inst_seed:
+            inst = _resolve_inst(str(inst_seed))
+            if inst and (inst.get("code") or inst.get("facility_code")):
+                result["facility"] = {
+                    "code": inst.get("code") or inst.get("facility_code"),
+                    "name": (
+                        inst.get("canonical_name")
+                        or inst.get("name")
+                        or inst.get("facility_name")
+                        or ""
+                    ),
+                    "agency": (
+                        inst.get("parent_agency")
+                        or inst.get("agency")
+                        or classification.agency
+                        or ""
+                    ),
+                    "confidence": inst.get("confidence"),
+                    "raw": inst_seed,
+                }
+    except Exception as e:
+        log.debug("preview facility resolve skipped: %s", e)
+        result["warnings"].append(f"facility resolver: {e}")
+
+    # ── Step 4: extract deadline ──
+    # `apply_default_if_missing` runs header → email-body → default.
+    # Call it on a synthetic doc that carries the header + body fields
+    # it expects so we can report what the operator would see WITHOUT
+    # stamping anything on a real record.
+    try:
+        from src.core.deadline_defaults import apply_default_if_missing
+        preview_doc: Dict[str, Any] = {
+            "header": header,
+            "body_text": email_body or "",
+        }
+        # Also pull any explicit due_date the header already carried —
+        # apply_default_if_missing treats doc-level keys as authoritative.
+        if header.get("due_date"):
+            preview_doc["due_date"] = header["due_date"]
+        if header.get("due_time"):
+            preview_doc["due_time"] = header["due_time"]
+        source = apply_default_if_missing(preview_doc, email_body=email_body)
+        if preview_doc.get("due_date"):
+            result["deadline"] = {
+                "due_date": preview_doc.get("due_date"),
+                "due_time": preview_doc.get("due_time"),
+                "source": preview_doc.get(
+                    "due_date_source", source or "default"
+                ),
+            }
+    except Exception as e:
+        log.debug("preview deadline extract skipped: %s", e)
+        result["warnings"].append(f"deadline: {e}")
+
+    return result
+
+
 # ── Dispatcher: classification → correct parser ─────────────────────────
 
 def _dispatch_parser(
