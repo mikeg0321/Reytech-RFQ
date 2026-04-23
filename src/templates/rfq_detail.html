@@ -1980,15 +1980,22 @@ function recalc(){
  // strip. Tax rate lives on the RFQ record (r.tax_rate, percent). The
  // quote generator reads the same flat values at PDF time, so the UI
  // and the PDF stay in lock-step.
- const subEl=document.getElementById('subt');
- const taxEl=document.getElementById('taxt');
+ //
+ // Hotfix 2026-04-23: renamed from subEl/taxEl because the
+ // margin-summary-bar code below this block declares `var taxEl` (and
+ // the per-row-subtotal loop uses `const subEl`). Both hoist / share
+ // this function's scope. Re-declaring with `const` threw a parse-time
+ // SyntaxError, zeroing out every recalc call on every RFQ detail page
+ // (Chrome-MCP-verified regression from Bundle-6 PR-6b, #451).
+ const kpiSubEl=document.getElementById('subt');
+ const kpiTaxEl=document.getElementById('taxt');
  const rfqTaxRate=parseFloat({{ (r.get('tax_rate', 0) or 0)|tojson }})||0;
- const taxEnabled={{ 'true' if r.get('tax_enabled', True) else 'false' }};
- const taxAmount=taxEnabled?(tb*rfqTaxRate/100):0;
- const totalWithTax=tb+taxAmount;
- if(subEl)subEl.textContent=`$${tb.toFixed(2)}`;
- if(taxEl)taxEl.textContent=`$${taxAmount.toFixed(2)}`;
- document.getElementById('tot').textContent=`$${totalWithTax.toFixed(2)}`;
+ const rfqTaxEnabled={{ 'true' if r.get('tax_enabled', True) else 'false' }};
+ const kpiTaxAmount=rfqTaxEnabled?(tb*rfqTaxRate/100):0;
+ const kpiTotalWithTax=tb+kpiTaxAmount;
+ if(kpiSubEl)kpiSubEl.textContent=`$${tb.toFixed(2)}`;
+ if(kpiTaxEl)kpiTaxEl.textContent=`$${kpiTaxAmount.toFixed(2)}`;
+ document.getElementById('tot').textContent=`$${kpiTotalWithTax.toFixed(2)}`;
  const pr=tb-tc;
  const pe=document.getElementById('pft');
  if(tb>0&&tc>0){const pp=(pr/tb*100).toFixed(1);pe.textContent=`💰 Profit: $${pr.toFixed(2)} (${pp}%)`;pe.style.color=pr>0?'#3fb950':'#f85149'}

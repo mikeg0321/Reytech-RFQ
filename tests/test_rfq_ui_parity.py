@@ -149,12 +149,77 @@ def test_rfq_summary_recalc_writes_to_subtotal_and_tax_cells(
     We don't execute the JS in tests; instead we lock that the writer
     calls exist in the template source so a refactor can't silently
     remove them (and leave the cells permanently stuck at $0.00).
+
+    Names are kpiSubEl/kpiTaxEl to avoid colliding with the
+    margin-summary-bar's `var taxEl` and the per-row-subtotal loop's
+    `const subEl` — both of which hoist / live in the same recalc()
+    function scope (2026-04-23 hotfix incident).
     """
     _seed_rfq("rfq_recalc_assert")
     resp = auth_client.get("/rfq/rfq_recalc_assert")
     html = resp.data.decode("utf-8", errors="replace")
-    # Writer lines we depend on — look for explicit assignments to the
-    # new cells inside the recalc path.
-    assert "subEl.textContent=" in html or "subEl.textContent =" in html
-    assert "taxEl.textContent=" in html or "taxEl.textContent =" in html
+    # Writer lines we depend on — explicit assignments to the KPI cells.
+    assert "kpiSubEl.textContent=" in html or "kpiSubEl.textContent =" in html
+    assert "kpiTaxEl.textContent=" in html or "kpiTaxEl.textContent =" in html
     assert "rfqTaxRate" in html
+
+
+def test_rfq_detail_inline_js_parses_without_identifier_collision(
+        auth_client, temp_data_dir):
+    """Hotfix guard: regex across every inline <script> in rfq_detail.html
+    to ensure no identifier is declared twice at the same lexical level.
+
+    Incident 2026-04-23: Bundle-6 PR-6b added `const taxEl` inside recalc()
+    next to an existing `var taxEl` (margin-summary bar, inside the same
+    function scope). Result: SyntaxError at parse time, `recalc`
+    undefined, KPI strip stuck at $0.00 on every RFQ detail page in prod.
+    pytest-side template-render tests missed this because they only grep
+    for string presence, not JS validity.
+
+    This test doesn't run a JS parser (too heavy), but it catches the
+    exact class of regression by finding any var/let/const name declared
+    more than once at the top level of the same <script> block — which
+    is the fingerprint of hoisted-collision errors.
+    """
+    import re
+    _seed_rfq("rfq_parse_guard")
+    resp = auth_client.get("/rfq/rfq_parse_guard")
+    html = resp.data.decode("utf-8", errors="replace")
+
+    # Extract each <script>...</script> body.
+    scripts = re.findall(r"<script[^>]*>(.*?)</script>",
+                         html, flags=re.DOTALL | re.IGNORECASE)
+
+    # Names this test is watching. When adding a new top-level const/let
+    # to recalc() or any shared script block, check against this list OR
+    # prefix your new name (e.g. `kpiX`) to keep it distinct.
+    watched = [
+        "subEl", "taxEl", "shipEl", "gtEl", "msBar", "mkEl",
+        "kpiSubEl", "kpiTaxEl", "kpiTaxAmount", "kpiTotalWithTax",
+        "rfqTaxRate", "rfqTaxEnabled",
+    ]
+    collisions = []
+    for i, body in enumerate(scripts):
+        # Strip nested brace bodies so `const x inside for(){}` doesn't
+        # count as top-level. This is a heuristic but catches the real
+        # hoisting-collision pattern we hit in prod.
+        stripped = body
+        # Remove one level of {...} iteratively (cheap, not perfect).
+        for _ in range(8):
+            new_stripped, n = re.subn(r"\{[^{}]*\}", "", stripped)
+            if n == 0:
+                break
+            stripped = new_stripped
+        for name in watched:
+            pat = rf"\b(?:const|let|var)\s+{name}\b"
+            hits = re.findall(pat, stripped)
+            if len(hits) > 1:
+                collisions.append({
+                    "script_idx": i, "name": name, "declarations": len(hits),
+                })
+    assert not collisions, (
+        "Duplicate top-level JS declarations detected — this is the same "
+        "class of bug that zeroed prod recalc on 2026-04-23. Rename one "
+        "side (prefix with `kpi`/`ms`/`row`) so they don't share scope.\n"
+        f"Collisions: {collisions}"
+    )
