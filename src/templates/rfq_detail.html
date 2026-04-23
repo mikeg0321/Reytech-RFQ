@@ -140,14 +140,77 @@
    <span style="font-size:11px;color:var(--tx2);background:var(--sf);padding:1px 6px;border-radius:4px">{{ reqs.get('extraction_method','regex') }} · {{ (reqs.get('confidence',0)*100)|int }}% conf</span>
    <button onclick="reExtractRequirements()" id="re-extract-btn" style="font-size:11px;padding:2px 8px;background:var(--sf);border:1px solid var(--bd);border-radius:4px;color:#a78bfa;cursor:pointer" title="Re-run extraction from email body">🔄 Re-extract</button>
   </div>
-  <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+  {# Bundle-2 PR-2e (audit item L): per-RFQ dismiss escape hatch for
+     classifier-picked required forms. When the classifier mis-shapes
+     an RFQ (e.g. LPA IT RFQ mis-classified as packet → demands BidPkg),
+     the operator can click 'Not needed' to strike through the
+     offending pill. Stored per-RFQ in `dismissed_required_forms` so
+     downstream gen/QA can respect it. The form ISN'T removed from the
+     classifier's list — we keep the audit trail — it's just visually
+     demoted and a `data-dismissed` attribute lets package-gen queries
+     skip it. #}
+  {% set _dismissed = r.get('dismissed_required_forms', []) %}
+  <div data-testid="rfq-required-forms-strip"
+       style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;align-items:center">
    {% for form in reqs.get('forms_required', []) %}
-   <span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;
-    {% if form in (agency_required_forms|default([])) %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2){% else %}background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.2){% endif %}">
-    {{ form|upper }}{% if form in (agency_required_forms|default([])) %} ✓{% else %} ⚠{% endif %}
+   {% set _is_dismissed = form in _dismissed %}
+   {% set _is_agency_req = form in (agency_required_forms|default([])) %}
+   <span data-form-slug="{{ form }}" data-dismissed="{{ '1' if _is_dismissed else '0' }}"
+         data-testid="rfq-required-form-pill"
+         style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:4px;
+    {% if _is_dismissed %}background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);text-decoration:line-through
+    {% elif _is_agency_req %}background:rgba(52,211,153,.1);color:#3fb950;border:1px solid rgba(52,211,153,.2)
+    {% else %}background:rgba(248,81,73,.1);color:#f85149;border:1px solid rgba(248,81,73,.2)
+    {% endif %}">
+    <span>{{ form|upper }}{% if _is_dismissed %} · dismissed{% elif _is_agency_req %} ✓{% else %} ⚠{% endif %}</span>
+    {% if _is_dismissed %}
+    <button type="button" onclick="_toggleRequiredForm('{{ form }}', false)"
+            data-testid="rfq-required-form-restore"
+            title="Restore — classifier will demand this form again"
+            style="background:none;border:none;color:inherit;cursor:pointer;font-size:11px;padding:0 2px;line-height:1">↺</button>
+    {% else %}
+    <button type="button" onclick="_toggleRequiredForm('{{ form }}', true)"
+            data-testid="rfq-required-form-dismiss"
+            title="Not needed for this RFQ — dismiss the demand"
+            style="background:none;border:none;color:inherit;cursor:pointer;font-size:11px;padding:0 2px;line-height:1">✕</button>
+    {% endif %}
    </span>
    {% endfor %}
   </div>
+  <script>
+  // PR-2e: toggle dismissal of a required-form pill. Single round
+  // trip to `/api/rfq/<rid>/toggle-required-form`; on success the
+  // page reloads to render the updated `dismissed_required_forms`
+  // state. Kept simple — no inline DOM surgery — because the pill
+  // style depends on both the dismissal AND the agency-required
+  // flag, and re-computing the correct background client-side would
+  // duplicate the Jinja logic above.
+  if (typeof window._toggleRequiredForm !== 'function') {
+    window._toggleRequiredForm = function(formSlug, dismiss){
+      if (dismiss && !confirm(
+        "Dismiss '" + formSlug.toUpperCase() + "' for this RFQ?\n\n" +
+        "The form will be struck through and package-generation\n" +
+        "queries can skip it. You can restore later via the ↺ icon."
+      )) return;
+      fetch('/api/rfq/' + RID + '/toggle-required-form', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({form: formSlug, dismiss: !!dismiss}),
+      }).then(function(r){ return r.json(); }).then(function(d){
+        if (d && d.ok) {
+          window.location.reload();
+        } else {
+          var msg = 'Toggle failed: ' + ((d && d.error) || 'unknown');
+          if (typeof showMsg === 'function') showMsg(msg, 'error');
+          else alert(msg);
+        }
+      }).catch(function(e){
+        if (typeof showMsg === 'function') showMsg('Network error: ' + e, 'error');
+        else alert('Network error: ' + e);
+      });
+    };
+  }
+  </script>
   {% if reqs.get('due_date') %}<div style="color:var(--tx2)">📅 Due: <strong>{{ reqs.due_date }}</strong>{% if reqs.get('due_time') %} {{ reqs.due_time }}{% endif %}</div>{% endif %}
   {% if reqs.get('food_items_present') %}<div style="color:#f0883e;font-weight:600;margin-top:4px">🍎 Food items detected — OBS 1600 may be required</div>{% endif %}
   {% for inst in reqs.get('special_instructions', [])[:3] %}
