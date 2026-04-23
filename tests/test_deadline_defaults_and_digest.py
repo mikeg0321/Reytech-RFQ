@@ -22,7 +22,9 @@ import pytest
 from src.core.deadline_defaults import (
     add_business_days,
     apply_default_if_missing,
+    backfill_missing_deadlines,
     compute_default_deadline,
+    re_resolve_default,
     resolve_or_default,
 )
 from src.agents.notify_agent import _build_digest_body, _format_digest_line
@@ -189,6 +191,187 @@ def test_apply_default_explicit_arg_overrides_doc_body():
     src = apply_default_if_missing(doc, email_body="... due 04/23/2026 ...")
     assert src == "email"
     assert doc["due_date"] == "2026-04-23"
+
+
+# ── 4c. re_resolve_default — re-run on stale default stamps ─────────────────
+# Records stamped `due_date_source == "default"` represent "app didn't know
+# yet." If a real body text / header date arrives later, we want to upgrade.
+# Records stamped `header` or `email` must NEVER be overwritten.
+
+def test_re_resolve_returns_none_when_source_is_header():
+    doc = {"id": "pc_x", "due_date": "04/25/2026", "due_date_source": "header"}
+    assert re_resolve_default(doc) is None
+    assert doc["due_date"] == "04/25/2026"
+
+
+def test_re_resolve_returns_none_when_source_is_email():
+    doc = {"id": "pc_x", "due_date": "2026-05-01", "due_date_source": "email"}
+    assert re_resolve_default(doc) is None
+    assert doc["due_date"] == "2026-05-01"
+
+
+def test_re_resolve_upgrades_to_email_when_body_now_present():
+    """The main reason this helper exists: body text arrived after stamping."""
+    doc = {
+        "id": "rfq_x",
+        "due_date": "04/24/2026", "due_time": "02:00 PM",
+        "due_date_source": "default",
+        "body_text": "Please respond no later than 04/23/2026.",
+    }
+    new_src = re_resolve_default(doc)
+    assert new_src == "email"
+    assert doc["due_date"] == "2026-04-23"
+    assert doc["due_date_source"] == "email"
+
+
+def test_re_resolve_restores_anchor_when_still_default():
+    """No body, no header — prior default anchor must NOT drift forward.
+
+    Otherwise every backfill pass walks the due date rightward by 2 biz days,
+    hiding dormant records from any "X days overdue" surfacing.
+    """
+    doc = {
+        "id": "pc_x",
+        "due_date": "04/24/2026", "due_time": "02:00 PM",
+        "due_date_source": "default",
+    }
+    new_src = re_resolve_default(doc)
+    assert new_src is None
+    assert doc["due_date"] == "04/24/2026"
+    assert doc["due_time"] == "02:00 PM"
+    assert doc["due_date_source"] == "default"
+
+
+def test_re_resolve_handles_non_dict():
+    assert re_resolve_default(None) is None
+    assert re_resolve_default([]) is None
+    assert re_resolve_default("") is None
+
+
+# ── 4d. backfill integration — re-resolve path ──────────────────────────────
+# Seeds real PC/RFQ dicts into a temp DATA_DIR via monkeypatched data_layer
+# helpers, runs the backfill, asserts the right records moved.
+
+def _fake_data_layer(pcs, rfqs):
+    """Return (load_pcs, save_pc, load_rfqs, save_rfq) bound to in-memory dicts.
+
+    Saves record every write so backfill can observe its own effects if needed.
+    """
+    def load_pcs(): return pcs
+    def save_pc(pcid, pc): pcs[pcid] = pc
+    def load_rfqs(): return rfqs
+    def save_rfq(rid, r): rfqs[rid] = r
+    return load_pcs, save_pc, load_rfqs, save_rfq
+
+
+def test_backfill_re_resolves_default_pc_with_late_body_text(monkeypatch):
+    """PC stamped default + body text now present → re-resolves to email."""
+    pcs = {
+        "pc_stale": {
+            "status": "new",
+            "due_date": "04/24/2026", "due_time": "02:00 PM",
+            "due_date_source": "default",
+            "body_text": "Due no later than 04/23/2026 at 2:00 PM.",
+        },
+    }
+    rfqs = {}
+    load_pcs, save_pc, load_rfqs_, save_rfq_ = _fake_data_layer(pcs, rfqs)
+    import src.api.data_layer as dl
+    monkeypatch.setattr(dl, "_load_price_checks", load_pcs, raising=False)
+    monkeypatch.setattr(dl, "_save_single_pc", save_pc, raising=False)
+    monkeypatch.setattr(dl, "load_rfqs", load_rfqs_, raising=False)
+    monkeypatch.setattr(dl, "_save_single_rfq", save_rfq_, raising=False)
+
+    stats = backfill_missing_deadlines()
+    assert stats["pc_re_resolved"] == 1
+    assert stats["pc_filled"] == 0
+    assert pcs["pc_stale"]["due_date_source"] == "email"
+    assert pcs["pc_stale"]["due_date"] == "2026-04-23"
+
+
+def test_backfill_leaves_non_default_records_alone(monkeypatch):
+    """Records with source=header or source=email must never be touched."""
+    pcs = {
+        "pc_header": {
+            "status": "new", "due_date": "04/30/2026",
+            "due_date_source": "header",
+            "body_text": "Please respond no later than 04/23/2026.",
+        },
+        "pc_email": {
+            "status": "new", "due_date": "2026-05-01",
+            "due_date_source": "email",
+            "body_text": "Due 04/23/2026",
+        },
+    }
+    rfqs = {}
+    load_pcs, save_pc, load_rfqs_, save_rfq_ = _fake_data_layer(pcs, rfqs)
+    import src.api.data_layer as dl
+    monkeypatch.setattr(dl, "_load_price_checks", load_pcs, raising=False)
+    monkeypatch.setattr(dl, "_save_single_pc", save_pc, raising=False)
+    monkeypatch.setattr(dl, "load_rfqs", load_rfqs_, raising=False)
+    monkeypatch.setattr(dl, "_save_single_rfq", save_rfq_, raising=False)
+
+    stats = backfill_missing_deadlines()
+    assert stats["pc_re_resolved"] == 0
+    assert stats["pc_filled"] == 0
+    assert pcs["pc_header"]["due_date"] == "04/30/2026"
+    assert pcs["pc_email"]["due_date"] == "2026-05-01"
+
+
+def test_backfill_fills_blank_and_re_resolves_stale_in_same_pass(monkeypatch):
+    """Both paths coexist — blanks get stamped, defaults get re-resolved."""
+    pcs = {
+        "pc_blank": {"status": "new", "due_date": "",
+                     "body_text": "Due 04/23/2026"},
+        "pc_stale": {
+            "status": "new", "due_date": "04/24/2026",
+            "due_date_source": "default",
+            "body_text": "Due 05/15/2026",
+        },
+    }
+    rfqs = {}
+    load_pcs, save_pc, load_rfqs_, save_rfq_ = _fake_data_layer(pcs, rfqs)
+    import src.api.data_layer as dl
+    monkeypatch.setattr(dl, "_load_price_checks", load_pcs, raising=False)
+    monkeypatch.setattr(dl, "_save_single_pc", save_pc, raising=False)
+    monkeypatch.setattr(dl, "load_rfqs", load_rfqs_, raising=False)
+    monkeypatch.setattr(dl, "_save_single_rfq", save_rfq_, raising=False)
+
+    stats = backfill_missing_deadlines()
+    assert stats["pc_filled"] == 1
+    assert stats["pc_re_resolved"] == 1
+    assert pcs["pc_blank"]["due_date_source"] == "email"
+    assert pcs["pc_blank"]["due_date"] == "2026-04-23"
+    assert pcs["pc_stale"]["due_date_source"] == "email"
+    assert pcs["pc_stale"]["due_date"] == "2026-05-15"
+
+
+def test_backfill_skips_sent_and_test_records(monkeypatch):
+    """Sent + is_test filters apply on the re-resolve path too."""
+    pcs = {
+        "pc_sent": {
+            "status": "sent", "due_date": "04/24/2026",
+            "due_date_source": "default",
+            "body_text": "Due 04/23/2026",
+        },
+        "pc_test": {
+            "status": "new", "due_date": "04/24/2026",
+            "due_date_source": "default", "is_test": True,
+            "body_text": "Due 04/23/2026",
+        },
+    }
+    rfqs = {}
+    load_pcs, save_pc, load_rfqs_, save_rfq_ = _fake_data_layer(pcs, rfqs)
+    import src.api.data_layer as dl
+    monkeypatch.setattr(dl, "_load_price_checks", load_pcs, raising=False)
+    monkeypatch.setattr(dl, "_save_single_pc", save_pc, raising=False)
+    monkeypatch.setattr(dl, "load_rfqs", load_rfqs_, raising=False)
+    monkeypatch.setattr(dl, "_save_single_rfq", save_rfq_, raising=False)
+
+    stats = backfill_missing_deadlines()
+    assert stats["pc_re_resolved"] == 0
+    assert pcs["pc_sent"]["due_date_source"] == "default"
+    assert pcs["pc_test"]["due_date_source"] == "default"
 
 
 # ── 5. Save hooks centralize the default ────────────────────────────────────
