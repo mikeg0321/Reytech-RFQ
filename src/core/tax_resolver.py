@@ -110,7 +110,7 @@ def _parse_address(address: str) -> Dict[str, str]:
     return {"street": street, "city": city, "zip": z}
 
 
-def resolve_tax(address: str) -> Dict[str, Any]:
+def resolve_tax(address: str, force_live: bool = False) -> Dict[str, Any]:
     """Single entry point for tax-rate resolution.
 
     Priority order:
@@ -120,6 +120,10 @@ def resolve_tax(address: str) -> Dict[str, Any]:
       2. **address parser** — zip extracted from the raw string.
       3. **CDTFA fallback / default** — handled upstream by
          `src.core.tax_rates.lookup_tax_rate`.
+
+    `force_live=True` bypasses the local cache and forces a fresh
+    CDTFA call (mirrors the existing `?force_live=1` knob on
+    `/api/rfq/<rid>/lookup-tax-rate`).
 
     Never raises. Returns a normalized dict (see module docstring).
     Callers should trust `validated=True` as "this came from a real
@@ -153,6 +157,7 @@ def resolve_tax(address: str) -> Dict[str, Any]:
                     street=record.address_line1,
                     city=_city,
                     zip_code=record.zip,
+                    force_live=force_live,
                 )
                 return _normalize(
                     payload,
@@ -181,6 +186,7 @@ def resolve_tax(address: str) -> Dict[str, Any]:
                 street=parsed["street"],
                 city=parsed["city"],
                 zip_code=parsed["zip"],
+                force_live=force_live,
             )
         else:
             # Use tax_agent's own ship-to parser as the last-resort
@@ -193,6 +199,7 @@ def resolve_tax(address: str) -> Dict[str, Any]:
                 street=tap.get("street", ""),
                 city=tap.get("city", ""),
                 zip_code=tap.get("zip", ""),
+                force_live=force_live,
             )
         return _normalize(
             payload,
