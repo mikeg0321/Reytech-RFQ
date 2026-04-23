@@ -649,7 +649,7 @@
   <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" data-qa-gated="1" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
   <button type="button" class="btn" data-qa-gated="1" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
   {% if r.status in ('generated', 'ready', 'ready_to_send') %}
-  <button type="button" onclick="updateRfqStatus('sent')" class="btn" data-testid="rfq-mark-sent-primary" style="font-size:15px;padding:12px 24px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)" aria-label="Mark as sent">📨 Mark Sent</button>
+  <button type="button" onclick="openMarkSentModal()" class="btn" data-testid="rfq-mark-sent-primary" style="font-size:15px;padding:12px 24px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)" aria-label="Mark as sent manually — use when you emailed this outside the app" title="Mark this RFQ as sent manually (e.g. when you emailed the package outside the app)">📨 Mark Sent Manually</button>
   {% endif %}
   <button type="button" id="rfq-food-cert-btn" class="btn" style="display:none;background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (auto-shown when food items detected)" aria-label="Generate food certification form">🌾 Food Cert</button>
   <button type="button" class="btn" data-qa-gated="1" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
@@ -3590,5 +3590,139 @@ setTimeout(function(){
 },2000);
 </script>
 {% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- Post-send lock (Bundle-5 PR-5b) — once the RFQ is sent, pricing       -->
+<!-- inputs become read-only so a stray click can't change what we already -->
+<!-- quoted. Reopen by transitioning status back to 'generated'. The lock  -->
+<!-- is JS-applied (not per-input Jinja) to keep this scope tiny; a new    -->
+<!-- input added later gets automatically locked via the selector.         -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+{% if r.status in ('sent', 'won', 'lost') %}
+<div data-testid="rfq-post-send-lock-banner"
+     style="margin:10px 0;padding:10px 14px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.35);border-radius:8px;color:#d29922;font-size:13px;display:flex;gap:10px;align-items:center">
+ <span style="font-size:18px">🔒</span>
+ <span style="flex:1"><b>Sent record — line items locked.</b>
+  Pricing, costs, markups, and quantities are read-only to prevent accidental edits.
+  Click <b>Reopen</b> (below) to move this back to <i>generated</i> and unlock.</span>
+</div>
+<script>
+(function lockSentRfqFields() {
+  // Lock any priced/edit input inside the items form. Includes cost, bid
+  // price, markup, qty, line#, UOM, description, part #, link — anything
+  // the operator types into on an unlocked record.
+  var selectors = [
+    'input[name^="cost_"]', 'input[name^="price_"]',
+    'input[name^="markup_"]', 'input[name^="qty_"]',
+    'input[name^="linenum_"]', 'input[name^="uom_"]',
+    'input[name^="part_"]', 'input[name^="link_"]',
+    'textarea[name^="desc_"]'
+  ];
+  document.querySelectorAll(selectors.join(',')).forEach(function(el) {
+    el.setAttribute('readonly', 'readonly');
+    el.setAttribute('data-locked-sent', '1');
+    el.style.opacity = '0.65';
+    el.style.cursor = 'not-allowed';
+  });
+  // Select inputs + custom number widgets use disabled:
+  document.querySelectorAll('#custom-markup-pct, #custom-markup-flat').forEach(function(el){
+    el.setAttribute('disabled', 'disabled');
+  });
+})();
+</script>
+{% endif %}
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- Mark Sent Manually modal (Bundle-5 PR-5b) — out-of-band escape valve. -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div id="mark-sent-modal" role="dialog" aria-modal="true" aria-labelledby="mark-sent-title"
+     style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);align-items:center;justify-content:center">
+ <div style="background:var(--bg,#0d1117);border:1px solid var(--bd,#30363d);border-radius:10px;padding:24px;min-width:420px;max-width:560px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+  <h3 id="mark-sent-title" style="margin:0 0 12px 0;color:var(--tx)">📨 Mark as Sent Manually</h3>
+  <div style="font-size:13px;color:var(--tx2);margin-bottom:16px">
+   Use this when you emailed the RFQ package outside the app (e.g. manual Gmail send).
+   The record will flip to <b>Sent</b> and stop surfacing in the active queue.
+  </div>
+  <form id="mark-sent-form" onsubmit="return submitMarkSent(event)">
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Sent to (email)</label>
+   <input type="email" name="sent_to" value="{{ r.get('requestor_email','') }}"
+          style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:12px" />
+
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Sent at (ISO datetime, defaults to now)</label>
+   <input type="text" name="sent_at" placeholder="2026-04-23T14:30:00"
+          style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:12px" />
+
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Attachment (what you actually sent — optional)</label>
+   <input type="file" name="attachment" accept=".pdf,.doc,.docx"
+          style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:12px" />
+
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Notes (optional, saved to activity log)</label>
+   <textarea name="notes" rows="3"
+             style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:16px;font-family:inherit"></textarea>
+
+   <div id="mark-sent-err" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:6px;color:#f85149;font-size:13px"></div>
+
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" onclick="closeMarkSentModal()" class="btn"
+            style="padding:8px 16px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px">Cancel</button>
+    <button type="submit" id="mark-sent-submit" class="btn"
+            style="padding:8px 16px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700">Mark Sent</button>
+   </div>
+  </form>
+ </div>
+</div>
+
+<script>
+function openMarkSentModal() {
+  var el = document.getElementById('mark-sent-modal');
+  if (el) { el.style.display = 'flex'; }
+}
+function closeMarkSentModal() {
+  var el = document.getElementById('mark-sent-modal');
+  if (el) { el.style.display = 'none'; }
+  var err = document.getElementById('mark-sent-err');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+}
+function submitMarkSent(ev) {
+  ev.preventDefault();
+  var form = document.getElementById('mark-sent-form');
+  var btn = document.getElementById('mark-sent-submit');
+  var err = document.getElementById('mark-sent-err');
+  if (err) { err.style.display = 'none'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Marking sent…'; }
+  var fd = new FormData(form);
+  fetch('/api/rfq/' + RID + '/mark-sent-manually', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d && d.ok) {
+      closeMarkSentModal();
+      var toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#0d1f0d;border:1px solid #3fb950;border-radius:8px;padding:12px 18px;z-index:9999;color:#3fb950;font-size:14px;font-weight:600';
+      toast.textContent = '✅ Marked sent manually → ' + (d.sent_to || '');
+      document.body.appendChild(toast);
+      setTimeout(function(){ location.reload(); }, 900);
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Mark Sent'; }
+      if (err) {
+        err.textContent = '❌ ' + ((d && d.error) || 'Request failed');
+        err.style.display = 'block';
+      }
+    }
+  })
+  .catch(function(e){
+    if (btn) { btn.disabled = false; btn.textContent = 'Mark Sent'; }
+    if (err) {
+      err.textContent = '❌ Network error: ' + (e && e.message ? e.message : 'unknown');
+      err.style.display = 'block';
+    }
+  });
+  return false;
+}
+</script>
 
 {% endblock %}

@@ -4960,6 +4960,33 @@
   }
 })();
 </script>
+
+{# ═══════════════════════════════════════════════════════════════════ #}
+{# Post-send lock (Bundle-5 PR-5b) — sent PC line items become read-only. #}
+{# ═══════════════════════════════════════════════════════════════════ #}
+{% if pc.get('status') in ('sent', 'won', 'lost') %}
+<div data-testid="pc-post-send-lock-banner"
+     style="margin:10px 0;padding:10px 14px;background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.35);border-radius:8px;color:#d29922;font-size:13px;display:flex;gap:10px;align-items:center">
+ <span style="font-size:18px">🔒</span>
+ <span style="flex:1"><b>Sent record — line items locked.</b>
+  Pricing inputs are read-only to prevent accidental edits after the quote ships.</span>
+</div>
+<script>
+(function lockSentPcFields() {
+  var selectors = [
+    'input[name^="cost_"]', 'input[name^="price_"]',
+    'input[name^="markup_"]', 'input[name^="qty_"]',
+    'textarea[name^="desc_"]'
+  ];
+  document.querySelectorAll(selectors.join(',')).forEach(function(el) {
+    el.setAttribute('readonly', 'readonly');
+    el.setAttribute('data-locked-sent', '1');
+    el.style.opacity = '0.65';
+    el.style.cursor = 'not-allowed';
+  });
+})();
+</script>
+{% endif %}
     </body></html>
 
 {% endblock %}

@@ -11,7 +11,7 @@
 # Direct deploy (legacy, use only when branch protection is not yet enabled):
 #   make deploy                         # test + check + push main
 
-.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds await-idle
+.PHONY: test test-quick test-full check lint run routes deploy ship promote branch health status help staging-setup staging-deploy staging-smoke staging-promote worktree worktree-remove worktree-list require-smoke-creds await-idle run-backfill-sent-status
 
 # ── Configuration ───────────────────────────────────────────────────────────
 
@@ -150,6 +150,15 @@ worktree-list:  ## List all active worktrees
 
 await-idle:  ## Wait until Railway has no in-flight deploys (fail-safe; never blocks on error)
 	@./scripts/await_deploy_idle.sh $(or $(max),600)
+
+run-backfill-sent-status:  ## Backfill sent-status for stuck PCs/RFQs. Dry-run by default; apply=1 to commit.
+	@if [ "$(apply)" = "1" ]; then \
+		echo "APPLY mode — will commit status flips to $(or $(db),/data/reytech.db)"; \
+		python scripts/backfill_sent_status.py --apply $(if $(db),--db $(db),) $(if $(only),--only $(only),); \
+	else \
+		echo "DRY-RUN (pass apply=1 to commit)"; \
+		python scripts/backfill_sent_status.py $(if $(db),--db $(db),) $(if $(only),--only $(only),); \
+	fi
 
 ship: check  ## Push branch + create PR (auto=1 to auto-merge; serial=1 to wait for Railway idle first)
 	@if [ "$(BRANCH)" = "main" ]; then \
