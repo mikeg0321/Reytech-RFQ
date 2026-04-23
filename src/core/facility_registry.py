@@ -82,6 +82,15 @@ class FacilityRecord:
     parent_agency: str
     parent_agency_full: str
     aliases: Tuple[str, ...] = field(default_factory=tuple)
+    # Optional canonical tax rate for this facility's address. Set ONLY when
+    # an operator has manually verified the rate at https://maps.cdtfa.ca.gov/
+    # and the rate differs from what CDTFA's address-lookup API returns
+    # (typically because the city carries a district add-on the API misses).
+    # When set, `tax_resolver.resolve_tax()` returns this rate with
+    # source="facility_registry" + validated=True and skips CDTFA entirely.
+    # When None, behavior is unchanged: CDTFA + cache + base fallback.
+    tax_rate: Optional[float] = None
+    tax_jurisdiction: str = ""
 
     def address(self) -> List[str]:
         """Return the 2-line address as a list of strings, safe to
@@ -345,6 +354,12 @@ _SEED: Tuple[FacilityRecord, ...] = (
         zip="92311", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
         aliases=("veterans home barstow", "barstow veterans"),
+        # Manual override: CDTFA address-lookup API returns 7.250% (CA base)
+        # for 92311 because the Barstow district add-on isn't in its zip table.
+        # Verified at https://maps.cdtfa.ca.gov/ on 2026-04-23 — actual combined
+        # rate for 100 Veterans Pkwy, Barstow, CA 92311 is 8.750% (BARSTOW
+        # jurisdiction, San Bernardino County).
+        tax_rate=0.0875, tax_jurisdiction="BARSTOW",
     ),
     FacilityRecord(
         code="CALVETHOME-CV",
