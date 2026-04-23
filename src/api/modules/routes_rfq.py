@@ -420,6 +420,97 @@ def home():
     _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
+
+    # ── Ghost filter + dedup-by-number (audit items D + E, 2026-04-22) ──
+    # Mike's screenshot 2026-04-23 showed 5 ghost rows still visible:
+    # 45007355 / 45007500 (Michael Guadan self-buyer + synthetic 45*
+    # prefix), 10841666 Garrett Arase self-buyer, 10837703 Marc
+    # Argarin self-buyer, and a parse-fail row with 0 items + blank
+    # institution. PR-2c (#469) wired the detection but gated stamping
+    # behind `ingest.ghost_quarantine_enabled` (default off, shadow
+    # mode). This render-time filter is always-on so the queue stays
+    # clean even when the flag is off and the record has no stamp.
+    # Records are NOT deleted — they still live in storage and show
+    # in admin views. Only the operator queue hides them.
+    try:
+        from src.core.ghost_detection import (
+            detect_ghost_pattern,
+            is_quarantined,
+        )
+
+        def _hide_from_queue(rec):
+            if is_quarantined(rec):
+                return True
+            reason = detect_ghost_pattern(
+                rec,
+                email_sender=(
+                    rec.get("original_sender")
+                    or rec.get("requestor_email")
+                    or rec.get("buyer_email")
+                    or ""
+                ),
+                items_parsed=len(
+                    rec.get("line_items", rec.get("items", [])) or []
+                ),
+            )
+            return reason is not None
+
+        def _dedup_by_number(recs, *num_fields):
+            """Collapse records sharing a non-empty number. Keeps
+            the most-recently-updated (by updated_at/created_at).
+            Preserves records with blank numbers (nothing to dedup
+            on). Logs the dupes dropped so operators see the count."""
+            seen = {}  # number → (id, record, ts)
+            unkeyed = {}  # records without a number
+
+            def _rec_ts(r):
+                return (
+                    r.get("updated_at") or r.get("sent_at")
+                    or r.get("created_at") or ""
+                )
+
+            for rid, rec in recs.items():
+                num = ""
+                for f in num_fields:
+                    v = rec.get(f)
+                    if v and str(v).strip() and str(v).strip().lower() != "unknown":
+                        num = str(v).strip()
+                        break
+                if not num:
+                    unkeyed[rid] = rec
+                    continue
+                ts = _rec_ts(rec)
+                if num in seen:
+                    _eid, _erec, _ets = seen[num]
+                    if ts > _ets:
+                        seen[num] = (rid, rec, ts)
+                        log.info(
+                            "queue dedup: dropped %s (older) for %s, "
+                            "kept %s (newer) for number=%s",
+                            _eid[:10], num, rid[:10], num,
+                        )
+                    else:
+                        log.info(
+                            "queue dedup: dropped %s (older) for %s, "
+                            "kept %s (newer) for number=%s",
+                            rid[:10], num, _eid[:10], num,
+                        )
+                else:
+                    seen[num] = (rid, rec, ts)
+            out = {rid: rec for (rid, rec, _) in seen.values()}
+            out.update(unkeyed)
+            return out
+
+        _pc_before = len(active_pcs)
+        active_pcs = {k: v for k, v in active_pcs.items() if not _hide_from_queue(v)}
+        active_pcs = _dedup_by_number(active_pcs, "pc_number", "solicitation_number")
+        if len(active_pcs) != _pc_before:
+            log.info(
+                "HOME PC filter: %d → %d (hidden ghosts + deduped numbers)",
+                _pc_before, len(active_pcs),
+            )
+    except Exception as _ge:
+        log.debug("ghost-filter skipped on PCs: %s", _ge)
     sent_pcs = dict(sorted(sent_pcs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
     # Pacific "today" for California-based due date comparisons (PST/PDT aware)
     from zoneinfo import ZoneInfo as _ZI
@@ -508,6 +599,30 @@ def home():
     active_rfqs = {k: v for k, v in active_rfqs.items()
                    if len(v.get("line_items", v.get("items", []))) > 0
                    or (v.get("solicitation_number") or v.get("rfq_number", "")) not in ("", "unknown", "RFQ")}
+    # Ghost-detection filter + dedup by solicitation number (audit E
+    # addendum): Mike's 2026-04-23 screenshot showed #10840486
+    # appearing twice (once as "CA STATE PRISON SACRAMENTO"
+    # uppercase, once as "CA State Prison Sacramento" title case)
+    # because the institution resolver produced different strings
+    # on two ingest passes of the same RFQ and dedup-by-number didn't
+    # fire. Use the same helpers defined in the PC pass above (they
+    # were defined in an earlier try block; re-use is fine because
+    # render-time is single-threaded per request).
+    try:
+        _rfq_before = len(active_rfqs)
+        active_rfqs = {
+            k: v for k, v in active_rfqs.items() if not _hide_from_queue(v)
+        }
+        active_rfqs = _dedup_by_number(
+            active_rfqs, "solicitation_number", "rfq_number",
+        )
+        if len(active_rfqs) != _rfq_before:
+            log.info(
+                "HOME RFQ filter: %d → %d (hidden ghosts + deduped numbers)",
+                _rfq_before, len(active_rfqs),
+            )
+    except Exception as _ge:
+        log.debug("ghost-filter skipped on RFQs: %s", _ge)
     sent_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in ("sent", "won", "lost")}
     sent_rfqs = dict(sorted(sent_rfqs.items(), key=lambda x: x[1].get("sent_at") or x[1].get("updated_at") or "", reverse=True))
     for rid, r in active_rfqs.items():
