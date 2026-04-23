@@ -642,22 +642,105 @@
   <div style="background:var(--sf2);padding:12px 16px"><div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600">Status</div><div id="rfq-status-kpi" style="font-size:14px;font-weight:700;color:#8b949e;margin-top:4px">{{ r.get('status','new')|title }}</div></div>
  </div>
 
- <!-- ── Primary Actions ── -->
- <div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+ {# ── Bundle-3 PR-3a: Workflow Stepper ──
+    Absorbs audit items Q/R/S/T from 2026-04-22. Maps every primary
+    action to exactly one canonical phase (Upload → Classify → Price →
+    Finalize → Fill → Generate → Preview → Send → Post-send) and renders
+    the bar as an ordered stepper so operators see "where am I" and
+    "what's the next correct click" at a glance. #}
+ {% set _rfq_items = r.get('items', r.get('line_items', [])) or [] %}
+ {% set _stepns = namespace(priced=0) %}
+ {% for _it in _rfq_items %}{% if _it.get('price_per_unit') or _it.get('bid_price') %}{% set _stepns.priced = _stepns.priced + 1 %}{% endif %}{% endfor %}
+ {% set _rfq_n_items = _rfq_items|length %}
+ {% set _phase_classified = (r.get('classification') or r.get('shape') or r.get('agency') or r.get('agency_key') or r.get('department')) %}
+ {% set _phase_priced = (_rfq_n_items > 0 and _stepns.priced >= _rfq_n_items) %}
+ {% set _phase_finalized = (r.get('pricing_snapshot') or r.status in ('ready','generated','ready_to_send','sent','won','lost')) %}
+ {% set _phase_generated = (r.get('output_files') or r.get('reytech_quote_pdf') or r.status in ('generated','ready_to_send','sent','won','lost')) %}
+ {% set _phase_sent = r.status in ('sent','won','lost') %}
+ {% set _phase_post_send = r.status in ('won','lost','no_bid') %}
+ {% set _stepper_phases = [
+   ('upload',    'Upload',    True),
+   ('classify',  'Classify',  _phase_classified),
+   ('price',     'Price',     _phase_priced),
+   ('finalize',  'Finalize',  _phase_finalized),
+   ('fill',      'Fill',      _phase_generated),
+   ('generate',  'Generate',  _phase_generated),
+   ('preview',   'Preview',   _phase_generated),
+   ('send',      'Send',      _phase_sent),
+   ('post_send', 'Post-send', _phase_post_send),
+ ] %}
+ {% set _curns = namespace(found=False) %}
+ <div data-testid="rfq-workflow-stepper" style="margin-top:16px;padding:10px 14px;background:var(--sf2);border:1px solid var(--bd);border-radius:10px">
+  <div style="font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--tx2);font-weight:600;margin-bottom:8px">Workflow</div>
+  <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;font-size:12px">
+   {% for _key, _label, _done in _stepper_phases %}
+   {% set _is_current = (not _done and not _curns.found) %}
+   {% if _is_current %}{% set _curns.found = True %}{% endif %}
+   <div data-phase="{{_key}}" data-state="{% if _done %}done{% elif _is_current %}current{% else %}pending{% endif %}" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:16px;
+    {% if _done %}background:rgba(46,160,67,.14);color:#3fb950;border:1px solid rgba(46,160,67,.32)
+    {% elif _is_current %}background:rgba(79,140,255,.16);color:#58a6ff;border:1px solid rgba(79,140,255,.38);font-weight:700;box-shadow:0 0 0 2px rgba(79,140,255,.12)
+    {% else %}background:rgba(139,148,158,.06);color:#6e7681;border:1px solid rgba(139,148,158,.18)
+    {% endif %}">
+    <span style="width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;
+     {% if _done %}background:#3fb950;color:#000
+     {% elif _is_current %}background:#58a6ff;color:#000
+     {% else %}background:#30363d;color:#6e7681
+     {% endif %}">{% if _done %}✓{% elif _is_current %}●{% else %}{{loop.index}}{% endif %}</span>
+    <span>{{ _label }}</span>
+   </div>
+   {% if not loop.last %}<span style="color:#30363d;user-select:none;font-size:14px">›</span>{% endif %}
+   {% endfor %}
+  </div>
+ </div>
+
+ <!-- ── Primary Actions (Bundle-3 PR-3a: one primary CTA + collapsed More ▾) ── -->
+ <div data-testid="rfq-primary-actions" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" data-qa-gated="1" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
   <button type="button" class="btn" data-testid="rfq-preview-quote" style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);font-size:14px;padding:12px 20px;font-weight:600" onclick="showRfqPreview()" aria-label="Preview Quote" title="Opens generated PDF if available, otherwise shows HTML preview">👁 Preview</button>
-  <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" data-qa-gated="1" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package">📦 Generate Package</button>
-  <button type="button" class="btn" data-qa-gated="1" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
+  <button type="button" onclick="_doGenerate()" data-testid="rfq-generate-package" data-qa-gated="1" class="btn btn-g" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Generate RFP Package" title="Runs bid-package fill engine + generates Quote PDF. Fill All Forms is included automatically — no separate step needed.">📦 Generate Package</button>
+  <button type="button" class="btn" data-qa-gated="1" data-testid="rfq-send-quote" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:14px;padding:12px 20px;font-weight:600" onclick="sendQuoteEmail()" aria-label="Send quote via email">📧 Send Quote</button>
   {% if r.status in ('generated', 'ready', 'ready_to_send') %}
   <button type="button" onclick="openMarkSentModal()" class="btn" data-testid="rfq-mark-sent-primary" style="font-size:15px;padding:12px 24px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(210,153,34,.3)" aria-label="Mark as sent manually — use when you emailed this outside the app" title="Mark this RFQ as sent manually (e.g. when you emailed the package outside the app)">📨 Mark Sent Manually</button>
   {% endif %}
   <button type="button" id="rfq-food-cert-btn" class="btn" style="display:none;background:rgba(34,197,94,.1);color:#22c55e;border:1px solid rgba(34,197,94,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="generateOBS1600()" title="Generate CA Agricultural Food Product Certification (auto-shown when food items detected)" aria-label="Generate food certification form">🌾 Food Cert</button>
-  <button type="button" class="btn" data-qa-gated="1" style="background:rgba(168,85,247,.1);color:#a855f7;border:1px solid rgba(168,85,247,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="fillBidPackage()" title="Fill ALL forms in bid package" aria-label="Fill all bid package forms">📋 Fill All Forms</button>
-  <a href="/simple-submit/rfq/{{rid}}" class="btn" style="background:rgba(240,136,62,.1);color:#f0883e;border:1px solid rgba(240,136,62,.25);font-size:14px;padding:12px 16px;font-weight:600;text-decoration:none" title="Simple Submit — fast path quoting, skip complex pipeline" aria-label="Simple Submit">⚡ Simple Submit</a>
-  <button type="button" class="btn" style="background:rgba(248,113,113,.1);color:#f85149;border:1px solid rgba(248,113,113,.3);font-size:14px;padding:12px 16px;font-weight:600" onclick="document.getElementById('manual704bInput').click()" title="Upload a hand-filled 704B PDF. Bypasses auto-fill for this RFQ." aria-label="Manual 704B upload">🆘 Manual 704B</button>
+  {# ── More ▾ dropdown — audit items R (relabel Manual 704B), S (demote #}
+  {#    Refresh Prices), T (kill Simple Submit + Fill All Forms redundancy). #}
+  {#    Fill All Forms stays reachable here because Generate Package calls   #}
+  {#    fill_engine internally — but in the rare case an operator wants to   #}
+  {#    run fillers without re-bundling, it's one click deep, not primary.   #}
+  <div style="position:relative" data-testid="rfq-more-actions-wrap">
+   <button type="button" id="rfq-more-actions-btn" onclick="_toggleRfqMoreActions(event)" class="btn" style="background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);font-size:14px;padding:12px 16px;font-weight:600" aria-haspopup="menu" aria-expanded="false" aria-controls="rfq-more-actions" title="Less-used actions">More ▾</button>
+   <div id="rfq-more-actions" role="menu" data-testid="rfq-more-actions-menu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;min-width:260px;background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:6px;z-index:50;box-shadow:0 6px 28px rgba(0,0,0,.35)">
+    <button type="button" role="menuitem" class="btn" data-qa-gated="1" data-testid="rfq-fill-all-forms" style="display:block;width:100%;text-align:left;background:transparent;color:var(--tx);border:none;font-size:13px;padding:10px 12px;font-weight:500;border-radius:6px" onclick="fillBidPackage()" title="Re-run form fillers without rebuilding the package. Normally folded into Generate Package.">📋 Fill All Forms</button>
+    {% if _phase_generated or r.get('manual_704b') %}
+    <button type="button" role="menuitem" class="btn" data-testid="rfq-replace-704b" style="display:block;width:100%;text-align:left;background:transparent;color:#f85149;border:none;font-size:13px;padding:10px 12px;font-weight:500;border-radius:6px" onclick="document.getElementById('manual704bInput').click()" title="Use this when the auto-filled 704B looks wrong — fill it in Acrobat, upload, your version replaces the app's.">🆘 Replace auto-filled 704B</button>
+    {% endif %}
+    <button type="button" role="menuitem" id="rfq-refresh-prices-btn" class="btn" data-testid="rfq-refresh-prices" style="display:block;width:100%;text-align:left;background:transparent;color:#58a6ff;border:none;font-size:13px;padding:10px 12px;font-weight:500;border-radius:6px" onclick="refreshCatalogPrices(this)" title="Pull fresh web MSRP for items that lack cost. Runs in background; reload in ~1 min to see updates.">🔄 Re-scan catalog prices</button>
+   </div>
+  </div>
   <input type="file" id="manual704bInput" accept=".pdf" style="display:none" onchange="_uploadManual704b(this)">
-  <button type="button" id="rfq-refresh-prices-btn" class="btn" style="background:rgba(88,166,255,.1);color:#58a6ff;border:1px solid rgba(88,166,255,.25);font-size:14px;padding:12px 16px;font-weight:600" onclick="refreshCatalogPrices(this)" title="Pull fresh web MSRP for items that lack cost. Runs in background; reload in ~1 min to see updates." aria-label="Refresh catalog prices for this RFQ's items">🔄 Refresh Prices</button>
  </div>
+ <script>
+ // PR-3a: More ▾ dropdown toggle — closes on outside click.
+ function _toggleRfqMoreActions(ev){
+   if (ev) ev.stopPropagation();
+   var m = document.getElementById('rfq-more-actions');
+   var b = document.getElementById('rfq-more-actions-btn');
+   if (!m || !b) return;
+   var open = m.style.display !== 'none';
+   m.style.display = open ? 'none' : 'block';
+   b.setAttribute('aria-expanded', open ? 'false' : 'true');
+ }
+ document.addEventListener('click', function(ev){
+   var m = document.getElementById('rfq-more-actions');
+   var b = document.getElementById('rfq-more-actions-btn');
+   if (!m || !b) return;
+   if (m.style.display === 'none') return;
+   if (b.contains(ev.target) || m.contains(ev.target)) return;
+   m.style.display = 'none';
+   b.setAttribute('aria-expanded', 'false');
+ });
+ </script>
  <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
  <script>
  // Manual catalog refresh — unblocks QA "No cost" gate by pulling fresh MSRP
