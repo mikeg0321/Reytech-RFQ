@@ -3456,7 +3456,13 @@
 
     function triggerPcAutosave() {
       clearTimeout(_pcAutosaveTimer);
-      _pcAutosaveTimer = setTimeout(doPcAutosave, 2500);
+      // 2026-04-23: shortened from 2500ms → 1200ms so a user who types a
+      // markup change and tabs away within ~1s still commits server-side.
+      // The older 2.5s debounce combined with no sendBeacon on unload was
+      // silently losing edits (audit-observed: UI showed markup=22 while
+      // disk held 20). The sendBeacon in the beforeunload handler below is
+      // the belt-and-suspenders catch for anything shorter than 1.2s.
+      _pcAutosaveTimer = setTimeout(doPcAutosave, 1200);
     }
 
     function doPcAutosave() {
@@ -3624,6 +3630,21 @@
         } catch(ex) {}
         var snap = JSON.stringify(collectPrices());
         if (_pcLastSaved !== null && snap !== _pcLastSaved) {
+          // 2026-04-23 autosave-unload fix: use sendBeacon so the last
+          // snapshot reaches the server even when the user navigates away
+          // before the debounce timer fires. Observed symptom: markup edit
+          // in UI but disk kept the old value (UX: "I changed the markup,
+          // why did the email send $558 not $567?"). navigator.sendBeacon
+          // is specifically designed to survive unload; the XHR we'd
+          // normally use gets aborted when the page tears down.
+          try {
+            if (navigator.sendBeacon) {
+              navigator.sendBeacon(
+                '/pricecheck/' + _pcid + '/save-prices',
+                new Blob([snap], {type: 'application/json'})
+              );
+            }
+          } catch(ex) {}
           e.preventDefault();
           e.returnValue = 'You have unsaved changes.';
         }
