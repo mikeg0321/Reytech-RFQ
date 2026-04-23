@@ -864,10 +864,12 @@ def _pricecheck_detail_inner(pcid):
             _tier_pill = (
                 f'<div class="row-tier row-tier-{_tier.lower()}" '
                 f'data-tier="{_tier}" '
-                f'style="display:inline-block;margin-top:3px;padding:1px 5px;'
+                f'style="display:block;width:fit-content;max-width:100%;'
+                f'box-sizing:border-box;margin-top:3px;padding:1px 5px;'
                 f'border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.3px;'
                 f'background:{_tc}22;color:{_tc};border:1px solid {_tc}55;'
-                f'font-family:\'JetBrains Mono\',monospace" '
+                f'font-family:\'JetBrains Mono\',monospace;'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap" '
                 f'title="Review tier: {_tlabel}">{_tlabel}</div>'
             )
         else:
@@ -1800,7 +1802,7 @@ def _validate_item_field(field_type, val):
 
 
 def _recompute_unit_price(item: dict) -> None:
-    """Re-derive unit_price from cost × (1 + markup_pct/100), in-place.
+    """Re-derive unit_price from cost × (1 + markup_pct/100).
 
     Called after cost or markup edits so persisted `unit_price` +
     `pricing.recommended_price` stay in sync with what the UI renders
@@ -1808,28 +1810,26 @@ def _recompute_unit_price(item: dict) -> None:
     `unit_price` and ship the wrong price to the customer (incident
     2026-04-21: pc_f7ba7a6b Cortech mattress, $558.48 shipped vs
     $567.79 displayed).
-
-    Delegates to `src.core.pricing_math.canonical_unit_price` so every
-    read + write path uses the same derivation rule. The canonical
-    helper returns 0 when cost or markup is missing; we check the same
-    cost+markup presence locally to decide whether to overwrite the
-    persisted `unit_price` (since `canonical_unit_price` would fall
-    back to the existing `unit_price` in that case, making the write
-    a no-op that still shows intent-to-heal).
     """
-    from src.core.pricing_math import canonical_unit_price, _coerce_float
-    p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
-    cost = _coerce_float(item.get("vendor_cost")) or _coerce_float(p.get("unit_cost"))
-    markup = _coerce_float(item.get("markup_pct"))
-    if markup is None:
-        markup = _coerce_float(p.get("markup_pct"))
-    if cost is None or markup is None or cost <= 0:
-        return  # leave the persisted price alone if we can't derive
-    new_price = canonical_unit_price(item)
-    if new_price <= 0:
+    p = item.get("pricing") or {}
+    try:
+        cost = p.get("unit_cost")
+        if cost is None:
+            cost = item.get("vendor_cost")
+        markup = p.get("markup_pct")
+        if markup is None:
+            markup = item.get("markup_pct")
+        if cost is None or markup is None:
+            return
+        cost_f = float(cost)
+        markup_f = float(markup)
+        if cost_f <= 0:
+            return
+        new_price = round(cost_f * (1 + markup_f / 100.0), 2)
+        item["unit_price"] = new_price
+        item["pricing"]["recommended_price"] = new_price
+    except (TypeError, ValueError):
         return
-    item["unit_price"] = new_price
-    item.setdefault("pricing", {})["recommended_price"] = new_price
 
 
 def _do_save_prices(pcid):

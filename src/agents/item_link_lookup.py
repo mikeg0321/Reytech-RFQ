@@ -1532,6 +1532,37 @@ def claude_amazon_lookup(asin: str) -> dict:
         log.debug("claude_amazon_lookup %s: empty response", asin)
         return {}
 
+    # Hallucination guard: when Claude's web_search returned nothing
+    # useful for the ASIN, the model sometimes invents a totally
+    # unrelated product (incident 2026-04-23: ASIN B077JQYDTN —
+    # "Sport Medical Alert Bracelet" — came back as "Anker Soundcore
+    # Life Q20 Headphones"). The full response trail (tool_use +
+    # tool_result + text) should reference the ASIN if Claude actually
+    # found the page. If the ASIN is nowhere in the conversation,
+    # discard the result rather than feed garbage to the UI.
+    full_trail = ""
+    for block in (data.get("content") or []):
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                full_trail += block.get("text", "") or ""
+            elif block.get("type") == "tool_use":
+                full_trail += _json.dumps(block.get("input") or {})
+            elif block.get("type") == "tool_result":
+                _tc = block.get("content")
+                if isinstance(_tc, list):
+                    for _b in _tc:
+                        if isinstance(_b, dict) and _b.get("type") == "text":
+                            full_trail += _b.get("text", "") or ""
+                elif isinstance(_tc, str):
+                    full_trail += _tc
+    if asin and asin not in full_trail:
+        log.warning(
+            "claude_amazon_lookup %s: ASIN absent from response trail "
+            "(likely hallucinated product) — discarding result",
+            asin,
+        )
+        return {}
+
     # Tolerate a fenced response even though we asked for none.
     if text.startswith("```"):
         import re as _re_f
