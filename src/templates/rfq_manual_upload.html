@@ -60,10 +60,64 @@
  <!-- Submit + result panel -->
  <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:14px">
   <a href="/" class="btn" style="padding:10px 20px;font-size:14px">Cancel</a>
-  <button onclick="submitUpload()" id="submitBtn" class="btn"
+  <button onclick="submitPreview()" id="previewBtn" class="btn" data-testid="upload-preview-btn"
           style="background:var(--ac);color:#fff;padding:10px 24px;font-size:14px;font-weight:600">
-   Ingest RFQ
+   🔍 Preview detection
   </button>
+ </div>
+
+ {# ── Bundle-2 PR-2b: two-step preview card (audit item B) ──
+    First click of Preview runs `/api/rfq/upload-preview` without
+    writing anything. Operator reviews what the classifier + parser
+    detected — if shape is wrong or facility looks off, they click
+    "Back to edit" and adjust. A second click on "Confirm & ingest"
+    fires the existing `/api/rfq/upload-manual` which creates the
+    record. Confidence below 0.70 → yellow review banner. #}
+ <div id="previewCard" class="card" data-testid="rfq-upload-preview-card"
+      style="display:none;margin-bottom:16px;border:1px solid rgba(79,140,255,.4)">
+  <div class="card-t" style="display:flex;align-items:center;gap:10px">
+   <span>📋 Preview — nothing saved yet</span>
+   <span id="previewConfidenceBadge" style="margin-left:auto;font-size:12px;font-weight:600"></span>
+  </div>
+
+  <div id="previewLowConfidenceBanner" data-testid="preview-low-confidence-banner"
+       style="display:none;margin-top:10px;padding:10px 14px;background:rgba(210,153,34,.1);
+              border:1px solid rgba(210,153,34,.35);border-radius:8px;color:#d29922;font-size:13px">
+   ⚠ Classifier confidence below threshold — please verify the detected shape
+   before confirming. If the shape is wrong, cancel and re-upload with the
+   full packet, or adjust the email body so the classifier has more signal.
+  </div>
+
+  <table style="margin-top:12px;font-size:13px;width:100%">
+   <tr><td style="padding:5px 8px;color:var(--tx2);width:140px">Shape</td>
+       <td id="prevShape" data-testid="preview-shape" style="font-family:'JetBrains Mono',monospace">—</td></tr>
+   <tr><td style="padding:5px 8px;color:var(--tx2)">Agency</td>
+       <td id="prevAgency" data-testid="preview-agency" style="font-family:'JetBrains Mono',monospace">—</td></tr>
+   <tr><td style="padding:5px 8px;color:var(--tx2)">Solicitation #</td>
+       <td id="prevSolNum" data-testid="preview-sol" style="font-family:'JetBrains Mono',monospace">—</td></tr>
+   <tr><td style="padding:5px 8px;color:var(--tx2)">Ship-to facility</td>
+       <td id="prevFacility" data-testid="preview-facility">—</td></tr>
+   <tr><td style="padding:5px 8px;color:var(--tx2)">Deadline</td>
+       <td id="prevDeadline" data-testid="preview-deadline">—</td></tr>
+   <tr><td style="padding:5px 8px;color:var(--tx2)">Required forms</td>
+       <td id="prevRequiredForms" data-testid="preview-required-forms">—</td></tr>
+   <tr><td style="padding:5px 8px;color:var(--tx2)">Line items parsed</td>
+       <td id="prevItemsCount" data-testid="preview-items-count">—</td></tr>
+  </table>
+
+  <div id="prevItemsTable" style="margin-top:10px"></div>
+  <div id="prevWarnings" style="margin-top:10px"></div>
+
+  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;padding-top:12px;
+              border-top:1px solid var(--bd)">
+   <button onclick="backToEdit()" id="backEditBtn" class="btn" data-testid="preview-back-btn"
+           style="background:var(--sf2);color:var(--tx);border:1px solid var(--bd);
+                  padding:10px 20px;font-size:14px">← Back to edit</button>
+   <button onclick="confirmIngest()" id="confirmBtn" class="btn" data-testid="preview-confirm-btn"
+           style="background:#3fb950;color:#000;padding:10px 24px;font-size:14px;font-weight:700">
+    ✓ Confirm &amp; ingest
+   </button>
+  </div>
  </div>
 
  <div id="resultCard" class="card" style="display:none;margin-bottom:16px">
@@ -114,24 +168,167 @@ function escapeHtml(s){
  });
 }
 
-function submitUpload(){
- if (!_files.length){ alert('Drop at least one PDF first.'); return; }
- var btn = document.getElementById('submitBtn');
- btn.disabled = true; btn.textContent = 'Ingesting...';
+// Bundle-2 PR-2b: two-step preview → confirm flow.
+// Preview never writes. The Confirm button fires the legacy single-
+// step create endpoint with the same FormData we built for preview,
+// so what the operator verifies is exactly what gets saved — zero
+// divergence between the two steps.
+// 0.70 threshold matches build-plan open question #3 default; tune
+// after 1 week of preview-telemetry data.
+var PREVIEW_CONFIDENCE_THRESHOLD = 0.70;
 
+function _uploadFormData(){
  var fd = new FormData();
  _files.forEach(function(f){ fd.append('files', f); });
  fd.append('email_subject', document.getElementById('emailSubject').value || '');
  fd.append('email_sender',  document.getElementById('emailSender').value || '');
  fd.append('email_body',    document.getElementById('emailBody').value || '');
+ return fd;
+}
 
- fetch('/api/rfq/upload-manual', {method:'POST', credentials:'same-origin', body:fd})
+function submitPreview(){
+ if (!_files.length){ alert('Drop at least one PDF first.'); return; }
+ var btn = document.getElementById('previewBtn');
+ btn.disabled = true; btn.textContent = 'Previewing...';
+
+ fetch('/api/rfq/upload-preview', {method:'POST', credentials:'same-origin', body:_uploadFormData()})
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+   btn.disabled = false; btn.textContent = '🔍 Preview detection';
+   renderPreview(d);
+  })
+  .catch(function(e){
+   btn.disabled = false; btn.textContent = '🔍 Preview detection';
+   var card = document.getElementById('resultCard');
+   document.getElementById('resultBody').innerHTML =
+    '<div style="color:#f85149">Network error on preview: ' + escapeHtml(String(e)) + '</div>';
+   card.style.display = 'block';
+  });
+}
+
+function renderPreview(d){
+ var card = document.getElementById('previewCard');
+ var result = document.getElementById('resultCard');
+ result.style.display = 'none';
+ card.style.display = 'block';
+ card.scrollIntoView({block: 'start', behavior: 'smooth'});
+
+ // Error path — surface errors but still show what little preview exists.
+ if (d && d.ok === false && d.errors && d.errors.length){
+  document.getElementById('prevWarnings').innerHTML =
+   '<div style="color:#f85149;font-size:13px">'
+   + '<strong>Preview failed.</strong> ' + d.errors.map(escapeHtml).join('; ')
+   + '</div>';
+  // Still populate what we can from the partial response.
+ }
+
+ var shape = (d && d.shape) || '?';
+ var agency = (d && d.agency) || '?';
+ var conf = (d && typeof d.confidence === 'number') ? d.confidence : 0;
+ var solNum = (d && d.solicitation_number) || '—';
+ var items = (d && d.items) || [];
+ var forms = (d && d.required_forms) || [];
+ var fac = d && d.facility;
+ var dl = d && d.deadline;
+ var warnings = (d && d.warnings) || [];
+
+ document.getElementById('prevShape').textContent = shape;
+ document.getElementById('prevAgency').textContent = agency;
+ document.getElementById('prevSolNum').textContent = solNum;
+
+ // Confidence badge — green ≥ threshold, yellow otherwise
+ var badge = document.getElementById('previewConfidenceBadge');
+ var pct = Math.round((conf || 0) * 100);
+ if (conf >= PREVIEW_CONFIDENCE_THRESHOLD){
+  badge.textContent = '✓ ' + pct + '% confidence';
+  badge.style.color = '#3fb950';
+  document.getElementById('previewLowConfidenceBanner').style.display = 'none';
+ } else {
+  badge.textContent = '⚠ ' + pct + '% confidence — review required';
+  badge.style.color = '#d29922';
+  document.getElementById('previewLowConfidenceBanner').style.display = 'block';
+ }
+
+ // Facility
+ var facEl = document.getElementById('prevFacility');
+ if (fac && fac.code){
+  facEl.innerHTML = '<strong>' + escapeHtml(fac.code) + '</strong>'
+                   + (fac.name ? ' — ' + escapeHtml(fac.name) : '')
+                   + (fac.agency ? ' <span style="color:var(--tx2)">(' + escapeHtml(fac.agency) + ')</span>' : '');
+ } else {
+  facEl.innerHTML = '<span style="color:var(--tx2)">not resolved — operator confirm required at detail page</span>';
+ }
+
+ // Deadline
+ var dlEl = document.getElementById('prevDeadline');
+ if (dl && dl.due_date){
+  dlEl.innerHTML = escapeHtml(dl.due_date)
+                  + (dl.due_time ? ' <span style="color:var(--tx2)">@ ' + escapeHtml(dl.due_time) + '</span>' : '')
+                  + ' <span style="color:var(--tx2)">(source: ' + escapeHtml(dl.source || '?') + ')</span>';
+ } else {
+  dlEl.innerHTML = '<span style="color:var(--tx2)">no deadline extracted — will fall back to default</span>';
+ }
+
+ // Required forms
+ var rfEl = document.getElementById('prevRequiredForms');
+ rfEl.innerHTML = forms.length
+  ? forms.map(function(f){ return '<span style="display:inline-block;padding:2px 8px;background:var(--sf2);border-radius:10px;margin-right:4px;font-family:\'JetBrains Mono\',monospace;font-size:12px">' + escapeHtml(f) + '</span>'; }).join('')
+  : '<span style="color:var(--tx2)">none</span>';
+
+ document.getElementById('prevItemsCount').textContent =
+  (d && d.items_parsed || 0) + (items.length !== (d && d.items_parsed) ? ' (preview limited)' : '');
+
+ // Items table (first 10 rows only in preview)
+ var itemsEl = document.getElementById('prevItemsTable');
+ if (items.length){
+  var head = '<div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--bd);'
+           + 'font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px">'
+           + 'Line items (first ' + Math.min(10, items.length) + ' of ' + items.length + ')</div>';
+  var rows = items.slice(0, 10).map(function(it, i){
+   var qty = it.qty || it.quantity || '';
+   var uom = it.uom || 'EA';
+   var desc = it.description || it.desc || '';
+   return '<div style="padding:4px 8px;font-size:12px;display:flex;gap:8px;'
+        + 'border-bottom:1px solid var(--bd)">'
+        + '<span style="color:var(--tx2);min-width:20px">' + (i+1) + '.</span>'
+        + '<span style="min-width:40px">' + escapeHtml(String(qty)) + ' ' + escapeHtml(uom) + '</span>'
+        + '<span style="flex:1">' + escapeHtml(desc.slice(0, 100)) + (desc.length > 100 ? '…' : '') + '</span>'
+        + '</div>';
+  }).join('');
+  itemsEl.innerHTML = head + rows;
+ } else {
+  itemsEl.innerHTML = '<div style="margin-top:12px;padding:8px;color:var(--tx2);font-size:13px;'
+                    + 'background:var(--sf2);border-radius:6px">No line items parsed. '
+                    + 'If the attachment is a packet with items, review shape before confirming.</div>';
+ }
+
+ // Warnings (append — don't replace earlier error text)
+ if (warnings.length){
+  var prior = document.getElementById('prevWarnings').innerHTML;
+  document.getElementById('prevWarnings').innerHTML = prior
+   + '<div style="color:#d29922;font-size:12px;margin-top:6px">'
+   + 'Warnings: ' + warnings.map(escapeHtml).join('; ') + '</div>';
+ }
+}
+
+function backToEdit(){
+ document.getElementById('previewCard').style.display = 'none';
+ // Jump back to the dropzone so the operator can adjust files / body
+ document.getElementById('drop').scrollIntoView({block: 'start', behavior: 'smooth'});
+}
+
+function confirmIngest(){
+ var btn = document.getElementById('confirmBtn');
+ btn.disabled = true; btn.textContent = 'Ingesting...';
+
+ fetch('/api/rfq/upload-manual', {method:'POST', credentials:'same-origin', body:_uploadFormData()})
   .then(function(r){ return r.json().then(function(d){ d._http=r.status; return d; }); })
   .then(function(d){
-   btn.disabled = false; btn.textContent = 'Ingest RFQ';
+   btn.disabled = false; btn.textContent = '✓ Confirm & ingest';
    var card = document.getElementById('resultCard');
    var body = document.getElementById('resultBody');
    card.style.display = 'block';
+   document.getElementById('previewCard').style.display = 'none';
    if (!d.ok){
     body.innerHTML = '<div style="color:#f85149">'
                     + '<strong>Failed.</strong> ' + escapeHtml(d.error || 'unknown error')
@@ -162,11 +359,12 @@ function submitUpload(){
        + 'style="background:var(--ac);color:#fff;padding:8px 16px;font-size:13px">Open ' + escapeHtml(rec.toUpperCase()) + '</a></div>' : '');
   })
   .catch(function(e){
-   btn.disabled = false; btn.textContent = 'Ingest RFQ';
+   btn.disabled = false; btn.textContent = '✓ Confirm & ingest';
    var card = document.getElementById('resultCard');
-   var body = document.getElementById('resultBody');
+   document.getElementById('previewCard').style.display = 'none';
+   document.getElementById('resultBody').innerHTML =
+    '<div style="color:#f85149">Network error: ' + escapeHtml(String(e)) + '</div>';
    card.style.display = 'block';
-   body.innerHTML = '<div style="color:#f85149">Network error: ' + escapeHtml(String(e)) + '</div>';
   });
 }
 </script>
