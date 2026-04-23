@@ -1527,30 +1527,35 @@ def generate_rfq_package(rid):
         except Exception as _e:
             log.debug('suppressed in _include: %s', _e)
 
-        # ── Pre-flight: verify required templates exist BEFORE generating ──
+        # ── Pre-flight: soft-check buyer templates (warn + drop, never hard block) ──
+        # Rationale: Reytech fills 703B/704B templates that the BUYER supplies.
+        # If a buyer template is required-by-shape but not uploaded (e.g. the
+        # classifier mis-shaped an LPA RFQ as cchcs_packet, or the buyer sent a
+        # single-package PDF instead of separate forms), we cannot fabricate
+        # one. Drop it from the required set and generate the rest. Operator
+        # can upload and re-generate if they need the missing form.
         _buyer_templates = {"703b", "703c", "704b"}
-        _missing_templates = []
-        for _ft in _req_forms:
-            if _ft in _buyer_templates:
-                # 703b/703c — either one satisfies the requirement
-                if _ft in ("703b", "703c"):
-                    if not (("703b" in tmpl and os.path.exists(tmpl.get("703b", "")))
-                            or ("703c" in tmpl and os.path.exists(tmpl.get("703c", "")))):
-                        _missing_templates.append("703B/703C")
-                elif _ft == "704b":
-                    if not ("704b" in tmpl and os.path.exists(tmpl.get("704b", ""))):
-                        _missing_templates.append("704B")
-        if _missing_templates:
-            _mt_str = ", ".join(sorted(set(_missing_templates)))
-            t.warn(f"Missing required templates: {_mt_str}")
-            return jsonify({
-                "ok": False,
-                "error": f"Missing required templates: {_mt_str}. "
-                         f"Upload them on this page first (they must come from the buyer's RFQ email).",
-                "missing_templates": list(set(_missing_templates)),
-                "agency_key": _agency_key,
-                "required_forms": list(_req_forms),
-            }), 400
+        _skipped_templates = []
+        for _ft in list(_req_forms):
+            if _ft not in _buyer_templates:
+                continue
+            if _ft in ("703b", "703c"):
+                _has_703 = (("703b" in tmpl and os.path.exists(tmpl.get("703b", "")))
+                            or ("703c" in tmpl and os.path.exists(tmpl.get("703c", ""))))
+                if not _has_703:
+                    _req_forms.discard(_ft)
+                    _skipped_templates.append(_ft.upper())
+            elif _ft == "704b":
+                if not ("704b" in tmpl and os.path.exists(tmpl.get("704b", ""))):
+                    _req_forms.discard(_ft)
+                    _skipped_templates.append("704B")
+        if _skipped_templates:
+            _skp = ", ".join(sorted(set(_skipped_templates)))
+            t.warn(
+                f"Buyer templates not uploaded — skipping: {_skp}. "
+                "Package will generate without these forms. Upload the matching "
+                "PDFs on the RFQ detail page if the buyer did send them."
+            )
 
         # ── Pre-flight: template fingerprint gate (feature-flagged) ──
         # Blocks generation when a buyer-uploaded template does not match any
