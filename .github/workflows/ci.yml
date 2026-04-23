@@ -216,6 +216,13 @@ jobs:
             tests/test_railway_deploy_watcher.py \
             tests/test_cchcs_packet_filler.py::TestAttachmentSplicing \
             tests/test_cchcs_packet_route.py \
+            tests/test_facility_registry.py \
+            tests/test_tax_resolver.py \
+            tests/test_quote_generator_facility_resolve.py \
+            tests/test_ghost_detection.py \
+            tests/test_home_queue_ghost_filter_dedup.py \
+            tests/test_package_signatures_vs_northstar.py \
+            tests/test_calrecycle_multipage_overflow.py \
             -n auto -q --tb=short
 
   # ─────────────────────────────────────────────────────────────────
