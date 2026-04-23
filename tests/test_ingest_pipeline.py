@@ -34,7 +34,9 @@ class TestIngestEndToEnd:
 
     def test_cchcs_packet_creates_rfq_with_classification(self, temp_data_dir):
         """CCHCS packet = full RFQ response needed → creates RFQ record
-        with classification stored, not a bare PC."""
+        with classification stored, not a bare PC.
+        Fixture is the 18-page, 183-field CCHCS packet (NOT an LPA — LPAs
+        are 13 pages per 2026-04-22 RFQ 10840486). Classifies as cchcs_packet."""
         from src.core.ingest_pipeline import process_buyer_request
 
         result = process_buyer_request(
@@ -48,7 +50,6 @@ class TestIngestEndToEnd:
         assert result.classification is not None
         assert result.classification["shape"] == "cchcs_packet"
         assert result.classification["agency"] == "cchcs"
-        # Classification must be stored ON the record
         from src.api.dashboard import load_rfqs
         rfq = load_rfqs().get(result.record_id)
         assert rfq is not None

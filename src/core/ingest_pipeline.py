@@ -266,6 +266,7 @@ def _dispatch_parser(
     Returns (items, header, error_or_none). Never raises."""
     from src.core.request_classifier import (
         SHAPE_CCHCS_PACKET,
+        SHAPE_CCHCS_IT_RFQ,
         SHAPE_PC_704_DOCX,
         SHAPE_PC_704_PDF_DOCUSIGN,
         SHAPE_PC_704_PDF_FILLABLE,
@@ -275,6 +276,22 @@ def _dispatch_parser(
     )
 
     shape = classification.shape
+
+    # CCHCS LPA IT Goods RFQ — parse as generic RFQ PDF for now (the LPA
+    # template's line items live in AcroForm fields that the generic parser
+    # can read). The dedicated LPA parser + row-by-row extraction is a
+    # follow-up; for now we get header + rows via the field-value scan.
+    if shape == SHAPE_CCHCS_IT_RFQ:
+        try:
+            from src.forms.generic_rfq_parser import parse_generic_rfq
+            parsed = parse_generic_rfq([path])
+            return (
+                parsed.get("items", []),
+                parsed.get("header", {}),
+                None,
+            )
+        except Exception as e:
+            return [], {}, f"cchcs_it_rfq (via generic parser) crashed: {e}"
 
     # CCHCS packet has its own dedicated parser
     if shape == SHAPE_CCHCS_PACKET:
