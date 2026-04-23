@@ -2846,64 +2846,61 @@ def api_lookup_tax_rate(rid):
     if not address or len(address.strip()) < 5:
         return jsonify({"ok": False, "error": "No delivery address to look up"})
     try:
-        from src.agents.tax_agent import get_tax_rate
-        import re as _re_tax
-        # ZIP: use LAST 5-digit sequence — avoids matching street numbers like "11500"
-        _zip_matches = _re_tax.findall(r'\b(\d{5})\b', address)
-        _d_zip = _zip_matches[-1] if _zip_matches else ""
-        # City: handle "City, CA", "City, Ca.", and "City Ca. 90049" formats
-        _city_match = (_re_tax.search(r',\s*([A-Za-z\s]+),?\s*[A-Z][A-Za-z]\.?\s*\d{5}', address) or
-                       _re_tax.search(r',\s*([A-Za-z][A-Za-z\s]+?)\s*,\s*[A-Z]{2}', address))
-        _d_city = _city_match.group(1).strip() if _city_match else ""
-        # Street: the FIRST `<digits> <words>` segment, anywhere in the
-        # string (comma-delimited). Audit X (2026-04-23): the old regex
-        # anchored to `^\d+` so facility-led addresses like
-        # "WSP - Wasco State Prison, 701 Scofield Avenue, Wasco, CA 93280"
-        # returned no street, which fell through to parse_ship_to (also
-        # empty) and then to the 7.25% CA base default instead of the
-        # real 93280 rate. `(?:^|,\s*)` also allows a leading "PO Box N"
-        # (no digits-at-start) to still find "701 Scofield Avenue"
-        # further in. Preserves the old behavior when the address does
-        # start with digits.
-        _street_match = _re_tax.search(r'(?:^|,\s*)(\d+\s+[^,\n]+?)(?=,|$)', address)
-        _d_street = _street_match.group(1).strip() if _street_match else ""
-        # Last resort: extract city anchored to zip
-        if not _d_city and _d_zip:
-            _city_from_zip = _re_tax.search(
-                r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,?\s*[Cc][Aa]\.?\s*' + _d_zip, address)
-            if _city_from_zip:
-                _d_city = _city_from_zip.group(1).strip()
-        log.info("Tax lookup: raw='%s' → street='%s' city='%s' zip='%s'",
-                 address[:60], _d_street, _d_city, _d_zip)
+        # Bundle-1 PR-1e (closes audit Y end-to-end): route now calls
+        # the SAME unified `resolve_tax()` that the quote generator
+        # uses. Facility-registry-first → canonical zip → CDTFA,
+        # with the ad-hoc regex parser kept as the fallback path
+        # inside `resolve_tax`. Before this PR the route had its own
+        # private parser that could disagree with the generator's
+        # `_lookup_facility + get_rate_for_facility` path on the same
+        # input — that split is what shipped the UI=7.25%,
+        # PDF=7.75% divergence on RFQ 9ad8a0ac.
+        from src.core.tax_resolver import resolve_tax
         _force = bool(data.get("force_live"))
-        if _d_street and _d_city and _d_zip:
-            result = get_tax_rate(street=_d_street, city=_d_city, zip_code=_d_zip, force_live=_force)
-        else:
-            from src.agents.tax_agent import parse_ship_to
-            _parts = [p.strip() for p in address.split(",")]
-            parsed = parse_ship_to("", _parts)
-            result = get_tax_rate(
-                street=parsed.get("street", ""),
-                city=parsed.get("city", ""),
-                zip_code=parsed.get("zip", ""),
-                force_live=_force,
-            )
-        if result and result.get("rate"):
-            rate_pct = round(result["rate"] * 100, 3)
+        res = resolve_tax(address, force_live=_force)
+        if res and res.get("ok") and res.get("rate") is not None:
+            rate_pct = round(res["rate"] * 100, 3)
             r["tax_rate"] = rate_pct
-            r["tax_validated"] = True
-            r["tax_source"] = result.get("source", "cdtfa_api")
-            r["tax_jurisdiction"] = result.get("jurisdiction", "")
+            # `validated` from resolve_tax is True only on
+            # cdtfa_api / cache / persisted_cache sources. That's
+            # exactly what the RFQ detail page's "✅ Verified" badge
+            # should gate on — no more 7.25% fallbacks getting the
+            # green-check treatment.
+            r["tax_validated"] = bool(res.get("validated"))
+            r["tax_source"] = res.get("source", "")
+            r["tax_jurisdiction"] = res.get("jurisdiction", "")
+            # PR-1e also persists the canonical facility code so the
+            # RFQ record carries the resolver's inference as audit
+            # trail. Empty string when no registry hit.
+            r["tax_facility_code"] = res.get("facility_code", "")
             from src.api.dashboard import _save_single_rfq
             _save_single_rfq(rid, r)
-            return jsonify({"ok": True, "rate": rate_pct,
-                "jurisdiction": result.get("jurisdiction", ""),
-                "city": result.get("city", ""),
-                "county": result.get("county", ""),
-                "confidence": result.get("confidence", ""),
-                "source": result.get("source", "")})
+            return jsonify({
+                "ok": True,
+                "rate": rate_pct,
+                "jurisdiction": res.get("jurisdiction", ""),
+                "city": res.get("city", ""),
+                "county": res.get("county", ""),
+                # Confidence is derived from validated + facility_code
+                # so UI badge logic can stay simple (High when
+                # validated+facility, Medium when validated-no-facility,
+                # Low otherwise). Kept loose for back-compat.
+                "confidence": (
+                    "High" if res.get("validated") and res.get("facility_code")
+                    else "Medium" if res.get("validated")
+                    else "Low"
+                ),
+                "source": res.get("source", ""),
+                "facility_code": res.get("facility_code", ""),
+                "resolve_reason": res.get("resolve_reason", ""),
+            })
         else:
-            return jsonify({"ok": False, "error": result.get("error", "Lookup failed")})
+            return jsonify({
+                "ok": False,
+                "error": (res or {}).get(
+                    "resolve_reason", "Lookup failed"
+                ),
+            })
     except Exception as e:
         log.error("Tax rate lookup for RFQ %s: %s", rid, e)
         return jsonify({"ok": False, "error": str(e)})
