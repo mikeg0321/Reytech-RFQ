@@ -249,43 +249,147 @@ function uploadDoc(e){
  <b>⚠️ Deploy Issue:</b> <span id="health-msg"></span>
  <a href="/api/health/startup" style="color:#58a6ff;margin-left:8px">View details</a>
 </div>
-<!-- ═══ Deadline Countdown Widget (Phase 0.5) ═══ -->
-<div id="deadline-widget" style="display:none;margin-bottom:14px;padding:16px 20px;background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #30363d;border-radius:10px">
- <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-  <div style="font-size:15px;font-weight:700;color:#e6edf3">Upcoming Deadlines <span id="dl-widget-count" style="font-size:13px;color:#8b949e;font-weight:400"></span></div>
-  <button onclick="this.closest('div').style.display='none'" style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:16px;padding:2px 6px" aria-label="Close deadlines widget">×</button>
- </div>
- <div id="dl-widget-cards" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+<!-- ═══ Triage Widget — NEXT UP + queue sorted by (time, LOE) ═══ -->
+<div id="triage-widget" style="display:none;margin-bottom:14px">
+  <div id="triage-emergency-banner" style="display:none;padding:14px 18px;background:rgba(248,81,73,.15);border:2px solid rgba(248,81,73,.5);border-radius:10px;margin-bottom:10px">
+    <div style="font-size:12px;font-weight:700;letter-spacing:.5px;color:#f85149;margin-bottom:4px">⚠ NOT ENOUGH TIME — FOCUS HERE</div>
+    <div id="triage-emergency-body"></div>
+  </div>
+  <a id="triage-next-up" href="#" style="display:none;padding:18px 22px;background:linear-gradient(135deg,#1a2a4e,#16213e);border:1px solid #3d5a9f;border-radius:12px;margin-bottom:10px;text-decoration:none;color:inherit">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8b949e">NEXT UP</div>
+      <div id="triage-next-up-urgency" style="font-size:13px;font-weight:600"></div>
+    </div>
+    <div id="triage-next-up-title" style="font-size:20px;font-weight:700;color:#e6edf3;margin-top:6px"></div>
+    <div id="triage-next-up-meta" style="font-size:13px;color:#8b949e;margin-top:4px"></div>
+    <div style="display:flex;gap:14px;margin-top:10px;font-size:13px;flex-wrap:wrap;align-items:center">
+      <span id="triage-next-up-time" style="font-weight:600"></span>
+      <span style="color:#30363d">·</span>
+      <span id="triage-next-up-items"></span>
+      <span style="color:#30363d">·</span>
+      <span id="triage-next-up-loe"></span>
+      <span id="triage-next-up-fit" style="margin-left:auto;font-weight:600"></span>
+    </div>
+  </a>
+  <div id="triage-queue-wrap" style="display:none;padding:12px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;color:var(--tx2)">Queue <span id="triage-queue-count" style="color:#8b949e"></span></div>
+      <div id="triage-stale-count" style="font-size:12px;color:#8b949e"></div>
+    </div>
+    <div id="triage-queue-rows"></div>
+  </div>
 </div>
 <script>
 (function(){
-  function loadWidget(){
-    fetch('/api/deadlines',{credentials:'same-origin'})
-    .then(function(r){return r.json()})
-    .then(function(d){
-      if(!d.ok||!d.deadlines||!d.deadlines.length)return;
-      var widget=document.getElementById('deadline-widget');
-      widget.style.display='block';
-      document.getElementById('dl-widget-count').textContent='('+d.count+')';
-      var cards=document.getElementById('dl-widget-cards');
-      cards.innerHTML='';
-      var colors={overdue:'#f85149',critical:'#d29922',urgent:'#d29922',soon:'#3fb950',normal:'#8b949e'};
-      var bgColors={overdue:'rgba(248,81,73,.1)',critical:'rgba(210,153,34,.1)',urgent:'rgba(210,153,34,.06)',soon:'rgba(63,185,80,.06)',normal:'rgba(139,148,158,.06)'};
-      d.deadlines.slice(0,6).forEach(function(dl){
-        var c=document.createElement('a');
-        c.href=dl.url;
-        c.style.cssText='flex:1;min-width:160px;max-width:250px;padding:12px 14px;background:'+bgColors[dl.urgency]+';border:1px solid '+(colors[dl.urgency]||'#30363d')+'33;border-radius:8px;text-decoration:none;display:block';
-        var timeLabel=dl.time_explicit?dl.due_time:'2:00 PM*';
-        c.innerHTML='<div style="font-size:22px;font-weight:800;color:'+colors[dl.urgency]+';font-variant-numeric:tabular-nums;letter-spacing:-0.5px">'+dl.countdown_text+'</div>'
-          +'<div style="font-size:13px;font-weight:600;color:#e6edf3;margin-top:4px">'+dl.doc_type.toUpperCase()+' #'+dl.pc_number+'</div>'
-          +'<div style="font-size:12px;color:#8b949e;margin-top:2px">'+dl.institution+'</div>'
-          +'<div style="font-size:11px;color:#8b949e;margin-top:4px">Due: '+dl.due_date+' '+timeLabel+'</div>';
-        cards.appendChild(c);
-      });
-    }).catch(function(){});
+  function fmtTime(hrsLeft){
+    if (hrsLeft === null || hrsLeft === undefined) return 'no deadline';
+    if (hrsLeft < 0){
+      var abs = Math.abs(hrsLeft);
+      if (abs < 1) return Math.round(abs*60) + 'm overdue';
+      if (abs < 24) return abs.toFixed(1) + 'h overdue';
+      return Math.round(abs/24) + 'd overdue';
+    }
+    if (hrsLeft < 1) return Math.round(hrsLeft*60) + 'm left';
+    if (hrsLeft < 24) return hrsLeft.toFixed(1) + 'h left';
+    return Math.round(hrsLeft/24) + 'd left';
   }
-  loadWidget();
-  setInterval(loadWidget,60000);
+  function urgencyColor(hrsLeft, loeMin){
+    if (hrsLeft === null || hrsLeft === undefined) return '#8b949e';
+    if (hrsLeft < 0) return '#f85149';
+    var mins = hrsLeft * 60;
+    if (loeMin > 0 && mins < loeMin * 1.25) return '#f85149';
+    if (hrsLeft < 24) return '#d29922';
+    if (hrsLeft < 72) return '#58a6ff';
+    return '#8b949e';
+  }
+  function fitBadge(hrsLeft, loeMin){
+    if (hrsLeft === null || hrsLeft === undefined || hrsLeft < 0 || loeMin <= 0) return '';
+    var mins = hrsLeft * 60;
+    if (mins < loeMin * 1.25) return '<span style="color:#f85149">DOESN\'T FIT</span>';
+    if (mins < loeMin * 2) return '<span style="color:#d29922">TIGHT</span>';
+    return '<span style="color:#3fb950">FITS</span>';
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function renderTriage(d){
+    if (!d || !d.ok) return;
+    var widget = document.getElementById('triage-widget');
+    if (!d.next_up && (!d.emergency || !d.emergency.length) && (!d.queue || !d.queue.length)){
+      widget.style.display = 'none';
+      return;
+    }
+    widget.style.display = 'block';
+    var embanner = document.getElementById('triage-emergency-banner');
+    if (d.emergency && d.emergency.length){
+      embanner.style.display = 'block';
+      var html = '';
+      d.emergency.forEach(function(e){
+        html += '<a href="' + esc(e.url) + '" style="display:flex;justify-content:space-between;padding:6px 0;color:#e6edf3;text-decoration:none;font-size:14px;border-bottom:1px solid rgba(248,81,73,.2)">'
+          + '<span>' + esc((e.doc_type||'').toUpperCase()) + ' #' + esc(e.pc_number) + ' · ' + esc(e.institution) + '</span>'
+          + '<span style="color:#f85149">' + fmtTime(e.hours_left) + ' · ' + esc(e.loe_text) + '</span>'
+          + '</a>';
+      });
+      document.getElementById('triage-emergency-body').innerHTML = html;
+    } else {
+      embanner.style.display = 'none';
+    }
+    var nu = d.next_up;
+    var card = document.getElementById('triage-next-up');
+    if (nu){
+      card.style.display = 'block';
+      card.href = nu.url || '#';
+      var c = urgencyColor(nu.hours_left, nu.loe_minutes);
+      card.style.borderColor = c + '66';
+      document.getElementById('triage-next-up-title').textContent = (nu.doc_type||'').toUpperCase() + ' #' + (nu.pc_number||'');
+      document.getElementById('triage-next-up-meta').textContent = nu.institution || '';
+      var timeEl = document.getElementById('triage-next-up-time');
+      timeEl.textContent = fmtTime(nu.hours_left);
+      timeEl.style.color = c;
+      document.getElementById('triage-next-up-items').textContent = (nu.item_count || 0) + ' items';
+      document.getElementById('triage-next-up-loe').textContent = '~' + (nu.loe_text || '?');
+      document.getElementById('triage-next-up-fit').innerHTML = fitBadge(nu.hours_left, nu.loe_minutes);
+      var urg = document.getElementById('triage-next-up-urgency');
+      if (d.mode === 'emergency'){ urg.textContent = 'EMERGENCY'; urg.style.color = '#f85149'; }
+      else { urg.textContent = ''; }
+    } else {
+      card.style.display = 'none';
+    }
+    var queueWrap = document.getElementById('triage-queue-wrap');
+    var rows = document.getElementById('triage-queue-rows');
+    if (d.queue && d.queue.length){
+      queueWrap.style.display = 'block';
+      document.getElementById('triage-queue-count').textContent = '(' + d.queue.length + ')';
+      var html = '';
+      d.queue.slice(0, 12).forEach(function(q){
+        var col = urgencyColor(q.hours_left, q.loe_minutes);
+        html += '<a href="' + esc(q.url) + '" style="display:grid;grid-template-columns:100px 1fr 90px 80px 100px;gap:12px;padding:8px 4px;border-bottom:1px solid rgba(139,148,158,.08);text-decoration:none;color:var(--tx);font-size:13px;align-items:center" '
+          + 'onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
+          + '<span style="color:' + col + ';font-weight:600;font-variant-numeric:tabular-nums">' + fmtTime(q.hours_left) + '</span>'
+          + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>' + esc((q.doc_type||'').toUpperCase()) + ' #' + esc(q.pc_number) + '</b> · <span style="color:var(--tx2)">' + esc(q.institution || '') + '</span></span>'
+          + '<span style="color:var(--tx2);text-align:right">' + (q.item_count||0) + ' items</span>'
+          + '<span style="color:var(--tx2);text-align:right">~' + esc(q.loe_text || '?') + '</span>'
+          + '<span style="text-align:right">' + fitBadge(q.hours_left, q.loe_minutes) + '</span>'
+          + '</a>';
+      });
+      if (d.queue.length > 12){
+        html += '<div style="text-align:center;padding:6px;font-size:12px;color:var(--tx2)">+' + (d.queue.length - 12) + ' more</div>';
+      }
+      rows.innerHTML = html;
+    } else {
+      queueWrap.style.display = 'none';
+    }
+    var stale = document.getElementById('triage-stale-count');
+    stale.textContent = (d.stale_overdue_count > 0) ? (d.stale_overdue_count + ' stale overdue hidden') : '';
+  }
+
+  function loadTriage(){
+    fetch('/api/triage',{credentials:'same-origin'})
+      .then(function(r){return r.json()})
+      .then(renderTriage)
+      .catch(function(e){ console.warn('triage fetch failed:', e); });
+  }
+  loadTriage();
+  setInterval(loadTriage, 60000);
 })();
 </script>
 
