@@ -3653,10 +3653,15 @@
       }).then(function(r) { return r.json(); }).then(function(d) {
         if (d.ok) {
           cachedTaxRate = d.rate / 100;
-          var isFallback = d.source && d.source.indexOf('fallback') >= 0;
-          if (valEl) valEl.innerHTML = '<span style="color:' + (isFallback ? '#d29922' : '#3fb950') + '">' +
+          // source='default' is the statewide 7.25% base — NOT a validation.
+          // Use the server's `validated` flag (added 2026-04-22) which is true
+          // ONLY when CDTFA, its cache, or fallback_table confirmed the rate.
+          var isFallback = !(d.validated === true);
+          var _isDefault = d.source === 'default';
+          if (valEl) valEl.innerHTML = '<span style="color:' + (isFallback ? (_isDefault ? '#f85149' : '#d29922') : '#3fb950') + '">' +
             (isFallback ? '\u26A0\uFE0F' : '\u2705') + ' ' + d.rate + '% \u00B7 ' + (d.jurisdiction || '') +
-            (isFallback ? ' (fallback)' : '') + '</span>';
+            (isFallback ? (_isDefault ? ' NOT validated (CA base fallback)' : ' (fallback)') : '') + '</span>'
+            + (d.warning ? '<div style="color:#f85149;font-size:12px;margin-top:4px;max-width:500px">' + d.warning + ' <a href="https://maps.cdtfa.ca.gov/" target="_blank" style="color:#58a6ff">CDTFA map</a></div>' : '');
           document.getElementById('taxToggle').checked = true;
           document.getElementById('taxRateDisplay').textContent = '(' + d.source + ' \u2014 ' + d.rate + '%)';
           recalcPC();
