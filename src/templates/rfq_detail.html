@@ -3262,18 +3262,42 @@ function lookupTaxRate(e){
  var btn=(e&&e.target)?e.target:document.querySelector('[onclick*="lookupTaxRate"]');btn.disabled=true;btn.textContent='⏳';
  var valEl=document.getElementById('tax-validation');
  valEl.innerHTML='<span style="color:var(--tx2)">Looking up...</span>';
+ // PR-2d: capture the PRIOR rate so we can tell the operator WHAT
+ // changed on a real rate update (not just "the page re-rendered").
+ var rateEl = document.getElementById('tax-rate');
+ var priorRate = rateEl ? parseFloat(rateEl.value || 0) : 0;
  fetch('/api/rfq/'+RID+'/lookup-tax-rate',{method:'POST',credentials:'same-origin',
   headers:{'Content-Type':'application/json'},
   body:JSON.stringify({address:(document.getElementById('delivery-input')||{}).value||''})})
  .then(function(r){return r.json()}).then(function(d){
   btn.disabled=false;btn.textContent='🔍 Verify';
   if(d.ok){
-   document.getElementById('tax-rate').value=d.rate;
+   rateEl.value=d.rate;
    var isFallback = d.source && (d.source.indexOf('fallback') >= 0 || d.source === 'default');
    var badgeColor = isFallback ? '#d29922' : '#3fb950';
    var badgeIcon = isFallback ? '⚠️' : '✅';
    var badgeSuffix = isFallback ? ' (fallback — verify)' : '';
    valEl.innerHTML='<span style="color:'+badgeColor+'" title="'+d.source+'">'+badgeIcon+' '+d.rate+'% · '+(d.jurisdiction||d.city||'')+badgeSuffix+'</span>';
+   // PR-2d visual confirmation (audit P): pulse the rate cell AND
+   // surface a toast when the new rate differs from what was on
+   // screen. Only fires on a real change — no-ops if CDTFA
+   // re-confirmed the same value we already had.
+   try {
+     var newRate = parseFloat(d.rate || 0);
+     if (Math.abs(newRate - priorRate) > 0.001) {
+       if (typeof window.rfqPulseField === 'function') {
+         window.rfqPulseField(rateEl, d.source || 'CDTFA');
+       }
+       if (typeof showMsg === 'function' && !isFallback) {
+         showMsg(
+           'Tax rate updated ' + priorRate.toFixed(3) + '% → ' +
+           newRate.toFixed(3) + '% (' + (d.jurisdiction || d.city || '?') +
+           ', via ' + (d.source || 'CDTFA') + ')',
+           'ok'
+         );
+       }
+     }
+   } catch(_e) { /* pulse is belt-and-suspenders; never block math */ }
    recalc();triggerAutosave();
   } else {
    valEl.innerHTML='<span style="color:#f85149" title="'+(d.error||'')+'">❌ failed</span>';
@@ -3284,6 +3308,65 @@ function lookupTaxRate(e){
 // Auto-lookup tax if delivery address exists but rate not validated
 {% if not r.get('tax_validated') and (r.get('delivery_location') or r.get('ship_to')) %}
 setTimeout(function(){if(parseFloat(document.getElementById('tax-rate').value||0)===0)lookupTaxRate();},1500);
+{% endif %}
+
+// ── Bundle-2 PR-2d: visual ingest confirmation (audit item P) ──
+// 1. Auto-fire requirements extractor on page load when requirements
+//    are empty but the body has extractable content. Matches the
+//    pattern that auto-fires tax lookup a few lines up — same
+//    principle: an app that's source-of-truth must fill its own
+//    blanks, not wait for the operator to click Extract.
+// 2. Green pulse + toast when a lookup changes a visible field so
+//    the operator sees WHAT changed, not just "the page looks
+//    different now." Currently wired for tax-rate changes; easy
+//    to extend to other ingest-triggered updates.
+// 3. CSS keyframe for the pulse animation.
+(function(){
+  if (!document.getElementById('_pr2d_pulse_style')){
+    var s = document.createElement('style');
+    s.id = '_pr2d_pulse_style';
+    s.textContent = '@keyframes rfq-field-pulse { '
+      + '0% { box-shadow: 0 0 0 0 rgba(63,185,80,.6); background-color: rgba(63,185,80,.18); } '
+      + '60% { box-shadow: 0 0 0 10px rgba(63,185,80,0); } '
+      + '100% { box-shadow: 0 0 0 0 rgba(63,185,80,0); background-color: transparent; } '
+      + '} '
+      + '.rfq-field-pulse { animation: rfq-field-pulse 1.8s ease-out; }';
+    document.head.appendChild(s);
+  }
+  // Exposed so any future ingest-trigger can flash a field.
+  window.rfqPulseField = function(el, sourceLabel){
+    if (!el) return;
+    // scrollIntoView would yank focus (see CLAUDE.md). Just animate.
+    el.classList.remove('rfq-field-pulse');
+    // Force reflow so repeated calls re-trigger the animation.
+    void el.offsetWidth;
+    el.classList.add('rfq-field-pulse');
+    if (sourceLabel){
+      var titleOrig = el.getAttribute('data-pulse-orig-title') || el.title || '';
+      el.setAttribute('data-pulse-orig-title', titleOrig);
+      el.title = 'Updated from ' + sourceLabel;
+      setTimeout(function(){
+        var orig = el.getAttribute('data-pulse-orig-title') || '';
+        el.title = orig;
+      }, 4000);
+    }
+  };
+})();
+
+{% set _body_has_content = (r.get('body_text') or r.get('body') or r.get('body_preview') or r.get('email_body')) %}
+{% if _body_has_content and not r.get('requirements_json') and not (requirements|default({})).get('forms_required') %}
+// Auto-fire requirements extractor — body is populated but no
+// requirements parsed yet. Nudge fires after 2s so it doesn't race
+// the tax-lookup autofire.
+setTimeout(function(){
+  var btn = document.getElementById('re-extract-btn');
+  if (!btn) return;
+  // Only fire if it's still the first-time "Extract Now" label —
+  // if an operator already clicked and got back "No requirements
+  // detected", re-running on load would be noise.
+  if ((btn.textContent || '').indexOf('Extract Now') === -1) return;
+  if (typeof reExtractRequirements === 'function') reExtractRequirements();
+}, 2000);
 {% endif %}
 
 // RID already defined at top of script
