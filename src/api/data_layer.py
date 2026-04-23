@@ -255,7 +255,7 @@ def _save_single_rfq(rfq_id, r, raise_on_error=False):
     # Parity with _save_single_pc: every RFQ carries a deadline.
     try:
         from src.core.deadline_defaults import apply_default_if_missing
-        apply_default_if_missing(r, email_body=r.get("email_body", "") or r.get("body_text", ""))
+        apply_default_if_missing(r)
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 
@@ -451,7 +451,7 @@ def _save_single_pc(pc_id, pc, raise_on_error=False):
     # get the same default, matching the tag_pc_if_packet pattern above.
     try:
         from src.core.deadline_defaults import apply_default_if_missing
-        apply_default_if_missing(pc, email_body=pc.get("email_body", ""))
+        apply_default_if_missing(pc)
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 

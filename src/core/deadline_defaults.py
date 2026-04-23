@@ -27,6 +27,25 @@ _DEFAULT_BIZ_DAYS = 2
 # thread (see backfill_missing_deadlines). Keep in sync with routes_deadlines.py.
 _SENT_STATUSES = {"sent", "won", "lost", "dismissed", "archived", "expired", "pending_award"}
 
+# Precedence matches dashboard.py ingest (`body_text` → `body` → `body_preview`),
+# extended with `email_body` because some admin/edit paths store it under that
+# key. Checked in `_doc_email_body` when caller doesn't pass an explicit body.
+_BODY_KEYS = ("email_body", "body_text", "body", "body_preview", "original_email_body")
+
+
+def _doc_email_body(doc: dict) -> str:
+    """Pick the first non-empty body field on a PC/RFQ dict.
+
+    Ingest stores the buyer's email under a handful of different keys depending
+    on which parser ran; without this helper, `apply_default_if_missing` silently
+    misses the email-extracted due date and the 2-biz-day fallback wins.
+    """
+    for k in _BODY_KEYS:
+        v = doc.get(k)
+        if v and str(v).strip():
+            return str(v)
+    return ""
+
 
 def add_business_days(start: datetime, n: int) -> datetime:
     """Return `start + n` business days (Mon-Fri), skipping weekends.
@@ -91,11 +110,16 @@ def resolve_or_default(
     return d, t, "default"
 
 
-def apply_default_if_missing(doc: dict, email_body: str = "") -> str | None:
+def apply_default_if_missing(doc: dict, email_body: str | None = None) -> str | None:
     """In-place: ensure `doc` has due_date/due_time/due_date_source.
 
     Returns the source that was applied (or None if already present).
     Safe to call on a PC or RFQ dict at any stage.
+
+    `email_body` is optional — when omitted, the body is picked off `doc`
+    itself via `_doc_email_body`, which knows the handful of keys ingest
+    uses (body_text/body/body_preview/…). Callers that already have the
+    raw text in hand can still pass it explicitly.
     """
     if not isinstance(doc, dict):
         return None
@@ -104,10 +128,11 @@ def apply_default_if_missing(doc: dict, email_body: str = "") -> str | None:
         doc.setdefault("due_date_source", "header")
         return None
     header = doc.get("header") or {}
+    body = email_body if email_body is not None else _doc_email_body(doc)
     date, time_, source = resolve_or_default(
         header.get("due_date", "") or doc.get("due_date", ""),
         header.get("due_time", "") or doc.get("due_time", ""),
-        email_body=email_body,
+        email_body=body,
     )
     doc["due_date"] = date
     if time_:
@@ -141,7 +166,7 @@ def backfill_missing_deadlines() -> dict:
             if pc.get("due_date") and str(pc["due_date"]).strip():
                 continue
             try:
-                src = apply_default_if_missing(pc, email_body=pc.get("email_body", ""))
+                src = apply_default_if_missing(pc)
                 if src:
                     _save_single_pc(pcid, pc)
                     stats["pc_filled"] += 1
@@ -161,7 +186,7 @@ def backfill_missing_deadlines() -> dict:
             if r.get("due_date") and str(r["due_date"]).strip():
                 continue
             try:
-                src = apply_default_if_missing(r, email_body=r.get("email_body", ""))
+                src = apply_default_if_missing(r)
                 if src:
                     _save_single_rfq(rid, r)
                     stats["rfq_filled"] += 1
