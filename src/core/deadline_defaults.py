@@ -141,14 +141,70 @@ def apply_default_if_missing(doc: dict, email_body: str | None = None) -> str | 
     return source
 
 
-def backfill_missing_deadlines() -> dict:
-    """Sweep active PCs/RFQs and apply the default where due_date is blank.
+def re_resolve_default(doc: dict) -> str | None:
+    """Re-run deadline resolution on a record currently stamped `default`.
 
-    Returns a summary dict. Called once at app startup.
-    Skips records with status in the sent/archived set (same list
-    routes_deadlines uses).
+    A `default` source means "app didn't know yet" — so if a buyer email body
+    (from a late re-ingest, admin edit, or Gmail fetch after the initial stamp)
+    later becomes available, that should win. Only this helper is authorized
+    to overwrite an existing deadline; `apply_default_if_missing` never does.
+
+    Behavior:
+      - Returns None if `doc` isn't a dict or `due_date_source != "default"`.
+      - Clears due_date/due_time, calls `apply_default_if_missing`.
+      - If the new source is still `default` (no header, no email body),
+        RESTORES the prior due_date/due_time and returns None. This avoids
+        "walking" the default anchor forward by 2 biz days on every pass —
+        a dormant record with no body text should stay anchored to its
+        original stamp, not slide rightward every boot.
+      - If the new source is `header` or `email`, returns that source.
+        Caller should persist the updated doc.
     """
-    stats = {"pc_filled": 0, "rfq_filled": 0, "errors": 0}
+    if not isinstance(doc, dict):
+        return None
+    if doc.get("due_date_source") != "default":
+        return None
+
+    orig_due_date = doc.get("due_date")
+    orig_due_time = doc.get("due_time")
+
+    doc.pop("due_date", None)
+    doc.pop("due_time", None)
+
+    new_src = apply_default_if_missing(doc)
+
+    if new_src == "default":
+        # Still default — restore prior anchor so we don't drift the date.
+        if orig_due_date is not None:
+            doc["due_date"] = orig_due_date
+        if orig_due_time is not None:
+            doc["due_time"] = orig_due_time
+        return None
+
+    return new_src
+
+
+def backfill_missing_deadlines() -> dict:
+    """Sweep active PCs/RFQs — fill blank deadlines and re-resolve stale defaults.
+
+    Two behaviors per record:
+      1. No due_date at all → stamp via `apply_default_if_missing` (header →
+         email body → 2-biz-day default). Counted as `pc_filled`/`rfq_filled`.
+      2. due_date exists but `due_date_source == "default"` → re-run resolution
+         via `re_resolve_default`. If a real header or email body is now
+         available, the record is upgraded. Counted as `pc_re_resolved`/
+         `rfq_re_resolved`.
+
+    Records with `due_date_source == "header"` or `"email"` are left untouched.
+    Sent/archived/test records are always skipped.
+
+    Called once at app startup via routes_intel_ops._scprs_autostart.
+    """
+    stats = {
+        "pc_filled": 0, "rfq_filled": 0,
+        "pc_re_resolved": 0, "rfq_re_resolved": 0,
+        "errors": 0,
+    }
 
     try:
         from src.api.data_layer import _load_price_checks, _save_single_pc, load_rfqs, _save_single_rfq
@@ -163,16 +219,25 @@ def backfill_missing_deadlines() -> dict:
                 continue
             if pc.get("is_test"):
                 continue
-            if pc.get("due_date") and str(pc["due_date"]).strip():
-                continue
-            try:
-                src = apply_default_if_missing(pc)
-                if src:
-                    _save_single_pc(pcid, pc)
-                    stats["pc_filled"] += 1
-            except Exception as e:
-                stats["errors"] += 1
-                log.debug("backfill PC %s failed: %s", pcid, e)
+            has_due = bool(pc.get("due_date") and str(pc["due_date"]).strip())
+            if not has_due:
+                try:
+                    src = apply_default_if_missing(pc)
+                    if src:
+                        _save_single_pc(pcid, pc)
+                        stats["pc_filled"] += 1
+                except Exception as e:
+                    stats["errors"] += 1
+                    log.debug("backfill PC %s failed: %s", pcid, e)
+            elif pc.get("due_date_source") == "default":
+                try:
+                    new_src = re_resolve_default(pc)
+                    if new_src:
+                        _save_single_pc(pcid, pc)
+                        stats["pc_re_resolved"] += 1
+                except Exception as e:
+                    stats["errors"] += 1
+                    log.debug("backfill re-resolve PC %s failed: %s", pcid, e)
     except Exception as e:
         log.warning("backfill PC pass failed: %s", e)
 
@@ -183,20 +248,35 @@ def backfill_missing_deadlines() -> dict:
                 continue
             if r.get("is_test"):
                 continue
-            if r.get("due_date") and str(r["due_date"]).strip():
-                continue
-            try:
-                src = apply_default_if_missing(r)
-                if src:
-                    _save_single_rfq(rid, r)
-                    stats["rfq_filled"] += 1
-            except Exception as e:
-                stats["errors"] += 1
-                log.debug("backfill RFQ %s failed: %s", rid, e)
+            has_due = bool(r.get("due_date") and str(r["due_date"]).strip())
+            if not has_due:
+                try:
+                    src = apply_default_if_missing(r)
+                    if src:
+                        _save_single_rfq(rid, r)
+                        stats["rfq_filled"] += 1
+                except Exception as e:
+                    stats["errors"] += 1
+                    log.debug("backfill RFQ %s failed: %s", rid, e)
+            elif r.get("due_date_source") == "default":
+                try:
+                    new_src = re_resolve_default(r)
+                    if new_src:
+                        _save_single_rfq(rid, r)
+                        stats["rfq_re_resolved"] += 1
+                except Exception as e:
+                    stats["errors"] += 1
+                    log.debug("backfill re-resolve RFQ %s failed: %s", rid, e)
     except Exception as e:
         log.warning("backfill RFQ pass failed: %s", e)
 
-    if stats["pc_filled"] or stats["rfq_filled"]:
-        log.info("Deadline backfill: filled %d PC + %d RFQ with default (+ %d errors)",
-                 stats["pc_filled"], stats["rfq_filled"], stats["errors"])
+    touched = (stats["pc_filled"] + stats["rfq_filled"]
+               + stats["pc_re_resolved"] + stats["rfq_re_resolved"])
+    if touched:
+        log.info(
+            "Deadline backfill: filled %d PC + %d RFQ, re-resolved %d PC + %d RFQ (+ %d errors)",
+            stats["pc_filled"], stats["rfq_filled"],
+            stats["pc_re_resolved"], stats["rfq_re_resolved"],
+            stats["errors"],
+        )
     return stats
