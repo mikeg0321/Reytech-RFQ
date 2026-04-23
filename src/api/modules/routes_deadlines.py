@@ -120,6 +120,15 @@ def _build_deadline_item(doc_type, doc_id, doc):
     items = doc.get("line_items") or doc.get("items") or []
     item_count = len(items) if isinstance(items, list) else 0
 
+    try:
+        from src.core.loe_estimator import estimate_loe_minutes, loe_label
+        loe_minutes = estimate_loe_minutes(doc)
+        loe_text = loe_label(loe_minutes)
+    except Exception as _e:
+        log.debug("loe estimator unavailable: %s", _e)
+        loe_minutes = 0
+        loe_text = ""
+
     return {
         "doc_type": doc_type,
         "doc_id": doc_id,
@@ -135,6 +144,8 @@ def _build_deadline_item(doc_type, doc_id, doc):
         "urgency": urgency,
         "status": doc.get("status", ""),
         "item_count": item_count,
+        "loe_minutes": loe_minutes,
+        "loe_text": loe_text,
         "url": f"/pricecheck/{doc_id}" if doc_type == "pc" else f"/rfq/{doc_id}",
     }
 
@@ -196,6 +207,76 @@ def api_deadlines():
 
     except Exception as e:
         log.error("Deadlines API error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/triage")
+@auth_required
+def api_triage():
+    """Operator-view triage: NEXT UP + queue, sorted by (time, LOE).
+
+    Returns the grouped buckets the home dashboard consumes:
+      {
+        ok: True,
+        mode: "emergency" | "normal",
+        emergency: [...],          # items where time_remaining < LOE * 1.25
+        next_up: {...} | None,     # the single card: emergency[0] or queue[0]
+        queue: [...],              # rest of the actionable queue (next_up excluded)
+        stale_overdue_count: N,    # > 72h past due, collapsed off the main view
+        total: N,                  # all actionable items
+      }
+    """
+    try:
+        from src.api.data_layer import _load_price_checks, load_rfqs
+        from src.core.quote_triage import triage
+
+        deadlines = []
+        pcs = _load_price_checks()
+        for pcid, pc in pcs.items():
+            if pc.get("status", "") in _SENT_STATUSES:
+                continue
+            if pc.get("is_test"):
+                continue
+            dl = _build_deadline_item("pc", pcid, pc)
+            if dl:
+                deadlines.append(dl)
+
+        rfqs = load_rfqs()
+        for rid, r in rfqs.items():
+            if r.get("status", "") in _SENT_STATUSES:
+                continue
+            if r.get("is_test"):
+                continue
+            dl = _build_deadline_item("rfq", rid, r)
+            if dl:
+                deadlines.append(dl)
+
+        t = triage(deadlines)
+        if t["emergency"]:
+            next_up = t["emergency"][0]
+            remaining_emergency = t["emergency"][1:]
+            queue = t["queue"]
+        elif t["queue"]:
+            next_up = t["queue"][0]
+            remaining_emergency = []
+            queue = t["queue"][1:]
+        else:
+            next_up = None
+            remaining_emergency = []
+            queue = []
+
+        return jsonify({
+            "ok": True,
+            "mode": t["mode"],
+            "next_up": next_up,
+            "emergency": remaining_emergency,
+            "queue": queue,
+            "stale_overdue_count": t["stale_overdue_count"],
+            "total": len(deadlines),
+        })
+
+    except Exception as e:
+        log.error("Triage API error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
