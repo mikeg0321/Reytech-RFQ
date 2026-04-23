@@ -129,6 +129,12 @@ def _build_deadline_item(doc_type, doc_id, doc):
         loe_minutes = 0
         loe_text = ""
 
+    # Surface whether the deadline is real or a 2-biz-day fallback so the UI
+    # can render the ⚠ DEFAULT badge. Without this, a pile of default-stamped
+    # records all show identical "2d left" and look indistinguishable from
+    # real deadlines (2026-04-22 incident — 11 PCs all falsely "due 04/24").
+    due_date_source = (doc.get("due_date_source") or "").lower()
+
     return {
         "doc_type": doc_type,
         "doc_id": doc_id,
@@ -137,6 +143,7 @@ def _build_deadline_item(doc_type, doc_id, doc):
         "due_date": due_date_str,
         "due_time": due_time_str,
         "due_iso": due_dt.isoformat(),
+        "due_date_source": due_date_source,
         "time_explicit": time_explicit,
         "hours_left": round(hours_left, 2),
         "total_seconds": round(total_seconds),
