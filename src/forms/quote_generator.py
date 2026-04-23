@@ -904,24 +904,67 @@ def generate_quote(
     to_addr   = quote_data.get("to_address", ship_addr)
     if isinstance(to_addr, str): to_addr = [to_addr]
 
-    # Auto-resolve ship-to name from address if not explicitly set
+    # Bundle-1 PR-1b (audit W fix): Resolve ship-to via the canonical
+    # `facility_registry` instead of the legacy `institution_resolver`.
+    # The old path silently mapped buyer text containing "Folsom" to
+    # FSP via substring fuzzy match, even when the buyer wrote "CSP-
+    # Sacramento" — and worse, both codes shared the wrong address
+    # (300 Prison Road) so the quote PDF stamped the wrong prison.
+    #
+    # New behavior:
+    #   1. Try `facility_registry.resolve()` — never silently guesses.
+    #   2. On a confident match, set BOTH ship_name AND ship_addr from
+    #      canonical so name and address can never disagree.
+    #   3. On ambiguous / no-match, leave ship_name + ship_addr alone
+    #      (operator's raw text is the fallback). Logged for audit.
+    #
+    # Stash the raw value as `_ship_to_raw_for_audit` on `quote_data`
+    # so a future PR (1d) can persist it on the saved record for the
+    # "what did the buyer literally type vs. what we shipped" audit.
     if not ship_name or ship_name == to_name:
-        _ship_to_raw = quote_data.get("ship_to", quote_data.get("delivery_location", ""))
+        _ship_to_raw = quote_data.get(
+            "ship_to", quote_data.get("delivery_location", "")
+        )
         if _ship_to_raw:
             try:
-                from src.core.institution_resolver import resolve as _resolve_ship
-                _resolved = _resolve_ship(_ship_to_raw)
-                if _resolved and _resolved.get("canonical"):
-                    _canon = _resolved["canonical"]
-                    # Use friendly short names for CalVet
-                    if "Veterans Home" in _canon:
-                        # "Veterans Home of California, Chula Vista" → "Cal Vet Chula Vista"
-                        _loc = _canon.split(",")[-1].strip() if "," in _canon else ""
+                from src.core.facility_registry import (
+                    resolve_with_reason as _resolve_facility,
+                )
+                _record, _reason = _resolve_facility(_ship_to_raw)
+                if _record:
+                    # Use friendly short names for CalVet (legacy
+                    # quote-PDF convention preserved).
+                    if "Veterans Home" in _record.canonical_name:
+                        _loc = (
+                            _record.canonical_name.split(" - ")[-1].strip()
+                            if " - " in _record.canonical_name
+                            else ""
+                        )
                         ship_name = f"Cal Vet {_loc}" if _loc else "Cal Vet"
                     else:
-                        ship_name = _canon
+                        ship_name = _record.canonical_name
+                    # Audit W fix: also write the canonical ADDRESS
+                    # so the ship-to block can never show one prison's
+                    # name with another's street. Only overwrite when
+                    # ship_addr is currently empty / equal to to_addr —
+                    # an operator who set ship_addr explicitly always
+                    # wins.
+                    if not ship_addr or ship_addr == to_addr:
+                        ship_addr = list(_record.address())
+                    log.info(
+                        "ship-to resolved: %s -> %s (%s)",
+                        _ship_to_raw[:60], _record.code, _reason,
+                    )
+                else:
+                    # Ambiguous or no-match — leave ship_name + ship_addr
+                    # as the operator's raw text. Surface why in logs so
+                    # downstream telemetry can spot pattern.
+                    log.warning(
+                        "ship-to NOT resolved (%s): %r — using raw text",
+                        _reason, _ship_to_raw[:80],
+                    )
             except Exception as _e:
-                log.debug("suppressed: %s", _e)
+                log.debug("ship-to resolve crashed: %s", _e, exc_info=True)
 
     show_bill    = cfg["show_bill_to"]
     bill_name    = quote_data.get("bill_to_name", cfg.get("bill_to_name", ""))
