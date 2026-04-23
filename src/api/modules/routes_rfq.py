@@ -2532,8 +2532,17 @@ def api_lookup_tax_rate(rid):
         _city_match = (_re_tax.search(r',\s*([A-Za-z\s]+),?\s*[A-Z][A-Za-z]\.?\s*\d{5}', address) or
                        _re_tax.search(r',\s*([A-Za-z][A-Za-z\s]+?)\s*,\s*[A-Z]{2}', address))
         _d_city = _city_match.group(1).strip() if _city_match else ""
-        # Street: everything before first comma
-        _street_match = _re_tax.search(r'^(\d+\s+[^,\n]+?)(?:,|\s{2,}[A-Z][a-z]|$)', address)
+        # Street: the FIRST `<digits> <words>` segment, anywhere in the
+        # string (comma-delimited). Audit X (2026-04-23): the old regex
+        # anchored to `^\d+` so facility-led addresses like
+        # "WSP - Wasco State Prison, 701 Scofield Avenue, Wasco, CA 93280"
+        # returned no street, which fell through to parse_ship_to (also
+        # empty) and then to the 7.25% CA base default instead of the
+        # real 93280 rate. `(?:^|,\s*)` also allows a leading "PO Box N"
+        # (no digits-at-start) to still find "701 Scofield Avenue"
+        # further in. Preserves the old behavior when the address does
+        # start with digits.
+        _street_match = _re_tax.search(r'(?:^|,\s*)(\d+\s+[^,\n]+?)(?=,|$)', address)
         _d_street = _street_match.group(1).strip() if _street_match else ""
         # Last resort: extract city anchored to zip
         if not _d_city and _d_zip:
