@@ -311,6 +311,20 @@
  </div>
  {% endif %}
 
+ {# Bundle-6 PR-6a — pricing auto-copied from linked PC. Renders when the #}
+ {# post-link hook populated one or more line items; links back to the PC. #}
+ {% if r.get('pricing_copied_from_pc') %}
+ <div data-testid="rfq-pricing-copied-banner"
+      style="background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.28);border-radius:8px;padding:8px 14px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px;color:#58a6ff">
+  <span style="font-size:16px">💰</span>
+  <div style="flex:1">
+   <b>Pricing copied from PC #{{ r.get('linked_pc_number') or r.pricing_copied_from_pc[:12] }}</b>
+   — edit line items below to override.
+  </div>
+  <a href="/pricecheck/{{ r.pricing_copied_from_pc }}" style="color:#58a6ff;font-weight:600">View PC →</a>
+ </div>
+ {% endif %}
+
  {% if r.get('bundle_id') %}
  {# ── Bundle sibling RFQs banner ── #}
  {% if sibling_rfqs|default([])|length > 0 or sibling_pcs_unconverted|default([])|length > 0 %}

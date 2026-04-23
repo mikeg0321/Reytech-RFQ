@@ -239,6 +239,25 @@ def process_buyer_request(
                 result.reasons.append(
                     f"linked to pc {linked_pc_id[:8]}: {link_reason} (score {link_score})"
                 )
+                # Step 5b (Bundle-6 PR-6a, audit item linker→pricing copy):
+                # when a PC is linked, copy its per-item pricing subdict onto
+                # the RFQ's line items by description similarity. Idempotent —
+                # operator's manual edits survive re-runs because items already
+                # carrying a pricing_copied_from_pc marker are skipped. Surfaces
+                # a banner on RFQ detail so the operator knows pricing didn't
+                # appear by magic. Never raises into the main pipeline.
+                try:
+                    copy_report = _copy_pc_pricing_to_rfq(
+                        record_id, linked_pc_id, items,
+                    )
+                    if copy_report.get("copied"):
+                        result.reasons.append(
+                            f"pricing copied from pc {linked_pc_id[:8]}: "
+                            f"{copy_report['copied']} item(s)"
+                        )
+                except Exception as _e:
+                    log.error("pricing-copy post-link hook failed: %s", _e, exc_info=True)
+                    result.warnings.append(f"pricing-copy: {_e}")
         except Exception as e:
             log.error("linker crashed: %s", e, exc_info=True)
             result.warnings.append(f"linker: {e}")
@@ -656,6 +675,162 @@ def _ts(s: str) -> float:
         return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
     except Exception:
         return 0.0
+
+
+# ── Post-link pricing copy (Bundle-6 PR-6a) ─────────────────────────────────
+#
+# When the triangulated linker binds an RFQ to a PC, the PC holds the pricing
+# Mike already decided on for that buyer + those items. Previously the link
+# was passive: the operator had to navigate to the PC to read the price or
+# re-enter it on the RFQ (audit 2026-04-22, RFQ 9ad8a0ac / PC 5063d1cd).
+# This helper copies PC item['pricing'] onto matching RFQ items by
+# description similarity. Idempotent: items stamped pricing_copied_from_pc
+# are left alone so the operator's manual edits survive a re-run.
+
+def _copy_pc_pricing_to_rfq(
+    rfq_id: str,
+    pc_id: str,
+    rfq_items: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Copy per-item pricing subdicts from a linked PC onto the RFQ's items.
+
+    Matching is by lowercased-description SequenceMatcher ratio >= 0.75
+    (same threshold the triangulated linker uses for item-coverage — a
+    tighter bar than fuzzy token match).
+
+    Idempotency rules:
+      * An RFQ item already marked pricing_copied_from_pc=<any> is NOT
+        touched (preserves manual edits and prior copies).
+      * An RFQ item that already has non-zero price_per_unit OR
+        supplier_cost OR pricing.recommended_price is NOT touched (caller
+        already priced it, don't clobber).
+
+    Side-effects:
+      * Mutates `rfq_items` in place so the caller's `items` reference
+        updates — process_buyer_request stores that reference on the record.
+      * Loads + saves the RFQ record via the DAL so a persisted copy lands
+        in SQLite even when the caller doesn't persist items again.
+
+    Returns {copied, skipped, reason}.
+    """
+    from difflib import SequenceMatcher
+    report = {"copied": 0, "skipped": 0, "reason": ""}
+    try:
+        from src.api.dashboard import _load_price_checks, load_rfqs, _save_single_rfq
+    except ImportError:
+        report["reason"] = "dashboard imports unavailable"
+        return report
+
+    pcs = _load_price_checks()
+    pc = pcs.get(pc_id)
+    if not pc:
+        report["reason"] = f"pc {pc_id} not found"
+        return report
+
+    pc_items = pc.get("items") or []
+    if not isinstance(pc_items, list) or not pc_items:
+        report["reason"] = "pc has no items"
+        return report
+
+    def _has_pricing(item: Dict[str, Any]) -> bool:
+        """True when the RFQ item is already priced by a human or prior run."""
+        if item.get("pricing_copied_from_pc"):
+            return True
+        if (item.get("price_per_unit") or 0) > 0:
+            return True
+        if (item.get("supplier_cost") or 0) > 0:
+            return True
+        p = item.get("pricing") or {}
+        if isinstance(p, dict) and (p.get("recommended_price") or 0) > 0:
+            return True
+        return False
+
+    def _best_pc_match(rfq_desc: str) -> Optional[Dict[str, Any]]:
+        if not rfq_desc or len(rfq_desc) < 5:
+            return None
+        rd = rfq_desc.lower().strip()
+        best_item = None
+        best_sim = 0.0
+        for pi in pc_items:
+            if not isinstance(pi, dict):
+                continue
+            pd = (pi.get("description") or pi.get("desc") or "").lower().strip()
+            if not pd:
+                continue
+            s = SequenceMatcher(None, rd, pd).ratio()
+            if s > best_sim:
+                best_sim = s
+                best_item = pi
+        if best_sim >= 0.75:
+            return best_item
+        return None
+
+    for rfq_item in rfq_items:
+        if not isinstance(rfq_item, dict):
+            report["skipped"] += 1
+            continue
+        if _has_pricing(rfq_item):
+            report["skipped"] += 1
+            continue
+        pc_match = _best_pc_match(rfq_item.get("description", "") or "")
+        if not pc_match:
+            report["skipped"] += 1
+            continue
+        src_pricing = pc_match.get("pricing") or {}
+        # Copy the pricing subdict only when it carries real values — an
+        # empty dict from an unpriced PC item isn't useful and would look
+        # like "copied" when it isn't.
+        has_real_values = False
+        if isinstance(src_pricing, dict):
+            for k in ("recommended_price", "amazon_price",
+                      "scprs_last_price", "unit_cost", "catalog_cost"):
+                if (src_pricing.get(k) or 0) > 0:
+                    has_real_values = True
+                    break
+        pc_unit = pc_match.get("price_per_unit") or pc_match.get("unit_price") or 0
+        pc_cost = pc_match.get("supplier_cost") or pc_match.get("vendor_cost") or 0
+        if not has_real_values and pc_unit <= 0 and pc_cost <= 0:
+            report["skipped"] += 1
+            continue
+        # Apply: flat fields FIRST (so UI tables that read unit_price see
+        # the value), THEN the nested pricing dict (for price_source badges).
+        if pc_unit > 0:
+            rfq_item["price_per_unit"] = pc_unit
+        if pc_cost > 0:
+            rfq_item["supplier_cost"] = pc_cost
+        mk = pc_match.get("markup_pct")
+        if mk:
+            rfq_item["markup_pct"] = mk
+        if isinstance(src_pricing, dict) and src_pricing:
+            # Don't shadow anything already on the RFQ item's pricing dict —
+            # merge, not clobber. Prior keys (from enrichment runs) win.
+            dst_pricing = rfq_item.get("pricing") or {}
+            if not isinstance(dst_pricing, dict):
+                dst_pricing = {}
+            for k, v in src_pricing.items():
+                dst_pricing.setdefault(k, v)
+            rfq_item["pricing"] = dst_pricing
+        rfq_item["pricing_copied_from_pc"] = pc_id
+        rfq_item["pricing_copied_at"] = datetime.now().isoformat()
+        report["copied"] += 1
+
+    # Persist once at the end so a single save writes all item copies.
+    if report["copied"]:
+        try:
+            rfqs = load_rfqs()
+            rfq = rfqs.get(rfq_id)
+            if rfq is not None:
+                rfq["line_items"] = rfq_items
+                rfq["items"] = rfq_items
+                rfq["pricing_copied_from_pc"] = pc_id
+                rfq["pricing_copied_at"] = datetime.now().isoformat()
+                _save_single_rfq(rfq_id, rfq)
+        except Exception as _e:
+            log.debug("pricing-copy persist suppressed: %s", _e)
+
+    log.info("pricing-copy rfq=%s pc=%s copied=%d skipped=%d",
+             rfq_id, pc_id, report["copied"], report["skipped"])
+    return report
 
 
 __all__ = [
