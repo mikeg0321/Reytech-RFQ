@@ -3141,6 +3141,232 @@ def api_rfq_manual_submit_clear(rid):
     return jsonify({"ok": True, "cleared": had_flag})
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# Item Z (release valve): operator-edited quote PDF
+# ═══════════════════════════════════════════════════════════════════════
+# When a field-level bug produces a wrong quote PDF (wrong ship-to, wrong
+# tax line, wrong institution name), the operator can hand-edit in Acrobat
+# and re-upload via this endpoint instead of waiting for a code fix. The
+# uploaded PDF becomes the authoritative quote for this RFQ — Send Quote
+# attaches it; Generate Package warns before overwriting.
+#
+# Every edit is audited to data/quote_edit_audit.jsonl so we can measure
+# which fields operators edit most often, and feed that back into the
+# resolver/filler priority list. Z shipping without this feedback loop
+# would be an output-layer bandaid (feedback_fix_at_architecture_layer).
+#
+# Post-send lock: once status=sent, edits are refused unless the operator
+# explicitly reverts the record to draft first (feedback_canonical_not_verbatim
+# + audit AA — the sent quote IS the buyer-facing artifact; quiet mutation
+# after send breaks the audit trail).
+@bp.route("/api/rfq/<rid>/submit-edited-quote", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_submit_edited_quote(rid):
+    """Operator uploads a hand-edited Quote PDF. It becomes the authoritative
+    quote artifact for this RFQ until another edit or a status revert.
+
+    Scope (2026-04-23, per Mike Q-answers):
+      - Z1 aggressive: extension to 703B/704B/bid-package/sellers-permit is a
+        follow-up; this PR ships quote-only. Same endpoint shape, add
+        ?form_type=<slug> in next round.
+      - Z8: 10 MB cap (operator compresses in Acrobat before upload).
+      - Z7: all-fields-populated gate lives in quote_validator.validate_ready_to_send
+        (Send Quote path) — NOT at upload time. Upload accepts any valid PDF;
+        Send blocks if record state is incomplete. Feedback follow-up widens
+        validate_ready_to_send per Mike's Q7 (all items must be filled).
+    """
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    # Post-send lock (Z3 default). Sent quotes are read-only unless the
+    # operator has explicitly reverted the record's status.
+    if r.get("status") == "sent":
+        return jsonify({
+            "ok": False,
+            "error": ("Quote is already sent. Revert status to draft before "
+                      "submitting an edited quote (post-send lock). "
+                      "See audit item A / AA."),
+            "status": "sent",
+        }), 409
+
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"ok": False, "error": "No file uploaded"}), 400
+
+    filename_lower = (f.filename or "").lower()
+    if not filename_lower.endswith(".pdf"):
+        return jsonify({"ok": False, "error": "Upload must be a PDF"}), 400
+
+    try:
+        raw = f.read()
+    except Exception as e:
+        log.error("submit-edited-quote read failed for %s: %s", rid, e)
+        return jsonify({"ok": False, "error": f"Could not read upload: {e}"}), 400
+
+    if not raw or len(raw) < 100:
+        return jsonify({"ok": False, "error": "Upload is empty or truncated"}), 400
+
+    # Z8: 10 MB cap per Mike's 2026-04-23 directive. Operator compresses in
+    # Acrobat (File → Compress) before upload. Tight cap ensures the attached
+    # packet never bounces back from Gmail's 25 MB limit.
+    MAX_BYTES = 10 * 1024 * 1024
+    if len(raw) > MAX_BYTES:
+        return jsonify({
+            "ok": False,
+            "error": f"Upload exceeds 10 MB cap ({len(raw)} bytes). "
+                     "Compress in Acrobat (File → Compress PDF) before re-upload.",
+        }), 413
+
+    # Validate PDF parseable
+    try:
+        from pypdf import PdfReader
+        from io import BytesIO
+        reader = PdfReader(BytesIO(raw))
+        page_count = len(reader.pages)
+        if page_count < 1:
+            return jsonify({"ok": False, "error": "PDF has no pages"}), 400
+    except Exception as e:
+        log.warning("submit-edited-quote invalid PDF for %s: %s", rid, e)
+        return jsonify({"ok": False, "error": f"Not a valid PDF: {e}"}), 400
+
+    sol = r.get("solicitation_number", "") or "RFQ"
+    out_dir = os.path.join(OUTPUT_DIR, sol)
+    os.makedirs(out_dir, exist_ok=True)
+
+    target_name = f"{sol}_Quote_Reytech_EDITED.pdf"
+    target_path = os.path.join(out_dir, target_name)
+
+    # Archive previous edited copy (if any) — never lose a prior operator edit
+    archived_to = None
+    if os.path.exists(target_path):
+        try:
+            import shutil as _sh
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            archive_dir = os.path.join(out_dir, "_prev")
+            os.makedirs(archive_dir, exist_ok=True)
+            archived_to = os.path.join(archive_dir, f"{stamp}_{target_name}")
+            _sh.move(target_path, archived_to)
+        except Exception as e:
+            log.warning("submit-edited-quote archive failed for %s: %s", rid, e)
+            archived_to = None
+
+    try:
+        with open(target_path, "wb") as fh:
+            fh.write(raw)
+    except Exception as e:
+        log.error("submit-edited-quote write failed for %s: %s", rid, e)
+        return jsonify({"ok": False, "error": f"Could not save file: {e}"}), 500
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    prev_edited = r.get("edited_quote") or {}
+    r["edited_quote"] = {
+        "uploaded_at": now_iso,
+        "original_filename": f.filename,
+        "bytes": len(raw),
+        "pages": page_count,
+        "path": target_path,
+        "filename": target_name,
+        "archived_prev": archived_to,
+        "previous_upload_at": prev_edited.get("uploaded_at"),
+    }
+
+    # Keep output_files in sync so the existing send flow can attach the
+    # edited quote. Do NOT add the auto-generated {sol}_Quote_Reytech.pdf
+    # next to it — the edited version supersedes.
+    output_files = list(r.get("output_files") or [])
+    if target_name not in output_files:
+        output_files.append(target_name)
+    r["output_files"] = output_files
+
+    # Audit log — append-only JSONL, one entry per edit.
+    # Feeds the 30-day rollup that drives resolver/filler priority tuning.
+    try:
+        audit_path = os.path.join(DATA_DIR, "quote_edit_audit.jsonl")
+        audit_entry = {
+            "event": "quote_edit_uploaded",
+            "rid": rid,
+            "solicitation_number": sol,
+            "uploaded_at": now_iso,
+            "original_filename": f.filename,
+            "bytes": len(raw),
+            "pages": page_count,
+            "was_re_edit": bool(prev_edited),
+            "record_snapshot": {
+                "ship_to_name": r.get("ship_to_name"),
+                "ship_to_address": r.get("ship_to_address"),
+                "tax_rate": r.get("tax_rate"),
+                "institution": r.get("institution"),
+                "agency": r.get("agency"),
+                "reytech_quote_number": r.get("reytech_quote_number"),
+                "status": r.get("status"),
+            },
+        }
+        with open(audit_path, "a", encoding="utf-8") as af:
+            af.write(json.dumps(audit_entry) + "\n")
+    except Exception as _ae:
+        log.warning("quote_edit_audit append failed for %s: %s", rid, _ae)
+
+    try:
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as _e:
+        log.warning("submit-edited-quote single-save fallback for %s: %s", rid, _e)
+        save_rfqs(rfqs)
+
+    _log_rfq_activity(rid, "quote_edited",
+        f"Operator uploaded edited Quote PDF ({len(raw)} bytes, {page_count} pages)",
+        actor="user",
+        metadata={"filename": target_name, "bytes": len(raw)})
+
+    log.info("submit-edited-quote saved rid=%s sol=%s bytes=%d pages=%d re_edit=%s",
+             rid, sol, len(raw), page_count, bool(prev_edited))
+
+    return jsonify({
+        "ok": True,
+        "filename": target_name,
+        "bytes": len(raw),
+        "pages": page_count,
+        "uploaded_at": now_iso,
+        "archived_prev": bool(archived_to),
+        "was_re_edit": bool(prev_edited),
+        "message": ("Edited quote saved. Send Quote will attach this file. "
+                    "Generate Package will warn before overwriting."),
+    })
+
+
+@bp.route("/api/rfq/<rid>/submit-edited-quote", methods=["DELETE"])
+@auth_required
+@safe_route
+def api_rfq_submit_edited_quote_clear(rid):
+    """Clear the edited-quote flag so Generate Package regenerates from the
+    record. Does NOT delete the file on disk — archive is preserved for audit."""
+    _bad = _validate_rid(rid)
+    if _bad:
+        return _bad
+
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    had_flag = bool(r.pop("edited_quote", None))
+    try:
+        from src.api.dashboard import _save_single_rfq
+        _save_single_rfq(rid, r)
+    except Exception as _e:
+        log.warning("submit-edited-quote-clear fallback for %s: %s", rid, _e)
+        save_rfqs(rfqs)
+
+    return jsonify({"ok": True, "cleared": had_flag})
+
+
 # ────────────────────────────────────────────────────────────────────
 # Contract Builder — single-upload entry point
 #
