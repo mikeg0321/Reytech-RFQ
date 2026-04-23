@@ -742,6 +742,127 @@
  });
  </script>
  <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
+
+ {# ── Bundle-3 PR-3b: Sticky CTA bar (audit Q — scroll fatigue) ──
+    A 1-line companion bar pinned to viewport bottom. Mirrors the
+    inline primary actions (Finalize / Generate / Send) plus a live
+    Total / Profit / Items chip so an operator pricing line items mid-
+    page doesn't have to scroll up to verify the math or down to hit
+    Send. Visibility is driven by IntersectionObserver: shown only
+    when the inline action bar is OUT of the viewport, hidden again
+    when the operator scrolls back into view. Doesn't duplicate
+    handlers — clicks delegate into the canonical inline buttons via
+    testid lookup, so QA gating, busy-state toggles, and click logging
+    all flow through the existing primary-bar code path. #}
+ <div id="rfq-sticky-cta" data-testid="rfq-sticky-cta" role="region" aria-label="Sticky quote actions" style="position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(13,17,23,.96);border-top:1px solid var(--bd);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:10px 16px;display:none;box-shadow:0 -4px 18px rgba(0,0,0,.45)">
+  <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between">
+   <div style="display:flex;align-items:center;gap:18px;font-size:12px;color:var(--tx2);min-width:0">
+    <div><span style="text-transform:uppercase;font-size:9px;letter-spacing:.5px;color:var(--tx2);margin-right:6px">Total</span><span id="sticky-total" data-testid="sticky-total" style="font-family:'JetBrains Mono',monospace;color:var(--tx);font-weight:700;font-size:15px">$0.00</span></div>
+    <div><span style="text-transform:uppercase;font-size:9px;letter-spacing:.5px;color:var(--tx2);margin-right:6px">Profit</span><span id="sticky-profit" data-testid="sticky-profit" style="font-family:'JetBrains Mono',monospace;color:#3fb950;font-weight:700;font-size:15px">—</span></div>
+    <div><span style="text-transform:uppercase;font-size:9px;letter-spacing:.5px;color:var(--tx2);margin-right:6px">Items</span><span id="sticky-priced" data-testid="sticky-priced" style="font-family:'JetBrains Mono',monospace;color:var(--tx);font-weight:700;font-size:15px">—</span></div>
+   </div>
+   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button type="button" onclick="_stickyClick('rfq-save-pricing')" data-testid="sticky-finalize" data-qa-gated="1" class="btn btn-p" style="font-size:13px;padding:8px 16px;font-weight:700" aria-label="Finalize pricing (sticky)">✅ Finalize</button>
+    <button type="button" onclick="_stickyClick('rfq-generate-package')" data-testid="sticky-generate" data-qa-gated="1" class="btn btn-g" style="font-size:13px;padding:8px 16px;font-weight:700" aria-label="Generate RFP package (sticky)" title="Cmd/Ctrl+Enter from any price cell also fires this">📦 Generate</button>
+    <button type="button" onclick="_stickyClick('rfq-send-quote')" data-testid="sticky-send" data-qa-gated="1" class="btn" style="background:rgba(79,140,255,.15);color:var(--ac);border:1px solid rgba(79,140,255,.3);font-size:13px;padding:8px 16px;font-weight:600" aria-label="Send quote (sticky)">📧 Send</button>
+   </div>
+  </div>
+ </div>
+ {# Sticky bar is `position:fixed`; reserve viewport space below the
+    main content so the last few rows aren't permanently hidden behind
+    it. The 64px target matches the bar's rendered height + padding. #}
+ <div data-testid="rfq-sticky-spacer" aria-hidden="true" style="height:64px;display:none"></div>
+
+ <script>
+ // PR-3b: Sticky CTA wiring.
+ // 1) Delegate sticky button clicks into the canonical inline buttons
+ //    so QA gating, busy-state toggles, and existing click handlers
+ //    fire from one source of truth.
+ // 2) Toggle visibility based on whether the inline primary action bar
+ //    is in the viewport (IntersectionObserver). When inline visible →
+ //    hide sticky (avoids duplicating UI). When inline scrolled away →
+ //    show sticky.
+ // 3) Mirror the live recalc() outputs (Total / Profit / Items) into
+ //    the sticky cells so the operator can verify math without scroll.
+ // 4) Cmd/Ctrl+Enter from any price cell fires Generate Package — the
+ //    "type-the-price-then-ship" muscle memory operators ask for.
+ (function(){
+   function _stickyClick(testid){
+     var b = document.querySelector('[data-testid="' + testid + '"]');
+     if (b) b.click();
+   }
+   window._stickyClick = _stickyClick;
+
+   var sticky = document.getElementById('rfq-sticky-cta');
+   var spacer = document.querySelector('[data-testid="rfq-sticky-spacer"]');
+   var inline = document.querySelector('[data-testid="rfq-primary-actions"]');
+   function _show(yes){
+     if (!sticky) return;
+     sticky.style.display = yes ? 'block' : 'none';
+     if (spacer) spacer.style.display = yes ? 'block' : 'none';
+   }
+   if (sticky && inline && 'IntersectionObserver' in window){
+     var io = new IntersectionObserver(function(entries){
+       entries.forEach(function(e){ _show(!e.isIntersecting); });
+     }, { threshold: 0.05, rootMargin: '0px 0px -40px 0px' });
+     io.observe(inline);
+   }
+
+   // Mirror recalc() into sticky cells. recalc() updates #tot / #pft /
+   // #rfq-items-priced-kpi — re-read those after each call.
+   function _syncStickyKpis(){
+     var t = document.getElementById('tot');
+     var p = document.getElementById('pft');
+     var k = document.getElementById('rfq-items-priced-kpi');
+     var st = document.getElementById('sticky-total');
+     var sp = document.getElementById('sticky-profit');
+     var sk = document.getElementById('sticky-priced');
+     if (st && t) st.textContent = t.textContent;
+     if (sp && p){
+       sp.textContent = p.textContent.replace(/^💰\s*Profit:\s*/,'');
+       sp.style.color = p.style.color || '#3fb950';
+     }
+     if (sk && k) sk.textContent = k.textContent;
+   }
+   // Patch recalc to also sync after running. Wrap once on first call
+   // so we don't shadow before the original is defined (it's declared
+   // a few hundred lines below in the inline script).
+   var _hooked = false;
+   function _hookRecalc(){
+     if (_hooked) return;
+     if (typeof recalc !== 'function') return;
+     var _orig = recalc;
+     window.recalc = function(){
+       try { _orig.apply(this, arguments); }
+       finally { try { _syncStickyKpis(); } catch(e){} }
+     };
+     _hooked = true;
+     // Catch the initial render that already ran on load.
+     try { _syncStickyKpis(); } catch(e){}
+   }
+   if (document.readyState === 'loading'){
+     document.addEventListener('DOMContentLoaded', _hookRecalc);
+   } else {
+     _hookRecalc();
+   }
+   // Belt-and-suspenders: also try after a tick in case recalc was
+   // declared in a later <script> block on the same page.
+   setTimeout(_hookRecalc, 50);
+   setTimeout(_hookRecalc, 500);
+
+   // Cmd/Ctrl+Enter from any price/cost cell fires Generate Package.
+   document.addEventListener('keydown', function(e){
+     if (e.key !== 'Enter') return;
+     if (!(e.metaKey || e.ctrlKey)) return;
+     var t = e.target;
+     if (!t || !t.matches) return;
+     if (!t.matches('input[name^="price_"], input[name^="cost_"]')) return;
+     e.preventDefault();
+     _stickyClick('rfq-generate-package');
+   });
+ })();
+ </script>
+
  <script>
  // Manual catalog refresh — unblocks QA "No cost" gate by pulling fresh MSRP
  // for the RFQ's items. Non-blocking: returns immediately; prices land in
