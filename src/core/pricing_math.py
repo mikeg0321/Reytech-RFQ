@@ -49,13 +49,27 @@ def canonical_unit_price(item: dict) -> float:
     if not isinstance(item, dict):
         return 0.0
     p = item.get("pricing") if isinstance(item.get("pricing"), dict) else {}
-    cost = _coerce_float(item.get("vendor_cost"))
-    if cost is None:
-        cost = _coerce_float(p.get("unit_cost"))
-    markup = _coerce_float(item.get("markup_pct"))
-    if markup is None:
-        markup = _coerce_float(p.get("markup_pct"))
-    if cost is not None and markup is not None and cost > 0:
+
+    # Read cost + markup from the priority order the UI uses at
+    # routes_pricecheck.py:489: `unit_cost = p.get('unit_cost') or
+    # item.get('vendor_cost')`. Use `or`-chaining (not `is None`) so an
+    # explicit zero in `vendor_cost` falls through to the non-zero
+    # `pricing.unit_cost`. This also covers the RFQ alias `supplier_cost`
+    # set by routes_rfq_gen.py:671 on RFQ save. Hotfix 2026-04-23 after
+    # pc_f7ba7a6b (Cortech) returned stale $558.48 in email body while UI
+    # rendered the correct $567.79 — the flat `vendor_cost` was 0/missing
+    # on that record's persisted item dict so the `is None` guard fell
+    # through to the stale `unit_price` fallback instead of reading
+    # `pricing.unit_cost` where the real $465.40 lived.
+    cost = (_coerce_float(p.get("unit_cost"))
+            or _coerce_float(item.get("vendor_cost"))
+            or _coerce_float(item.get("supplier_cost"))
+            or _coerce_float(item.get("cost")))
+    markup = (_coerce_float(item.get("markup_pct"))
+              or _coerce_float(p.get("markup_pct"))
+              or _coerce_float(item.get("markup"))
+              or _coerce_float(p.get("markup")))
+    if cost and markup is not None and cost > 0:
         return round(cost * (1 + markup / 100.0), 2)
     # Fallback — persisted value, in reading-order preference
     for k in ("unit_price",):
@@ -87,7 +101,10 @@ def is_unit_price_stale(item: dict, tolerance: float = 0.005) -> bool:
         stored = _coerce_float(p.get("recommended_price"))
     if stored is None or stored <= 0:
         return False  # nothing persisted to compare against
-    cost = _coerce_float(item.get("vendor_cost")) or _coerce_float(p.get("unit_cost"))
+    cost = (_coerce_float(p.get("unit_cost"))
+            or _coerce_float(item.get("vendor_cost"))
+            or _coerce_float(item.get("supplier_cost"))
+            or _coerce_float(item.get("cost")))
     markup = _coerce_float(item.get("markup_pct"))
     if markup is None:
         markup = _coerce_float(p.get("markup_pct"))

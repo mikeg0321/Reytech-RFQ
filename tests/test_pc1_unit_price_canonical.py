@@ -71,6 +71,66 @@ def test_canonical_handles_string_numerics():
     assert canonical_unit_price(item) == 125.0
 
 
+# ── 2026-04-23 prod fallthrough regression ──────────────────────────────────
+
+
+def test_canonical_falls_through_zero_vendor_cost_to_pricing_unit_cost():
+    """Prod pc_f7ba7a6b shape: vendor_cost=0 (explicit) but pricing.unit_cost=465.40.
+
+    The first-shipped helper used an `is None` guard on the flat field,
+    so 0 skipped the pricing fallback and fell back to the stale
+    unit_price. Email body shipped $558.48 while UI rendered $567.79.
+    The UI handles this correctly with `or`-chaining; the helper now
+    does the same.
+    """
+    from src.core.pricing_math import canonical_unit_price
+    item = {
+        "vendor_cost": 0,  # explicit zero on the flat field
+        "markup_pct": 22,
+        "unit_price": 558.48,  # stale
+        "pricing": {
+            "unit_cost": 465.40,  # real cost lives here
+            "markup_pct": 22,
+            "recommended_price": 558.48,
+        },
+    }
+    assert canonical_unit_price(item) == 567.79
+
+
+def test_canonical_handles_rfq_supplier_cost_alias():
+    """RFQ items store cost as `supplier_cost` (routes_rfq_gen.py:671),
+    not `vendor_cost`. Helper must accept either."""
+    from src.core.pricing_math import canonical_unit_price
+    item = {"supplier_cost": 100, "markup_pct": 25, "unit_price": 110}
+    assert canonical_unit_price(item) == 125.0
+
+
+def test_canonical_handles_generic_cost_alias():
+    """Some legacy / import paths use a flat `cost` field."""
+    from src.core.pricing_math import canonical_unit_price
+    item = {"cost": 80, "markup_pct": 25}
+    assert canonical_unit_price(item) == 100.0
+
+
+def test_canonical_handles_pricing_markup_alias():
+    """`pricing.markup` (no _pct) appears in some legacy shapes."""
+    from src.core.pricing_math import canonical_unit_price
+    item = {"vendor_cost": 100, "pricing": {"markup": 40}}
+    assert canonical_unit_price(item) == 140.0
+
+
+def test_is_stale_flags_zero_vendor_cost_with_pricing_cost():
+    """The prod regression case — must be flagged as stale so the backfill
+    heals it on the next run."""
+    from src.core.pricing_math import is_unit_price_stale
+    assert is_unit_price_stale({
+        "vendor_cost": 0,
+        "markup_pct": 22,
+        "unit_price": 558.48,
+        "pricing": {"unit_cost": 465.40, "markup_pct": 22},
+    }) is True
+
+
 def test_is_unit_price_stale_flags_prod_regression():
     from src.core.pricing_math import is_unit_price_stale
     assert is_unit_price_stale({
