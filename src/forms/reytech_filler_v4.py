@@ -1039,6 +1039,45 @@ def _is_cchcs_it_rfq(pdf_path):
     return bool(_fields & _lpa_markers)
 
 
+def _classify_703b_slot_template(pdf_path):
+    """Classify the template sitting in the 703B slot.
+
+    Returns one of: "cchcs_it_rfq", "703b", "703c", "unknown".
+
+    Per Mike's directive (2026-04-22 Q7): only fill forms we have a profile
+    for; nothing should be a surprise. An unrecognized template must be
+    surfaced for manual profile registration, not blind-filled with
+    703B field names that don't exist on it (which is the exact bug that
+    made RFQ 10840486 fill mostly-blank — audit item M).
+    """
+    try:
+        _reader = PdfReader(pdf_path)
+        _fields = set((_reader.get_fields() or {}).keys())
+    except Exception as _e:
+        log.debug("703b-slot classifier read failed for %s: %s", pdf_path, _e)
+        return "unknown"
+    if not _fields:
+        return "unknown"
+    # LPA IT RFQ markers (most specific).
+    if _fields & {"Supplier Address 1", "Supplier Address 2", "Supplier Email",
+                  "Item Description1", "Extension TotalSubtotal"}:
+        return "cchcs_it_rfq"
+    # 703C markers — see form_classifier.get_field_prefix / detect_field_prefix.
+    try:
+        from src.forms.form_classifier import detect_field_prefix
+        if detect_field_prefix(_fields, "703c"):
+            return "703c"
+        if detect_field_prefix(_fields, "703b"):
+            return "703b"
+    except Exception as _e:
+        log.debug("form_classifier probe suppressed: %s", _e)
+    # Legacy unprefixed 703B heuristic — presence of these fields in a
+    # non-LPA template means it's the 703B variant.
+    if _fields & {"Business Name", "Contact Person", "Check Box2", "Signature 2"}:
+        return "703b"
+    return "unknown"
+
+
 def fill_obs1600_fields(rfq_data, config, food_items=None):
     """
     Build field values dict for OBS 1600 (CA Agricultural Food Product Certification).

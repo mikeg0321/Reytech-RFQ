@@ -18,6 +18,7 @@ from pathlib import Path
 from src.forms.reytech_filler_v4 import (
     fill_cchcs_it_rfq,
     _is_cchcs_it_rfq,
+    _classify_703b_slot_template,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -77,6 +78,27 @@ class TestFingerprintDetection:
     def test_nonexistent_path_returns_false(self):
         """Broken path should not raise, just return False."""
         assert _is_cchcs_it_rfq("/nonexistent/path.pdf") is False
+
+
+class TestSlotClassifier:
+    """Per Mike's Q7 directive: unknown templates must surface, never blind-fill."""
+
+    def test_lpa_blank_classifies_as_cchcs_it_rfq(self):
+        assert _classify_703b_slot_template(str(BLANK_LPA)) == "cchcs_it_rfq"
+
+    def test_nonexistent_path_classifies_as_unknown(self):
+        assert _classify_703b_slot_template("/nonexistent/path.pdf") == "unknown"
+
+    def test_empty_pdf_classifies_as_unknown(self, tmp_path):
+        """PDF with no AcroForm fields → unknown, operator must review."""
+        # pypdf requires a minimally valid PDF with at least one page
+        from pypdf import PdfWriter
+        p = tmp_path / "empty.pdf"
+        w = PdfWriter()
+        w.add_blank_page(width=612, height=792)
+        with open(p, "wb") as f:
+            w.write(f)
+        assert _classify_703b_slot_template(str(p)) == "unknown"
 
 
 class TestFillCchcsItRfq:
