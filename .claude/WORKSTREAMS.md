@@ -28,7 +28,18 @@ Track all in-progress work across Claude Code context windows.
 | feat/manual-submit-emergency | (merged) | `C:\Users\mikeg\rfq-manual-submit-emergency` | Merged PR #239 | B1: 704 Rebuild Phase 0 — POST /rfq/<rid>/manual-submit emergency route. | 2026-04-19 |
 | feat/rfq-contract-builder | This window | `C:\Users\mikeg\rfq-rfq-contract-builder` | Active | Unified Contract Builder: single dropzone on RFQ detail auto-classifies uploads → 703B/704B/bidpkg template slots, email screenshots, or attachments. New `src/forms/form_classifier.py` + `/api/rfq/<rid>/contract-upload` route + dropzone block in `rfq_detail.html`. | 2026-04-20 |
 | chore/deploy-speedup-ignore-sleep | (merged) | `C:\Users\mikeg\rfq-deploy-speedup-ignore-sleep` | Merged PR #413 | Shave `make promote` time: .dockerignore backups + /version poll replaces sleep 90. | 2026-04-22 |
-| chore/deploy-serialize-await-idle | This window | `C:\Users\mikeg\rfq-deploy-serialize-await-idle` | Active | Structural fix for burst-merge preemption: `scripts/await_deploy_idle.sh` + `make await-idle` + opt-in `serial=1` on `make ship`. Every introspection failure exits 0 so the release pipeline cannot be broken by this tool. | 2026-04-22 |
+| chore/deploy-serialize-await-idle | (prior window) | `C:\Users\mikeg\rfq-deploy-serialize-await-idle` | Active | Structural fix for burst-merge preemption: `scripts/await_deploy_idle.sh` + `make await-idle` + opt-in `serial=1` on `make ship`. Every introspection failure exits 0 so the release pipeline cannot be broken by this tool. | 2026-04-22 |
+| feat/bundle-4-lpa-fill-engine | Window 1 | `C:\Users\mikeg\rfq-bundle-4-lpa-fill-engine` | In review (PR #447) | Bundle-4 PR-4a: fill_cchcs_it_rfq() + 703b-slot fingerprint dispatcher. Closes audit item M. Touches `src/forms/reytech_filler_v4.py` + `src/api/modules/routes_rfq_gen.py`. | 2026-04-22 |
+| feat/bundle-4-lpa-classifier-shape | Window 1 | `C:\Users\mikeg\rfq-bundle-4-lpa-classifier-shape` | Active | Bundle-4 PR-4b: classifier shape=cchcs_it_rfq + LPA body keywords + template fingerprint. Touches `src/core/request_classifier.py` + `src/core/ingest_pipeline.py`. Confidence gate 0.70 → operator review lane below. | 2026-04-22 |
+| (reserved for Window 1 next) | Window 1 | `C:\Users\mikeg\rfq-item-z-fillable-quote` | Reserved | Item Z (release valve): Reytech-owned fillable Quote PDF + /rfq/<rid>/submit-edited-quote + 30d audit log of operator edits. Touches `src/forms/quote_generator.py` + new route in `src/api/modules/routes_rfq_gen.py`. | 2026-04-22 |
+| (reserved for Window 1 after Z) | Window 1 | `C:\Users\mikeg\rfq-bundle-1-facility-registry` | Reserved | Bundle-1: canonical facility registry, resolver rewrite, unified tax pipeline, quote_generator canonical write-back. Touches `src/core/institution_resolver.py`, `src/core/agency_config.py`, `src/forms/quote_generator.py`, `src/api/modules/routes_rfq.py`, `src/api/modules/routes_pricecheck.py`. **HOLDING on DB migration until Mike greenlights.** | 2026-04-22 |
+
+### Window 2 (recommended lanes, zero overlap)
+- `feat/bundle-5-sent-status` — send/mark-sent/archive audit + "Mark as sent manually" UI button + backfill (gated). Touches send paths, `rfq_detail.html` button, new endpoint.
+- `feat/bundle-6-linker-pricing-copy` — post-link hook: copy PC item['pricing'] → RFQ on match. Touches `src/core/ingest_pipeline.py` (ONLY the `_run_triangulated_linker` tail, not ingest-start).
+- Pre-2026-04-22 tech debt: DB bloat vacuum (`project_db_bloat_findings_2026_04_20`), `TestEndToEndCchcsGolden` (`project_ci_gate_failures_2026_04_20`), 704 rebuild handoff (`project_704_rebuild_handoff`).
+
+**Window 2 stay-out files:** `src/forms/quote_generator.py`, `src/forms/reytech_filler_v4.py`, `src/api/modules/routes_rfq_gen.py`, `src/core/request_classifier.py`, `src/core/institution_resolver.py`, `src/core/agency_config.py`. Window 1 is touching these in the Bundle-1/4/Z track.
 
 ## Stale / Abandoned Branches (cleanup needed)
 
