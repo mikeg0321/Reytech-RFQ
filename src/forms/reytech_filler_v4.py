@@ -911,6 +911,134 @@ def fill_704b(input_path, rfq_data, config, output_path):
     print(f"  ✓ 704B filled + signed — ${merchandise_subtotal:,.2f}")
 
 
+def fill_cchcs_it_rfq(input_path, rfq_data, config, output_path):
+    """Fill the CCHCS LPA IT Goods & Services RFQ template (shape=cchcs_it_rfq).
+
+    yaml-driven via src/forms/profiles/cchcs_it_rfq_reytech_standard.yaml.
+    Canonical vendor identity + 26 compliance checkboxes come from the
+    profile's `defaults:` block per Reytech's observed golden submission
+    (PREQ10843276). Header + line items + totals come from `rfq_data`.
+
+    Sibling to fill_703b/fill_704b — invoked by the dispatcher at
+    routes_rfq_gen.py when the uploaded "703b" slot actually carries an
+    LPA IT RFQ template (detected by fingerprint, see _is_cchcs_it_rfq
+    below). Closes audit item M — PR #238's deferred fill-engine wiring.
+    """
+    import os as _os
+    from src.forms.profile_registry import load_profile, PROFILES_DIR
+
+    sign_date = rfq_data.get("sign_date", get_pst_date())
+    profile = load_profile(_os.path.join(PROFILES_DIR, "cchcs_it_rfq_reytech_standard.yaml"))
+
+    line_items = rfq_data.get("line_items", []) or []
+    n_items = len(line_items)
+    if n_items > profile.total_row_capacity:
+        # Overflow path (>10 items) — duplicate-page handling is profile-declared
+        # but not yet implemented in this filler. Fail loudly rather than silently
+        # drop items past row 10.
+        raise ValueError(
+            f"cchcs_it_rfq: {n_items} items exceeds 10-row capacity. "
+            "Duplicate-page overflow is deferred (audit). Operator should split "
+            "into multiple quotes or the profile's overflow mode needs wiring."
+        )
+
+    # Build semantic values: profile defaults first, then RFQ-derived overrides.
+    semantic_values = dict(profile.defaults or {})
+
+    # Header (buyer-issued — usually preserved when template comes pre-populated,
+    # but fill defensively in case the buyer sent a fresh blank).
+    semantic_values.setdefault(
+        "header.solicitation_number",
+        _sol_display(rfq_data.get("solicitation_number", "")),
+    )
+    semantic_values.setdefault("header.due_date", rfq_data.get("due_date", ""))
+
+    # Signature / cert dates
+    semantic_values["vendor.signature_date"] = sign_date
+    semantic_values["vendor.cert_date"] = sign_date
+    semantic_values["genai.sign_date"] = sign_date
+
+    # SB/DVBE expiration comes from config/cert registry, not hardcoded defaults
+    try:
+        _cert_exp = (config.get("company", {}) or {}).get("cert_expiration", "")
+        if _cert_exp:
+            semantic_values["cert.sb_dvbe_expiration"] = _cert_exp
+    except Exception as _e:
+        log.debug("cert_expiration lookup failed: %s", _e)
+
+    # Totals from line items + tax_rate on the record
+    subtotal = 0.0
+    for li in line_items:
+        qty = float(li.get("qty") or 1)
+        up = float(li.get("unit_price") or li.get("bid_price") or li.get("our_price") or 0)
+        subtotal += qty * up
+    tax_pct = float(rfq_data.get("tax_rate", 0) or 0)
+    tax_decimal = tax_pct / 100.0 if tax_pct > 1 else tax_pct  # tolerate 7.75 or 0.0775
+    sales_tax = subtotal * tax_decimal
+    freight = float(rfq_data.get("shipping", 0) or 0)
+    total = subtotal + sales_tax + freight
+    semantic_values["totals.subtotal"] = f"{subtotal:.2f}"
+    semantic_values["totals.sales_tax"] = f"{sales_tax:.2f}"
+    semantic_values["totals.freight"] = f"{freight:.2f}"
+    semantic_values["totals.total"] = f"{total:.2f}"
+    semantic_values["totals.amount"] = f"{total:.2f}"
+
+    # Resolve non-row semantic → pdf_field.
+    pdf_values = {}
+    for sem, val in semantic_values.items():
+        fm = profile.get_field(sem)
+        if fm and fm.pdf_field:
+            pdf_values[fm.pdf_field] = val
+
+    # Row expansion (items[n].* — yaml pattern "Item Description{n}" etc).
+    for idx, item in enumerate(line_items, start=1):
+        row_map = profile.get_row_fields(idx, page=1)
+        qty = item.get("qty") or 1
+        up = float(item.get("unit_price") or item.get("bid_price") or item.get("our_price") or 0)
+        ext = float(qty) * up
+        row_values = {
+            f"items[{idx}].description": item.get("description", "") or item.get("name", ""),
+            f"items[{idx}].part_number": item.get("item_number", "") or item.get("part_number", ""),
+            f"items[{idx}].qty": str(qty),
+            f"items[{idx}].unit": item.get("uom", "EA") or "EA",
+            f"items[{idx}].unit_price": f"{up:.2f}",
+            f"items[{idx}].extension": f"{ext:.2f}",
+        }
+        for sem, val in row_values.items():
+            pdf_name = row_map.get(sem)
+            if pdf_name:
+                pdf_values[pdf_name] = val
+
+    print(f"  cchcs_it_rfq: {len(pdf_values)} fields resolved from profile"
+          f" ({n_items} line items)")
+
+    fill_and_sign_pdf(input_path, pdf_values, output_path, sign_date=sign_date)
+    print(f"  ✓ CCHCS IT RFQ filled + signed — ${total:,.2f}")
+
+
+def _is_cchcs_it_rfq(pdf_path):
+    """Return True when the uploaded 703b-slot template is actually a CCHCS
+    LPA IT Goods RFQ (different form, different field namespace).
+
+    Checked via AcroForm fingerprint — the LPA template uses "Supplier Name" /
+    "Supplier Address 1" etc., while true 703B uses "Business Name" / "Address"
+    (with or without 703B_ prefix). Fingerprint is the authoritative signal;
+    filename is untrustworthy because buyers sometimes email an LPA PDF named
+    "703B.pdf" or similar.
+    """
+    try:
+        _reader = PdfReader(pdf_path)
+        _fields = set((_reader.get_fields() or {}).keys())
+    except Exception as _e:
+        log.debug("cchcs_it_rfq fingerprint read failed for %s: %s", pdf_path, _e)
+        return False
+    # Any one of these fields is a strong LPA signal. "Supplier Address 1" is
+    # the most unique — no other CA state form uses that specific label.
+    _lpa_markers = {"Supplier Address 1", "Supplier Address 2", "Supplier Email",
+                    "Item Description1", "Extension TotalSubtotal"}
+    return bool(_fields & _lpa_markers)
+
+
 def fill_obs1600_fields(rfq_data, config, food_items=None):
     """
     Build field values dict for OBS 1600 (CA Agricultural Food Product Certification).
