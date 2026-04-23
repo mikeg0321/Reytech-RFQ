@@ -643,10 +643,6 @@
        <span id="parseQualityBadge" style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:{{ _clr }}20;color:{{ _clr }};border:1px solid {{ _clr }}40;margin-left:8px;cursor:help" title="Parse Quality: {{ pq.score }}/100 | Expected ~{{ pq.expected_items }} items, parsed {{ pq.parsed_items }}{% for w in pq.get('warnings', []) %} | {{ w }}{% endfor %}">Parse {{ _g }} ({{ pq.score }}%)</span>
      {% endif %}
      </h3>
-     <!-- Lock Toggle -->
-     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-      <button id="lockToggleBtn" onclick="toggleGlobalLock()" style="background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer" aria-label="Toggle field editing lock">🔒 Line# + MFG# + URLs Locked</button>
-     </div>
      <!-- ═══ STICKY MARGIN STRIP ═══ -->
      <div id="pc-margin-summary" style="display:flex;padding:10px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:15;min-height:40px">
       <div id="pc-ms-coverage" style="display:flex;align-items:center;gap:8px;min-width:120px">
@@ -4535,28 +4531,9 @@
      }
     }
 
-    // ── GLOBAL LOCK TOGGLE — protects line numbers + URLs from accidental overwrite ──
-    var fieldsLocked = true;
-    function toggleGlobalLock(){
-     fieldsLocked = !fieldsLocked;
-     applyLockState();
-     var btn = document.getElementById('lockToggleBtn');
-     if(fieldsLocked){
-       btn.innerHTML='🔒 Line# + MFG# + URLs Locked';
-       btn.style.cssText='background:#21262d;border:1px solid #30363d;color:#8b949e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer';
-     } else {
-       btn.innerHTML='🔓 EDIT MODE <span style="font-size:11px;opacity:.7">— click to re-lock</span>';
-       btn.style.cssText='background:rgba(240,136,62,0.12);border:1px solid #f0883e;color:#f0883e;border-radius:6px;padding:8px 16px;font-size:13px;font-weight:600;cursor:pointer';
-     }
-    }
-    function applyLockState(){
-     document.querySelectorAll('.lockable-field').forEach(function(el){
-      el.readOnly = fieldsLocked;
-      if(fieldsLocked){el.style.opacity='0.85';el.style.borderColor='transparent';}
-      else{el.style.opacity='1';el.style.borderColor='#f0883e';}
-     });
-    }
-    document.addEventListener('DOMContentLoaded', applyLockState);
+    // Lock toggle removed 2026-04-22 — line# + MFG# fields are now always
+    // editable. Operators hit the lock more often than they benefited from
+    // it (Mike flagged: "more hindrance than benefit").
 
     // ── Click-outside to close pricing tools dropdown ──
     document.addEventListener('click',function(e){
