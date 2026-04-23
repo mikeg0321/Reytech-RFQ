@@ -1453,6 +1453,21 @@ def generate_rfq_package(rid):
             _dropped = set(_req_forms_raw) - _req_forms
             if _dropped:
                 t.step(f"Dropped non-applicable forms for shape={_rfq_shape or 'unknown'}: {', '.join(sorted(_dropped))}")
+
+            # Option A (Mike 2026-04-23, PR-B audit doc): shape=cchcs_it_rfq
+            # auto-includes the CCHCS standard submission subset every LPA
+            # IT RFQ ships with. Operator used to tick these boxes manually
+            # every time; defaulting them on matches the north-star
+            # submission pattern Mike uses (fixture at tests/fixtures/
+            # rfq_packages/10840486_rfq_package_NORTHSTAR.pdf).
+            # Operator can still un-check via UI package_forms override.
+            if _rfq_shape == "cchcs_it_rfq":
+                _lpa_auto = {"dvbe843", "bidder_decl", "calrecycle74"}
+                _added = _lpa_auto - _req_forms
+                if _added:
+                    _req_forms.update(_lpa_auto)
+                    t.step(f"Option A (cchcs_it_rfq): auto-added {sorted(_added)}")
+
             t.step(f"Agency matched: {_agency_key} ({_agency_cfg.get('name','')}), {len(_req_forms)} required forms: {', '.join(sorted(_req_forms))}")
         except Exception as _ae:
             t.warn(f"Agency config load failed, using CCHCS default: {_ae}")
