@@ -322,6 +322,60 @@ All fixtures auto-isolate per test (temp DB, temp dirs, no cross-contamination).
 - Read actual PDF field names before filling. Detect prefix (703B_, 703C_, or none).
 - Log field names for debugging: `print(f"703C fields: {sorted(field_names)}")`
 
+## UI Changes Must Ship With Chrome-MCP Proof (HARD RULE 2026-04-23)
+
+**Incident that added this rule:** Bundle-5 + Bundle-6 shipped to prod
+(PRs #449, #451) with pytest template-render assertions as the only UI
+proof. `readonly` lock state, modal submit flow, recalc() live math,
+responsive layout of the 6-cell KPI strip — none of it was exercised
+in a real browser before merge.
+
+### The rule
+When your push touches any `src/templates/**/*.html`, `src/static/**/*.{js,css}`,
+or any other `.html`/`.css`/`.js` file in the repo, the `pre-push` hook
+refuses to push unless one of these is present:
+
+1. **`CHROME_VERIFIED=1`** env var on the push:
+   ```
+   CHROME_VERIFIED=1 make ship auto=1
+   ```
+
+2. **`CHROME-VERIFIED:`** footer in at least one commit being pushed.
+   This preserves the proof in git history forever.
+   ```
+   git commit --amend
+   # add to the body:
+   CHROME-VERIFIED: opened /rfq/<id>, clicked Mark Sent, filled modal,
+   saw toast, reloaded, confirmed lock banner + readonly dim on inputs.
+   ```
+
+### What Chrome-MCP verification actually means
+Not "the 200 response contains my data-testid". That's what the Flask
+test client gives you. A real visual pass requires loading the page in
+Chrome DevTools MCP and taking screenshots of every state Mike will see:
+
+- **Empty state** — no rows, first render
+- **Filled state** — realistic data, full content
+- **Error state** — what the user sees when the request fails
+- **Re-run / reload state** — second visit, idempotent behavior
+
+Then exercise the interactive flows:
+- **Modal open/submit/close** — does the dialog actually render + submit + dismiss?
+- **Readonly locks** — can you still type into a supposedly-locked input?
+- **Live math** — edit a price cell, verify the Subtotal/Tax/Total KPI updates
+- **Responsive** — resize the viewport to 1280×720 and 1024×768; does the
+  6-cell KPI strip wrap readably, or does the Status cell fall off?
+
+### Escape hatch (RARE)
+`CHROME_VERIFIED_SKIP=1 make ship` — only for chore/revert/docs pushes
+that genuinely don't change user-visible behavior. Include the reason
+in the commit message.
+
+### Related memories
+- `feedback_workflow_ui_chrome_verify` — the original principle
+- `feedback_visual_verify_always` — PDFs must be verified in real Chrome too
+- `feedback_production_ready_definition` — displayed == persisted == delivered
+
 ## JavaScript Guard Rails (CRITICAL — Production Incidents 2026-03-31)
 
 ### DOM Access Must Be Null-Safe

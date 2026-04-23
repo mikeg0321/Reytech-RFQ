@@ -189,6 +189,22 @@ ship: check  ## Push branch + create PR (auto=1 to auto-merge; serial=1 to wait 
 		echo "serial=1 — waiting for Railway to be idle before pushing..."; \
 		./scripts/await_deploy_idle.sh 600; \
 	fi
+	@# UI-change early warning. The pre-push hook is the hard gate; this
+	@# just surfaces the requirement up front so the agent notices before
+	@# waiting through the test suite. Memory: feedback_workflow_ui_chrome_verify.
+	@UI_FILES=$$(git diff --name-only origin/main...HEAD 2>/dev/null | \
+		grep -E '^(src/templates/.*\.html$$|src/static/.*$$|.*\.css$$|.*\.js$$)' || true); \
+	if [ -n "$$UI_FILES" ]; then \
+		echo ""; \
+		echo "⚠️  UI file(s) in this push:"; \
+		echo "$$UI_FILES" | sed 's/^/    /'; \
+		echo ""; \
+		echo "   Chrome-MCP visual verification is REQUIRED before ship."; \
+		echo "   Pre-push hook will BLOCK unless one of:"; \
+		echo "     - CHROME_VERIFIED=1 env var set"; \
+		echo "     - CHROME-VERIFIED: <what you saw> footer in a commit"; \
+		echo ""; \
+	fi
 	@echo ""
 	@echo "Pushing branch (pre-push hook runs critical tests)..."
 	git push origin HEAD -u
