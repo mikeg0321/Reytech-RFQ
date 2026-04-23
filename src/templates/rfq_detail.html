@@ -1996,6 +1996,12 @@ function recalc(){
  if(kpiSubEl)kpiSubEl.textContent=`$${tb.toFixed(2)}`;
  if(kpiTaxEl)kpiTaxEl.textContent=`$${kpiTaxAmount.toFixed(2)}`;
  document.getElementById('tot').textContent=`$${kpiTotalWithTax.toFixed(2)}`;
+ // Bundle-6 PR-6b follow-up 2026-04-23: the KPI "Items Priced" cell was
+ // introduced by PR-6b but the write was only ever hooked up to the
+ // margin-summary-bar's #ms-items-priced. Orphan cell stayed at "—" on
+ // every RFQ detail page. Write here too so the KPI matches the bar.
+ const kpiItemsEl=document.getElementById('rfq-items-priced-kpi');
+ if(kpiItemsEl)kpiItemsEl.textContent=`${itemsPriced}/${itemsTotal}`;
  const pr=tb-tc;
  const pe=document.getElementById('pft');
  if(tb>0&&tc>0){const pp=(pr/tb*100).toFixed(1);pe.textContent=`💰 Profit: $${pr.toFixed(2)} (${pp}%)`;pe.style.color=pr>0?'#3fb950':'#f85149'}

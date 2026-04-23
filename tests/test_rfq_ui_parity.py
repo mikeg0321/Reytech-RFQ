@@ -162,6 +162,14 @@ def test_rfq_summary_recalc_writes_to_subtotal_and_tax_cells(
     assert "kpiSubEl.textContent=" in html or "kpiSubEl.textContent =" in html
     assert "kpiTaxEl.textContent=" in html or "kpiTaxEl.textContent =" in html
     assert "rfqTaxRate" in html
+    # Items Priced KPI cell — introduced by PR-6b but left orphaned
+    # (recalc wrote only to the margin-summary bar's #ms-items-priced).
+    # Hotfix 2026-04-23: wire recalc to write `rfq-items-priced-kpi` too.
+    assert ("getElementById('rfq-items-priced-kpi')" in html
+            or 'getElementById("rfq-items-priced-kpi")' in html), (
+        "recalc() does not write to #rfq-items-priced-kpi — the KPI "
+        "strip's Items Priced cell will stay at literal '—'."
+    )
 
 
 def test_rfq_detail_inline_js_parses_without_identifier_collision(
