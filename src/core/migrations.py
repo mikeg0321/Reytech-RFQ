@@ -726,6 +726,29 @@ MIGRATIONS = [
 
     # Programmatic — see _run_migration_23.
     (23, "scprs_tables_add_is_test", "SELECT 1;"),
+
+    (24, "agency_vendor_registry", """
+        CREATE TABLE IF NOT EXISTS agency_vendor_registry (
+            dept_code                  TEXT PRIMARY KEY,
+            status                     TEXT NOT NULL DEFAULT 'unknown',
+            confirmed_at               TEXT DEFAULT '',
+            expires_at                 TEXT DEFAULT '',
+            portal_url                 TEXT DEFAULT '',
+            procurement_officer_name   TEXT DEFAULT '',
+            procurement_officer_email  TEXT DEFAULT '',
+            procurement_officer_phone  TEXT DEFAULT '',
+            vendor_id_at_agency        TEXT DEFAULT '',
+            categories_json            TEXT DEFAULT '[]',
+            notes                      TEXT DEFAULT '',
+            source                     TEXT DEFAULT 'operator',
+            updated_by                 TEXT DEFAULT '',
+            is_test                    INTEGER NOT NULL DEFAULT 0,
+            created_at                 TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_avr_status ON agency_vendor_registry(status);
+        CREATE INDEX IF NOT EXISTS idx_avr_is_test ON agency_vendor_registry(is_test);
+    """),
 ]
 
 

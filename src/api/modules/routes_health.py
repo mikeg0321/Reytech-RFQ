@@ -530,8 +530,38 @@ def quoting_health_json():
         "db_health": _build_db_health(),
         "catalog_health": _build_catalog_health(),
         "oracle_calibration": oracle_cal,
+        "registry_health": _build_registry_health(),
         "gate": _build_health_gate(oracle_cal),
     }
+
+
+def _build_registry_health():
+    """V2-PR-2: operator-visibility into agency_vendor_registry maintenance.
+
+    Returns registry_rows_by_status — so Mike can tell at a glance
+    whether the signal is actually being populated. Missing table (not
+    yet migrated) returns ok=True with empty counts, no crash.
+    """
+    result = {"ok": True, "total": 0, "by_status": {}}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT status, COUNT(*) AS n
+                FROM agency_vendor_registry
+                WHERE is_test = 0
+                GROUP BY status
+            """).fetchall()
+            for r in rows:
+                status = r["status"] if hasattr(r, "__getitem__") else r[0]
+                n = r["n"] if hasattr(r, "__getitem__") else r[1]
+                result["by_status"][status] = n
+                result["total"] += n
+    except Exception as e:
+        log.debug("registry_health suppressed: %s", e)
+        result["ok"] = False
+        result["error"] = str(e)
+    return result
 
 
 def _build_catalog_health():
