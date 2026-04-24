@@ -345,7 +345,12 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line1="190 California Dr", address_line2="Yountville, CA 94599",
         zip="94599", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home yountville", "yountville veterans"),
+        # Bare "yountville" added as a unique-city alias — the only
+        # facility in our registry in Yountville. Lets a buyer email
+        # like "California Department of Veterans Affairs - Yountville
+        # Division" resolve cleanly via substring match without
+        # requiring the multi-word alias to span " - " punctuation.
+        aliases=("veterans home yountville", "yountville veterans", "yountville"),
     ),
     FacilityRecord(
         code="CALVETHOME-BF",
@@ -353,7 +358,13 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line1="100 E Veterans Pkwy", address_line2="Barstow, CA 92311",
         zip="92311", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home barstow", "barstow veterans"),
+        # Bare "barstow" alias: incident 2026-04-24 — Mike's PC
+        # f81c4e9b had ship-to text "California Department of Veterans
+        # Affairs - Barstow Division, Skilled Nursing Unit" which the
+        # 2-word "barstow veterans" alias couldn't match (" - " breaks
+        # contiguity). Bare "barstow" is the unique-city identifier;
+        # the only Barstow facility in our registry is this one.
+        aliases=("veterans home barstow", "barstow veterans", "barstow"),
         # Manual override: CDTFA address-lookup API returns 7.250% (CA base)
         # for 92311 because the Barstow district add-on isn't in its zip table.
         # Verified at https://maps.cdtfa.ca.gov/ on 2026-04-23 — actual combined
@@ -367,7 +378,8 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line1="700 E Naples Ct", address_line2="Chula Vista, CA 91911",
         zip="91911", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home chula vista", "chula vista veterans"),
+        aliases=("veterans home chula vista", "chula vista veterans",
+                 "chula vista"),
     ),
     FacilityRecord(
         code="CALVETHOME-LA",
@@ -376,7 +388,11 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line2="Los Angeles, CA 90049",
         zip="90049", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home west los angeles", "west la veterans"),
+        # Bare "los angeles" intentionally omitted — too broad, would
+        # match many non-veteran contexts. "west los angeles" + "west la"
+        # are precise enough.
+        aliases=("veterans home west los angeles", "west la veterans",
+                 "west los angeles"),
     ),
     FacilityRecord(
         code="CALVETHOME-FR",
@@ -384,7 +400,10 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line1="2811 W California Ave", address_line2="Fresno, CA 93706",
         zip="93706", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home fresno", "fresno veterans"),
+        # Bare "fresno" included — only Fresno facility in our registry.
+        # Reytech's CA-only scope means "Fresno" in a buyer ship-to
+        # reliably means this facility.
+        aliases=("veterans home fresno", "fresno veterans", "fresno"),
     ),
     FacilityRecord(
         code="CALVETHOME-RD",
@@ -392,7 +411,7 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line1="3400 Knighton Rd", address_line2="Redding, CA 96002",
         zip="96002", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home redding", "redding veterans"),
+        aliases=("veterans home redding", "redding veterans", "redding"),
     ),
     FacilityRecord(
         code="CALVETHOME-VM",
@@ -400,7 +419,7 @@ _SEED: Tuple[FacilityRecord, ...] = (
         address_line1="10900 Telephone Rd", address_line2="Ventura, CA 93004",
         zip="93004", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
-        aliases=("veterans home ventura", "ventura veterans"),
+        aliases=("veterans home ventura", "ventura veterans", "ventura"),
     ),
 )
 
