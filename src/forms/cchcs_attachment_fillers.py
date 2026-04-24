@@ -272,6 +272,15 @@ def _fill_and_serialize(
 
     _set_need_appearances(writer)
 
+    # Ensure /Helv is resolvable in every form-field page's /Resources/Font.
+    # Without this, Chrome PDFium clips long values when re-rendering /AP.
+    # See feedback_acroform_helv_resource memory + PR #510.
+    try:
+        from src.forms.reytech_filler_v4 import _ensure_helv_font_on_pages as _eh
+        _eh(writer)
+    except Exception as e:
+        log.debug("ensure_helv_font_on_pages suppressed: %s", e)
+
     out = io.BytesIO()
     try:
         writer.write(out)

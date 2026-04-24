@@ -2283,6 +2283,18 @@ def generate_rfq_package(rid):
                     t.warn(f"Could not merge {label}", error=str(_me))
 
             if merge_count > 0:
+                # Ensure /Helv resolvable on every form-field page in the
+                # MERGED package — pages from alternate fillers (e.g.
+                # cchcs_attachment_fillers._fill_and_serialize, dsh fillers)
+                # bypass fill_and_sign_pdf, so their pages may lack /Helv
+                # in /Resources/Font. Without this, Chrome PDFium falls back
+                # to substituted-font metrics and clips long values.
+                try:
+                    from src.forms.reytech_filler_v4 import _ensure_helv_font_on_pages as _eh
+                    _eh(writer)
+                except Exception as _eh_e:
+                    t.warn(f"ensure_helv_font_on_pages suppressed: {_eh_e}")
+
                 merged_path = os.path.join(out_dir, package_filename)
                 with open(merged_path, "wb") as _mf:
                     writer.write(_mf)

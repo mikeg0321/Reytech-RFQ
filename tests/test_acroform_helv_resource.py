@@ -165,3 +165,31 @@ def test_helv_string_width_matches_reportlab_metrics():
         f"expected reportlab Helvetica metrics (~59pt), got {w:.2f}pt — "
         f"the 0.55em fallback would give ~61.6pt"
     )
+
+
+def test_cchcs_attachment_filler_includes_helv():
+    """fill_bidder_declaration goes through cchcs_attachment_fillers._fill_and_serialize,
+    which is a separate code path from fill_and_sign_pdf. That path must also
+    inject /Helv into the page resources — otherwise pages from that filler
+    arrive in the merged package without /Helv and Chrome clips them."""
+    from src.forms.cchcs_attachment_fillers import fill_bidder_declaration
+
+    reytech = {
+        "company_name": "Reytech Inc.",
+        "cert_number": "2002605",
+        "cert_type": "SB/DVBE",
+        "description_of_goods": "Medical/Office and other supplies",
+        "compliance": {"claiming_sb_preference": True, "uses_subcontractors": False},
+    }
+    parsed = {"header": {"solicitation_number": "RFQ-CV-001"}}
+
+    buf = fill_bidder_declaration(reytech, parsed)
+    assert buf is not None, "fill_bidder_declaration returned None"
+    reader = PdfReader(buf)
+    pages = _pages_with_text_widgets(reader)
+    assert pages, "Bidder Decl: expected at least one page with text widgets"
+    missing = [idx for idx, page in pages if not _has_helv(page)]
+    assert not missing, (
+        f"Bidder Decl: pages {missing} have text widgets but no /Helv — "
+        f"_fill_and_serialize must call _ensure_helv_font_on_pages"
+    )
