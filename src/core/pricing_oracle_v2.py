@@ -498,7 +498,8 @@ def _search_po_lines(db, description, item_number=""):
                    l.po_number,
                    {select_mfg}
             FROM scprs_po_lines l JOIN scprs_po_master m ON l.po_number=m.po_number
-            WHERE {where} ORDER BY m.start_date DESC LIMIT 25
+            WHERE ({where}) AND m.is_test=0
+            ORDER BY m.start_date DESC LIMIT 25
         """, params).fetchall()
         for r in rows:
             try:
@@ -1303,7 +1304,8 @@ def _get_cross_sell(db, description):
         where = " AND ".join(["LOWER(description) LIKE ?" for _ in flat_kw])
         params = [f"%{k}%" for k in flat_kw]
         po_rows = db.execute(f"""
-            SELECT DISTINCT po_number FROM scprs_po_lines WHERE {where} LIMIT 50
+            SELECT DISTINCT po_number FROM scprs_po_lines
+            WHERE ({where}) AND is_test=0 LIMIT 50
         """, params).fetchall()
         if not po_rows:
             return []
@@ -1312,7 +1314,8 @@ def _get_cross_sell(db, description):
         exclude = f"NOT (LOWER(description) LIKE ?)"
         rows = db.execute(f"""
             SELECT description, COUNT(DISTINCT po_number) c FROM scprs_po_lines
-            WHERE po_number IN ({placeholders}) AND description!='' AND {exclude}
+            WHERE po_number IN ({placeholders}) AND description!=''
+              AND is_test=0 AND {exclude}
             GROUP BY description HAVING c>=2 ORDER BY c DESC LIMIT 5
         """, po_nums + [f"%{flat_kw[0]}%"]).fetchall()
         return [{"description": r[0][:100], "co_occurrence": r[1]} for r in rows]

@@ -219,15 +219,15 @@ def api_scprs_health():
 
             # ── 2. PO Data Volume ──
             try:
-                po_count = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
-                line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
+                po_count = conn.execute("SELECT COUNT(*) FROM scprs_po_master WHERE is_test=0").fetchone()[0]
+                line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines WHERE is_test=0").fetchone()[0]
                 if po_count == 0:
                     health["checks"].append({"check": "po_data", "status": "critical",
                         "message": "No SCPRS PO data — catalog/CRM/growth intelligence has no input",
                         "action": "Run full SCPRS pull: POST /api/intel/scprs/pull"})
                     health["score"] -= 25
                 else:
-                    latest = conn.execute("SELECT MAX(pulled_at) FROM scprs_po_master").fetchone()[0]
+                    latest = conn.execute("SELECT MAX(pulled_at) FROM scprs_po_master WHERE is_test=0").fetchone()[0]
                     days_old = 999
                     if latest:
                         try:
@@ -245,7 +245,7 @@ def api_scprs_health():
             try:
                 scprs_buyers = conn.execute("""
                     SELECT COUNT(DISTINCT buyer_email) FROM scprs_po_master
-                    WHERE buyer_email IS NOT NULL AND buyer_email != ''
+                    WHERE buyer_email IS NOT NULL AND buyer_email != '' AND is_test=0
                 """).fetchone()[0]
                 crm_contacts = conn.execute("SELECT COUNT(*) FROM contacts").fetchone()[0]
                 health["checks"].append({"check": "buyer_flow", "status": "ok" if crm_contacts > 0 else "warning",
@@ -256,7 +256,7 @@ def api_scprs_health():
 
             # ── 4. Item Data Flow → Catalog ──
             try:
-                scprs_items = conn.execute("SELECT COUNT(DISTINCT description) FROM scprs_po_lines").fetchone()[0]
+                scprs_items = conn.execute("SELECT COUNT(DISTINCT description) FROM scprs_po_lines WHERE is_test=0").fetchone()[0]
                 catalog_items = conn.execute("SELECT COUNT(*) FROM product_catalog").fetchone()[0]
                 catalog_with_scprs = conn.execute("""
                     SELECT COUNT(*) FROM product_catalog
@@ -281,10 +281,12 @@ def api_scprs_health():
             # ── 6. Growth Intelligence ──
             try:
                 gap_items = conn.execute("""
-                    SELECT COUNT(*) FROM scprs_po_lines WHERE opportunity_flag='GAP_ITEM'
+                    SELECT COUNT(*) FROM scprs_po_lines
+                    WHERE opportunity_flag='GAP_ITEM' AND is_test=0
                 """).fetchone()[0]
                 win_back = conn.execute("""
-                    SELECT COUNT(*) FROM scprs_po_lines WHERE reytech_sells=1
+                    SELECT COUNT(*) FROM scprs_po_lines
+                    WHERE reytech_sells=1 AND is_test=0
                 """).fetchone()[0]
                 health["checks"].append({"check": "growth_intel", "status": "ok" if gap_items > 0 or win_back > 0 else "info",
                     "message": f"Gap items: {gap_items}, Win-back: {win_back}"})

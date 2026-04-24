@@ -162,7 +162,8 @@ def _ensure_schema():
         acq_type TEXT, acq_method TEXT,
         merch_amount REAL, grand_total REAL,
         buyer_name TEXT, buyer_email TEXT, buyer_phone TEXT,
-        search_term TEXT, agency_code TEXT
+        search_term TEXT, agency_code TEXT,
+        is_test INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS scprs_po_lines (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,7 +173,8 @@ def _ensure_schema():
         uom TEXT, quantity REAL, unit_price REAL,
         line_total REAL, line_status TEXT,
         category TEXT, reytech_sells INTEGER DEFAULT 0,
-        reytech_sku TEXT, opportunity_flag TEXT
+        reytech_sku TEXT, opportunity_flag TEXT,
+        is_test INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS scprs_pull_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,6 +194,8 @@ def _ensure_schema():
     CREATE INDEX IF NOT EXISTS idx_po_supplier ON scprs_po_master(supplier);
     CREATE INDEX IF NOT EXISTS idx_lines_desc ON scprs_po_lines(description);
     CREATE INDEX IF NOT EXISTS idx_lines_opp ON scprs_po_lines(opportunity_flag);
+    CREATE INDEX IF NOT EXISTS idx_po_is_test ON scprs_po_master(is_test);
+    CREATE INDEX IF NOT EXISTS idx_lines_is_test ON scprs_po_lines(is_test);
     -- Enforce one line per (po_id, line_num) so INSERT OR REPLACE actually upserts.
     -- Without this, every re-pull duplicates rows (real prod incident — see
     -- migration 22 for the backfill of existing dupes).
@@ -260,6 +264,7 @@ def check_quotes_against_scprs() -> dict:
                 JOIN scprs_po_lines l ON l.po_id = p.id
                 WHERE p.dept_code = ?
                   AND p.start_date >= ?
+                  AND p.is_test = 0
                   AND p.supplier NOT LIKE '%Reytech%'
                   AND p.supplier NOT LIKE '%Rey Tech%'
                   AND (
@@ -559,9 +564,11 @@ def pull_background(priority: str = "P0") -> dict:
 
 def get_pull_status() -> dict:
     with get_db() as conn:
-        po_count  = conn.execute("SELECT COUNT(*) FROM scprs_po_master").fetchone()[0]
-        line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines").fetchone()[0]
-        agency_count = conn.execute("SELECT COUNT(DISTINCT dept_code) FROM scprs_po_master").fetchone()[0]
+        # is_test=0 only — operator-visible counts must reflect real prod data,
+        # not test seeds. Same shape as the CR-5 / AN-P0 audits.
+        po_count  = conn.execute("SELECT COUNT(*) FROM scprs_po_master WHERE is_test=0").fetchone()[0]
+        line_count = conn.execute("SELECT COUNT(*) FROM scprs_po_lines WHERE is_test=0").fetchone()[0]
+        agency_count = conn.execute("SELECT COUNT(DISTINCT dept_code) FROM scprs_po_master WHERE is_test=0").fetchone()[0]
         last = conn.execute(
             "SELECT pulled_at, search_term, new_pos FROM scprs_pull_log ORDER BY pulled_at DESC LIMIT 1"
         ).fetchone()
@@ -581,6 +588,8 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
     with get_db() as conn:
         conn.row_factory = sqlite3.Row
 
+        # is_test=0 baked into every read — test SCPRS data must never feed
+        # operator-visible aggregates or auto-close-lost decisions.
         where = "AND p.agency_code=?" if agency_code else ""
         agency_params = [agency_code] if agency_code else []
 
@@ -590,7 +599,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    SUM(p.grand_total) as total_spend,
                    COUNT(DISTINCT p.supplier) as supplier_count,
                    COUNT(DISTINCT p.dept_code) as agency_count
-            FROM scprs_po_master p WHERE 1=1 {where}
+            FROM scprs_po_master p WHERE p.is_test=0 {where}
         """, agency_params).fetchone()
 
         # By agency
@@ -602,7 +611,7 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    SUM(CASE WHEN l.reytech_sells=0 THEN l.line_total ELSE 0 END) as gap_spend
             FROM scprs_po_master p
             JOIN scprs_po_lines l ON l.po_id=p.id
-            WHERE 1=1 {where}
+            WHERE p.is_test=0 {where}
             GROUP BY p.dept_code
             ORDER BY total_spend DESC
         """, agency_params).fetchall()
@@ -616,7 +625,8 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    AVG(l.unit_price) as avg_price
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id=p.id
-            WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0 {where}
+            WHERE l.opportunity_flag='GAP_ITEM' AND l.line_total > 0
+              AND p.is_test=0 {where}
             GROUP BY LOWER(l.description)
             ORDER BY total_spend DESC LIMIT 30
         """, agency_params).fetchall()
@@ -630,7 +640,8 @@ def get_universal_intelligence(agency_code: str = None) -> dict:
                    AVG(l.unit_price) as their_price
             FROM scprs_po_lines l
             JOIN scprs_po_master p ON l.po_id=p.id
-            WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0 {where}
+            WHERE l.opportunity_flag='WIN_BACK' AND l.line_total > 0
+              AND p.is_test=0 {where}
             GROUP BY LOWER(l.description), p.supplier
             ORDER BY total_spend DESC LIMIT 25
         """, agency_params).fetchall()

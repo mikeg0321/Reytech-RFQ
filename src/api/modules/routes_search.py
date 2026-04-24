@@ -333,7 +333,8 @@ def universal_search(query, limit=50, status="", type_filter=""):
                         SELECT buyer_name, buyer_email, department,
                                COUNT(*) as po_count, SUM(grand_total) as total_spend
                         FROM scprs_po_master
-                        WHERE buyer_name LIKE ? OR buyer_email LIKE ? OR department LIKE ?
+                        WHERE is_test=0
+                          AND (buyer_name LIKE ? OR buyer_email LIKE ? OR department LIKE ?)
                         GROUP BY buyer_name, buyer_email
                         ORDER BY po_count DESC LIMIT ?
                     """, (f"%{query}%", f"%{query}%", f"%{query}%", limit)).fetchall()
@@ -510,7 +511,8 @@ def universal_search(query, limit=50, status="", type_filter=""):
                     _sprows = conn.execute("""
                         SELECT po_number, buyer_name, agency, grand_total, po_date
                         FROM scprs_po_master
-                        WHERE po_number LIKE ? OR buyer_name LIKE ? OR agency LIKE ?
+                        WHERE is_test=0
+                          AND (po_number LIKE ? OR buyer_name LIKE ? OR agency LIKE ?)
                         ORDER BY po_date DESC LIMIT ?
                     """, (f"%{query}%", f"%{query}%", f"%{query}%", limit)).fetchall()
                 for sp in _sprows:
