@@ -2578,23 +2578,12 @@ def review_package(rid):
             try:
                 from src.core.dal import create_package_manifest
                 from src.core.agency_config import match_agency
+                from src.forms.package_form_classifier import classify_package_filename
                 _ak, _ac = match_agency(r)
-                _gen_forms = []
-                for _of in output_files:
-                    _fid = "unknown"
-                    _of_lower = _of.lower()
-                    if "quote" in _of_lower and "704" not in _of_lower: _fid = "quote"
-                    elif "703b" in _of_lower or "703c" in _of_lower: _fid = "703b"
-                    elif "704b" in _of_lower: _fid = "704b"
-                    elif "calrecycle" in _of_lower: _fid = "calrecycle74"
-                    elif "bidderdecl" in _of_lower or "bidder" in _of_lower: _fid = "bidder_decl"
-                    elif "dvbe" in _of_lower or "843" in _of_lower: _fid = "dvbe843"
-                    elif "darfur" in _of_lower: _fid = "darfur_act"
-                    elif "cuf" in _of_lower or "cv012" in _of_lower: _fid = "cv012_cuf"
-                    elif "std204" in _of_lower or "payee" in _of_lower: _fid = "std204"
-                    elif "std1000" in _of_lower: _fid = "std1000"
-                    elif "seller" in _of_lower or "permit" in _of_lower: _fid = "sellers_permit"
-                    _gen_forms.append({"form_id": _fid, "filename": _of})
+                _gen_forms = [
+                    {"form_id": classify_package_filename(_of), "filename": _of}
+                    for _of in output_files
+                ]
 
                 _mid = create_package_manifest(
                     rfq_id=rid, agency_key=_ak, agency_name=_ac.get("name", ""),
