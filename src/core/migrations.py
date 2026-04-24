@@ -723,7 +723,52 @@ MIGRATIONS = [
 
     # Programmatic — see _run_migration_22.
     (22, "scprs_po_lines_dedup_and_unique_index", "SELECT 1;"),
+
+    # Programmatic — see _run_migration_23.
+    (23, "scprs_tables_add_is_test", "SELECT 1;"),
 ]
+
+
+def _run_migration_23(conn):
+    """
+    Add is_test column to SCPRS tables so test data can never feed real
+    aggregates or auto-close-lost decisions.
+
+    Same shape as the CR-5 / AN-P0 / RE-AUDIT-5 work in earlier audits:
+    every operationally significant table needs an is_test flag, and every
+    read site that feeds operator-visible decisions must filter is_test=0.
+
+    Idempotent — ADD COLUMN failures (column already exists) are swallowed.
+    """
+    def _add_col(table, col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except Exception as _e:
+            log.debug("suppressed (column likely exists): %s", _e)
+
+    has_master = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scprs_po_master'"
+    ).fetchone()
+    has_lines = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scprs_po_lines'"
+    ).fetchone()
+    if not (has_master or has_lines):
+        log.info("Migration 23: SCPRS tables not present yet — skipping (fresh install)")
+        return
+
+    if has_master:
+        _add_col("scprs_po_master", "is_test", "INTEGER NOT NULL DEFAULT 0")
+        # Speeds up the is_test=0 filter on the most-read aggregator paths.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_po_is_test ON scprs_po_master(is_test)"
+        )
+    if has_lines:
+        _add_col("scprs_po_lines", "is_test", "INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_lines_is_test ON scprs_po_lines(is_test)"
+        )
+
+    log.info("Migration 23: is_test column ensured on scprs_po_master + scprs_po_lines")
 
 
 def _run_migration_22(conn):
@@ -965,6 +1010,18 @@ def run_migrations():
                     # a silent dedup failure — inflated totals would otherwise
                     # persist invisibly.
                     log.error("Migration 22 partial: %s (non-fatal)", e)
+
+            if current < 23:
+                try:
+                    _run_migration_23(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (23, "scprs_tables_add_is_test", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 23 applied: scprs_tables_add_is_test (programmatic)")
+                except Exception as e:
+                    log.error("Migration 23 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",

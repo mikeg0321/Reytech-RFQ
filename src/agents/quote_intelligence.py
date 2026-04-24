@@ -253,7 +253,8 @@ def get_competitor_prices(query, limit=10):
                    m.buyer_name, m.buyer_email
             FROM scprs_po_lines l
             JOIN scprs_po_master m ON l.po_number = m.po_number
-            WHERE {' AND '.join(where_clauses)}
+            WHERE m.is_test=0
+              AND {' AND '.join(where_clauses)}
             ORDER BY m.start_date DESC LIMIT ?
         """
         params.append(limit)
@@ -299,8 +300,9 @@ def get_reytech_prices(query, limit=5):
                    m.buyer_name, m.buyer_email
             FROM scprs_po_lines l
             JOIN scprs_po_master m ON l.po_number = m.po_number
-            WHERE UPPER(m.supplier) LIKE '%REYTECH%'
-            AND {' AND '.join(where_clauses)}
+            WHERE m.is_test=0
+              AND UPPER(m.supplier) LIKE '%REYTECH%'
+              AND {' AND '.join(where_clauses)}
             ORDER BY m.start_date DESC LIMIT ?
         """
         params.append(limit)
