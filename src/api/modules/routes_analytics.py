@@ -1607,7 +1607,24 @@ def _convert_single_pc_to_rfq(pcid, pc, extra_fields=None):
 
     # Ensure key RFQ fields exist (use PC values, no translation)
     rfq_data.setdefault("solicitation_number", pc.get("pc_number", ""))
-    rfq_data.setdefault("line_items", pc.get("items", []))
+    # Fix-D (2026-04-24, follow-up to PR #504 visual verify): force-
+    # overwrite `line_items` from `pc.items`. `pc.items` is the
+    # canonical post-save source (the save-prices route only writes
+    # there). The deepcopy of `pc` carries forward whatever stale
+    # `pc.line_items` was set at initial parse time — and the prior
+    # `setdefault` was a no-op when that stale field existed, so the
+    # quote generator read the parser's original $24.99 prices
+    # instead of the operator-restored $400 medical-grade costs.
+    # Verified visually 2026-04-24: three consecutive convert attempts
+    # (RFQ a483a4fd / e4307d3d / 8a1dcf77) all produced quotes at
+    # $329.92 subtotal despite PC having $2,252.21 saved. Forcing the
+    # write here closes that drift permanently. Also clear any nested
+    # parsed.line_items the deepcopy carried so downstream consumers
+    # (quote_generator reads line_items first, parsed.line_items as
+    # fallback) can never resurrect the stale state.
+    rfq_data["line_items"] = _copy.deepcopy(pc.get("items", []))
+    if isinstance(rfq_data.get("parsed"), dict):
+        rfq_data["parsed"]["line_items"] = _copy.deepcopy(pc.get("items", []))
     rfq_data.setdefault("requestor_name", pc.get("requestor", ""))
     rfq_data.setdefault("requestor_email", pc.get("requestor_email") or pc.get("email", ""))
     rfq_data.setdefault("agency", pc.get("agency") or pc.get("institution", ""))
