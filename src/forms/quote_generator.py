@@ -33,6 +33,15 @@ from reportlab.pdfgen import canvas
 log = logging.getLogger("quote_gen")
 
 from src.forms.ams704_helpers import normalize_line_item as _normalize_item
+# Renderer contract — quote_generator reads facility / tax data through
+# these facades (which internally call canonical resolvers) so the
+# architecture test can block direct registry imports from this file.
+from src.core.quote_contract import (
+    resolve_facility_for_text as _contract_resolve_facility,
+    resolve_facility_for_agency_key as _contract_resolve_agency_key,
+    all_canonical_facilities as _contract_all_facilities,
+    tax_for_facility as _contract_tax_for_facility,
+)
 
 try:
     from src.core.paths import DATA_DIR
@@ -225,28 +234,17 @@ def _lookup_facility_by_zip(text: str) -> tuple:
     """
     if not text:
         return None, []
-    try:
-        from src.core.facility_registry import all_facilities
-    except Exception as e:
-        log.warning("facility_registry unavailable, zip lookup falling back to legacy: %s", e)
-        # Import failed — fall back to the local FACILITY_DB snapshot so
-        # quote generation doesn't crash. Should be unreachable in prod.
-        found_zips = re.findall(r'\b(\d{5})\b', text)
-        for z in found_zips:
-            if z in ZIP_TO_FACILITY:
-                keys = ZIP_TO_FACILITY[z]
-                fac = FACILITY_DB.get(keys[0])
-                if fac:
-                    return fac, keys
+    # Zip → [FacilityRecord] built from the `all_canonical_facilities`
+    # contract facade on every call. The canonical registry is the
+    # source of truth; facade indirection guarantees this function
+    # and `tax_resolver.resolve_tax()` can never diverge.
+    facilities = _contract_all_facilities()
+    if not facilities:
         return None, []
-
-    found_zips = re.findall(r'\b(\d{5})\b', text)
-    # Build zip → [FacilityRecord] from the live registry on every call.
-    # _SEED is ~35 records; this is negligible work and guarantees we
-    # always see the latest canonical data (e.g. after a hot-reload).
     zip_map: dict = {}
-    for rec in all_facilities():
+    for rec in facilities:
         zip_map.setdefault(rec.zip, []).append(rec)
+    found_zips = re.findall(r'\b(\d{5})\b', text)
     for z in found_zips:
         matches = zip_map.get(z)
         if matches:
@@ -281,12 +279,7 @@ def _resolve_facility_for_agency_key(agency_key: str) -> dict | None:
     """
     if not agency_key:
         return None
-    try:
-        from src.core.facility_registry import resolve_by_agency_key
-    except Exception as e:
-        log.warning("facility_registry.resolve_by_agency_key unavailable: %s", e)
-        return None
-    rec = resolve_by_agency_key(agency_key)
+    rec = _contract_resolve_agency_key(agency_key)
     if rec:
         return _registry_record_to_legacy_dict(rec)
     return None
@@ -312,12 +305,7 @@ def _lookup_facility(text: str) -> dict | None:
     """
     if not text:
         return None
-    try:
-        from src.core.facility_registry import resolve
-    except Exception as e:
-        log.warning("facility_registry unavailable, lookup falling back to legacy: %s", e)
-        return _lookup_facility_legacy(text)
-    rec = resolve(text)
+    rec, _reason = _contract_resolve_facility(text)
     if rec:
         return _registry_record_to_legacy_dict(rec)
     return None
@@ -1015,19 +1003,25 @@ def generate_quote(
     else:
         rate = cfg["default_tax"]
         try:
-            from src.core.tax_resolver import resolve_tax
+            # Resolve facility from the same priority text the ship-to
+            # block uses, then ask the contract facade for the tax rate.
+            # Facade internally delegates to `tax_resolver.resolve_tax`
+            # so the rate here and the rate `tax_resolver` computes for
+            # the same facility cannot diverge (audit Y lock-in).
             _ship_raw = quote_data.get("delivery_location",
                         quote_data.get("ship_to", ""))
-            _tax_info = resolve_tax(_ship_raw) if _ship_raw else None
-            if _tax_info and _tax_info.get("rate"):
-                rate = _tax_info["rate"]
-                log.info(
-                    "Tax rate for quote %s: %.4f (%s, source=%s, facility=%s)",
-                    quote_number, rate,
-                    _tax_info.get("jurisdiction", "?"),
-                    _tax_info.get("source", "?"),
-                    _tax_info.get("facility_code", "") or "—",
-                )
+            _facility, _ = _contract_resolve_facility(_ship_raw or "")
+            if _facility is not None:
+                _tax_info = _contract_tax_for_facility(_facility)
+                if _tax_info.get("rate"):
+                    rate = _tax_info["rate"]
+                    log.info(
+                        "Tax rate for quote %s: %.4f (%s, source=%s, facility=%s)",
+                        quote_number, rate,
+                        _tax_info.get("jurisdiction", "?"),
+                        _tax_info.get("source", "?"),
+                        _facility.code,
+                    )
         except Exception as _te:
             log.debug("Tax rate lookup failed, using agency default: %s", _te)
     pay_terms = terms or cfg["default_terms"]
@@ -1075,10 +1069,7 @@ def generate_quote(
         quote_data["ship_to_raw"] = _ship_to_raw or ""
         if _ship_to_raw:
             try:
-                from src.core.facility_registry import (
-                    resolve_with_reason as _resolve_facility,
-                )
-                _record, _reason = _resolve_facility(_ship_to_raw)
+                _record, _reason = _contract_resolve_facility(_ship_to_raw)
                 quote_data["ship_to_resolve_reason"] = _reason
                 quote_data["ship_to_resolved"] = bool(_record)
                 quote_data["ship_to_canonical_code"] = (

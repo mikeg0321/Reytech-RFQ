@@ -134,13 +134,32 @@ class QuoteContract:
     agency_code: str
     agency_full: str
     ship_to_raw: str
+    # Slug from `facility_registry.resolve_with_reason()` describing
+    # which path resolved this contract's facility:
+    #   "agency_key"           — agency_key (e.g. calvet_barstow) won
+    #   "exact"                — input matched a canonical alias verbatim
+    #   "substring_unique"     — single substring match
+    #   "zip_unique"           — single zip match
+    #   "ambiguous_substring"  — multiple substring candidates → no match
+    #   "ambiguous_zip"        — multiple zip candidates → no match
+    #   "no_match"             — registry didn't find anything
+    #   "empty_input"          — caller passed empty text
+    # Renderers writing audit fields (`ship_to_resolve_reason` on the
+    # quote dict) should read this from the contract instead of
+    # importing `facility_registry` directly.
+    ship_to_resolve_reason: str = ""
 
     # Commerce
-    line_items: Tuple[LineItem, ...]
-    tax_rate_bps: int
-    tax_jurisdiction: str
-    tax_source: str  # "facility_registry" | "cdtfa_api" | "fallback"
-    tax_validated: bool
+    line_items: Tuple[LineItem, ...] = ()
+    tax_rate_bps: int = 0
+    # Decimal form of `tax_rate_bps` for renderers that want a 0.xxxx
+    # value (e.g., quote PDF footer "Tax: 8.75%"). Same number, two
+    # representations — bps stays canonical for integer tax math, decimal
+    # is the convenience accessor. `0.0875 == 875 bps`.
+    tax_rate: float = 0.0
+    tax_jurisdiction: str = ""
+    tax_source: str = ""  # "facility_registry" | "cdtfa_api" | "fallback"
+    tax_validated: bool = False
 
     # Provenance
     source_pc_id: str = ""
@@ -197,8 +216,10 @@ def _empty_contract(ship_to_raw: str = "", source_pc_id: str = "",
         agency_code="",
         agency_full="",
         ship_to_raw=ship_to_raw,
+        ship_to_resolve_reason="empty_input",
         line_items=(),
         tax_rate_bps=0,
+        tax_rate=0.0,
         tax_jurisdiction="",
         tax_source="",
         tax_validated=False,
@@ -208,22 +229,128 @@ def _empty_contract(ship_to_raw: str = "", source_pc_id: str = "",
     )
 
 
-def _resolve_facility_from_rfq(rfq: dict) -> Tuple[Optional["FacilityRecord"], str]:
-    """Apply `facility_registry.resolve()` to the RFQ's ship-to fields
-    in priority order. Returns (record, canonical_ship_to_raw) where
-    the raw is the first non-empty field we tried resolving.
+# ── Public resolver facades for renderer use ─────────────────────
+# These wrap the canonical `facility_registry` / `tax_resolver` calls
+# so every renderer can import ONE module (quote_contract) instead
+# of reaching into 3+ resolver modules directly. The architecture
+# test blocks renderers from the resolvers; these facades are the
+# bridge. Renderers that need "the facility for this text" call
+# `resolve_facility_for_text(text)`; renderers that need "the tax
+# rate for this facility" call `tax_for_facility(facility)`. The
+# canonical contract is still the preferred entry point — these are
+# for edge-case fallbacks (email-body text that isn't in any RFQ
+# field, for example).
 
-    Priority: delivery_location → ship_to_name → ship_to → institution_name
-    → agency_name / department / requestor_name. Matches the legacy
-    priority in `generate_quote_from_rfq` so the first migration PR
-    is behavior-preserving for inputs that were resolving correctly.
+
+def resolve_facility_for_text(text: str) -> Tuple[Optional["FacilityRecord"], str]:
+    """Return `(FacilityRecord | None, reason_slug)` for free text.
+    Thin facade over `facility_registry.resolve_with_reason` so
+    renderers don't have to import the registry directly."""
+    if not text or not str(text).strip():
+        return None, "empty_input"
+    try:
+        from src.core.facility_registry import resolve_with_reason
+    except Exception as e:
+        log.debug("facility_registry import failed in facade: %s", e)
+        return None, "no_match"
+    try:
+        rec, reason = resolve_with_reason(str(text).strip())
+    except Exception as _e:
+        return None, "no_match"
+    return rec, reason or "no_match"
+
+
+def resolve_facility_for_agency_key(agency_key: str) -> Optional["FacilityRecord"]:
+    """Return the canonical `FacilityRecord` for a facility-specific
+    agency_key (e.g., `calvet_barstow`). Returns None for generic parent
+    keys (cdcr / calvet / cchcs) that don't pin a child facility.
+    Thin facade over `facility_registry.resolve_by_agency_key`."""
+    if not agency_key:
+        return None
+    try:
+        from src.core.facility_registry import resolve_by_agency_key
+    except Exception as e:
+        log.debug("facility_registry.resolve_by_agency_key unavailable: %s", e)
+        return None
+    try:
+        return resolve_by_agency_key(agency_key)
+    except Exception:
+        return None
+
+
+def all_canonical_facilities() -> list:
+    """Enumerate every canonical `FacilityRecord`. Used by zip-lookup
+    paths that scan all facilities for a zip match. Thin facade over
+    `facility_registry.all_facilities`."""
+    try:
+        from src.core.facility_registry import all_facilities
+    except Exception as e:
+        log.debug("facility_registry.all_facilities unavailable: %s", e)
+        return []
+    try:
+        return list(all_facilities())
+    except Exception:
+        return []
+
+
+def tax_for_facility(facility) -> dict:
+    """Return tax info for a resolved facility as a dict:
+      {"rate": 0.0875, "rate_bps": 875, "jurisdiction": "BARSTOW",
+       "source": "facility_registry", "validated": True}
+    Thin facade over `tax_resolver.resolve_tax(address)`."""
+    if facility is None:
+        return {"rate": 0.0, "rate_bps": 0, "jurisdiction": "",
+                "source": "", "validated": False}
+    bps, jur, src, validated = _resolve_tax_for_facility(facility)
+    return {
+        "rate": round(bps / 10000.0, 6),
+        "rate_bps": bps,
+        "jurisdiction": jur,
+        "source": src,
+        "validated": validated,
+    }
+
+
+def _resolve_facility_from_rfq(rfq: dict) -> Tuple[Optional["FacilityRecord"], str, str]:
+    """Apply canonical `facility_registry` resolution to the RFQ's
+    ship-to fields in priority order.
+
+    Returns `(record, canonical_ship_to_raw, reason)` where:
+      - `record` is the matched `FacilityRecord` or None
+      - `canonical_ship_to_raw` is the first non-empty input field we tried
+      - `reason` is the resolver-provided slug ("agency_key", "exact",
+        "substring_unique", "zip_unique", "ambiguous_substring",
+        "ambiguous_zip", "no_match", "empty_input")
+
+    Priority order (matches PR #504's agency-key-first contract):
+      1. `agency_key` → `resolve_by_agency_key()` (e.g. calvet_barstow
+         → CALVETHOME-BF). Wins over text because the converter has
+         already done the agency-resolution work; trusting text
+         caused incident f81c4e9b.
+      2. Text fields in legacy order: delivery_location → ship_to_name
+         → ship_to → institution_name → agency_name → department →
+         requestor_name. Each goes through `resolve_with_reason()`
+         so the contract carries the audit slug.
     """
     try:
-        from src.core.facility_registry import resolve
+        from src.core.facility_registry import (
+            resolve_with_reason, resolve_by_agency_key,
+        )
     except Exception as e:
         log.debug("facility_registry import failed in assembly: %s", e)
-        return None, ""
+        return None, "", "no_match"
 
+    # Pass 1 — agency_key first (PR #504's invariant).
+    agency_key = (rfq.get("agency_key") or "").strip()
+    if agency_key:
+        try:
+            rec = resolve_by_agency_key(agency_key)
+        except Exception as _e:
+            rec = None
+        if rec is not None:
+            return rec, "", "agency_key"
+
+    # Pass 2 — text fallback in legacy priority.
     candidates = [
         ("delivery_location", rfq.get("delivery_location") or ""),
         ("ship_to_name",      rfq.get("ship_to_name") or ""),
@@ -234,16 +361,21 @@ def _resolve_facility_from_rfq(rfq: dict) -> Tuple[Optional["FacilityRecord"], s
         ("requestor_name",    rfq.get("requestor_name") or ""),
     ]
     first_raw = ""
+    last_reason = "empty_input"
     for field_name, value in candidates:
         value = (value or "").strip()
         if not value:
             continue
         if not first_raw:
             first_raw = value
-        rec = resolve(value)
+        try:
+            rec, reason = resolve_with_reason(value)
+        except Exception as _e:
+            rec, reason = None, "no_match"
+        last_reason = reason
         if rec is not None:
-            return rec, value
-    return None, first_raw
+            return rec, value, reason
+    return None, first_raw, last_reason
 
 
 def _resolve_tax_for_facility(facility) -> Tuple[int, str, str, bool]:
@@ -320,7 +452,7 @@ def assemble_from_rfq(rfq: dict) -> QuoteContract:
     if not isinstance(rfq, dict):
         return _empty_contract()
 
-    facility, ship_to_raw = _resolve_facility_from_rfq(rfq)
+    facility, ship_to_raw, reason = _resolve_facility_from_rfq(rfq)
     tax_bps, tax_jur, tax_src, tax_validated = _resolve_tax_for_facility(facility)
 
     if facility is not None:
@@ -337,8 +469,10 @@ def assemble_from_rfq(rfq: dict) -> QuoteContract:
         agency_code=agency_code,
         agency_full=agency_full,
         ship_to_raw=ship_to_raw,
+        ship_to_resolve_reason=reason,
         line_items=_line_items_from_rfq(rfq),
         tax_rate_bps=tax_bps,
+        tax_rate=round(tax_bps / 10000.0, 6),
         tax_jurisdiction=tax_jur,
         tax_source=tax_src,
         tax_validated=tax_validated,

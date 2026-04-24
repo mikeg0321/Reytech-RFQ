@@ -64,7 +64,13 @@ _LEGACY_ALLOWLIST: frozenset = frozenset({
     "src/agents/tax_agent.py",           # used by tax_resolver internally
     # PDF renderers that haven't migrated yet. Shrinks as each one
     # moves to accept a QuoteContract parameter.
-    "src/forms/quote_generator.py",      # partial migration in-flight (PR after contract scaffold)
+    #
+    # ✓ src/forms/quote_generator.py — MIGRATED (first countdown win,
+    #   20 → 19). All 5 direct resolver imports (facility_registry:3,
+    #   tax_resolver:1, facility_registry.resolve_with_reason:1)
+    #   replaced with facade calls from `src.core.quote_contract`.
+    #   Renderer ↔ resolver now separated by one module, as the PE
+    #   review required. Removed from allowlist by this PR.
     "src/forms/reytech_filler_v4.py",    # 703b/703c/704b fillers — next migration
     "src/forms/cchcs_packet_builder.py",
     "src/forms/cchcs_packet_filler.py",  # imports src.agents.tax_agent directly at line 336
