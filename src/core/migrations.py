@@ -720,7 +720,63 @@ MIGRATIONS = [
           WHERE NOT json_valid(NEW.reasons_json);
         END;
     """),
+
+    # Programmatic — see _run_migration_22.
+    (22, "scprs_po_lines_dedup_and_unique_index", "SELECT 1;"),
 ]
+
+
+def _run_migration_22(conn):
+    """
+    Dedup scprs_po_lines on (po_id, line_num) and add the UNIQUE INDEX that
+    makes INSERT OR REPLACE actually upsert.
+
+    Why: scprs_universal_pull.run_universal_pull stores line items with
+    `INSERT OR REPLACE INTO scprs_po_lines ... VALUES (...)` against a table
+    that had only `id` as PRIMARY KEY — no uniqueness on (po_id, line_num).
+    Result: every re-pull of the same PO duplicated all of its lines,
+    silently inflating gap_spend / win_back_spend / by_agency totals.
+
+    Idempotent — safe to re-run on already-deduped DBs.
+    """
+    # Skip if the table doesn't exist yet (fresh install — _ensure_schema
+    # will create the table with the UNIQUE INDEX in one shot).
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scprs_po_lines'"
+    ).fetchone()
+    if not has_table:
+        log.info("Migration 22: scprs_po_lines does not exist yet — skipping (fresh install)")
+        return
+
+    # Count duplicates before delete (informational).
+    dup_groups = conn.execute("""
+        SELECT COUNT(*) FROM (
+            SELECT po_id, line_num, COUNT(*) c
+            FROM scprs_po_lines
+            GROUP BY po_id, line_num
+            HAVING c > 1
+        )
+    """).fetchone()[0]
+
+    if dup_groups:
+        # Keep the highest id per (po_id, line_num) — most recently INSERTed
+        # row for each logical position.
+        cur = conn.execute("""
+            DELETE FROM scprs_po_lines
+            WHERE id NOT IN (
+                SELECT MAX(id) FROM scprs_po_lines GROUP BY po_id, line_num
+            )
+        """)
+        log.info("Migration 22: deduped scprs_po_lines — %d duplicate groups, %d rows removed",
+                 dup_groups, cur.rowcount)
+    else:
+        log.info("Migration 22: scprs_po_lines has no duplicates")
+
+    # Create the UNIQUE INDEX (idempotent via IF NOT EXISTS).
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_scprs_po_lines_po_linenum
+            ON scprs_po_lines(po_id, line_num)
+    """)
 
 
 def _run_migration_15(conn):
@@ -894,6 +950,21 @@ def run_migrations():
                     log.info("Migration 15 applied: platform_upgrade_columns (programmatic)")
                 except Exception as e:
                     log.warning("Migration 15 partial: %s (non-fatal)", e)
+
+            if current < 22:
+                try:
+                    _run_migration_22(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (22, "scprs_po_lines_dedup_and_unique_index", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 22 applied: scprs_po_lines_dedup_and_unique_index (programmatic)")
+                except Exception as e:
+                    # error (not warning) so future Railway alert hooks catch
+                    # a silent dedup failure — inflated totals would otherwise
+                    # persist invisibly.
+                    log.error("Migration 22 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",

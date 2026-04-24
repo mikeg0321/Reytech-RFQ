@@ -192,6 +192,11 @@ def _ensure_schema():
     CREATE INDEX IF NOT EXISTS idx_po_supplier ON scprs_po_master(supplier);
     CREATE INDEX IF NOT EXISTS idx_lines_desc ON scprs_po_lines(description);
     CREATE INDEX IF NOT EXISTS idx_lines_opp ON scprs_po_lines(opportunity_flag);
+    -- Enforce one line per (po_id, line_num) so INSERT OR REPLACE actually upserts.
+    -- Without this, every re-pull duplicates rows (real prod incident — see
+    -- migration 22 for the backfill of existing dupes).
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_scprs_po_lines_po_linenum
+        ON scprs_po_lines(po_id, line_num);
     """)
 
 # ── Quote Auto-Close Logic ────────────────────────────────────────────────────
@@ -425,7 +430,10 @@ def run_universal_pull(priority: str = "P0") -> dict:
                                          po.get("grand_total", 0), category,
                                          agency_code or dept_code)
 
-                # Store line items — idempotent via UNIQUE(po_id, line_num).
+                # Store line items — idempotent via UNIQUE INDEX
+                # uq_scprs_po_lines_po_linenum (added by migration 22 in prod;
+                # _ensure_schema for fresh DBs). INSERT OR REPLACE upserts on
+                # (po_id, line_num).
                 for j, line in enumerate(po.get("line_items", [])):
                     desc = line.get("description", "")
                     if not desc:
