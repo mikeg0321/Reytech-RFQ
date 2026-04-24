@@ -1323,36 +1323,144 @@ def _get_cross_sell(db, description):
         return []
 
 
-# Generic product nouns that look like brands but aren't — never let
-# these anchor a comp set. From the 2026-04-23 product-engineer review:
-# "first token = brand" was naive for ~half the catalog.
+# Generic product nouns / adjectives / materials / colors / operations
+# that look like brands but aren't. Backstop only — the strong signal
+# is the catalog allowlist (`_get_known_brands`). Expanded 2026-04-23
+# after live verification on prod surfaced false positives like
+# "SHINY" / "PNEUMATIC" / "HANDLE" / "ALUMINUM" / "STATEMENT" /
+# "PAYMENT" / "REPLACEMENT" being tagged as brands.
 _BRAND_STOP_NOUNS = {
-    "cane", "strap", "glove", "gloves", "wheel", "lock", "locks",
-    "tip", "tips", "pad", "pads", "armrest", "wrist", "ankle",
-    "bandage", "gauze", "tape", "swab", "syringe", "needle",
+    # Body-part / product nouns
+    "cane", "strap", "glove", "gloves", "wheel", "wheels", "lock", "locks",
+    "tip", "tips", "pad", "pads", "armrest", "wrist", "ankle", "handle",
+    "handles", "bandage", "gauze", "tape", "swab", "syringe", "needle",
     "mask", "gown", "wipe", "wipes", "tissue", "towel", "towels",
     "bag", "bags", "cup", "cups", "bottle", "bottles", "container",
-    "sport", "medical", "universal", "sterile", "exam", "safety",
-    "new", "solutions", "anti", "back", "front", "left", "right",
-    "small", "medium", "large", "extra", "fixed", "adjustable",
-    "replacement", "spare", "kit", "set", "pair", "single",
-    "wheelchair", "patient", "hospital",
+    "wheelchair", "patient", "hospital", "stamp", "ink", "truck", "trucks",
+    "platform", "bracelet", "shelf",
+    # Materials
+    "aluminum", "steel", "rubber", "vinyl", "fabric", "cotton", "polyester",
+    "wood", "wooden", "glass", "ceramic", "plastic", "metal", "leather",
+    "silicone", "nylon", "foam",
+    # Colors
+    "black", "white", "red", "blue", "green", "yellow", "orange", "gray",
+    "grey", "brown", "purple", "pink", "clear", "transparent", "opaque",
+    "frosted", "natural",
+    # Adjectives / sizes / states
+    "shiny", "matte", "glossy", "rough", "smooth", "heavy", "light",
+    "heavy-duty", "duty", "sport", "medical", "universal", "sterile",
+    "exam", "safety", "new", "solutions", "anti", "back", "front", "left",
+    "right", "small", "medium", "large", "extra", "fixed", "adjustable",
+    "replacement", "spare", "kit", "set", "pair", "single", "double",
+    "triple", "mini", "micro", "mega", "super", "ultra", "max",
+    "professional", "premium", "deluxe", "economy", "basic", "advanced",
+    "complete", "full", "plain", "regular", "standard",
+    "self", "self-inking",
+    # Generic process / business / form words (parsing-artifact pollution)
+    "statement", "compliance", "payment", "discount", "offers", "national",
+    "claim", "labor", "relations", "above", "signed", "supplier", "vendor",
+    "buyer", "delivery", "shipping", "handling", "warranty", "return",
+    "refund", "credit", "invoice", "order", "purchase", "agreement",
+    "contract", "terms", "conditions", "items", "item",
+    # Form name fragments
+    "form", "forms", "page", "pages", "section", "table",
+    # Adjectival "with/for"
+    "for", "with", "without",
+    # Pneumatic + technical adjectives (incident: "PNEUMATIC WHEELS")
+    "pneumatic", "manual", "electric", "automatic", "auto", "digital",
+    "wireless", "wired", "portable", "stationary",
+    # Quantity words
+    "qty", "quantity", "count", "ct", "ea", "each", "per",
 }
+
+
+# Process-cached set of lowercase brand tokens harvested from
+# `product_catalog.manufacturer`. The catalog is the bible
+# (feedback_catalog_is_bible); a real brand is one we've actually
+# bought from. Loaded lazily on first detector call. Reset by
+# `_reset_known_brands_cache_for_tests()` in test suites that seed
+# their own catalog rows.
+_KNOWN_BRANDS_CACHE: set | None = None
+# Allow tests to inject a fixed set without touching SQLite.
+_KNOWN_BRANDS_OVERRIDE: set | None = None
+
+
+def _reset_known_brands_cache_for_tests() -> None:
+    """Test-only: clear the cache so the next call re-queries / re-reads
+    `_KNOWN_BRANDS_OVERRIDE`. Production code should never invalidate
+    the cache — restart the process if the catalog grew dramatically."""
+    global _KNOWN_BRANDS_CACHE
+    _KNOWN_BRANDS_CACHE = None
+
+
+def _get_known_brands() -> set:
+    """Return the cached set of lowercase brand tokens from the catalog.
+
+    Tokens are split on whitespace + common separators so a manufacturer
+    like "Sunrise Medical" yields {"sunrise"} (medical is a stop noun
+    and gets filtered). Tokens shorter than 3 chars are dropped — they
+    can't reliably distinguish brand from noise.
+
+    Returns an empty set on any DB error so callers can safely fall
+    back to the heuristic-only path.
+    """
+    global _KNOWN_BRANDS_CACHE
+    if _KNOWN_BRANDS_OVERRIDE is not None:
+        return _KNOWN_BRANDS_OVERRIDE
+    if _KNOWN_BRANDS_CACHE is not None:
+        return _KNOWN_BRANDS_CACHE
+    brands: set = set()
+    try:
+        import sqlite3
+        from src.core.db import DB_PATH
+        db = sqlite3.connect(DB_PATH, timeout=5)
+        try:
+            rows = db.execute(
+                "SELECT DISTINCT LOWER(manufacturer) FROM product_catalog "
+                "WHERE manufacturer IS NOT NULL "
+                "AND length(manufacturer) >= 3"
+            ).fetchall()
+            for (m,) in rows:
+                if not m:
+                    continue
+                for piece in re.split(r"[\s\-_/&,.]+", str(m).strip()):
+                    piece = piece.strip()
+                    if len(piece) >= 3 and piece not in _BRAND_STOP_NOUNS:
+                        brands.add(piece)
+        finally:
+            db.close()
+    except Exception as e:
+        log.debug("_get_known_brands DB read failed: %s", e)
+    _KNOWN_BRANDS_CACHE = brands
+    return brands
 
 
 def _detect_brand_token(source_description: str, token_groups: list) -> bool:
     """Return True when the first token group looks like a real brand.
 
     Per 2026-04-23 product-engineer review: "first token = brand" was
-    silently wrong for catalog entries like "Quad Cane Tips" or "Wrist
-    Strap 6 in". Detect a real brand by:
-      (a) the token appears capitalized in the SOURCE description
-          (i.e. the buyer wrote "Stanley", not "wrist"); AND
-      (b) the lowercase token is not in `_BRAND_STOP_NOUNS` (the
-          generic-product-noun stop list).
+    silently wrong for catalog entries like "Quad Cane Tips". Live
+    verification on prod 2026-04-24 also surfaced parsing-artifact
+    false positives ("SHINY", "PNEUMATIC", "HANDLE", "ALUMINUM",
+    "STATEMENT", "PAYMENT").
 
-    When False, callers can choose to skip brand-AND enforcement and
-    surface that to the operator via `brand_anchored=False` on samples.
+    Detection (strongest signal first):
+      1. The token MUST be capitalized in the source (`Stanley` /
+         `STANLEY`, not lowercase mid-sentence).
+      2. The token MUST NOT be in `_BRAND_STOP_NOUNS` (generic
+         nouns / materials / colors / adjectives / process words).
+      3. **If the catalog allowlist is populated** (production with
+         real product_catalog data), the token must also appear in
+         `_get_known_brands()` — meaning we've actually purchased
+         from this brand at some point. This is the catalog-as-bible
+         signal that pins brand recognition to ground truth.
+      4. **If the catalog allowlist is empty** (test or fresh install),
+         fall through to the heuristic-only path (rules 1+2). Empty
+         catalog should not silently kill the signal.
+
+    When False, callers should treat samples as not-brand-anchored and
+    surface that to the operator via `brand_anchored=False`. The
+    detector is transparency-only — never used to drop comps.
     """
     if not source_description or not token_groups:
         return False
@@ -1360,11 +1468,18 @@ def _detect_brand_token(source_description: str, token_groups: list) -> bool:
     if not first_group:
         return False
     src = source_description or ""
+    known = _get_known_brands()
+    catalog_populated = bool(known)
     for tok in first_group:
+        if len(tok) < 3:
+            continue
         if tok in _BRAND_STOP_NOUNS:
             return False
-        # Capitalized somewhere in the source: "Stanley" / "STANLEY"
-        # but NOT bare lowercase "stanley" inside a sentence.
+        if catalog_populated and tok not in known:
+            # Catalog has data and this token isn't in it → not a brand
+            # we've ever transacted on. Keep checking other variants
+            # in the group (rare for the first group, but possible).
+            continue
         for m in re.finditer(re.escape(tok), src, re.IGNORECASE):
             chunk = src[m.start():m.end()]
             if chunk and (chunk[0].isupper() or chunk.isupper()):
