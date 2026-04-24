@@ -19,6 +19,17 @@
 .draft-row button:hover{filter:brightness(1.1)}
 .existing-draft{background:rgba(217,119,6,.08);border:1px solid #D97706;padding:6px 10px;border-radius:4px;font-size:12px;color:#D97706}
 .existing-draft a{color:#D97706;text-decoration:underline;font-weight:600}
+.rebid-block{margin:10px 0;padding:10px 14px;border-radius:6px;font-size:13px}
+.rebid-red{background:rgba(220,38,38,.08);border:1px solid var(--rd);color:var(--rd)}
+.rebid-amber{background:rgba(217,119,6,.08);border:1px solid #D97706;color:#D97706}
+.rebid-renewal{background:rgba(22,163,74,.08);border:1px solid var(--gn);color:var(--gn)}
+.rebid-award_gap{background:rgba(100,116,139,.08);border:1px solid var(--tx2);color:var(--tx2)}
+.rebid-block .rebid-header{font-weight:700;margin-bottom:4px;font-size:13px;letter-spacing:.5px}
+.rebid-block .rebid-hint{color:var(--tx2);font-size:12px;margin-top:4px}
+.rebid-block ul.contracts{list-style:none;padding:0;margin:6px 0 0 0;font-size:12px}
+.rebid-block ul.contracts li{padding:2px 0;color:var(--tx)}
+.rebid-block ul.contracts li .days{font-weight:700}
+.urgency-suffix{font-size:11px;color:var(--ac);margin-left:4px;font-weight:600}
 .signal-block{margin-top:10px;padding:8px 12px;border-radius:6px;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .signal-engaged{background:rgba(22,163,74,.08);border:1px solid var(--gn);color:var(--gn)}
 .signal-warm{background:rgba(217,119,6,.06);border:1px solid #D97706;color:#D97706}
@@ -91,10 +102,34 @@
       {% endif %}
     </div>
     <div style="text-align:right;flex-shrink:0">
-      <div style="font-size:28px;font-weight:800;color:var(--ac);line-height:1">{{ c.score }}</div>
-      <div class="tiny">score</div>
+      <div style="font-size:28px;font-weight:800;color:var(--ac);line-height:1">{{ c.score }}{% if c.rebid_urgency and c.rebid_urgency > 0 %}<span class="urgency-suffix">+{{ c.rebid_urgency }}</span>{% endif %}</div>
+      <div class="tiny">score{% if c.rebid_urgency and c.rebid_urgency > 0 %} +rebid{% endif %}</div>
     </div>
   </div>
+
+  {% set rb = c.rebid_summary or {} %}
+  {% if rb.get('level') and rb.get('level') != 'none' %}
+  <div class="rebid-block rebid-{{ rb.level }}">
+    <div class="rebid-header">
+      {% if rb.level == 'red' %}🔴 {% elif rb.level == 'amber' %}🟠 {% elif rb.level == 'renewal' %}🟢 {% elif rb.level == 'award_gap' %}⚪ {% endif %}{{ rb.label }}
+    </div>
+    {% if c.expiring_contracts %}
+    <ul class="contracts">
+      {% for ec in c.expiring_contracts[:3] %}
+      <li>
+        {% if ec.is_reytech %}<b style="color:var(--gn)">[REYTECH]</b> {% endif %}{{ ec.description[:60] }} — {{ ec.supplier[:25] }}
+        {% if ec.is_award_gap %}
+          <span class="days">(expired {{ -ec.days_until_expiry }}d ago)</span>
+        {% else %}
+          <span class="days">({{ ec.days_until_expiry }}d to expiry, ends {{ ec.end_date }})</span>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <div class="rebid-hint">{{ rb.hint }}</div>
+  </div>
+  {% endif %}
 
   <div class="why-block">
     {% for line in c.why_lines %}<div class="why-line">{{ line }}</div>{% endfor %}
