@@ -74,11 +74,16 @@ def _normalize(
     resolve_reason: str = "",
 ) -> Dict[str, Any]:
     """Shape the upstream tax_rates response into the unified dict.
-    Validated = True only when the source is trustworthy
-    (cdtfa_api / cache / persisted_cache); hardcoded fallbacks and
-    the CA base default count as not-validated."""
+    Validated = True only when the source is trustworthy:
+    cdtfa_api / cache / persisted_cache (live or cached CDTFA hit), OR
+    facility_registry (operator-verified canonical rate stamped on the
+    FacilityRecord — see `facility_registry.py:FacilityRecord.tax_rate`
+    for the verification protocol). Hardcoded fallbacks and the CA
+    base default count as not-validated."""
     source = str(payload.get("source", ""))
-    validated = source in ("cdtfa_api", "cache", "persisted_cache")
+    validated = source in (
+        "cdtfa_api", "cache", "persisted_cache", "facility_registry",
+    )
     return {
         "ok": payload.get("rate") is not None,
         "rate": payload.get("rate"),
@@ -147,6 +152,28 @@ def resolve_tax(address: str, force_live: bool = False) -> Dict[str, Any]:
         record, reg_reason = resolve_with_reason(addr)
         if record:
             facility_code = record.code
+            # 1a. Operator-verified canonical rate on the record wins.
+            # CDTFA's address-lookup API misses some city district
+            # add-ons (e.g. Barstow's Measure Q +1.5%); when an operator
+            # has manually verified the real combined rate at
+            # https://maps.cdtfa.ca.gov/, that rate is stamped on the
+            # FacilityRecord and treated as authoritative. Skip CDTFA
+            # so a transient API miss can't overwrite a verified rate.
+            if record.tax_rate is not None:
+                _city = record.address_line2.split(",")[0].strip()
+                _county = ""
+                payload = {
+                    "rate": float(record.tax_rate),
+                    "jurisdiction": record.tax_jurisdiction or "",
+                    "city": _city,
+                    "county": _county,
+                    "source": "facility_registry",
+                }
+                return _normalize(
+                    payload,
+                    facility_code=facility_code,
+                    resolve_reason=f"facility_registry:{reg_reason}",
+                )
             try:
                 from src.agents.tax_agent import get_tax_rate
                 # Strip the city out of the canonical "city, CA zip"

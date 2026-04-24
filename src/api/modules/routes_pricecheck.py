@@ -2662,29 +2662,19 @@ def api_pc_lookup_tax_rate(pcid):
     if not address:
         return jsonify({"ok": False, "error": "No address — enter Ship To first"})
     try:
-        import re as _re_tax
-        _zips = _re_tax.findall(r'\b(\d{5})\b', address)
-        _d_zip = _zips[-1] if _zips else ""
-        _city_m = (_re_tax.search(r',\s*([A-Za-z\s]+),?\s*[A-Z][A-Za-z]\.?\s*\d{5}', address) or
-                   _re_tax.search(r',\s*([A-Za-z][A-Za-z\s]+?)\s*,\s*[A-Z]{2}', address))
-        _d_city = _city_m.group(1).strip() if _city_m else ""
-        if not _d_city and _d_zip:
-            _cfz = _re_tax.search(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*,?\s*[Cc][Aa]\.?\s*' + _d_zip, address)
-            if _cfz: _d_city = _cfz.group(1).strip()
-        from src.agents.tax_agent import get_tax_rate
+        # Route through the canonical resolver so this PC button gets the
+        # same answer the RFQ route + quote_generator do for the same
+        # address. The resolver checks the operator-verified facility
+        # registry FIRST (e.g. Barstow's manually-confirmed 8.75%) and
+        # only falls through to CDTFA / cache / base-rate when no
+        # canonical record is set. Closes audit Y for the PC path.
+        from src.core.tax_resolver import resolve_tax
         _force = bool(data.get("force_live"))
-        result = get_tax_rate(city=_d_city, zip_code=_d_zip, force_live=_force)
-        if result and result.get("rate"):
+        result = resolve_tax(address, force_live=_force)
+        if result and result.get("rate") is not None:
             rate_pct = round(result["rate"] * 100, 3)
             _source = result.get("source", "")
-            # `tax_validated` requires an actual CDTFA-backed source. `default`
-            # means the lookup FAILED and we fell back to the statewide base
-            # rate — that is NOT a validation. Marking those records validated
-            # made the UI show a green ✓ next to a guess (2026-04-22 incident:
-            # pc_5063d1cd rendered "7.25% · CALIFORNIA (BASE) ✓ Verified" for
-            # a CSP-Sacramento address whose real rate is ~7.75%).
-            _CDTFA_BACKED = {"cdtfa_api", "cache", "cache_zip_match", "fallback_table"}
-            _is_validated = _source in _CDTFA_BACKED
+            _is_validated = bool(result.get("validated"))
             pc["tax_rate"] = rate_pct
             pc["tax_validated"] = _is_validated
             pc["tax_source"] = _source

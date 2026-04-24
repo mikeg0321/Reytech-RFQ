@@ -173,6 +173,65 @@ class TestValidatedFlag:
         assert r["validated"] is False
 
 
+# ── Canonical facility rate override ────────────────────────────
+
+class TestCanonicalFacilityRate:
+    """When a `FacilityRecord` carries a manually-verified `tax_rate`
+    (e.g. CDTFA's address-lookup API returns 7.25% CA base for Barstow
+    92311 because the Barstow district add-on isn't in its zip table,
+    but the operator verified 8.75% at maps.cdtfa.ca.gov), the resolver
+    must return that rate authoritatively and skip CDTFA.
+
+    Regression for 2026-04-23 incident on PC f81c4e9b: CalVet Barstow
+    quote shipped with 7.25% × $356.32 = $25.83 tax; correct rate is
+    8.75% → $31.18 (under-quoted by $5.35)."""
+
+    def test_calvet_barstow_returns_canonical_8_75(self):
+        """100 E Veterans Pkwy, Barstow, CA 92311 → 0.0875."""
+        with patch("src.agents.tax_agent.get_tax_rate") as mocked:
+            r = resolve_tax("100 E Veterans Pkwy Barstow CA 92311")
+            # CDTFA must NOT be called when canonical rate is set
+            mocked.assert_not_called()
+        assert r["ok"] is True
+        assert r["rate"] == 0.0875
+        assert r["validated"] is True
+        assert r["source"] == "facility_registry"
+        assert r["facility_code"] == "CALVETHOME-BF"
+        assert r["jurisdiction"] == "BARSTOW"
+
+    def test_calvet_barstow_resolve_via_alias(self):
+        """Buyer-style free-text "Veterans Home Barstow" still resolves
+        to the canonical record + canonical rate."""
+        with patch("src.agents.tax_agent.get_tax_rate"):
+            r = resolve_tax("Veterans Home Barstow")
+        assert r["rate"] == 0.0875
+        assert r["validated"] is True
+
+    def test_facility_without_tax_rate_still_falls_through_to_cdtfa(self):
+        """Records without `tax_rate` set keep the existing behavior:
+        canonical zip → CDTFA. Don't break the 99 facilities that
+        haven't been manually verified yet."""
+        with patch("src.agents.tax_agent.get_tax_rate") as mocked:
+            mocked.return_value = {
+                "rate": 0.0775, "source": "cdtfa_api",
+                "jurisdiction": "SACRAMENTO", "city": "Represa", "county": "",
+            }
+            r = resolve_tax("CSP-SAC, 100 Prison Road, Represa CA 95671")
+            mocked.assert_called_once()
+        assert r["facility_code"] == "CSP-SAC"
+        assert r["source"] == "cdtfa_api"
+        assert r["rate"] == 0.0775
+
+    def test_canonical_rate_source_is_validated(self):
+        """`source='facility_registry'` must read `validated=True` so
+        the UI's "⚠️ NOT validated" banner doesn't fire on canonical
+        rates. Operator-verified is the strongest source we have."""
+        with patch("src.agents.tax_agent.get_tax_rate"):
+            r = resolve_tax("Barstow veterans")
+        assert r["source"] == "facility_registry"
+        assert r["validated"] is True
+
+
 # ── Crash safety ─────────────────────────────────────────────────
 
 class TestCrashSafety:
