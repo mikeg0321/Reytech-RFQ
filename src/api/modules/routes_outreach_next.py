@@ -48,6 +48,119 @@ def _top_items_for_dept(conn, dept_code: str, opportunity_flag: str, limit: int 
     return [dict(r) for r in rows]
 
 
+def _response_history_for_emails(conn, contact_emails):
+    """Past outreach signal per prospect.
+
+    Returns {email (lowercased): {sent, opened, clicked, last_sent, last_opened}}.
+    Answers the "what will land" question: if we've emailed this buyer
+    3 times with zero opens, email fatigue is real — operator should
+    try phone. If opens are happening but no replies, relationship-angle
+    template likely outperforms price-angle.
+
+    Schema-tolerant: falls back to empty dict if email_outbox or
+    email_engagement tables don't exist (fresh DB / test sandbox).
+    """
+    if not contact_emails:
+        return {}
+    try:
+        # email_outbox may use `to_address` (current schema) or `recipient`
+        # (older tests). Detect via sqlite_master.
+        cols = {r[1] for r in conn.execute(
+            "PRAGMA table_info(email_outbox)").fetchall()}
+        if not cols:
+            return {}
+        addr_col = "to_address" if "to_address" in cols else (
+            "recipient" if "recipient" in cols else None)
+        if not addr_col:
+            return {}
+
+        # Does email_engagement exist? If not, we still return sent counts.
+        has_eng = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='email_engagement'"
+        ).fetchone() is not None
+
+        placeholders = ",".join(["?"] * len(contact_emails))
+        lowered = [e.lower() for e in contact_emails]
+
+        if has_eng:
+            rows = conn.execute(f"""
+                SELECT LOWER(o.{addr_col}) as email,
+                       COUNT(DISTINCT o.id) as sent,
+                       MAX(o.sent_at) as last_sent,
+                       SUM(CASE WHEN e.event_type='open' THEN 1 ELSE 0 END) as opened,
+                       SUM(CASE WHEN e.event_type='click' THEN 1 ELSE 0 END) as clicked,
+                       MAX(CASE WHEN e.event_type='open' THEN e.event_at END) as last_opened
+                FROM email_outbox o
+                LEFT JOIN email_engagement e ON e.email_id = o.id
+                WHERE o.status IN ('sent','delivered')
+                  AND LOWER(o.{addr_col}) IN ({placeholders})
+                GROUP BY LOWER(o.{addr_col})
+            """, lowered).fetchall()
+        else:
+            rows = conn.execute(f"""
+                SELECT LOWER({addr_col}) as email,
+                       COUNT(*) as sent,
+                       MAX(sent_at) as last_sent,
+                       0 as opened, 0 as clicked, NULL as last_opened
+                FROM email_outbox
+                WHERE status IN ('sent','delivered')
+                  AND LOWER({addr_col}) IN ({placeholders})
+                GROUP BY LOWER({addr_col})
+            """, lowered).fetchall()
+    except Exception as _e:
+        log.debug("response_history suppressed: %s", _e)
+        return {}
+
+    out = {}
+    for r in rows:
+        d = dict(r)
+        out[d["email"]] = {
+            "sent": d.get("sent") or 0,
+            "opened": d.get("opened") or 0,
+            "clicked": d.get("clicked") or 0,
+            "last_sent": d.get("last_sent"),
+            "last_opened": d.get("last_opened"),
+        }
+    return out
+
+
+def _response_signal(history: dict, has_phone: bool) -> dict:
+    """Classify the per-prospect response history into an action hint.
+
+    Returns {level, label, hint} where level ∈ {none, cold, warm, engaged, fatigued}.
+    Drives the color + copy on each card so the operator sees which
+    channel is likely to land before they click Draft.
+    """
+    if not history or not history.get("sent"):
+        return {"level": "none", "label": "No prior contact",
+                "hint": "🆕 First outreach — try the price-hook draft."}
+    sent = history.get("sent", 0)
+    opened = history.get("opened", 0)
+    clicked = history.get("clicked", 0)
+    open_rate = (opened / sent * 100) if sent else 0
+    if clicked > 0 or opened >= 2:
+        return {"level": "engaged",
+                "label": f"{sent} sent · {opened} opened · {clicked} clicked",
+                "hint": "🟢 Engaged — follow up with a specific quote or call."}
+    if sent >= 3 and opened == 0:
+        return {"level": "fatigued",
+                "label": f"{sent} sent · 0 opened",
+                "hint": ("📞 Email fatigue — try phone instead."
+                         if has_phone else
+                         "⚠ 3+ emails, no opens — find a phone number.")}
+    if sent >= 1 and opened == 0:
+        return {"level": "cold",
+                "label": f"{sent} sent · 0 opened",
+                "hint": "🟡 No opens yet — try a different subject angle (strategy B)."}
+    if opened >= 1:
+        return {"level": "warm",
+                "label": f"{sent} sent · {opened} opened ({open_rate:.0f}%)",
+                "hint": "🟡 Opening but not replying — try a specific ask."}
+    return {"level": "none", "label": "No prior contact",
+            "hint": "🆕 First outreach."}
+
+
 def _existing_drafts_for_prospects(conn, contact_emails):
     """Map buyer_email → list of recent draft IDs for outbox-link surfacing."""
     if not contact_emails:
@@ -98,6 +211,7 @@ def _build_card_list(limit: int = 8):
 
     with _get_db() as conn:
         outbox_map = _existing_drafts_for_prospects(conn, all_emails)
+        response_map = _response_history_for_emails(conn, all_emails)
         for p in prospects[:limit]:
             dept_code = p.get("dept_code", "")
             gaps = _top_items_for_dept(conn, dept_code, "GAP_ITEM", limit=3)
@@ -131,6 +245,9 @@ def _build_card_list(limit: int = 8):
                 )
 
             email_lc = (primary.get("email") or "").lower() if primary else ""
+            history = response_map.get(email_lc) if email_lc else None
+            has_phone = bool(primary and primary.get("phone"))
+            signal = _response_signal(history or {}, has_phone)
             cards.append({
                 "dept_code": dept_code,
                 "dept_name": p.get("dept_name") or dept_code,
@@ -149,6 +266,8 @@ def _build_card_list(limit: int = 8):
                 "win_back_items": win_back,
                 "why_lines": why_parts,
                 "existing_drafts": outbox_map.get(email_lc, []) if email_lc else [],
+                "response_history": history or {},
+                "response_signal": signal,
             })
 
     return cards, None, summary
