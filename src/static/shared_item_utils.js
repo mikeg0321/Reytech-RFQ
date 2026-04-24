@@ -312,10 +312,22 @@ function _applyLinkData(idx, d, mode) {
       // with discounted values that would expire mid-quote.
       var lp = d.list_price ? parseFloat(d.list_price) : 0;
       var sp = d.sale_price ? parseFloat(d.sale_price) : 0;
+      // Server tags `single_price_promoted=true` when the supplier
+      // page only showed ONE price (no Was/MSRP/strikethrough). The
+      // server promoted that price to list_price so downstream code
+      // doesn't warn "MSRP not found", but the operator should know
+      // the MSRP wasn't separately verified — they may want to
+      // research the real MSRP before quoting at the markup.
+      var msrpUnverified = !!d.single_price_promoted;
       if (lp > 0) {
         // MSRP available — use it as cost basis
         costEl.value = lp.toFixed(2);
-        filled.push('cost $' + lp.toFixed(2) + ' (MSRP)');
+        if (msrpUnverified) {
+          filled.push('cost $' + lp.toFixed(2)
+            + ' (single-price page — MSRP unverified)');
+        } else {
+          filled.push('cost $' + lp.toFixed(2) + ' (MSRP)');
+        }
       } else if (sp > 0) {
         // Only sale price found — DON'T fill cost, warn the user
         filled.push('⚠ MSRP not found — sale $' + sp.toFixed(2)
@@ -325,6 +337,12 @@ function _applyLinkData(idx, d, mode) {
         costEl.value = parseFloat(d.price).toFixed(2);
         filled.push('cost $' + parseFloat(d.price).toFixed(2)
           + ' (no MSRP/sale split — verify it is non-discount)');
+      }
+      // Enrichment-gap warning: we got a price but no manufacturer /
+      // mfg_number / UPC / photo. Operator may be quoting against a
+      // thin signal — surface so they can verify before sending.
+      if (d.enrichment_gap) {
+        filled.push('⚠ no brand/MFG#/UPC/photo — verify product identity');
       }
       // After cost fill, sync the buffer: update data-base-cost and
       // reapply active buffer so the displayed cost reflects the
