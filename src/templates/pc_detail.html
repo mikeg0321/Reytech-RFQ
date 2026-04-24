@@ -2303,6 +2303,31 @@
       row.style.display=open?'':'none';
       if(caret)caret.textContent=open?'▾':'▸';
     }
+    // Color-code SCPRS sample row dates by age. Operator needs to spot at
+    // a glance whether the comp is fresh enough to trust:
+    //   green  ≤ 6 months   — recent contract, treat as live signal
+    //   amber  ≤ 18 months  — stale, sanity-check before trusting
+    //   grey   older        — reference only
+    // Returns {color, label} so the cell can render "2024-08-01 · 14mo".
+    function _qaFreshness(dateStr){
+      if(!dateStr)return {color:'#484f58',label:'',months:null};
+      var d=null;
+      // Accept "2025-06-15" or "06/15/2025" — both common in SCPRS rows.
+      var m=String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if(m){d=new Date(+m[1],+m[2]-1,+m[3]);}
+      else{
+        m=String(dateStr).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        if(m){
+          var y=+m[3];if(y<100)y+=2000;
+          d=new Date(y,+m[1]-1,+m[2]);
+        }
+      }
+      if(!d||isNaN(d.getTime()))return {color:'#8b949e',label:'',months:null};
+      var months=Math.max(0,Math.round((Date.now()-d.getTime())/(1000*60*60*24*30.44)));
+      var color=months<=6?'#3fb950':months<=18?'#d29922':'#8b949e';
+      var label=months<1?'<1mo':months<24?(months+'mo'):(Math.round(months/12)+'y');
+      return {color:color,label:label,months:months};
+    }
     function runQuoteAnalysis() {
      var btn=document.getElementById('quoteAnalysisBtn');
      var panel=document.getElementById('quote-analysis-panel');
@@ -2345,7 +2370,13 @@
           var rowCursor=hasSamples?'cursor:pointer':'cursor:default';
           html+='<tr data-qa-row="'+_i+'" style="border-top:1px solid #21262d;'+rowCursor+'" onclick="toggleQaSamples('+_i+')"><td style="padding:4px 6px;text-align:center">'+caret+'</td><td style="padding:4px 6px;color:#8b949e">'+it.line_num+'</td><td style="padding:4px 6px;color:#c9d1d9" title="'+(it.description||'').replace(/"/g,'&quot;')+'">'+desc+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#e6edf3">'+_p(it.your_price)+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#58a6ff">'+(it.scprs_avg?_p(it.scprs_avg):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:right;font-family:JetBrains Mono,monospace;color:#f0883e">'+(it.comp_low?_p(it.comp_low):'<span style=color:#484f58>—</span>')+'</td><td style="padding:4px 6px;text-align:center;color:'+statusColor+';font-size:11px">'+statusLabel+'</td><td style="padding:4px 6px;text-align:right;color:#8b949e">'+(it.markup_pct!=null?it.markup_pct.toFixed(0)+'%':'—')+'</td></tr>';
           if(hasSamples){
-            html+='<tr data-qa-samples="'+_i+'" style="display:none;background:#161b22"><td colspan="8" style="padding:8px 12px"><div style="font-size:11px;color:#8b949e;margin-bottom:4px">Top '+it.samples.length+' contributing rows · target qty: <b>'+(it.target_quantity||1)+'</b>'+(it.qty_band_downweighted>0?' · <span style="color:#d29922">'+it.qty_band_downweighted+' rows downweighted (qty &gt;10× off target)</span>':'')+'</div>';
+            // Header signals: partition active (MFG# anchored avg),
+            // qty-band downweight count, brand-detector status. Each
+            // is suppressed when not applicable to keep the line tidy.
+            var partTag=it.mfg_partition_active?' · <span style="color:#3fb950" title="SCPRS Avg computed from MFG#-anchored rows only ('+it.mfg_anchored_count+' rows)">MFG# partition active ('+it.mfg_anchored_count+')</span>':(it.mfg_anchored_count>0?' · <span style="color:#8b949e" title="MFG#-anchored rows present but partition flag off or count<2">'+it.mfg_anchored_count+' MFG#-anchored</span>':'');
+            var brandTagHdr=(it.brand_detected===true)?' · <span style="color:#58a6ff" title="Brand detected in target description">brand detected</span>':((it.brand_detected===false)?' · <span style="color:#8b949e" title="Generic description — no brand-anchor signal">generic desc</span>':'');
+            var qtyTag=it.qty_band_downweighted>0?' · <span style="color:#d29922">'+it.qty_band_downweighted+' rows downweighted (qty &gt;10× off target)</span>':'';
+            html+='<tr data-qa-samples="'+_i+'" style="display:none;background:#161b22"><td colspan="8" style="padding:8px 12px"><div style="font-size:11px;color:#8b949e;margin-bottom:4px">Top '+it.samples.length+' contributing rows · target qty: <b>'+(it.target_quantity||1)+'</b>'+partTag+brandTagHdr+qtyTag+'</div>';
             html+='<table style="width:100%;font-size:11px;border-collapse:collapse"><tr style="color:#8b949e;font-size:10px;text-transform:uppercase"><th style="text-align:left;padding:3px 4px">Source</th><th style="text-align:left;padding:3px 4px">Description</th><th style="text-align:right;padding:3px 4px">Qty</th><th style="text-align:right;padding:3px 4px">Unit $</th><th style="text-align:left;padding:3px 4px">Supplier</th><th style="text-align:left;padding:3px 4px">Date</th><th style="text-align:right;padding:3px 4px">Weight</th><th style="text-align:left;padding:3px 4px">PO# / Verify</th></tr>';
             it.samples.forEach(function(s){
               var srcColor=s.is_reytech?'#3fb950':s.source==='won_quotes'?'#58a6ff':s.source==='scprs_po_lines'?'#a5a5ff':s.source==='scprs_catalog'?'#d29922':'#8b949e';
@@ -2355,7 +2386,22 @@
               if(s.po_number){
                 poLink='<a href="https://caleprocure.ca.gov/pages/SCPRSSearch/scprs-search.aspx" target="_blank" rel="noopener" title="Opens SCPRS public search — paste PO# to verify" style="color:#58a6ff;text-decoration:none;font-family:JetBrains Mono,monospace">'+s.po_number+' ↗</a>';
               }
-              html+='<tr style="border-top:1px solid #21262d"><td style="padding:3px 4px;color:'+srcColor+';font-size:10px">'+(s.source||'')+'</td><td style="padding:3px 4px;color:#c9d1d9">'+sdesc+'</td><td style="padding:3px 4px;text-align:right;color:#8b949e;font-family:JetBrains Mono,monospace">'+(s.quantity!=null?s.quantity:'—')+bandTag+'</td><td style="padding:3px 4px;text-align:right;color:#e6edf3;font-family:JetBrains Mono,monospace">'+_p(s.unit_price)+'</td><td style="padding:3px 4px;color:#8b949e">'+(s.supplier||'').substring(0,30)+'</td><td style="padding:3px 4px;color:#8b949e;font-size:10px">'+(s.date||'')+'</td><td style="padding:3px 4px;text-align:right;color:#8b949e;font-family:JetBrains Mono,monospace;font-size:10px">'+(s.weight!=null?s.weight.toFixed(2):'')+'</td><td style="padding:3px 4px">'+poLink+'</td></tr>';
+              var fresh=_qaFreshness(s.date);
+              var dateCell=(s.date||'')+(fresh.label?' <span style="color:'+fresh.color+';font-weight:600">·'+fresh.label+'</span>':'');
+              // Source badges: MFG#-anchored rows are highest trust;
+              // brand-anchored rows confirm the comp shares the brand
+              // token. No badge when not applicable (description-only
+              // match against generic target).
+              var basisBadge='';
+              if(s.match_basis==='mfg_number'){
+                basisBadge=' <span title="Matched on MFG# — highest trust" style="font-size:9px;background:#3fb95022;color:#3fb950;border:1px solid #3fb95055;padding:0 4px;border-radius:3px;font-weight:700">MFG#</span>';
+              }
+              if(s.brand_anchored===true){
+                basisBadge+=' <span title="Row description contains the brand token" style="font-size:9px;background:#58a6ff22;color:#58a6ff;border:1px solid #58a6ff55;padding:0 4px;border-radius:3px">brand</span>';
+              } else if(s.brand_anchored===false){
+                basisBadge+=' <span title="Row matched on generic tokens — brand absent" style="font-size:9px;color:#8b949e">·no-brand</span>';
+              }
+              html+='<tr style="border-top:1px solid #21262d"><td style="padding:3px 4px;color:'+srcColor+';font-size:10px">'+(s.source||'')+basisBadge+'</td><td style="padding:3px 4px;color:#c9d1d9">'+sdesc+'</td><td style="padding:3px 4px;text-align:right;color:#8b949e;font-family:JetBrains Mono,monospace">'+(s.quantity!=null?s.quantity:'—')+bandTag+'</td><td style="padding:3px 4px;text-align:right;color:#e6edf3;font-family:JetBrains Mono,monospace">'+_p(s.unit_price)+'</td><td style="padding:3px 4px;color:#8b949e">'+(s.supplier||'').substring(0,30)+'</td><td style="padding:3px 4px;color:'+fresh.color+';font-size:10px;font-family:JetBrains Mono,monospace">'+dateCell+'</td><td style="padding:3px 4px;text-align:right;color:#8b949e;font-family:JetBrains Mono,monospace;font-size:10px">'+(s.weight!=null?s.weight.toFixed(2):'')+'</td><td style="padding:3px 4px">'+poLink+'</td></tr>';
             });
             html+='</table></td></tr>';
           }
