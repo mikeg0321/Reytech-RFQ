@@ -157,7 +157,18 @@ def _build_deadline_item(doc_type, doc_id, doc):
     }
 
 
-def _scan_deadlines(urgencies=None):
+# Mirror of `quote_triage._STALE_OVERDUE_HOURS`. A record more than 72h
+# past its (often default-stamped) due date is no longer actionable —
+# it's either been completed off-app, abandoned, or needs manual
+# archival. Carrying it forward in the deadline sidebar and bell-alert
+# pipeline only generates noise (incident 2026-04-23: PC "Karaoke" was
+# 864h overdue and still firing critical alerts every hour because the
+# sidebar/notify path used `_scan_deadlines` while triage/queue used
+# `quote_triage.triage()` — two different filters on the same data).
+_STALE_OVERDUE_HOURS = 72
+
+
+def _scan_deadlines(urgencies=None, include_stale=False):
     """Scan all active PCs/RFQs and return deadline items.
 
     Shared by /api/deadlines, /api/deadlines/critical, and the background
@@ -166,10 +177,22 @@ def _scan_deadlines(urgencies=None):
     Args:
         urgencies: optional set of urgency levels to include
                    (e.g. {"overdue","critical"}). None = include all.
+        include_stale: when False (default), records more than 72h past
+                       due are dropped — same definition of "actionable"
+                       as `quote_triage.triage()`. Pass True only for
+                       admin views that want to see the full backlog.
     """
     from src.api.data_layer import _load_price_checks, load_rfqs
 
     out = []
+
+    def _is_stale(dl):
+        # `hours_left` is negative for past-due rows; staleness is past
+        # due by more than the cutoff.
+        hl = dl.get("hours_left")
+        if hl is None or hl >= 0:
+            return False
+        return abs(hl) > _STALE_OVERDUE_HOURS
 
     pcs = _load_price_checks()
     for pcid, pc in pcs.items():
@@ -178,7 +201,11 @@ def _scan_deadlines(urgencies=None):
         if pc.get("is_test"):
             continue
         dl = _build_deadline_item("pc", pcid, pc)
-        if dl and (urgencies is None or dl["urgency"] in urgencies):
+        if not dl:
+            continue
+        if not include_stale and _is_stale(dl):
+            continue
+        if urgencies is None or dl["urgency"] in urgencies:
             out.append(dl)
 
     rfqs = load_rfqs()
@@ -190,7 +217,11 @@ def _scan_deadlines(urgencies=None):
         if r.get("is_test"):
             continue
         dl = _build_deadline_item("rfq", rid, r)
-        if dl and (urgencies is None or dl["urgency"] in urgencies):
+        if not dl:
+            continue
+        if not include_stale and _is_stale(dl):
+            continue
+        if urgencies is None or dl["urgency"] in urgencies:
             out.append(dl)
 
     return out
