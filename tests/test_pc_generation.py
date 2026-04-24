@@ -252,3 +252,41 @@ class TestEdgeCases:
         finally:
             if os.path.exists(output):
                 os.unlink(output)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Required vendor fields — Form QA gates
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestRequiredVendorFields:
+    """Vendor identification fields that Form QA (`form_qa.py`) treats as
+    required. Missing any of these triggers `Form QA FAIL — Missing: <field>`
+    on every PC generation. Regression for 2026-04-23 incident: PC f81c4e9b
+    failed QA on PERSON PROVIDING QUOTE because fill_ams704's supplier_mappings
+    list omitted that key (only COMPANY REPRESENTATIVE was being written)."""
+
+    def test_company_name_filled(self):
+        _skip_if_no_template()
+        _result, fv, _pages = _fill_and_get_fields(1)
+        assert fv.get("COMPANY NAME"), "COMPANY NAME must be set on every PC"
+
+    def test_company_representative_filled(self):
+        _skip_if_no_template()
+        _result, fv, _pages = _fill_and_get_fields(1)
+        assert fv.get("COMPANY REPRESENTATIVE print name"), \
+            "COMPANY REPRESENTATIVE print name must be set on every PC"
+
+    def test_person_providing_quote_filled(self):
+        """The bug — PERSON PROVIDING QUOTE was missing from the mapping
+        for ~every PC generation, tripping Form QA on every save+gen."""
+        _skip_if_no_template()
+        _result, fv, _pages = _fill_and_get_fields(1)
+        assert fv.get("PERSON PROVIDING QUOTE"), \
+            "PERSON PROVIDING QUOTE must be set (Form QA required field)"
+
+    def test_person_providing_quote_matches_representative(self):
+        """Both fields refer to the canonical Reytech contact — they must
+        carry the same value so the form reads consistently."""
+        _skip_if_no_template()
+        _result, fv, _pages = _fill_and_get_fields(1)
+        assert fv["PERSON PROVIDING QUOTE"] == fv["COMPANY REPRESENTATIVE print name"]
