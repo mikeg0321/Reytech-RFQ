@@ -749,6 +749,22 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_avr_status ON agency_vendor_registry(status);
         CREATE INDEX IF NOT EXISTS idx_avr_is_test ON agency_vendor_registry(is_test);
     """),
+
+    (25, "outreach_credit_shown", """
+        CREATE TABLE IF NOT EXISTS outreach_credit_shown (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            prospect_dept_code TEXT NOT NULL,
+            credit_po_number   TEXT NOT NULL,
+            credit_dept_code   TEXT,
+            credit_category    TEXT,
+            match_type         TEXT,
+            shown_at           TEXT NOT NULL DEFAULT (datetime('now')),
+            is_test            INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_credit_shown_prospect ON outreach_credit_shown(prospect_dept_code);
+        CREATE INDEX IF NOT EXISTS idx_credit_shown_po ON outreach_credit_shown(credit_po_number);
+        CREATE INDEX IF NOT EXISTS idx_credit_shown_at ON outreach_credit_shown(shown_at);
+    """),
 ]
 
 

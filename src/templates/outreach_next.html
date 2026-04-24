@@ -35,6 +35,14 @@
 .reg-edit-panel button{padding:6px 12px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--bd);background:var(--bg2);color:var(--tx)}
 .reg-edit-panel button.primary{background:var(--ac);color:white;border-color:var(--ac)}
 .reg-edit-panel .reg-save-status{font-size:11px;color:var(--tx2);margin-left:auto}
+.capability-block{margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;background:rgba(100,116,139,.04);border-left:3px solid var(--tx2)}
+.capability-block .cap-header{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px}
+.capability-block ul.credits{list-style:none;padding:0;margin:0}
+.capability-block ul.credits li{padding:2px 0;color:var(--tx);font-size:12px;line-height:1.45}
+.capability-block .match-same_dept_and_category{color:var(--gn)}
+.capability-block .match-category_only{color:var(--tx)}
+.capability-block .match-same_dept_only{color:var(--tx2)}
+.capability-block .credit-meta{color:var(--tx2);font-size:11px}
 .rebid-block{margin:10px 0;padding:10px 14px;border-radius:6px;font-size:13px}
 .rebid-red{background:rgba(220,38,38,.08);border:1px solid var(--rd);color:var(--rd)}
 .rebid-amber{background:rgba(217,119,6,.08);border:1px solid #D97706;color:#D97706}
@@ -183,6 +191,21 @@
   <div class="why-block">
     {% for line in c.why_lines %}<div class="why-line">{{ line }}</div>{% endfor %}
   </div>
+
+  {% if c.capability_credits %}
+  <div class="capability-block">
+    <div class="cap-header">📋 Reytech capability credits</div>
+    <ul class="credits">
+      {% for credit in c.capability_credits %}
+      <li class="match-{{ credit.match_type }}">
+        {% if credit.match_type == 'same_dept_and_category' %}✅{% elif credit.match_type == 'category_only' %}◼{% else %}●{% endif %}
+        {{ credit.item_description[:60] }} — delivered to {{ credit.credit_dept_name or credit.credit_dept_code }}
+        <span class="credit-meta">({{ credit.po_number }} · {{ credit.won_at }} · ${{ "{:,.2f}".format(credit.per_unit_price) }}/unit × {{ credit.quantity|int }})</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px">
     <div>
