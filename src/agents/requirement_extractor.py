@@ -325,51 +325,175 @@ def _detect_forms(text: str) -> list:
     return found
 
 
+def _parse_numeric_date(raw: str) -> str:
+    """Parse `M/D/YY[YY]` or `M-D-YY[YY]` into ISO YYYY-MM-DD. Returns
+    "" on parse failure. Normalizes the separator so both / and - work."""
+    raw = raw.replace("-", "/").strip()
+    for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return ""
+
+
+def _parse_long_date(raw: str) -> str:
+    """Parse `Month DD, YYYY` (with or without comma) into ISO. Returns
+    "" on parse failure."""
+    cleaned = raw.replace(",", "").strip()
+    for fmt in ("%B %d %Y", "%b %d %Y"):
+        try:
+            return datetime.strptime(cleaned, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return ""
+
+
+# Patterns that explicitly LABEL a field as a deadline. These fire on
+# common government RFQ formats where the date follows a label rather
+# than a verb ("Due Date: 4/24/2026" instead of "due 4/24/2026"). Each
+# tuple is (regex, parser_kind) where parser_kind picks numeric vs
+# long-form date parsing.
+#
+# Order matters — most-specific labels first. The "by/due/before" verb
+# patterns from the original implementation come AFTER the labeled
+# patterns so a labeled date wins over a stray verb match.
+_DUE_DATE_LABELED = [
+    # "Due Date: 4/24/2026", "Date Due: 04-24-26"
+    (re.compile(
+        r'(?:Due\s+Date|Date\s+Due|Quote\s+Due|Bid\s+Due|Response\s+Due|'
+        r'Bid\s+Open(?:ing)?\s+Date|Closing\s+Date|Submission\s+Deadline|'
+        r'Response\s+Required|Required\s+By|Submit\s+By|Reply\s+By|'
+        r'Quotes?\s+Due|Bids?\s+Due|Quote\s+Needed|Need\s+Quote\s+By)'
+        r'\s*[:\-]?\s*'
+        r'(?:end\s+of\s+business\s+)?(?:by\s+)?(?:\w+day,?\s+)?'
+        r'(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})',
+        re.IGNORECASE,
+    ), "numeric"),
+    # "Due Date: April 24, 2026"
+    (re.compile(
+        r'(?:Due\s+Date|Date\s+Due|Quote\s+Due|Bid\s+Due|Response\s+Due|'
+        r'Bid\s+Open(?:ing)?\s+Date|Closing\s+Date|Submission\s+Deadline|'
+        r'Response\s+Required|Required\s+By|Submit\s+By|Reply\s+By|'
+        r'Quotes?\s+Due|Bids?\s+Due)'
+        r'\s*[:\-]?\s*'
+        r'(?:by\s+)?(?:\w+day,?\s+)?'
+        r'([A-Z][a-z]+\.?\s+\d{1,2},?\s+\d{4})',
+        re.IGNORECASE,
+    ), "long"),
+    # Bare "Closing 4/24/2026" / "Closes 4/24/2026"
+    (re.compile(
+        r'\b(?:Closing|Closes|Closed)\s+'
+        r'(?:on\s+)?(?:end\s+of\s+business\s+)?(?:\w+day,?\s+)?'
+        r'(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})',
+        re.IGNORECASE,
+    ), "numeric"),
+]
+
+# Verb-prefixed patterns: "by April 24, 2026", "due 4/24". These were
+# the original implementation; preserved verbatim so we don't regress.
+_DUE_DATE_VERBS = [
+    (re.compile(
+        r'(?:by|due|deadline|before|no\s+later\s+than)\s+'
+        r'(?:end\s+of\s+business\s+)?(?:close\s+of\s+business\s+)?'
+        r'(?:\w+day,?\s+)?'
+        r'(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})',
+        re.IGNORECASE,
+    ), "numeric"),
+    (re.compile(
+        r'(?:by|due|deadline|before|no\s+later\s+than)\s+'
+        r'(?:end\s+of\s+business\s+)?(?:close\s+of\s+business\s+)?'
+        r'(?:\w+day,?\s+)?'
+        r'([A-Z][a-z]+\.?\s+\d{1,2},?\s+\d{4})',
+        re.IGNORECASE,
+    ), "long"),
+]
+
+
 def _extract_due_date(text: str) -> str:
-    """Extract due date from email body."""
+    """Extract due date from email body. Returns YYYY-MM-DD or "".
+
+    Detection priority:
+      1. Labeled patterns ("Due Date:", "Closing Date:", "Submit By:") —
+         most specific, least false-positive risk.
+      2. Verb-prefixed patterns ("by 4/24", "due April 24, 2026") —
+         original behavior, preserved unchanged.
+
+    Numeric formats accept both `/` and `-` separators. Long formats
+    accept "April" and abbreviated "Apr" month names. Year is required
+    (no inference from current year — too ambiguous for a quote
+    deadline that could be in 2025 or 2026).
+    """
     if not text:
         return ""
 
-    # Pattern 1: "by [optional EOB/weekday] M/D/YYYY"
-    m = re.search(
-        r'(?:by|due|deadline|before|no later than)\s+'
-        r'(?:end\s+of\s+business\s+)?(?:\w+day\s+)?'
-        r'(\d{1,2}/\d{1,2}/\d{2,4})',
-        text, re.IGNORECASE,
-    )
-    if m:
-        raw = m.group(1)
-        for fmt in ("%m/%d/%Y", "%m/%d/%y"):
-            try:
-                return datetime.strptime(raw, fmt).strftime("%Y-%m-%d")
-            except ValueError:
-                continue
+    for pat, kind in _DUE_DATE_LABELED:
+        m = pat.search(text)
+        if m:
+            iso = (_parse_numeric_date(m.group(1)) if kind == "numeric"
+                   else _parse_long_date(m.group(1)))
+            if iso:
+                return iso
 
-    # Pattern 2: "by April 15, 2026"
-    m = re.search(
-        r'(?:by|due|deadline|before)\s+'
-        r'(?:end\s+of\s+business\s+)?(?:\w+day\s+)?'
-        r'([A-Z][a-z]+\s+\d{1,2},?\s+\d{4})',
-        text, re.IGNORECASE,
-    )
-    if m:
-        raw = m.group(1).replace(",", "")
-        try:
-            return datetime.strptime(raw, "%B %d %Y").strftime("%Y-%m-%d")
-        except ValueError as _e:
-            log.debug("suppressed: %s", _e)
+    for pat, kind in _DUE_DATE_VERBS:
+        m = pat.search(text)
+        if m:
+            iso = (_parse_numeric_date(m.group(1)) if kind == "numeric"
+                   else _parse_long_date(m.group(1)))
+            if iso:
+                return iso
 
     return ""
 
 
+# Time-extraction patterns. Order matters: explicit `at HH:MM` after a
+# date wins over bare-time fallback so "due 4/24 at 2:00 PM PST" lands
+# the right value.
+_DUE_TIME_PATTERNS = [
+    # "by 2:00 PM PST", "before 14:00", "at 2:00 PM"
+    re.compile(
+        r'(?:by|before|at|until|no\s+later\s+than)\s+'
+        r'(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?\s*(?:PST|PDT|PT|EST|EDT|ET|CST|CDT|MST|MDT)?)',
+        re.IGNORECASE,
+    ),
+    # "by noon" / "at noon"
+    re.compile(r'(?:by|before|at|until)\s+(noon|midnight)', re.IGNORECASE),
+    # Standalone "5:00 PM PST" anywhere in body — last resort, no
+    # surrounding verb required. Common in form fields like
+    # "Quote Due: 4/24/2026 5:00 PM PST".
+    re.compile(
+        r'\b(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\s*(?:PST|PDT|PT|EST|EDT|ET|CST|CDT|MST|MDT)?)',
+    ),
+    # "5pm PST" without colon
+    re.compile(
+        r'\b(\d{1,2}\s*(?:AM|PM|am|pm)\s*(?:PST|PDT|PT|EST|EDT|ET|CST|CDT|MST|MDT)?)\b',
+    ),
+]
+
+
 def _extract_due_time(text: str) -> str:
-    """Extract due time from email body."""
+    """Extract due time from email body. Returns the matched time
+    substring (caller's parser handles "12:00 PM PST" forms) or
+    "COB" / "EOD" sentinel if only a "close of business" hint exists.
+
+    Returns "" when nothing parseable found.
+    """
     if not text:
         return ""
-    m = re.search(r'(?:by|before)\s+(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)\s*(?:PST|PDT|PT)?)', text)
-    if m:
-        return m.group(1).strip()
-    if re.search(r'end\s+of\s+business|EOB|COB', text, re.IGNORECASE):
+    for pat in _DUE_TIME_PATTERNS:
+        m = pat.search(text)
+        if m:
+            v = m.group(1).strip()
+            # Normalize "noon" / "midnight" to a parseable time so the
+            # downstream `_parse_due_datetime` can use it.
+            lv = v.lower()
+            if lv == "noon":
+                return "12:00 PM"
+            if lv == "midnight":
+                return "11:59 PM"
+            return v
+    if re.search(r'end\s+of\s+business|close\s+of\s+business|\bEOB\b|\bCOB\b|\bEOD\b',
+                 text, re.IGNORECASE):
         return "COB"
     return ""
 
