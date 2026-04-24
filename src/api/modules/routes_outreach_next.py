@@ -519,6 +519,99 @@ def _capability_credits_enabled():
         return True
 
 
+def _cert_status_summary(conn):
+    """V2-PR-4: aggregate Reytech certification health across all certs.
+
+    Returns {certs: [...], summary: {level, label, hint, expiring_soon,
+    expired, total}}.
+
+    Levels:
+      critical — any active cert past expiry → set-aside eligibility
+                 lost silently on every affected bid
+      warn     — any active cert ≤ 60d to expiry → renew now or risk
+                 silent lapse
+      ok       — all active certs >60d to expiry
+      none     — no active certs in DB (operator hasn't populated)
+
+    Schema-tolerant: missing table → none/empty, no crash.
+    """
+    from datetime import date
+    out_certs = []
+    try:
+        rows = conn.execute("""
+            SELECT cert_type, cert_number, issue_date, expires_at,
+                   renewal_url, notes, is_active
+            FROM reytech_certifications
+            WHERE is_active = 1 AND is_test = 0
+            ORDER BY cert_type
+        """).fetchall()
+    except Exception as _e:
+        log.debug("cert_status_summary suppressed: %s", _e)
+        return {"certs": [], "summary": {"level": "none", "label": "",
+                "hint": "", "expiring_soon": 0, "expired": 0, "total": 0}}
+
+    today = date.today()
+    expired_count = 0
+    soon_count = 0
+    soonest_days = None
+    soonest_cert = None
+    for r in rows:
+        d = dict(r)
+        end = _parse_end_date(d.get("expires_at") or "")
+        if end is not None:
+            days = (end - today).days
+            d["days_until_expiry"] = days
+            d["is_expired"] = days < 0
+            if days < 0:
+                expired_count += 1
+                if soonest_days is None or days < soonest_days:
+                    soonest_days = days
+                    soonest_cert = d
+            elif days <= 60:
+                soon_count += 1
+                if soonest_days is None or days < soonest_days:
+                    soonest_days = days
+                    soonest_cert = d
+        else:
+            d["days_until_expiry"] = None
+            d["is_expired"] = False
+        out_certs.append(d)
+
+    if not out_certs:
+        return {"certs": [], "summary": {"level": "none",
+                "label": "No certifications on file",
+                "hint": "Add SB / MB / DVBE / OSDS cert details "
+                        "to maintain set-aside eligibility.",
+                "expiring_soon": 0, "expired": 0, "total": 0}}
+
+    if expired_count > 0 and soonest_cert and soonest_cert.get("is_expired"):
+        return {"certs": out_certs, "summary": {
+            "level": "critical",
+            "label": f"⚠ {soonest_cert['cert_type']} EXPIRED "
+                     f"{-soonest_cert['days_until_expiry']}d ago",
+            "hint": "Set-aside eligibility lost on bids requiring "
+                    "this cert — re-register at portal urgently.",
+            "expiring_soon": soon_count, "expired": expired_count,
+            "total": len(out_certs),
+        }}
+    if soon_count > 0 and soonest_cert:
+        return {"certs": out_certs, "summary": {
+            "level": "warn",
+            "label": f"⏳ {soonest_cert['cert_type']} expires in "
+                     f"{soonest_cert['days_until_expiry']}d",
+            "hint": "Renew before expiry to avoid silent loss of "
+                    "set-aside eligibility.",
+            "expiring_soon": soon_count, "expired": expired_count,
+            "total": len(out_certs),
+        }}
+    return {"certs": out_certs, "summary": {
+        "level": "ok",
+        "label": f"All {len(out_certs)} certifications current",
+        "hint": "",
+        "expiring_soon": 0, "expired": 0, "total": len(out_certs),
+    }}
+
+
 def _registration_status_for_depts(conn, dept_codes):
     """Batched lookup against agency_vendor_registry.
 
@@ -843,11 +936,21 @@ def page_outreach_next():
     err = None
     cards = []
     summary = {}
+    cert_status = {"certs": [], "summary": {"level": "none", "label": "",
+                                             "hint": ""}}
     try:
         cards, err, summary = _build_card_list(limit=8)
     except Exception as e:
         log.exception("page_outreach_next: card build failed")
         err = f"{type(e).__name__}: {e}"
+
+    # V2-PR-4: cert-expiry summary (global, top-of-page banner). Always
+    # show — operators need the warning even if other queries fail.
+    try:
+        with _get_db() as conn:
+            cert_status = _cert_status_summary(conn)
+    except Exception as e:
+        log.exception("page_outreach_next: cert_status load failed")
 
     return render_page(
         "outreach_next.html",
@@ -855,7 +958,78 @@ def page_outreach_next():
         cards=cards or [],
         summary=summary or {},
         error=err,
+        cert_status=cert_status,
     )
+
+
+@bp.route("/api/outreach/next/cert", methods=["POST"])
+@auth_required
+@safe_route
+def api_outreach_next_cert():
+    """Upsert one Reytech certification record by cert_type.
+
+    Body: {cert_type, cert_number?, issue_date?, expires_at?,
+           renewal_url?, notes?, is_active?}
+    Validates: cert_type required, dates ISO if provided.
+    """
+    try:
+        from datetime import datetime
+        payload = request.get_json(force=True, silent=True) or {}
+        cert_type = (payload.get("cert_type") or "").strip().upper()
+        if not cert_type:
+            return jsonify({"ok": False, "error": "cert_type required"}), 400
+        for dt_field in ("issue_date", "expires_at"):
+            val = payload.get(dt_field)
+            if val and _parse_end_date(val) is None:
+                return jsonify({
+                    "ok": False,
+                    "error": f"{dt_field} must be ISO date (YYYY-MM-DD)"
+                }), 400
+
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        is_active = 1 if payload.get("is_active", True) else 0
+        with _get_db() as conn:
+            existing = conn.execute(
+                "SELECT id FROM reytech_certifications WHERE cert_type = ?",
+                (cert_type,)
+            ).fetchone()
+            fields = {
+                "cert_number": payload.get("cert_number") or "",
+                "issue_date": payload.get("issue_date") or "",
+                "expires_at": payload.get("expires_at") or "",
+                "renewal_url": payload.get("renewal_url") or "",
+                "notes": payload.get("notes") or "",
+                "is_active": is_active,
+                "updated_at": now_iso,
+            }
+            if existing:
+                set_clause = ", ".join(f"{k}=?" for k in fields)
+                conn.execute(
+                    f"UPDATE reytech_certifications SET {set_clause} "
+                    "WHERE cert_type = ?",
+                    list(fields.values()) + [cert_type],
+                )
+            else:
+                fields["cert_type"] = cert_type
+                fields["created_at"] = now_iso
+                cols = ", ".join(fields.keys())
+                placeholders = ", ".join(["?"] * len(fields))
+                conn.execute(
+                    f"INSERT INTO reytech_certifications ({cols}) "
+                    f"VALUES ({placeholders})",
+                    list(fields.values()),
+                )
+            row = conn.execute(
+                "SELECT * FROM reytech_certifications WHERE cert_type = ?",
+                (cert_type,)
+            ).fetchone()
+            record = dict(row) if row else {}
+            summary = _cert_status_summary(conn)
+        return jsonify({"ok": True, "record": record,
+                        "cert_status": summary})
+    except Exception as e:
+        log.exception("api_outreach_next_cert failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 
 @bp.route("/api/outreach/next/registry", methods=["POST"])

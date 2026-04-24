@@ -531,8 +531,55 @@ def quoting_health_json():
         "catalog_health": _build_catalog_health(),
         "oracle_calibration": oracle_cal,
         "registry_health": _build_registry_health(),
+        "cert_health": _build_cert_health(),
         "gate": _build_health_gate(oracle_cal),
     }
+
+
+def _build_cert_health():
+    """V2-PR-4: Reytech cert expiry visibility for /health/quoting.
+
+    Returns total + by-status counts so Mike can see at a glance whether
+    any active cert is past expiry or in the 60-day renewal window.
+    Schema-tolerant — fresh DB without migration 26 returns ok=True with
+    empty counts.
+    """
+    result = {"ok": True, "total": 0, "expired": 0, "expiring_soon": 0,
+              "by_type": {}}
+    try:
+        from datetime import date
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT cert_type, expires_at FROM reytech_certifications
+                WHERE is_active = 1 AND is_test = 0
+            """).fetchall()
+            today = date.today()
+            for r in rows:
+                ct = r["cert_type"] if hasattr(r, "__getitem__") else r[0]
+                ex_raw = r["expires_at"] if hasattr(r, "__getitem__") else r[1]
+                state = "unknown"
+                if ex_raw:
+                    try:
+                        ex = date.fromisoformat(ex_raw[:10])
+                        days = (ex - today).days
+                        if days < 0:
+                            state = "expired"
+                            result["expired"] += 1
+                        elif days <= 60:
+                            state = "expiring_soon"
+                            result["expiring_soon"] += 1
+                        else:
+                            state = "ok"
+                    except (ValueError, TypeError):
+                        pass
+                result["by_type"][ct] = state
+                result["total"] += 1
+    except Exception as e:
+        log.debug("cert_health suppressed: %s", e)
+        result["ok"] = False
+        result["error"] = str(e)
+    return result
 
 
 def _build_registry_health():
