@@ -276,6 +276,19 @@ _PN_PATTERNS = [
     # Alphanumeric codes: ABC1234, AB-12.34
     re.compile(r'\b([A-Z][A-Z0-9]{2,}[\-\.][A-Z0-9]{1,10})\b'),
     re.compile(r'\b([A-Z]{2,4}\d{3,8})\b'),
+    # Letters + digits + trailing letter inline (no label, no dash):
+    # WL085P, AB123C, FN4368X. Common Sunrise Medical / S&S "wrist
+    # strap" SKUs land here (incident 2026-04-24 — Mike's Stanley
+    # RoamAlert PC items had MFG#s in `WL085P` shape and the regex
+    # chain missed them, leaving partition unable to fire after
+    # backfill). Constraints kept tight to avoid false positives:
+    #   - 1-3 leading letters
+    #   - 3-6 inner digits
+    #   - exactly 1 trailing letter (stops matching ASIN-shaped
+    #     `B0CX1BD86P` — that has digit-letter mix, not letters-
+    #     then-digits-then-one-letter)
+    #   - `\b` on both sides keeps "WL085PS" from matching as "WL085P"
+    re.compile(r'\b([A-Z]{1,3}\d{3,6}[A-Z])\b'),
     # Single letter + digits: W12919, W9235 (S&S Worldwide format)
     re.compile(r'\b([A-Z]\d{4,6})\b'),
     # Trailing code after " - ": "JUMBO JACKS - W14100" → W14100
