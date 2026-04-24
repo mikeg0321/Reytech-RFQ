@@ -1915,6 +1915,44 @@ def claude_product_lookup(url: str, supplier: str = "") -> dict:
     if not text:
         return {}
 
+    # Hallucination guard (mirrors claude_amazon_lookup ASIN check from
+    # PR #483). When web_search returns nothing useful for the URL,
+    # the model sometimes invents a totally different product. The
+    # full response trail (text + tool_use input + tool_result content)
+    # should reference the URL host (e.g. "hdsupplysolutions.com")
+    # since the prompt and tool_use both pin to the URL. If the host
+    # is nowhere in the conversation, discard the result.
+    full_trail = ""
+    for block in (data.get("content") or []):
+        if isinstance(block, dict):
+            if block.get("type") == "text":
+                full_trail += block.get("text", "") or ""
+            elif block.get("type") == "tool_use":
+                full_trail += _json.dumps(block.get("input") or {})
+            elif block.get("type") == "tool_result":
+                _tc = block.get("content")
+                if isinstance(_tc, list):
+                    for _b in _tc:
+                        if isinstance(_b, dict) and _b.get("type") == "text":
+                            full_trail += _b.get("text", "") or ""
+                elif isinstance(_tc, str):
+                    full_trail += _tc
+    try:
+        from urllib.parse import urlparse as _urlparse
+        _host = (_urlparse(url).hostname or "").lower()
+        # "hdsupplysolutions.com" → "hdsupplysolutions"
+        _host_root = _host.split(".")[-2] if _host.count(".") >= 1 else _host
+    except Exception:
+        _host = ""
+        _host_root = ""
+    if _host_root and len(_host_root) >= 4 and _host_root not in full_trail.lower():
+        log.warning(
+            "claude_product_lookup: host %r absent from response trail "
+            "(likely hallucinated product) — discarding result",
+            _host or url[:60],
+        )
+        return {}
+
     if text.startswith("```"):
         import re as _re_f
         m = _re_f.match(r"^```(?:json)?\s*\n?(.*?)\n?```\s*$", text, _re_f.DOTALL)
@@ -2136,6 +2174,12 @@ def lookup_from_url(url: str) -> dict:
                 result["price"] = result["list_price"]
             if not result.get("cost"):
                 result["cost"] = result["list_price"]
+            # Operator transparency: the page showed only one price.
+            # We promoted it to list_price (so downstream code stops
+            # complaining about missing MSRP), but the operator
+            # deserves to know this number is unverified — there's no
+            # strikethrough/Was/MSRP signal from the page itself.
+            result["single_price_promoted"] = True
 
         # Normalize
         result.setdefault("supplier", supplier)
@@ -2147,6 +2191,18 @@ def lookup_from_url(url: str) -> dict:
         result.setdefault("manufacturer", "")
         result.setdefault("shipping", None)
         result.setdefault("shipping_note", "")
+        result.setdefault("single_price_promoted", False)
+        # Enrichment-gap flag: the lookup got a price + title but didn't
+        # surface manufacturer / mfg_number / photo_url. The operator
+        # may want to know "we have a cost but not a confidence-anchor
+        # like brand or photo." Surfaced as a soft warning in the UI.
+        _has_anchor = bool(result.get("manufacturer")
+                           or result.get("mfg_number")
+                           or result.get("upc")
+                           or result.get("photo_url"))
+        result["enrichment_gap"] = (
+            bool(result.get("price")) and not _has_anchor
+        )
 
         # Use the richest description available
         # Prefer meta_description (often richer from JSON-LD or meta tags) over bare title
