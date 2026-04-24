@@ -64,7 +64,21 @@ _LEGACY_ALLOWLIST: frozenset = frozenset({
     "src/agents/tax_agent.py",           # used by tax_resolver internally
     # PDF renderers that haven't migrated yet. Shrinks as each one
     # moves to accept a QuoteContract parameter.
-    "src/forms/quote_generator.py",      # partial migration in-flight (PR after contract scaffold)
+    #
+    # src/forms/quote_generator.py — facility LOOKUP chain migrated
+    #   via this PR (FACILITY_DB deleted, _lookup_facility stubs go
+    #   through assemble_from_rfq). Still on allowlist because TWO
+    #   direct imports remain:
+    #     - line 874: `from src.core.tax_resolver import resolve_tax`
+    #       (used inside generate_reytech_quote for the tax footer)
+    #     - line 934: `from src.core.facility_registry import
+    #       resolve_with_reason` (used for the ship_to_resolve_reason
+    #       audit field written to quote_data)
+    #   Both require extending `QuoteContract` with `tax_rate_bps`
+    #   (already there) + `ship_to_resolve_reason` (to add) so those
+    #   call sites can read from the contract. That's the next PR —
+    #   countdown 20 → 19 moves then.
+    "src/forms/quote_generator.py",
     "src/forms/reytech_filler_v4.py",    # 703b/703c/704b fillers — next migration
     "src/forms/cchcs_packet_builder.py",
     "src/forms/cchcs_packet_filler.py",  # imports src.agents.tax_agent directly at line 336

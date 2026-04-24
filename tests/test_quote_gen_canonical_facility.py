@@ -30,10 +30,14 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Note: the adapter function was renamed `_facility_to_legacy_dict`
+# in the QuoteContract migration PR — it now takes a `FacilityRecord`
+# directly (contract-native) rather than a bare dict-shaped record.
+# Aliased here so the existing test assertions keep working.
 from src.forms.quote_generator import (
     _lookup_facility,
     _lookup_facility_by_zip,
-    _registry_record_to_legacy_dict,
+    _facility_to_legacy_dict as _registry_record_to_legacy_dict,
 )
 
 
@@ -147,16 +151,27 @@ def test_zip_lookup_finds_barstow_92311():
     assert "CALVETHOME-BF" in codes
 
 
-def test_zip_lookup_returns_ambiguous_codes_for_shared_zip():
-    """95671 has both FSP and CSP-SAC — codes list must reflect that
-    so caller can disambiguate by name."""
+def test_zip_lookup_refuses_to_guess_on_shared_zip():
+    """95671 has both FSP and CSP-SAC — the canonical contract path
+    must NOT silently pick one. Returns None so the renderer falls
+    back to raw ship-to and the operator disambiguates.
+
+    Post-QuoteContract migration (PR after #503): the old zip-lookup
+    returned "first match, plus ambiguous list" — the new contract
+    explicitly refuses to guess (audit W direction: never silently
+    pick between ambiguous candidates). This test pins the new
+    contract so a future regression can't re-introduce silent
+    arbitrary-first-match behavior on shared zips.
+    """
     result, codes = _lookup_facility_by_zip("Address in zip 95671")
-    assert result is not None
-    assert len(codes) >= 2, (
-        f"95671 should map to both FSP and CSP-SAC; got {codes!r}"
+    assert result is None, (
+        f"Shared zip 95671 returned {result!r} — canonical contract "
+        f"must refuse to guess between FSP and CSP-SAC. Operator "
+        f"disambiguation required."
     )
-    assert "CSP-SAC" in codes
-    assert "FSP" in codes
+    assert codes == [], (
+        f"Shared-zip ambiguity → empty codes list. Got {codes!r}."
+    )
 
 
 def test_zip_lookup_returns_none_for_unknown_zip():

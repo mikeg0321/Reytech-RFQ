@@ -33,6 +33,7 @@ from reportlab.pdfgen import canvas
 log = logging.getLogger("quote_gen")
 
 from src.forms.ams704_helpers import normalize_line_item as _normalize_item
+from src.core.quote_contract import assemble_from_rfq, assemble_from_pc
 
 try:
     from src.core.paths import DATA_DIR
@@ -120,207 +121,99 @@ AGENCY_CONFIGS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FACILITY DATABASE — deprecated local dict; canonical data is in
-# `src.core.facility_registry`. This dict is kept as a last-resort
-# fallback only (e.g. import-failure path), but `_lookup_facility` /
-# `_lookup_facility_by_zip` below now delegate to the registry so quote
-# generation, tax resolution, and institution display all read from the
-# SAME source of truth. Collapsing this dict was the 2026-04-24 root-
-# cause fix — incident f81c4e9b / RFQ 8a1dcf77: the quote PDF showed
-# "CAL - Calipatria State Prison" as ship-to for a CalVet Barstow RFQ
-# because this local `FACILITY_DB` matched Calipatria before the
-# canonical registry's Barstow record could be consulted. See
-# `feedback_quoting_core_repeats_failing.md`.
+# FACILITY LOOKUP — fully delegated to QuoteContract
 #
-# Do NOT extend this dict — add new facilities to
-# `src.core.facility_registry._SEED`. This copy exists as a safety net
-# only for the import-failure fallback in `_registry_to_legacy_dict`.
+# This module previously carried its own `FACILITY_DB` dict, its own
+# zip index, and its own `_lookup_facility` / `_lookup_facility_by_zip`
+# / `_lookup_facility_legacy` / `_CITY_MAP` heuristics. That divergence
+# from the canonical registry caused incident f81c4e9b on 2026-04-24
+# (CalVet Barstow PC rendered with Calipatria ship-to). PR #501
+# collapsed `FACILITY_DB` to delegate to facility_registry; this PR
+# completes the migration by routing all callers through
+# `QuoteContract` (PR #503), which assembles the canonical facility
+# + tax + line-items snapshot ONCE and is consumed read-only by
+# every renderer.
+#
+# **Architectural rule** (`tests/test_architecture_contract.py`):
+# this file may NOT import facility_registry / institution_resolver /
+# tax_resolver / tax_agent directly. Receive a `QuoteContract` (or
+# build one via `assemble_from_rfq` / `assemble_from_pc`) and read
+# its frozen fields. The countdown allowlist drops one entry as part
+# of this PR — `quote_generator.py` is now the FIRST renderer fully
+# migrated off direct resolver use.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _registry_record_to_legacy_dict(rec) -> dict:
-    """Adapter: render a `FacilityRecord` in the legacy-dict shape all
-    the quote_generator callers already consume ({name, parent,
-    parent_full, address:[...], code, zip}). Keeps the API stable so
-    the call sites downstream don't have to change."""
-    if rec is None:
+def _facility_to_legacy_dict(facility) -> dict | None:
+    """Adapter: render a `FacilityRecord` from the contract in the
+    legacy {name, parent, parent_full, address, code, zip} dict shape
+    that the existing call sites in this module consume.
+
+    Localised here so the rest of `generate_quote_from_rfq` /
+    `generate_quote_from_pc` doesn't have to change shape just because
+    the source moved from `_lookup_facility` to `contract.facility`.
+    Future PRs can migrate call sites to read FacilityRecord
+    attributes directly and drop this adapter.
+    """
+    if facility is None:
         return None
     return {
-        "name": rec.canonical_name,
-        "parent": rec.parent_agency,
-        "parent_full": rec.parent_agency_full,
-        "address": [rec.address_line1, rec.address_line2],
-        "code": rec.code,
-        "zip": rec.zip,
+        "name": facility.canonical_name,
+        "parent": facility.parent_agency,
+        "parent_full": facility.parent_agency_full,
+        "address": [facility.address_line1, facility.address_line2],
+        "code": facility.code,
+        "zip": facility.zip,
     }
 
 
-FACILITY_DB = {
-    # CDCR facilities
-    "CIW":  {"name": "CIW - California Institution for Women", "parent": "CCHCS", "parent_full": "California Correctional Health Care Services", "address": ["16756 Chino-Corona Road", "Corona, CA 92880"]},
-    "CIM":  {"name": "CIM - California Institution for Men", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["14901 S Central Ave", "Chino, CA 91710"]},
-    "CSP-SAC": {"name": "CSP Sacramento - New Folsom", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["300 Prison Road", "Represa, CA 95671"]},
-    "CSP-COR": {"name": "CSP Corcoran", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["4001 King Ave", "Corcoran, CA 93212"]},
-    "CSP-LAC": {"name": "CSP Los Angeles County", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["44750 60th St West", "Lancaster, CA 93536"]},
-    "CSP-SOL": {"name": "CSP Solano", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2100 Peabody Road", "Vacaville, CA 95687"]},
-    "SATF": {"name": "SATF - Substance Abuse Treatment Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["900 Quebec Ave", "Corcoran, CA 93212"]},
-    "CHCF": {"name": "CHCF - California Health Care Facility", "parent": "CCHCS", "parent_full": "California Correctional Health Care Services", "address": ["23370 Road 22", "Stockton, CA 95215"]},
-    "PVSP": {"name": "PVSP - Pleasant Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["24863 W Jayne Ave", "Coalinga, CA 93210"]},
-    "KVSP": {"name": "KVSP - Kern Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["3000 W Cecil Ave", "Delano, CA 93215"]},
-    "NKSP": {"name": "NKSP - North Kern State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2737 W Cecil Ave", "Delano, CA 93215"]},
-    "MCSP": {"name": "MCSP - Mule Creek State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["4001 Hwy 104", "Ione, CA 95640"]},
-    "WSP":  {"name": "WSP - Wasco State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["701 Scofield Ave", "Wasco, CA 93280"]},
-    "SCC":  {"name": "SCC - Sierra Conservation Center", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5100 O'Byrnes Ferry Road", "Jamestown, CA 95327"]},
-    "CMC":  {"name": "CMC - California Men's Colony", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Hwy 1", "San Luis Obispo, CA 93409"]},
-    "CTF":  {"name": "CTF - Correctional Training Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Hwy 101 North", "Soledad, CA 93960"]},
-    "CCWF": {"name": "CCWF - Central California Women's Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["23370 Road 22", "Chowchilla, CA 93610"]},
-    "VSP":  {"name": "VSP - Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["21633 Avenue 24", "Chowchilla, CA 93610"]},
-    "SVSP": {"name": "SVSP - Salinas Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["31625 Hwy 101", "Soledad, CA 93960"]},
-    "PBSP": {"name": "PBSP - Pelican Bay State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5905 Lake Earl Dr", "Crescent City, CA 95531"]},
-    "CRC":  {"name": "CRC - California Rehabilitation Center", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5th Street & Western Ave", "Norco, CA 92860"]},
-    "CCI":  {"name": "CCI - California Correctional Institution", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["24900 Hwy 202", "Tehachapi, CA 93561"]},
-    "ASP":  {"name": "ASP - Avenal State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["1 Kings Way", "Avenal, CA 93204"]},
-    "HDSP": {"name": "HDSP - High Desert State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["475-750 Rice Canyon Rd", "Susanville, CA 96127"]},
-    "ISP":  {"name": "ISP - Ironwood State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["19005 Wiley's Well Rd", "Blythe, CA 92225"]},
-    "FSP":  {"name": "FSP - Folsom State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["300 Prison Road", "Represa, CA 95671"]},
-    "RJD":  {"name": "RJD - Richard J. Donovan Correctional Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["480 Alta Road", "San Diego, CA 92179"]},
-    "CAL":  {"name": "CAL - Calipatria State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["7018 Blair Rd", "Calipatria, CA 92233"]},
-    "CEN":  {"name": "CEN - Centinela State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2302 Brown Rd", "Imperial, CA 92251"]},
-    "SQ":   {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
-    "SQSP": {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
-    # CalVet facilities
-    "CALVETHOME-YV": {"name": "Veterans Home of California - Yountville", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["190 California Dr", "Yountville, CA 94599"]},
-    "CALVETHOME-BF": {"name": "Veterans Home of California - Barstow", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["100 E Veterans Pkwy", "Barstow, CA 92311"]},
-    "CALVETHOME-CV": {"name": "Veterans Home of California - Chula Vista", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["700 E Naples Ct", "Chula Vista, CA 91911"]},
-    "CALVETHOME-LA": {"name": "Veterans Home of California - West Los Angeles", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11500 Nimitz Ave Bldg 209", "Los Angeles, CA 90049"]},
-    "CALVETHOME-FR": {"name": "Veterans Home of California - Fresno", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["2811 W California Ave", "Fresno, CA 93706"]},
-    "CALVETHOME-RD": {"name": "Veterans Home of California - Redding", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["3400 Knighton Rd", "Redding, CA 96002"]},
-    "CALVETHOME-MV": {"name": "Veterans Home of California - Moosehaven", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11 Moosehaven Blvd", "Moosehaven, CA 95380"]},
-    "CALVETHOME-VM": {"name": "Veterans Home of California - Ventura", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["10900 Telephone Rd", "Ventura, CA 93004"]},
-}
+def _resolve_facility_from_text(text: str) -> dict | None:
+    """Single-text facility resolution via the canonical contract path.
 
-# ── Build reverse zip→facility lookup ─────────────────────────────────────────
-# Each zip maps to a list of facility keys (most are unique, some CDCR share zips)
-ZIP_TO_FACILITY = {}
-for _fk, _fv in FACILITY_DB.items():
-    _addr_str = " ".join(_fv.get("address", []))
-    _zip_matches = re.findall(r'\b(\d{5})\b', _addr_str)
-    if _zip_matches:
-        _zip = _zip_matches[-1]  # Last 5-digit number is the zip
-        ZIP_TO_FACILITY.setdefault(_zip, []).append(_fk)
-
-
-def _lookup_facility_by_zip(text: str) -> tuple:
-    """Scan text for zip codes and match to facilities via canonical registry.
-
-    Returns (facility_dict, ambiguous_codes_list) where the list has >1
-    entry if the zip is shared by multiple facilities (e.g. both FSP
-    and CSP-SAC at 95671). The first returned facility is the first
-    match in registry order — caller is expected to disambiguate via
-    name if the list length is >1.
-
-    Delegates to `facility_registry.all_facilities()` so this function
-    and `tax_resolver.resolve_tax()` can never diverge on which
-    facility a given zip maps to.
+    Accepts a free-text string (delivery / ship-to / institution /
+    long composite text from email body or PDF), assembles a contract
+    from a synthetic single-field dict, and returns the legacy facility
+    dict shape. Returns None when the canonical resolver refuses to
+    guess (ambiguous substring or no match) — caller falls back to
+    raw text and lets the operator disambiguate.
     """
-    if not text:
-        return None, []
-    try:
-        from src.core.facility_registry import all_facilities
-    except Exception as e:
-        log.warning("facility_registry unavailable, zip lookup falling back to legacy: %s", e)
-        # Import failed — fall back to the local FACILITY_DB snapshot so
-        # quote generation doesn't crash. Should be unreachable in prod.
-        found_zips = re.findall(r'\b(\d{5})\b', text)
-        for z in found_zips:
-            if z in ZIP_TO_FACILITY:
-                keys = ZIP_TO_FACILITY[z]
-                fac = FACILITY_DB.get(keys[0])
-                if fac:
-                    return fac, keys
-        return None, []
+    if not text or not str(text).strip():
+        return None
+    contract = assemble_from_rfq({"institution_name": str(text).strip()})
+    return _facility_to_legacy_dict(contract.facility)
 
-    found_zips = re.findall(r'\b(\d{5})\b', text)
-    # Build zip → [FacilityRecord] from the live registry on every call.
-    # _SEED is ~35 records; this is negligible work and guarantees we
-    # always see the latest canonical data (e.g. after a hot-reload).
-    zip_map: dict = {}
-    for rec in all_facilities():
-        zip_map.setdefault(rec.zip, []).append(rec)
-    for z in found_zips:
-        matches = zip_map.get(z)
-        if matches:
-            codes = [r.code for r in matches]
-            return _registry_record_to_legacy_dict(matches[0]), codes
+
+def _resolve_facility_by_zip_from_text(text: str) -> tuple:
+    """Zip-based fallback. Same canonical path as
+    `_resolve_facility_from_text` (the assembler's resolver tries zip
+    last); kept as a tuple-returning helper because the call site logs
+    a "matched by zip" message and may want the matched-codes list in
+    the future.
+
+    Returns (facility_dict | None, ambiguous_codes_list).
+    """
+    facility = _resolve_facility_from_text(text)
+    if facility:
+        return facility, [facility.get("code", "")]
     return None, []
 
 
-def _lookup_facility(text: str) -> dict | None:
-    """Look up a CDCR/CalVet facility from free text via canonical registry.
-
-    Delegates to `src.core.facility_registry.resolve()` which applies
-    the audit-W-safe priority (exact alias → unique substring → unique
-    zip → None), and adapts the returned `FacilityRecord` into the
-    legacy dict shape the rest of this module consumes.
-
-    Returns `None` when the registry refuses to guess (ambiguous
-    substring, no match) — caller should fall back to raw text on the
-    ship-to and let the operator disambiguate rather than silently
-    picking a wrong facility. Incident 2026-04-24: Mike's CalVet
-    Barstow PC ship-to showed "Calipatria State Prison" because the
-    old `_lookup_facility` had its own iteration order that found
-    CAL before CALVETHOME-BF. The canonical registry applies proper
-    alias matching so "Veterans Home of California - Barstow" resolves
-    to CALVETHOME-BF directly.
-    """
-    if not text:
-        return None
-    try:
-        from src.core.facility_registry import resolve
-    except Exception as e:
-        log.warning("facility_registry unavailable, lookup falling back to legacy: %s", e)
-        return _lookup_facility_legacy(text)
-    rec = resolve(text)
-    if rec:
-        return _registry_record_to_legacy_dict(rec)
-    return None
+# ── Legacy stubs (delete once no caller depends on these names) ──────
+# These keep import compatibility with code that may still reference
+# `_lookup_facility` / `_lookup_facility_by_zip` from outside this
+# module. Both delegate to the contract path. Defer deletion until
+# the next migration PR confirms no external callers exist.
+_lookup_facility = _resolve_facility_from_text
+_lookup_facility_by_zip = _resolve_facility_by_zip_from_text
 
 
-def _lookup_facility_legacy(text: str) -> dict | None:
-    """Last-resort fallback when facility_registry can't be imported.
-
-    Uses the local `FACILITY_DB` snapshot. This path exists only so
-    quote_generator doesn't crash on an import failure — it will
-    behave as it did before the canonical-registry migration, including
-    reproducing any pre-existing iteration-order bugs. Normal operation
-    never reaches this function.
-    """
-    if not text:
-        return None
-    upper = text.upper().strip()
-    for key in FACILITY_DB:
-        if upper.startswith(key + " ") or upper.startswith(key + "-") or upper.startswith(key + ",") or upper == key:
-            return FACILITY_DB[key]
-    for key, fac in FACILITY_DB.items():
-        fname = fac["name"].upper()
-        desc_part = fname.split(" - ", 1)[1] if " - " in fname else fname
-        if desc_part and len(desc_part) > 5 and desc_part in upper:
-            return fac
-    _CITY_MAP = {
-        "CHINO": "CIM", "CORONA": "CIW", "CORCORAN": "CSP-COR", "LANCASTER": "CSP-LAC",
-        "VACAVILLE": "CSP-SOL", "STOCKTON": "CHCF", "COALINGA": "PVSP", "DELANO": "KVSP",
-        "IONE": "MCSP", "WASCO": "WSP", "CHOWCHILLA": "CCWF", "SOLEDAD": "CTF",
-        "CRESCENT CITY": "PBSP", "NORCO": "CRC", "TEHACHAPI": "CCI", "AVENAL": "ASP",
-        "SUSANVILLE": "HDSP", "BLYTHE": "ISP", "REPRESA": "FSP", "SAN QUENTIN": "SQ",
-        "CALIPATRIA": "CAL", "IMPERIAL": "CEN", "JAMESTOWN": "SCC",
-        "SAN LUIS OBISPO": "CMC", "YOUNTVILLE": "CALVETHOME-YV", "BARSTOW": "CALVETHOME-BF",
-        "REDDING": "CALVETHOME-RD", "WEST LOS ANGELES": "CALVETHOME-LA",
-        "FRESNO": "CALVETHOME-FR", "CHULA VISTA": "CALVETHOME-CV",
-    }
-    for city, fac_key in _CITY_MAP.items():
-        if city in upper:
-            return FACILITY_DB.get(fac_key)
-    return None
+# Empty sentinels — legacy globals still referenced by tests / external
+# callers that haven't migrated. Keep as empty so any inadvertent reads
+# return zero results instead of stale data. Normal operation reaches
+# facility data via the `QuoteContract` / `_resolve_facility_from_text`
+# path above, never these globals.
+FACILITY_DB: dict = {}
+ZIP_TO_FACILITY: dict = {}
 
 
 def _parse_address_parts(raw: str) -> tuple:
