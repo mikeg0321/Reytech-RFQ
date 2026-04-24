@@ -352,6 +352,173 @@ def _rebid_summary(expiring_contracts):
     return {"level": "none", "label": "", "hint": ""}
 
 
+# Canonical Reytech supplier patterns — matches ingest-side filter in
+# scripts/run_scprs_harvest.py. Kept narrow to avoid dba-collision false
+# positives (see product-engineer note on canonical-identity). V2-PR-8
+# or later: promote to a canonical-supplier-id allowlist.
+_REYTECH_SUPPLIER_PATTERNS = ("reytech", "rey tech", "rey-tech")
+
+
+def _capability_credits_by_dept(conn, dept_category_map, limit_per=2,
+                                 age_months=24):
+    """Per-agency Reytech wins that credibly anchor an outreach message.
+
+    Sources from scprs_po_lines JOIN scprs_po_master with:
+      - supplier LIKE Reytech canonical patterns
+      - is_test=0 on both tables
+      - start_date within last age_months (default 24mo — credibility
+        decays fast in procurement)
+      - line_total > 0 and quantity > 0 (per-unit normalization must
+        be computable; rows that violate this aren't shippable as
+        citations per feedback_scprs_prices)
+
+    Preference order per (prospect_dept, prospect_categories):
+      1. same_dept_and_category — peer reference in the same agency
+      2. category_only          — same category, different agency
+      3. same_dept_only         — we've done business here
+
+    Returns {prospect_dept_code: [credit_dict, ...]} where each dict:
+      {po_number, item_description, credit_dept_code, credit_dept_name,
+       category, quantity, line_total, per_unit_price, won_at,
+       match_type}
+
+    Schema-tolerant: missing tables → empty dict, no crash.
+    """
+    if not dept_category_map:
+        return {}
+    from datetime import datetime, timedelta
+
+    try:
+        cutoff = (datetime.now() - timedelta(days=int(age_months * 30.5))).date().isoformat()
+        # One query for every Reytech win inside the age window across
+        # every category any prospect cares about. Python-side grouping
+        # applies the preference order.
+        categories_set = set()
+        for cats in dept_category_map.values():
+            categories_set.update(cats or [])
+        if not categories_set:
+            return {}
+        supplier_clause = " OR ".join([
+            "LOWER(p.supplier) LIKE ?" for _ in _REYTECH_SUPPLIER_PATTERNS
+        ])
+        supplier_params = [f"%{pat}%" for pat in _REYTECH_SUPPLIER_PATTERNS]
+        cat_placeholders = ",".join(["?"] * len(categories_set))
+        rows = conn.execute(f"""
+            SELECT p.po_number, p.dept_code AS credit_dept_code,
+                   p.dept_name AS credit_dept_name, p.supplier,
+                   p.start_date AS won_at,
+                   l.description, l.category, l.quantity, l.line_total,
+                   l.unit_price
+            FROM scprs_po_lines l
+            JOIN scprs_po_master p ON l.po_id = p.id
+            WHERE ({supplier_clause})
+              AND p.is_test = 0
+              AND l.is_test = 0
+              AND COALESCE(p.start_date, '') >= ?
+              AND COALESCE(l.line_total, 0) > 0
+              AND COALESCE(l.quantity, 0) > 0
+              AND COALESCE(l.category, '') IN ({cat_placeholders})
+            ORDER BY p.start_date DESC
+        """, supplier_params + [cutoff] + list(categories_set)).fetchall()
+    except Exception as _e:
+        log.debug("capability_credits query suppressed: %s", _e)
+        return {}
+
+    all_rows = [dict(r) for r in rows]
+    out = {}
+    for prospect_dc, wanted_cats in dept_category_map.items():
+        wanted_set = set(wanted_cats or [])
+        if not wanted_set:
+            out[prospect_dc] = []
+            continue
+        buckets = {
+            "same_dept_and_category": [],
+            "category_only": [],
+            "same_dept_only": [],
+        }
+        for r in all_rows:
+            cat = r.get("category") or ""
+            same_dept = (r.get("credit_dept_code") or "") == prospect_dc
+            cat_match = cat in wanted_set
+            if same_dept and cat_match:
+                mt = "same_dept_and_category"
+            elif cat_match:
+                mt = "category_only"
+            elif same_dept:
+                mt = "same_dept_only"
+            else:
+                continue
+            qty = float(r.get("quantity") or 0) or 1
+            line_total = float(r.get("line_total") or 0)
+            # Per-unit normalization — ALWAYS divide line_total by qty.
+            # SCPRS `unit_price` column is routinely a line total masquerading
+            # as a per-unit; never trust it for credibility-sensitive display.
+            per_unit = line_total / qty if qty else line_total
+            buckets[mt].append({
+                "po_number": r.get("po_number"),
+                "item_description": r.get("description"),
+                "credit_dept_code": r.get("credit_dept_code"),
+                "credit_dept_name": r.get("credit_dept_name"),
+                "category": cat,
+                "quantity": qty,
+                "line_total": round(line_total, 2),
+                "per_unit_price": round(per_unit, 2),
+                "won_at": (r.get("won_at") or "")[:10],
+                "match_type": mt,
+            })
+        # Apply preference order + limit, dedup by po_number.
+        seen = set()
+        out[prospect_dc] = []
+        for mt in ("same_dept_and_category", "category_only",
+                   "same_dept_only"):
+            for c in buckets[mt]:
+                if c["po_number"] in seen:
+                    continue
+                seen.add(c["po_number"])
+                out[prospect_dc].append(c)
+                if len(out[prospect_dc]) >= limit_per:
+                    break
+            if len(out[prospect_dc]) >= limit_per:
+                break
+    return out
+
+
+def _log_credits_shown(conn, dept_code, credits):
+    """Write one row per (prospect_dept, credit_po) render event.
+
+    Feedback signal for V2-PR-8: which credits correlate with prospects
+    that later join the RFQ distribution list? Stateless credit blocks
+    can't learn; this is the minimum write-path to enable learning.
+
+    Best-effort only — log errors but don't fail the page render.
+    """
+    if not credits:
+        return
+    try:
+        from datetime import datetime
+        now = datetime.now().isoformat(timespec="seconds")
+        conn.executemany(
+            "INSERT INTO outreach_credit_shown "
+            "(prospect_dept_code, credit_po_number, credit_dept_code, "
+            "credit_category, match_type, shown_at) VALUES (?,?,?,?,?,?)",
+            [(dept_code, c["po_number"], c.get("credit_dept_code"),
+              c.get("category"), c.get("match_type"), now)
+             for c in credits],
+        )
+    except Exception as _e:
+        log.debug("credit_shown log suppressed: %s", _e)
+
+
+def _capability_credits_enabled():
+    """Feature flag lookup. Default: ON. Flip OFF via /api/admin/flags
+    if the block surfaces a credibility problem in prod."""
+    try:
+        from src.core.flags import get_flag
+        return bool(get_flag("FEATURE_CAPABILITY_CREDITS", True))
+    except Exception:
+        return True
+
+
 def _registration_status_for_depts(conn, dept_codes):
     """Batched lookup against agency_vendor_registry.
 
@@ -543,6 +710,35 @@ def _build_card_list(limit: int = 8):
         expiring_map = _expiring_contracts_by_dept(conn, dept_codes)
         # V2-PR-2: same-shape batched lookup for registration status.
         registry_map = _registration_status_for_depts(conn, dept_codes)
+
+        # V2-PR-3: capability credits. Batched — one SQL across all
+        # prospects' categories → Reytech won quotes filtered by
+        # supplier + age + is_test + per-unit-computable constraints.
+        # Flag-gated for quick rollback if credibility issue surfaces.
+        credits_map = {}
+        if _capability_credits_enabled():
+            dept_category_map = {}
+            for p in prospects[:limit]:
+                dc = p.get("dept_code") or ""
+                # Top 3 categories for this prospect by line_total.
+                try:
+                    cat_rows = conn.execute("""
+                        SELECT l.category, SUM(l.line_total) AS total
+                        FROM scprs_po_lines l
+                        JOIN scprs_po_master pm ON l.po_id = pm.id
+                        WHERE pm.dept_code = ?
+                          AND pm.is_test = 0
+                          AND l.is_test = 0
+                          AND COALESCE(l.category, '') != ''
+                          AND l.line_total > 0
+                        GROUP BY l.category
+                        ORDER BY total DESC LIMIT 5
+                    """, (dc,)).fetchall()
+                    dept_category_map[dc] = [r["category"] for r in cat_rows]
+                except Exception as _e:
+                    log.debug("credit-categories suppressed for %s: %s", dc, _e)
+                    dept_category_map[dc] = []
+            credits_map = _capability_credits_by_dept(conn, dept_category_map)
         for p in prospects[:limit]:
             dept_code = p.get("dept_code", "")
             gaps = _top_items_for_dept(conn, dept_code, "GAP_ITEM", limit=3)
@@ -592,6 +788,13 @@ def _build_card_list(limit: int = 8):
             reg_record = registry_map.get(dept_code)
             reg_summary = _registration_summary(reg_record)
             reg_urgency = _registration_urgency(reg_summary)
+
+            # V2-PR-3: capability credits (credibility-only, no score boost).
+            capability_credits = credits_map.get(dept_code, []) or []
+            # Log render event — enables V2-PR-8 to learn which credits
+            # correlate with actual registration / RFQ outcomes.
+            if capability_credits:
+                _log_credits_shown(conn, dept_code, capability_credits)
             cards.append({
                 "dept_code": dept_code,
                 "dept_name": p.get("dept_name") or dept_code,
@@ -618,6 +821,7 @@ def _build_card_list(limit: int = 8):
                 "registration_record": reg_record or {},
                 "registration_summary": reg_summary,
                 "registration_urgency": reg_urgency,
+                "capability_credits": capability_credits,
                 "urgency_score": base_score + urgency + reg_urgency,
             })
 
