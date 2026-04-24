@@ -765,6 +765,24 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_credit_shown_po ON outreach_credit_shown(credit_po_number);
         CREATE INDEX IF NOT EXISTS idx_credit_shown_at ON outreach_credit_shown(shown_at);
     """),
+
+    (26, "reytech_certifications", """
+        CREATE TABLE IF NOT EXISTS reytech_certifications (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            cert_type    TEXT NOT NULL UNIQUE,
+            cert_number  TEXT DEFAULT '',
+            issue_date   TEXT DEFAULT '',
+            expires_at   TEXT DEFAULT '',
+            renewal_url  TEXT DEFAULT '',
+            notes        TEXT DEFAULT '',
+            is_active    INTEGER NOT NULL DEFAULT 1,
+            is_test      INTEGER NOT NULL DEFAULT 0,
+            created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_cert_active ON reytech_certifications(is_active);
+        CREATE INDEX IF NOT EXISTS idx_cert_expires ON reytech_certifications(expires_at);
+    """),
 ]
 
 

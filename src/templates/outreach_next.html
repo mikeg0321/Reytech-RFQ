@@ -35,6 +35,24 @@
 .reg-edit-panel button{padding:6px 12px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--bd);background:var(--bg2);color:var(--tx)}
 .reg-edit-panel button.primary{background:var(--ac);color:white;border-color:var(--ac)}
 .reg-edit-panel .reg-save-status{font-size:11px;color:var(--tx2);margin-left:auto}
+.cert-banner{margin-bottom:16px;padding:12px 16px;border-radius:8px;font-size:13px;cursor:pointer}
+.cert-banner:hover{filter:brightness(1.08)}
+.cert-critical{background:rgba(220,38,38,.10);border:1px solid var(--rd);color:var(--rd)}
+.cert-warn{background:rgba(217,119,6,.10);border:1px solid #D97706;color:#D97706}
+.cert-ok{background:rgba(22,163,74,.06);border:1px solid var(--gn);color:var(--gn)}
+.cert-none{background:var(--bg2);border:1px dashed var(--bd);color:var(--tx2)}
+.cert-banner .cert-label{font-weight:700;letter-spacing:.5px}
+.cert-banner .cert-hint{font-size:12px;color:var(--tx2);margin-top:4px;font-weight:400}
+.cert-edit-panel{margin-top:10px;padding:12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;display:none}
+.cert-edit-panel.open{display:block}
+.cert-edit-panel table{width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px}
+.cert-edit-panel th{padding:6px 8px;text-align:left;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--bd)}
+.cert-edit-panel td{padding:5px 8px;border-bottom:1px solid var(--bd);color:var(--tx)}
+.cert-edit-panel input{padding:4px 6px;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:3px;font-size:12px;width:100%}
+.cert-edit-panel button{padding:5px 10px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+.cert-edit-panel button.primary{background:var(--ac);color:white;border-color:var(--ac)}
+.cert-row-expired{background:rgba(220,38,38,.04)}
+.cert-row-soon{background:rgba(217,119,6,.04)}
 .capability-block{margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;background:rgba(100,116,139,.04);border-left:3px solid var(--tx2)}
 .capability-block .cap-header{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px}
 .capability-block ul.credits{list-style:none;padding:0;margin:0}
@@ -84,6 +102,47 @@
     {% endif %}
   </div>
 </div>
+
+{% set cs = (cert_status or {}).summary or {} %}
+{% if cs.get('level') and cs.get('level') != 'none' or (cert_status or {}).get('certs') is iterable and (cert_status or {}).get('certs')|length > 0 %}
+<div class="cert-banner cert-{{ cs.get('level','none') }}" onclick="toggleCertPanel(this)">
+  <div class="cert-label">
+    {% if cs.level == 'critical' %}🔴{% elif cs.level == 'warn' %}🟠{% elif cs.level == 'ok' %}🟢{% else %}⚪{% endif %}
+    Reytech certifications: {{ cs.get('label','—') }}
+    <span style="font-weight:400;font-size:12px;margin-left:8px">▾ click to view / edit</span>
+  </div>
+  {% if cs.get('hint') %}<div class="cert-hint">{{ cs.hint }}</div>{% endif %}
+</div>
+<div class="cert-edit-panel" id="certEditPanel">
+  <table>
+    <thead><tr><th>Type</th><th>Number</th><th>Issued</th><th>Expires</th><th>Renewal URL</th><th>Notes</th><th></th></tr></thead>
+    <tbody id="certRows">
+      {% for ct in (cert_status or {}).get('certs') or [] %}
+      {% set row_cls = 'cert-row-expired' if ct.get('is_expired') else ('cert-row-soon' if (ct.get('days_until_expiry') is not none and 0 <= ct.get('days_until_expiry',999) <= 60) else '') %}
+      <tr class="{{ row_cls }}" data-cert-type="{{ ct.cert_type }}">
+        <td><b>{{ ct.cert_type }}</b></td>
+        <td><input type="text" data-field="cert_number" value="{{ ct.get('cert_number','') }}" placeholder="cert #"></td>
+        <td><input type="text" data-field="issue_date" value="{{ ct.get('issue_date','')[:10] }}" placeholder="YYYY-MM-DD"></td>
+        <td><input type="text" data-field="expires_at" value="{{ ct.get('expires_at','')[:10] }}" placeholder="YYYY-MM-DD"></td>
+        <td><input type="url" data-field="renewal_url" value="{{ ct.get('renewal_url','') }}" placeholder="https://"></td>
+        <td><input type="text" data-field="notes" value="{{ ct.get('notes','') }}"></td>
+        <td><button class="primary" onclick="saveCertRow(this)">💾</button></td>
+      </tr>
+      {% endfor %}
+      <tr id="certNewRow">
+        <td><input type="text" data-field="cert_type" placeholder="SB / DVBE / OSDS"></td>
+        <td><input type="text" data-field="cert_number" placeholder="cert #"></td>
+        <td><input type="text" data-field="issue_date" placeholder="YYYY-MM-DD"></td>
+        <td><input type="text" data-field="expires_at" placeholder="YYYY-MM-DD"></td>
+        <td><input type="url" data-field="renewal_url" placeholder="https://"></td>
+        <td><input type="text" data-field="notes"></td>
+        <td><button class="primary" onclick="addCertRow(this)">＋ Add</button></td>
+      </tr>
+    </tbody>
+  </table>
+  <span style="font-size:11px;color:var(--tx2)" id="certSaveStatus"></span>
+</div>
+{% endif %}
 
 {% if error %}
 <div style="background:rgba(220,38,38,.08);border:1px solid var(--rd);border-radius:10px;padding:14px 18px;margin-bottom:16px">
@@ -313,6 +372,69 @@ function escapeHtml(s) {
 function toggleRegEdit(pill) {
   var panel = pill.closest('.card').querySelector('.reg-edit-panel');
   if (panel) panel.classList.toggle('open');
+}
+
+function toggleCertPanel(banner) {
+  var panel = document.getElementById('certEditPanel');
+  if (panel) panel.classList.toggle('open');
+}
+
+function _certRowPayload(row) {
+  var data = {};
+  row.querySelectorAll('input[data-field]').forEach(function (el) {
+    data[el.dataset.field] = el.value.trim();
+  });
+  return data;
+}
+
+async function _postCert(payload, statusEl) {
+  statusEl.textContent = 'Saving…';
+  statusEl.style.color = 'var(--tx2)';
+  try {
+    var r = await fetch('/api/outreach/next/cert', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload),
+    });
+    var data = await r.json();
+    if (!data.ok) {
+      statusEl.textContent = '⚠ ' + (data.error || 'save failed');
+      statusEl.style.color = 'var(--rd)';
+      return false;
+    }
+    statusEl.textContent = '✓ saved — reloading';
+    statusEl.style.color = 'var(--gn)';
+    setTimeout(function () { location.reload(); }, 500);
+    return true;
+  } catch (e) {
+    statusEl.textContent = '⚠ network error';
+    statusEl.style.color = 'var(--rd)';
+    return false;
+  }
+}
+
+async function saveCertRow(btn) {
+  var row = btn.closest('tr');
+  var certType = row.dataset.certType;
+  var payload = _certRowPayload(row);
+  payload.cert_type = certType;
+  btn.disabled = true;
+  await _postCert(payload, document.getElementById('certSaveStatus'));
+  btn.disabled = false;
+}
+
+async function addCertRow(btn) {
+  var row = btn.closest('tr');
+  var payload = _certRowPayload(row);
+  if (!payload.cert_type) {
+    document.getElementById('certSaveStatus').textContent =
+      '⚠ cert_type required';
+    document.getElementById('certSaveStatus').style.color = 'var(--rd)';
+    return;
+  }
+  btn.disabled = true;
+  await _postCert(payload, document.getElementById('certSaveStatus'));
+  btn.disabled = false;
 }
 
 async function saveRegistration(btn) {
