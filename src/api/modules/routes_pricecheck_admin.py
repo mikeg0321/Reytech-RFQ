@@ -3101,6 +3101,12 @@ def api_pc_quote_analysis(pcid):
                 "samples": market.get("samples", []),
                 "qty_band_downweighted": market.get("qty_band_downweighted", 0),
                 "target_quantity": qty,
+                # Match-precision telemetry: was the partition active,
+                # how many MFG#-anchored rows survived poison-pill, did
+                # the brand detector fire? Drives the drill-down header.
+                "mfg_partition_active": market.get("mfg_partition_active", False),
+                "mfg_anchored_count": market.get("mfg_anchored_count", 0),
+                "brand_detected": market.get("brand_detected", False),
             })
 
         total_items = len(analysis_items)

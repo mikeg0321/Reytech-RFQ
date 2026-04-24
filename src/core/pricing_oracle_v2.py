@@ -106,8 +106,17 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     # Pass `target_quantity=quantity` so the aggregator can downweight
     # rows whose own qty differs by more than 10x — state buyers get
     # bulk pricing on qty=500 that doesn't apply to a 2-unit RFQ.
+    # Pass `target_description=description` so the MFG# poison-pill
+    # guard can demote mis-keyed `item_number` rows whose description
+    # bears no resemblance to what we're pricing.
+    # Pass `target_token_groups` so the aggregator can compute
+    # `brand_anchored` per row (does the row's description actually
+    # contain the brand token, or did it match on generic nouns only?).
+    target_token_groups = _tokenize(description)
     result["market"] = _analyze_market_prices(market_prices, quantity,
-                                              target_quantity=quantity)
+                                              target_quantity=quantity,
+                                              target_description=description,
+                                              target_token_groups=target_token_groups)
 
     # Step 5: Competitors (BUILD-8: scoped to the quoting agency first,
     # falls back to global when the per-agency slice is too thin).
@@ -282,7 +291,15 @@ def _scprs_per_unit(price, qty):
 
 def _search_won_quotes(db, description, item_number=""):
     """Search won_quotes KB — SCPRS competitors' winning prices.
-    This is the richest data source: actual prices that won contracts."""
+    This is the richest data source: actual prices that won contracts.
+
+    Each returned row carries `match_basis: "mfg_number" | "description"`
+    based on whether it was pulled in by the MFG# OR clause or by the
+    AND'd description tokens. The aggregator uses this to honor
+    `feedback_match_identifiers_first`: when ≥2 MFG#-anchored rows
+    exist (and they pass the description-similarity poison-pill guard),
+    the average is computed from MFG# rows only.
+    """
     prices = []
     try:
         token_groups = _tokenize(description)[:4]
@@ -299,12 +316,20 @@ def _search_won_quotes(db, description, item_number=""):
                 where_parts.append(f"({or_clause})")
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
+        # Tag mfg_hit at SQL level so the aggregator never has to infer
+        # post-hoc whether a row came from the MFG# branch or the
+        # description branch.
+        select_mfg = "0 AS mfg_hit"
         if item_number:
+            item_lc = item_number.lower()
             where = f"({where}) OR LOWER(item_number) = ?"
-            params.append(item_number.lower())
+            params.append(item_lc)
+            select_mfg = "(CASE WHEN LOWER(item_number) = ? THEN 1 ELSE 0 END) AS mfg_hit"
+            params = [item_lc] + params
         rows = db.execute(f"""
             SELECT description, unit_price, quantity, supplier, department,
-                   award_date, category, confidence, po_number
+                   award_date, category, confidence, po_number,
+                   {select_mfg}
             FROM won_quotes WHERE {where} ORDER BY award_date DESC LIMIT 20
         """, params).fetchall()
         for r in rows:
@@ -318,6 +343,7 @@ def _search_won_quotes(db, description, item_number=""):
                                "supplier": r[3] or "", "department": r[4] or "",
                                "date": r[5] or "",
                                "po_number": r[8] or "",
+                               "match_basis": "mfg_number" if r[9] else "description",
                                "source": "won_quotes",
                                "is_reytech": "REYTECH" in (r[3] or "").upper()})
     except Exception as e:
@@ -349,12 +375,17 @@ def _search_winning_prices(db, description, item_number=""):
                 where_parts.append(f"({or_clause})")
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
+        select_mfg = "0 AS mfg_hit"
         if item_number:
+            item_lc = item_number.lower()
             where = f"({where}) OR LOWER(part_number) = ?"
-            params.append(item_number.lower())
+            params.append(item_lc)
+            select_mfg = "(CASE WHEN LOWER(part_number) = ? THEN 1 ELSE 0 END) AS mfg_hit"
+            params = [item_lc] + params
         rows = db.execute(f"""
             SELECT description, sell_price, qty, supplier, agency,
-                   recorded_at, cost, margin_pct
+                   recorded_at, cost, margin_pct,
+                   {select_mfg}
             FROM winning_prices WHERE {where} ORDER BY recorded_at DESC LIMIT 15
         """, params).fetchall()
         for r in rows:
@@ -367,6 +398,7 @@ def _search_winning_prices(db, description, item_number=""):
                                "supplier": r[3] or "", "department": r[4] or "",
                                "date": r[5] or "", "cost": r[6] or 0,
                                "margin": r[7] or 0, "source": "winning_prices",
+                               "match_basis": "mfg_number" if r[8] else "description",
                                "is_reytech": True})
     except Exception as e:
         _record_skip(SkipReason(
@@ -395,12 +427,17 @@ def _search_scprs_catalog(db, description, item_number=""):
                 where_parts.append(f"({or_clause})")
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
+        select_mfg = "0 AS mfg_hit"
         if item_number:
+            item_lc = item_number.lower()
             where = f"({where}) OR LOWER(mfg_number) = ?"
-            params.append(item_number.lower())
+            params.append(item_lc)
+            select_mfg = "(CASE WHEN LOWER(mfg_number) = ? THEN 1 ELSE 0 END) AS mfg_hit"
+            params = [item_lc] + params
         rows = db.execute(f"""
             SELECT description, last_unit_price, last_quantity, last_uom,
-                   last_supplier, last_department, last_date, times_seen
+                   last_supplier, last_department, last_date, times_seen,
+                   {select_mfg}
             FROM scprs_catalog WHERE {where} ORDER BY times_seen DESC LIMIT 20
         """, params).fetchall()
         for r in rows:
@@ -411,6 +448,7 @@ def _search_scprs_catalog(db, description, item_number=""):
                 prices.append({"price": per_unit, "description": r[0], "quantity": qty,
                                "uom": r[3] or "", "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "source": "scprs_catalog",
+                               "match_basis": "mfg_number" if r[8] else "description",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
     except Exception as e:
         _record_skip(SkipReason(
@@ -423,6 +461,14 @@ def _search_scprs_catalog(db, description, item_number=""):
 
 
 def _search_po_lines(db, description, item_number=""):
+    """Search scprs_po_lines — line-item history from SCPRS POs.
+
+    Adds the MFG# branch via `LOWER(l.item_id) = ?` (the largest comp
+    pool was previously description-only, so MFG#-first weighting in
+    the aggregator had no signal here). `match_basis` tags every row
+    so the partition logic in `_analyze_market_prices` can honor
+    `feedback_match_identifiers_first`.
+    """
     prices = []
     try:
         token_groups = _tokenize(description)[:3]
@@ -439,10 +485,18 @@ def _search_po_lines(db, description, item_number=""):
                 where_parts.append(f"({or_clause})")
                 params.extend([f"%{v}%" for v in group])
         where = " AND ".join(where_parts)
+        select_mfg = "0 AS mfg_hit"
+        if item_number:
+            item_lc = item_number.lower()
+            where = f"({where}) OR LOWER(l.item_id) = ?"
+            params.append(item_lc)
+            select_mfg = "(CASE WHEN LOWER(l.item_id) = ? THEN 1 ELSE 0 END) AS mfg_hit"
+            params = [item_lc] + params
         rows = db.execute(f"""
             SELECT l.description, l.unit_price, l.quantity, l.uom,
                    m.supplier, m.dept_name, m.start_date, m.buyer_email,
-                   l.po_number
+                   l.po_number,
+                   {select_mfg}
             FROM scprs_po_lines l JOIN scprs_po_master m ON l.po_number=m.po_number
             WHERE {where} ORDER BY m.start_date DESC LIMIT 25
         """, params).fetchall()
@@ -460,6 +514,7 @@ def _search_po_lines(db, description, item_number=""):
                                "supplier": r[4] or "", "department": r[5] or "",
                                "date": r[6] or "", "buyer_email": r[7] or "",
                                "po_number": r[8] or "",
+                               "match_basis": "mfg_number" if r[9] else "description",
                                "source": "scprs_po_lines",
                                "is_reytech": "REYTECH" in (r[4] or "").upper()})
     except Exception as e:
@@ -540,7 +595,8 @@ def _normalize_to_per_unit(price, description, quantity=1, uom=""):
             "detected": detected, "original_price": price}
 
 
-def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
+def _analyze_market_prices(market_prices, request_qty, target_quantity=None,
+                           target_description="", target_token_groups=None):
     """Time-weighted market analysis with proper UOM normalization.
 
     target_quantity (optional): the quote line's quantity. When provided,
@@ -548,11 +604,26 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
     downweighted (×0.2) and tagged `qty_band_match=False` — they remain
     visible as reference data but no longer dominate the average.
 
+    target_description (optional): the quote line's description. Used
+    for the **MFG# poison-pill guard**: rows pulled in by the MFG# OR
+    branch in the search functions get demoted from `match_basis=
+    "mfg_number"` to `"description"` when their description has
+    SequenceMatcher similarity < 0.4 against the target. This guards
+    against a single mis-keyed `item_number` becoming a price anchor.
+
+    **MFG# partition** (flag-gated by `oracle.mfg_first_partition`,
+    default off): when ≥2 rows survive as `match_basis="mfg_number"`,
+    the SCPRS Avg / Comp Low are computed from MFG#-anchored rows only;
+    description-only rows remain visible in `samples` but stop driving
+    the average. Honors `feedback_match_identifiers_first`.
+
     Returns the same shape as before plus:
       - `samples`: top 10 contributing rows (sorted by weight desc) with
-        full source detail (po_number, description, supplier, date, qty,
-        unit_price, weight, qty_band_match, source).
+        full source detail including `match_basis` and `qty_band_match`.
       - `qty_band_downweighted`: count of rows downweighted by qty band.
+      - `mfg_partition_active`: True when partition fired.
+      - `mfg_anchored_count`: surviving MFG#-tagged row count after the
+        poison-pill demotion.
     """
     if not market_prices:
         return {"data_points": 0, "freshness": "none", "samples": []}
@@ -561,6 +632,15 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
         target_q = float(target_quantity) if target_quantity is not None else None
     except (TypeError, ValueError):
         target_q = None
+    # Brand-anchor signal: detect once per call. If the source desc has
+    # a real brand token (capitalized + not a generic stop-noun),
+    # tag every row with whether its own description contains the
+    # brand. Operator filters mental model: brand-anchored vs not.
+    brand_detected = bool(target_token_groups) and _detect_brand_token(
+        target_description, target_token_groups)
+    brand_tokens_lower = []
+    if brand_detected and target_token_groups:
+        brand_tokens_lower = [t.lower() for t in (target_token_groups[0] or [])]
     weighted = []
     qty_band_downweighted = 0
     for mp in market_prices:
@@ -611,6 +691,34 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
                     qty_band_downweighted += 1
                 else:
                     qty_band_match = True
+        # MFG# poison-pill guard: a row tagged match_basis="mfg_number"
+        # by the search function got there via `OR LOWER(item_number)=?`,
+        # which short-circuits the AND'd description tokens. If the
+        # row's description doesn't actually resemble the target, the
+        # MFG# is likely mis-keyed in source data — demote to
+        # "description" so the partition doesn't anchor on a poison
+        # pill. Threshold 0.4 lets through normal abbreviation drift
+        # ("Wrist Strap, 6 in" vs "wrist strap 6in 1pr") while
+        # rejecting unrelated products.
+        match_basis = mp.get("match_basis", "description")
+        if match_basis == "mfg_number" and target_description:
+            try:
+                sim = SequenceMatcher(
+                    None,
+                    (target_description or "").lower(),
+                    (mp.get("description") or "").lower(),
+                ).ratio()
+            except Exception:
+                sim = 0.0
+            if sim < 0.4:
+                match_basis = "description"
+        # brand_anchored: True only when the row's own description
+        # contains a brand token. brand_detected==False (generic
+        # description) → brand_anchored is None (not applicable).
+        brand_anchored = None
+        if brand_detected:
+            row_desc_lower = (mp.get("description") or "").lower()
+            brand_anchored = any(t in row_desc_lower for t in brand_tokens_lower)
         weighted.append({"price": per_unit, "raw_price": price,
                          "total_units": norm["total_units"], "pack_detected": norm["detected"],
                          "weight": round(weight, 4), "supplier": mp.get("supplier", ""),
@@ -621,7 +729,9 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
                          "quantity": mp.get("quantity", 1),
                          "uom": mp.get("uom", ""),
                          "department": mp.get("department", ""),
-                         "qty_band_match": qty_band_match})
+                         "qty_band_match": qty_band_match,
+                         "match_basis": match_basis,
+                         "brand_anchored": brand_anchored})
 
     # Outlier removal: median-based clustering
     # Problem: $652/case and $8/box are in different UOMs.
@@ -641,10 +751,28 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
 
     if not weighted:
         return {"data_points": 0, "freshness": "none"}
-    total_w = sum(w["weight"] for w in weighted)
-    wavg = sum(w["price"] * w["weight"] for w in weighted) / total_w if total_w > 0 else 0
-    reytech = [w for w in weighted if w["is_reytech"]]
-    comps = [w for w in weighted if not w["is_reytech"]]
+    # MFG# partition: when ≥2 surviving MFG#-anchored rows exist AND
+    # the flag is on, restrict the average + competitor breakdown to
+    # MFG#-only. Description-only rows stay visible in `samples` so
+    # the operator sees the broader-market context but isn't being
+    # quoted off it.
+    mfg_rows = [w for w in weighted if w.get("match_basis") == "mfg_number"]
+    mfg_anchored_count = len(mfg_rows)
+    mfg_partition_active = False
+    try:
+        from src.core.flags import get_flag
+        _partition_flag = bool(get_flag("oracle.mfg_first_partition", False))
+    except Exception:
+        _partition_flag = False
+    if _partition_flag and mfg_anchored_count >= 2:
+        agg_pool = mfg_rows
+        mfg_partition_active = True
+    else:
+        agg_pool = weighted
+    total_w = sum(w["weight"] for w in agg_pool)
+    wavg = sum(w["price"] * w["weight"] for w in agg_pool) / total_w if total_w > 0 else 0
+    reytech = [w for w in agg_pool if w["is_reytech"]]
+    comps = [w for w in agg_pool if not w["is_reytech"]]
     rt_wavg = None
     if reytech:
         rt_w = sum(w["weight"] for w in reytech)
@@ -678,6 +806,8 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
         "date": s.get("date", ""),
         "weight": s["weight"],
         "qty_band_match": s.get("qty_band_match"),
+        "match_basis": s.get("match_basis", "description"),
+        "brand_anchored": s.get("brand_anchored"),
         "is_reytech": s.get("is_reytech", False),
         "pack_detected": s.get("pack_detected", ""),
     } for s in samples]
@@ -694,6 +824,9 @@ def _analyze_market_prices(market_prices, request_qty, target_quantity=None):
         "samples": samples_out,
         "qty_band_downweighted": qty_band_downweighted,
         "target_quantity": target_q,
+        "mfg_anchored_count": mfg_anchored_count,
+        "mfg_partition_active": mfg_partition_active,
+        "brand_detected": brand_detected,
     }
 
 
@@ -1185,6 +1318,55 @@ def _get_cross_sell(db, description):
         return [{"description": r[0][:100], "co_occurrence": r[1]} for r in rows]
     except Exception:
         return []
+
+
+# Generic product nouns that look like brands but aren't — never let
+# these anchor a comp set. From the 2026-04-23 product-engineer review:
+# "first token = brand" was naive for ~half the catalog.
+_BRAND_STOP_NOUNS = {
+    "cane", "strap", "glove", "gloves", "wheel", "lock", "locks",
+    "tip", "tips", "pad", "pads", "armrest", "wrist", "ankle",
+    "bandage", "gauze", "tape", "swab", "syringe", "needle",
+    "mask", "gown", "wipe", "wipes", "tissue", "towel", "towels",
+    "bag", "bags", "cup", "cups", "bottle", "bottles", "container",
+    "sport", "medical", "universal", "sterile", "exam", "safety",
+    "new", "solutions", "anti", "back", "front", "left", "right",
+    "small", "medium", "large", "extra", "fixed", "adjustable",
+    "replacement", "spare", "kit", "set", "pair", "single",
+    "wheelchair", "patient", "hospital",
+}
+
+
+def _detect_brand_token(source_description: str, token_groups: list) -> bool:
+    """Return True when the first token group looks like a real brand.
+
+    Per 2026-04-23 product-engineer review: "first token = brand" was
+    silently wrong for catalog entries like "Quad Cane Tips" or "Wrist
+    Strap 6 in". Detect a real brand by:
+      (a) the token appears capitalized in the SOURCE description
+          (i.e. the buyer wrote "Stanley", not "wrist"); AND
+      (b) the lowercase token is not in `_BRAND_STOP_NOUNS` (the
+          generic-product-noun stop list).
+
+    When False, callers can choose to skip brand-AND enforcement and
+    surface that to the operator via `brand_anchored=False` on samples.
+    """
+    if not source_description or not token_groups:
+        return False
+    first_group = token_groups[0]
+    if not first_group:
+        return False
+    src = source_description or ""
+    for tok in first_group:
+        if tok in _BRAND_STOP_NOUNS:
+            return False
+        # Capitalized somewhere in the source: "Stanley" / "STANLEY"
+        # but NOT bare lowercase "stanley" inside a sentence.
+        for m in re.finditer(re.escape(tok), src, re.IGNORECASE):
+            chunk = src[m.start():m.end()]
+            if chunk and (chunk[0].isupper() or chunk.isupper()):
+                return True
+    return False
 
 
 def _tokenize(text):
