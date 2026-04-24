@@ -5251,6 +5251,7 @@ _ROUTE_MODULES = [
     "routes_intel",            # SCPRS, CCHCS, vendors, funnel, forecasting
     "routes_intel_ops",        # Operations, admin, test mode, scheduler, pipeline API (split from routes_intel)
     "routes_growth_prospects",  # Growth strategy, prospect management, campaigns (split from routes_intel)
+    "routes_outreach_next",    # Contact Today decision card: /outreach/next + /api/outreach/next/draft
     "routes_orders_full",      # Orders, supplier lookup, quote-order link, invoice
     "routes_voice_contacts",   # Intelligence page, voice, contacts, campaigns
     "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit

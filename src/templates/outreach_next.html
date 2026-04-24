@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Contact Today — Reytech{% endblock %}
+
+{% block content %}
+
+<style>
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:16px;margin-bottom:12px}
+.score-pill{display:inline-block;padding:3px 10px;border-radius:14px;font-size:12px;font-weight:700;letter-spacing:.5px}
+.bd-row{padding:5px 0;font-size:13px;color:var(--tx2);display:flex;gap:8px;align-items:baseline}
+.bd-row b{color:var(--tx);font-weight:600;min-width:90px}
+.contact-line{display:flex;gap:14px;font-size:13px;color:var(--tx2);align-items:center;flex-wrap:wrap}
+.contact-line a{color:var(--ac);text-decoration:none}
+.contact-line a:hover{text-decoration:underline}
+.why-block{background:rgba(37,99,235,.05);border-left:3px solid var(--ac);padding:8px 12px;margin:10px 0;border-radius:0 4px 4px 0;font-size:13px;line-height:1.5}
+.why-block .why-line{margin-bottom:4px}
+.draft-row{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.draft-row button{padding:7px 14px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+.draft-row button.primary{background:var(--ac);color:white;border-color:var(--ac)}
+.draft-row button:hover{filter:brightness(1.1)}
+.existing-draft{background:rgba(217,119,6,.08);border:1px solid #D97706;padding:6px 10px;border-radius:4px;font-size:12px;color:#D97706}
+.existing-draft a{color:#D97706;text-decoration:underline;font-weight:600}
+.draft-preview{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:14px;margin-top:10px;font-family:ui-monospace,monospace;font-size:13px;white-space:pre-wrap;line-height:1.5;max-height:480px;overflow-y:auto;display:none}
+.draft-preview.visible{display:block}
+.draft-preview .subject{font-weight:700;color:var(--tx);font-family:inherit;margin-bottom:8px;font-size:14px}
+.tiny{font-size:12px;color:var(--tx2)}
+.items-list{list-style:none;padding:0;margin:6px 0 0 0;font-size:12px;color:var(--tx2)}
+.items-list li{padding:2px 0}
+.items-list li::before{content:"– ";color:var(--bd)}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700;margin:0">📞 Contact Today</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px;max-width:680px">
+      Top {{ cards|length }} prospects ranked by SCPRS score. Each card shows the concrete reason to reach out (gap + win-back items they're buying) and a 1-click draft. Pick the angle that fits, click draft, then send.
+    </p>
+  </div>
+  <div class="tiny" style="text-align:right">
+    {% if summary %}
+      <div><b style="color:var(--tx)">{{ summary.get('new_prospects', 0) }}</b> new · <b style="color:var(--tx)">{{ summary.get('recently_contacted', 0) }}</b> recent · <b style="color:var(--tx)">{{ summary.get('existing_customers', 0) }}</b> existing</div>
+      <div style="margin-top:4px">Total opportunity: <b style="color:var(--gn)">${{ "{:,.0f}".format(summary.get('total_opportunity', 0)) }}</b></div>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}
+<div style="background:rgba(220,38,38,.08);border:1px solid var(--rd);border-radius:10px;padding:14px 18px;margin-bottom:16px">
+  <div style="font-weight:700;color:var(--rd);margin-bottom:6px">⚠ Could not load prospects</div>
+  <div class="tiny" style="font-family:ui-monospace,monospace;word-break:break-all">{{ error }}</div>
+  <div class="tiny" style="margin-top:6px">Check Railway logs. SCPRS data may be empty — try Pull P0 on /intel/scprs.</div>
+</div>
+{% endif %}
+
+{% if not cards and not error %}
+<div style="background:rgba(37,99,235,.08);border:1px solid var(--ac);border-radius:10px;padding:16px 20px">
+  <div style="font-weight:700;color:var(--ac)">No prospects scored yet</div>
+  <div class="tiny" style="margin-top:4px">Need SCPRS data to score prospects. Run <a href="/intel/scprs" style="color:var(--ac)">Pull P0 on /intel/scprs</a> first.</div>
+</div>
+{% endif %}
+
+{% set rel_color = {"new_prospect": "var(--gn)", "recently_contacted": "#D97706", "existing_customer": "var(--tx2)"} %}
+{% set rel_label = {"new_prospect": "NEW", "recently_contacted": "RECENT", "existing_customer": "EXISTING"} %}
+
+{% for c in cards %}
+{% set rel = c.get('relationship', 'new_prospect') %}
+{% set primary = c.get('primary_contact') or {} %}
+<div class="card" data-dept="{{ c.dept_code }}" data-email="{{ primary.get('email', '') }}">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:6px">
+    <div>
+      <div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">
+        <span style="font-size:16px;font-weight:700">{{ c.dept_name|default(c.dept_code) }}</span>
+        <span class="score-pill" style="background:{{ rel_color.get(rel, 'var(--ac)') }};color:white">{{ rel_label.get(rel, 'NEW') }}</span>
+        <span class="tiny">dept_code <code>{{ c.dept_code }}</code>{% if c.agency_code and c.agency_code != c.dept_code %} · agency <code>{{ c.agency_code }}</code>{% endif %}</span>
+      </div>
+      {% if primary %}
+      <div class="contact-line" style="margin-top:6px">
+        <span><b style="color:var(--tx)">{{ primary.get('name') or 'Unknown buyer' }}</b></span>
+        {% if primary.get('email') %}<span>📧 <a href="mailto:{{ primary.email }}">{{ primary.email }}</a></span>{% endif %}
+        {% if primary.get('phone') %}<span>📞 {{ primary.phone }}</span>{% endif %}
+        {% if primary.get('po_count') %}<span class="tiny">{{ primary.po_count }} POs as buyer</span>{% endif %}
+      </div>
+      {% else %}
+      <div class="tiny" style="margin-top:6px;color:var(--rd)">⚠ No buyer contact captured for this dept — pull more SCPRS data or add via /contacts</div>
+      {% endif %}
+    </div>
+    <div style="text-align:right;flex-shrink:0">
+      <div style="font-size:28px;font-weight:800;color:var(--ac);line-height:1">{{ c.score }}</div>
+      <div class="tiny">score</div>
+    </div>
+  </div>
+
+  <div class="why-block">
+    {% for line in c.why_lines %}<div class="why-line">{{ line }}</div>{% endfor %}
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px">
+    <div>
+      <div class="tiny" style="font-weight:700;text-transform:uppercase;letter-spacing:.5px">Win-Back items (we sell these)</div>
+      {% if c.win_back_items %}
+        <ul class="items-list">
+          {% for w in c.win_back_items %}
+          <li>{{ w.description[:55] }} — <span style="color:var(--gn)">${{ "{:,.0f}".format(w.total_spend or 0) }}</span> via <span style="color:var(--rd)">{{ (w.last_supplier or '?')[:24] }}</span></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="tiny" style="margin-top:6px;color:var(--tx2)">no win-back items</div>
+      {% endif %}
+    </div>
+    <div>
+      <div class="tiny" style="font-weight:700;text-transform:uppercase;letter-spacing:.5px">Gap items (we don't carry yet)</div>
+      {% if c.gap_items %}
+        <ul class="items-list">
+          {% for g in c.gap_items %}
+          <li>{{ g.description[:55] }} — <span style="color:var(--rd)">${{ "{:,.0f}".format(g.total_spend or 0) }}</span></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <div class="tiny" style="margin-top:6px;color:var(--tx2)">no gap items</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="bd-row" style="margin-top:10px">
+    <b>Score breakdown</b>
+    <span>volume {{ c.score_breakdown.get('volume', 0) }}</span>·
+    <span>recency {{ c.score_breakdown.get('recency', 0) }}</span>·
+    <span>match {{ c.score_breakdown.get('match', 0) }}</span>·
+    <span>gap {{ c.score_breakdown.get('gap', 0) }}</span>
+    <span class="tiny" style="margin-left:auto">{{ c.po_count }} POs · ${{ "{:,.0f}".format(c.total_spend or 0) }} 1y spend · last {{ (c.last_po_date or '?')[:10] }}</span>
+  </div>
+
+  {% if c.existing_drafts %}
+  <div class="existing-draft" style="margin-top:10px">
+    ⚠ {{ c.existing_drafts|length }} existing draft{{ '' if c.existing_drafts|length == 1 else 's' }} for {{ primary.email }} —
+    <a href="/outbox?recipient={{ primary.email }}">review in outbox</a> before generating another.
+  </div>
+  {% endif %}
+
+  {% if primary and primary.get('email') %}
+  <div class="draft-row">
+    <button class="primary" onclick="genDraft(this, 'A')">📝 Draft (price hook)</button>
+    <button onclick="genDraft(this, 'B')">📝 Draft (relationship)</button>
+    <a class="tiny" href="/contacts?q={{ primary.email }}" style="margin-left:auto;color:var(--ac)">view contact →</a>
+  </div>
+  <div class="draft-preview" id="draft-{{ loop.index }}"></div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<script>
+async function genDraft(btn, strategy) {
+  const card = btn.closest('.card');
+  const email = card.dataset.email;
+  const preview = card.querySelector('.draft-preview');
+  const original = btn.textContent;
+  btn.textContent = '⏳ Generating…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/outreach/next/draft', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      credentials: 'same-origin',
+      body: JSON.stringify({buyer_email: email, strategy: strategy}),
+    });
+    const data = await r.json();
+    if (!data.ok) {
+      preview.innerHTML = '<div style="color:var(--rd)">⚠ ' + (data.error || 'failed') + '</div>';
+      preview.classList.add('visible');
+      return;
+    }
+    const d = data.draft || {};
+    const subject = d.subject || '(no subject)';
+    const greeting = d.greeting || '';
+    const body = d.body || '';
+    preview.innerHTML =
+      '<div class="subject">Subject: ' + escapeHtml(subject) + '</div>' +
+      '<div>' + escapeHtml(greeting) + '\n\n' + escapeHtml(body) + '</div>';
+    preview.classList.add('visible');
+  } catch (e) {
+    preview.innerHTML = '<div style="color:var(--rd)">⚠ network error: ' + e + '</div>';
+    preview.classList.add('visible');
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
+  }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+
+{% endblock %}
