@@ -53,6 +53,14 @@
 .cert-edit-panel button.primary{background:var(--ac);color:white;border-color:var(--ac)}
 .cert-row-expired{background:rgba(220,38,38,.04)}
 .cert-row-soon{background:rgba(217,119,6,.04)}
+.bid-memory-block{margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;background:rgba(37,99,235,.04);border-left:3px solid var(--ac)}
+.bid-memory-block .bm-header{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px}
+.bid-memory-block ul.bids{list-style:none;padding:0;margin:0}
+.bid-memory-block ul.bids li{padding:2px 0;color:var(--tx);font-size:12px;line-height:1.45}
+.bid-memory-block .bm-meta{color:var(--tx2);font-size:11px}
+.bm-outcome-lost{color:var(--rd)}
+.bm-outcome-won{color:var(--gn)}
+.bm-outcome-pending{color:#D97706}
 .capability-block{margin:10px 0;padding:8px 12px;border-radius:6px;font-size:12px;background:rgba(100,116,139,.04);border-left:3px solid var(--tx2)}
 .capability-block .cap-header{font-size:11px;font-weight:700;letter-spacing:.5px;color:var(--tx2);text-transform:uppercase;margin-bottom:4px}
 .capability-block ul.credits{list-style:none;padding:0;margin:0}
@@ -250,6 +258,22 @@
   <div class="why-block">
     {% for line in c.why_lines %}<div class="why-line">{{ line }}</div>{% endfor %}
   </div>
+
+  {% if c.bid_memory_lines %}
+  <div class="bid-memory-block">
+    <div class="bm-header">🧠 Bid history at this agency
+      {% if c.bid_memory_urgency and c.bid_memory_urgency > 0 %}<span style="color:var(--ac);margin-left:4px">+{{ c.bid_memory_urgency }} urgency</span>{% endif %}
+    </div>
+    <ul class="bids">
+      {% for bm in c.bid_memory_lines %}
+      <li class="bm-outcome-{{ bm.outcome }}">
+        {{ bm.label }}
+        {% if bm.contract_end_date %}<span class="bm-meta"> · their contract ends {{ bm.contract_end_date[:10] }}</span>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   {% if c.capability_credits %}
   <div class="capability-block">

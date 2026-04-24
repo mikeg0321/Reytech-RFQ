@@ -171,7 +171,7 @@ Ordered by "moves the RFQ-inclusion needle fastest":
 - **V2-PR-2: `agency_vendor_registry` table + registration-status badge.** SMALL. New table, minimal UI. Operator fills in known registrations manually at first.
 - **V2-PR-3: Capability-credit assembler.** SMALL. Joins `won_quotes_kb` to each card's agency + category. One-liner per card.
 - **V2-PR-4: Cert-expiry watchdog.** SMALL. New `reytech_certifications` table + daily check + card badge.
-- **V2-PR-5: Fiscal-cadence predictor.** MEDIUM. Histogram over `scprs_po_master.start_date`; surfaces "next RFQ in ~N days" per (agency, category).
+- **V2-PR-5: Fiscal-cadence predictor.** **DEFERRED 2026-04-24** per pre-build product-engineer review. Three structural issues block: (1) 7-week SCPRS history is too thin for 60-180d cadence prediction — most predictions land at low-confidence suppressed → invisible block; (2) `start_date` is award date not RFQ-post date — cadence labels would mislead; (3) no prediction writeback = "metric theater" without backtest. Revisit when SCPRS history >6 months AND with persistence/backtest infra (cadence_predictions table + Day-30 backtest endpoint) baked in.
 - **V2-PR-6: `bid_memory` + rebid-window memo generator.** MEDIUM. New table, post-RFQ logging, standard-template generator.
 - **V2-PR-7: Registration-gap agent — auto-detect where we SHOULD be registered.** MEDIUM. For every top-20 agency, flag the categories where we have capability credit but no registration record.
 - **V2-PR-8 (stretch): Standard-template outbox for procurement-appropriate touches.** MEDIUM. Replaces V1's A/B drafts with 4 canned procurement templates (RFQ-list request / capability refresher / cert confirmation / rebid memo).

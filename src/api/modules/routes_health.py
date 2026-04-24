@@ -532,8 +532,36 @@ def quoting_health_json():
         "oracle_calibration": oracle_cal,
         "registry_health": _build_registry_health(),
         "cert_health": _build_cert_health(),
+        "bid_memory_health": _build_bid_memory_health(),
         "gate": _build_health_gate(oracle_cal),
     }
+
+
+def _build_bid_memory_health():
+    """V2-PR-6: bid_memory maintenance counter for /health/quoting.
+
+    Returns total + by-outcome counts. Schema-tolerant.
+    """
+    result = {"ok": True, "total": 0, "by_outcome": {}}
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT outcome, COUNT(*) AS n
+                FROM bid_memory
+                WHERE is_test = 0
+                GROUP BY outcome
+            """).fetchall()
+            for r in rows:
+                outcome = r["outcome"] if hasattr(r, "__getitem__") else r[0]
+                n = r["n"] if hasattr(r, "__getitem__") else r[1]
+                result["by_outcome"][outcome or "unknown"] = n
+                result["total"] += n
+    except Exception as e:
+        log.debug("bid_memory_health suppressed: %s", e)
+        result["ok"] = False
+        result["error"] = str(e)
+    return result
 
 
 def _build_cert_health():

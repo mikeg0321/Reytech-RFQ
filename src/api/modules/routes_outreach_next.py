@@ -519,6 +519,127 @@ def _capability_credits_enabled():
         return True
 
 
+def _bid_memory_for_depts(conn, dept_codes, limit_per=2):
+    """V2-PR-6: most recent bid_memory entries per agency.
+
+    Operator-curated record of every RFQ Reytech received and its
+    outcome. Surfaces inline on each card as "Last bid: lost CDCR
+    nitrile gloves $8.40 vs Medline $8.12 (2026-01-15) — their
+    contract ends Jul 30, rebid window May 30."
+
+    is_test=0 filter. Schema-tolerant.
+    """
+    if not dept_codes:
+        return {}
+    try:
+        placeholders = ",".join(["?"] * len(dept_codes))
+        rows = conn.execute(f"""
+            SELECT rfq_id, received_at, dept_code, category,
+                   summary_description, our_status, our_bid_amount,
+                   our_bid_per_unit, outcome, winning_supplier,
+                   winning_price, award_date, contract_end_date, notes
+            FROM bid_memory
+            WHERE dept_code IN ({placeholders}) AND is_test = 0
+            ORDER BY received_at DESC, id DESC
+        """, list(dept_codes)).fetchall()
+    except Exception as _e:
+        log.debug("bid_memory lookup suppressed: %s", _e)
+        return {}
+    out = {}
+    for r in rows:
+        d = dict(r)
+        out.setdefault(d["dept_code"], [])
+        if len(out[d["dept_code"]]) < limit_per:
+            out[d["dept_code"]].append(d)
+    return out
+
+
+def _bid_memory_summary(memories):
+    """One-line label per memory entry for inline card display.
+
+    Format examples:
+      "🔴 LOST CDCR nitrile gloves $8.40 vs Medline $8.12 (2026-01-15)"
+      "✅ WON CCHCS first aid kits $58/each (2026-02-12)"
+      "📨 RECEIVED CDCR PPE — bid not submitted"
+    """
+    out = []
+    for m in memories or []:
+        outcome = (m.get("outcome") or "").lower()
+        cat = (m.get("category") or "").replace("_", " ")
+        desc = (m.get("summary_description") or cat or "RFQ")[:50]
+        award = (m.get("award_date") or m.get("received_at") or "")[:10]
+        if outcome == "won":
+            label = f"✅ WON {desc}"
+            if m.get("our_bid_per_unit"):
+                label += f" at ${m['our_bid_per_unit']:.2f}/unit"
+            if award:
+                label += f" ({award})"
+        elif outcome == "lost":
+            label = f"🔴 LOST {desc}"
+            if m.get("our_bid_per_unit"):
+                label += f" — we bid ${m['our_bid_per_unit']:.2f}"
+            if m.get("winning_supplier"):
+                label += f" vs {m['winning_supplier']}"
+            if m.get("winning_price"):
+                label += f" at ${m['winning_price']:.2f}"
+            if award:
+                label += f" ({award})"
+        elif outcome == "pending":
+            label = f"⏳ PENDING bid on {desc}"
+            if award:
+                label += f" (received {award})"
+        else:
+            label = f"📨 {(outcome or 'received').upper()} {desc}"
+            if award:
+                label += f" ({award})"
+        out.append({
+            "label": label,
+            "outcome": outcome,
+            "rfq_id": m.get("rfq_id"),
+            "contract_end_date": m.get("contract_end_date") or "",
+            "winning_supplier": m.get("winning_supplier") or "",
+        })
+    return out
+
+
+def _bid_memory_urgency(memories):
+    """Score boost from bid history.
+
+    A recent LOST bid where the winning supplier's contract is about
+    to expire = "we know the rebid window opens soon AND we know what
+    price to beat" — +10 actionable signal.
+
+    Recently lost (within 6mo) without contract-end visibility → +5
+    (we have intel but no specific timing yet).
+
+    Returns max boost across all memories for this dept.
+    """
+    if not memories:
+        return 0
+    from datetime import date
+    today = date.today()
+    boost = 0
+    for m in memories:
+        outcome = (m.get("outcome") or "").lower()
+        if outcome != "lost":
+            continue
+        end_raw = m.get("contract_end_date") or ""
+        end = _parse_end_date(end_raw) if end_raw else None
+        if end is not None:
+            days_to_end = (end - today).days
+            if -30 <= days_to_end <= 120:
+                boost = max(boost, 10)
+            elif days_to_end > 120:
+                boost = max(boost, 5)
+        else:
+            # No end date but we lost — recency matters.
+            recv = _parse_end_date((m.get("award_date") or
+                                    m.get("received_at") or "")[:10])
+            if recv is not None and (today - recv).days <= 180:
+                boost = max(boost, 5)
+    return boost
+
+
 def _cert_status_summary(conn):
     """V2-PR-4: aggregate Reytech certification health across all certs.
 
@@ -803,6 +924,10 @@ def _build_card_list(limit: int = 8):
         expiring_map = _expiring_contracts_by_dept(conn, dept_codes)
         # V2-PR-2: same-shape batched lookup for registration status.
         registry_map = _registration_status_for_depts(conn, dept_codes)
+        # V2-PR-6: bid_memory batched lookup. Per-card "Last bid:" line
+        # + urgency boost when the winner's contract is in the rebid
+        # window (we know exactly what to beat AND when).
+        bid_memory_map = _bid_memory_for_depts(conn, dept_codes)
 
         # V2-PR-3: capability credits. Batched — one SQL across all
         # prospects' categories → Reytech won quotes filtered by
@@ -882,6 +1007,12 @@ def _build_card_list(limit: int = 8):
             reg_summary = _registration_summary(reg_record)
             reg_urgency = _registration_urgency(reg_summary)
 
+            # V2-PR-6: bid memory (operator-curated history of received
+            # RFQs + outcomes). Both display + urgency boost.
+            bid_memories_raw = bid_memory_map.get(dept_code, []) or []
+            bid_memory_lines = _bid_memory_summary(bid_memories_raw)
+            bid_urgency = _bid_memory_urgency(bid_memories_raw)
+
             # V2-PR-3: capability credits (credibility-only, no score boost).
             capability_credits = credits_map.get(dept_code, []) or []
             # Log render event — enables V2-PR-8 to learn which credits
@@ -915,7 +1046,9 @@ def _build_card_list(limit: int = 8):
                 "registration_summary": reg_summary,
                 "registration_urgency": reg_urgency,
                 "capability_credits": capability_credits,
-                "urgency_score": base_score + urgency + reg_urgency,
+                "bid_memory_lines": bid_memory_lines,
+                "bid_memory_urgency": bid_urgency,
+                "urgency_score": base_score + urgency + reg_urgency + bid_urgency,
             })
 
     # Re-sort by urgency_score (raw SCPRS score + rebid-window boost).
@@ -960,6 +1093,99 @@ def page_outreach_next():
         error=err,
         cert_status=cert_status,
     )
+
+
+@bp.route("/api/outreach/next/bid", methods=["POST"])
+@auth_required
+@safe_route
+def api_outreach_next_bid():
+    """Upsert one bid_memory record by rfq_id.
+
+    Body: {rfq_id, dept_code, dept_name?, category?, summary_description?,
+           our_status? ('received'|'bid'|'no_bid'|'declined'),
+           our_bid_amount?, our_bid_per_unit?,
+           outcome? ('won'|'lost'|'pending'|'unknown'),
+           winning_supplier?, winning_price?, award_date?,
+           contract_end_date?, notes?}
+    """
+    try:
+        from datetime import datetime
+        payload = request.get_json(force=True, silent=True) or {}
+        rfq_id = (payload.get("rfq_id") or "").strip()
+        dept_code = (payload.get("dept_code") or "").strip()
+        if not rfq_id:
+            return jsonify({"ok": False, "error": "rfq_id required"}), 400
+        if not dept_code:
+            return jsonify({"ok": False, "error": "dept_code required"}), 400
+
+        outcome = (payload.get("outcome") or "pending").lower()
+        if outcome not in {"won", "lost", "pending", "unknown"}:
+            return jsonify({
+                "ok": False,
+                "error": "outcome must be won|lost|pending|unknown"
+            }), 400
+        our_status = (payload.get("our_status") or "received").lower()
+        if our_status not in {"received", "bid", "no_bid", "declined"}:
+            return jsonify({
+                "ok": False,
+                "error": "our_status must be received|bid|no_bid|declined"
+            }), 400
+
+        for dt_field in ("received_at", "award_date", "contract_end_date"):
+            val = payload.get(dt_field)
+            if val and _parse_end_date(val) is None:
+                return jsonify({
+                    "ok": False,
+                    "error": f"{dt_field} must be ISO date (YYYY-MM-DD)"
+                }), 400
+
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        with _get_db() as conn:
+            existing = conn.execute(
+                "SELECT id FROM bid_memory WHERE rfq_id = ?", (rfq_id,)
+            ).fetchone()
+            fields = {
+                "received_at": payload.get("received_at") or "",
+                "dept_code": dept_code,
+                "dept_name": payload.get("dept_name") or "",
+                "category": payload.get("category") or "",
+                "summary_description": payload.get("summary_description") or "",
+                "our_status": our_status,
+                "our_bid_amount": float(payload.get("our_bid_amount") or 0),
+                "our_bid_per_unit": float(payload.get("our_bid_per_unit") or 0),
+                "outcome": outcome,
+                "winning_supplier": payload.get("winning_supplier") or "",
+                "winning_price": float(payload.get("winning_price") or 0),
+                "award_date": payload.get("award_date") or "",
+                "contract_end_date": payload.get("contract_end_date") or "",
+                "notes": payload.get("notes") or "",
+                "source": payload.get("source") or "operator",
+                "updated_by": payload.get("updated_by") or "",
+                "updated_at": now_iso,
+            }
+            if existing:
+                set_clause = ", ".join(f"{k}=?" for k in fields)
+                conn.execute(
+                    f"UPDATE bid_memory SET {set_clause} WHERE rfq_id = ?",
+                    list(fields.values()) + [rfq_id],
+                )
+            else:
+                fields["rfq_id"] = rfq_id
+                fields["created_at"] = now_iso
+                cols = ", ".join(fields.keys())
+                placeholders = ", ".join(["?"] * len(fields))
+                conn.execute(
+                    f"INSERT INTO bid_memory ({cols}) VALUES ({placeholders})",
+                    list(fields.values()),
+                )
+            row = conn.execute(
+                "SELECT * FROM bid_memory WHERE rfq_id = ?", (rfq_id,)
+            ).fetchone()
+            record = dict(row) if row else {}
+        return jsonify({"ok": True, "record": record})
+    except Exception as e:
+        log.exception("api_outreach_next_bid failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 
 @bp.route("/api/outreach/next/cert", methods=["POST"])

@@ -783,6 +783,36 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_cert_active ON reytech_certifications(is_active);
         CREATE INDEX IF NOT EXISTS idx_cert_expires ON reytech_certifications(expires_at);
     """),
+
+    (27, "bid_memory", """
+        CREATE TABLE IF NOT EXISTS bid_memory (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            rfq_id             TEXT UNIQUE,
+            received_at        TEXT DEFAULT '',
+            dept_code          TEXT NOT NULL,
+            dept_name          TEXT DEFAULT '',
+            category           TEXT DEFAULT '',
+            summary_description TEXT DEFAULT '',
+            our_status         TEXT DEFAULT 'received',
+            our_bid_amount     REAL DEFAULT 0,
+            our_bid_per_unit   REAL DEFAULT 0,
+            outcome            TEXT DEFAULT 'pending',
+            winning_supplier   TEXT DEFAULT '',
+            winning_price      REAL DEFAULT 0,
+            award_date         TEXT DEFAULT '',
+            contract_end_date  TEXT DEFAULT '',
+            notes              TEXT DEFAULT '',
+            source             TEXT DEFAULT 'operator',
+            updated_by         TEXT DEFAULT '',
+            is_test            INTEGER NOT NULL DEFAULT 0,
+            created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_bidmem_dept ON bid_memory(dept_code);
+        CREATE INDEX IF NOT EXISTS idx_bidmem_outcome ON bid_memory(outcome);
+        CREATE INDEX IF NOT EXISTS idx_bidmem_received ON bid_memory(received_at);
+        CREATE INDEX IF NOT EXISTS idx_bidmem_contract_end ON bid_memory(contract_end_date);
+    """),
 ]
 
 
