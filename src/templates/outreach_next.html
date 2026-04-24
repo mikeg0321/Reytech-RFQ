@@ -19,6 +19,22 @@
 .draft-row button:hover{filter:brightness(1.1)}
 .existing-draft{background:rgba(217,119,6,.08);border:1px solid #D97706;padding:6px 10px;border-radius:4px;font-size:12px;color:#D97706}
 .existing-draft a{color:#D97706;text-decoration:underline;font-weight:600}
+.reg-pill{display:inline-flex;gap:6px;align-items:center;padding:5px 10px;border-radius:14px;font-size:12px;font-weight:700;letter-spacing:.5px;cursor:pointer;margin-top:6px;border:1px solid transparent}
+.reg-pill:hover{filter:brightness(1.12)}
+.reg-registered{background:rgba(22,163,74,.10);border-color:var(--gn);color:var(--gn)}
+.reg-expired{background:rgba(220,38,38,.10);border-color:var(--rd);color:var(--rd)}
+.reg-not_registered{background:rgba(220,38,38,.10);border-color:var(--rd);color:var(--rd)}
+.reg-pending{background:rgba(217,119,6,.10);border-color:#D97706;color:#D97706}
+.reg-unknown{background:var(--bg2);border-color:var(--bd);color:var(--tx2)}
+.reg-hint{font-size:12px;color:var(--tx2);margin-top:4px}
+.reg-edit-panel{margin-top:8px;padding:10px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);display:none}
+.reg-edit-panel.open{display:block}
+.reg-edit-panel label{font-size:11px;color:var(--tx2);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.5px}
+.reg-edit-panel select,.reg-edit-panel input{width:100%;padding:5px 8px;background:var(--bg2);border:1px solid var(--bd);color:var(--tx);border-radius:4px;font-size:13px;margin-bottom:8px}
+.reg-edit-panel .reg-save-row{display:flex;gap:8px;align-items:center}
+.reg-edit-panel button{padding:6px 12px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--bd);background:var(--bg2);color:var(--tx)}
+.reg-edit-panel button.primary{background:var(--ac);color:white;border-color:var(--ac)}
+.reg-edit-panel .reg-save-status{font-size:11px;color:var(--tx2);margin-left:auto}
 .rebid-block{margin:10px 0;padding:10px 14px;border-radius:6px;font-size:13px}
 .rebid-red{background:rgba(220,38,38,.08);border:1px solid var(--rd);color:var(--rd)}
 .rebid-amber{background:rgba(217,119,6,.08);border:1px solid #D97706;color:#D97706}
@@ -104,6 +120,39 @@
     <div style="text-align:right;flex-shrink:0">
       <div style="font-size:28px;font-weight:800;color:var(--ac);line-height:1">{{ c.score }}{% if c.rebid_urgency and c.rebid_urgency > 0 %}<span class="urgency-suffix">+{{ c.rebid_urgency }}</span>{% endif %}</div>
       <div class="tiny">score{% if c.rebid_urgency and c.rebid_urgency > 0 %} +rebid{% endif %}</div>
+    </div>
+  </div>
+
+  {% set rs = c.registration_summary or {} %}
+  {% set reg = c.registration_record or {} %}
+  {% set reg_icon = {"registered":"🟢","expired":"🟠","not_registered":"🔴","pending":"🟡","unknown":"⚪"} %}
+  <div>
+    <span class="reg-pill reg-{{ rs.get('level','unknown') }}" onclick="toggleRegEdit(this)">
+      {{ reg_icon.get(rs.get('level','unknown'),'⚪') }} {{ rs.get('label','UNKNOWN') }}
+      {% if c.registration_urgency and c.registration_urgency > 0 %}<span style="color:var(--ac);margin-left:4px">+{{ c.registration_urgency }}</span>{% endif %}
+      <span style="color:var(--tx2);margin-left:4px;font-weight:400">✎ edit</span>
+    </span>
+    {% if rs.get('hint') %}<div class="reg-hint">{{ rs.hint }}{% if rs.get('action_url') %} <a href="{{ rs.action_url }}" target="_blank" rel="noopener noreferrer" style="color:var(--ac)">open portal ↗</a>{% endif %}</div>{% endif %}
+    <div class="reg-edit-panel" data-dept="{{ c.dept_code }}">
+      <label>Status</label>
+      <select class="reg-status">
+        {% for opt in ['unknown','not_registered','pending','registered','expired'] %}
+        <option value="{{ opt }}"{% if rs.get('status_effective') == opt %} selected{% endif %}>{{ opt.replace('_',' ') }}</option>
+        {% endfor %}
+      </select>
+      <label>Portal URL</label>
+      <input type="url" class="reg-portal-url" value="{{ reg.get('portal_url','') }}" placeholder="https://caleprocure.ca.gov/...">
+      <label>Confirmed date (YYYY-MM-DD)</label>
+      <input type="text" class="reg-confirmed-at" value="{{ reg.get('confirmed_at','')[:10] }}" placeholder="2026-04-15">
+      <label>Expires (YYYY-MM-DD)</label>
+      <input type="text" class="reg-expires-at" value="{{ reg.get('expires_at','')[:10] }}" placeholder="2027-04-15">
+      <label>Notes</label>
+      <input type="text" class="reg-notes" value="{{ reg.get('notes','') }}" placeholder="e.g. portal supplier ID 12345">
+      <div class="reg-save-row">
+        <button class="primary" onclick="saveRegistration(this)">💾 Save</button>
+        <button onclick="toggleRegEdit(this.closest('.card').querySelector('.reg-pill'))">Cancel</button>
+        <span class="reg-save-status"></span>
+      </div>
     </div>
   </div>
 
@@ -236,6 +285,49 @@ async function genDraft(btn, strategy) {
 }
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function toggleRegEdit(pill) {
+  var panel = pill.closest('.card').querySelector('.reg-edit-panel');
+  if (panel) panel.classList.toggle('open');
+}
+
+async function saveRegistration(btn) {
+  var panel = btn.closest('.reg-edit-panel');
+  var status = panel.querySelector('.reg-status').value;
+  var portal = panel.querySelector('.reg-portal-url').value.trim();
+  var confirmedAt = panel.querySelector('.reg-confirmed-at').value.trim();
+  var expiresAt = panel.querySelector('.reg-expires-at').value.trim();
+  var notes = panel.querySelector('.reg-notes').value.trim();
+  var deptCode = panel.dataset.dept;
+  var statusEl = panel.querySelector('.reg-save-status');
+  statusEl.textContent = 'Saving…';
+  statusEl.style.color = 'var(--tx2)';
+  btn.disabled = true;
+  try {
+    var r = await fetch('/api/outreach/next/registry', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        dept_code: deptCode, status: status, portal_url: portal,
+        confirmed_at: confirmedAt, expires_at: expiresAt, notes: notes,
+      }),
+    });
+    var data = await r.json();
+    if (!data.ok) {
+      statusEl.textContent = '⚠ ' + (data.error || 'save failed');
+      statusEl.style.color = 'var(--rd)';
+      return;
+    }
+    statusEl.textContent = '✓ saved — reloading';
+    statusEl.style.color = 'var(--gn)';
+    setTimeout(function () { location.reload(); }, 500);
+  } catch (e) {
+    statusEl.textContent = '⚠ network error';
+    statusEl.style.color = 'var(--rd)';
+  } finally {
+    btn.disabled = false;
+  }
 }
 </script>
 

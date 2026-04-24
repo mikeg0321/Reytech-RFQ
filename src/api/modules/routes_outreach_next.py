@@ -352,6 +352,137 @@ def _rebid_summary(expiring_contracts):
     return {"level": "none", "label": "", "hint": ""}
 
 
+def _registration_status_for_depts(conn, dept_codes):
+    """Batched lookup against agency_vendor_registry.
+
+    Returns {dept_code: record_dict} for every dept_code that has a row.
+    Missing rows mean "unknown" — caller treats that as its own state.
+
+    Schema-tolerant: if agency_vendor_registry doesn't exist (fresh DB
+    before migration 24 fires), returns empty dict without raising.
+    """
+    if not dept_codes:
+        return {}
+    try:
+        placeholders = ",".join(["?"] * len(dept_codes))
+        rows = conn.execute(f"""
+            SELECT dept_code, status, confirmed_at, expires_at, portal_url,
+                   procurement_officer_name, procurement_officer_email,
+                   procurement_officer_phone, vendor_id_at_agency,
+                   categories_json, notes, source, updated_by,
+                   created_at, updated_at
+            FROM agency_vendor_registry
+            WHERE dept_code IN ({placeholders}) AND is_test = 0
+        """, list(dept_codes)).fetchall()
+    except Exception as _e:
+        log.debug("registry lookup suppressed: %s", _e)
+        return {}
+    return {r["dept_code"]: dict(r) for r in rows}
+
+
+def _registration_summary(record):
+    """Classify a registry record into a UI pill + action hint.
+
+    Returns {level, label, hint, action_url, status_effective, expires_at}.
+
+    Rule: `expires_at` trumps `status`. A row with status='registered' but
+    expires_at in the past is effectively EXPIRED — never rely on the
+    stored status alone. Catches the "operator forgot to flip status"
+    class of silent failure flagged in product-engineer review.
+    """
+    if not record:
+        return {
+            "level": "unknown", "label": "UNKNOWN",
+            "hint": "Verify registration status in agency portal.",
+            "action_url": "", "status_effective": "unknown",
+            "expires_at": "",
+        }
+    stored_status = (record.get("status") or "unknown").lower()
+    expires_raw = record.get("expires_at") or ""
+    portal = record.get("portal_url") or ""
+    expires_date = _parse_end_date(expires_raw) if expires_raw else None
+
+    # Expiry-overrides-stored-status logic.
+    from datetime import date
+    status = stored_status
+    if expires_date is not None and expires_date < date.today():
+        # Any row past expiry is effectively EXPIRED regardless of
+        # stored status.
+        status = "expired"
+
+    if status == "registered":
+        days_left = (expires_date - date.today()).days if expires_date else None
+        if days_left is not None and days_left <= 60:
+            # Registered but expiring soon — surface as a registered-but-renew hint.
+            return {
+                "level": "registered", "label": f"REGISTERED (renew in {days_left}d)",
+                "hint": "Renewal due soon — confirm and re-up before it lapses.",
+                "action_url": portal, "status_effective": "registered",
+                "expires_at": expires_raw[:10] if expires_raw else "",
+            }
+        confirmed = (record.get("confirmed_at") or "")[:10]
+        label = "REGISTERED"
+        if confirmed:
+            label = f"REGISTERED (confirmed {confirmed})"
+        return {
+            "level": "registered", "label": label,
+            "hint": "On distribution list.", "action_url": portal,
+            "status_effective": "registered",
+            "expires_at": expires_raw[:10] if expires_raw else "",
+        }
+    if status == "expired":
+        return {
+            "level": "expired",
+            "label": f"EXPIRED{(' ' + expires_raw[:10]) if expires_raw else ''}",
+            "hint": "Re-register at agency portal to resume RFQ distribution.",
+            "action_url": portal, "status_effective": "expired",
+            "expires_at": expires_raw[:10] if expires_raw else "",
+        }
+    if status == "pending":
+        return {
+            "level": "pending", "label": "PENDING",
+            "hint": "Request submitted — chase procurement officer for confirmation.",
+            "action_url": portal, "status_effective": "pending",
+            "expires_at": expires_raw[:10] if expires_raw else "",
+        }
+    if status == "not_registered":
+        return {
+            "level": "not_registered", "label": "NOT REGISTERED",
+            "hint": "Register now to start receiving RFQs for this agency.",
+            "action_url": portal, "status_effective": "not_registered",
+            "expires_at": expires_raw[:10] if expires_raw else "",
+        }
+    return {
+        "level": "unknown", "label": "UNKNOWN",
+        "hint": "Verify registration status in agency portal.",
+        "action_url": portal, "status_effective": "unknown",
+        "expires_at": expires_raw[:10] if expires_raw else "",
+    }
+
+
+def _registration_urgency(summary):
+    """Points to add to urgency_score from registration state.
+
+    Weights (per 2026-04-24 product-engineer review):
+
+      not_registered → +35 (absolute gate — rebid without registration is
+                            useless; must outrank hottest rebid band)
+      expired        → +35 (same — lapsed cert = same gate)
+      pending        → +5  (in progress but chase)
+      unknown        → +5  (probably fine; nudge operator to verify, but
+                            avoid noise-flood since most rows start unknown)
+      registered     → 0   (healthy)
+    """
+    level = (summary or {}).get("status_effective") or "unknown"
+    if level in ("not_registered", "expired"):
+        return 35
+    if level == "pending":
+        return 5
+    if level == "unknown":
+        return 5
+    return 0
+
+
 def _existing_drafts_for_prospects(conn, contact_emails):
     """Map buyer_email → list of recent draft IDs for outbox-link surfacing."""
     if not contact_emails:
@@ -410,6 +541,8 @@ def _build_card_list(limit: int = 8):
         # Batched single-query lookup for expiring contracts across all
         # visible prospects (per 2026-04-24 product-engineer review).
         expiring_map = _expiring_contracts_by_dept(conn, dept_codes)
+        # V2-PR-2: same-shape batched lookup for registration status.
+        registry_map = _registration_status_for_depts(conn, dept_codes)
         for p in prospects[:limit]:
             dept_code = p.get("dept_code", "")
             gaps = _top_items_for_dept(conn, dept_code, "GAP_ITEM", limit=3)
@@ -452,6 +585,13 @@ def _build_card_list(limit: int = 8):
             urgency = _rebid_urgency(expiring)
             rebid = _rebid_summary(expiring)
             base_score = p.get("score") or 0
+
+            # V2-PR-2: registration status + urgency boost. Not_registered
+            # / expired outrank any rebid-window band because a rebid we
+            # can't receive is useless.
+            reg_record = registry_map.get(dept_code)
+            reg_summary = _registration_summary(reg_record)
+            reg_urgency = _registration_urgency(reg_summary)
             cards.append({
                 "dept_code": dept_code,
                 "dept_name": p.get("dept_name") or dept_code,
@@ -475,7 +615,10 @@ def _build_card_list(limit: int = 8):
                 "expiring_contracts": expiring,
                 "rebid_urgency": urgency,
                 "rebid_summary": rebid,
-                "urgency_score": base_score + urgency,
+                "registration_record": reg_record or {},
+                "registration_summary": reg_summary,
+                "registration_urgency": reg_urgency,
+                "urgency_score": base_score + urgency + reg_urgency,
             })
 
     # Re-sort by urgency_score (raw SCPRS score + rebid-window boost).
@@ -509,6 +652,89 @@ def page_outreach_next():
         summary=summary or {},
         error=err,
     )
+
+
+@bp.route("/api/outreach/next/registry", methods=["POST"])
+@auth_required
+@safe_route
+def api_outreach_next_registry():
+    """Upsert a registration-status record for one dept_code.
+
+    Narrow inline-edit path for the operator (per 2026-04-24 product-eng
+    review — Option A, narrowed to status + portal_url + notes only).
+    Body: {dept_code, status, portal_url?, notes?, confirmed_at?,
+           expires_at?, vendor_id_at_agency?, categories_json?}
+    """
+    try:
+        from datetime import datetime
+        payload = request.get_json(force=True, silent=True) or {}
+        dept_code = (payload.get("dept_code") or "").strip()
+        status = (payload.get("status") or "").strip().lower()
+        if not dept_code:
+            return jsonify({"ok": False, "error": "dept_code required"}), 400
+        allowed_statuses = {"registered", "not_registered", "pending",
+                            "expired", "unknown"}
+        if status not in allowed_statuses:
+            return jsonify({
+                "ok": False,
+                "error": f"status must be one of {sorted(allowed_statuses)}"
+            }), 400
+
+        # Validate expires_at / confirmed_at if provided — must be ISO date.
+        for dt_field in ("confirmed_at", "expires_at"):
+            val = payload.get(dt_field)
+            if val and _parse_end_date(val) is None:
+                return jsonify({
+                    "ok": False,
+                    "error": f"{dt_field} must be ISO date (YYYY-MM-DD)"
+                }), 400
+
+        now_iso = datetime.now().isoformat(timespec="seconds")
+        with _get_db() as conn:
+            existing = conn.execute(
+                "SELECT dept_code FROM agency_vendor_registry WHERE dept_code = ?",
+                (dept_code,)
+            ).fetchone()
+            fields = {
+                "status": status,
+                "confirmed_at": payload.get("confirmed_at") or "",
+                "expires_at": payload.get("expires_at") or "",
+                "portal_url": payload.get("portal_url") or "",
+                "notes": payload.get("notes") or "",
+                "vendor_id_at_agency": payload.get("vendor_id_at_agency") or "",
+                "categories_json": payload.get("categories_json") or "[]",
+                "source": payload.get("source") or "operator",
+                "updated_by": payload.get("updated_by") or "",
+                "updated_at": now_iso,
+            }
+            if existing:
+                set_clause = ", ".join(f"{k}=?" for k in fields)
+                conn.execute(
+                    f"UPDATE agency_vendor_registry SET {set_clause} "
+                    "WHERE dept_code = ?",
+                    list(fields.values()) + [dept_code],
+                )
+            else:
+                fields["dept_code"] = dept_code
+                fields["created_at"] = now_iso
+                cols = ", ".join(fields.keys())
+                placeholders = ", ".join(["?"] * len(fields))
+                conn.execute(
+                    f"INSERT INTO agency_vendor_registry ({cols}) "
+                    f"VALUES ({placeholders})",
+                    list(fields.values()),
+                )
+            # Re-fetch so the caller gets the canonical persisted shape.
+            row = conn.execute(
+                "SELECT * FROM agency_vendor_registry WHERE dept_code = ?",
+                (dept_code,)
+            ).fetchone()
+            record = dict(row) if row else {}
+        summary = _registration_summary(record)
+        return jsonify({"ok": True, "record": record, "summary": summary})
+    except Exception as e:
+        log.exception("api_outreach_next_registry failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 
 @bp.route("/api/outreach/next/draft", methods=["POST"])
