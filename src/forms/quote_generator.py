@@ -255,6 +255,43 @@ def _lookup_facility_by_zip(text: str) -> tuple:
     return None, []
 
 
+def _resolve_facility_for_agency_key(agency_key: str) -> dict | None:
+    """Fix-B (2026-04-24): if the converter / agency_config matcher has
+    already resolved this PC/RFQ to a facility-specific `agency_key`
+    (e.g. `calvet_barstow`), look up the canonical FacilityRecord
+    directly via `facility_registry.resolve_by_agency_key` and adapt
+    to the legacy dict shape the rest of this module expects.
+
+    Returns None for generic agency keys (cdcr / calvet / cchcs / dgs /
+    calfire / other) that don't pin a single facility — those still
+    need text-based resolution to pick the child facility under the
+    parent agency.
+
+    Why this is here: prior to this fix the quote generator ran a
+    text-based fallback chain (`_lookup_facility(delivery)` →
+    `_lookup_facility(ship_to_raw)` → ...) BEFORE consulting the
+    converter-resolved canonical. Stale buyer text from a prior
+    bundle parent (or any line of free-form ship-to with a city name
+    that happens to match another facility) won the lookup race and
+    overrode the canonical resolution. Net effect on incident
+    f81c4e9b: Reytech Quote PDF rendered "CAL - Calipatria State
+    Prison" as ship-to for a CalVet Barstow RFQ. See
+    `feedback_quoting_core_repeats_failing.md` and
+    `feedback_canonical_not_verbatim.md` for the broader principle.
+    """
+    if not agency_key:
+        return None
+    try:
+        from src.core.facility_registry import resolve_by_agency_key
+    except Exception as e:
+        log.warning("facility_registry.resolve_by_agency_key unavailable: %s", e)
+        return None
+    rec = resolve_by_agency_key(agency_key)
+    if rec:
+        return _registry_record_to_legacy_dict(rec)
+    return None
+
+
 def _lookup_facility(text: str) -> dict | None:
     """Look up a CDCR/CalVet facility from free text via canonical registry.
 
@@ -1660,10 +1697,19 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
     # If user explicitly entered a delivery address (>10 chars), trust it over facility DB
     _user_set_delivery = bool(delivery and delivery.strip() and len(delivery.strip()) > 10)
 
-    # ── Facility lookup: try all available address sources ──
-    facility = (_lookup_facility(delivery) or
-                _lookup_facility(ship_to_raw) or
-                _lookup_facility(institution))
+    # ── Facility lookup ──
+    # Priority — Fix-B (2026-04-24, after f81c4e9b → Calipatria
+    # mis-render): if the agency_config matcher already resolved
+    # this PC to a facility-specific `agency_key` (e.g.
+    # `calvet_barstow`), trust the canonical mapping over any
+    # text-based resolver run against possibly-stale buyer fields.
+    # See `feedback_canonical_not_verbatim` + tonight's escalation
+    # in `feedback_quoting_core_repeats_failing.md`.
+    facility = _resolve_facility_for_agency_key(pc.get("agency_key", ""))
+    if not facility:
+        facility = (_lookup_facility(delivery) or
+                    _lookup_facility(ship_to_raw) or
+                    _lookup_facility(institution))
 
     if _user_set_delivery:
         # User-entered delivery address takes priority — parse it directly
@@ -1799,12 +1845,20 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     ship_to_name_raw = rfq.get("ship_to_name", "") or ""
     institution_name = rfq.get("institution_name", "") or ""
 
-    # ── Facility lookup: try all available address sources ──
-    facility = (_lookup_facility(delivery) or 
-                _lookup_facility(ship_to_raw) or 
-                _lookup_facility(ship_to_name_raw) or
-                _lookup_facility(institution_name) or
-                _lookup_facility(institution))
+    # ── Facility lookup ──
+    # Priority — Fix-B (2026-04-24): canonical agency_key wins over
+    # text resolution. See `_resolve_facility_for_agency_key` docstring
+    # + `feedback_quoting_core_repeats_failing.md`. Same priority swap
+    # the PC-side path got above; keeps both quote-gen entry points
+    # consistent so a CalVet Barstow RFQ can never render with a
+    # Calipatria ship-to again.
+    facility = _resolve_facility_for_agency_key(rfq.get("agency_key", ""))
+    if not facility:
+        facility = (_lookup_facility(delivery) or
+                    _lookup_facility(ship_to_raw) or
+                    _lookup_facility(ship_to_name_raw) or
+                    _lookup_facility(institution_name) or
+                    _lookup_facility(institution))
 
     # ── If still blank: find zip code → match facility ──
     if not facility:

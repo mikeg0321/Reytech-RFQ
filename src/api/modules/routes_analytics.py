@@ -1688,6 +1688,21 @@ def convert_pc_to_rfq(pcid):
     if not pc:
         return jsonify({"ok": False, "error": "PC not found"}), 404
 
+    # Fix-C (2026-04-24): observability for race-fence — log the most
+    # recent `/save-prices` timestamp so a regression where Convert
+    # snapshots stale state is debuggable from logs alone (incident
+    # f81c4e9b: convert pulled $329.92 state instead of operator's
+    # restored $2,252.21). Client also calls `_flushPcAutosave()`
+    # before POSTing here to drain the in-flight save.
+    log.info(
+        "CONVERT %s: last_save_at=%s last_save_seq=%s items=%d agency=%s",
+        pcid,
+        pc.get("last_save_at", "<never>"),
+        pc.get("last_save_seq", 0),
+        len(pc.get("items", []) or []),
+        pc.get("agency_key", "<none>"),
+    )
+
     rfq_id, rfq_data, files_copied, agency_info = _convert_single_pc_to_rfq(pcid, pc)
     _agency_key = agency_info["agency_key"]
     _agency_cfg = agency_info["agency_cfg"]

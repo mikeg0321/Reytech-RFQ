@@ -2308,8 +2308,21 @@ def _do_save_prices(pcid):
                              notes=f"Saved: {len(priced_items)}/{len(bid_items)} items priced")
             _save_single_pc(pcid, pc)
 
+    # Fix-C (2026-04-24): stamp the save timestamp so the Convert
+    # route can log it for race-fence observability + so the client's
+    # `_flushPcAutosave()` can verify completion. Cheap and never
+    # raises. Pair with `last_save_at` log line in convert_pc_to_rfq.
+    pc["last_save_at"] = datetime.now().isoformat()
+    pc["last_save_seq"] = (pc.get("last_save_seq") or 0) + 1
+    _save_single_pc(pcid, pc)
+
     summary = pc.get("profit_summary", {})
-    resp = {"ok": True, "profit_summary": summary}
+    resp = {
+        "ok": True,
+        "profit_summary": summary,
+        "last_save_at": pc["last_save_at"],
+        "last_save_seq": pc["last_save_seq"],
+    }
     if _cat_result:
         resp["catalog"] = _cat_result
     return jsonify(resp)
