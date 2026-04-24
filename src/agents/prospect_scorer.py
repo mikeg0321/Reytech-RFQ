@@ -92,10 +92,17 @@ def score_prospects(limit: int = 50) -> dict:
                     dc = r["dept_code"]
                     if dc not in buyers:
                         buyers[dc] = []
+                    # sqlite3.Row supports [], not .get() — direct index
+                    # with try/except handles the column-may-be-absent case
+                    # that the original .get() incorrectly tried to.
+                    try:
+                        phone = r["buyer_phone"]
+                    except (IndexError, KeyError):
+                        phone = None
                     buyers[dc].append({
                         "name": r["buyer_name"],
                         "email": r["buyer_email"],
-                        "phone": r.get("buyer_phone"),
+                        "phone": phone,
                         "po_count": r["po_count"],
                     })
             except Exception as _e:
