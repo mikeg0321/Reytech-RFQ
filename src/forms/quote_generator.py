@@ -120,9 +120,40 @@ AGENCY_CONFIGS = {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# FACILITY DATABASE — maps abbreviations/names to parent agency + full address
-# Used for To: (parent agency) and Ship To: (facility + address)
+# FACILITY DATABASE — deprecated local dict; canonical data is in
+# `src.core.facility_registry`. This dict is kept as a last-resort
+# fallback only (e.g. import-failure path), but `_lookup_facility` /
+# `_lookup_facility_by_zip` below now delegate to the registry so quote
+# generation, tax resolution, and institution display all read from the
+# SAME source of truth. Collapsing this dict was the 2026-04-24 root-
+# cause fix — incident f81c4e9b / RFQ 8a1dcf77: the quote PDF showed
+# "CAL - Calipatria State Prison" as ship-to for a CalVet Barstow RFQ
+# because this local `FACILITY_DB` matched Calipatria before the
+# canonical registry's Barstow record could be consulted. See
+# `feedback_quoting_core_repeats_failing.md`.
+#
+# Do NOT extend this dict — add new facilities to
+# `src.core.facility_registry._SEED`. This copy exists as a safety net
+# only for the import-failure fallback in `_registry_to_legacy_dict`.
 # ═══════════════════════════════════════════════════════════════════════════════
+
+
+def _registry_record_to_legacy_dict(rec) -> dict:
+    """Adapter: render a `FacilityRecord` in the legacy-dict shape all
+    the quote_generator callers already consume ({name, parent,
+    parent_full, address:[...], code, zip}). Keeps the API stable so
+    the call sites downstream don't have to change."""
+    if rec is None:
+        return None
+    return {
+        "name": rec.canonical_name,
+        "parent": rec.parent_agency,
+        "parent_full": rec.parent_agency_full,
+        "address": [rec.address_line1, rec.address_line2],
+        "code": rec.code,
+        "zip": rec.zip,
+    }
+
 
 FACILITY_DB = {
     # CDCR facilities
@@ -180,39 +211,101 @@ for _fk, _fv in FACILITY_DB.items():
 
 
 def _lookup_facility_by_zip(text: str) -> tuple:
-    """Scan text for zip codes and match to facilities.
-    Returns (facility_dict, ambiguous_list) where ambiguous_list has >1 if zip is shared."""
+    """Scan text for zip codes and match to facilities via canonical registry.
+
+    Returns (facility_dict, ambiguous_codes_list) where the list has >1
+    entry if the zip is shared by multiple facilities (e.g. both FSP
+    and CSP-SAC at 95671). The first returned facility is the first
+    match in registry order — caller is expected to disambiguate via
+    name if the list length is >1.
+
+    Delegates to `facility_registry.all_facilities()` so this function
+    and `tax_resolver.resolve_tax()` can never diverge on which
+    facility a given zip maps to.
+    """
     if not text:
         return None, []
+    try:
+        from src.core.facility_registry import all_facilities
+    except Exception as e:
+        log.warning("facility_registry unavailable, zip lookup falling back to legacy: %s", e)
+        # Import failed — fall back to the local FACILITY_DB snapshot so
+        # quote generation doesn't crash. Should be unreachable in prod.
+        found_zips = re.findall(r'\b(\d{5})\b', text)
+        for z in found_zips:
+            if z in ZIP_TO_FACILITY:
+                keys = ZIP_TO_FACILITY[z]
+                fac = FACILITY_DB.get(keys[0])
+                if fac:
+                    return fac, keys
+        return None, []
+
     found_zips = re.findall(r'\b(\d{5})\b', text)
+    # Build zip → [FacilityRecord] from the live registry on every call.
+    # _SEED is ~35 records; this is negligible work and guarantees we
+    # always see the latest canonical data (e.g. after a hot-reload).
+    zip_map: dict = {}
+    for rec in all_facilities():
+        zip_map.setdefault(rec.zip, []).append(rec)
     for z in found_zips:
-        if z in ZIP_TO_FACILITY:
-            keys = ZIP_TO_FACILITY[z]
-            fac = FACILITY_DB.get(keys[0])
-            if fac:
-                return fac, keys
+        matches = zip_map.get(z)
+        if matches:
+            codes = [r.code for r in matches]
+            return _registry_record_to_legacy_dict(matches[0]), codes
     return None, []
 
 
 def _lookup_facility(text: str) -> dict | None:
-    """Look up a CDCR/CalVet facility from free text (delivery location, ship_to, institution).
-    Returns FACILITY_DB entry or None."""
+    """Look up a CDCR/CalVet facility from free text via canonical registry.
+
+    Delegates to `src.core.facility_registry.resolve()` which applies
+    the audit-W-safe priority (exact alias → unique substring → unique
+    zip → None), and adapts the returned `FacilityRecord` into the
+    legacy dict shape the rest of this module consumes.
+
+    Returns `None` when the registry refuses to guess (ambiguous
+    substring, no match) — caller should fall back to raw text on the
+    ship-to and let the operator disambiguate rather than silently
+    picking a wrong facility. Incident 2026-04-24: Mike's CalVet
+    Barstow PC ship-to showed "Calipatria State Prison" because the
+    old `_lookup_facility` had its own iteration order that found
+    CAL before CALVETHOME-BF. The canonical registry applies proper
+    alias matching so "Veterans Home of California - Barstow" resolves
+    to CALVETHOME-BF directly.
+    """
+    if not text:
+        return None
+    try:
+        from src.core.facility_registry import resolve
+    except Exception as e:
+        log.warning("facility_registry unavailable, lookup falling back to legacy: %s", e)
+        return _lookup_facility_legacy(text)
+    rec = resolve(text)
+    if rec:
+        return _registry_record_to_legacy_dict(rec)
+    return None
+
+
+def _lookup_facility_legacy(text: str) -> dict | None:
+    """Last-resort fallback when facility_registry can't be imported.
+
+    Uses the local `FACILITY_DB` snapshot. This path exists only so
+    quote_generator doesn't crash on an import failure — it will
+    behave as it did before the canonical-registry migration, including
+    reproducing any pre-existing iteration-order bugs. Normal operation
+    never reaches this function.
+    """
     if not text:
         return None
     upper = text.upper().strip()
-    # Direct abbreviation match (e.g. "CIW", "CSP-SAC")
     for key in FACILITY_DB:
         if upper.startswith(key + " ") or upper.startswith(key + "-") or upper.startswith(key + ",") or upper == key:
             return FACILITY_DB[key]
-    # Name fragment match (e.g. "California Institution for Women")
     for key, fac in FACILITY_DB.items():
         fname = fac["name"].upper()
-        # Check if the facility's descriptive name appears in the text
-        # e.g. "California Institution for Women" in "CIW - California Institution for Women, 16756..."
         desc_part = fname.split(" - ", 1)[1] if " - " in fname else fname
         if desc_part and len(desc_part) > 5 and desc_part in upper:
             return fac
-    # City-based fallback for known prison cities
     _CITY_MAP = {
         "CHINO": "CIM", "CORONA": "CIW", "CORCORAN": "CSP-COR", "LANCASTER": "CSP-LAC",
         "VACAVILLE": "CSP-SOL", "STOCKTON": "CHCF", "COALINGA": "PVSP", "DELANO": "KVSP",
