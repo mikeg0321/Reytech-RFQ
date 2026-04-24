@@ -4210,3 +4210,41 @@ def api_action_item_dismiss(item_id):
     except Exception as e:
         log.error("action-item-dismiss %d: %s", item_id, e)
         return jsonify({"ok": False, "error": str(e)})
+
+
+@bp.route("/api/admin/scprs/backfill-mfg", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_scprs_backfill_mfg():
+    """Backfill MFG# columns on historical SCPRS rows from description regex.
+
+    Without this, the oracle's MFG#-first partition (PR #487) never
+    fires because the historical SCPRS data we synced has empty
+    item_number / mfg_number / item_id / part_number columns. Mike's
+    PCs with clean MFG#s like "WL085P" or "163353" still get
+    description-only matches.
+
+    Body (optional):
+      {"dry_run": true}             # report only, no writes
+      {"limit_per_table": 1000}     # spot-check on a small slice first
+
+    Returns per-table stats: scanned / extracted / written / errors,
+    plus duration_sec.
+
+    Idempotent — only fills rows where the target column is NULL or
+    empty. Safe to re-run after a fresh SCPRS pull adds more rows.
+    """
+    try:
+        from src.core.scprs_mfg_backfill import backfill_mfg_numbers
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"import: {e}"}), 500
+    payload = request.get_json(force=True, silent=True) or {}
+    dry_run = bool(payload.get("dry_run", False))
+    limit = int(payload.get("limit_per_table", 0) or 0)
+    log.info(
+        "admin scprs backfill-mfg start (dry_run=%s, limit_per_table=%d)",
+        dry_run, limit,
+    )
+    result = backfill_mfg_numbers(dry_run=dry_run, limit_per_table=limit)
+    log.info("admin scprs backfill-mfg done: %s", result.get("stats"))
+    return jsonify(result)
