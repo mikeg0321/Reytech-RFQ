@@ -2317,25 +2317,10 @@ def generate_rfq_package(rid):
         from src.core.dal import create_package_manifest, log_lifecycle_event as _lle
 
         log.info("PACKAGE %s: output_files=%s", rid, output_files)
+        from src.forms.package_form_classifier import classify_package_filename
         _gen_forms = []
         for _of in output_files:
-            _fid = "unknown"
-            _of_lower = _of.lower()
-            if "quote" in _of_lower and "704" not in _of_lower: _fid = "quote"
-            elif "703b" in _of_lower or "703c" in _of_lower: _fid = "703b"
-            elif "704b" in _of_lower: _fid = "704b"
-            elif "calrecycle" in _of_lower: _fid = "calrecycle74"
-            elif "bidderdecl" in _of_lower or "bidder" in _of_lower: _fid = "bidder_decl"
-            elif "dvbe" in _of_lower or "843" in _of_lower: _fid = "dvbe843"
-            elif "darfur" in _of_lower: _fid = "darfur_act"
-            elif "cuf" in _of_lower or "cv012" in _of_lower: _fid = "cv012_cuf"
-            elif "std205" in _of_lower: _fid = "std205"
-            elif "std204" in _of_lower or "payee" in _of_lower: _fid = "std204"
-            elif "std1000" in _of_lower: _fid = "std1000"
-            elif "seller" in _of_lower or "permit" in _of_lower: _fid = "sellers_permit"
-            elif "bidpkg" in _of_lower or "bidpackage" in _of_lower: _fid = "bidpkg"
-            elif "obs" in _of_lower or "1600" in _of_lower: _fid = "obs_1600"
-            elif "drug" in _of_lower: _fid = "drug_free"
+            _fid = classify_package_filename(_of)
             _entry = {"form_id": _fid, "filename": _of}
             # Pass template path for buyer field contamination check
             if _fid == "704b" and "704b" in tmpl:
