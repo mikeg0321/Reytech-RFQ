@@ -4192,20 +4192,37 @@
     }
 
     // Enhancement 5: PC→RFQ Linkage
+    // All three lifecycle actions (link / convert / reclassify) now surface
+    // fetch failures so a network error / 5xx / non-JSON response doesn't
+    // disappear silently. Prior incident 2026-04-23: reclassify clicked,
+    // server never reached, no message shown — operator assumed it worked.
+    function _onFetchError(label, e){
+     try { console.error('[PC]', label, 'fetch failed:', e); } catch(_e){}
+     try { showMsg('❌ '+label+' failed: '+(e && e.message || e || 'network error'), 'err'); }
+     catch(_e){ alert(label+' failed: '+(e && e.message || e)); }
+    }
+    function _safeJson(r){
+     // Server returned non-OK or non-JSON: bubble enough info to surface
+     // the failure instead of silently passing {} to the success branch.
+     if (!r.ok) {
+      return r.text().then(function(t){ throw new Error('HTTP '+r.status+(t?': '+t.slice(0,120):'')); });
+     }
+     return r.json().catch(function(e){ throw new Error('Bad JSON response: '+e.message); });
+    }
     function linkToRFQ(){
      var rfqId=prompt('Enter RFQ ID to link to (or leave blank to auto-match):','');
      fetch('/api/pc/'+_pcid+'/link-rfq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rfq_id:rfqId||''})})
-     .then(r=>r.json()).then(d=>{
+     .then(_safeJson).then(d=>{
       if(d.ok&&d.matched){showMsg('✅ Linked to RFQ '+d.rfq_id,'ok');setTimeout(()=>location.reload(),1000);}
       else if(d.ok&&!d.matched){showMsg('⚠️ No matching RFQ found. Try entering the RFQ ID manually.','warn');}
       else{showMsg('❌ '+(d.error||'Link failed'),'err');}
-     });
+     }).catch(function(e){ _onFetchError('Link', e); });
     }
     function convertPCToRFQ(){
      if(!confirm('Convert this PC to a new RFQ?\n\nAll item data and pricing carry over. The system will also scan the last 30 days of email for a matching buyer contract and attach it if found.'))return;
      showMsg('Converting and scanning email…','info');
      fetch('/api/pc/'+_pcid+'/convert-to-rfq?repoll=1',{method:'POST'})
-     .then(r=>r.json()).then(d=>{
+     .then(_safeJson).then(d=>{
       if(d.ok){
        var msg='Converted — '+d.items+' items.';
        if(d.agency_key&&d.agency_key!=='other')msg+='\nAgency: '+d.agency_name+' ('+d.agency_key+')';
@@ -4224,12 +4241,12 @@
        setTimeout(()=>location.href=d.next_url||('/rfq/'+d.rfq_id),needsAlert?500:1200);
       }
       else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
-     });
+     }).catch(function(e){ _onFetchError('Convert to RFQ', e); });
     }
     function reclassifyAsRFQ(){
      if(!confirm('Reclassify this as an RFQ?\n\nThis was never a Price Check — it will be archived from the PC queue and a new RFQ created with the email context.'))return;
      fetch('/api/pc/'+_pcid+'/reclassify-as-rfq',{method:'POST'})
-     .then(r=>r.json()).then(d=>{
+     .then(_safeJson).then(d=>{
       if(d.ok){
        var msg='Reclassified! RFQ created with '+d.items+' items.';
        if(d.agency_key&&d.agency_key!=='other')msg+='\nAgency: '+d.agency_name;
@@ -4238,7 +4255,7 @@
        setTimeout(function(){location.href='/rfq/'+d.rfq_id;},d.warnings&&d.warnings.length?500:1200);
       }
       else{showMsg('❌ '+(d.error||'Reclassification failed'),'err');}
-     });
+     }).catch(function(e){ _onFetchError('Reclassify', e); });
     }
 
     _log('main-script-complete');
