@@ -864,38 +864,55 @@ def api_manager_recommendations():
 @safe_page
 def page_intel_scprs():
     """Universal SCPRS Intelligence Dashboard — all agencies, all products."""
+    intel_error = None
+    recs_error = None
     try:
         from src.agents.scprs_universal_pull import get_universal_intelligence, get_pull_status
         intel = get_universal_intelligence()
         status = get_pull_status()
     except Exception as e:
+        # Surface — never silently substitute empty defaults again.
+        # The 2026-03-07→2026-04-23 silent-blank incident lived behind a bare
+        # except here; this banner makes the next failure visible same-day.
+        log.exception("page_intel_scprs: get_universal_intelligence failed")
+        intel_error = f"{type(e).__name__}: {e}"
         intel = {"summary": {}, "gap_items": [], "win_back": [], "by_agency": [],
                  "competitors": [], "auto_closed_quotes": []}
         status = {"pos_stored": 0, "lines_stored": 0, "running": False, "progress": ""}
 
+    # Defensive unpack — handles the "returned successfully but with garbage
+    # shape" failure mode (twin of the 7-week silent-blank shape).
+    intel = intel or {}
+    status = status or {}
+
     try:
         from src.agents.manager_agent import get_intelligent_recommendations
         recs = get_intelligent_recommendations()
-    except Exception:
+    except Exception as e:
+        log.exception("page_intel_scprs: get_intelligent_recommendations failed")
+        recs_error = f"{type(e).__name__}: {e}"
         recs = {"actions": [], "summary": {}}
+    recs = recs or {}
 
-    summary = intel.get("summary", {})
-    pos = status.get("pos_stored", 0)
-    lines = status.get("lines_stored", 0)
+    # `or {}` — guards the "key exists with value None" case that bare
+    # `.get(k, default)` does NOT cover.
+    summary = (intel.get("summary") or {})
+    pos = status.get("pos_stored", 0) or 0
+    lines = status.get("lines_stored", 0) or 0
     running = status.get("running", False)
     gap_opp = summary.get("gap_opportunity", 0) or 0
     win_opp = summary.get("win_back_opportunity", 0) or 0
     total_mkt = summary.get("total_market_spend", 0) or 0
-    auto_closed = len(intel.get("auto_closed_quotes", []))
+    auto_closed = len(intel.get("auto_closed_quotes") or [])
     no_data = pos == 0
 
     return render_page("scprs_intel.html", active_page="Intel",
-        rec_actions=recs.get("actions", []),
-        rec_summary=recs.get("summary", {}),
-        gap_items=intel.get("gap_items", []),
-        win_back_items=intel.get("win_back", []),
-        by_agency=intel.get("by_agency", []),
-        auto_closed_quotes=intel.get("auto_closed_quotes", []),
+        rec_actions=(recs.get("actions") or []),
+        rec_summary=(recs.get("summary") or {}),
+        gap_items=(intel.get("gap_items") or []),
+        win_back_items=(intel.get("win_back") or []),
+        by_agency=(intel.get("by_agency") or []),
+        auto_closed_quotes=(intel.get("auto_closed_quotes") or []),
         lines=lines,
         pos=pos,
         auto_closed=auto_closed,
@@ -905,7 +922,9 @@ def page_intel_scprs():
         total_mkt=total_mkt,
         running=running,
         no_data=no_data,
-        status=status)
+        status=status,
+        intel_error=intel_error,
+        recs_error=recs_error)
 
 
 # ════════════════════════════════════════════════════════════════════════════════
