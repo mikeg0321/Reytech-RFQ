@@ -57,9 +57,22 @@ def triage(deadlines: list[dict]) -> dict:
             queue.append(d)
 
     emergency.sort(key=lambda x: x.get("hours_left") or 0)
-    # Queue: due-asc primary, LOE-asc within same hour-band (easy first).
+    # Queue sort:
+    #   1. real deadlines (header / email / locked) before defaults
+    #   2. due-asc within each group
+    #   3. LOE-asc within same hour-band (easy first)
     # Items with no hours_left sink to the bottom.
+    #
+    # Why source-first: incident 2026-04-23 — when 11+ records all
+    # carry a default-stamped deadline (~tomorrow 2 PM PST), the
+    # time-only sort renders them identically ("16.8h left") and a
+    # single real header-stamped deadline at "24h left" gets buried
+    # below the fakes. Real signal must outrank fake signal.
+    def _is_default(rec):
+        return (rec.get("due_date_source") or "").lower() == "default"
+
     queue.sort(key=lambda x: (
+        _is_default(x),  # False (real) sorts before True (default)
         x.get("hours_left") if x.get("hours_left") is not None else 1e9,
         x.get("loe_minutes") or 0,
     ))
