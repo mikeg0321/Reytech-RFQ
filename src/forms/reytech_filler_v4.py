@@ -179,10 +179,23 @@ def get_pst_date():
     return pst_now().strftime("%m/%d/%Y")
 
 
+def _helv_string_width(text: str, size: float) -> float:
+    """Real Helvetica advance width (proportional). Falls back to a 0.55em estimate
+    if reportlab metrics are unavailable for any reason."""
+    try:
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        return stringWidth(text, "Helvetica", size)
+    except Exception:
+        return len(text) * size * 0.55
+
+
 def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
-    """Set font sizes and FORCE appearance regeneration for clean text rendering."""
+    """Set font sizes and FORCE appearance regeneration for clean text rendering.
+
+    Uses real Helvetica advance metrics + 6pt safety margin so text is never clipped
+    even by viewers (Chrome PDFium) that re-render embedded /AP streams with their
+    own glyph metrics."""
     import re as _re_sff
-    # Sanitize all field values before writing to PDF
     _clean = {}
     for _k, _v in field_values.items():
         if isinstance(_v, str):
@@ -192,11 +205,11 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
         _clean[_k] = _v
     field_values = _clean
     da_default = f"/Helv {default_size} Tf 0 g"
-    
-    # Conservative character widths at different font sizes (Helvetica, mixed text).
-    # Using 0.6em as average glyph advance — wider than naive estimate to avoid clipping.
-    CHAR_WIDTH = {5: 3.1, 6: 3.7, 7: 4.3, 8: 4.9, 9: 5.5, 10: 6.1, 11: 6.7}
-    
+
+    # Internal padding allowance: PDF viewers reserve ~3pt on each side of a field
+    # for the cursor caret and visible focus border. 6pt total is the safe minimum.
+    PAD = 6.0
+
     for page in writer.pages:
         if "/Annots" not in page:
             continue
@@ -209,29 +222,85 @@ def set_field_fonts(writer, field_values, default_size=11, tight_size=9):
                        str(parent.get_object().get("/FT", "")) == "/Tx")
             if not is_text:
                 continue
-            
+
             content = str(field_values.get(name, ""))
             rect = obj.get("/Rect")
             field_w = float(rect[2]) - float(rect[0]) if rect else 100
-            
-            if name in TIGHT_FIELDS or (content and len(content) * CHAR_WIDTH.get(default_size, 6.1) > field_w - 4):
-                # Auto-size: fit content to field width
-                font_sz = tight_size
+            usable_w = field_w - PAD
+
+            default_w = _helv_string_width(content, default_size) if content else 0
+            needs_shrink = name in TIGHT_FIELDS or (content and default_w > usable_w)
+
+            if needs_shrink:
+                font_sz = 5
                 for try_sz in [tight_size, 8, 7, 6, 5]:
-                    est_width = len(content) * CHAR_WIDTH.get(try_sz, 5.0)
-                    if est_width < field_w - 4:
+                    if _helv_string_width(content, try_sz) <= usable_w:
                         font_sz = try_sz
                         break
-                    font_sz = try_sz
-                
                 obj[NameObject("/DA")] = TextStringObject(f"/Helv {font_sz} Tf 0 g")
             else:
                 obj[NameObject("/DA")] = TextStringObject(da_default)
-            
+
             # CRITICAL: Remove existing appearance stream so PDF viewer regenerates it
-            # This fixes the letter spacing issue — old AP has wrong character widths
             if "/AP" in obj:
                 del obj[NameObject("/AP")]
+
+
+def _ensure_helv_font_on_pages(writer):
+    """Add a `/Helv` Type1 Helvetica entry to every page's /Resources/Font dict.
+
+    Why: pypdf's auto_regenerate writes /AP streams that reference `/Helv N Tf`,
+    but blank PDFs typically only define /F1 (or /TT0, /C2_0, etc.) at the page
+    level. Acrobat resolves `/Helv` from the AcroForm /DR fallback; Chrome PDFium
+    does NOT — it falls back to a substituted font with different glyph widths,
+    causing visible clipping (e.g. "Trabuco Cany..." instead of "Trabuco Canyon").
+    Adding /Helv to the page resources lets every viewer render identically.
+    Run this once per output PDF, after update_page_form_field_values().
+    """
+    from pypdf.generic import (
+        DictionaryObject, NameObject, TextStringObject, NumberObject, ArrayObject,
+    )
+    helv_font_dict = DictionaryObject({
+        NameObject("/Type"): NameObject("/Font"),
+        NameObject("/Subtype"): NameObject("/Type1"),
+        NameObject("/BaseFont"): NameObject("/Helvetica"),
+        NameObject("/Encoding"): NameObject("/WinAnsiEncoding"),
+    })
+    helv_ref = writer._add_object(helv_font_dict)
+
+    for page in writer.pages:
+        # Only touch pages with at least one text-input widget
+        if "/Annots" not in page:
+            continue
+        has_text_field = False
+        for annot in page["/Annots"]:
+            obj = annot.get_object()
+            if obj.get("/FT") == "/Tx":
+                has_text_field = True
+                break
+            parent = obj.get("/Parent")
+            if parent and parent.get_object().get("/FT") == "/Tx":
+                has_text_field = True
+                break
+        if not has_text_field:
+            continue
+
+        resources = page.get("/Resources")
+        if resources is None:
+            page[NameObject("/Resources")] = DictionaryObject()
+            resources = page["/Resources"]
+        else:
+            resources = resources.get_object()
+
+        font_dict = resources.get("/Font")
+        if font_dict is None:
+            resources[NameObject("/Font")] = DictionaryObject()
+            font_dict = resources["/Font"]
+        else:
+            font_dict = font_dict.get_object()
+
+        if NameObject("/Helv") not in font_dict:
+            font_dict[NameObject("/Helv")] = helv_ref
 
 
 def create_signature_overlay(sig_entries, page_width, page_height, sig_image_path, sign_date=None):
@@ -404,6 +473,14 @@ def fill_and_sign_pdf(input_path, field_values, output_path,
                 writer.update_page_form_field_values(page, clean_values, auto_regenerate=False)
             except Exception as _e:
                 log.debug("suppressed: %s", _e)
+
+    # Ensure /Helv is resolvable in every form-field page's /Resources/Font dict.
+    # Without this, Chrome PDFium falls back to substituted glyph metrics and
+    # clips long values (e.g. "Trabuco Cany..." instead of "Trabuco Canyon").
+    try:
+        _ensure_helv_font_on_pages(writer)
+    except Exception as _e:
+        log.debug("ensure_helv_font_on_pages suppressed: %s", _e)
 
     sig_path = sig_image or SIGNATURE_PATH
     for page in writer.pages:
@@ -3495,6 +3572,14 @@ def fill_std205(input_path, rfq_data, config, output_path):
             state = m.group(2)
             zipcode = m.group(3)
 
+    # Contact 1 row: name + phone + email belong together. The PDF's "EMAIL"
+    # field (no _1 suffix) is Contact 1's email cell — filling it without the
+    # matching name + phone leaves a half-populated row that looks incomplete.
+    # Standard expected output is the canonical authorized rep on Contact 1.
+    contact_name = f"{company.get('owner', '')}, {company.get('title', 'Owner')}".strip(", ")
+    contact_phone = company.get("phone", "")
+    contact_email = company.get("email", "")
+
     values = {
         # Section 1: Payee Information (required)
         "nameReq1": company["name"],
@@ -3504,12 +3589,14 @@ def fill_std205(input_path, rfq_data, config, output_path):
         "CITY1": city,
         "STATE1": state,
         "ZIPCODE1": zipcode,
-        # Do NOT fill contactName, TELEPHONE, or addresses 2-5
-        # Those are "additional contact information" — leave blank
+        # Section 3: Contact 1 — fill name + phone + email as a complete row.
+        # Addresses 2-5 and Contacts 2-3 stay blank (truly additional/optional).
+        "contactName1": contact_name,
+        "TELEPHONE_1": contact_phone,
+        "EMAIL": contact_email,
         # Certification section
-        "certName": f"{company.get('owner', '')}, {company.get('title', 'Owner')}",
-        "certTelephone": company.get("phone", ""),
-        "EMAIL": company.get("email", ""),
+        "certName": contact_name,
+        "certTelephone": contact_phone,
         "TITLE": company.get("title", "Owner"),
         "DATE": sign_date,
     }
