@@ -4209,6 +4209,33 @@
      }
      return r.json().catch(function(e){ throw new Error('Bad JSON response: '+e.message); });
     }
+    // Fix-C (2026-04-24): Convert / Reclassify race fence.
+    //
+    // Incident f81c4e9b: operator restored medical-grade costs in the
+    // UI ($400 / $185 / etc), clicked Save & Generate, then clicked
+    // Convert seconds later. The Convert request fired a deepcopy of
+    // the server-side PC dict before the autosave POST had committed,
+    // so the resulting RFQ carried the PRE-restore state ($329.92
+    // subtotal at 25% Amazon-retail markup, NOT the $2,252.21
+    // medical-grade state the operator had just confirmed visually).
+    //
+    // Fence: any lifecycle action that consumes the PC dict (Convert
+    // / Reclassify) MUST first cancel the debounced autosave timer
+    // and wait for any in-flight save to complete. Returns true if
+    // the queue is drained, false on timeout (caller surfaces error).
+    async function _flushPcAutosave(){
+     try { clearTimeout(_pcAutosaveTimer); } catch(_e){}
+     // 1. Wait out any save already in-flight (max 3s)
+     for (var i=0; i<30 && (typeof _pcSaveInFlight !== 'undefined' && _pcSaveInFlight); i++) {
+      await new Promise(function(r){ setTimeout(r, 100); });
+     }
+     // 2. Trigger a final save and wait for completion (max 5s)
+     try { doPcAutosave(); } catch(_e){}
+     for (var j=0; j<50 && (typeof _pcSaveInFlight !== 'undefined' && _pcSaveInFlight); j++) {
+      await new Promise(function(r){ setTimeout(r, 100); });
+     }
+     return (typeof _pcSaveInFlight === 'undefined') || !_pcSaveInFlight;
+    }
     function linkToRFQ(){
      var rfqId=prompt('Enter RFQ ID to link to (or leave blank to auto-match):','');
      fetch('/api/pc/'+_pcid+'/link-rfq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rfq_id:rfqId||''})})
@@ -4218,8 +4245,14 @@
       else{showMsg('❌ '+(d.error||'Link failed'),'err');}
      }).catch(function(e){ _onFetchError('Link', e); });
     }
-    function convertPCToRFQ(){
+    async function convertPCToRFQ(){
      if(!confirm('Convert this PC to a new RFQ?\n\nAll item data and pricing carry over. The system will also scan the last 30 days of email for a matching buyer contract and attach it if found.'))return;
+     showMsg('Saving latest edits before convert…','info');
+     var flushed = await _flushPcAutosave();
+     if (!flushed) {
+      _onFetchError('Convert to RFQ', new Error('In-flight save did not complete in 8s — convert cancelled to avoid stale snapshot. Try again.'));
+      return;
+     }
      showMsg('Converting and scanning email…','info');
      fetch('/api/pc/'+_pcid+'/convert-to-rfq?repoll=1',{method:'POST'})
      .then(_safeJson).then(d=>{
@@ -4243,8 +4276,13 @@
       else{showMsg('❌ '+(d.error||'Conversion failed'),'err');}
      }).catch(function(e){ _onFetchError('Convert to RFQ', e); });
     }
-    function reclassifyAsRFQ(){
+    async function reclassifyAsRFQ(){
      if(!confirm('Reclassify this as an RFQ?\n\nThis was never a Price Check — it will be archived from the PC queue and a new RFQ created with the email context.'))return;
+     var flushed = await _flushPcAutosave();
+     if (!flushed) {
+      _onFetchError('Reclassify', new Error('In-flight save did not complete in 8s — reclassify cancelled to avoid stale snapshot. Try again.'));
+      return;
+     }
      fetch('/api/pc/'+_pcid+'/reclassify-as-rfq',{method:'POST'})
      .then(_safeJson).then(d=>{
       if(d.ok){

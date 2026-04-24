@@ -547,6 +547,48 @@ def resolve(text: str) -> Optional[FacilityRecord]:
     return None
 
 
+# ── Agency-key → canonical-facility map ───────────────────────────────
+# Some `agency_key` values from `agency_config.py` are facility-specific
+# (e.g. `calvet_barstow` always means the Veterans Home of California -
+# Barstow facility). When the converter / agency_config has already
+# resolved an RFQ to one of these keys, the quote generator MUST use
+# this mapping as the authoritative ship-to source — text-based
+# `resolve(...)` over stale buyer fields was the 2026-04-24 root cause
+# of the f81c4e9b → Calipatria mis-render. PR #501 collapsed
+# `quote_generator.FACILITY_DB` onto this registry; this map is the
+# Fix-B follow-up that flips the priority order from text-first to
+# agency-key-first inside `generate_quote_from_rfq`.
+#
+# Keep this map narrow — only facility-specific keys belong here.
+# Generic agency keys with multiple facilities (cdcr, calvet, cchcs,
+# dgs, calfire, other) need text resolution to pick the child facility.
+AGENCY_KEY_TO_FACILITY_CODE: Dict[str, str] = {
+    "calvet_barstow": "CALVETHOME-BF",
+    # Future: add facility-specific keys here as they're introduced.
+    # E.g. each calvet_* facility variant, each dsh_* hospital variant.
+}
+
+
+def resolve_by_agency_key(agency_key: str) -> Optional[FacilityRecord]:
+    """Resolve an `agency_key` to its canonical FacilityRecord, when
+    the key is facility-specific. Returns None for generic agency keys
+    (cdcr/calvet/cchcs/dgs/calfire/other) — those need text resolution
+    to pick the child facility, since multiple facilities share the
+    parent agency.
+
+    Used by `quote_generator.generate_quote_from_rfq` to honour the
+    converter-resolved canonical agency_key BEFORE text-based
+    facility lookup. Per `feedback_canonical_not_verbatim` — when a
+    canonical id is present, do not let buyer free-text override it.
+    """
+    if not agency_key:
+        return None
+    code = AGENCY_KEY_TO_FACILITY_CODE.get(agency_key.strip().lower())
+    if not code:
+        return None
+    return FACILITIES_BY_CODE.get(code)
+
+
 def resolve_with_reason(text: str) -> Tuple[Optional[FacilityRecord], str]:
     """Debug-friendly variant: returns (record, reason_slug).
 
