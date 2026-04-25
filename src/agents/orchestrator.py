@@ -191,17 +191,27 @@ def _pc_amazon_node(state: PCPipelineState) -> PCPipelineState:
 
 
 def _pc_pricing_node(state: PCPipelineState) -> PCPipelineState:
-    """Apply markup and compute final prices."""
+    """Apply markup and compute final prices.
+
+    2026-04-25 fix (Barstow incident): only compute recommended_price when
+    operator-supplied `unit_cost` exists. amazon_price / scprs_price are
+    REFERENCE data (CLAUDE.md: "Amazon/SCPRS Prices Are NOT Supplier
+    Costs") — promoting them to cost was the root cause Mike had to
+    re-enter every PC's costs by hand.
+    """
     if state.get("error"):
         return state
     items = state.get("items", [])
     for item in items:
         p = item.get("pricing", {})
-        cost = p.get("unit_cost") or p.get("amazon_price") or p.get("scprs_price") or 0
+        cost = p.get("unit_cost") or 0
         if cost and not p.get("recommended_price"):
             markup = p.get("markup_pct", 25)
-            p["unit_cost"] = cost
             p["recommended_price"] = round(cost * (1 + markup / 100), 2)
+            item["pricing"] = p
+        elif not cost and (p.get("amazon_price") or p.get("scprs_price")):
+            # Reference data exists but no real supplier cost — flag the gap
+            p["cost_source"] = "needs_lookup"
             item["pricing"] = p
     state["items"] = items
     state["pricing_applied"] = True
