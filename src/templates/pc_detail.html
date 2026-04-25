@@ -697,6 +697,16 @@
       <button class="btn btn-sm" style="background:#21262d;color:#8b949e;border:1px solid #30363d" onclick="addRow()" aria-label="Add Item">+ Add Item</button>
      </div>
 
+     <!-- Phase 3 (2026-04-25): oracle quote-wide markup recommendation chip.
+          Auto-populated by /api/pricecheck/<pcid>/markup-recommendation on
+          page load. Hidden until oracle returns a high/medium-confidence
+          recommendation. Apply button preserves operator-typed overrides
+          (only writes to rows still at the auto-default 25%). -->
+     <div id="markup-rec-chip" data-testid="markup-rec-chip"
+          style="display:none;margin-top:10px;padding:10px 14px;
+                 border-radius:6px;font-size:13px;align-items:center;gap:10px;
+                 flex-wrap:wrap"></div>
+
      <!-- PRD Feature 10: Price History Intelligence Panel -->
      <div id="price-history-panel" style="margin-top:16px">
        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
@@ -5381,6 +5391,127 @@
       setTimeout(function() { pollStatus(attempt + 1); }, 1500);
     });
   }
+})();
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 3 (2026-04-25): oracle quote-wide markup recommendation chip
+//
+// On page load, fetches /api/pricecheck/<pcid>/markup-recommendation.
+// If oracle returns high/medium confidence, populates the
+// #markup-rec-chip placeholder with:
+//   🔮 Suggested markup: 35% — median of 8 CalVet wins since 2026-04-25
+//   [Apply to all rows]
+//
+// Apply preserves operator overrides — only writes to rows whose
+// current markup matches the auto-default 25%. Single autosave POST
+// after all DOM updates (don't fire one POST per row).
+// ─────────────────────────────────────────────────────────────────
+(function oracleMarkupRecommendation() {
+  if (document.querySelector('[data-locked-sent="1"]')) return;
+  var _m = (window.location.pathname || '').match(/\/pricecheck\/([^\/?#]+)/);
+  var _pcid = _m ? decodeURIComponent(_m[1]) : '';
+  if (!_pcid) return;
+  var chipEl = document.getElementById('markup-rec-chip');
+  if (!chipEl) return;
+  var _api = function(p) {
+    var loc = window.location;
+    return loc.protocol + '//' + loc.host + p;
+  };
+  var DEFAULT_MARKUP = 25;  // matches auto_processor's default
+
+  function safeAttr(s) {
+    return String(s == null ? '' : s).replace(/[<>"']/g, '');
+  }
+
+  function renderChip(rec) {
+    if (!rec || !rec.ok || !rec.markup_pct ||
+        (rec.confidence !== 'high' && rec.confidence !== 'medium')) {
+      // Low confidence or no recommendation — leave chip hidden
+      return;
+    }
+    var mp = parseFloat(rec.markup_pct);
+    if (!isFinite(mp) || mp <= 0) return;
+    var conf = rec.confidence;
+    var styles = (conf === 'high')
+      ? 'background:rgba(63,185,80,.13);color:#3fb950;border:1px solid rgba(63,185,80,.4)'
+      : 'background:rgba(210,153,34,.13);color:#d29922;border:1px solid rgba(210,153,34,.4)';
+    var label = (conf === 'high')
+      ? 'Suggested markup'
+      : 'Suggested markup (medium confidence)';
+    var rationale = safeAttr(rec.rationale || '');
+    var html = '<span style="font-size:18px">🔮</span>' +
+      '<span><b>' + label + ':</b> ' + mp.toFixed(1) + '%</span>' +
+      '<span style="opacity:.75;font-size:12px">— ' + rationale + '</span>' +
+      '<button type="button" data-testid="markup-apply-btn" ' +
+      'data-markup-val="' + mp + '" ' +
+      'style="margin-left:auto;padding:6px 14px;border-radius:4px;' +
+      'border:1px solid currentColor;background:transparent;color:inherit;' +
+      'font-weight:700;cursor:pointer;font-size:13px">Apply to all rows</button>';
+    chipEl.innerHTML = html;
+    chipEl.style.cssText += ';display:flex;' + styles;
+    var btn = chipEl.querySelector('button[data-testid="markup-apply-btn"]');
+    if (btn) btn.addEventListener('click', function() { applyMarkup(mp); });
+  }
+
+  function applyMarkup(mp) {
+    // Find every markup_N input where the row is non-no-bid AND the current
+    // value matches the auto-default (25%). Operator-typed overrides stay
+    // as-is. This is the contract Mike asked for: "preserve overrides".
+    var inputs = Array.from(document.querySelectorAll('input[name^="markup_"]'));
+    if (!inputs.length) return;
+    var updated = 0, preserved = 0, skipped = 0;
+    inputs.forEach(function(inp) {
+      var idx = (inp.name.match(/^markup_(\d+)$/) || [])[1];
+      if (idx == null) return;
+      // Skip no-bid rows — they're excluded from quoting
+      var row = inp.closest('tr');
+      var bidCheckbox = row ? row.querySelector('input[type="checkbox"][name^="bid_"]') : null;
+      if (bidCheckbox && !bidCheckbox.checked) { skipped++; return; }
+      var current = parseFloat(String(inp.value).trim());
+      if (isFinite(current) && Math.abs(current - DEFAULT_MARKUP) > 0.5) {
+        // Operator-typed value — preserve
+        preserved++;
+        return;
+      }
+      inp.value = mp.toFixed(1);
+      try { inp.dispatchEvent(new Event('change', {bubbles: true})); } catch(e) {}
+      // recalcRow may live in window scope (handleManualCostChange-style)
+      if (typeof recalcRow === 'function') {
+        try { recalcRow(parseInt(idx, 10), true); } catch(e) {}
+      }
+      updated++;
+    });
+    // Single autosave instead of N — recalcPC if available so totals refresh
+    if (typeof recalcPC === 'function') {
+      try { recalcPC(); } catch(e) {}
+    }
+    // Replace chip with confirmation
+    chipEl.innerHTML = '<span style="font-size:18px">✅</span>' +
+      '<span><b>Applied ' + mp.toFixed(1) + '% markup</b> to ' + updated +
+      ' row(s)' + (preserved ? ' — ' + preserved + ' override(s) preserved' : '') +
+      (skipped ? ' (' + skipped + ' no-bid skipped)' : '') + '</span>';
+    chipEl.style.cssText += ';background:rgba(63,185,80,.13);color:#3fb950;' +
+      'border:1px solid rgba(63,185,80,.4)';
+    // Telemetry
+    fetch(_api('/api/feature-use'), {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        feature: 'oracle_markup_applied',
+        context: {pcid: _pcid, markup_pct: mp,
+                  rows_updated: updated, rows_preserved: preserved},
+      }),
+    }).catch(function() {});  // telemetry never blocks UX
+  }
+
+  fetch(_api('/api/pricecheck/' + encodeURIComponent(_pcid) + '/markup-recommendation'), {
+    credentials: 'same-origin',
+  }).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(renderChip).catch(function() {
+    // Silent failure — chip stays hidden; operator default applies
+  });
 })();
 </script>
     </body></html>
