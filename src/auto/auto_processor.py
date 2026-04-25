@@ -482,11 +482,13 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
                 catalog_hit = None
 
         if catalog_hit and catalog_hit.get("cost", 0) > 0:
-            cost = float(catalog_hit["cost"])
+            # Catalog cost only — never Amazon/SCPRS. find_by_mfg_exact()
+            # already gates on cost_source IN ('operator', 'catalog_confirmed').
+            catalog_cost = float(catalog_hit["cost"])
             markup = p.get("markup_pct", 25)
-            p["unit_cost"] = cost
+            p["unit_cost"] = catalog_cost  # operator-supplied (via catalog flywheel)
             p["markup_pct"] = markup
-            p["recommended_price"] = round(cost * (1 + markup / 100), 2)
+            p["recommended_price"] = round(catalog_cost * (1 + markup / 100), 2)
             p["cost_source"] = "catalog"
             p["cost_source_url"] = catalog_hit.get("cost_source_url") or ""
             p["catalog_product_id"] = catalog_hit.get("id")
