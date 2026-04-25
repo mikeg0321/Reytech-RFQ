@@ -1740,10 +1740,73 @@ def generate_quote(
 # CONVENIENCE WRAPPERS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _items_with_unfilled_costs(items) -> list:
+    """Scan an items list for entries whose `pricing.cost_source` is
+    `"needs_lookup"` (the marker PR #521 sets when amazon/scprs
+    REFERENCE prices exist but the operator hasn't entered a real
+    supplier cost yet). Returns a list of dicts:
+      [{"line": 1-indexed, "description": "...", "ref_amazon": ..., "ref_scprs": ...}, ...]
+
+    Empty list means every item has operator-supplied cost (or no
+    reference data at all → operator chose to leave cost empty).
+    Used by both `generate_quote_from_pc` and `generate_quote_from_rfq`
+    to fail-closed before rendering a quote with $24.99 Amazon-as-cost
+    leaks. Symmetric with the `'$0 total'` gate in PR #525.
+    """
+    out = []
+    for idx, it in enumerate(items or []):
+        if not isinstance(it, dict):
+            continue
+        p = it.get("pricing") or {}
+        if not isinstance(p, dict):
+            continue
+        if p.get("cost_source") == "needs_lookup":
+            out.append({
+                "line": idx + 1,
+                "description": str(it.get("description", ""))[:80],
+                "ref_amazon": p.get("amazon_price"),
+                "ref_scprs": p.get("scprs_price"),
+            })
+    return out
+
+
+def _unfilled_cost_failure(unfilled: list, output_path: str) -> dict:
+    """Build the standard fail-closed return shape when any item still
+    needs a supplier-cost lookup. Mirrors the
+    `error="contract_violations"` shape from PR #525 so the route /
+    UI layer can branch on `result.get("error")` without parsing free
+    text. Caller should NOT proceed to render."""
+    msgs = [
+        f"line {u['line']}: {u['description']!r} (cost_source=needs_lookup)"
+        for u in unfilled
+    ]
+    log.warning(
+        "Quote render aborted — %d item(s) still need supplier-cost lookup:\n  %s",
+        len(unfilled), "\n  ".join(msgs),
+    )
+    return {
+        "ok": False,
+        "error": "cost_source_unfilled",
+        "violations": [f"line {u['line']}: cost unfilled" for u in unfilled],
+        "unfilled_items": unfilled,
+        "path": "",
+    }
+
+
 def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
     """Generate Reytech quote from a Price Check record."""
     header = pc.get("parsed", {}).get("header", {})
     items = pc.get("items", [])
+
+    # Fail-closed: PR #521 leaves auto-processed PCs with empty
+    # `unit_cost` cells flagged `cost_source = "needs_lookup"`. The
+    # operator must enter real supplier cost before sending — abort
+    # here so a partial-cost quote (where Amazon $24.99 was the only
+    # signal) can't slip through. Symmetric with PR #525's `$0 total`
+    # gate inside generate_quote().
+    _unfilled = _items_with_unfilled_costs(items)
+    if _unfilled:
+        return _unfilled_cost_failure(_unfilled, output_path)
 
     # To: and Ship To: should show the same institution + address
     institution = header.get("institution", pc.get("institution", ""))
@@ -1900,6 +1963,16 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     ship_to_raw = rfq.get("ship_to", "") or ""
     ship_to_name_raw = rfq.get("ship_to_name", "") or ""
     institution_name = rfq.get("institution_name", "") or ""
+
+    # Fail-closed on unfilled supplier costs (matches the PC-side gate
+    # above). PR #521 marks items as `cost_source="needs_lookup"` when
+    # only Amazon/SCPRS reference data is available — operator must
+    # enter real cost before the quote can render.
+    _unfilled = _items_with_unfilled_costs(
+        rfq.get("line_items") or rfq.get("items") or []
+    )
+    if _unfilled:
+        return _unfilled_cost_failure(_unfilled, output_path)
 
     # ── Facility lookup ──
     # Priority — Fix-B (2026-04-24): canonical agency_key wins over
