@@ -813,7 +813,100 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_bidmem_received ON bid_memory(received_at);
         CREATE INDEX IF NOT EXISTS idx_bidmem_contract_end ON bid_memory(contract_end_date);
     """),
+
+    # Programmatic — see _run_migration_28.
+    (28, "registration_gap_agent_tables", "SELECT 1;"),
 ]
+
+
+def _run_migration_28(conn):
+    """V2-PR-7: registration-gap detector + Gmail bulk-seed agent.
+
+    Two new tables:
+      - agency_domain_aliases: domain → dept_code map for inbound RFQ
+        sender resolution
+      - agency_pending_aliases: queue of unmapped sender domains the
+        agent encountered (compounds operator-reviewable backlog)
+
+    Plus two columns on existing agency_vendor_registry:
+      - is_provisional: agent-seeded rows start at 1, operator confirm
+        flips to 0
+      - evidence_message_ids: JSON array of Gmail message IDs that
+        triggered the auto-seed (auditable / re-runnable)
+
+    Idempotent ALTER TABLE ADD COLUMN with try/except per existing pattern.
+    """
+    def _add_col(table, col, coltype):
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}")
+        except Exception as _e:
+            log.debug("suppressed (column likely exists): %s", _e)
+
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS agency_domain_aliases (
+            domain      TEXT PRIMARY KEY,
+            dept_code   TEXT NOT NULL,
+            dept_name   TEXT DEFAULT '',
+            confidence  TEXT NOT NULL DEFAULT 'high',
+            is_active   INTEGER NOT NULL DEFAULT 1,
+            notes       TEXT DEFAULT '',
+            created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_alias_dept ON agency_domain_aliases(dept_code);
+
+        CREATE TABLE IF NOT EXISTS agency_pending_aliases (
+            domain      TEXT PRIMARY KEY,
+            seen_count  INTEGER NOT NULL DEFAULT 1,
+            first_seen  TEXT NOT NULL DEFAULT (datetime('now')),
+            last_seen   TEXT NOT NULL DEFAULT (datetime('now')),
+            example_subject TEXT DEFAULT ''
+        );
+    """)
+
+    # Add columns to agency_vendor_registry only if that table exists
+    # (it does once migration 24 has fired — should be true everywhere).
+    has_avr = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='agency_vendor_registry'"
+    ).fetchone()
+    if has_avr:
+        _add_col("agency_vendor_registry", "is_provisional",
+                 "INTEGER NOT NULL DEFAULT 0")
+        _add_col("agency_vendor_registry", "evidence_message_ids",
+                 "TEXT DEFAULT '[]'")
+
+    # Pre-seed canonical CA agency domains. Conservative list — only
+    # domains that map cleanly to a single dept_code at high confidence.
+    # Bare @ca.gov and @state.ca.gov intentionally OMITTED (too ambiguous).
+    seeds = [
+        ("cdcr.ca.gov",        "5225", "CDCR / Corrections"),
+        ("cchcs.ca.gov",       "4700", "CCHCS / Correctional Health"),
+        ("dsh.ca.gov",         "4440", "DSH / State Hospitals"),
+        ("calvet.ca.gov",      "7800", "CalVet"),
+        ("calfire.ca.gov",     "3840", "CalFire"),
+        ("fire.ca.gov",        "3840", "CalFire"),
+        ("cdph.ca.gov",        "4265", "CDPH / Public Health"),
+        ("dot.ca.gov",         "2660", "CalTrans"),
+        ("calrecycle.ca.gov",  "6440", "CalRecycle"),
+        ("dgs.ca.gov",         "1760", "DGS"),
+        ("water.ca.gov",       "3100", "Water Resources"),
+        ("dss.ca.gov",         "5180", "Social Services"),
+        ("dmh.ca.gov",         "4150", "Mental Health"),
+        ("chp.ca.gov",         "2720", "CHP"),
+        ("va.gov",             "7120", "Veterans Affairs (federal)"),
+    ]
+    try:
+        conn.executemany(
+            "INSERT OR IGNORE INTO agency_domain_aliases "
+            "(domain, dept_code, dept_name, confidence) "
+            "VALUES (?, ?, ?, 'high')",
+            seeds,
+        )
+    except Exception as _e:
+        log.debug("alias seed suppressed: %s", _e)
+
+    log.info("Migration 28: registration_gap_agent tables ensured + "
+             "agency_vendor_registry columns + %d alias seeds", len(seeds))
 
 
 def _run_migration_23(conn):
@@ -1109,6 +1202,18 @@ def run_migrations():
                     log.info("Migration 23 applied: scprs_tables_add_is_test (programmatic)")
                 except Exception as e:
                     log.error("Migration 23 partial: %s (non-fatal)", e)
+
+            if current < 28:
+                try:
+                    _run_migration_28(conn)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        (28, "registration_gap_agent_tables", datetime.now().isoformat())
+                    )
+                    applied += 1
+                    log.info("Migration 28 applied: registration_gap_agent_tables (programmatic)")
+                except Exception as e:
+                    log.error("Migration 28 partial: %s (non-fatal)", e)
 
             if applied:
                 log.info("Applied %d migration(s). Schema at version %d",

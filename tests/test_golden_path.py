@@ -991,7 +991,13 @@ class TestCCHCSGoldenPath:
             strict=True,
         )
         assert r["ok"] is True
-        assert abs(r["grand_total"] - (15 * 395.00)) < 0.01
+        # "Extension" in procurement = qty * unit_price (line total, pre-tax).
+        # Assert on subtotal — packet correctly adds CDTFA-looked-up sales_tax
+        # to grand_total per src/forms/cchcs_packet_filler.py:254. The prior
+        # assertion against grand_total broke when packet started looking up
+        # tax via header zip; subtotal is the right field for an extension-
+        # arithmetic check.
+        assert abs(r["subtotal"] - (15 * 395.00)) < 0.01
         assert r["gate"]["by_check"]["extension_arithmetic"]["issues"] == []
 
     def test_amount_field_regression_guard(

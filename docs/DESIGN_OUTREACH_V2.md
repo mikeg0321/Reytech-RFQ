@@ -176,6 +176,21 @@ Ordered by "moves the RFQ-inclusion needle fastest":
 - **V2-PR-7: Registration-gap agent — auto-detect where we SHOULD be registered.** MEDIUM. For every top-20 agency, flag the categories where we have capability credit but no registration record.
 - **V2-PR-8 (stretch): Standard-template outbox for procurement-appropriate touches.** MEDIUM. Replaces V1's A/B drafts with 4 canned procurement templates (RFQ-list request / capability refresher / cert confirmation / rebid memo).
 
+## V2-PR-7 / V2-PR-8 sequencing + must-do edits (2026-04-25 product-engineer pre-review)
+
+**Sequencing locked:** **V2-PR-7 ships BEFORE V2-PR-8.** Templates without a populated `agency_vendor_registry` render every card as `unknown` → auto-picks RFQ-list-inclusion for everyone → defeats the differentiation that justifies 4 templates. Build the data layer first.
+
+**V2-PR-8 must-do edits when its turn comes:**
+1. **Canonical identity at constants layer** — `outreach_agent.py:118,155` hardcodes "Mike Gonzalez". Memory `project_reytech_canonical_identity` requires **Michael Guadan + sales@reytechinc.com**. Add `src/core/reytech_identity.py` (name, email, sig, SB#, DVBE#) and route both V1 outreach_agent and V2 outreach_templates through it. Otherwise V2-PR-8 ships the wrong sender name on every draft.
+2. **Kill placeholder fallbacks** — `[no recent capability credit]` strings in customer copy = trust loss. Disable the dropdown option when its required vars are missing; never ship a "fallback" placeholder in a procurement letter.
+3. **Recipient = procurement_officer_email, NOT buyer_email** — `scprs_po_master.buyer_email` is often the ordering clerk, not the procurement officer who can grant RFQ-list inclusion. V2-PR-8 must take recipient from `agency_vendor_registry.procurement_officer_email`. Otherwise we're asking clerks for something they can't grant.
+4. **Cert-confirmation trigger needs data, not vibes** — either `agency_vendor_registry.cert_packet_due=1` (set by V2-PR-4 panel, cleared by send) or a `reytech_cert_notifications` queue. Pick one, name the column.
+5. **Outbox status = `'draft'`** — don't invent `pending_approval`; existing card UI already filters on `status IN ('draft', 'pending', 'queued')`.
+6. **Inline reason line under primary button** — "why this template" so auto-pick is transparent (e.g., `reason="not_registered for this category"`).
+7. **Tone: SHORTER** — no "To Whom It May Concern". Procurement scans subject + first sentence.
+
+**Day-7 metric to add:** `# drafts via /draft-v2 / # total drafts ≥ 80%` AND `# drafts where rendered body contains ≥1 cited fact (PO# / $amount / cert#)`. Without these, V2-PR-8 is invisible to measurement.
+
 **Key sequencing insight:** PR-1 is the only one with existing data; PRs 2/4/6 require small new tables. Ship PR-1 alone first (ships in an hour, big immediate value), then do PR-2 (the registration-status layer is the single highest-leverage schema change in the whole app for this use case).
 
 ## Day-7 success metric

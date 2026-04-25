@@ -1085,6 +1085,42 @@ def page_outreach_next():
     except Exception as e:
         log.exception("page_outreach_next: cert_status load failed")
 
+    # V2-PR-7: lightweight gap counter for top-of-page audit banner.
+    # Cheap query — count, not list.
+    gap_count = 0
+    provisional_count = 0
+    try:
+        with _get_db() as conn:
+            try:
+                gap_count = conn.execute("""
+                    SELECT COUNT(*) FROM (
+                        SELECT p.dept_code
+                        FROM scprs_po_master p
+                        JOIN scprs_po_lines l ON l.po_id = p.id
+                        WHERE p.is_test = 0 AND l.is_test = 0
+                          AND p.start_date >= date('now', '-365 days')
+                        GROUP BY p.dept_code
+                        ORDER BY SUM(l.line_total) DESC LIMIT 30
+                    ) top
+                    LEFT JOIN agency_vendor_registry r ON r.dept_code = top.dept_code
+                    WHERE r.dept_code IS NULL
+                       OR r.status IS NULL
+                       OR r.status = ''
+                       OR r.status = 'unknown'
+                       OR (r.status = 'registered' AND r.is_provisional = 1)
+                """).fetchone()[0]
+            except Exception as _e:
+                log.debug("gap count suppressed: %s", _e)
+            try:
+                provisional_count = conn.execute(
+                    "SELECT COUNT(*) FROM agency_vendor_registry "
+                    "WHERE source='agent' AND is_provisional=1 AND is_test=0"
+                ).fetchone()[0]
+            except Exception as _e:
+                log.debug("provisional count suppressed: %s", _e)
+    except Exception as e:
+        log.exception("page_outreach_next: gap counts load failed")
+
     return render_page(
         "outreach_next.html",
         active_page="Growth",
@@ -1092,6 +1128,8 @@ def page_outreach_next():
         summary=summary or {},
         error=err,
         cert_status=cert_status,
+        registration_gap_count=gap_count,
+        registration_provisional_count=provisional_count,
     )
 
 
@@ -1367,4 +1405,140 @@ def api_outreach_next_draft():
         return jsonify({"ok": True, "draft": draft})
     except Exception as e:
         log.exception("api_outreach_next_draft failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# V2-PR-7: Registration-Gap Detector + Gmail Bulk-Seed
+# ════════════════════════════════════════════════════════════════════════════
+
+@bp.route("/admin/registration-gaps")
+@auth_required
+@safe_page
+def page_registration_gaps():
+    """Operator audit + bulk-action UI for V2-PR-7.
+
+    Shows two sections:
+      1. Detector punch list — top-N agencies by spend with no registry
+         row (or status=unknown).
+      2. Agent-seeded provisional rows awaiting operator confirm/reject.
+    """
+    gaps_result = {"ok": True, "gaps": []}
+    provisional = []
+    pending_aliases = []
+    err = None
+    try:
+        from src.agents.registration_gap_detector import detect_registration_gaps
+        gaps_result = detect_registration_gaps(top_n=30)
+        with _get_db() as conn:
+            try:
+                rows = conn.execute("""
+                    SELECT dept_code, status, source, is_provisional,
+                           confirmed_at, expires_at, notes,
+                           evidence_message_ids, updated_by, updated_at
+                    FROM agency_vendor_registry
+                    WHERE source = 'agent' AND is_provisional = 1
+                      AND is_test = 0
+                    ORDER BY updated_at DESC LIMIT 50
+                """).fetchall()
+                provisional = [dict(r) for r in rows]
+            except Exception as _e:
+                log.debug("provisional query suppressed: %s", _e)
+            try:
+                rows = conn.execute("""
+                    SELECT domain, seen_count, first_seen, last_seen,
+                           example_subject FROM agency_pending_aliases
+                    ORDER BY seen_count DESC, last_seen DESC LIMIT 50
+                """).fetchall()
+                pending_aliases = [dict(r) for r in rows]
+            except Exception as _e:
+                log.debug("pending aliases query suppressed: %s", _e)
+    except Exception as e:
+        log.exception("page_registration_gaps failed")
+        err = f"{type(e).__name__}: {e}"
+
+    return render_page(
+        "registration_gaps.html",
+        active_page="Growth",
+        gaps=gaps_result.get("gaps") or [],
+        provisional=provisional,
+        pending_aliases=pending_aliases,
+        scanned_top_n=gaps_result.get("scanned_top_n", 0),
+        error=err,
+    )
+
+
+@bp.route("/api/admin/registration-gaps/detect", methods=["POST"])
+@auth_required
+@safe_route
+def api_registration_gaps_detect():
+    """Run detector synchronously, return JSON gap list."""
+    try:
+        from src.agents.registration_gap_detector import detect_registration_gaps
+        payload = request.get_json(force=True, silent=True) or {}
+        top_n = int(payload.get("top_n", 30))
+        return jsonify(detect_registration_gaps(top_n=top_n))
+    except Exception as e:
+        log.exception("api_registration_gaps_detect failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+@bp.route("/api/admin/registration-gaps/gmail-seed", methods=["POST"])
+@auth_required
+@safe_route
+def api_registration_gaps_gmail_seed():
+    """Bulk-seed agency_vendor_registry from Gmail RFQ archive.
+
+    Body: {dry_run?, limit?, since_days?, inbox_name?}.
+    dry_run defaults TRUE — operator must explicitly send dry_run=false
+    to actually write to the registry.
+    """
+    try:
+        from src.agents.registration_gap_detector import gmail_bulk_seed_registrations
+        payload = request.get_json(force=True, silent=True) or {}
+        dry_run = bool(payload.get("dry_run", True))
+        limit = int(payload.get("limit", 200))
+        since_days = int(payload.get("since_days", 540))
+        inbox_name = (payload.get("inbox_name") or "sales").strip()
+        return jsonify(gmail_bulk_seed_registrations(
+            dry_run=dry_run, limit=limit, since_days=since_days,
+            inbox_name=inbox_name,
+        ))
+    except Exception as e:
+        log.exception("api_registration_gaps_gmail_seed failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+@bp.route("/api/admin/registration-gaps/confirm", methods=["POST"])
+@auth_required
+@safe_route
+def api_registration_gaps_confirm():
+    """Operator confirms an agent-seeded row → source='operator'."""
+    try:
+        from src.agents.registration_gap_detector import confirm_agent_registration
+        payload = request.get_json(force=True, silent=True) or {}
+        dept_code = (payload.get("dept_code") or "").strip()
+        if not dept_code:
+            return jsonify({"ok": False, "error": "dept_code required"}), 400
+        return jsonify(confirm_agent_registration(dept_code))
+    except Exception as e:
+        log.exception("api_registration_gaps_confirm failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+@bp.route("/api/admin/registration-gaps/reject", methods=["POST"])
+@auth_required
+@safe_route
+def api_registration_gaps_reject():
+    """Operator rejects an agent-seeded row → status='not_registered',
+    source='operator'."""
+    try:
+        from src.agents.registration_gap_detector import reject_agent_registration
+        payload = request.get_json(force=True, silent=True) or {}
+        dept_code = (payload.get("dept_code") or "").strip()
+        if not dept_code:
+            return jsonify({"ok": False, "error": "dept_code required"}), 400
+        return jsonify(reject_agent_registration(dept_code))
+    except Exception as e:
+        log.exception("api_registration_gaps_reject failed")
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500

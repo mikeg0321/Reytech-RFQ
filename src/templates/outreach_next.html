@@ -111,6 +111,15 @@
   </div>
 </div>
 
+{% if (registration_gap_count or 0) > 0 or (registration_provisional_count or 0) > 0 %}
+<div style="background:rgba(37,99,235,.06);border:1px solid var(--ac);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--tx)">
+  <a href="/admin/registration-gaps" style="color:var(--ac);font-weight:700;text-decoration:none">📊 Registration audit:</a>
+  {% if registration_gap_count %}<span style="margin-left:6px"><b>{{ registration_gap_count }}</b> agencies need a registry decision</span>{% endif %}
+  {% if registration_provisional_count %}<span style="margin-left:12px;color:#D97706"><b>{{ registration_provisional_count }}</b> agent-seeded rows awaiting confirm</span>{% endif %}
+  <a href="/admin/registration-gaps" style="float:right;color:var(--ac)">review →</a>
+</div>
+{% endif %}
+
 {% set cs = (cert_status or {}).summary or {} %}
 {% if cs.get('level') and cs.get('level') != 'none' or (cert_status or {}).get('certs') is iterable and (cert_status or {}).get('certs')|length > 0 %}
 <div class="cert-banner cert-{{ cs.get('level','none') }}" onclick="toggleCertPanel(this)">
