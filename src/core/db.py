@@ -390,17 +390,6 @@ CREATE TABLE IF NOT EXISTS rfqs (
     data_json       TEXT
 );
 
-CREATE TABLE IF NOT EXISTS award_check_queue (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    record_id       TEXT NOT NULL,
-    record_type     TEXT DEFAULT 'rfq',
-    solicitation    TEXT DEFAULT '',
-    check_after     TEXT DEFAULT '',
-    status          TEXT DEFAULT 'pending',
-    checked_at      TEXT DEFAULT '',
-    result          TEXT DEFAULT ''
-);
-
 CREATE TABLE IF NOT EXISTS revenue_log (
     id              TEXT PRIMARY KEY,
     logged_at       TEXT NOT NULL,

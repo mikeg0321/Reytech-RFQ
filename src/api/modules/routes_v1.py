@@ -3477,27 +3477,6 @@ def api_v1_rfq_link_pc(rid):
         return api_response(error=str(e), status=500)
 
 
-@bp.route("/api/v1/quotes/sent-tracker")
-@auth_required
-@safe_route
-def api_v1_quotes_sent_tracker():
-    """Get all sent quotes with follow-up status."""
-    try:
-        from src.agents.post_send_pipeline import get_sent_quotes_dashboard
-        quotes = get_sent_quotes_dashboard()
-        overdue = [q for q in quotes if q["urgency"] == "overdue"]
-        follow_up_due = [q for q in quotes if q["urgency"] == "follow_up_due"]
-        return api_response({
-            "quotes": quotes,
-            "total": len(quotes),
-            "overdue": len(overdue),
-            "follow_up_due": len(follow_up_due),
-        })
-    except Exception as e:
-        log.error("sent-tracker error: %s", e, exc_info=True)
-        return api_response(error=str(e), status=500)
-
-
 @bp.route("/api/v1/system/recover-pcs")
 @auth_required
 @safe_route
