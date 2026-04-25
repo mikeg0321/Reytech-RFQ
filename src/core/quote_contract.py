@@ -293,6 +293,28 @@ def all_canonical_facilities() -> list:
         return []
 
 
+def ship_to_for_text(text: str) -> str:
+    """Return a comma-joined ship-to address for free-text input, or "" on
+    no match. Resolves through canonical `facility_registry.resolve()` then
+    returns `"line1, line2"` from the FacilityRecord — never the raw
+    operator text. The output format mirrors what
+    `institution_resolver.get_ship_to_address` historically returned, so
+    callers migrating off institution_resolver get a drop-in replacement
+    without changing string assumptions downstream.
+
+    Used by `ship_to_resolver.lookup_buyer_ship_to` as the canonical
+    fallback after PO history + CRM lookup miss. Going through this facade
+    instead of importing `institution_resolver.get_ship_to_address`
+    directly keeps ship_to_resolver out of the architectural-ratchet
+    allowlist and lets a future PR delete `_FACILITY_ADDRESSES` from
+    institution_resolver without touching renderer code.
+    """
+    rec, _reason = resolve_facility_for_text(text)
+    if rec is None:
+        return ""
+    return f"{rec.address_line1}, {rec.address_line2}"
+
+
 def tax_for_facility(facility) -> dict:
     """Return tax info for a resolved facility as a dict:
       {"rate": 0.0875, "rate_bps": 875, "jurisdiction": "BARSTOW",
