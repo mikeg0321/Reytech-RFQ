@@ -3115,6 +3115,35 @@ def _generate_pc_pdf(pcid):
         log.warning("GENERATE %s blocked: %s", pcid, msg)
         return {"ok": False, "error": msg, "missing_cost_rows": _missing_cost}
 
+    # Phase 3 (2026-04-25): also gate on zero markup. Without this, an
+    # operator could ship a quote where rows have valid cost but markup_pct=0,
+    # producing a sell-at-cost line. The Phase 3 oracle markup recommendation
+    # makes a non-zero markup the expected default, so a zero value at this
+    # stage is almost always an oversight.
+    _missing_markup = []
+    for _idx, _it in enumerate(pc.get("items", [])):
+        if _it.get("no_bid"):
+            continue
+        _mp = _it.get("markup_pct")
+        if _mp is None:
+            _mp = (_it.get("pricing") or {}).get("markup_pct")
+        try:
+            _mp = float(_mp) if _mp is not None else 0
+        except (TypeError, ValueError):
+            _mp = 0
+        if _mp <= 0:
+            _missing_markup.append(_idx + 1)
+    if _missing_markup:
+        msg = (
+            f"Cannot generate PC PDF — {len(_missing_markup)} item(s) have "
+            f"zero markup: row(s) {', '.join(str(x) for x in _missing_markup[:8])}"
+            f"{'...' if len(_missing_markup) > 8 else ''}. "
+            f"Enter a markup % per row, or use the suggested-markup chip above "
+            f"the line items to apply a recommendation across all rows."
+        )
+        log.warning("GENERATE %s blocked: %s", pcid, msg)
+        return {"ok": False, "error": msg, "missing_markup_rows": _missing_markup}
+
     # ALWAYS sync parsed.line_items from pc.items (the source of truth)
     if "parsed" not in pc:
         pc["parsed"] = {"header": {}, "line_items": []}

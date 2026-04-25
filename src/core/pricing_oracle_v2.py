@@ -158,6 +158,113 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     return result
 
 
+PHASE3_MARKUP_FILTER_DATE = "2026-04-25"
+"""All quote-wide markup recommendations only consider rows recorded on or
+after this date. Pre-Phase-1 rows had Amazon-poisoned cost (auto_processor
+defaulted to 25% markup on bogus reference prices), so their margin_pct
+values are not trustworthy as historical signal. See
+project_lost_revenue_2026_04_24_barstow.md."""
+
+
+def recommend_quote_markup(agency, items=None, parent_agency=None, limit=200):
+    """Recommend a quote-wide markup % based on operator-confirmed prior wins.
+
+    Returns dict:
+      {
+        "ok": bool,
+        "markup_pct": float | None,    # the recommended value
+        "confidence": "high" | "medium" | "low" | None,
+        "sample_size": int,            # how many prior wins fed the median
+        "scope": "agency" | "parent_agency" | None,
+        "rationale": str,              # human-readable summary for the chip tooltip
+        "outliers_dropped": int,       # safety stat
+      }
+
+    Selection rules (Phase 3, 2026-04-25):
+      * read winning_prices.margin_pct WHERE recorded_at >= PHASE3_MARKUP_FILTER_DATE
+      * filter agency exactly first; if N>=5 → high confidence (agency scope)
+      * else fall back to parent_agency (e.g. all CalVet sites): if N>=5 → medium
+      * else None → no chip shown
+      * use MEDIAN, not mean — one outlier $50k win at 75% otherwise pulls the
+        average for a 6-quote series
+      * drop margin_pct samples outside [5, 60] before computing — those are
+        legacy/pollution outliers
+    """
+    if not agency or not str(agency).strip():
+        return {"ok": False, "markup_pct": None, "confidence": None,
+                "sample_size": 0, "scope": None, "rationale": "no agency",
+                "outliers_dropped": 0}
+    try:
+        from src.core.db import get_db
+    except Exception as e:
+        log.debug("recommend_quote_markup db import: %s", e)
+        return {"ok": False, "markup_pct": None, "confidence": None,
+                "sample_size": 0, "scope": None, "rationale": str(e),
+                "outliers_dropped": 0}
+
+    def _query(where_sql, params):
+        try:
+            with get_db() as db:
+                rows = db.execute(
+                    f"SELECT margin_pct, recorded_at FROM winning_prices "
+                    f"WHERE recorded_at >= ? AND margin_pct IS NOT NULL "
+                    f"AND ({where_sql}) "
+                    f"ORDER BY recorded_at DESC LIMIT ?",
+                    [PHASE3_MARKUP_FILTER_DATE, *params, limit],
+                ).fetchall()
+            return [r[0] for r in rows if r[0] is not None]
+        except Exception as e:
+            log.debug("recommend_quote_markup query: %s", e)
+            return []
+
+    # Phase 1: exact agency match
+    raw_agency = _query("LOWER(TRIM(agency)) = LOWER(TRIM(?))", [str(agency).strip()])
+    raw_parent = []
+    if parent_agency and parent_agency.strip():
+        raw_parent = _query(
+            "LOWER(TRIM(agency)) LIKE LOWER(TRIM(?))",
+            [f"%{parent_agency.strip()}%"],
+        )
+
+    def _filter_outliers(samples):
+        clean = [s for s in samples if isinstance(s, (int, float)) and 5 <= s <= 60]
+        return clean, len(samples) - len(clean)
+
+    agency_clean, agency_dropped = _filter_outliers(raw_agency)
+    parent_clean, parent_dropped = _filter_outliers(raw_parent)
+
+    def _median(xs):
+        s = sorted(xs)
+        n = len(s)
+        if n == 0:
+            return None
+        mid = n // 2
+        return s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
+
+    if len(agency_clean) >= 5:
+        m = _median(agency_clean)
+        return {"ok": True, "markup_pct": round(m, 1), "confidence": "high",
+                "sample_size": len(agency_clean), "scope": "agency",
+                "rationale": (f"median of {len(agency_clean)} {agency} wins "
+                              f"since {PHASE3_MARKUP_FILTER_DATE}"),
+                "outliers_dropped": agency_dropped}
+    if len(parent_clean) >= 5:
+        m = _median(parent_clean)
+        return {"ok": True, "markup_pct": round(m, 1), "confidence": "medium",
+                "sample_size": len(parent_clean), "scope": "parent_agency",
+                "rationale": (f"median of {len(parent_clean)} {parent_agency} wins "
+                              f"since {PHASE3_MARKUP_FILTER_DATE} "
+                              f"(only {len(agency_clean)} at exact {agency})"),
+                "outliers_dropped": parent_dropped}
+    return {"ok": True, "markup_pct": None, "confidence": "low",
+            "sample_size": len(agency_clean) + len(parent_clean),
+            "scope": None,
+            "rationale": (f"insufficient history "
+                          f"({len(agency_clean)} agency + {len(parent_clean)} parent wins) "
+                          f"— operator default applies"),
+            "outliers_dropped": agency_dropped + parent_dropped}
+
+
 def recommend_for_item(description, part_number="", qty=1):
     """Flat-shape adapter over get_pricing() for quote_engine.enrich_pricing.
 

@@ -74,6 +74,66 @@ def api_pricing_recommend():
     return jsonify(result)
 
 
+# ─────────────────────────────────────────────────────────────────
+# Phase 3 (2026-04-25): quote-wide markup recommendation
+#
+# When operator opens a PC, oracle queries winning_prices for prior
+# operator-confirmed wins at this agency (or parent agency class) and
+# recommends a single quote-wide markup %. The PC UI surfaces this as a
+# chip with an "Apply to all rows" button. Closes the second half of the
+# Barstow loss (Phase 1+2 fixed cost; auto_processor's hard-coded 25%
+# default is what made operator re-key 35% on every row).
+#
+# Provenance discipline: only reads winning_prices.recorded_at >=
+# '2026-04-25' (Phase 1 ship date) AND filters outlier margins outside
+# [5, 60] AND uses median (not mean) so a single $50k 75%-markup outlier
+# can't pull the recommendation. See pricing_oracle_v2.recommend_quote_markup.
+# ─────────────────────────────────────────────────────────────────
+
+@bp.route("/api/pricecheck/<pcid>/markup-recommendation", methods=["GET"])
+@auth_required
+@safe_route
+def api_pc_markup_recommendation(pcid):
+    """Recommend a quote-wide markup % for this PC based on prior wins
+    at the same agency (or agency class as fallback)."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+
+    agency = (pc.get("agency") or pc.get("institution") or "").strip()
+    if not agency:
+        return jsonify({"ok": True, "markup_pct": None, "confidence": "low",
+                        "rationale": "PC has no agency — operator default"})
+
+    # Resolve parent agency class via facility_registry. Barstow → CalVet,
+    # CSP-SAC → CDCR, etc. Falls back to None if the PC's facility isn't
+    # in the registry (older PCs predating the registry).
+    parent_agency = None
+    try:
+        agency_key = pc.get("agency_key") or ""
+        if agency_key:
+            from src.core.facility_registry import resolve_by_agency_key
+            facility = resolve_by_agency_key(agency_key)
+            if facility:
+                parent_agency = (getattr(facility, "parent_agency", "") or "").strip() or None
+    except Exception as e:
+        log.debug("markup-rec parent_agency resolve: %s", e)
+
+    try:
+        from src.core.pricing_oracle_v2 import recommend_quote_markup
+    except Exception as e:
+        log.debug("markup-rec import: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    result = recommend_quote_markup(agency, items=pc.get("items"),
+                                    parent_agency=parent_agency)
+    result["pcid"] = pcid
+    result["agency"] = agency
+    result["parent_agency"] = parent_agency
+    return jsonify(result)
+
+
 @bp.route("/api/won-quotes/search")
 @auth_required
 @safe_route
