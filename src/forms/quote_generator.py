@@ -1909,6 +1909,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     # consistent so a CalVet Barstow RFQ can never render with a
     # Calipatria ship-to again.
     facility = _resolve_facility_for_agency_key(rfq.get("agency_key", ""))
+    facility_from_agency_key = facility is not None
     if not facility:
         facility = (_lookup_facility(delivery) or
                     _lookup_facility(ship_to_raw) or
@@ -1973,20 +1974,34 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
     
     ship_name = ""
     ship_addr = []
-    
-    # 1. Try RFQ's parsed delivery_location first (703B has exact address)
-    if delivery and delivery.strip():
+
+    # 2026-04-25 — canonical agency_key wins over raw delivery text.
+    # Was: parsed `delivery_location` was tried FIRST and only fell
+    # back to facility on parse-fail. That priority leaked stale
+    # buyer text (Calipatria placeholder on a Barstow CalVet RFQ)
+    # straight into the rendered "Ship to Location" cell, even though
+    # the canonical resolver (line 1911) correctly picked
+    # CALVETHOME-BF. The golden 1-item-quote canary
+    # (`tests/test_golden_one_item_quote_e2e.py`) caught this on
+    # first run; this fix flips its xfail → xpass.
+    #
+    # New priority:
+    #   1. Canonical facility from `agency_key` (operator-resolved, trustworthy)
+    #   2. Parsed `delivery_location` (only if no canonical resolution)
+    #   3. Text-resolved facility (substring/zip match on raw fields)
+    #   4. Raw `ship_to` / `ship_to_name` fields
+    #   5. Institution name only
+    if facility_from_agency_key and facility:
+        ship_name = facility["name"]
+        ship_addr = list(facility["address"])
+    elif delivery and delivery.strip():
         _parsed_name, _parsed_addr = _parse_address_parts(delivery)
         if _parsed_name or _parsed_addr:
             ship_name = _parsed_name or ""
             ship_addr = _parsed_addr or []
-
-    # 2. Facility lookup as fallback
     if not ship_name and facility:
         ship_name = facility["name"]
         ship_addr = list(facility["address"])
-    
-    # 3. Raw fields as last resort
     if not ship_name:
         if ship_to_raw:
             ship_name, ship_addr = _parse_address_parts(ship_to_raw)

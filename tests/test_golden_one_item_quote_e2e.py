@@ -105,6 +105,41 @@ def _build_golden_rfq(tmp_path) -> dict:
     }
 
 
+def _build_renderable_golden_rfq(tmp_path) -> dict:
+    """Same Barstow scenario as `_build_golden_rfq` but in the SHAPE
+    the renderer wrapper actually reads (`line_items` not `items`).
+    Used to verify the rendered PDF text after the renderer-side fixes
+    (PR #525 fail-closed gate + 2026-04-25 ship-to canonical priority).
+
+    Booby trap stays — `delivery_location` carries Calipatria text;
+    canonical agency_key MUST beat it in the rendered "Ship to Location"
+    cell."""
+    return {
+        "id": "test_renderable_barstow",
+        "agency_key": CALVET_BARSTOW_AGENCY_KEY,
+        "agency": "calvet",
+        "agency_name": "California Department of Veterans Affairs",
+        "department": "Skilled Nursing Unit",
+        "requestor_name": "Test Buyer",
+        "requestor_email": "buyer@calvet.ca.gov",
+        "delivery_location": "Calipatria State Prison ship-to placeholder",
+        "ship_to": "CAL",
+        "due_date": "2026-04-30",
+        "line_items": [{
+            "description": "Stanley RoamAlert Wrist Strap",
+            "qty": 1,
+            "uom": "EA",
+            "mfg_number": "WRS-100",
+            "part_number": "WRS-100",
+            "unit_price": 540.00,
+            "price_per_unit": 540.00,
+            "unit_cost": 400.00,
+            "markup_pct": 35,
+        }],
+        "status": "ready_to_send",
+    }
+
+
 # ── Pre-render canonical-resolution gates ────────────────────────────
 
 
@@ -251,24 +286,57 @@ def test_golden_quote_render_does_not_throw(tmp_path):
 
 
 @pytest.mark.timeout(60)
-@pytest.mark.xfail(
-    strict=False,
-    reason="2026-04-25: quote_generator renders raw `delivery_location` text "
-           "instead of the canonical contract.ship_to_address_lines. "
-           "Contract layer is correct (facility=CALVETHOME-BF) but renderer "
-           "leaks. Fix tracked separately. xfail flips to xpass when fixed.",
-)
-def test_golden_quote_pdf_text_shows_barstow_not_calipatria(tmp_path):
-    """The visual canary. Read the rendered PDF text and assert the
-    operator would see the right facility. ALSO asserts negative cases
-    — Calipatria / Folsom must NOT appear, because either name on a
-    Barstow CalVet quote = the f81c4e9b production incident.
+def test_renderable_golden_pdf_shows_barstow_not_calipatria(tmp_path):
+    """The visual canary, fixed shape. Renders the same Barstow
+    scenario via the line_items RFQ shape so the renderer actually
+    produces a PDF (the items-shape RFQ trips the fail-closed gate
+    before this assertion can fire). Asserts the PDF "Ship to
+    Location" cell shows the canonical Barstow address even though
+    `delivery_location` carries stale Calipatria text.
 
-    KNOWN BROKEN as of 2026-04-25 — surfaced by this golden test on
-    first run. The QuoteContract has the right facility (CALVETHOME-BF)
-    but quote_generator's PDF renderer reads `rfq.delivery_location`
-    raw text instead of consuming `contract.ship_to_address_lines`. The
-    renderer-side migration to canonical-only ship-to is the next fix."""
+    FIXED 2026-04-25 by flipping `generate_quote_from_rfq`'s ship-to
+    priority: canonical agency_key facility wins over raw
+    delivery_location text. Stale buyer text can no longer leak past
+    CALVETHOME-BF into the rendered PDF.
+    """
+    from src.forms.quote_generator import generate_quote_from_rfq
+    rfq = _build_renderable_golden_rfq(tmp_path)
+    out = str(tmp_path / "renderable_barstow.pdf")
+    result = generate_quote_from_rfq(rfq, out)
+    assert result.get("ok") is True, (
+        f"renderable RFQ produced ok=False — gate fired unexpectedly: "
+        f"{result!r}"
+    )
+    rendered = result.get("path") or out
+    assert os.path.exists(rendered), f"PDF not at {rendered!r}"
+    from tests.conftest import extract_pdf_text
+    text = extract_pdf_text(rendered)
+    text_lower = text.lower()
+    # POSITIVE — canonical Barstow facility data
+    assert "barstow" in text_lower, (
+        f"PDF missing 'Barstow'. Text excerpt: {text[:600]!r}"
+    )
+    assert "veterans" in text_lower, "PDF missing 'Veterans'"
+    assert "92311" in text or "100 E Veterans" in text, (
+        f"PDF missing canonical Barstow address. Excerpt: {text[:600]!r}"
+    )
+    # NEGATIVE — stale buyer text MUST NOT leak
+    assert "calipatria" not in text_lower, (
+        "PDF contains 'Calipatria' — the 2026-04-24 Barstow regression "
+        "is back. agency_key=calvet_barstow lost to text resolution.\n"
+        f"Excerpt: {text[:600]!r}"
+    )
+    assert "folsom" not in text_lower, "PDF contains 'Folsom'"
+
+
+@pytest.mark.timeout(60)
+def test_golden_quote_pdf_text_shows_barstow_not_calipatria(tmp_path):
+    """The visual canary on the items-shape RFQ. Currently SKIPPED at
+    runtime because that shape trips the fail-closed gate (no items in
+    `line_items` → contract validator catches → render aborts). Test
+    kept for the case where someone migrates the renderer to consume
+    `rfq.items or rfq.line_items` — at which point this assertion will
+    flip green and the canary widens its coverage."""
     from src.forms.quote_generator import generate_quote_from_rfq
     rfq = _build_golden_rfq(tmp_path)
     out = str(tmp_path / "golden_barstow_quote.pdf")
