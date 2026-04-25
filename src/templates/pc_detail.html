@@ -707,6 +707,28 @@
                  border-radius:6px;font-size:13px;align-items:center;gap:10px;
                  flex-wrap:wrap"></div>
 
+     <!-- Phase 4-A (2026-04-25): Refresh costs button — recovers in-flight
+          PCs created before Phase 1 (which had Amazon ghost prices written
+          into unit_cost). Clears any cell whose cost_source IS NOT 'operator'
+          AND IS NOT 'catalog_confirmed', then triggers autosave + reload so
+          the Phase 2 cascade can fire on fresh empty cells. -->
+     <div id="refresh-costs-chip" data-testid="refresh-costs-chip"
+          style="margin-top:8px;display:flex;align-items:center;gap:8px;
+                 flex-wrap:wrap;font-size:12px;color:#8b949e">
+       <button type="button" id="refresh-costs-btn"
+               data-testid="refresh-costs-btn"
+               style="padding:6px 14px;border-radius:4px;
+                      border:1px solid rgba(139,148,158,.4);
+                      background:rgba(139,148,158,.10);color:#c9d1d9;
+                      font-weight:600;cursor:pointer;font-size:12px">
+         🔄 Refresh costs
+       </button>
+       <span style="opacity:.75">
+         Clears non-operator-confirmed cost cells so the cascade can re-run.
+         Operator-typed values are preserved.
+       </span>
+     </div>
+
      <!-- PRD Feature 10: Price History Intelligence Panel -->
      <div id="price-history-panel" style="margin-top:16px">
        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
@@ -5206,7 +5228,11 @@
   }
 </style>
 <script>
-(function tierCascadeAutoLookup() {
+// Phase 2 cascade — rerunnable. Body wrapped as `window.tierCascadeRescan()`
+// so Phase 4-A's "Refresh costs" can re-trigger it after clearing cells
+// without forcing a page reload (which fights the autosave's beforeunload
+// handler).
+window.tierCascadeRescan = function tierCascadeAutoLookup() {
   // Skip if PC is sent (locked) — locked banner script already disables inputs
   if (document.querySelector('[data-locked-sent="1"]')) return;
   // pcid is declared as a `var` inside a sibling <script>'s IIFE upstream,
@@ -5391,7 +5417,9 @@
       setTimeout(function() { pollStatus(attempt + 1); }, 1500);
     });
   }
-})();
+};
+// Auto-fire on initial load
+try { window.tierCascadeRescan(); } catch(e) { console.error('tierCascadeRescan initial:', e); }
 
 // ─────────────────────────────────────────────────────────────────
 // Phase 3 (2026-04-25): oracle quote-wide markup recommendation chip
@@ -5511,6 +5539,116 @@
     return r.json();
   }).then(renderChip).catch(function() {
     // Silent failure — chip stays hidden; operator default applies
+  });
+})();
+
+// ─────────────────────────────────────────────────────────────────
+// Phase 4-A (2026-04-25): "Refresh costs" button — recovers in-flight
+// PCs that pre-date the Phase 1 fix (PR #524, deployed 2026-04-25).
+//
+// Those PCs have Amazon-scraped ghost values written into unit_cost
+// (e.g. Barstow PC f81c4e9b: $24.99 Amazon retail on a $400 Grainger
+// Stanley RoamAlert). The cells aren't empty so Phase 2's NEEDS COST
+// chip never fires, and the cascade never auto-runs.
+//
+// Refresh strategy: clear every cost cell whose cost_source is NOT
+// operator-confirmed, autosave to persist, reload so Phase 2's cascade
+// IIFE auto-fires on the now-empty cells.
+//
+// SAFETY: operator-typed values (cost_source=='operator') AND catalog-
+// confirmed values (cost_source=='catalog_confirmed') are NEVER cleared.
+// Pre-existing operator costs survive the Refresh.
+// ─────────────────────────────────────────────────────────────────
+(function refreshCostsButton() {
+  if (document.querySelector('[data-locked-sent="1"]')) return;
+  var btn = document.getElementById('refresh-costs-btn');
+  if (!btn) return;
+  var _api = function(p) {
+    var loc = window.location;
+    return loc.protocol + '//' + loc.host + p;
+  };
+
+  btn.addEventListener('click', function onRefresh() {
+    var inputs = Array.from(document.querySelectorAll('input[name^="cost_"]'));
+    if (!inputs.length) return;
+
+    // Predicate: keep operator-confirmed + catalog-confirmed; clear everything else
+    var PROTECTED = {operator: 1, catalog_confirmed: 1};
+    var cleared = 0, preserved = 0;
+    inputs.forEach(function(inp) {
+      var src = (inp.dataset.costSource || '').trim();
+      if (PROTECTED[src]) {
+        preserved++;
+        return;
+      }
+      if (!inp.value || !String(inp.value).trim()) {
+        // Already empty — nothing to clear (still counts as not preserved)
+        return;
+      }
+      inp.value = '';
+      try {
+        if (typeof window.handleManualCostChange === 'function') {
+          var m = inp.name.match(/^cost_(\d+)$/);
+          if (m) window.handleManualCostChange(parseInt(m[1], 10));
+        }
+      } catch(e) {}
+      try { inp.dispatchEvent(new Event('change', {bubbles: true})); } catch(e) {}
+      cleared++;
+    });
+
+    if (cleared === 0) {
+      // Nothing to do — surface a quick note so operator isn't confused
+      var note = document.getElementById('refresh-costs-chip');
+      if (note) {
+        var span = note.querySelector('span');
+        if (span) {
+          span.textContent = 'Nothing to refresh — all cost cells are operator-confirmed or already empty.';
+          span.style.color = '#3fb950';
+        }
+      }
+      return;
+    }
+
+    // Inject NEEDS COST chips client-side on each cleared cell (server
+    // rendered them only on cells that started empty). Then call the
+    // Phase 2 cascade re-runner directly — no page reload needed, which
+    // sidesteps the autosave's beforeunload "unsaved changes" dialog.
+    btn.disabled = true;
+    btn.textContent = '⏳ Looking up...';
+
+    // Inject chip into each cleared cell's <td>
+    inputs.forEach(function(inp) {
+      var src = (inp.dataset.costSource || '').trim();
+      if (PROTECTED[src]) return;
+      var td = inp.closest('td');
+      if (!td) return;
+      // Skip if a chip already exists (already-empty cells got server chips)
+      if (td.querySelector('.cost-needs-chip, .cost-tier-chip, .cost-tier-chip-miss')) return;
+      var chip = document.createElement('div');
+      chip.className = 'cost-needs-chip';
+      chip.style.cssText = 'margin-top:3px;padding:2px 6px;border-radius:3px;' +
+        'font-size:10px;font-weight:700;background:#f8514922;color:#f85149;' +
+        'border:1px solid #f8514955;display:inline-block';
+      chip.title = 'Cleared by Refresh — cascade running...';
+      chip.innerHTML = '⚠️ NEEDS COST';
+      td.appendChild(chip);
+    });
+
+    // Fire autosave so the cleared values persist server-side
+    if (typeof window.doPcAutosave === 'function') {
+      try { window.doPcAutosave(); } catch(e) {}
+    }
+
+    // Run the Phase 2 cascade against the new chips (no reload)
+    if (typeof window.tierCascadeRescan === 'function') {
+      try { window.tierCascadeRescan(); } catch(e) { console.error('tierCascadeRescan:', e); }
+    }
+
+    // Restore button state
+    setTimeout(function() {
+      btn.disabled = false;
+      btn.textContent = '🔄 Refresh costs';
+    }, 1500);
   });
 })();
 </script>

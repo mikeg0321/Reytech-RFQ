@@ -219,7 +219,7 @@ def test_lookup_tiers_falls_through_to_tier3(monkeypatch):
     monkeypatch.setattr(cost_tier_lookup, "_tier1_catalog", lambda *a, **k: None)
     monkeypatch.setattr(cost_tier_lookup, "_tier2_past_quote", lambda *a, **k: None)
     monkeypatch.setattr(cost_tier_lookup, "_tier3_supplier_scrape",
-                        lambda mfg: {"tier": "supplier_scrape", "cost": 400.0,
+                        lambda item: {"tier": "supplier_scrape", "cost": 400.0,
                                      "supplier": "Grainger",
                                      "url": "https://grainger.com/x",
                                      "source": "Grainger (live)",
@@ -271,7 +271,7 @@ def test_tier3_ssww_amazon_fallback_marked_reference_only(monkeypatch):
                                      "reference_source": "Amazon",
                                      "title": "Test item"})
 
-    rec = cost_tier_lookup._tier3_supplier_scrape("W1234")
+    rec = cost_tier_lookup._tier3_supplier_scrape({"mfg_number": "W1234"})
     assert rec is not None
     assert rec["confidence"] == "reference_only", \
         f"S&S Amazon-fallback must be flagged as reference_only, got {rec['confidence']}"
@@ -293,7 +293,7 @@ def test_tier3_clean_grainger_marked_high_confidence(monkeypatch):
                                      "url": "https://www.grainger.com/product/462C51",
                                      "title": "Stanley RoamAlert Wrist Strap"})
 
-    rec = cost_tier_lookup._tier3_supplier_scrape("462C51")
+    rec = cost_tier_lookup._tier3_supplier_scrape({"mfg_number": "462C51"})
     assert rec is not None
     assert rec["confidence"] == "high"
     assert rec["cost"] == 400.00
@@ -309,10 +309,123 @@ def test_tier3_zero_price_returns_none(monkeypatch):
     import src.agents.sku_url_resolver as skures_mod
     monkeypatch.setattr(skures_mod, "resolve_sku_url",
                         lambda mfg: {"supplier": "Grainger",
-                                     "url": "https://x"})
+                                     "url": "https://www.grainger.com/product/462C51"})
     import src.agents.item_link_lookup as ill_mod
     monkeypatch.setattr(ill_mod, "lookup_from_url",
                         lambda url: {"supplier": "Grainger",
-                                     "price": 0, "cost": 0, "url": "https://x"})
+                                     "price": 0, "cost": 0,
+                                     "url": "https://www.grainger.com/product/462C51"})
 
-    assert cost_tier_lookup._tier3_supplier_scrape("462C51") is None
+    assert cost_tier_lookup._tier3_supplier_scrape({"mfg_number": "462C51"}) is None
+
+
+# ── Phase 4-A: URL-host allowlist + item.item_link fallback ─────────────
+
+
+def test_tier3_refuses_amazon_url_via_mfg_routing(monkeypatch):
+    """If sku_url_resolver routes to amazon.com (e.g. Amazon Search for unknown
+    SKU patterns), Tier 3 must REFUSE the URL — Amazon is retail, not a supplier
+    cost basis. Phase 1 architectural rule."""
+    from src.agents import cost_tier_lookup
+    monkeypatch.setattr(cost_tier_lookup, "_host_throttle", lambda url: None)
+
+    import src.agents.sku_url_resolver as skures_mod
+    monkeypatch.setattr(skures_mod, "resolve_sku_url",
+                        lambda mfg: {"supplier": "Amazon Search",
+                                     "url": "https://www.amazon.com/s?k=foo"})
+    import src.agents.item_link_lookup as ill_mod
+    # If lookup_from_url were called, it'd return a price — assert it isn't
+    def boom(url):
+        raise AssertionError(f"Tier 3 must NOT call lookup_from_url for amazon.com host: {url}")
+    monkeypatch.setattr(ill_mod, "lookup_from_url", boom)
+
+    rec = cost_tier_lookup._tier3_supplier_scrape({"mfg_number": "FOO"})
+    assert rec is None, "Amazon URL must be refused at allowlist gate"
+
+
+def test_tier3_url_fallback_uses_item_link_when_mfg_misses(monkeypatch):
+    """When MFG# routing returns no allowlisted URL but item.item_link is set
+    to a known supplier domain (e.g. grainger.com), Tier 3 must use the
+    item_link directly. This recovers Barstow-style PCs where the operator
+    pasted a Grainger URL but the parser never set the MFG#."""
+    from src.agents import cost_tier_lookup
+    monkeypatch.setattr(cost_tier_lookup, "_host_throttle", lambda url: None)
+
+    # No MFG# → resolve_sku_url returns nothing
+    import src.agents.sku_url_resolver as skures_mod
+    monkeypatch.setattr(skures_mod, "resolve_sku_url",
+                        lambda mfg: {"supplier": "", "url": ""})
+
+    # item_link is a Grainger URL → URL fallback fires
+    import src.agents.item_link_lookup as ill_mod
+    monkeypatch.setattr(ill_mod, "lookup_from_url",
+                        lambda url: {"supplier": "Grainger",
+                                     "price": 400.00,
+                                     "url": url,
+                                     "title": "Stanley RoamAlert"})
+
+    rec = cost_tier_lookup._tier3_supplier_scrape({
+        "mfg_number": "",
+        "item_link": "https://www.grainger.com/product/STANLEY-462C51",
+    })
+    assert rec is not None
+    assert rec["cost"] == 400.00
+    assert rec["supplier"] == "Grainger"
+
+
+def test_tier3_url_fallback_refuses_amazon_item_link(monkeypatch):
+    """item_link pointing at amazon.com must NOT trigger Tier 3.
+    Amazon is reference-only per Phase 1 architectural rule."""
+    from src.agents import cost_tier_lookup
+    monkeypatch.setattr(cost_tier_lookup, "_host_throttle", lambda url: None)
+
+    import src.agents.sku_url_resolver as skures_mod
+    monkeypatch.setattr(skures_mod, "resolve_sku_url",
+                        lambda mfg: {"supplier": "", "url": ""})
+    import src.agents.item_link_lookup as ill_mod
+    def boom(url):
+        raise AssertionError(f"Tier 3 must NOT scrape amazon.com item_link: {url}")
+    monkeypatch.setattr(ill_mod, "lookup_from_url", boom)
+
+    rec = cost_tier_lookup._tier3_supplier_scrape({
+        "mfg_number": "",
+        "item_link": "https://www.amazon.com/dp/B077JQYDTN",
+    })
+    assert rec is None
+
+
+def test_tier3_url_fallback_refuses_unknown_host(monkeypatch):
+    """Garbage URLs (operator pasted a Google result, walmart, etc.) must
+    NOT be scraped — only the supplier allowlist is trusted as cost basis."""
+    from src.agents import cost_tier_lookup
+    monkeypatch.setattr(cost_tier_lookup, "_host_throttle", lambda url: None)
+
+    import src.agents.sku_url_resolver as skures_mod
+    monkeypatch.setattr(skures_mod, "resolve_sku_url",
+                        lambda mfg: {"supplier": "", "url": ""})
+    import src.agents.item_link_lookup as ill_mod
+    def boom(url):
+        raise AssertionError(f"Tier 3 must NOT scrape unknown host: {url}")
+    monkeypatch.setattr(ill_mod, "lookup_from_url", boom)
+
+    for url in [
+        "https://www.walmart.com/ip/foo/12345",
+        "https://www.google.com/search?q=foo",
+        "https://example.com/random",
+    ]:
+        rec = cost_tier_lookup._tier3_supplier_scrape({
+            "mfg_number": "", "item_link": url,
+        })
+        assert rec is None, f"unknown host {url} must be refused"
+
+
+def test_host_in_allowlist_function():
+    """Direct check on the allowlist gate."""
+    from src.agents.cost_tier_lookup import _host_in_allowlist
+    assert _host_in_allowlist("https://www.grainger.com/product/x") is True
+    assert _host_in_allowlist("https://uline.com/Product/Detail/S-12345") is True
+    assert _host_in_allowlist("https://www.ssww.com/item/W1234/") is True
+    assert _host_in_allowlist("https://www.amazon.com/dp/B0FOO") is False
+    assert _host_in_allowlist("https://www.walmart.com/ip/x") is False
+    assert _host_in_allowlist("") is False
+    assert _host_in_allowlist("not a url") is False

@@ -141,19 +141,59 @@ def _tier2_past_quote(mfg: str, upc: str) -> Optional[dict]:
     }
 
 
-def _tier3_supplier_scrape(mfg: str) -> Optional[dict]:
-    """Tier 3: live supplier scrape via SKU-prefix routing.
+# Phase 4-A (2026-04-25): explicit allowlist of supplier hosts that may
+# return a `cost`. Amazon, Walmart, Target etc are RETAIL — their prices
+# are reference data per CLAUDE.md "Amazon Prices Are NOT Supplier Costs"
+# and Phase 1's whole architecture. We allowlist only known wholesale
+# distributors. Adding a new host here is a deliberate decision.
+_SUPPLIER_HOST_ALLOWLIST = frozenset({
+    "grainger.com", "www.grainger.com",
+    "uline.com", "www.uline.com",
+    "ssww.com", "www.ssww.com",
+    "mcmaster.com", "www.mcmaster.com",
+    "fishersci.com", "www.fishersci.com",
+    "medline.com", "www.medline.com",
+    "aedstore.com", "www.aedstore.com",
+    "aedbrands.com", "www.aedbrands.com",
+    "buyaedsusa.com", "www.buyaedsusa.com",
+    "quickie-wheelchairs.com", "www.quickie-wheelchairs.com",
+})
 
-    resolve_sku_url maps a MFG# to a supplier URL (Grainger/Uline/S&S/etc).
-    lookup_from_url is the existing 30-supplier scraper.
+
+def _host_in_allowlist(url: str) -> bool:
+    """True iff the URL's host is a wholesale supplier we trust to return
+    a cost basis. Amazon / retail / unknown hosts are refused."""
+    try:
+        host = urlparse(url).netloc.lower()
+    except Exception:
+        return False
+    return host in _SUPPLIER_HOST_ALLOWLIST
+
+
+def _tier3_supplier_scrape(item: dict) -> Optional[dict]:
+    """Tier 3: live supplier scrape via SKU-prefix routing OR item.item_link
+    URL-host fallback.
+
+    Two routing paths, in order:
+      1. MFG# → resolve_sku_url maps a MFG# to a supplier URL.
+      2. URL fallback (Phase 4-A): if MFG# routing returned no allowlisted URL,
+         and `item.item_link` is set, AND its host is in the supplier allowlist,
+         scrape the item_link directly. This recovers items where the operator
+         pasted a Grainger/Uline URL but never set the MFG#.
+
+    Both paths gate on `_SUPPLIER_HOST_ALLOWLIST` so Amazon / retail / unknown
+    hosts can never become a cost basis (Phase 1 architectural rule).
 
     Cloudflare-fallback caveat: when S&S is blocked, lookup_from_url returns
     an Amazon-derived reference price under the S&S supplier label. We mark
-    confidence='reference_only' so the UI surfaces this clearly — operator
-    sees "S&S blocked — Amazon reference $X" rather than a clean $X badge.
+    confidence='reference_only' so the UI warns instead of presenting it as
+    a clean S&S quote.
     """
-    if not mfg:
+    if not isinstance(item, dict):
         return None
+    mfg = (item.get("mfg_number") or item.get("item_number") or "").strip()
+    item_link = (item.get("item_link") or "").strip()
+
     try:
         from src.agents.sku_url_resolver import resolve_sku_url
         from src.agents.item_link_lookup import lookup_from_url
@@ -161,8 +201,23 @@ def _tier3_supplier_scrape(mfg: str) -> Optional[dict]:
         log.debug("tier3 import: %s", e)
         return None
 
-    routed = resolve_sku_url(mfg)
-    url = (routed or {}).get("url")
+    # Path 1: try MFG# routing first
+    url = ""
+    routed_supplier = ""
+    if mfg:
+        routed = resolve_sku_url(mfg) or {}
+        candidate = (routed.get("url") or "").strip()
+        if candidate and _host_in_allowlist(candidate):
+            url = candidate
+            routed_supplier = routed.get("supplier") or ""
+        elif candidate:
+            log.debug("tier3 MFG-route REFUSED non-allowlisted host: %s", candidate)
+
+    # Path 2: fall back to item_link URL host (Phase 4-A new)
+    if not url and item_link and _host_in_allowlist(item_link):
+        url = item_link
+        log.info("tier3 URL-host fallback: %s", item_link)
+
     if not url:
         return None
 
@@ -184,7 +239,7 @@ def _tier3_supplier_scrape(mfg: str) -> Optional[dict]:
     if cost <= 0:
         return None
 
-    supplier = result.get("supplier") or routed.get("supplier") or ""
+    supplier = result.get("supplier") or routed_supplier or ""
     confidence = "high"
     source_label = f"{supplier} (live)"
 
@@ -233,8 +288,9 @@ def lookup_tiers(item: dict) -> Optional[dict]:
     if hit:
         return hit
 
-    # Tier 3
-    hit = _tier3_supplier_scrape(mfg)
+    # Tier 3 (Phase 4-A: receives full item dict so it can fall back to
+    # item.item_link when MFG# routing returns no allowlisted URL)
+    hit = _tier3_supplier_scrape(item)
     if hit:
         return hit
 
