@@ -111,7 +111,7 @@ _FACILITY_ADDRESSES = {
     "SQ":   "San Quentin State Prison, San Quentin, CA 94964",
     "CMC":  "Highway 1, San Luis Obispo, CA 93409",
     "CMF":  "1600 California Drive, Vacaville, CA 95696",
-    "SOL":  "2399 Peabody Road, Vacaville, CA 95696",
+    "SOL":  "2100 Peabody Road, Vacaville, CA 95687",
     "CHCF": "7707 S. Arch Road, Stockton, CA 95215",
     "RJD":  "480 Alta Road, San Diego, CA 92179",
     "CTF":  "Highway 101 North, Soledad, CA 93960",
@@ -136,6 +136,8 @@ _FACILITY_ADDRESSES = {
     "CEN":  "2302 Brown Road, Imperial, CA 92251",
     "CAL":  "7018 Blair Road, Calipatria, CA 92233",
     "DVI":  "23500 Kasson Road, Tracy, CA 95304",
+    "CCI":  "24900 Hwy 202, Tehachapi, CA 93561",
+    "CRC":  "5th Street & Western Avenue, Norco, CA 92860",
     # CalVet
     "VHC-Yountville":  "260 California Drive, Yountville, CA 94599",
     "VHC-Barstow":     "100 East Veterans Parkway, Barstow, CA 92311",
