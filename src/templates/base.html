@@ -164,12 +164,15 @@ window.markQuote = function(qn, status){
    ('/awards', '🏆 Awards', 'Awards'),
    ('/settings', '⚙️ Settings', 'Settings'),
  ] %}
- {# Build top + more from nav_config setting (JSON array of names for top row) #}
+ {# Build top + more from nav_config setting (JSON array of names for top row).
+    2026-04-25 (Phase 1.5 of PLAN_ONCE_AND_FOR_ALL.md): default locks to the
+    6 pages that move quotes — Home / PCs / Quotes / CRM / Outbox / Analytics.
+    Operators with a custom `nav_top_items` setting keep their preference. #}
  {% set nav_config = config.get('nav_top_items', '') %}
  {% if nav_config %}
    {% set top_names = nav_config.split(',') %}
  {% else %}
-   {% set top_names = ['PCs','Quotes','Follow-Up','Outbox','Orders'] %}
+   {% set top_names = ['PCs','Quotes','CRM','Outbox','Analytics'] %}
  {% endif %}
  <nav aria-label="Main navigation" style="padding-bottom:6px;margin:0 -28px;padding-left:28px;padding-right:28px">
   <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
