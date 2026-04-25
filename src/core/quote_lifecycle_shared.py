@@ -3,11 +3,96 @@ quote_lifecycle_shared.py — Unified win/loss/status logic for PC and RFQ.
 
 Consolidates the duplicate mark-won/mark-lost implementations from
 routes_pricecheck.py and routes_rfq.py into a single shared module.
+
+Also provides set_quote_status_atomic() for the 4-writer race fence
+(Phase 0.4 of PLAN_ONCE_AND_FOR_ALL.md): background agents (award_tracker,
+email_poller, scprs_*_engine) must NOT overwrite an operator's manual
+status mark made 200ms earlier. They now call this helper with
+expected_prev so the UPDATE is conditional.
+
+Manual operator paths (dashboard.py, routes_v1.py admin) keep using
+direct UPDATEs — they should always win.
 """
 import logging
 from datetime import datetime
 
 log = logging.getLogger("reytech.lifecycle")
+
+
+def set_quote_status_atomic(
+    quote_id: str,
+    new_status: str,
+    expected_prev: str | None = None,
+    source: str = "",
+    extra_columns: dict | None = None,
+) -> bool:
+    """Atomically set a quote's status, optionally only if its current
+    status equals expected_prev.
+
+    Background agents (award_tracker, email_poller, scprs_*) MUST pass
+    expected_prev so they don't clobber operator manual marks. Manual
+    operator paths in dashboard.py and routes_v1.py admin should pass
+    expected_prev=None so they always win.
+
+    Args:
+        quote_id: quote_number (the WHERE key)
+        new_status: status to set
+        expected_prev: if non-None, UPDATE only fires when current status
+            matches. None = unconditional.
+        source: free-form audit string ("award_tracker", "email_poller",
+            "operator_manual", etc.) — logged on every successful update.
+        extra_columns: optional {col: value} to include in the SET clause
+            (for status_notes, po_number, etc.). Keys are interpolated
+            into the SQL — pass only known column names from your code,
+            never user input.
+
+    Returns:
+        True if the row was updated; False if no row matched (status was
+        not expected_prev, or quote_id doesn't exist). Caller should NOT
+        retry on False — that's the race-protection signal.
+    """
+    from src.core.db import get_db
+
+    extra_columns = dict(extra_columns or {})
+    set_parts = ["status = ?"]
+    params: list = [new_status]
+    for col, val in extra_columns.items():
+        set_parts.append(f"{col} = ?")
+        params.append(val)
+    set_clause = ", ".join(set_parts)
+
+    where_parts = ["quote_number = ?"]
+    params.append(quote_id)
+    if expected_prev is not None:
+        where_parts.append("status = ?")
+        params.append(expected_prev)
+    where_clause = " AND ".join(where_parts)
+
+    sql = f"UPDATE quotes SET {set_clause} WHERE {where_clause}"
+
+    try:
+        with get_db() as conn:
+            cur = conn.execute(sql, params)
+            updated = bool(cur.rowcount)
+        if updated:
+            log.info(
+                "QUOTE_STATUS: %s %s -> %s (source=%s, expected_prev=%s)",
+                quote_id, expected_prev or "*", new_status, source or "?",
+                expected_prev,
+            )
+        else:
+            log.info(
+                "QUOTE_STATUS_SKIP: %s -> %s blocked (source=%s, "
+                "expected_prev=%s did not match)",
+                quote_id, new_status, source or "?", expected_prev,
+            )
+        return updated
+    except Exception as e:
+        log.warning(
+            "QUOTE_STATUS_ERR: %s -> %s (source=%s): %s",
+            quote_id, new_status, source or "?", e,
+        )
+        return False
 
 
 def mark_won(record, record_type, record_id, po_number="", notes=""):

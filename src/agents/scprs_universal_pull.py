@@ -282,11 +282,12 @@ def check_quotes_against_scprs() -> dict:
 
             if matching_pos:
                 winner = dict(matching_pos[0])
-                # Auto-close the quote
+                # Auto-close the quote. Phase 0.4 race fence: only flip from 'sent' —
+                # never overwrite a manual operator mark of won/lost.
                 conn.execute("""
                     UPDATE quotes SET status='closed_lost',
                         status_notes=?, updated_at=?
-                    WHERE id=?
+                    WHERE id=? AND status='sent'
                 """, (
                     f"SCPRS: {winner['supplier']} awarded PO {winner['po_number']} "
                     f"on {winner['start_date']} — ${winner['grand_total']:,.0f}. "

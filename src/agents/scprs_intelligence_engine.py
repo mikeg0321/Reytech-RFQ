@@ -597,11 +597,12 @@ def run_po_award_monitor(notify_fn=None) -> dict:
                               outcome, reason))
 
                         if outcome == "lost_to_competitor":
-                            # Auto close-lost
+                            # Auto close-lost. Phase 0.4 race fence: only flip from
+                            # 'sent' — never overwrite a manual operator mark.
                             conn.execute("""
                                 UPDATE quotes SET status='lost',
                                 status_notes=?, updated_at=?
-                                WHERE id=?
+                                WHERE id=? AND status='sent'
                             """, (
                                 f"Auto-closed: SCPRS shows {supplier} won PO {po.get('po_number','')} "
                                 f"at ${scprs_total:,.2f} (our quote: ${our_total:,.2f}). "
