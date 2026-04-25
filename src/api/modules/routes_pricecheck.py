@@ -1942,6 +1942,17 @@ def _do_save_prices(pcid):
                         if _err: log.warning("SAVE validation: item[%d] %s", idx, _err)
                         items[idx]["pricing"]["unit_cost"] = v if v else None
                         items[idx]["vendor_cost"] = v if v else None
+                        # Phase 4-A (2026-04-25): stamp operator provenance on
+                        # every operator-saved cost. Without this, a cost
+                        # typed by the operator is indistinguishable from a
+                        # legacy/Amazon-poisoned value at lookup time, and
+                        # the upcoming "Refresh costs" workflow would wipe
+                        # operator work. Empty/zero saves clear the source
+                        # so a re-typed cell starts fresh.
+                        if v and v > 0:
+                            items[idx]["pricing"]["cost_source"] = "operator"
+                        else:
+                            items[idx]["pricing"].pop("cost_source", None)
                         _recompute_unit_price(items[idx])
                         # Implicit feedback: detect significant price override vs match
                         if v and v > 0:
