@@ -29,8 +29,15 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import os
 import sys
 from typing import Iterable
+
+# Allow `python scripts/import_mckesson_catalog.py` to find the project's
+# `src` package when invoked outside the repo root.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 log = logging.getLogger("import_mckesson_catalog")
 
