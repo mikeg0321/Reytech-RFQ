@@ -7,8 +7,12 @@ window, the oracle feedback loop got zero data. Now that markQuote works
 (PR #95), we backfill from every available source:
 
 1. Quotes DB (quotes table) — status='won' or 'lost'
-2. Price Checks (JSON or DB) — award_status='won' or 'lost'
-3. Award tracker matches (quote_po_matches table) — competitor wins
+2. Award tracker matches (quote_po_matches table) — competitor wins
+3. won_quotes_kb (SCPRS-derived knowledge base) — historical agency-level
+   bid outcomes where Reytech bid and we know the winning price.
+   This is the largest data source: 1,260+ rows of per-product
+   per-agency win/loss signal that the original backfill ignored.
+   Phase 0.7 of PLAN_ONCE_AND_FOR_ALL.md (2026-04-25).
 
 The backfill is idempotent: calibrate_from_outcome() uses exponential-
 moving-average blending, so re-running reinforces existing calibration
@@ -37,6 +41,7 @@ def backfill_all(dry_run: bool = False) -> dict:
         "ok": True,
         "quotes_won": 0, "quotes_lost": 0,
         "pcs_won": 0, "pcs_lost": 0,
+        "kb_wins": 0, "kb_losses": 0, "kb_skipped_no_bid": 0,
         "calibrations_written": 0,
         "errors": [],
         # IN-12: per-agency error histogram. Operator asking "52 errors,
@@ -148,10 +153,79 @@ def backfill_all(dry_run: bool = False) -> dict:
         result["errors"].append(f"quote_po_matches: {e}")
         log.debug("backfill matches: %s", e)
 
+    # ── 3. won_quotes_kb (the bulk of historical data) ──
+    # Each row is one bid outcome: (item, agency, winner, winner_price,
+    # whether Reytech won, Reytech's price). When Reytech bid we feed
+    # calibrate_from_outcome with real data. When Reytech didn't bid the
+    # row is market intelligence, not a calibration input — skip it here
+    # (a separate pricing-history pipeline consumes those rows).
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            kb_rows = conn.execute("""
+                SELECT item_description, mfg_number, agency,
+                       winning_price, winning_vendor,
+                       reytech_won, reytech_price
+                FROM won_quotes_kb
+                WHERE reytech_price IS NOT NULL AND reytech_price > 0
+            """).fetchall()
+
+        for r in kb_rows:
+            try:
+                desc = (r["item_description"] or "").strip()
+                if not desc:
+                    continue
+                agency = (r["agency"] or "").strip()
+                reytech_price = float(r["reytech_price"] or 0)
+                winner_price = float(r["winning_price"] or 0)
+                won = bool(r["reytech_won"])
+
+                items = [{
+                    "description": desc,
+                    "mfg_number": r["mfg_number"] or "",
+                    "unit_price": reytech_price,
+                }]
+
+                if won:
+                    if not dry_run:
+                        calibrate_from_outcome(items, "won", agency=agency)
+                        result["calibrations_written"] += 1
+                    result["kb_wins"] += 1
+                else:
+                    winner_prices = {0: winner_price} if winner_price > 0 else None
+                    if not dry_run:
+                        calibrate_from_outcome(
+                            items, "lost",
+                            agency=agency,
+                            loss_reason="price",
+                            winner_prices=winner_prices,
+                        )
+                        result["calibrations_written"] += 1
+                    result["kb_losses"] += 1
+
+            except Exception as e:
+                result["errors"].append(f"kb {r['item_description'][:40]}: {e}")
+                _ag = (r["agency"] or "unknown").strip() or "unknown"
+                result["errors_by_agency"][_ag] = result["errors_by_agency"].get(_ag, 0) + 1
+
+        # Also count rows where Reytech didn't bid — useful context for the operator.
+        with get_db() as conn:
+            skipped = conn.execute("""
+                SELECT COUNT(*) c FROM won_quotes_kb
+                WHERE reytech_price IS NULL OR reytech_price <= 0
+            """).fetchone()
+            result["kb_skipped_no_bid"] = int(skipped[0] if skipped else 0)
+
+    except Exception as e:
+        result["errors"].append(f"won_quotes_kb: {e}")
+        log.warning("backfill won_quotes_kb: %s", e)
+
     log.info(
-        "Oracle backfill complete: %d won + %d lost quotes, "
+        "Oracle backfill complete: quotes(%d won + %d lost), "
+        "kb(%d wins + %d losses, %d skipped no-bid), "
         "%d calibrations written, %d errors, dry_run=%s",
         result["quotes_won"], result["quotes_lost"],
+        result["kb_wins"], result["kb_losses"], result["kb_skipped_no_bid"],
         result["calibrations_written"], len(result["errors"]),
         dry_run,
     )
