@@ -101,22 +101,26 @@ def lookup_buyer_ship_to(
         except Exception as e:
             log.debug("lookup_buyer_ship_to CRM search: %s", e)
 
-    # 3. Institution resolver — CA facility canonical address
+    # 3. Canonical facility_registry via the QuoteContract facade.
+    # Was: `institution_resolver.get_ship_to_address`. Migrated 2026-04-25
+    # so future canonical edits (folding institution_resolver into
+    # facility_registry, deleting _FACILITY_ADDRESSES) don't have to
+    # update this caller again.
     if not ship_to:
         try:
-            from src.core.institution_resolver import get_ship_to_address
+            from src.core.quote_contract import ship_to_for_text
             for q in (institution, name, inst):
                 if not q:
                     continue
-                auto = get_ship_to_address(q)
+                auto = ship_to_for_text(q)
                 if auto:
                     ship_to = auto
-                    source = "institution_resolver"
+                    source = "canonical_facility_registry"
                     if not inst:
                         inst = q
                     break
         except Exception as e:
-            log.debug("lookup_buyer_ship_to institution: %s", e)
+            log.debug("lookup_buyer_ship_to canonical: %s", e)
 
     return {
         "ship_to": ship_to,
