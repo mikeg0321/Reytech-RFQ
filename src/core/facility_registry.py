@@ -128,6 +128,16 @@ _SEED: Tuple[FacilityRecord, ...] = (
         aliases=("calipatria state prison", "calipatria"),
     ),
     FacilityRecord(
+        code="CCC", canonical_name="CCC - California Correctional Center",
+        address_line1="711-045 Center Road",
+        address_line2="Susanville, CA 96130",
+        zip="96130", parent_agency="CDCR",
+        parent_agency_full="Dept. of Corrections and Rehabilitation",
+        # No bare "susanville" alias — HDSP (High Desert) is also in
+        # Susanville (zip 96127) and would collide on a bare token.
+        aliases=("california correctional center", "susanville ccc"),
+    ),
+    FacilityRecord(
         code="CCI", canonical_name="CCI - California Correctional Institution",
         address_line1="24900 Hwy 202", address_line2="Tehachapi, CA 93561",
         zip="93561", parent_agency="CDCR",
@@ -175,6 +185,16 @@ _SEED: Tuple[FacilityRecord, ...] = (
         zip="93409", parent_agency="CDCR",
         parent_agency_full="Dept. of Corrections and Rehabilitation",
         aliases=("california men's colony", "san luis obispo prison"),
+    ),
+    FacilityRecord(
+        code="CMF", canonical_name="CMF - California Medical Facility",
+        address_line1="1600 California Drive",
+        address_line2="Vacaville, CA 95696",
+        zip="95696", parent_agency="CDCR",
+        parent_agency_full="Dept. of Corrections and Rehabilitation",
+        # No bare "vacaville" alias — CSP-SOL is also in Vacaville
+        # (different zip 95687) and the city alone would be ambiguous.
+        aliases=("california medical facility", "vacaville cmf"),
     ),
     FacilityRecord(
         code="CRC", canonical_name="CRC - California Rehabilitation Center",
@@ -227,6 +247,23 @@ _SEED: Tuple[FacilityRecord, ...] = (
         zip="93960", parent_agency="CDCR",
         parent_agency_full="Dept. of Corrections and Rehabilitation",
         aliases=("correctional training facility", "soledad ctf"),
+    ),
+    FacilityRecord(
+        code="CVSP", canonical_name="CVSP - Chuckawalla Valley State Prison",
+        address_line1="19025 Wiley's Well Road",
+        address_line2="Blythe, CA 92225",
+        zip="92225", parent_agency="CDCR",
+        parent_agency_full="Dept. of Corrections and Rehabilitation",
+        # No bare "blythe" alias — ISP (Ironwood) is also in Blythe at
+        # the same Wiley's Well Rd corridor, just a different street #.
+        aliases=("chuckawalla valley state prison", "chuckawalla"),
+    ),
+    FacilityRecord(
+        code="DVI", canonical_name="DVI - Deuel Vocational Institution",
+        address_line1="23500 Kasson Road", address_line2="Tracy, CA 95304",
+        zip="95304", parent_agency="CDCR",
+        parent_agency_full="Dept. of Corrections and Rehabilitation",
+        aliases=("deuel vocational institution", "tracy dvi"),
     ),
     # FSP = Old Folsom State Prison at 300 Prison Road
     FacilityRecord(
@@ -420,6 +457,74 @@ _SEED: Tuple[FacilityRecord, ...] = (
         zip="93004", parent_agency="CalVet",
         parent_agency_full="California Department of Veterans Affairs",
         aliases=("veterans home ventura", "ventura veterans", "ventura"),
+    ),
+    FacilityRecord(
+        code="CALVETHOME-LC",
+        canonical_name="Veterans Home of California - Lancaster",
+        address_line1="44944 North 25th Street West",
+        address_line2="Lancaster, CA 93536",
+        zip="93536", parent_agency="CalVet",
+        parent_agency_full="California Department of Veterans Affairs",
+        # No bare "lancaster" alias — CSP-LAC (Lancaster prison) shares
+        # the city + zip 93536 with this veterans home, so a bare token
+        # would be ambiguous. Operator must say "veterans home" or
+        # "calvet" + lancaster. Resolver routes through agency_key when
+        # canonical resolution is needed.
+        aliases=("veterans home lancaster", "lancaster veterans"),
+    ),
+    # ═══ DSH (Department of State Hospitals) sites ═══
+    # Added in PR #517 — institution_resolver._FACILITY_ADDRESSES had
+    # all 5 hospital addresses but they had never been promoted to the
+    # canonical registry. Cross-source consistency test
+    # (test_institution_resolver_canonical_consistency.py) catches any
+    # future divergence between the two sources.
+    FacilityRecord(
+        code="DSH-Atascadero",
+        canonical_name="DSH - Atascadero State Hospital",
+        address_line1="10333 El Camino Real",
+        address_line2="Atascadero, CA 93422",
+        zip="93422", parent_agency="DSH",
+        parent_agency_full="California Department of State Hospitals",
+        aliases=("atascadero state hospital", "ash"),
+    ),
+    FacilityRecord(
+        code="DSH-Coalinga",
+        canonical_name="DSH - Coalinga State Hospital",
+        address_line1="24511 West Jayne Avenue",
+        address_line2="Coalinga, CA 93210",
+        zip="93210", parent_agency="DSH",
+        parent_agency_full="California Department of State Hospitals",
+        # No bare "coalinga" alias — PVSP (Pleasant Valley State Prison)
+        # is also in Coalinga, so a bare token would collide. Use the
+        # full hospital name or the DSH prefix.
+        aliases=("coalinga state hospital", "csh"),
+    ),
+    FacilityRecord(
+        code="DSH-Metropolitan",
+        canonical_name="DSH - Metropolitan State Hospital",
+        address_line1="11401 Bloomfield Avenue",
+        address_line2="Norwalk, CA 90650",
+        zip="90650", parent_agency="DSH",
+        parent_agency_full="California Department of State Hospitals",
+        aliases=("metropolitan state hospital", "msh", "norwalk state hospital"),
+    ),
+    FacilityRecord(
+        code="DSH-Napa",
+        canonical_name="DSH - Napa State Hospital",
+        address_line1="2100 Napa-Vallejo Highway",
+        address_line2="Napa, CA 94558",
+        zip="94558", parent_agency="DSH",
+        parent_agency_full="California Department of State Hospitals",
+        aliases=("napa state hospital", "nsh"),
+    ),
+    FacilityRecord(
+        code="DSH-Patton",
+        canonical_name="DSH - Patton State Hospital",
+        address_line1="3102 East Highland Avenue",
+        address_line2="Patton, CA 92369",
+        zip="92369", parent_agency="DSH",
+        parent_agency_full="California Department of State Hospitals",
+        aliases=("patton state hospital", "psh", "patton"),
     ),
 )
 
