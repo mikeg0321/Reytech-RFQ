@@ -112,11 +112,16 @@ def reconcile_revenue() -> dict:
                         (o["quote_number"],)
                     ).fetchone()
                     if qstatus and qstatus["status"] not in ("won", "lost", "cancelled"):
+                        # Phase 0.4 race fence: status guard on UPDATE so a concurrent
+                        # operator manual mark between this SELECT and UPDATE doesn't
+                        # get clobbered. The Python check above is the fast-path; the
+                        # SQL guard is the correctness gate.
                         conn.execute("""
                             UPDATE quotes SET status = 'won',
                                 po_number = COALESCE(NULLIF(?, ''), po_number),
                                 updated_at = ?
                             WHERE quote_number = ?
+                              AND status NOT IN ('won', 'lost', 'cancelled')
                         """, (o["po_number"] or "", now, o["quote_number"]))
                         log.info("Auto-marked quote %s as 'won' (has order %s)",
                                  o["quote_number"], o["id"])
