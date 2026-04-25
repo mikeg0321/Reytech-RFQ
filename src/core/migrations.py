@@ -833,6 +833,34 @@ MIGRATIONS = [
         -- so they become silent no-ops on previously-migrated DBs after this.
         DROP TABLE IF EXISTS award_check_queue;
     """),
+
+    (30, "supplier_skus_cross_reference", """
+        -- Phase 1.7 of PLAN_ONCE_AND_FOR_ALL.md (2026-04-25). Generic
+        -- supplier-SKU → MFG# cross-reference. Powers reverse lookup when
+        -- a buyer quotes a supplier SKU (e.g. McKesson item #1041721) and
+        -- we need the manufacturer part number (e.g. Mueller #64179) to
+        -- match our catalog and enrich pricing.
+        --
+        -- Source-of-truth notes:
+        --   - This table is enrichment data, NOT cost. McKesson costs are
+        --     not exposed in the source CSV. The pricing oracle still
+        --     looks up cost from product_catalog / web scraping.
+        --   - One row per (supplier, supplier_sku) pair. Duplicates blocked
+        --     by UNIQUE INDEX so re-importing the same CSV is idempotent.
+        CREATE TABLE IF NOT EXISTS supplier_skus (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supplier TEXT NOT NULL,
+            supplier_sku TEXT NOT NULL,
+            mfg_number TEXT,
+            description TEXT,
+            imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_supplier_skus_unique
+            ON supplier_skus(supplier, supplier_sku);
+        CREATE INDEX IF NOT EXISTS idx_supplier_skus_mfg
+            ON supplier_skus(mfg_number);
+    """),
 ]
 
 
