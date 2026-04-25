@@ -32,9 +32,14 @@ import pytest
 
 
 def _build_invalid_rfq_no_items(tmp_path) -> dict:
-    """RFQ that resolves cleanly to canonical Barstow but carries
-    items in a shape the renderer wrapper doesn't read (the exact
-    shape mismatch the golden test caught). Renders $0.00."""
+    """RFQ that resolves cleanly to canonical Barstow but has no items
+    at all. Renders $0.00 — the exact Barstow-incident shape the
+    fail-closed gate is designed to catch.
+
+    History: earlier revision of this test used the items-vs-line_items
+    shape mismatch as the trigger. That mismatch was fixed in the same
+    session (renderer wrapper now reads either key), so we switched to
+    a truly empty items list to keep the fail-closed gate exercised."""
     return {
         "id": "test_invalid_no_items",
         "agency_key": "calvet_barstow",
@@ -45,16 +50,10 @@ def _build_invalid_rfq_no_items(tmp_path) -> dict:
         "delivery_location": "Calipatria State Prison ship-to placeholder",
         "ship_to": "CAL",
         "due_date": "2026-04-30",
-        # Items in `items` only — NOT in `line_items`. Renderer wrapper
-        # reads `rfq.line_items` so this triggers the $0 / no-items
-        # contract failure that this test asserts is now fail-closed.
-        "items": [{
-            "description": "Stanley RoamAlert Wrist Strap",
-            "qty": 1,
-            "uom": "EA",
-            "mfg_number": "WRS-100",
-            "unit_price": 540.00,
-        }],
+        # Both keys empty — there are NO items to render. Contract
+        # validator emits 'no items' violation, fail-closed gate fires.
+        "items": [],
+        "line_items": [],
         "status": "ready_to_send",
     }
 

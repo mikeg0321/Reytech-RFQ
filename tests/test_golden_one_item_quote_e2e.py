@@ -375,29 +375,17 @@ def test_golden_quote_pdf_text_shows_barstow_not_calipatria(tmp_path):
 
 
 @pytest.mark.timeout(60)
-@pytest.mark.xfail(
-    strict=False,
-    reason="2026-04-25: quote_generator's item-rendering pipeline reads a "
-           "different RFQ shape than `_line_items_from_rfq` (contract "
-           "assembler). Logs `QUOTE CONTRACT FAIL R26Q1: ['no items', "
-           "'$0 total']` and renders $0.00 line/subtotal/tax/total but "
-           "still saves the PDF (validator only warns). Surfaced by this "
-           "golden on first run. Renderer-side migration to consume "
-           "QuoteContract is the next fix. xfail → xpass when fixed.",
-)
 def test_golden_quote_pdf_text_shows_operator_cost_and_total(tmp_path):
     """The pricing canary. Operator's $400 cost × 1.35 markup = $540
     unit price; × 1 qty = $540 subtotal; × 1.0875 tax = $587.25 total.
     The rendered PDF MUST show the right numbers — stale prices are
     one of the recurring failure modes.
 
-    KNOWN BROKEN as of 2026-04-25 — the rendered PDF shows $0.00
-    everywhere because `quote_generator.generate_quote_from_rfq` reads
-    items from a shape that doesn't include `unit_price`. The contract
-    validator catches it (`['no items', '$0 total']`) but only LOGS a
-    warning — the PDF still gets produced. The fix is migrating the
-    renderer to consume `QuoteContract.line_items` instead of re-
-    parsing the RFQ dict."""
+    Was xfail through 2026-04-25 because `generate_quote_from_rfq`
+    read `rfq.line_items` only while the contract assembler reads
+    `rfq.items or rfq.line_items` — items in the items-shape RFQ
+    silently dropped, rendering a $0 PDF. FIXED by adding the items
+    fallback to the wrapper. xfail flipped to xpass."""
     from src.forms.quote_generator import generate_quote_from_rfq
     rfq = _build_golden_rfq(tmp_path)
     out = str(tmp_path / "golden_barstow_quote.pdf")

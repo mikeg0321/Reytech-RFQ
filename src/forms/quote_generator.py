@@ -2034,7 +2034,14 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
         "line_items": [],
     }
 
-    for idx_q, _raw_q in enumerate(rfq.get("line_items", [])):
+    # 2026-04-25: accept either `rfq.items` or `rfq.line_items` so this
+    # wrapper agrees with `quote_contract._line_items_from_rfq` on what
+    # an "RFQ with items" looks like. Was: read `line_items` only, which
+    # silently rendered $0 PDFs when the upstream caller used the
+    # `items` shape. The items-shape variant of the golden canary
+    # caught this on first run; flips xfail #2 → xpass.
+    _rfq_items = rfq.get("line_items") or rfq.get("items") or []
+    for idx_q, _raw_q in enumerate(_rfq_items):
         item = _normalize_item(_raw_q)
         up = item["price_per_unit"] or _raw_q.get("our_price") or 0
         pn = item.get("item_number", item.get("part_number", ""))
