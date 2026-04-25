@@ -816,6 +816,23 @@ MIGRATIONS = [
 
     # Programmatic — see _run_migration_28.
     (28, "registration_gap_agent_tables", "SELECT 1;"),
+
+    (29, "drop_award_check_queue_vestigial", """
+        -- Remove the orphan award_check_queue table. Written by
+        -- post_send_pipeline.on_quote_sent() since 2026-03-16 but never read —
+        -- the consumer Mike intended (adaptive queue-driven checker) was
+        -- superseded 2 weeks later by award_tracker.py's direct-iteration
+        -- design that calls scprs_schedule.should_check_record per-row at
+        -- read-time. Same schedule logic, different consumer pattern, queue
+        -- write left orphan. See DATA_ARCHITECTURE_MAP §7 S7.
+        --
+        -- Idempotent: prod has 32 orphan rows from 2026-03-23 through
+        -- 2026-04-24 which this drops. Fresh installs no-op. The legacy
+        -- ADD COLUMN calls for phase/check_count/last_checked/next_check
+        -- in _run_migration_13 already swallow "no such table" via try/except,
+        -- so they become silent no-ops on previously-migrated DBs after this.
+        DROP TABLE IF EXISTS award_check_queue;
+    """),
 ]
 
 

@@ -89,7 +89,7 @@ Tables ordered by connectivity health. **Status legend:**
 | `orders` + `order_line_items` | 👻 SHADOW | core/order_dal.py (V2 normalized) | dashboard, order_dal | V2 path is canonical; legacy `data_json` blob still written, fallback-read path silently masks corruption (`order_dal.py:96–100`) |
 | `purchase_orders` + `po_line_items` | 👻 SHADOW | routes_order_tracking.py:306, 579, 798 (best-effort mirror) | routes_order_tracking dashboards | **No FK to `orders`. Reconciliation code at line 863 proves divergence is known.** See §3.a |
 | `agency_registry` | ⚠️ PARTIAL | `connectors/ca_scprs.py:177`, `core/ca_agencies.py:82` (INSERT OR IGNORE) | `routes_v1.py:565,569` only | Read by external API only — **internal code uses `FACILITY_DB` instead**. See §6 |
-| `award_check_queue` | 🛑 WRITE-ONLY | `agents/post_send_pipeline.py:85, 98` | *(none found via SELECT)* | Either drained by another mechanism or genuinely dead. Verify before next prune |
+| ~~`award_check_queue`~~ | ✅ DROPPED 2026-04-25 | — | — | **CLOSED — migration 29 dropped the table.** Was vestigial design from 2026-03-16 (queue-driven adaptive checker); superseded by `award_tracker.py` direct-iteration design (calls `scprs_schedule.should_check_record` per row at read-time). Same schedule, different consumer pattern. 32 prod orphan rows reclaimed. |
 | `qa_runs` | ✅ HEALTHY (recently) | `agents/qa_agent.py:2176` | `routes_analytics.py:4716`, `routes_crm.py:3989, 4012` | Earlier audit claimed write-only — that's wrong; analytics + CRM both read it |
 | `qa_reports.json` (file, not table) | ✅ HEALTHY | qa_agent | routes_analytics:4055 | File-based, excluded from gdrive backup intentionally |
 | `leads` | ⚠️ MOSTLY-WRITE | growth agents | rare CRM reads | Most leads written, rarely read into UI — confirm operator value before continuing to invest |
@@ -259,14 +259,14 @@ These are the items most likely to surprise you with *"I built that — why isn'
 | S4 | Quote status writes from 4 sources, no lock | see §3.b | Medium-High | Centralize in `quote_lifecycle_shared.mark_quote_status()` |
 | S5 | 12 LIVE-OFF flags with shipped code | §5.c | Medium (tech debt) | Audit each: flip, build, or delete |
 | ✅ S6 | Phantom flags from memory don't exist in code | §5.d | **CLOSED 2026-04-25** — `project_arch_silos_2026_04_25.md` notes the two phantom flags in this entry; future sessions won't plan around them |
-| S7 | `award_check_queue` written, never read | `post_send_pipeline.py:85, 98` | Low-Medium — **p-eng recommends shipping next** (single PR, may surface a silent bug) | Confirm drained elsewhere; if not, build the consumer or drop the table |
+| ✅ S7 | `award_check_queue` written, never read | (table dropped) | **CLOSED 2026-04-25** — migration 29 + write site removed from `post_send_pipeline.on_quote_sent`. Bundled tombstone `get_sent_quotes_dashboard()` + dead route `/api/v1/quotes/sent-tracker` removed in same PR. Investigation confirmed `award_tracker.py` is the live consumer using the same `scprs_schedule` helper. |
 | S8 | `data_json` blob still written for V2 orders, fallback-read masks corruption | `order_dal.py:96–100`, `db.py:2771` | Medium | Finish V2 phase 4 — stop blob writes, drop fallback path |
 | S9 | `agency_registry` only read by external API, not internal code | `routes_v1.py:565,569` | Medium | Closes inside S2 — see §6 step 4 |
 | S10 | Background workers gated by env vars, not feature flags | §4 | Low | Add flag check at top of each worker interval |
 | ✅ S11 | Module-load failure logs but doesn't crash | `dashboard.py:5278` | **CLOSED PR #532 (2026-04-25)** — symmetry enforced via CI test; boot WARNING surfaces drift |
 | S12 | `quote_model_v2_shadow` shadow telemetry has no consumer surfaced in audit | `forms/shadow_mode.py` | Medium | Verify the dashboard reading shadow diffs exists; if not, the V2 promotion can't be safely flipped |
 
-**Status summary as of 2026-04-25:** 3 of 12 closed (S1, S6, S11). Recommended next sequence per product-engineer review (2026-04-25): **S7 first** (single PR, surfaces silent bug like SCPRS 7-week incident did) → **S2 finish** (Bundle-1 already started, finish + fold S9 in) → **S3 with corrected PRD** (UNIQUE first, finish existing flag, don't invent second one) → S4/S8/S10/S12 in any order.
+**Status summary as of 2026-04-25:** 4 of 12 closed (S1, S6, S7, S11). Recommended next sequence per product-engineer review (2026-04-25): **S2 finish** (Bundle-1 already started, finish + fold S9 in) → **S3 with corrected PRD** (UNIQUE first, finish existing flag, don't invent second one) → S4/S5/S8/S10/S12 in any order.
 
 ---
 
