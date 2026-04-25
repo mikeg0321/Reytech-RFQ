@@ -218,27 +218,27 @@ The de-facto canonical facility registry is a **module-level dict** inside a PDF
 
 | Source | File:line | Used by |
 |---|---|---|
-| `FACILITY_DB` (30+ CDCR + CalVet facilities, addresses, parent agency) | `src/forms/quote_generator.py:167` (line shifted from :127 since map written) | quote_generator internals only |
-| `src/core/facility_registry.py` (`FACILITIES_BY_CODE`) | created Bundle-1 PR-1a (audit item W) | partial extraction — co-exists with `FACILITY_DB`; full migration pending S2 finish |
-| `agency_registry` table | populated by `core/ca_agencies.py:82`, `connectors/ca_scprs.py:177`; read by `routes_v1.py:565,569` | External MCP API only |
-| Per-module agency-name normalizers (small, partial dups) | `quote_generator.py:1697` (`_parent_agency_map`), `:1772` (`_agency_map`), `dashboard.py:1137` (`agency_map`), `routes_pricecheck_admin.py:1933` (identical) | Each call site has its own |
-| `core/institution_resolver.py` | reads from… per-module dicts and `FACILITY_DB` indirectly | First-pass resolver per CLAUDE.md |
-| `core/ca_agencies.py` | populates `agency_registry` from a list — but doesn't include facility-level addresses | Boot-time seeding |
+| `src/core/facility_registry.py` (`FACILITIES_BY_CODE`) | sole canonical source as of 2026-04-25 | quote_generator (via `_lookup_facility` → `resolve()`), institution_resolver, tax_resolver |
+| ~~`FACILITY_DB` in `quote_generator.py`~~ | DELETED 2026-04-25 (S2 PR) | — |
+| ~~`_lookup_facility_legacy` + `_CITY_MAP`~~ | DELETED 2026-04-25 (S2 PR) | — (was zero callers) |
+| `agency_registry` table | populated by `core/ca_agencies.py:82`, `connectors/ca_scprs.py:177`; read by `routes_v1.py:565,569` | External MCP API only — agency-level data, distinct from facility-level. Not a facility-data duplicate (S9 framing corrected). |
+| Per-module agency-name normalizers (different concern) | `quote_generator.py:1697` (`_parent_agency_map`), `:1772` (`_agency_map`) | Lowercase→Capital agency-name lookup, NOT facility data. Could be folded into a tiny helper but separate concern. |
+| Per-module email-domain → agency maps (different concern) | `dashboard.py:906`, `routes_pricecheck_admin.py:1927` | EMAIL DOMAIN mapping (e.g. `cdcr.ca.gov` → `CDCR`), NOT facility data. Folding these would be a separate refactor. |
+| `core/institution_resolver.py:_FACILITY_ADDRESSES` | actively read at lines 163–167 | **Next-up S2 follow-up.** Parallel-universe dict that should fold into `FacilityRecord.mailing_address`. Needs its own PR with Chrome verify since 3 active read sites. |
 
-**The connectivity gap:** the *richest* facility data (addresses, parent mapping, ZIP-based tax lookup hook) lives in `quote_generator.py`. The *most-queried* registry (`agency_registry` table) is shallower and only consulted by `routes_v1`. Internal dashboard, CRM, and order code use the small per-module dicts.
+**Status as of 2026-04-25:** S2 closed by the surgical-delete PR. `FACILITY_DB` had stale audit-W data (CSP-SAC at "300 Prison Road") that would have silently regressed the audit-W fix if anyone read it directly. `_lookup_facility_legacy` had zero callers per grep. Both gone; `core/facility_registry.py` is the sole source. Three absence-guard tests added to `tests/test_quote_gen_canonical_facility.py`.
 
-### 🚨 Silo risk #2 — wrong-module canonical source (MIGRATION IN FLIGHT)
+### ✅ Silo risk #2 — CLOSED 2026-04-25 (surgical delete)
 
-`FACILITY_DB` should not live in `src/forms/quote_generator.py`. As soon as a non-form-generation module needs facility lookups, the choice is "import from `quote_generator`" (gross coupling) or "redefine your own dict" (silent drift). The four small `_agency_map` dicts already show this is happening.
+What was deleted from `src/forms/quote_generator.py`:
+- `FACILITY_DB` constant (~40 facility entries) — duplicate of `FACILITIES_BY_CODE` with stale audit-W data
+- `ZIP_TO_FACILITY` constant — built from `FACILITY_DB`, never read in the live path
+- `_lookup_facility_legacy(text)` function — zero callers; its docstring already said *"Normal operation never reaches this function."*
+- Embedded `_CITY_MAP` inside the function — the thirty-row city-fallback dict
 
-**Status as of 2026-04-25:** A Bundle-1 PR-1a (audit item W — CSP-SAC vs FSP address mix-up) created `src/core/facility_registry.py` with `FACILITIES_BY_CODE` plus a resolver. Both copies now co-exist. Tests at `tests/test_facility_registry.py` cover the regression guards (CSP-SAC vs FSP, alias > zip > None priority, ambiguous-substring telemetry).
+Live consumer path (unchanged): `_lookup_facility(text)` → `_contract_resolve_facility(text)` → `facility_registry.resolve(text)` → `_registry_record_to_legacy_dict(rec)` → renderer-friendly dict.
 
-**Remaining work to fully close S2:**
-1. Move the rest of `FACILITY_DB`'s lookup helpers from `quote_generator.py:174–229` into `facility_registry.py`.
-2. Re-export from `quote_generator.py` for backward compat (single source, two import paths).
-3. Replace each `_parent_agency_map` and `_agency_map` literal in `quote_generator.py:1697, 1772` and `dashboard.py:1137` and `routes_pricecheck_admin.py:1933` with `from src.core.facility_registry import parent_agency_for, agency_normalize`.
-4. At boot, sync `FACILITIES_BY_CODE` → `agency_registry` table so internal SQL queries (currently only `routes_v1.py:565,569`) can use it too. Closes S9 in the same PR.
-5. Add a `tests/test_facility_registry.py` assertion that `FACILITY_DB` and `FACILITIES_BY_CODE` produce identical results for every key — guards against the two copies drifting before step 1 lands.
+**Future S2 follow-up (not in this PR):** migrate `core/institution_resolver.py:_FACILITY_ADDRESSES` (3 active read sites at lines 163–167) into `FacilityRecord.mailing_address` fields on the canonical registry. Needs Chrome verify per `feedback_workflow_ui_chrome_verify`.
 
 ### Other identity facts (confirmed correct, not silos)
 
@@ -254,19 +254,19 @@ These are the items most likely to surprise you with *"I built that — why isn'
 | # | Silo | Where | Severity | Fix shape |
 |---|---|---|---|---|
 | ✅ S1 | New `routes_*.py` files inert unless added to `_ROUTE_MODULES` | `dashboard.py:5239–5285` | **CLOSED PR #532 (2026-04-25)** | Boot WARNING + CI test + URL-map tripwire (§1) |
-| S2 | `FACILITY_DB` lives in `quote_generator.py`, not a registry module | `forms/quote_generator.py:167` | High — **MIGRATION IN FLIGHT**, `core/facility_registry.py` partially extracted | Finish migration per §6 (5 steps); can close S9 in same PR |
+| ✅ S2 | `FACILITY_DB` lives in `quote_generator.py`, not a registry module | (deleted) | **CLOSED 2026-04-25** — surgical-delete PR removed `FACILITY_DB`, `ZIP_TO_FACILITY`, and `_lookup_facility_legacy` (zero callers, stale audit-W data). `core/facility_registry.py:FACILITIES_BY_CODE` is sole source. Follow-up still owed: migrate `institution_resolver._FACILITY_ADDRESSES` (3 active read sites) into `FacilityRecord.mailing_address`. |
 | S3 | `purchase_orders` + `po_line_items` shadow schema | `routes_order_tracking.py:39, 64` | High — **PRD reworked 2026-04-25 (see §3.a)** | (1) UNIQUE on `orders.po_number` first — FK can't be added without it. (2) Finish flipping existing flag `orders_v2.poller_unified`, don't invent a second flag. (3) `record_po()` in `core/order_dal.py`, not a new module. 9 `orders` writers + 4 `purchase_orders` writers must be reconciled |
 | S4 | Quote status writes from 4 sources, no lock | see §3.b | Medium-High | Centralize in `quote_lifecycle_shared.mark_quote_status()` |
 | S5 | 12 LIVE-OFF flags with shipped code | §5.c | Medium (tech debt) | Audit each: flip, build, or delete |
 | ✅ S6 | Phantom flags from memory don't exist in code | §5.d | **CLOSED 2026-04-25** — `project_arch_silos_2026_04_25.md` notes the two phantom flags in this entry; future sessions won't plan around them |
 | ✅ S7 | `award_check_queue` written, never read | (table dropped) | **CLOSED 2026-04-25** — migration 29 + write site removed from `post_send_pipeline.on_quote_sent`. Bundled tombstone `get_sent_quotes_dashboard()` + dead route `/api/v1/quotes/sent-tracker` removed in same PR. Investigation confirmed `award_tracker.py` is the live consumer using the same `scprs_schedule` helper. |
 | S8 | `data_json` blob still written for V2 orders, fallback-read masks corruption | `order_dal.py:96–100`, `db.py:2771` | Medium | Finish V2 phase 4 — stop blob writes, drop fallback path |
-| S9 | `agency_registry` only read by external API, not internal code | `routes_v1.py:565,569` | Medium | Closes inside S2 — see §6 step 4 |
+| ⏸ S9 | `agency_registry` only read by external API | `routes_v1.py:565,569` | Re-framed 2026-04-25: agency_registry is agency-level data, NOT a facility duplicate. Original framing conflated agency vs facility layers. The actual gap is institution_resolver._FACILITY_ADDRESSES (parallel facility-address dict), tracked as the S2 follow-up. Leaving S9 open as "internal code could optionally consume agency_registry" but it's now Low severity, not Medium. |
 | S10 | Background workers gated by env vars, not feature flags | §4 | Low | Add flag check at top of each worker interval |
 | ✅ S11 | Module-load failure logs but doesn't crash | `dashboard.py:5278` | **CLOSED PR #532 (2026-04-25)** — symmetry enforced via CI test; boot WARNING surfaces drift |
 | S12 | `quote_model_v2_shadow` shadow telemetry has no consumer surfaced in audit | `forms/shadow_mode.py` | Medium | Verify the dashboard reading shadow diffs exists; if not, the V2 promotion can't be safely flipped |
 
-**Status summary as of 2026-04-25:** 4 of 12 closed (S1, S6, S7, S11). Recommended next sequence per product-engineer review (2026-04-25): **S2 finish** (Bundle-1 already started, finish + fold S9 in) → **S3 with corrected PRD** (UNIQUE first, finish existing flag, don't invent second one) → S4/S5/S8/S10/S12 in any order.
+**Status summary as of 2026-04-25:** 5 of 12 closed (S1, S2, S6, S7, S11). S9 re-framed (Low). Recommended next sequence per product-engineer reviews: **S2 follow-up** (institution_resolver._FACILITY_ADDRESSES → FacilityRecord.mailing_address; needs Chrome verify) → **S3 with corrected PRD** (UNIQUE first, finish existing flag) → S4/S5/S8/S10/S12 in any order.
 
 ---
 

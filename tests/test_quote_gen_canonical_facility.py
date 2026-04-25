@@ -188,3 +188,53 @@ def test_legacy_dict_adapter_preserves_all_fields():
 
 def test_adapter_handles_none_input():
     assert _registry_record_to_legacy_dict(None) is None
+
+
+# ── S2 closure: tombstone delete (DATA_ARCHITECTURE_MAP §7) ─────────────
+#
+# `quote_generator.FACILITY_DB`, `ZIP_TO_FACILITY`, and the dead
+# `_lookup_facility_legacy` fallback (with its embedded `_CITY_MAP`)
+# were deleted because:
+#   1. `_lookup_facility_legacy` had zero callers (verified via grep).
+#   2. `FACILITY_DB[171]` still encoded the audit-W ghost ("300 Prison
+#      Road" for CSP-SAC) — anyone reading it directly would silently
+#      regress the audit-W fix that `core/facility_registry.py` shipped.
+#   3. `quote_contract.py:61-62` had an outstanding TODO documenting
+#      this exact deletion, gated on "no renderer needs it" — confirmed.
+# These tests fail loud if the dead code is re-introduced.
+
+
+def test_facility_db_constant_is_gone():
+    """Re-introducing this constant would resurrect the audit-W ghost."""
+    import src.forms.quote_generator as qg
+    assert not hasattr(qg, "FACILITY_DB"), (
+        "FACILITY_DB was a duplicate of facility_registry.FACILITIES_BY_CODE "
+        "with stale audit-W data ('300 Prison Road' for CSP-SAC). Do not "
+        "re-introduce — `_registry_record_to_legacy_dict(facility_registry.get(code))` "
+        "produces the same shape with correct data."
+    )
+
+
+def test_zip_to_facility_constant_is_gone():
+    """ZIP_TO_FACILITY was built from FACILITY_DB and never read in the live
+    path — `_lookup_facility_by_zip` delegates to facility_registry.all_facilities()
+    instead. Removed in the same cleanup."""
+    import src.forms.quote_generator as qg
+    assert not hasattr(qg, "ZIP_TO_FACILITY"), (
+        "ZIP_TO_FACILITY was dead code built from the FACILITY_DB tombstone. "
+        "Use `_lookup_facility_by_zip(text)` (which delegates to facility_registry) "
+        "instead."
+    )
+
+
+def test_lookup_facility_legacy_function_is_gone():
+    """The legacy fallback returned audit-W-buggy addresses on its FACILITY_DB
+    iteration path. Removed because zero call sites needed it; per
+    `feedback_app_is_source_of_truth`, hard-fail-on-import-error beats
+    silent-wrong-address-on-quote."""
+    import src.forms.quote_generator as qg
+    assert not hasattr(qg, "_lookup_facility_legacy"), (
+        "_lookup_facility_legacy used the deleted FACILITY_DB and would "
+        "regress the audit-W fix. If facility_registry import fails at boot, "
+        "let the app crash — silent-wrong addresses on quotes are unacceptable."
+    )

@@ -58,11 +58,15 @@ shape every renderer needs. If the canonical registry changes, call
   the ship-to resolve; other call sites still use legacy lookup).
 - Migrate 703b/703c/704b/package fillers to `fill_xxx(contract,
   output_path)` signatures. (Next PR.)
-- Delete `quote_generator._lookup_facility_legacy` and the local
-  `FACILITY_DB` / `_CITY_MAP` fallback. (Once no renderer needs it.)
+- ~~Delete `quote_generator._lookup_facility_legacy` and the local
+  `FACILITY_DB` / `_CITY_MAP` fallback.~~ DONE in S2 cleanup PR — the
+  fallback had stale audit-W data ("300 Prison Road" for CSP-SAC) and
+  zero callers, so removing it both eliminates a regression timebomb
+  and shrinks the surface to one canonical source.
 - Migrate `institution_resolver._FACILITY_ADDRESSES` into
   `FacilityRecord.mailing_address` fields on the canonical registry.
-  (Currently institution_resolver carries a parallel-universe dict.)
+  (Currently institution_resolver carries a parallel-universe dict
+  with 3 read sites — needs its own migration with Chrome verify.)
 """
 from __future__ import annotations
 

@@ -164,7 +164,13 @@ def lookup_tax_rate(address: str = "", city: str = "", zip_code: str = "",
 
 
 def get_rate_for_facility(facility: dict) -> dict:
-    """Look up tax rate from a FACILITY_DB entry (has address list)."""
+    """Look up tax rate from a legacy facility dict (has `address` list).
+
+    The legacy dict shape is produced by
+    `quote_generator._registry_record_to_legacy_dict`, which adapts a
+    `core.facility_registry.FacilityRecord` into the shape this function
+    expects. The previous `FACILITY_DB` constant was deleted in S2 cleanup;
+    the dict shape lives on as the adapter contract."""
     if not facility:
         return lookup_tax_rate()
 
