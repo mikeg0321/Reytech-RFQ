@@ -4058,7 +4058,7 @@ BRIEF_HTML = """<!-- Manager Brief — app-wide context, loads via AJAX with ses
    <div id="brief-headline" style="font-size:15px;font-weight:600;margin-top:8px;line-height:1.4"></div>
   </div>
   <div style="display:flex;gap:6px;align-items:center;flex-shrink:0">
-   <a href="/agents" class="btn btn-sm btn-s" style="font-size:13px;padding:4px 10px;white-space:nowrap">&#x1F4CA; Full Report</a>
+   <a href="/health/quoting" class="btn btn-sm btn-s" style="font-size:13px;padding:4px 10px;white-space:nowrap">&#x1F4CA; Full Report</a>
    <button onclick="loadBrief(true)" id="brief-refresh-btn" style="font-size:13px;padding:4px 8px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);border-radius:6px;cursor:pointer;white-space:nowrap">&#x1F504; Refresh</button>
   </div>
  </div>
