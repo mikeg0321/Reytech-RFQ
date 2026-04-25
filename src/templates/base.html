@@ -64,13 +64,38 @@ window.rtConfirm = function(message, onConfirm, undoSeconds){
 
 // markQuote: mark a quote as won/lost via the /quotes/<qn>/status endpoint.
 // Used by the Mark Won / Mark Lost buttons on /quotes and /quote/<qn>.
-// Was previously referenced by templates but never defined → silent no-op.
+// 2026-04-25 (Phase 4.1 of PLAN_ONCE_AND_FOR_ALL.md): on Mark Lost we now
+// also prompt for the winning competitor's price + a notes string so the
+// oracle calibration path inside /quotes/<qn>/status can compute a real
+// avg_losing_delta. Without this signal Reytech bids stayed blind on
+// "how far over were we" and the oracle never learned.
 window.markQuote = function(qn, status){
   var body = {status: status};
   if (status === 'won') {
     var po = window.prompt('PO number for ' + qn + '?\n(required — only formal POs count as wins)');
     if (!po || !po.trim()) return;
     body.po_number = po.trim();
+  } else if (status === 'lost') {
+    // Optional but high-value: capture the winning vendor's price so the
+    // oracle can calibrate. Empty input still lets the lost mark go through
+    // — calibration just won't have a per-item delta.
+    var winnerRaw = window.prompt(
+      'Winning competitor price (per unit), if known?\n' +
+      'Paste the $ from the buyer\'s "you lost to $X" note or SCPRS award.\n' +
+      'Leave empty if unknown — the loss still records, oracle just can\'t learn delta.'
+    );
+    if (winnerRaw === null) return;  // Cancel
+    var cleanedW = (winnerRaw || '').replace(/[^0-9.]/g, '');
+    if (cleanedW && parseFloat(cleanedW) > 0) {
+      body.winner_price = parseFloat(cleanedW);
+    }
+    var lossNotes = window.prompt(
+      'Loss notes (optional):\n' +
+      '"price" or "cheaper" or "cost" → tags as price-loss for calibration.\n' +
+      'Anything else → tags as "other".'
+    );
+    if (lossNotes === null) return;  // Cancel
+    if (lossNotes) body.notes = lossNotes;
   }
   rtConfirm('Mark quote ' + qn + ' as ' + status.toUpperCase() + '?', function(){
     fetch('/quotes/' + encodeURIComponent(qn) + '/status', {
@@ -79,8 +104,21 @@ window.markQuote = function(qn, status){
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body)
     }).then(function(r){return r.json()}).then(function(d){
-      if (d && d.ok) location.reload();
-      else window.alert('Error: ' + ((d && d.error) || 'unknown'));
+      if (d && d.ok) {
+        // Visual confirmation that calibration fired (Phase 4.1 — close
+        // the loop the operator can SEE so they trust the engine).
+        if (d.oracle_calibrated) {
+          var msg = document.createElement('div');
+          msg.className = 'rt-confirm-toast';
+          msg.style.background = '#1f6feb';
+          msg.textContent = '✓ Marked ' + status.toUpperCase() + ' — oracle calibrated';
+          document.body.appendChild(msg);
+          setTimeout(function(){ if (msg.parentNode) msg.parentNode.removeChild(msg); }, 2500);
+        }
+        setTimeout(function(){ location.reload(); }, 600);
+      } else {
+        window.alert('Error: ' + ((d && d.error) || 'unknown'));
+      }
     }).catch(function(e){ window.alert('Network error: ' + e); });
   }, 0);
 };

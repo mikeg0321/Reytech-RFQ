@@ -1731,6 +1731,60 @@ def quote_update_status(quote_number):
                 log_competitor_intel(quote_number, "lost", {"notes": notes or ""})
             except Exception as e:
                 log.error("Competitor intel logging failed: %s", e)
+
+    # ── Phase 4.1: Oracle calibration from outcome (the win-rate engine) ──
+    # PLAN_ONCE_AND_FOR_ALL.md: every operator-marked outcome MUST feed
+    # pricing_oracle_v2.calibrate_from_outcome so the next quote benefits
+    # from this one's outcome. The function existed in code but the only
+    # caller path was background workers / a hidden POST endpoint —
+    # operators clicking Mark Won/Lost from the UI never reached it.
+    # Now they do.
+    if new_status in ("won", "lost"):
+        try:
+            from src.core.pricing_oracle_v2 import calibrate_from_outcome
+            qt_for_cal = _find_quote(quote_number) or {}
+            items_for_cal = qt_for_cal.get("items_detail") or qt_for_cal.get("items") or []
+            agency_for_cal = (qt_for_cal.get("agency", "")
+                              or qt_for_cal.get("institution", ""))
+
+            # Lost: optionally pass winner_prices keyed by item index so
+            # avg_losing_delta gets real signal. Frontend collects winner
+            # price as either a single 'winner_price' (applied to every
+            # item) or a per-index dict 'winner_prices'.
+            kwargs = {"agency": agency_for_cal}
+            if new_status == "lost":
+                _wp_dict = data.get("winner_prices") or {}
+                _wp_single = data.get("winner_price")
+                if _wp_dict and isinstance(_wp_dict, dict):
+                    kwargs["winner_prices"] = {
+                        int(k): float(v) for k, v in _wp_dict.items()
+                        if v not in (None, "", 0)
+                    }
+                elif _wp_single not in (None, "", 0):
+                    try:
+                        _wp_f = float(_wp_single)
+                        if _wp_f > 0 and items_for_cal:
+                            kwargs["winner_prices"] = {
+                                i: _wp_f for i in range(len(items_for_cal))
+                            }
+                    except (TypeError, ValueError):
+                        pass
+                # Best-effort loss-reason classification
+                _notes = (notes or "").lower()
+                if "price" in _notes or "cost" in _notes or "cheaper" in _notes:
+                    kwargs["loss_reason"] = "price"
+                elif kwargs.get("winner_prices"):
+                    kwargs["loss_reason"] = "price"
+                else:
+                    kwargs["loss_reason"] = "other"
+
+            calibrate_from_outcome(items_for_cal, new_status, **kwargs)
+            result["oracle_calibrated"] = True
+        except Exception as cal_err:
+            log.warning("Oracle calibration failed for %s: %s",
+                        quote_number, cal_err)
+            result["oracle_calibrated"] = False
+            result["oracle_error"] = str(cal_err)
         # Log competitor intelligence
         if PREDICT_AVAILABLE:
             try:
