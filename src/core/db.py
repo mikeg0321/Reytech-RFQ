@@ -1413,6 +1413,36 @@ CREATE INDEX IF NOT EXISTS idx_ts_fingerprint ON template_strategies(fingerprint
 CREATE INDEX IF NOT EXISTS idx_ts_strategy ON template_strategies(strategy);
 
 -- ═════════════════════════════════════════════════════════════════════
+-- Phase 2 Tier-2 lookup denormalization (2026-04-25)
+-- Every operator-saved cost gets one row here, keyed on (mfg_number, upc).
+-- Phase 2's `find_recent_quote_cost` reads this for "the last time we
+-- accepted a real cost for this exact item" — Tier 2 of the cost cascade.
+-- We do NOT read quotes.items_detail JSON because:
+--   (a) JSON column requires per-row decode, O(quotes) per lookup
+--   (b) Pre-2026-04-25 rows contain Amazon-poisoned costs from the bug
+--       PR #524 fixed — provenance filter would skip them anyway
+-- This table only ever receives operator-confirmed costs (cost_source
+-- column), so it cannot resurrect Amazon ghosts.
+-- ═════════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS quote_line_costs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mfg_number TEXT,
+    upc TEXT,
+    description TEXT,
+    cost REAL NOT NULL,
+    cost_source TEXT NOT NULL,
+    cost_source_url TEXT DEFAULT '',
+    quote_number TEXT DEFAULT '',
+    pc_id TEXT DEFAULT '',
+    rfq_id TEXT DEFAULT '',
+    supplier_name TEXT DEFAULT '',
+    accepted_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_qlc_mfg ON quote_line_costs(mfg_number);
+CREATE INDEX IF NOT EXISTS idx_qlc_upc ON quote_line_costs(upc);
+CREATE INDEX IF NOT EXISTS idx_qlc_accepted ON quote_line_costs(accepted_at);
+
+-- ═════════════════════════════════════════════════════════════════════
 -- Runtime feature flags (Item C of P0 resilience backlog)
 -- Threshold + constant hotfixes that should NOT require a deploy.
 -- Read via src/core/flags.py get_flag(key, default) which layers a

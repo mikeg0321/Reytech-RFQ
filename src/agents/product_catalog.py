@@ -3039,6 +3039,73 @@ def find_by_mfg_exact(mfg_number: Optional[str], upc: Optional[str] = None) -> O
             pass
 
 
+def find_recent_quote_cost(mfg_number: Optional[str], upc: Optional[str] = None) -> Optional[dict]:
+    """Phase 2 Tier-2 lookup (2026-04-25): "the last operator-confirmed cost for
+    this exact MFG#/UPC, in any prior PC."
+
+    Reads from `quote_line_costs` (denormalized at PC save-time, populated only
+    with `cost_source='operator'` rows). Returns the most recent match.
+
+    Provenance discipline:
+      * Only operator-confirmed costs land in quote_line_costs in the first
+        place (`routes_pricecheck._do_save_prices` writes here).
+      * No Amazon/SCPRS scraped values can ever surface from this table —
+        cf. `find_by_mfg_exact` for the catalog-side equivalent.
+
+    Returns dict with: cost, cost_source_url, supplier_name, accepted_at,
+    quote_number, pc_id — or None on no match.
+
+    Live in production: `tier 2` of the cost-lookup cascade in
+    `src/agents/cost_tier_lookup.py`.
+    """
+    if not mfg_number and not upc:
+        return None
+    try:
+        from src.core.db import get_db
+    except Exception as e:
+        log.debug("find_recent_quote_cost: get_db import failed: %s", e)
+        return None
+
+    clauses = []
+    params = []
+    if mfg_number:
+        mfg_clean = mfg_number.strip().upper()
+        if mfg_clean:
+            clauses.append("UPPER(TRIM(mfg_number)) = ?")
+            params.append(mfg_clean)
+    if upc:
+        upc_clean = upc.strip()
+        if upc_clean:
+            clauses.append("TRIM(upc) = ?")
+            params.append(upc_clean)
+    if not clauses:
+        return None
+
+    where = "(" + " OR ".join(clauses) + ")"
+    sql = (
+        "SELECT mfg_number, upc, description, cost, cost_source, "
+        "       cost_source_url, supplier_name, accepted_at, "
+        "       quote_number, pc_id "
+        "FROM quote_line_costs "
+        f"WHERE {where} AND cost > 0 AND cost_source = 'operator' "
+        "ORDER BY accepted_at DESC LIMIT 1"
+    )
+    try:
+        with get_db() as conn:
+            row = conn.execute(sql, params).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        log.info(
+            "find_recent_quote_cost HIT: mfg=%r upc=%r → cost=%s pc=%s accepted=%s",
+            mfg_number, upc, d.get("cost"), d.get("pc_id"), d.get("accepted_at"),
+        )
+        return d
+    except Exception as e:
+        log.debug("find_recent_quote_cost error: %s", e)
+        return None
+
+
 def _record_enrich_error(product_id, column, value, error):
     """Persist an enrichment failure so /health/catalog can count them without
     scraping logs. Best-effort — swallow failures so observability can't crash
