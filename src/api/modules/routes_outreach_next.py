@@ -33,7 +33,8 @@ def _top_items_for_dept(conn, dept_code: str, opportunity_flag: str, limit: int 
                COUNT(*) as times_ordered,
                SUM(l.line_total) as total_spend,
                AVG(l.unit_price) as avg_unit_price,
-               MAX(p.supplier) as last_supplier
+               MAX(p.supplier) as last_supplier,
+               MAX(l.category) as category
         FROM scprs_po_lines l
         JOIN scprs_po_master p ON l.po_id = p.id
         WHERE p.dept_code = ?
@@ -1051,6 +1052,34 @@ def _build_card_list(limit: int = 8):
                 "urgency_score": base_score + urgency + reg_urgency + bid_urgency,
             })
 
+    # V2-PR-8: per-card template auto-pick + which other templates are
+    # renderable (UI dropdown enable/disable). Done in second pass so
+    # we have the full card context. Schema-tolerant — failure here
+    # leaves cards.template_pick = None.
+    try:
+        from src.agents.outreach_templates import (
+            pick_template, template_is_renderable, TEMPLATES,
+        )
+        with _get_db() as conn:
+            for c in cards:
+                try:
+                    pick = pick_template(c, conn)
+                    c["template_pick"] = pick  # {template_key, template_name, reason}
+                    c["template_options"] = [
+                        {"key": k, "name": v["name"],
+                         "renderable": template_is_renderable(k, c, conn)}
+                        for k, v in TEMPLATES.items()
+                    ]
+                    log.debug("V2-PR-8 template pick for %s: %s",
+                              c.get("dept_code"), pick.get("template_key"))
+                except Exception as _e:
+                    log.warning("template pick failed for %s: %s",
+                                c.get("dept_code"), _e)
+                    c["template_pick"] = None
+                    c["template_options"] = []
+    except Exception as _e:
+        log.warning("template module import suppressed: %s", _e)
+
     # Re-sort by urgency_score (raw SCPRS score + rebid-window boost).
     # V2-PR-2..7 will each stack more boosts additively onto this field.
     # Keep the raw `score` untouched for transparency in the UI.
@@ -1376,6 +1405,130 @@ def api_outreach_next_registry():
         return jsonify({"ok": True, "record": record, "summary": summary})
     except Exception as e:
         log.exception("api_outreach_next_registry failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+@bp.route("/api/outreach/next/draft-v2", methods=["POST"])
+@auth_required
+@safe_route
+def api_outreach_next_draft_v2():
+    """V2-PR-8: render a canned procurement-template draft for one card.
+
+    Body: {dept_code, template_key?}
+      - template_key omitted → auto-pick the highest-priority template
+      - template_key provided → render that specific template (operator override)
+
+    NEVER returns placeholder copy. If a template's required_vars are
+    missing, returns ok=false + missing_vars so the UI can disable the
+    option instead of shipping junk to a procurement officer.
+    """
+    try:
+        from src.agents.outreach_templates import (
+            pick_template, render_template, template_is_renderable, TEMPLATES,
+        )
+        payload = request.get_json(force=True, silent=True) or {}
+        dept_code = (payload.get("dept_code") or "").strip()
+        template_key = (payload.get("template_key") or "").strip() or None
+        if not dept_code:
+            return jsonify({"ok": False, "error": "dept_code required"}), 400
+
+        cards, err, _summary = _build_card_list(limit=50)
+        if err:
+            return jsonify({"ok": False, "error": err}), 500
+        card = next((c for c in (cards or [])
+                     if (c.get("dept_code") or "") == dept_code), None)
+        if card is None:
+            return jsonify({
+                "ok": False,
+                "error": f"dept_code '{dept_code}' not in current top "
+                         "prospect set"
+            }), 404
+
+        with _get_db() as conn:
+            if template_key is None:
+                pick = pick_template(card, conn)
+                template_key = pick["template_key"]
+                pick_reason = pick["reason"]
+                if template_key is None:
+                    return jsonify({
+                        "ok": False,
+                        "template_key": None,
+                        "reason": pick_reason,
+                        "available_templates": [
+                            {"key": k, "name": v["name"],
+                             "renderable": template_is_renderable(k, card, conn)}
+                            for k, v in TEMPLATES.items()
+                        ],
+                    })
+                rendered = render_template(template_key, card, conn)
+                rendered["pick_reason"] = pick_reason
+                rendered["auto_picked"] = True
+            else:
+                if template_key not in TEMPLATES:
+                    return jsonify({
+                        "ok": False,
+                        "error": f"unknown template_key '{template_key}'"
+                    }), 400
+                rendered = render_template(template_key, card, conn)
+                rendered["auto_picked"] = False
+        return jsonify(rendered)
+    except Exception as e:
+        log.exception("api_outreach_next_draft_v2 failed")
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
+
+
+@bp.route("/api/outreach/next/save-draft", methods=["POST"])
+@auth_required
+@safe_route
+def api_outreach_next_save_draft():
+    """Persist a rendered draft to email_outbox status='draft' (matches
+    existing card-surfaced vocabulary; do NOT invent 'pending_approval').
+    Body: {dept_code, template_key, subject, body, recipient_email}"""
+    try:
+        import json as _json
+        import uuid
+        from datetime import datetime as _dt
+        payload = request.get_json(force=True, silent=True) or {}
+        for required in ("dept_code", "template_key", "subject",
+                         "body", "recipient_email"):
+            if not (payload.get(required) or "").strip():
+                return jsonify({
+                    "ok": False, "error": f"{required} required"
+                }), 400
+        outbox_id = "out_" + uuid.uuid4().hex[:12]
+        now_iso = _dt.now().isoformat(timespec="seconds")
+        with _get_db() as conn:
+            try:
+                conn.execute(
+                    "INSERT INTO email_outbox (id, created_at, status, "
+                    "type, to_address, subject, body, intent, metadata) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        outbox_id, now_iso, "draft", "outreach",
+                        payload["recipient_email"],
+                        payload["subject"], payload["body"],
+                        f"outreach:{payload['template_key']}",
+                        _json.dumps({
+                            "dept_code": payload["dept_code"],
+                            "template_key": payload["template_key"],
+                            "rendered_at": now_iso,
+                        }),
+                    ),
+                )
+            except Exception as _e:
+                log.debug("save-draft fallback: %s", _e)
+                conn.execute(
+                    "INSERT INTO email_outbox (id, created_at, status, "
+                    "recipient, subject, body) VALUES (?,?,?,?,?,?)",
+                    (
+                        outbox_id, now_iso, "draft",
+                        payload["recipient_email"],
+                        payload["subject"], payload["body"],
+                    ),
+                )
+        return jsonify({"ok": True, "outbox_id": outbox_id})
+    except Exception as e:
+        log.exception("api_outreach_next_save_draft failed")
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 500
 
 

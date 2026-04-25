@@ -113,9 +113,10 @@ def _build_price_email(first_name, department, wins, advantages, total_pos, tota
             body_parts.append(f"  - {adv['item'][:60]}... — current: ${adv['their_price']:.2f}, "
                               f"our price: ${adv['our_price']:.2f} ({adv['savings_pct']:.0f}% savings)")
 
+    from src.core.reytech_identity import signature as _identity_signature
     body_parts.extend(["", "I'd be happy to provide a detailed quote on any items you're sourcing. "
                         "Would a quick call this week work?", "",
-                        "Best regards,", "Mike Gonzalez", "Reytech Inc.", "sales@reytechinc.com"])
+                        _identity_signature()])
 
     return {
         "subject": f"Cost savings opportunity for {department}",
@@ -148,11 +149,12 @@ def _build_relationship_email(first_name, department, wins, total_pos, total_dep
                 body_parts.append(f"  - {item_short}...")
                 seen.add(item_short)
 
+    from src.core.reytech_identity import signature as _identity_signature
     body_parts.extend(["",
                         "As a SB/MB, we understand the value of responsive service and competitive pricing. "
                         "We'd welcome the chance to earn your business.", "",
                         "Would you have 15 minutes this week for a brief introduction?", "",
-                        "Best regards,", "Mike Gonzalez", "Reytech Inc.", "sales@reytechinc.com"])
+                        _identity_signature()])
 
     return {
         "subject": f"Introduction — California SB serving {department}",
