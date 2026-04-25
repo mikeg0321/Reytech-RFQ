@@ -69,6 +69,99 @@ class TestBackfillAll:
         assert r1["quotes_won"] == r2["quotes_won"]
 
 
+class TestBackfillFromWonQuotesKb:
+    """The won_quotes_kb table is the largest historical signal source —
+    1,260+ rows of per-product per-agency bid outcomes derived from SCPRS.
+    Phase 0.7 of PLAN_ONCE_AND_FOR_ALL.md added this as a third source."""
+
+    def _seed_kb(self, rows):
+        """Helper: insert rows into won_quotes_kb on the test DB."""
+        from src.core.db import get_db
+        with get_db() as conn:
+            # Migration 9 creates the table; ensure it's there
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS won_quotes_kb (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_description TEXT, nsn TEXT, mfg_number TEXT,
+                    agency TEXT, winning_price REAL, winning_vendor TEXT,
+                    reytech_won INTEGER DEFAULT 0, reytech_price REAL,
+                    price_delta REAL, award_date TEXT, po_number TEXT,
+                    tenant_id TEXT DEFAULT 'reytech',
+                    created_at TEXT DEFAULT (datetime('now'))
+                )
+            """)
+            conn.execute("DELETE FROM won_quotes_kb")
+            for r in rows:
+                conn.execute("""
+                    INSERT INTO won_quotes_kb
+                    (item_description, mfg_number, agency, winning_price,
+                     winning_vendor, reytech_won, reytech_price, po_number)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (r.get("desc"), r.get("mfg", ""), r.get("agency", ""),
+                      r.get("winning_price"), r.get("winning_vendor", ""),
+                      1 if r.get("won") else 0, r.get("reytech_price"),
+                      r.get("po", "")))
+            conn.commit()
+
+    def test_kb_reytech_win_feeds_calibration(self):
+        self._seed_kb([{
+            "desc": "Latex Glove M", "mfg": "GLV-M",
+            "agency": "CDCR", "winning_price": 12.50,
+            "winning_vendor": "Reytech Inc.",
+            "won": True, "reytech_price": 12.50,
+        }])
+        result = backfill_all()
+        assert result["kb_wins"] == 1
+        assert result["kb_losses"] == 0
+        assert result["calibrations_written"] >= 1
+
+    def test_kb_reytech_loss_with_winner_price(self):
+        self._seed_kb([{
+            "desc": "Bandage 4x4", "mfg": "BND-4",
+            "agency": "CCHCS", "winning_price": 8.00,
+            "winning_vendor": "Gorilla Stationers",
+            "won": False, "reytech_price": 11.00,
+        }])
+        result = backfill_all()
+        assert result["kb_wins"] == 0
+        assert result["kb_losses"] == 1
+        # Calibration ran with winner_prices={0: 8.00} so avg_losing_delta
+        # should reflect (11-8)/8 = 37.5% over.
+        assert result["calibrations_written"] >= 1
+
+    def test_kb_no_bid_rows_count_separately(self):
+        # Reytech didn't bid → skipped from calibration but counted.
+        self._seed_kb([
+            {"desc": "Pen blue", "agency": "CDCR",
+             "winning_price": 0.50, "winning_vendor": "Other Co.",
+             "won": False, "reytech_price": None},
+            {"desc": "Pen red", "agency": "CDCR",
+             "winning_price": 0.50, "winning_vendor": "Other Co.",
+             "won": False, "reytech_price": 0},
+        ])
+        result = backfill_all()
+        assert result["kb_wins"] == 0
+        assert result["kb_losses"] == 0
+        assert result["kb_skipped_no_bid"] == 2
+
+    def test_kb_dry_run_doesnt_write(self):
+        self._seed_kb([{
+            "desc": "Tape 1in", "agency": "CDCR",
+            "winning_price": 3.00, "won": True, "reytech_price": 3.00,
+        }])
+        result = backfill_all(dry_run=True)
+        assert result["kb_wins"] == 1
+        assert result["calibrations_written"] == 0
+
+    def test_kb_missing_table_doesnt_crash(self):
+        from src.core.db import get_db
+        with get_db() as conn:
+            conn.execute("DROP TABLE IF EXISTS won_quotes_kb")
+        result = backfill_all()
+        assert result["ok"] is True
+        assert result["kb_wins"] == 0
+
+
 class TestBackfillEndpoint:
     def test_endpoint_exists(self, client):
         r = client.post("/api/oracle/backfill-all", json={})
