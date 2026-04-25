@@ -2208,6 +2208,7 @@ def _do_save_prices(pcid):
                     continue
                 _desc = _item.get("description", "")
                 _pn = str(_item.get("mfg_number") or _item.get("item_number") or "")
+                _upc = str(_item.get("upc") or "")
                 _cost = _item.get("vendor_cost") or _item.get("pricing", {}).get("unit_cost") or 0
                 _price = _item.get("unit_price") or _item.get("pricing", {}).get("recommended_price") or 0
                 _supplier = _item.get("item_supplier", "")
@@ -2215,6 +2216,25 @@ def _do_save_prices(pcid):
                 _url = _item.get("item_link", "")
                 if not _desc or (not _cost and not _price):
                     continue
+                # Phase 2 Tier-2 denormalization (2026-04-25): every operator-saved
+                # cost gets one row in quote_line_costs so find_recent_quote_cost
+                # can fast-lookup by (mfg_number, upc) without decoding JSON.
+                # Only operator-confirmed costs land here — no Amazon/SCPRS ghosts.
+                if _cost > 0 and (_pn or _upc):
+                    try:
+                        from src.core.db import get_db
+                        with get_db() as _qlc_conn:
+                            _qlc_conn.execute(
+                                "INSERT INTO quote_line_costs "
+                                "(mfg_number, upc, description, cost, cost_source, "
+                                " cost_source_url, pc_id, supplier_name) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                (_pn or None, _upc or None, _desc, float(_cost),
+                                 "operator", _url or "", pcid, _supplier or ""),
+                            )
+                            _qlc_conn.commit()
+                    except Exception as _qlc_e:
+                        log.debug("quote_line_costs write suppressed: %s", _qlc_e)
                 cat_matches = match_item(_desc, _pn, top_n=1)
                 if cat_matches and cat_matches[0].get("match_confidence", 0) >= 0.5:
                     pid = cat_matches[0]["id"]
@@ -2744,6 +2764,160 @@ def api_pc_lookup_tax_rate(pcid):
         return jsonify({"ok": False, "error": "Tax lookup returned no rate"})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Phase 2: Tier-cascade cost lookup (PR-A server side)
+# 2026-04-25
+#
+# When a PC arrives with empty cost cells (Phase 1 default), the operator
+# can fire this background lookup to fill what the system can find without
+# having to type each row's cost. The cascade in cost_tier_lookup.lookup_tiers
+# returns the FIRST hit per item: catalog → past_quote → supplier_scrape.
+#
+# Wire flow:
+#   1. JS sends POST /api/pricecheck/<pcid>/lookup-costs (kicks daemon thread)
+#   2. JS polls GET /api/pricecheck/<pcid>/lookup-costs/status every 1.5s
+#   3. Per-item results stream into the status dict; UI renders an Accept
+#      chip per filled cell
+#   4. Operator clicks Accept → existing handleManualCostChange() path fires →
+#      cost saves with cost_source='operator' → catalog flywheel closes
+#
+# Tier-3 (live scrape) results are NEVER auto-applied. They surface as a
+# recommendation the operator must click to accept. This preserves the
+# Phase 1 contract: only operator-confirmed costs become catalog truth.
+# ─────────────────────────────────────────────────────────────────────
+
+# Per-pcid status dict, keyed by pcid so concurrent tabs/PCs don't clobber.
+# Status shape:
+#   {pcid: {
+#     "started_at": iso,
+#     "completed_at": iso | None,
+#     "items": {item_idx: {"status": "pending"|"hit"|"miss"|"error", ...recommendation}}
+#   }}
+import threading as _threading_lookup_costs
+_LOOKUP_STATUS = {}
+_LOOKUP_STATUS_LOCK = _threading_lookup_costs.Lock()
+
+
+def _run_tier_lookup_for_pc(app_obj, pcid: str):
+    """Daemon thread worker. Iterates PC items, runs the tier cascade,
+    streams results into _LOOKUP_STATUS as it goes. Holds the Flask app
+    context so DB calls work outside the request thread."""
+    try:
+        from src.agents.cost_tier_lookup import lookup_tiers
+    except Exception as _e:
+        log.error("lookup-costs worker import failed: %s", _e)
+        with _LOOKUP_STATUS_LOCK:
+            _LOOKUP_STATUS.setdefault(pcid, {})["error"] = str(_e)
+            _LOOKUP_STATUS[pcid]["completed_at"] = datetime.now().isoformat()
+        return
+
+    with app_obj.app_context():
+        try:
+            pcs = _load_price_checks()
+            pc = pcs.get(pcid)
+            if not pc:
+                with _LOOKUP_STATUS_LOCK:
+                    _LOOKUP_STATUS[pcid]["error"] = "PC not found"
+                    _LOOKUP_STATUS[pcid]["completed_at"] = datetime.now().isoformat()
+                return
+            items = pc.get("items", []) or []
+            for idx, item in enumerate(items):
+                # Skip items that already have a real cost or are no-bid
+                if item.get("no_bid"):
+                    with _LOOKUP_STATUS_LOCK:
+                        _LOOKUP_STATUS[pcid]["items"][idx] = {"status": "skip", "reason": "no_bid"}
+                    continue
+                _existing_cost = (item.get("vendor_cost")
+                                  or item.get("pricing", {}).get("unit_cost") or 0)
+                try:
+                    _existing_cost = float(_existing_cost)
+                except (TypeError, ValueError):
+                    _existing_cost = 0
+                if _existing_cost > 0:
+                    with _LOOKUP_STATUS_LOCK:
+                        _LOOKUP_STATUS[pcid]["items"][idx] = {"status": "skip", "reason": "has_cost"}
+                    continue
+                # Mark pending
+                with _LOOKUP_STATUS_LOCK:
+                    _LOOKUP_STATUS[pcid]["items"][idx] = {"status": "pending"}
+                # Run cascade
+                try:
+                    rec = lookup_tiers(item)
+                except Exception as e:
+                    log.warning("lookup-costs item %d: %s", idx, e)
+                    with _LOOKUP_STATUS_LOCK:
+                        _LOOKUP_STATUS[pcid]["items"][idx] = {"status": "error", "error": str(e)[:100]}
+                    continue
+                with _LOOKUP_STATUS_LOCK:
+                    if rec:
+                        _LOOKUP_STATUS[pcid]["items"][idx] = {"status": "hit", **rec}
+                    else:
+                        _LOOKUP_STATUS[pcid]["items"][idx] = {"status": "miss"}
+            with _LOOKUP_STATUS_LOCK:
+                _LOOKUP_STATUS[pcid]["completed_at"] = datetime.now().isoformat()
+        except Exception as _e:
+            log.error("lookup-costs worker crashed: %s", _e)
+            with _LOOKUP_STATUS_LOCK:
+                _LOOKUP_STATUS[pcid]["error"] = str(_e)
+                _LOOKUP_STATUS[pcid]["completed_at"] = datetime.now().isoformat()
+
+
+@bp.route("/api/pricecheck/<pcid>/lookup-costs", methods=["POST"])
+@auth_required
+@safe_route
+def api_pc_lookup_costs(pcid):
+    """Kick off background tier-cascade cost lookup for empty cells in this PC.
+    Returns immediately with `started_at`. Poll
+    /api/pricecheck/<pcid>/lookup-costs/status for results."""
+    pcs = _load_price_checks()
+    pc = pcs.get(pcid)
+    if not pc:
+        return jsonify({"ok": False, "error": "PC not found"}), 404
+
+    started = datetime.now().isoformat()
+    with _LOOKUP_STATUS_LOCK:
+        # Reset any prior run for this pcid
+        _LOOKUP_STATUS[pcid] = {
+            "started_at": started,
+            "completed_at": None,
+            "items": {},
+        }
+
+    from flask import current_app
+    app_obj = current_app._get_current_object()
+    t = _threading_lookup_costs.Thread(
+        target=_run_tier_lookup_for_pc,
+        args=(app_obj, pcid),
+        daemon=True,
+        name=f"lookup-costs-{pcid}",
+    )
+    t.start()
+    return jsonify({"ok": True, "started_at": started})
+
+
+@bp.route("/api/pricecheck/<pcid>/lookup-costs/status", methods=["GET"])
+@auth_required
+@safe_route
+def api_pc_lookup_costs_status(pcid):
+    """Return the current state of the background tier-cascade for this PC.
+    Returns {ok, started_at, completed_at, items: {idx: {status, ...}}}.
+    items not yet processed are absent from the dict."""
+    with _LOOKUP_STATUS_LOCK:
+        state = _LOOKUP_STATUS.get(pcid)
+        if not state:
+            return jsonify({"ok": True, "started_at": None, "completed_at": None, "items": {}})
+        # Snapshot under the lock
+        snap = {
+            "ok": True,
+            "started_at": state.get("started_at"),
+            "completed_at": state.get("completed_at"),
+            "items": dict(state.get("items", {})),
+        }
+        if state.get("error"):
+            snap["error"] = state["error"]
+    return jsonify(snap)
 
 
 @bp.route("/pricecheck/<pcid>/upload-pdf", methods=["POST"])
