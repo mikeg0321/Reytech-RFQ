@@ -5284,6 +5284,33 @@ for _mod in _ROUTE_MODULES:
 
 log.info(f"Dashboard: {len(_ROUTE_MODULES)} route modules loaded, {len([r for r in bp.deferred_functions])} deferred fns")
 
+
+def _audit_route_module_registration():
+    """Warn if files in src/api/modules/routes_*.py diverge from _ROUTE_MODULES.
+    The hard gate lives in tests/test_route_module_registration.py — here we
+    just emit a visible boot warning so a misconfigured prod still starts.
+    Silos like this are why DATA_ARCHITECTURE_MAP.md §1 exists."""
+    try:
+        import glob
+        modules_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "modules")
+        on_disk = {os.path.splitext(os.path.basename(p))[0]
+                   for p in glob.glob(os.path.join(modules_dir, "routes_*.py"))}
+        listed = set(_ROUTE_MODULES)
+        missing_from_list = on_disk - listed
+        missing_from_disk = listed - on_disk
+        if missing_from_list or missing_from_disk:
+            log.warning(
+                "ROUTE MODULE DRIFT — disk vs _ROUTE_MODULES mismatch. "
+                "On disk but NOT loaded: %s. Listed but NOT on disk: %s. "
+                "Add the file to _ROUTE_MODULES (dashboard.py) or remove the entry.",
+                sorted(missing_from_list) or "<none>",
+                sorted(missing_from_disk) or "<none>",
+            )
+    except Exception as _e:
+        log.warning("Route module registration audit failed: %s", _e)
+
+_audit_route_module_registration()
+
 # ── Award Monitor merged into Award Tracker (single thread) ─────────────
 
 # ── Boot Health Check — deferred to background thread so app starts fast ──
