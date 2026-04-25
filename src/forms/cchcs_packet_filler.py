@@ -328,14 +328,19 @@ def _build_field_updates(
 
 
 def _lookup_tax_rate(zip_code: str) -> float:
-    """Try the existing CDTFA helper, fall back to 0.0875 CA avg if not
-    available. Isolated here so unit tests can monkeypatch."""
+    """Tax rate for a zip code. Routes through `quote_contract.
+    tax_for_address` so this filler doesn't import tax_agent /
+    tax_resolver directly — the architecture-contract test (PR #503)
+    enforces no `src/forms/` module may import canonical resolvers.
+
+    Isolated here so unit tests can monkeypatch.
+    """
     if not zip_code:
         return 0.0
     try:
-        from src.agents.tax_agent import lookup_tax_rate_by_zip
-        r = lookup_tax_rate_by_zip(zip_code) or 0.0
-        return float(r)
+        from src.core.quote_contract import tax_for_address
+        info = tax_for_address(str(zip_code).strip()) or {}
+        return float(info.get("rate") or 0.0)
     except Exception:
         return 0.0
 

@@ -311,6 +311,48 @@ def tax_for_facility(facility) -> dict:
     }
 
 
+def tax_for_address(address_text: str) -> dict:
+    """Return tax info for a free-text address (zip-only, full street,
+    or any string `tax_resolver.resolve_tax` accepts). Same dict shape
+    as `tax_for_facility`, plus `facility_code` when the resolver was
+    able to anchor on a canonical facility. Empty / error inputs
+    return a zeroed dict — callers check `validated` before using.
+
+    Used by renderer paths that only have an address string (e.g., a
+    zip code from a PDF field, or a delivery_location from an RFQ
+    row) without a pre-resolved `FacilityRecord`. The facade routes
+    through the canonical tax_resolver, so this function and
+    `tax_for_facility(facility)` share the same tax-source code path.
+    """
+    out = {"rate": 0.0, "rate_bps": 0, "jurisdiction": "",
+           "source": "", "validated": False, "facility_code": ""}
+    if not address_text or not str(address_text).strip():
+        return out
+    try:
+        from src.core.tax_resolver import resolve_tax
+    except Exception as e:
+        log.debug("tax_resolver import failed in tax_for_address: %s", e)
+        return out
+    try:
+        info = resolve_tax(str(address_text).strip())
+    except Exception as e:
+        log.debug("tax_resolver.resolve_tax failed: %s", e)
+        return out
+    if not info:
+        return out
+    rate = float(info.get("rate") or 0.0)
+    bps = int(round(rate * 10000))
+    out.update({
+        "rate": round(bps / 10000.0, 6),
+        "rate_bps": bps,
+        "jurisdiction": str(info.get("jurisdiction") or ""),
+        "source": str(info.get("source") or ""),
+        "validated": bool(info.get("validated", False)),
+        "facility_code": str(info.get("facility_code") or ""),
+    })
+    return out
+
+
 def _resolve_facility_from_rfq(rfq: dict) -> Tuple[Optional["FacilityRecord"], str, str]:
     """Apply canonical `facility_registry` resolution to the RFQ's
     ship-to fields in priority order.

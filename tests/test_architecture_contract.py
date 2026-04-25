@@ -56,52 +56,59 @@ _LEGACY_ALLOWLIST: frozenset = frozenset({
     # import themselves and each other.
     "src/core/facility_registry.py",
     "src/core/tax_resolver.py",
-    "src/core/quote_contract.py",  # assembler IS authorized
+    "src/core/quote_contract.py",        # assembler + facades IS authorized
     "src/core/institution_resolver.py",  # TODO: fold into facility_registry
     "src/core/ship_to_resolver.py",      # TODO: delete or delegate
     "src/core/ca_agencies.py",           # TODO: fold into facility_registry
     "src/core/tax_rates.py",             # used by tax_resolver internally
     "src/agents/tax_agent.py",           # used by tax_resolver internally
-    # PDF renderers that haven't migrated yet. Shrinks as each one
-    # moves to accept a QuoteContract parameter.
-    #
-    # ✓ src/forms/quote_generator.py — MIGRATED (first countdown win,
-    #   20 → 19). All 5 direct resolver imports (facility_registry:3,
-    #   tax_resolver:1, facility_registry.resolve_with_reason:1)
-    #   replaced with facade calls from `src.core.quote_contract`.
-    #   Renderer ↔ resolver now separated by one module, as the PE
-    #   review required. Removed from allowlist by this PR.
-    "src/forms/reytech_filler_v4.py",    # 703b/703c/704b fillers — next migration
-    "src/forms/cchcs_packet_builder.py",
-    "src/forms/cchcs_packet_filler.py",  # imports src.agents.tax_agent directly at line 336
-    "src/forms/package_builder.py",
-    "src/forms/fill_703c.py",
-    "src/forms/fill_dsh_atta.py",
-    "src/forms/fill_dsh_attb.py",
-    "src/forms/fill_dsh_attc.py",
-    "src/forms/dsh_attachment_fillers.py",
-    "src/forms/dvbe_843_filler.py",
-    "src/forms/std_204_filler.py",
-    "src/forms/calrecycle_074_filler.py",
-    "src/forms/lpa_filler.py",
-    "src/forms/cchcs_packet_generator.py",
-    # Agent paths that touch ship-to / agency during ingest — not
-    # PDF renderers per se, but participate in the contract lifecycle.
-    "src/agents/quote_generator.py",
-    "src/agents/packet_builder.py",
-    "src/agents/cchcs_packet_agent.py",
-    "src/agents/agency_classifier.py",
-    "src/agents/institution_resolver.py",
-    "src/agents/compliance_validator.py",
-    "src/agents/product_validator.py",
-    # Routes that currently call resolvers directly during ingest /
-    # preview. Should move to assembling a contract once + passing it
-    # down.
-    "src/api/modules/routes_rfq_gen.py",
-    "src/api/modules/routes_pricecheck_gen.py",
-    "src/api/modules/routes_pc_actions.py",
-    "src/api/modules/routes_rfq_admin.py",
 })
+
+# Migration log (countdown 33 → 8):
+#
+# PR #507 — quote_generator.py migrated (5 imports → facades). 20 → 19.
+#
+# This PR — allowlist sweep:
+#   ✓ MIGRATED: src/forms/cchcs_packet_filler.py (1 tax_agent import →
+#     `quote_contract.tax_for_address` facade).
+#   ✓ MIGRATED: src/api/modules/routes_rfq_gen.py (1 tax_agent.get_tax_rate
+#     import → `quote_contract.tax_for_address` facade).
+#   ✓ AUDITED + REMOVED (zero forbidden imports on disk):
+#     - src/forms/reytech_filler_v4.py
+#     - src/forms/dsh_attachment_fillers.py
+#     - src/agents/compliance_validator.py
+#     - src/agents/product_validator.py
+#     - src/api/modules/routes_pricecheck_gen.py
+#     - src/api/modules/routes_rfq_admin.py
+#   ✓ PHANTOMS REMOVED (file does not exist on disk; was paranoia entry):
+#     - src/forms/cchcs_packet_builder.py
+#     - src/forms/package_builder.py
+#     - src/forms/fill_703c.py
+#     - src/forms/fill_dsh_atta.py / attb.py / attc.py
+#     - src/forms/dvbe_843_filler.py
+#     - src/forms/std_204_filler.py
+#     - src/forms/calrecycle_074_filler.py
+#     - src/forms/lpa_filler.py
+#     - src/forms/cchcs_packet_generator.py
+#     - src/agents/quote_generator.py
+#     - src/agents/packet_builder.py
+#     - src/agents/cchcs_packet_agent.py
+#     - src/agents/agency_classifier.py
+#     - src/agents/institution_resolver.py
+#     - src/api/modules/routes_pc_actions.py
+#
+# Net countdown: 33 → 8. Architectural ratchet now enforces the rule
+# against every renderer / agent / route file in the repo with zero
+# legacy entries to audit. The 8 remaining are all canonical core
+# modules (intentionally authorized — they ARE the source of truth).
+#
+# Adding a NEW renderer file under `src/forms/` or `src/agents/packet*`
+# / `src/agents/quote_*` / `src/agents/cchcs_*` that imports any of
+# the canonical resolvers directly will fail
+# `test_no_new_renderers_import_canonical_resolvers_directly`. Either
+# migrate to `quote_contract` facades OR add to this allowlist with a
+# clear TODO. Adding entries grows the countdown — visible in the
+# diff on this file.
 
 
 # Forbidden symbol patterns — any file under a forbidden path that

@@ -1513,18 +1513,15 @@ def generate_rfq_package(rid):
             log.debug("Buyer pref check: %s", _bp_e)
 
         # ── Auto-validate tax rate if not yet validated ──
+        # Route through `quote_contract.tax_for_address` — the resolver
+        # facade. This route file lives under `src/api/modules/` which
+        # the architecture-contract test (PR #503) blocks from
+        # importing tax_agent directly; the facade is the canonical
+        # bridge.
         if not r.get("tax_validated") and r.get("delivery_location"):
             try:
-                from src.agents.tax_agent import get_tax_rate as _gtr
-                _dl = r["delivery_location"]
-                _zip_m = __import__('re').search(r'\b(\d{5})\b', _dl)
-                _city_m = __import__('re').search(r',\s*([A-Za-z\s]+),\s*[A-Z]{2}', _dl)
-                _street_m = __import__('re').search(r'^(\d+\s+.+?)(?:,|$)', _dl)
-                _tax_r = _gtr(
-                    street=_street_m.group(1).strip() if _street_m else "",
-                    city=_city_m.group(1).strip() if _city_m else "",
-                    zip_code=_zip_m.group(1) if _zip_m else ""
-                )
+                from src.core.quote_contract import tax_for_address
+                _tax_r = tax_for_address(r["delivery_location"]) or {}
                 if _tax_r and _tax_r.get("rate"):
                     r["tax_rate"] = round(_tax_r["rate"] * 100, 3)
                     r["tax_validated"] = True
