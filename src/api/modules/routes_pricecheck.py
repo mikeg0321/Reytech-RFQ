@@ -970,7 +970,7 @@ def _pricecheck_detail_inner(pcid):
           </div>
          </td>
          <td style="vertical-align:top;padding:6px 4px;overflow:hidden">{source_html}</td>
-         <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in" placeholder="0.00" oninput="sanitizePrice(this)" onchange="(window.handleManualCostChange||function(){{recalcRow({idx},true);}})({idx})" onblur="fmtCurrency(this)"></div></td>
+         <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="cost_{idx}" value="{cost_str}" class="num-in {'cost-needs-lookup' if (not cost_str and not no_bid) else ''}" placeholder="0.00" oninput="sanitizePrice(this)" onchange="(window.handleManualCostChange||function(){{recalcRow({idx},true);}})({idx})" onblur="fmtCurrency(this)" data-cost-source="{(item.get('pricing', dict()).get('cost_source') or '')}"></div>{("<div class='cost-needs-chip' style=\"margin-top:3px;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;background:#f8514922;color:#f85149;border:1px solid #f8514955;display:inline-block\" title=\"Cost not auto-filled — Amazon/SCPRS prices are reference only. Enter the supplier cost manually.\">⚠️ NEEDS COST</div>") if (not cost_str and not no_bid) else ""}</td>
          <td style="white-space:nowrap"><div style="display:flex;align-items:center;gap:2px"><input type="text" inputmode="numeric" name="markup_{idx}" value="{markup_pct}" class="num-in sm" style="width:52px" oninput="sanitizeInt(this)" onchange="recalcRow({idx},true)"><span style="color:#8b949e;font-size:13px">%</span></div></td>
          <td><div class="currency-wrap"><input type="text" inputmode="decimal" name="price_{idx}" value="{final_str}" class="num-in price-out" placeholder="0.00" oninput="sanitizePrice(this)" onchange="recalcPC()" onblur="fmtCurrency(this)"></div></td>
          <td class="ext" style="font-weight:600;font-size:14px">{ext}</td>
@@ -2220,6 +2220,23 @@ def _do_save_prices(pcid):
                     pid = cat_matches[0]["id"]
                     if _cost > 0 and _supplier:
                         add_supplier_price(pid, _supplier, _cost, url=_url)
+                    # 2026-04-24: write OPERATOR-CONFIRMED cost into product_catalog
+                    # so the next quote for this MFG# auto-fills from catalog. The
+                    # cost_source='operator' tag tells enrich_catalog_product to
+                    # ALWAYS overwrite (not "only if lower" — that locked in $24.99
+                    # Amazon ghosts for months. See project_lost_revenue_2026_04_24).
+                    if _cost > 0:
+                        try:
+                            from src.agents.product_catalog import enrich_catalog_product
+                            enrich_catalog_product(
+                                pid,
+                                cost=float(_cost),
+                                cost_source="operator",
+                                cost_source_url=_url or "",
+                                cost_accepted_by_quote_id=pcid,
+                            )
+                        except Exception as _ec:
+                            log.debug("operator-cost write-back suppressed: %s", _ec)
                     # Update URL on existing catalog entry if we have one
                     # Enrich existing catalog entry with photo, manufacturer, mfg#
                     _photo = _item.get("photo_url", "")
@@ -2260,6 +2277,20 @@ def _do_save_prices(pcid):
                     if pid and _cost > 0 and _supplier:
                         add_supplier_price(pid, _supplier, _cost, url=_url)
                         _cat_added += 1
+                    # 2026-04-24: stamp NEW catalog entries with operator provenance
+                    # so future find_by_mfg_exact lookups treat them as trusted.
+                    if pid and _cost > 0:
+                        try:
+                            from src.agents.product_catalog import enrich_catalog_product
+                            enrich_catalog_product(
+                                pid,
+                                cost=float(_cost),
+                                cost_source="operator",
+                                cost_source_url=_url or "",
+                                cost_accepted_by_quote_id=pcid,
+                            )
+                        except Exception as _ec2:
+                            log.debug("operator-cost write-back (new entry) suppressed: %s", _ec2)
             if _cat_added or _cat_updated:
                 log.info("PC %s catalog sync: +%d new, ~%d updated", pcid, _cat_added, _cat_updated)
         except Exception as _ce:
@@ -2883,6 +2914,32 @@ def _generate_pc_pdf(pcid):
 
     # ── Sanitize stored data before PDF generation ──
     _sanitize_pc_items(pc)
+
+    # 2026-04-24 PRE-FINALIZE GATE: refuse generation if any non-no-bid item has
+    # zero unit_cost. Without this, we'd ship a Quote PDF with $0 line items —
+    # and the auto-compute step below would silently leave prices at $0 too.
+    # See project_lost_revenue_2026_04_24_barstow.md for what this prevents.
+    _missing_cost = []
+    for _idx, _it in enumerate(pc.get("items", [])):
+        if _it.get("no_bid"):
+            continue
+        _ic = _it.get("vendor_cost") or _it.get("pricing", {}).get("unit_cost") or 0
+        try:
+            _ic = float(_ic)
+        except (TypeError, ValueError):
+            _ic = 0
+        if _ic <= 0:
+            _missing_cost.append(_idx + 1)
+    if _missing_cost:
+        msg = (
+            f"Cannot generate PC PDF — {len(_missing_cost)} item(s) have no "
+            f"supplier cost: row(s) {', '.join(str(x) for x in _missing_cost[:8])}"
+            f"{'...' if len(_missing_cost) > 8 else ''}. "
+            f"Enter a real supplier cost in each row (Amazon/SCPRS values are "
+            f"reference only, never auto-filled). Or mark the row as no-bid."
+        )
+        log.warning("GENERATE %s blocked: %s", pcid, msg)
+        return {"ok": False, "error": msg, "missing_cost_rows": _missing_cost}
 
     # ALWAYS sync parsed.line_items from pc.items (the source of truth)
     if "parsed" not in pc:
