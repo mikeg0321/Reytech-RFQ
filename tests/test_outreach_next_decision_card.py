@@ -132,9 +132,12 @@ def test_outreach_next_renders_top_prospects_with_why(
     # Score breakdown rendered.
     assert "volume" in body and "recency" in body and "match" in body and "gap" in body
 
-    # Both A and B draft buttons present (since buyer email exists).
-    assert "Draft (price hook)" in body
-    assert "Draft (relationship)" in body
+    # V2-PR-8: V1's A/B buttons replaced by auto-picked canned template
+    # button. Card with primary contact has either:
+    #  - V2 template button "Draft: <template name> →" (when card has
+    #    template_pick — happens when SCPRS data + categories resolve)
+    #  - V1 fallback "Draft (price hook — V1)" (no auto-pick possible)
+    assert ("Draft:" in body and "→" in body) or "Draft (price hook" in body
 
 
 def test_outreach_next_handles_empty_data_gracefully(
