@@ -441,38 +441,71 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
     result["steps"].append({"step": "amazon", "found": amazon_found, "total": len(items)})
     result["timing"]["amazon"] = round(time.time() - t0, 2)
 
-    # Step 5: Stage REFERENCE pricing for operator review.
+    # Step 5: Calculate pricing
+    # 2026-04-24 RULE: only auto-fill `unit_cost` from HIGH-CONFIDENCE sources.
+    # Previously this block wrote `unit_cost = amazon_price or scprs_price`,
+    # violating the stated CLAUDE.md rules ("Amazon Prices Are NOT Supplier Costs",
+    # "SCPRS Prices Are NOT Supplier Costs"). On 2026-04-24 a CalVet Barstow PC
+    # arrived with $24.99 Amazon-derived cost on a $400 Grainger item; operator
+    # had to re-key all 6 supplier costs and missed the 04/23 deadline.
+    # See: project_lost_revenue_2026_04_24_barstow.
     #
-    # 2026-04-25 fix (Barstow PC f81c4e9b incident 2026-04-24): this used to
-    # write `amazon_price` / `scprs_price` straight into `unit_cost` and emit
-    # a `recommended_price` from a 25% markup on the WRONG cost basis. Mike
-    # then had to re-enter all 6 supplier costs by hand on every auto-filled
-    # PC because Amazon retail ≠ Grainger/S&S wholesale (16x off on a
-    # Stanley industrial item). Quote couldn't be sent before the 04/23
-    # deadline.
+    # PR #521 (merged 2026-04-25) landed the narrow Amazon/SCPRS-block.
+    # This change adds the catalog-first auto-fill TIER on top: when an exact
+    # MFG#/UPC match exists in product_catalog (operator-confirmed only), use
+    # the catalog cost; otherwise fall through to PR #521's "needs_lookup".
     #
-    # CLAUDE.md states the rule explicitly:
-    #   "SCPRS Prices Are NOT Supplier Costs" + "Amazon Prices Are NOT
-    #    Supplier Costs"
-    #
-    # New behavior: keep `amazon_price` / `scprs_price` as REFERENCE badges
-    # on the item (the UI already surfaces them) but DO NOT promote them
-    # into `unit_cost` / `recommended_price`. Tag `cost_source =
-    # "needs_lookup"` so the PC detail UI flags every unfilled cost cell.
+    # Combined rule:
+    #   - Catalog hit on exact MFG#/UPC → auto-fill unit_cost + recommended_price
+    #     with `cost_source='catalog'`
+    #   - Otherwise → leave unit_cost / recommended_price BLANK
+    #     (Amazon/SCPRS still stored in `pricing` as REFERENCE BADGES; never as cost)
+    #   - Set `cost_source='needs_lookup'` so the PC UI flags items requiring
+    #     operator entry, and so the pre-finalize gate can refuse generation.
     t0 = time.time()
+    priced = 0
     needs_lookup = 0
+    try:
+        from src.agents.product_catalog import find_by_mfg_exact
+    except Exception:
+        find_by_mfg_exact = None  # filler returns blank in Phase 1 if unavailable
     for item in items:
         p = item.get("pricing", {})
-        ref = p.get("amazon_price") or p.get("scprs_price") or 0
-        if ref > 0 and not p.get("unit_cost"):
+        mfg = (item.get("mfg_number") or item.get("part_number") or "").strip()
+        upc = (item.get("upc") or "").strip()
+        catalog_hit = None
+        if find_by_mfg_exact and (mfg or upc):
+            try:
+                catalog_hit = find_by_mfg_exact(mfg or None, upc=upc or None)
+            except Exception as _e:
+                log.debug("catalog lookup suppressed: %s", _e)
+                catalog_hit = None
+
+        if catalog_hit and catalog_hit.get("cost", 0) > 0:
+            cost = float(catalog_hit["cost"])
+            markup = p.get("markup_pct", 25)
+            p["unit_cost"] = cost
+            p["markup_pct"] = markup
+            p["recommended_price"] = round(cost * (1 + markup / 100), 2)
+            p["cost_source"] = "catalog"
+            p["cost_source_url"] = catalog_hit.get("cost_source_url") or ""
+            p["catalog_product_id"] = catalog_hit.get("id")
+            priced += 1
+        else:
+            # No high-confidence source — leave cost blank, mark for operator.
+            # Keep amazon_price / scprs_price as reference badges (they're still
+            # in `p` from prior pipeline steps); don't promote them to cost.
             p["cost_source"] = "needs_lookup"
+            p.pop("unit_cost", None)
+            p.pop("recommended_price", None)
             needs_lookup += 1
         item["pricing"] = p
     result["steps"].append({
         "step": "pricing",
+        "priced": priced,
         "needs_lookup": needs_lookup,
         "total": len(items),
-        "note": "amazon/scprs are REFERENCE only; unit_cost requires operator input",
+        "note": "amazon/scprs are REFERENCE only; unit_cost requires catalog hit or operator input",
     })
     result["timing"]["pricing"] = round(time.time() - t0, 2)
 

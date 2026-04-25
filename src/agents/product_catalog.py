@@ -78,6 +78,11 @@ CREATE TABLE IF NOT EXISTS product_catalog (
     upc TEXT,
     search_tokens TEXT,
 
+    cost_source TEXT,
+    cost_source_url TEXT,
+    cost_accepted_at TEXT,
+    cost_accepted_by_quote_id TEXT,
+
     tags TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     created_at TEXT,
@@ -399,6 +404,19 @@ def init_catalog_db():
         # RE-AUDIT-4: test items written by pytest fixtures or staging seeds
         # must not pollute search/recommendation rankings for real quotes.
         ("is_test", "INTEGER DEFAULT 0"),
+        # 2026-04-24: provenance for `cost` / `best_cost` so we can tell
+        # operator-confirmed costs from auto-scraped Amazon/SCPRS guesses.
+        # cost_source values:
+        #   'operator'         — operator manually entered/saved this cost
+        #   'catalog_confirmed'— previously confirmed catalog hit (high trust)
+        #   'amazon_scrape'    — Amazon scraped (REFERENCE ONLY — never auto-fill)
+        #   'scprs_scrape'     — SCPRS state-paid (REFERENCE ONLY — ceiling, not cost)
+        #   'legacy_unknown'   — pre-migration row, source unknown, do not auto-fill
+        # See feedback_acroform_helv_resource + project_lost_revenue_2026_04_24_barstow
+        ("cost_source", "TEXT"),
+        ("cost_source_url", "TEXT"),
+        ("cost_accepted_at", "TEXT"),
+        ("cost_accepted_by_quote_id", "TEXT"),
     ]:
         try:
             conn.execute("ALTER TABLE product_catalog ADD COLUMN " + re.sub(r"[^a-zA-Z0-9_]", "", col_def[0]) + " " + col_def[1])
@@ -451,6 +469,27 @@ def init_catalog_db():
         log.warning("Catalog UNIQUE(name) enforcement blocked — duplicates exist: %s", _e)
     except sqlite3.OperationalError as _e:
         log.warning("Catalog UNIQUE(name) index creation failed: %s", _e)
+
+    # 2026-04-24 one-time backfill: any pre-migration rows with cost > 0 but
+    # NULL cost_source must NOT be treated as high-confidence catalog hits in
+    # the new auto-fill path. Mark them `legacy_unknown` so the catalog-first
+    # lookup ignores them until an operator confirms (which writes 'operator').
+    # Without this, every $24.99 Amazon ghost cost auto_processor wrote into
+    # product_catalog over the last several months would surface as a "Catalog ✓"
+    # badge in the new UI — exactly the trust regression we're fixing.
+    try:
+        cur = conn.execute(
+            "UPDATE product_catalog SET cost_source = 'legacy_unknown' "
+            "WHERE cost_source IS NULL AND (cost > 0 OR best_cost > 0)"
+        )
+        if cur.rowcount > 0:
+            log.warning(
+                "Catalog backfill: marked %d rows as cost_source='legacy_unknown' "
+                "(suppress from auto-fill until operator-confirmed)", cur.rowcount,
+            )
+        conn.commit()
+    except sqlite3.OperationalError as _e:
+        log.warning("Catalog cost_source backfill failed: %s", _e)
 
     conn.close()
     log.info("Product catalog DB initialized (with product_suppliers + search_tokens)")
@@ -2926,6 +2965,80 @@ def find_by_supplier_sku(sku: str, supplier_name: str = "") -> list:
         return []
 
 
+def find_by_mfg_exact(mfg_number: Optional[str], upc: Optional[str] = None) -> Optional[dict]:
+    """High-confidence exact lookup for catalog-first auto-cost (2026-04-24).
+
+    Returns a single product_catalog row dict ONLY when:
+      * exact match on mfg_number (case-insensitive, whitespace-stripped), OR
+      * exact match on UPC
+
+    AND the row's `cost_source` is operator-confirmed (NOT 'legacy_unknown',
+    NOT 'amazon_scrape', NOT NULL pre-migration).
+
+    Returns None otherwise — including when match_item() would have returned
+    a fuzzy/token hit. Use match_item() for the fuzzy path; use this only
+    when the caller wants "auto-fill cost iff catalog truly knows."
+
+    See: project_lost_revenue_2026_04_24_barstow.md — using fuzzy match for
+    cost auto-fill is what put $24.99 Amazon ghosts on a $400 Grainger item.
+    """
+    if not mfg_number and not upc:
+        return None
+    init_catalog_db()
+    conn = _get_conn()
+    try:
+        clauses = []
+        params = []
+        if mfg_number:
+            mfg_clean = mfg_number.strip().upper()
+            if mfg_clean:
+                clauses.append("UPPER(TRIM(mfg_number)) = ?")
+                params.append(mfg_clean)
+        if upc:
+            upc_clean = upc.strip()
+            if upc_clean:
+                clauses.append("TRIM(upc) = ?")
+                params.append(upc_clean)
+        if not clauses:
+            return None
+        where = "(" + " OR ".join(clauses) + ")"
+        # Only return rows with operator-confirmed provenance.
+        # 'catalog_confirmed' covers explicit confirmed-via-cost-save flow.
+        # Refuse 'legacy_unknown', 'amazon_scrape', 'scprs_scrape', NULL.
+        sql = (
+            "SELECT * FROM product_catalog "
+            f"WHERE {where} "
+            "AND cost > 0 "
+            "AND cost_source IN ('operator', 'catalog_confirmed') "
+            "AND COALESCE(is_test, 0) = 0 "
+            "ORDER BY cost_accepted_at DESC NULLS LAST, updated_at DESC "
+            "LIMIT 1"
+        )
+        try:
+            row = conn.execute(sql, params).fetchone()
+        except sqlite3.OperationalError:
+            # SQLite < 3.30 doesn't support NULLS LAST — retry without it
+            sql2 = sql.replace("ORDER BY cost_accepted_at DESC NULLS LAST, updated_at DESC",
+                               "ORDER BY cost_accepted_at DESC, updated_at DESC")
+            row = conn.execute(sql2, params).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        log.info(
+            "find_by_mfg_exact HIT: mfg=%r upc=%r → product_id=%s cost=%s source=%s",
+            mfg_number, upc, d.get("id"), d.get("cost"), d.get("cost_source"),
+        )
+        return d
+    except Exception as e:
+        log.debug("find_by_mfg_exact error: %s", e)
+        return None
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def _record_enrich_error(product_id, column, value, error):
     """Persist an enrichment failure so /health/catalog can count them without
     scraping logs. Best-effort — swallow failures so observability can't crash
@@ -2986,15 +3099,46 @@ def enrich_catalog_product(product_id: int, **fields):
                 log.warning("enrich_catalog_product #%d %s=%r failed: %s", product_id, col_name, val, _e)
                 _record_enrich_error(product_id, col_name, val, _e)
 
-    # Cost update (only if better/newer)
+    # Cost update — provenance-aware (2026-04-24).
+    # Old rule: "update best_cost only if NEW value is LOWER" — this was exactly
+    # backwards: it locked in poisoned $24.99 Amazon ghosts over real $400 costs.
+    # New rule:
+    #   * cost_source='operator' or 'catalog_confirmed' → ALWAYS overwrite
+    #     (operator-confirmed truth dominates anything else)
+    #   * cost_source='amazon_scrape'/'scprs_scrape' → REFUSED (these are
+    #     reference data, never cost basis — caller should not pass them)
+    #   * cost_source omitted/None → keep old "if empty or lower" behavior
+    #     to remain backwards compatible with callers that haven't migrated
     _cost = fields.get("best_cost") or fields.get("cost")
-    if _cost and float(_cost) > 0:
+    _cost_source = fields.get("cost_source")
+    _cost_source_url = fields.get("cost_source_url", "")
+    _accepted_at = fields.get("cost_accepted_at") or now
+    _accepted_by = fields.get("cost_accepted_by_quote_id", "")
+
+    if _cost_source in ("amazon_scrape", "scprs_scrape"):
+        log.warning(
+            "enrich_catalog_product #%d REFUSED cost_source=%r — "
+            "Amazon/SCPRS are reference data, never cost basis",
+            product_id, _cost_source,
+        )
+    elif _cost and float(_cost) > 0:
         try:
-            conn.execute(
-                "UPDATE product_catalog SET best_cost=?, cost=?, updated_at=? "
-                "WHERE id=? AND (best_cost IS NULL OR best_cost=0 OR best_cost > ?)",
-                (float(_cost), float(_cost), now, product_id, float(_cost))
-            )
+            if _cost_source in ("operator", "catalog_confirmed"):
+                # Authoritative — always overwrite
+                conn.execute(
+                    "UPDATE product_catalog SET best_cost=?, cost=?, "
+                    "cost_source=?, cost_source_url=?, cost_accepted_at=?, "
+                    "cost_accepted_by_quote_id=?, updated_at=? WHERE id=?",
+                    (float(_cost), float(_cost), _cost_source, _cost_source_url,
+                     _accepted_at, _accepted_by, now, product_id)
+                )
+            else:
+                # Legacy behaviour: only update if empty or lower
+                conn.execute(
+                    "UPDATE product_catalog SET best_cost=?, cost=?, updated_at=? "
+                    "WHERE id=? AND (best_cost IS NULL OR best_cost=0 OR best_cost > ?)",
+                    (float(_cost), float(_cost), now, product_id, float(_cost))
+                )
         except Exception as _e:
             log.warning("enrich_catalog_product #%d best_cost=%r failed: %s", product_id, _cost, _e)
             _record_enrich_error(product_id, "best_cost", _cost, _e)
