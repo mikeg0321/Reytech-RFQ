@@ -4088,6 +4088,31 @@ def api_oracle_backfill_all():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/oracle/joinback-won-quotes-kb", methods=["POST"])
+@auth_required
+@safe_route
+def api_oracle_joinback_won_quotes_kb():
+    """Phase 0.7c: populate reytech_price/reytech_won on won_quotes_kb
+    rows by matching against the quotes table. Run BEFORE backfill-all
+    to maximize calibration signal from historical SCPRS data.
+
+    Body: {"dry_run": true} to preview without writing.
+    Optional: {"description_threshold": 0.45, "date_window_days": 90}.
+    """
+    try:
+        from src.core.oracle_backfill import joinback_won_quotes_kb
+        body = request.json or {}
+        result = joinback_won_quotes_kb(
+            dry_run=body.get("dry_run", False),
+            description_threshold=float(body.get("description_threshold", 0.45)),
+            date_window_days=int(body.get("date_window_days", 90)),
+        )
+        return jsonify(result)
+    except Exception as e:
+        log.exception("oracle-joinback-won-quotes-kb")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/intel/win-rate-trends")
 @auth_required
 @safe_route
