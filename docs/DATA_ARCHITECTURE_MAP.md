@@ -196,17 +196,35 @@ These are the inert features Mike asked about. Each represents engineering effor
 | `quote_model_v2_enabled` | `core/quote_adapter.py` | Promote V2 quote model from shadow to live | Tied to shadow telemetry — confirm before flip |
 | `rfq.readback_verifier` | `core/quote_orchestrator.py` | Quote readback verification | Build or delete |
 | `rfq.orchestrator_pipeline` | `core/quote_orchestrator.py` | Orchestrator pipeline path | Tied to V2 promotion |
+| `ingest.ghost_quarantine_enabled` | `core/ghost_detection.py`, `core/ingest_pipeline.py:265` | Ghost-record auto-quarantine on ingest | Reclassified from §5.d 2026-04-25. Decide flip-or-delete per Phase 1.3 |
+| `quote.block_unresolved_ship_to` | `forms/quote_generator.py:1015` | Refuse to render quote when ship-to unresolved | Reclassified from §5.d 2026-04-25. Decide flip-or-delete per Phase 1.3 |
 
-### 5.d — 👻 PHANTOM flags (referenced in memory, NOT in code)
+### 5.d — Re-classified 2026-04-25 (was "phantom")
 
-These flags are mentioned in `~/.claude/.../memory/project_rfq_session_2026_04_23_complete.md` as "pending flips after 48h shadow telemetry" but **zero references exist anywhere in `src/`**:
-
+The original audit (2026-04-25 morning) listed two flags as phantom:
 - `ingest.ghost_quarantine_enabled`
 - `quote.block_unresolved_ship_to`
 
-Either the gating code was never merged, was reverted, or was renamed. **Update the memory entry** to reflect actual state — leaving it as-is means the next session will plan around features that don't exist.
+A re-grep on 2026-04-25 PM (Phase 0.6 of `PLAN_ONCE_AND_FOR_ALL.md`)
+found both flags ARE in code, default-OFF. They belong in §5.c LIVE-OFF
+above. The audit's flag-checking pattern missed `get_flag("name", False)`
+form-with-default and only matched bare `is_flag_enabled("name")` calls.
 
-The same memory mentions a *T1 declarative pipeline observer* on 4 RFQ routes; no observer code matching that description was found in this audit.
+**Live references found:**
+- `ingest.ghost_quarantine_enabled`
+  - `src/core/ghost_detection.py:25` (docstring describing flag)
+  - `src/core/ingest_pipeline.py:265` — `get_flag("ingest.ghost_quarantine_enabled", False)`
+  - `src/api/modules/routes_rfq.py:430` (docstring/comment)
+  - `tests/test_ghost_detection.py:11` (test reference)
+- `quote.block_unresolved_ship_to`
+  - `src/forms/quote_generator.py:1015` — `get_flag("quote.block_unresolved_ship_to", False)`
+  - `tests/test_quote_generator_audit_trail.py` (3 references)
+
+**Action:** treat both as LIVE-OFF tech-debt items in §5.c. Decide flip-or-delete
+per Phase 1.3 of the master plan. No urgent fix needed.
+
+The same morning audit mentioned a *T1 declarative pipeline observer* on 4 RFQ
+routes; that one IS genuinely absent from code — the legitimate phantom.
 
 ---
 
