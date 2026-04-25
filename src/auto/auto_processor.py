@@ -441,20 +441,39 @@ def auto_process_price_check(pdf_path: str, pc_id: str = None) -> dict:
     result["steps"].append({"step": "amazon", "found": amazon_found, "total": len(items)})
     result["timing"]["amazon"] = round(time.time() - t0, 2)
 
-    # Step 5: Calculate pricing (cost + 25% markup)
+    # Step 5: Stage REFERENCE pricing for operator review.
+    #
+    # 2026-04-25 fix (Barstow PC f81c4e9b incident 2026-04-24): this used to
+    # write `amazon_price` / `scprs_price` straight into `unit_cost` and emit
+    # a `recommended_price` from a 25% markup on the WRONG cost basis. Mike
+    # then had to re-enter all 6 supplier costs by hand on every auto-filled
+    # PC because Amazon retail ≠ Grainger/S&S wholesale (16x off on a
+    # Stanley industrial item). Quote couldn't be sent before the 04/23
+    # deadline.
+    #
+    # CLAUDE.md states the rule explicitly:
+    #   "SCPRS Prices Are NOT Supplier Costs" + "Amazon Prices Are NOT
+    #    Supplier Costs"
+    #
+    # New behavior: keep `amazon_price` / `scprs_price` as REFERENCE badges
+    # on the item (the UI already surfaces them) but DO NOT promote them
+    # into `unit_cost` / `recommended_price`. Tag `cost_source =
+    # "needs_lookup"` so the PC detail UI flags every unfilled cost cell.
     t0 = time.time()
-    priced = 0
+    needs_lookup = 0
     for item in items:
         p = item.get("pricing", {})
-        cost = p.get("amazon_price") or p.get("scprs_price") or 0
-        if cost > 0:
-            markup = p.get("markup_pct", 25)
-            p["unit_cost"] = cost
-            p["markup_pct"] = markup
-            p["recommended_price"] = round(cost * (1 + markup / 100), 2)
-            item["pricing"] = p
-            priced += 1
-    result["steps"].append({"step": "pricing", "priced": priced, "total": len(items)})
+        ref = p.get("amazon_price") or p.get("scprs_price") or 0
+        if ref > 0 and not p.get("unit_cost"):
+            p["cost_source"] = "needs_lookup"
+            needs_lookup += 1
+        item["pricing"] = p
+    result["steps"].append({
+        "step": "pricing",
+        "needs_lookup": needs_lookup,
+        "total": len(items),
+        "note": "amazon/scprs are REFERENCE only; unit_cost requires operator input",
+    })
     result["timing"]["pricing"] = round(time.time() - t0, 2)
 
     # Step 6: Confidence scoring
