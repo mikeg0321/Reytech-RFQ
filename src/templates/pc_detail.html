@@ -5138,6 +5138,251 @@
 })();
 </script>
 {% endif %}
+
+<!-- ─────────────────────────────────────────────────────────────────
+     Phase 2 PR-B (2026-04-25): tier-cascade cost lookup auto-trigger
+     ────────────────────────────────────────────────────────────────
+     When the page loads with one or more "⚠️ NEEDS COST" chips,
+     auto-fire the background cascade (catalog → past_quote → supplier
+     scrape) and surface per-cell Accept buttons for any tier that
+     returns a recommendation. Operator's click writes the cost back
+     through the existing handleManualCostChange path so the
+     cost_source='operator' flywheel still owns long-term truth.
+     -->
+<style>
+  @keyframes cost-shimmer-pulse {
+    0%, 100% { background-color: rgba(248,81,73,.13); }
+    50%      { background-color: rgba(210,153,34,.20); }
+  }
+  .cost-needs-chip.cost-shimmering {
+    animation: cost-shimmer-pulse 1.4s ease-in-out infinite;
+    color: #d29922 !important;
+    border-color: rgba(210,153,34,.45) !important;
+  }
+  .cost-tier-chip {
+    margin-top: 3px; padding: 3px 7px; border-radius: 3px;
+    font-size: 10px; font-weight: 700;
+    background: rgba(63,185,80,.15); color: #3fb950;
+    border: 1px solid rgba(63,185,80,.4);
+    display: flex; align-items: center; gap: 4px;
+    width: fit-content; max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .cost-needs-chip.cost-shimmering, .cost-tier-chip-miss {
+    display: block; width: fit-content;
+  }
+  .cost-tier-chip.cost-tier-reference {
+    background: rgba(210,153,34,.15); color: #d29922;
+    border-color: rgba(210,153,34,.4);
+  }
+  .cost-tier-chip a { color: inherit; text-decoration: none; }
+  .cost-tier-chip button {
+    background: rgba(63,185,80,.25); color: #3fb950;
+    border: 1px solid rgba(63,185,80,.5);
+    padding: 1px 6px; border-radius: 3px; font-size: 10px;
+    font-weight: 700; cursor: pointer; margin-left: 4px;
+  }
+  .cost-tier-chip.cost-tier-reference button {
+    background: rgba(210,153,34,.25); color: #d29922;
+    border-color: rgba(210,153,34,.5);
+  }
+  .cost-tier-chip button:hover { filter: brightness(1.2); }
+  .cost-tier-chip-miss {
+    margin-top: 3px; padding: 2px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 700;
+    background: rgba(139,148,158,.15); color: #8b949e;
+    border: 1px solid rgba(139,148,158,.3);
+    display: inline-block;
+  }
+</style>
+<script>
+(function tierCascadeAutoLookup() {
+  // Skip if PC is sent (locked) — locked banner script already disables inputs
+  if (document.querySelector('[data-locked-sent="1"]')) return;
+  // pcid is declared as a `var` inside a sibling <script>'s IIFE upstream,
+  // so it's function-scoped and not visible here. Parse from URL instead —
+  // the canonical PC detail URL is `/pricecheck/<pcid>` (with optional
+  // trailing path segments like `/lookup` etc). This script only auto-fires
+  // on the bare detail page.
+  var _m = (window.location.pathname || '').match(/\/pricecheck\/([^\/?#]+)/);
+  var _pcid = _m ? decodeURIComponent(_m[1]) : '';
+  if (!_pcid) return;
+
+  function findChips() {
+    return Array.from(document.querySelectorAll('.cost-needs-chip'));
+  }
+
+  function chipIdx(chip) {
+    var td = chip.closest('td');
+    if (!td) return null;
+    var input = td.querySelector('input[name^="cost_"]');
+    if (!input) return null;
+    var m = input.name.match(/^cost_(\d+)$/);
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  function setShimmer(chip) {
+    chip.classList.add('cost-shimmering');
+    chip.innerHTML = '🔍 Looking up...';
+    chip.title = 'Searching catalog → past quotes → supplier (1-3 sec)';
+  }
+
+  function safeAttr(s) {
+    return String(s == null ? '' : s).replace(/[<>"']/g, '');
+  }
+
+  function fmtMoney(n) {
+    var v = parseFloat(n);
+    if (!isFinite(v)) return '0.00';
+    return v.toFixed(2);
+  }
+
+  function renderHit(chip, rec) {
+    var td = chip.closest('td');
+    if (!td) return;
+    var input = td.querySelector('input[name^="cost_"]');
+    if (!input) return;
+    var m = input.name.match(/^cost_(\d+)$/);
+    var idx = m ? parseInt(m[1], 10) : null;
+
+    var cost = rec.cost || 0;
+    var supplier = safeAttr(rec.supplier || rec.tier || 'Source');
+    var url = safeAttr(rec.url || '');
+    var tier = safeAttr(rec.tier || '');
+    var source = safeAttr(rec.source || '');
+    var conf = String(rec.confidence || 'high');
+    var isRef = (conf === 'reference_only');
+
+    var html = '<b>$' + fmtMoney(cost) + '</b>';
+    html += ' · <span title="' + source + '">' + supplier + '</span>';
+    if (url) {
+      html += ' · <a href="' + url + '" target="_blank" rel="noopener" title="Open supplier page to verify">↗</a>';
+    }
+    html += '<button type="button" data-accept-cost-idx="' + idx + '" data-accept-cost-val="' + fmtMoney(cost) + '" title="Accept this cost — you can override anytime">Accept</button>';
+
+    chip.classList.remove('cost-shimmering', 'cost-needs-chip');
+    chip.classList.add('cost-tier-chip');
+    if (isRef) chip.classList.add('cost-tier-reference');
+    chip.innerHTML = html;
+    chip.title = source + (isRef
+      ? ' — REFERENCE PRICE (S&S blocked, value from Amazon). Verify before accepting.'
+      : ' — high-confidence match. Click Accept to use this cost.');
+
+    var btn = chip.querySelector('button[data-accept-cost-idx]');
+    if (btn) {
+      btn.addEventListener('click', function() {
+        if (idx == null || !input) return;
+        input.value = fmtMoney(cost);
+        // Trigger the existing manual-cost path:
+        //   handleManualCostChange → recalcRow → autosave → catalog flywheel.
+        if (typeof window.handleManualCostChange === 'function') {
+          window.handleManualCostChange(idx);
+        } else if (typeof recalcRow === 'function') {
+          recalcRow(idx, true);
+        }
+        // Dispatch change so any other listeners fire (autosave timers,
+        // total recalc).
+        try { input.dispatchEvent(new Event('change', {bubbles: true})); } catch(e) {}
+        // Remove the chip — the cell now shows the accepted cost.
+        chip.remove();
+      });
+    }
+  }
+
+  function renderMiss(chip) {
+    chip.classList.remove('cost-shimmering', 'cost-needs-chip');
+    chip.classList.add('cost-tier-chip-miss');
+    chip.innerHTML = '⏷ no auto-match — type cost';
+    chip.title = 'No catalog hit, no past quote, no supplier route. Enter the cost manually.';
+  }
+
+  function renderError(chip, msg) {
+    chip.classList.remove('cost-shimmering');
+    chip.title = 'Lookup error — type cost manually. ' + (msg || '');
+    chip.innerHTML = '⚠️ NEEDS COST';
+  }
+
+  var chips = findChips();
+  if (!chips.length) return;
+
+  // Map idx → chip element so the poller can target each row
+  var chipByIdx = {};
+  chips.forEach(function(chip) {
+    var idx = chipIdx(chip);
+    if (idx == null) return;
+    chipByIdx[idx] = chip;
+    setShimmer(chip);
+  });
+
+  // Use protocol+host (no userinfo) to avoid Chrome's "URL with credentials"
+  // TypeError when the page was loaded with `http://user:pass@host/...`
+  // (test setups). Production uses session cookies + basic auth header — not
+  // URL credentials — so this is a no-op there.
+  var _api = function(path) {
+    var loc = window.location;
+    return loc.protocol + '//' + loc.host + path;
+  };
+  // Kick off background lookup
+  fetch(_api('/api/pricecheck/' + encodeURIComponent(_pcid) + '/lookup-costs'), {
+    method: 'POST', credentials: 'same-origin',
+    headers: {'Content-Type': 'application/json'},
+  }).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }).then(function(data) {
+    if (!data || !data.ok) throw new Error((data && data.error) || 'kickoff failed');
+    pollStatus(0);
+  }).catch(function(err) {
+    Object.values(chipByIdx).forEach(function(c) { renderError(c, err.message); });
+  });
+
+  function pollStatus(attempt) {
+    if (attempt > 25) {  // ~37s max (25 polls × 1.5s)
+      // Anything still shimmering → mark as miss (operator can type)
+      Object.values(chipByIdx).forEach(function(c) {
+        if (c.classList.contains('cost-shimmering')) renderMiss(c);
+      });
+      return;
+    }
+    fetch(_api('/api/pricecheck/' + encodeURIComponent(_pcid) + '/lookup-costs/status'), {
+      credentials: 'same-origin',
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (!data || !data.items) {
+        setTimeout(function(){ pollStatus(attempt + 1); }, 1500);
+        return;
+      }
+      var allDone = true;
+      Object.keys(chipByIdx).forEach(function(idxStr) {
+        var idx = parseInt(idxStr, 10);
+        var chip = chipByIdx[idx];
+        if (!chip || !chip.classList.contains('cost-shimmering')) return;
+        var st = data.items[String(idx)] || data.items[idx];
+        if (!st) { allDone = false; return; }
+        if (st.status === 'hit') {
+          renderHit(chip, st);
+        } else if (st.status === 'miss' || st.status === 'skip') {
+          renderMiss(chip);
+        } else if (st.status === 'error') {
+          renderError(chip, st.error || '');
+        } else {
+          allDone = false;
+        }
+      });
+      if (allDone || data.completed_at) {
+        // Sweep any remaining chips that didn't get a per-idx update
+        // (race between poll and worker finish)
+        Object.values(chipByIdx).forEach(function(c) {
+          if (c.classList.contains('cost-shimmering')) renderMiss(c);
+        });
+        return;
+      }
+      setTimeout(function() { pollStatus(attempt + 1); }, 1500);
+    }).catch(function() {
+      setTimeout(function() { pollStatus(attempt + 1); }, 1500);
+    });
+  }
+})();
+</script>
     </body></html>
 
 {% endblock %}
