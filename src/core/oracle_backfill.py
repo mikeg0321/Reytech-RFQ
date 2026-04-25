@@ -12,7 +12,15 @@ window, the oracle feedback loop got zero data. Now that markQuote works
    bid outcomes where Reytech bid and we know the winning price.
    This is the largest data source: 1,260+ rows of per-product
    per-agency win/loss signal that the original backfill ignored.
-   Phase 0.7 of PLAN_ONCE_AND_FOR_ALL.md (2026-04-25).
+   Phase 0.7a of PLAN_ONCE_AND_FOR_ALL.md (2026-04-25).
+
+Phase 0.7c (2026-04-25 PM): joinback_won_quotes_kb() — when the live
+backfill ran, all 1,260 won_quotes_kb rows had reytech_price=NULL because
+the SCPRS scraper only stored competitor wins, never Reytech bids. The
+join-back walks each KB row, looks up quotes table for a Reytech quote
+against the same agency + fuzzy description match in a date window, and
+populates reytech_price + reytech_won where matched. Run this BEFORE
+backfill_all() to maximize the calibration signal.
 
 The backfill is idempotent: calibrate_from_outcome() uses exponential-
 moving-average blending, so re-running reinforces existing calibration
@@ -228,5 +236,197 @@ def backfill_all(dry_run: bool = False) -> dict:
         result["kb_wins"], result["kb_losses"], result["kb_skipped_no_bid"],
         result["calibrations_written"], len(result["errors"]),
         dry_run,
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Phase 0.7c — won_quotes_kb reytech_price join-back
+# ──────────────────────────────────────────────────────────────────────
+
+_TOKEN_RE = None  # lazy compile inside _tokens()
+
+
+def _tokens(text: str) -> set:
+    """Lowercase alphanumeric tokens of length >= 3, for fuzzy match."""
+    global _TOKEN_RE
+    if _TOKEN_RE is None:
+        import re as _re
+        _TOKEN_RE = _re.compile(r"[a-z0-9]{3,}")
+    return set(_TOKEN_RE.findall((text or "").lower()))
+
+
+def _description_match_score(a: str, b: str) -> float:
+    """Jaccard similarity over token sets. 0..1, higher is more similar."""
+    ta, tb = _tokens(a), _tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / float(len(ta | tb))
+
+
+def _agency_match(a: str, b: str) -> bool:
+    """Loose agency match: substring either direction, lowercased."""
+    a = (a or "").strip().lower()
+    b = (b or "").strip().lower()
+    if not a or not b:
+        return False
+    return a in b or b in a
+
+
+def joinback_won_quotes_kb(
+    dry_run: bool = False,
+    description_threshold: float = 0.45,
+    date_window_days: int = 90,
+) -> dict:
+    """Walk won_quotes_kb rows where reytech_price IS NULL and try to
+    populate it from the quotes table.
+
+    Match rule per KB row:
+      - same (loose) agency: case-insensitive substring either direction
+      - line_items contains a description with token-Jaccard >= threshold
+      - quote.created_at within ±date_window_days of kb.award_date
+      - prefer status=won over status=lost over status=sent
+
+    On match, sets:
+      - reytech_price  = matched line_item's unit_price (or 0 if absent)
+      - reytech_won    = 1 if quote.status='won' else 0
+
+    Returns {ok, kb_rows_examined, matched, updated, ambiguous, errors,
+             dry_run}.
+    """
+    import json as _json
+    from datetime import datetime, timedelta
+    from src.core.db import get_db
+
+    result = {
+        "ok": True,
+        "kb_rows_examined": 0,
+        "matched": 0,
+        "updated": 0,
+        "ambiguous": 0,
+        "errors": [],
+        "dry_run": dry_run,
+    }
+
+    # Pull all KB rows that need a match.
+    try:
+        with get_db() as conn:
+            kb = conn.execute("""
+                SELECT id, item_description, agency, award_date,
+                       winning_price, winning_vendor, mfg_number
+                FROM won_quotes_kb
+                WHERE reytech_price IS NULL OR reytech_price <= 0
+            """).fetchall()
+            quotes = conn.execute("""
+                SELECT quote_number, status, agency, institution,
+                       line_items, total, created_at
+                FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost', 'sent')
+                  AND line_items IS NOT NULL
+            """).fetchall()
+    except Exception as e:
+        result["ok"] = False
+        result["errors"].append(f"load: {e}")
+        log.warning("joinback load: %s", e)
+        return result
+
+    # Decode quote line_items once.
+    quote_index = []
+    for q in quotes:
+        try:
+            items = _json.loads(q["line_items"] or "[]")
+            if not items:
+                continue
+            try:
+                qdate = datetime.fromisoformat(
+                    (q["created_at"] or "").replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+            except Exception:
+                qdate = None
+            quote_index.append({
+                "quote_number": q["quote_number"],
+                "status": q["status"],
+                "agency": q["agency"] or q["institution"] or "",
+                "items": items,
+                "date": qdate,
+            })
+        except Exception as e:
+            result["errors"].append(f"quote {q['quote_number']}: {e}")
+
+    # Walk each KB row and try to match.
+    status_rank = {"won": 3, "lost": 2, "sent": 1}
+    for kr in kb:
+        result["kb_rows_examined"] += 1
+        try:
+            kdesc = kr["item_description"] or ""
+            kagency = kr["agency"] or ""
+            kdate = None
+            try:
+                kdate = datetime.fromisoformat(
+                    (kr["award_date"] or "").replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+            except Exception:
+                kdate = None
+
+            # Score every quote-line against this KB row; keep the best.
+            best = None
+            for q in quote_index:
+                if not _agency_match(kagency, q["agency"]):
+                    continue
+                if kdate and q["date"]:
+                    delta = abs((kdate - q["date"]).days)
+                    if delta > date_window_days:
+                        continue
+                for it in q["items"]:
+                    if not isinstance(it, dict):
+                        continue
+                    score = _description_match_score(kdesc, it.get("description", ""))
+                    if score < description_threshold:
+                        continue
+                    candidate = {
+                        "quote_number": q["quote_number"],
+                        "status": q["status"],
+                        "score": score,
+                        "rank": status_rank.get(q["status"], 0),
+                        "unit_price": float(
+                            it.get("unit_price")
+                            or it.get("bid_price")
+                            or (it.get("pricing") or {}).get("recommended_price")
+                            or 0
+                        ),
+                    }
+                    if (best is None
+                        or candidate["rank"] > best["rank"]
+                        or (candidate["rank"] == best["rank"]
+                            and candidate["score"] > best["score"])):
+                        best = candidate
+
+            if best is None:
+                continue
+
+            result["matched"] += 1
+            new_price = best["unit_price"]
+            new_won = 1 if best["status"] == "won" else 0
+
+            if not dry_run and new_price > 0:
+                with get_db() as conn:
+                    conn.execute("""
+                        UPDATE won_quotes_kb
+                        SET reytech_price = ?,
+                            reytech_won = ?,
+                            price_delta = (winning_price - ?)
+                        WHERE id = ?
+                    """, (new_price, new_won, new_price, kr["id"]))
+                result["updated"] += 1
+
+        except Exception as e:
+            result["errors"].append(f"kb {kr['id']}: {e}")
+
+    log.info(
+        "won_quotes_kb joinback: examined=%d matched=%d updated=%d "
+        "errors=%d dry_run=%s",
+        result["kb_rows_examined"], result["matched"], result["updated"],
+        len(result["errors"]), dry_run,
     )
     return result
