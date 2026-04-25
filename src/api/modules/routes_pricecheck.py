@@ -1328,11 +1328,17 @@ def _pricecheck_detail_inner(pcid):
         except Exception as _e:
             log.debug("suppressed: %s", _e)
 
-    # SCPRS data staleness check
+    # SCPRS data staleness check.
+    # Was: `from src.core.institution_resolver import resolve_agency` —
+    # that name has never existed in institution_resolver, so the import
+    # silently failed and this whole staleness banner has been a no-op
+    # since whenever the call was added. Migrated to the canonical
+    # facade 2026-04-25; `classify_agency(...).agency` is what was meant.
     _scprs_staleness = None
     try:
-        from src.core.institution_resolver import resolve_agency
-        _agency_key = resolve_agency(pc.get("institution", "") or header.get("institution", ""))
+        from src.core.quote_contract import classify_agency
+        _inst_text = pc.get("institution", "") or header.get("institution", "")
+        _agency_key = classify_agency(_inst_text).get("agency", "")
         if _agency_key:
             from src.core.db import get_db as _sdb
             with _sdb() as _sconn:
