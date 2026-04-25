@@ -315,6 +315,95 @@ def ship_to_for_text(text: str) -> str:
     return f"{rec.address_line1}, {rec.address_line2}"
 
 
+def canonical_name(text: str) -> str:
+    """Return the canonical institution/agency name for free text. On miss,
+    returns the input unchanged (mirrors `institution_resolver.normalize`
+    semantics — this is a label normalizer, not an identity check, so
+    losing un-canonicalizable strings would silently corrupt downstream
+    aggregates).
+
+    Thin facade over `institution_resolver.normalize`. Callers should use
+    this in preference to importing institution_resolver directly so the
+    eventual fold of institution_resolver into facility_registry doesn't
+    have to touch every caller.
+    """
+    if text is None:
+        return ""
+    s = str(text)
+    if not s.strip():
+        return s
+    try:
+        from src.core.institution_resolver import normalize
+    except Exception as e:
+        log.debug("institution_resolver.normalize unavailable: %s", e)
+        return s
+    try:
+        return normalize(s)
+    except Exception:
+        return s
+
+
+def same_institution(name_a: str, name_b: str) -> bool:
+    """Return True if two free-text institution names refer to the same
+    canonical entity. Used by `pc_rfq_linker` and dashboard match logic.
+
+    Thin facade over `institution_resolver.same_institution`. Preserves
+    the existing matcher's recall guarantees (same agency without
+    facility code = match, substring match >= 5 chars, etc.) — folding
+    that logic into `facility_registry.resolve()` would break callers
+    that rely on the lossy "same agency" branch.
+    """
+    if not name_a or not name_b:
+        return False
+    try:
+        from src.core.institution_resolver import same_institution as _impl
+    except Exception as e:
+        log.debug("institution_resolver.same_institution unavailable: %s", e)
+        return False
+    try:
+        return bool(_impl(name_a, name_b))
+    except Exception:
+        return False
+
+
+def classify_agency(name: str = "", email: str = "",
+                    ship_to: str = "") -> dict:
+    """Resolve a (name, email, ship_to) tuple to its canonical agency
+    classification. Returns the same shape that
+    `institution_resolver.resolve` returns — `{canonical, agency,
+    facility_code, original, source}` — so callers swap one import line.
+
+    The 3-input fallback (raw name → ship_to → email domain → garbage
+    label filter) is classification logic, NOT facility identity. It
+    intentionally lives separate from `facility_registry.resolve()`
+    which refuses to silently guess on ambiguous facility text. Email-
+    domain matching belongs HERE, not in facility_registry.
+
+    Thin facade over `institution_resolver.resolve`. Callers like
+    `routes_pricecheck` (SCPRS staleness check) need just the agency
+    key — read `result["agency"]` for that.
+    """
+    empty = {"canonical": "", "agency": "", "facility_code": "",
+             "original": "", "source": ""}
+    if not name and not email and not ship_to:
+        return empty
+    try:
+        from src.core.institution_resolver import resolve as _resolve
+    except Exception as e:
+        log.debug("institution_resolver.resolve unavailable: %s", e)
+        return empty
+    try:
+        out = _resolve(name or "", email=email or "", ship_to=ship_to or "")
+        if not isinstance(out, dict):
+            return empty
+        # Normalize missing keys for callers that index without .get
+        for k in ("canonical", "agency", "facility_code", "original", "source"):
+            out.setdefault(k, "")
+        return out
+    except Exception:
+        return empty
+
+
 def tax_for_facility(facility) -> dict:
     """Return tax info for a resolved facility as a dict:
       {"rate": 0.0875, "rate_bps": 875, "jurisdiction": "BARSTOW",
