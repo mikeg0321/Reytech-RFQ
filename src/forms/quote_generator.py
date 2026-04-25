@@ -1658,6 +1658,71 @@ def generate_quote(
         "source_pc_id": quote_data.get("source_pc_id", ""),
         "source_rfq_id": quote_data.get("source_rfq_id", ""),
     }
+    # Fail-closed contract validation 2026-04-25.
+    #
+    # Was: `_log_quote(result)` would internally validate + log a WARNING +
+    # skip the SQLite save when the contract failed (e.g. `['no items',
+    # '$0 total']`). BUT the rendered PDF was still on disk and `result`
+    # still went out with `ok=True` + `path=output_path`. The operator
+    # could attach a $0 quote to a buyer email. The Barstow-class incident
+    # was already silenced by validate_quote — this just makes it stop
+    # short of producing a usable artifact.
+    #
+    # New behavior: validate BEFORE handing the result to the caller. If
+    # invalid: delete the just-written PDF, roll back the quote number
+    # (so the next render gets the same number, not a gap), and return
+    # `{ok: False, error: ..., violations: [...]}`.
+    try:
+        from src.core.contracts import validate_quote
+        _entry_for_validation = {
+            "quote_number": quote_number,
+            "total": result.get("total", 0),
+            "items_count": result.get("items_count", 0),
+            "items_detail": result.get("items_detail", []),
+            "institution": result.get("institution", ""),
+            "source_pc_id": result.get("source_pc_id", ""),
+            "source_rfq_id": result.get("source_rfq_id", ""),
+            "status": "pending",
+        }
+        _is_valid, _violations = validate_quote(
+            _entry_for_validation, strict=True
+        )
+    except ImportError as _e:
+        log.debug("contracts module unavailable: %s", _e)
+        _is_valid = True
+        _violations = []
+    # Narrow the fail-closed gate to KPI-blocking violations only —
+    # `no items` and `$0 total` are the Barstow-incident shape (operator
+    # could attach a $0 PDF). Cosmetic violations like
+    # `invalid format: SRCH1` (synthetic test quote numbers) or
+    # `empty institution` (legitimately blank for some flows) stay as
+    # warnings — they're audited via the existing `log_blocked_save`
+    # path but don't kill the render.
+    _BLOCKING_VIOLATIONS = ("no items", "$0 total")
+    _blocking = [v for v in _violations if v in _BLOCKING_VIOLATIONS]
+    if _blocking:
+        log.warning(
+            "Quote %s FAIL-CLOSED — render aborted: %s",
+            quote_number, _blocking,
+        )
+        # Tear down the just-written PDF so the operator can't attach it
+        try:
+            if os.path.exists(output_path):
+                os.unlink(output_path)
+        except OSError as _e:
+            log.warning("Could not unlink invalid quote PDF %s: %s",
+                        output_path, _e)
+        # Roll back the quote number so the next valid render gets it
+        if _allocated_number:
+            _rollback_quote_number(quote_number)
+        return {
+            "ok": False,
+            "error": "contract_violations",
+            "violations": list(_blocking),
+            "quote_number": quote_number,
+            "path": "",
+        }
+
     _log_quote(result)
     log.info("Quote %s generated: $%.2f total, %d items → %s",
              quote_number, result["total"], result["items_count"], output_path)

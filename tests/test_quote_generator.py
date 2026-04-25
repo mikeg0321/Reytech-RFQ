@@ -179,12 +179,19 @@ class TestGenerateQuote:
         assert r["total"] == r["subtotal"] + 25.00
 
     def test_empty_items(self, tmp_path):
+        """2026-04-25 fail-closed: empty-items render returns ok=False
+        with 'no items' violation, NOT a $0 PDF the operator could
+        attach. See `tests/test_quote_validator_fail_closed.py` for the
+        full coverage of this gate."""
         data = {"institution": "Test", "line_items": []}
         out = str(tmp_path / "empty.pdf")
         r = generate_quote(data, out, quote_number="E1")
-        assert r["ok"] is True
-        assert r["total"] == 0.0
-        assert r["items_count"] == 0
+        assert r["ok"] is False
+        assert r.get("error") == "contract_violations"
+        assert "no items" in r.get("violations", [])
+        # PDF must NOT be left on disk for operator to attach
+        import os as _os
+        assert not _os.path.exists(out)
 
     def test_items_count(self, tmp_path, sample_stryker_quote):
         out = str(tmp_path / "cnt.pdf")
@@ -209,14 +216,18 @@ class TestQuoteFromPC:
         assert "Ref ASIN:" in text         # ASIN appended to description
 
     def test_addresses_in_pdf(self, tmp_path, sample_pc):
-        """Both To: and Ship To: should contain the ship address."""
+        """Both To: and Ship To: should contain the ship address.
+
+        Audit-W canonical fix: CSP-SAC = 100 Prison Road (not 300 — that's
+        FSP, the OTHER Folsom prison). The original assertion looked for
+        '300 Prison Road' which would now be a regression."""
         out = str(tmp_path / "addr.pdf")
         r = generate_quote_from_pc(sample_pc, out, quote_number="AD1")
         import pdfplumber
         with pdfplumber.open(out) as pdf:
             text = pdf.pages[0].extract_text()
-        # "100 Prison Road" should appear in both To and Ship To sections
-        assert text.count("300 Prison Road") >= 2
+        # Canonical CSP-SAC address: 100 Prison Road, Represa, CA 95671
+        assert text.count("100 Prison Road") >= 2
 
     def test_no_bid_excluded(self, tmp_path, sample_pc):
         sample_pc["items"][1]["no_bid"] = True
