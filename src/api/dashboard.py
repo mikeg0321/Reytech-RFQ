@@ -5273,6 +5273,7 @@ _ROUTE_MODULES = [
     "routes_build_health",    # Build health: fixes vs features tracking
     "routes_quoting_status",  # QuoteOrchestrator audit dashboard: /quoting/status + override API
     "routes_locked_costs",    # Admin: locked supplier costs panel + unlock/extend
+    "routes_supplier_sku_lookup",  # Phase 1.7: supplier SKU → MFG# reverse lookup (McKesson, etc.)
 ]
 
 for _mod in _ROUTE_MODULES:
