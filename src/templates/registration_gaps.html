@@ -1,0 +1,210 @@
+{% extends "base.html" %}
+{% block title %}Registration Audit — Reytech{% endblock %}
+
+{% block content %}
+
+<style>
+.section{background:var(--bg2);border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:18px}
+.section h3{margin:0 0 10px 0;font-size:16px;font-weight:700}
+.section .sub{color:var(--tx2);font-size:13px;margin-bottom:14px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{padding:7px 10px;font-size:11px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;border-bottom:2px solid var(--bd);text-align:left}
+td{padding:7px 10px;border-bottom:1px solid var(--bd);color:var(--tx)}
+.gap-status-no_record{color:var(--rd);font-weight:700}
+.gap-status-unknown{color:#D97706;font-weight:600}
+.gap-status-provisional{color:var(--ac);font-weight:600}
+.btn{padding:6px 12px;font-size:12px;font-weight:600;border-radius:4px;cursor:pointer;border:1px solid var(--bd);background:var(--bg);color:var(--tx);margin-right:6px}
+.btn.primary{background:var(--ac);color:white;border-color:var(--ac)}
+.btn.success{background:var(--gn);color:white;border-color:var(--gn)}
+.btn.danger{background:var(--rd);color:white;border-color:var(--rd)}
+.btn:hover{filter:brightness(1.1)}
+.tiny{font-size:12px;color:var(--tx2)}
+.action-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.action-bar input{padding:6px 10px;background:var(--bg);border:1px solid var(--bd);color:var(--tx);border-radius:4px;font-size:12px}
+.bulk-status{font-size:12px;color:var(--tx2)}
+</style>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+  <div>
+    <h2 style="font-size:22px;font-weight:700;margin:0">📊 Registration Audit</h2>
+    <p style="color:var(--tx2);font-size:13px;margin-top:4px;max-width:680px">
+      The agencies Reytech could be receiving RFQs from — but isn't, because we're not on their distribution list. Top-N by SCPRS spend. Plus rows the Gmail bulk-seed agent has proposed (operator must confirm).
+    </p>
+  </div>
+  <a href="/outreach/next" class="btn">← back to Contact Today</a>
+</div>
+
+{% if error %}
+<div style="background:rgba(220,38,38,.08);border:1px solid var(--rd);border-radius:10px;padding:14px;margin-bottom:16px">
+  <div style="font-weight:700;color:var(--rd)">⚠ Could not load gap data</div>
+  <div class="tiny" style="font-family:ui-monospace,monospace">{{ error }}</div>
+</div>
+{% endif %}
+
+<div class="section">
+  <h3>🤖 Gmail bulk-seed</h3>
+  <p class="sub">
+    Scan our Gmail archive for past RFQ emails from CA agency domains. For each domain with ≥3 distinct RFQ threads, auto-mark Reytech as registered (high-confidence rows auto-confirm; medium go to provisional).
+  </p>
+  <div class="action-bar">
+    <button class="btn" onclick="runGmailSeed(true)">🔍 Dry run (preview)</button>
+    <button class="btn primary" onclick="runGmailSeed(false)">▶ Run + write to registry</button>
+    <span class="bulk-status" id="seedStatus"></span>
+  </div>
+  <pre id="seedOutput" style="background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:10px;font-size:11px;max-height:240px;overflow:auto;white-space:pre-wrap;display:none"></pre>
+</div>
+
+<div class="section">
+  <h3>⚠ Top {{ scanned_top_n }} agencies needing a decision</h3>
+  <p class="sub">
+    Agencies with high recent SCPRS spend that have NO registry record, or status='unknown', or are still 'provisional' from a prior agent run.
+  </p>
+  {% if gaps %}
+    <table>
+      <thead><tr>
+        <th>Agency (dept_code)</th><th>365d spend</th><th>POs</th>
+        <th>Last PO</th><th>Status</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for g in gaps %}
+        <tr>
+          <td><b>{{ g.dept_name }}</b> <span class="tiny">{{ g.dept_code }}</span></td>
+          <td>${{ "{:,.0f}".format(g.total_spend) }}</td>
+          <td>{{ g.po_count }}</td>
+          <td>{{ g.last_po_date or '—' }}</td>
+          <td><span class="gap-status-{{ g.gap_status }}">{{ g.gap_status.replace('_',' ').upper() }}</span></td>
+          <td><a href="/outreach/next" class="btn">edit on card →</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tiny">No gaps detected — all top-{{ scanned_top_n }} agencies have a registry decision.</div>
+  {% endif %}
+</div>
+
+<div class="section">
+  <h3>🟠 Agent-seeded provisional rows ({{ provisional|length }})</h3>
+  <p class="sub">Rows the Gmail bulk-seed agent proposed but didn't auto-promote (medium confidence or fewer than 3 RFQ threads). Confirm or reject each.</p>
+  {% if provisional %}
+    <table>
+      <thead><tr>
+        <th>Dept</th><th>Status</th><th>Updated</th>
+        <th>Notes</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        {% for p in provisional %}
+        <tr data-dept="{{ p.dept_code }}">
+          <td><b>{{ p.dept_code }}</b></td>
+          <td>{{ p.status }}</td>
+          <td class="tiny">{{ p.updated_at[:16] if p.updated_at else '—' }}</td>
+          <td class="tiny">{{ p.notes }}</td>
+          <td>
+            <button class="btn success" onclick="confirmReg(this)">✓ confirm</button>
+            <button class="btn danger" onclick="rejectReg(this)">✗ reject</button>
+            <span class="prov-status tiny" style="margin-left:6px"></span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tiny">No provisional rows — operator hasn't run Gmail bulk-seed yet, or all proposed rows have been confirmed.</div>
+  {% endif %}
+</div>
+
+<div class="section">
+  <h3>📨 Pending domain aliases ({{ pending_aliases|length }})</h3>
+  <p class="sub">Sender domains the Gmail agent saw repeatedly but couldn't map to a dept_code. Add them to the alias table to seed those agencies on the next run.</p>
+  {% if pending_aliases %}
+    <table>
+      <thead><tr><th>Domain</th><th>Seen</th><th>Last seen</th><th>Example subject</th></tr></thead>
+      <tbody>
+        {% for pa in pending_aliases %}
+        <tr>
+          <td><b>{{ pa.domain }}</b></td>
+          <td>{{ pa.seen_count }}</td>
+          <td class="tiny">{{ pa.last_seen[:16] }}</td>
+          <td class="tiny">{{ pa.example_subject[:80] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <div class="tiny">No pending aliases — all observed domains mapped successfully (or Gmail bulk-seed not yet run).</div>
+  {% endif %}
+</div>
+
+<script>
+async function runGmailSeed(dryRun) {
+  var statusEl = document.getElementById('seedStatus');
+  var outEl = document.getElementById('seedOutput');
+  statusEl.textContent = dryRun ? 'Running dry-run…' : 'Running + writing…';
+  statusEl.style.color = 'var(--tx2)';
+  outEl.style.display = 'none';
+  try {
+    var r = await fetch('/api/admin/registration-gaps/gmail-seed', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dry_run: dryRun, limit: 200, since_days: 540}),
+    });
+    var data = await r.json();
+    outEl.textContent = JSON.stringify(data, null, 2);
+    outEl.style.display = 'block';
+    if (!data.ok) {
+      statusEl.textContent = '⚠ ' + (data.error || 'failed');
+      statusEl.style.color = 'var(--rd)';
+      return;
+    }
+    statusEl.textContent =
+      dryRun
+        ? '✓ dry-run done · ' + (data.proposed || []).length + ' rows would upsert'
+        : '✓ ' + (data.rows_upserted || 0) + ' upserted, ' +
+          (data.rows_skipped || 0) + ' skipped (operator-owned)';
+    statusEl.style.color = 'var(--gn)';
+    if (!dryRun) setTimeout(function () { location.reload(); }, 800);
+  } catch (e) {
+    statusEl.textContent = '⚠ network error';
+    statusEl.style.color = 'var(--rd)';
+  }
+}
+
+async function confirmReg(btn) {
+  var row = btn.closest('tr');
+  var dept = row.dataset.dept;
+  var statusEl = row.querySelector('.prov-status');
+  await _postProvAction('/api/admin/registration-gaps/confirm', dept, statusEl);
+}
+
+async function rejectReg(btn) {
+  var row = btn.closest('tr');
+  var dept = row.dataset.dept;
+  var statusEl = row.querySelector('.prov-status');
+  await _postProvAction('/api/admin/registration-gaps/reject', dept, statusEl);
+}
+
+async function _postProvAction(url, deptCode, statusEl) {
+  statusEl.textContent = '…';
+  try {
+    var r = await fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({dept_code: deptCode}),
+    });
+    var data = await r.json();
+    if (data.ok) {
+      statusEl.textContent = '✓';
+      statusEl.style.color = 'var(--gn)';
+      setTimeout(function () { location.reload(); }, 500);
+    } else {
+      statusEl.textContent = '⚠ ' + (data.error || 'failed');
+      statusEl.style.color = 'var(--rd)';
+    }
+  } catch (e) {
+    statusEl.textContent = '⚠ err';
+    statusEl.style.color = 'var(--rd)';
+  }
+}
+</script>
+
+{% endblock %}
