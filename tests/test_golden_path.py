@@ -1380,3 +1380,23 @@ class TestPCToRFQHandoffGoldenPath:
             "drift flag must persist when reprice skipped — else ops "
             "lose the signal that this line needs manual follow-up"
         )
+
+
+class TestRouteSurfaceTripwire:
+    """If a refactor accidentally drops a chunk of routes, fail loud here.
+
+    Companion to tests/test_route_module_registration.py — that test
+    enforces the disk↔_ROUTE_MODULES symmetry; this one is a sanity
+    floor on the resulting URL surface so a silent regression in one
+    module (every route fails to register) shows up in the golden suite.
+    """
+
+    def test_url_map_size_floor(self, app):
+        # app fixture has the populated url_map (client wraps app + auth).
+        rule_count = sum(1 for _ in app.url_map.iter_rules())
+        # 2026-04-25 baseline: ~1,223 rules. Floor at 1,200 leaves slack
+        # for tactical removals; bump if a planned cleanup drops below.
+        assert rule_count >= 1200, (
+            f"URL map shrank to {rule_count} rules (floor 1200). "
+            f"Likely a route module failed to load — check boot logs."
+        )
