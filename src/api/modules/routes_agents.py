@@ -14,24 +14,19 @@ from datetime import datetime, timedelta
 # 7 routes, 506 lines
 # Loaded by dashboard.py via load_module()
 
-# Agent Control Panel (Phase 14)
-# ═══════════════════════════════════════════════════════════════════════
-
+# Agent Control Panel — REMOVED 2026-04-25 per PLAN_ONCE_AND_FOR_ALL.md Phase 1.1.
+# The page was performative — it showed colored grades and ran sweeps but didn't
+# move quotes. Health/diagnostics endpoints below are kept and surface via
+# /health/quoting (the operator's single ops page). The route module remains
+# because it owns the email-template library and other live endpoints.
+# Tombstone redirect: /agents → /health/quoting.
 @bp.route("/agents")
 @auth_required
 @safe_page
-def agents_page():
-    """Agent Control Panel — click buttons instead of writing API calls."""
-    from src.api.render import render_page
-    from src.api.templates import BASE_CSS
-    # BRIEF_HTML and BRIEF_JS are defined in dashboard.py (exec namespace)
-    _brief_html = BRIEF_HTML if 'BRIEF_HTML' in dir() else ""  # noqa: F821
-    _brief_js = BRIEF_JS if 'BRIEF_JS' in dir() else ""  # noqa: F821
-    return render_page("agents.html", active_page="Agents",
-        brief_html=_brief_html,
-        brief_js=_brief_js,
-        brief_css=BASE_CSS,
-    )
+def agents_page_tombstone():
+    """Tombstone — redirects to the unified health/diagnostics page."""
+    from flask import redirect
+    return redirect("/health/quoting", code=301)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # EMAIL TEMPLATE LIBRARY  (PRD Feature 4.3 — P0)

@@ -101,7 +101,7 @@ def _get_pending_approvals() -> list:
             "title": f"Email to {d.get('to', 'unknown')}",
             "detail": d.get("subject", "")[:60],
             "age": _age_str(d.get("created_at", "")),
-            "action_url": "/agents", "action_label": "Review in Outbox",
+            "action_url": "/outbox", "action_label": "Review in Outbox",
         })
 
     # 2. Approved emails ready to send
@@ -110,8 +110,8 @@ def _get_pending_approvals() -> list:
         approvals.append({
             "type": "email_send", "icon": "🚀",
             "title": f"{len(approved)} email{'s' if len(approved)!=1 else ''} approved & ready",
-            "detail": "Go to Agents → Send All Approved",
-            "age": "", "action_url": "/agents", "action_label": "Send Now",
+            "detail": "Open Outbox → Send All Approved",
+            "age": "", "action_url": "/outbox", "action_label": "Send Now",
         })
 
     # 3. New leads needing outreach
@@ -129,7 +129,7 @@ def _get_pending_approvals() -> list:
                 "title": f"Lead: {l.get('institution', '?')} — score {l.get('score', 0):.0%}",
                 "detail": f"PO {l.get('po_number', '?')} · ${l.get('po_value', 0):,.0f}",
                 "age": _age_str(l.get("created_at", "")),
-                "action_url": "/agents", "action_label": "Draft Outreach",
+                "action_url": "/outreach/next", "action_label": "Draft Outreach",
             })
 
     # 3b. Pending / new RFQs needing action

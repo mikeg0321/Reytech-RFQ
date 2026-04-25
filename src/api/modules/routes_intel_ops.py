@@ -539,7 +539,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 h1{font-size:22px;margin-bottom:4px}.sub{color:var(--tx2);font-size:13px;margin-bottom:20px}
 .run-btn{padding:10px 24px;background:var(--ac);color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;margin-bottom:16px}
 </style></head><body>
-<div class="nav"><a href="/">🏠 Home</a><a href="/agents">🤖 Agents</a><a href="/qa/intelligence">📊 QA Intel</a></div>
+<div class="nav"><a href="/">🏠 Home</a><a href="/health/quoting">🩺 Health</a><a href="/qa/intelligence">📊 QA Intel</a></div>
 <h1>🔬 Workflow Tests</h1><p class="sub">End-to-end data flow validation — runs every 10 minutes automatically</p>
 <div id="score-card" class="card" style="text-align:center"><div style="color:var(--tx2)">Loading…</div></div>
 <button class="run-btn" onclick="runTests()" id="run-btn">▶ Run Tests Now</button>
@@ -1070,7 +1070,7 @@ def api_qb_callback():
     """QuickBooks OAuth2 callback — exchange code for tokens."""
     if not QB_AVAILABLE:
         flash("QuickBooks agent not available", "error")
-        return redirect("/agents")
+        return redirect("/settings")
     code = request.args.get("code")
     realm_id = request.args.get("realmId")
     if not code:

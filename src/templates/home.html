@@ -15,7 +15,6 @@
  <a href="/contacts" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;border-color:rgba(167,139,250,.4);color:#a78bfa" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='rgba(167,139,250,.4)'">👥 CRM</a>
  <a href="/orders" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📦 Orders</a>
  <a href="/growth" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
- <a href="/agents" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🤖 Agents</a>
  <a href="/quoting/status" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap" title="Live quoting orchestrator audit">📡 Quoting</a>
  <a href="/qa/workflow" id="qa-nav-btn" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;display:none" title="QA Score">🔬 <span id="qa-nav-score">—</span></a>
  {% if docling_intake|default(false) %}<a href="#" onclick="document.getElementById('doc-upload-modal').style.display='flex';return false" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📄 Documents</a>{% endif %}
@@ -577,8 +576,8 @@ function _refreshAgentStatus(){
    var mkd=(ps.poll_status||{})._mike_diag||{};
    if(!mkd.configured){
     mikeDot.style.background='#f85149';
-    // Don't leak env var names to end-users; link to /agents instead.
-    mikeTxt.innerHTML='<a href="/agents" style="color:#f85149;text-decoration:underline">Connect second inbox →</a>';
+    // Link to /settings inbox config (was /agents — page deleted Phase 1.1).
+    mikeTxt.innerHTML='<a href="/settings" style="color:#f85149;text-decoration:underline">Connect second inbox →</a>';
    } else if(mkd.connected===false){
     mikeDot.style.background='#f85149';
     mikeTxt.textContent='IMAP connect failed — check credentials';
