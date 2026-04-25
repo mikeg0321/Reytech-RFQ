@@ -1,10 +1,12 @@
 {# Growth suite tab bar — shared across growth pages #}
 {% macro growth_tabs(active) %}
 <div style="display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--bd)">
+ {# 2026-04-25 (Phase 1.2 of PLAN_ONCE_AND_FOR_ALL.md): /growth-discovery
+    URL was wrong (real route is /intel/growth-discovery). /market-intel
+    tab pointed at a route that never shipped — removed. #}
  {% set tabs = [
-   ('discovery', '/growth-discovery', '🔍 Discovery'),
+   ('discovery', '/intel/growth-discovery', '🔍 Discovery'),
    ('intelligence', '/growth-intel', '🧠 Intelligence'),
-   ('market', '/market-intel', '📈 Market Intel'),
  ] %}
  {% for key, url, label in tabs %}
  {% if key == active %}
