@@ -128,25 +128,6 @@ AGENCY_CONFIGS = {
     },
 }
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# FACILITY DATABASE — deprecated local dict; canonical data is in
-# `src.core.facility_registry`. This dict is kept as a last-resort
-# fallback only (e.g. import-failure path), but `_lookup_facility` /
-# `_lookup_facility_by_zip` below now delegate to the registry so quote
-# generation, tax resolution, and institution display all read from the
-# SAME source of truth. Collapsing this dict was the 2026-04-24 root-
-# cause fix — incident f81c4e9b / RFQ 8a1dcf77: the quote PDF showed
-# "CAL - Calipatria State Prison" as ship-to for a CalVet Barstow RFQ
-# because this local `FACILITY_DB` matched Calipatria before the
-# canonical registry's Barstow record could be consulted. See
-# `feedback_quoting_core_repeats_failing.md`.
-#
-# Do NOT extend this dict — add new facilities to
-# `src.core.facility_registry._SEED`. This copy exists as a safety net
-# only for the import-failure fallback in `_registry_to_legacy_dict`.
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
 def _registry_record_to_legacy_dict(rec) -> dict:
     """Adapter: render a `FacilityRecord` in the legacy-dict shape all
     the quote_generator callers already consume ({name, parent,
@@ -162,61 +143,6 @@ def _registry_record_to_legacy_dict(rec) -> dict:
         "code": rec.code,
         "zip": rec.zip,
     }
-
-
-FACILITY_DB = {
-    # CDCR facilities
-    "CIW":  {"name": "CIW - California Institution for Women", "parent": "CCHCS", "parent_full": "California Correctional Health Care Services", "address": ["16756 Chino-Corona Road", "Corona, CA 92880"]},
-    "CIM":  {"name": "CIM - California Institution for Men", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["14901 S Central Ave", "Chino, CA 91710"]},
-    "CSP-SAC": {"name": "CSP Sacramento - New Folsom", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["300 Prison Road", "Represa, CA 95671"]},
-    "CSP-COR": {"name": "CSP Corcoran", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["4001 King Ave", "Corcoran, CA 93212"]},
-    "CSP-LAC": {"name": "CSP Los Angeles County", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["44750 60th St West", "Lancaster, CA 93536"]},
-    "CSP-SOL": {"name": "CSP Solano", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2100 Peabody Road", "Vacaville, CA 95687"]},
-    "SATF": {"name": "SATF - Substance Abuse Treatment Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["900 Quebec Ave", "Corcoran, CA 93212"]},
-    "CHCF": {"name": "CHCF - California Health Care Facility", "parent": "CCHCS", "parent_full": "California Correctional Health Care Services", "address": ["23370 Road 22", "Stockton, CA 95215"]},
-    "PVSP": {"name": "PVSP - Pleasant Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["24863 W Jayne Ave", "Coalinga, CA 93210"]},
-    "KVSP": {"name": "KVSP - Kern Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["3000 W Cecil Ave", "Delano, CA 93215"]},
-    "NKSP": {"name": "NKSP - North Kern State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2737 W Cecil Ave", "Delano, CA 93215"]},
-    "MCSP": {"name": "MCSP - Mule Creek State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["4001 Hwy 104", "Ione, CA 95640"]},
-    "WSP":  {"name": "WSP - Wasco State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["701 Scofield Ave", "Wasco, CA 93280"]},
-    "SCC":  {"name": "SCC - Sierra Conservation Center", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5100 O'Byrnes Ferry Road", "Jamestown, CA 95327"]},
-    "CMC":  {"name": "CMC - California Men's Colony", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Hwy 1", "San Luis Obispo, CA 93409"]},
-    "CTF":  {"name": "CTF - Correctional Training Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Hwy 101 North", "Soledad, CA 93960"]},
-    "CCWF": {"name": "CCWF - Central California Women's Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["23370 Road 22", "Chowchilla, CA 93610"]},
-    "VSP":  {"name": "VSP - Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["21633 Avenue 24", "Chowchilla, CA 93610"]},
-    "SVSP": {"name": "SVSP - Salinas Valley State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["31625 Hwy 101", "Soledad, CA 93960"]},
-    "PBSP": {"name": "PBSP - Pelican Bay State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5905 Lake Earl Dr", "Crescent City, CA 95531"]},
-    "CRC":  {"name": "CRC - California Rehabilitation Center", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["5th Street & Western Ave", "Norco, CA 92860"]},
-    "CCI":  {"name": "CCI - California Correctional Institution", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["24900 Hwy 202", "Tehachapi, CA 93561"]},
-    "ASP":  {"name": "ASP - Avenal State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["1 Kings Way", "Avenal, CA 93204"]},
-    "HDSP": {"name": "HDSP - High Desert State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["475-750 Rice Canyon Rd", "Susanville, CA 96127"]},
-    "ISP":  {"name": "ISP - Ironwood State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["19005 Wiley's Well Rd", "Blythe, CA 92225"]},
-    "FSP":  {"name": "FSP - Folsom State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["300 Prison Road", "Represa, CA 95671"]},
-    "RJD":  {"name": "RJD - Richard J. Donovan Correctional Facility", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["480 Alta Road", "San Diego, CA 92179"]},
-    "CAL":  {"name": "CAL - Calipatria State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["7018 Blair Rd", "Calipatria, CA 92233"]},
-    "CEN":  {"name": "CEN - Centinela State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["2302 Brown Rd", "Imperial, CA 92251"]},
-    "SQ":   {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
-    "SQSP": {"name": "SQ - San Quentin State Prison", "parent": "CDCR", "parent_full": "Dept. of Corrections and Rehabilitation", "address": ["Main Street", "San Quentin, CA 94964"]},
-    # CalVet facilities
-    "CALVETHOME-YV": {"name": "Veterans Home of California - Yountville", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["190 California Dr", "Yountville, CA 94599"]},
-    "CALVETHOME-BF": {"name": "Veterans Home of California - Barstow", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["100 E Veterans Pkwy", "Barstow, CA 92311"]},
-    "CALVETHOME-CV": {"name": "Veterans Home of California - Chula Vista", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["700 E Naples Ct", "Chula Vista, CA 91911"]},
-    "CALVETHOME-LA": {"name": "Veterans Home of California - West Los Angeles", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11500 Nimitz Ave Bldg 209", "Los Angeles, CA 90049"]},
-    "CALVETHOME-FR": {"name": "Veterans Home of California - Fresno", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["2811 W California Ave", "Fresno, CA 93706"]},
-    "CALVETHOME-RD": {"name": "Veterans Home of California - Redding", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["3400 Knighton Rd", "Redding, CA 96002"]},
-    "CALVETHOME-MV": {"name": "Veterans Home of California - Moosehaven", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["11 Moosehaven Blvd", "Moosehaven, CA 95380"]},
-    "CALVETHOME-VM": {"name": "Veterans Home of California - Ventura", "parent": "CalVet", "parent_full": "California Department of Veterans Affairs", "address": ["10900 Telephone Rd", "Ventura, CA 93004"]},
-}
-
-# ── Build reverse zip→facility lookup ─────────────────────────────────────────
-# Each zip maps to a list of facility keys (most are unique, some CDCR share zips)
-ZIP_TO_FACILITY = {}
-for _fk, _fv in FACILITY_DB.items():
-    _addr_str = " ".join(_fv.get("address", []))
-    _zip_matches = re.findall(r'\b(\d{5})\b', _addr_str)
-    if _zip_matches:
-        _zip = _zip_matches[-1]  # Last 5-digit number is the zip
-        ZIP_TO_FACILITY.setdefault(_zip, []).append(_fk)
 
 
 def _lookup_facility_by_zip(text: str) -> tuple:
@@ -308,43 +234,6 @@ def _lookup_facility(text: str) -> dict | None:
     rec, _reason = _contract_resolve_facility(text)
     if rec:
         return _registry_record_to_legacy_dict(rec)
-    return None
-
-
-def _lookup_facility_legacy(text: str) -> dict | None:
-    """Last-resort fallback when facility_registry can't be imported.
-
-    Uses the local `FACILITY_DB` snapshot. This path exists only so
-    quote_generator doesn't crash on an import failure — it will
-    behave as it did before the canonical-registry migration, including
-    reproducing any pre-existing iteration-order bugs. Normal operation
-    never reaches this function.
-    """
-    if not text:
-        return None
-    upper = text.upper().strip()
-    for key in FACILITY_DB:
-        if upper.startswith(key + " ") or upper.startswith(key + "-") or upper.startswith(key + ",") or upper == key:
-            return FACILITY_DB[key]
-    for key, fac in FACILITY_DB.items():
-        fname = fac["name"].upper()
-        desc_part = fname.split(" - ", 1)[1] if " - " in fname else fname
-        if desc_part and len(desc_part) > 5 and desc_part in upper:
-            return fac
-    _CITY_MAP = {
-        "CHINO": "CIM", "CORONA": "CIW", "CORCORAN": "CSP-COR", "LANCASTER": "CSP-LAC",
-        "VACAVILLE": "CSP-SOL", "STOCKTON": "CHCF", "COALINGA": "PVSP", "DELANO": "KVSP",
-        "IONE": "MCSP", "WASCO": "WSP", "CHOWCHILLA": "CCWF", "SOLEDAD": "CTF",
-        "CRESCENT CITY": "PBSP", "NORCO": "CRC", "TEHACHAPI": "CCI", "AVENAL": "ASP",
-        "SUSANVILLE": "HDSP", "BLYTHE": "ISP", "REPRESA": "FSP", "SAN QUENTIN": "SQ",
-        "CALIPATRIA": "CAL", "IMPERIAL": "CEN", "JAMESTOWN": "SCC",
-        "SAN LUIS OBISPO": "CMC", "YOUNTVILLE": "CALVETHOME-YV", "BARSTOW": "CALVETHOME-BF",
-        "REDDING": "CALVETHOME-RD", "WEST LOS ANGELES": "CALVETHOME-LA",
-        "FRESNO": "CALVETHOME-FR", "CHULA VISTA": "CALVETHOME-CV",
-    }
-    for city, fac_key in _CITY_MAP.items():
-        if city in upper:
-            return FACILITY_DB.get(fac_key)
     return None
 
 
