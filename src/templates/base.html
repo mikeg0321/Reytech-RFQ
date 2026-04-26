@@ -122,6 +122,145 @@ window.markQuote = function(qn, status){
     }).catch(function(e){ window.alert('Network error: ' + e); });
   }, 0);
 };
+
+// openItemHistory(idx): Phase 4.2 UI hook — fetch /api/oracle/item-history
+// for (window.PC_META.institution, desc_{idx}.value) and show a modal
+// with prior bids + win-rate stats + oracle's recommended markup.
+// Wired to the "📊 Hist" button next to each PC item description.
+window.openItemHistory = function(idx){
+  var descEl = document.querySelector('[name="desc_' + idx + '"]');
+  if (!descEl) { window.alert('Could not read item description for row ' + idx); return; }
+  var desc = (descEl.value || descEl.textContent || '').trim();
+  if (!desc) { window.alert('Item description is empty — fill it in first.'); return; }
+  var meta = window.PC_META || {};
+  var agency = (meta.institution || '').trim();
+  if (!agency) {
+    agency = window.prompt('Agency / institution to look up history for?');
+    if (!agency) return;
+  }
+
+  // Build modal scaffold
+  var existing = document.getElementById('rt-item-history-modal');
+  if (existing) existing.parentNode.removeChild(existing);
+  var modal = document.createElement('div');
+  modal.id = 'rt-item-history-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML =
+    '<div style="background:#161b22;border:1px solid #30363d;border-radius:10px;width:min(680px,92vw);max-height:80vh;overflow:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.6)">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:14px">' +
+        '<div>' +
+          '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">📊 Item History</div>' +
+          '<div style="font-size:14px;color:#e6edf3"><b>' + escapeHtml(agency) + '</b></div>' +
+          '<div style="font-size:13px;color:#8b949e;margin-top:2px">' + escapeHtml(desc.substring(0,160)) + (desc.length>160?'…':'') + '</div>' +
+        '</div>' +
+        '<button type="button" onclick="document.getElementById(\'rt-item-history-modal\').remove()" style="background:transparent;border:none;color:#8b949e;font-size:22px;cursor:pointer;line-height:1;padding:0 4px" aria-label="Close">×</button>' +
+      '</div>' +
+      '<div id="rt-item-history-body" style="font-size:13px;color:#c9d1d9">' +
+        '<div style="color:#8b949e;text-align:center;padding:24px">Loading prior bids…</div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  // Click-outside-to-close
+  modal.addEventListener('click', function(e){ if (e.target === modal) modal.remove(); });
+
+  function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  }); }
+
+  function statCell(label, val, color){
+    color = color || '#c9d1d9';
+    return '<div style="text-align:center;padding:8px"><div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">' + label + '</div><div style="font-size:16px;font-weight:600;color:' + color + ';margin-top:2px">' + val + '</div></div>';
+  }
+
+  // Fetch
+  var url = '/api/oracle/item-history?' +
+    'agency=' + encodeURIComponent(agency) +
+    '&description=' + encodeURIComponent(desc) +
+    '&threshold=0.20&limit=10';
+  fetch(url, {credentials:'same-origin'}).then(function(r){return r.json()}).then(function(d){
+    var body = document.getElementById('rt-item-history-body');
+    if (!body) return;
+    if (!d || !d.ok) {
+      body.innerHTML = '<div style="color:#f85149;padding:12px">Error: ' + escapeHtml((d && d.error) || 'unknown') + '</div>';
+      return;
+    }
+    var s = d.stats || {};
+    var o = d.oracle || {};
+    var quotesRows = (d.matches && d.matches.quotes) || [];
+    var kbRows = (d.matches && d.matches.kb) || [];
+
+    // Stat strip
+    var winRate = (s.win_rate_pct === null || s.win_rate_pct === undefined) ? '—' : s.win_rate_pct.toFixed(0) + '%';
+    var winColor = (typeof s.win_rate_pct === 'number' && s.win_rate_pct >= 30) ? '#2ecc71' : '#f0883e';
+    var stripHtml = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:rgba(88,166,255,.06);border:1px solid rgba(88,166,255,.18);border-radius:6px;margin-bottom:14px">' +
+      statCell('Win rate', winRate, winColor) +
+      statCell('Wins', s.wins || 0, '#2ecc71') +
+      statCell('Losses', s.losses || 0, '#f85149') +
+      statCell('Matches', s.matches_total || 0, '#a78bfa') +
+    '</div>';
+
+    // Oracle row
+    var oracleHtml = '';
+    if (o && o.markup_pct !== null && o.markup_pct !== undefined) {
+      oracleHtml = '<div style="background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);border-radius:6px;padding:10px 14px;margin-bottom:14px">' +
+        '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">🧠 Oracle recommendation</div>' +
+        '<div style="font-size:15px;color:#e6edf3;margin-top:4px"><b>' + (o.markup_pct).toFixed(1) + '% markup</b> · ' + escapeHtml(o.confidence || 'low') + ' confidence (' + (o.scope || 'no scope') + ', n=' + (o.sample_size || 0) + ')</div>' +
+        (o.rationale ? '<div style="font-size:12px;color:#8b949e;margin-top:4px">' + escapeHtml(o.rationale) + '</div>' : '') +
+      '</div>';
+    } else {
+      oracleHtml = '<div style="background:rgba(139,148,158,.08);border:1px solid rgba(139,148,158,.25);border-radius:6px;padding:10px 14px;margin-bottom:14px;color:#8b949e;font-size:12px">' +
+        '🧠 Oracle: ' + escapeHtml(o.rationale || 'no recommendation yet') +
+      '</div>';
+    }
+
+    // Winning-prices row
+    var ourW = s.our_winning_prices, ourL = s.our_losing_prices, compW = s.competitor_winning_prices;
+    function priceBar(label, p, color){
+      if (!p) return '';
+      return '<div style="margin-bottom:6px"><span style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-right:8px">' + label + '</span><b style="color:' + color + '">$' + p.median.toFixed(2) + '</b> <span style="color:#8b949e;font-size:12px">median · range $' + p.min.toFixed(2) + '–$' + p.max.toFixed(2) + ' (n=' + p.n + ')</span></div>';
+    }
+    var pricesHtml = '';
+    if (ourW || ourL || compW) {
+      pricesHtml = '<div style="margin-bottom:14px">' +
+        priceBar('Your wins', ourW, '#2ecc71') +
+        priceBar('Your losses', ourL, '#f85149') +
+        priceBar('Competitor wins', compW, '#f0883e') +
+      '</div>';
+    }
+
+    // Recent matches (combined)
+    var rowsHtml = '';
+    if (quotesRows.length || kbRows.length) {
+      rowsHtml = '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Recent matches</div>' +
+        '<div style="border:1px solid #30363d;border-radius:6px;overflow:hidden">';
+      quotesRows.slice(0,8).forEach(function(m){
+        var color = m.status === 'won' ? '#2ecc71' : (m.status === 'lost' ? '#f85149' : '#8b949e');
+        rowsHtml += '<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid #21262d;font-size:12px">' +
+          '<span style="color:' + color + ';font-weight:600;min-width:55px">' + m.status.toUpperCase() + '</span>' +
+          '<span style="color:#c9d1d9;font-family:monospace">' + escapeHtml(m.quote_number) + '</span>' +
+          '<span style="color:#c9d1d9">$' + (m.our_price||0).toFixed(2) + '</span>' +
+          '<span style="color:#8b949e;font-size:11px">' + escapeHtml((m.created_at||'').substring(0,10)) + '</span>' +
+        '</div>';
+      });
+      kbRows.slice(0,5).forEach(function(m){
+        rowsHtml += '<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 10px;border-bottom:1px solid #21262d;font-size:12px;background:rgba(167,139,250,.04)">' +
+          '<span style="color:#a78bfa;font-weight:600;min-width:55px">SCPRS</span>' +
+          '<span style="color:#c9d1d9;font-family:monospace">' + escapeHtml(m.po_number||'') + '</span>' +
+          '<span style="color:#c9d1d9">$' + (m.winning_price||0).toFixed(2) + '</span>' +
+          '<span style="color:#8b949e;font-size:11px">' + escapeHtml((m.winning_vendor||'').substring(0,18)) + '</span>' +
+        '</div>';
+      });
+      rowsHtml += '</div>';
+    } else {
+      rowsHtml = '<div style="color:#8b949e;text-align:center;padding:14px;font-size:12px">No prior bids found for this buyer × item.</div>';
+    }
+
+    body.innerHTML = stripHtml + oracleHtml + pricesHtml + rowsHtml;
+  }).catch(function(e){
+    var body = document.getElementById('rt-item-history-body');
+    if (body) body.innerHTML = '<div style="color:#f85149;padding:12px">Network error: ' + escapeHtml(String(e)) + '</div>';
+  });
+};
 </script>
 </head>
 <body>
