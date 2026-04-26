@@ -5275,6 +5275,7 @@ _ROUTE_MODULES = [
     "routes_locked_costs",    # Admin: locked supplier costs panel + unlock/extend
     "routes_supplier_sku_lookup",  # Phase 1.7: supplier SKU → MFG# reverse lookup (McKesson, etc.)
     "routes_oracle_item_history",  # Phase 4.2: buyer-product pricing history lookup
+    "routes_oracle_win_rate",      # Phase 4.4: per-agency win-rate analytics rollup
 ]
 
 for _mod in _ROUTE_MODULES:
