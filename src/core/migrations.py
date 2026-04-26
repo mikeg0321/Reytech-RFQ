@@ -862,6 +862,38 @@ MIGRATIONS = [
             ON supplier_skus(mfg_number);
     """),
 
+    (32, "cost_alerts", """
+        -- Phase 4.3 of PLAN_ONCE_AND_FOR_ALL.md (2026-04-26).
+        -- Catalog-cost change detector. Each row = one detected delta
+        -- between the prior and most-recent unit_price for an item from
+        -- a non-reference source (amazon/grainger/manual). Operator
+        -- triages: dismiss (false alarm), apply (update catalog).
+        --
+        -- Fed by scripts/scan_cost_alerts.py + POST /api/admin/scan-cost-alerts.
+        -- Surfaced on /health/quoting via GET /api/admin/cost-alerts.
+        CREATE TABLE IF NOT EXISTS cost_alerts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            mfg_number TEXT,
+            description TEXT,
+            source TEXT,
+            prior_price REAL,
+            new_price REAL,
+            delta_pct REAL,
+            prior_found_at TEXT,
+            new_found_at TEXT,
+            detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+            status TEXT NOT NULL DEFAULT 'pending',
+            agency TEXT,
+            quote_number TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_cost_alerts_status
+            ON cost_alerts(status);
+        CREATE INDEX IF NOT EXISTS idx_cost_alerts_mfg
+            ON cost_alerts(mfg_number);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cost_alerts_dedup
+            ON cost_alerts(mfg_number, source, new_found_at);
+    """),
+
     (31, "scprs_reytech_wins", """
         -- Phase 0.7d (2026-04-25): Mike's SCPRS HTML export of all
         -- Reytech-won POs since 2022. Imported via scripts/import_scprs_
