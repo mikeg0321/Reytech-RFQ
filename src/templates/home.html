@@ -27,11 +27,44 @@
   <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📅 Year-by-year trajectory</div>
   <div id="wri-yearly-row" style="display:flex;gap:6px;align-items:stretch"></div>
  </div>
+ <div id="wri-degrading" style="margin-top:10px;display:none">
+  <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">⚠️ Items losing competitiveness <span style="color:#586069;font-weight:400">· latest year vs prior</span></div>
+  <div id="wri-degrading-rows" style="display:flex;flex-direction:column;gap:3px"></div>
+ </div>
  <div id="wri-recent-wins" style="margin-top:10px;display:none">
   <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">🏆 Recent wins</div>
   <div id="wri-recent-wins-rows" style="display:flex;flex-direction:column;gap:3px"></div>
  </div>
 </div>
+<script>
+(function(){
+ fetch('/api/oracle/items-yearly?min_quotes=4&only_degrading=1&limit=5', {credentials:'same-origin'})
+  .then(function(r){return r.json()})
+  .then(function(d){
+   if (!d || !d.ok || !d.items || !d.items.length) return;
+   var holder = document.getElementById('wri-degrading');
+   var rows = document.getElementById('wri-degrading-rows');
+   if (!holder || !rows) return;
+   holder.style.display = 'block';
+   function esc(s){return String(s||'').replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+   rows.innerHTML = d.items.slice(0, 5).map(function(it){
+    var desc = (it.sample_description || '').length > 70
+                 ? it.sample_description.substring(0,68) + '…'
+                 : (it.sample_description || it.item_key || '');
+    var yoy = it.yoy_delta_pts;
+    var yoyStr = yoy === null || yoy === undefined ? '—' : (yoy > 0 ? '+' : '') + yoy.toFixed(1) + ' pts';
+    var prior = it.prior_rate !== null ? it.prior_rate + '%' : '—';
+    var latest = it.latest_rate !== null ? it.latest_rate + '%' : '—';
+    return '<div style="font-size:12px;color:#c9d1d9;background:rgba(248,81,73,.05);border:1px solid rgba(248,81,73,.18);border-radius:5px;padding:5px 10px;display:flex;justify-content:space-between;gap:10px;align-items:center">'
+         + '<span style="color:#f85149;font-weight:700;min-width:75px">' + esc(yoyStr) + '</span>'
+         + '<span style="flex:1;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(it.sample_description || '') + '">' + esc(desc) + '</span>'
+         + '<span style="color:#8b949e;font-size:11px;min-width:120px;text-align:right">' + esc(prior) + ' (' + esc(it.prior_year || '') + ') → ' + esc(latest) + ' (' + esc(it.latest_year || '') + ')</span>'
+         + '<span style="color:#8b949e;font-size:11px;min-width:50px;text-align:right">n=' + it.total_quotes + '</span>'
+         + '</div>';
+   }).join('');
+  }).catch(function(){});
+})();
+</script>
 <script>
 (function(){
  fetch('/api/oracle/win-rate-yearly', {credentials:'same-origin'})
