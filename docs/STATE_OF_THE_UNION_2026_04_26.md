@@ -1,6 +1,41 @@
-# State of the Union — 2026-04-26
+# State of the Union — 2026-04-26 (rev 2)
 
-After 4 sessions and 22+ PRs, this is what's now live in the RFQapp,
+After ~30 PRs and a clean-slate audit + fix cycle, this is what's now
+live in the RFQapp, how it's wired together, and what to read first
+when planning the next arc.
+
+---
+
+## 🎯 LIVE PROD DATA (after the is_test bug fix landed)
+
+```
+OVERALL (all-time, since 2022):
+  363 quotes / 84 wins / 257 losses
+  Win rate: 23.1%  (target: 30%)
+  Revenue: $1,460,822 won / $1,815,773 lost
+  Capture: 40% of bid volume converts to revenue
+
+PER AGENCY (top 10):
+   81q  CIW                              19w  23.5%  $    40,640
+   31q  Veterans Home — Chula Vista      14w  45.2%  $   114,118
+   28q  CSP — Sacramento                  2w   7.1%  $    10,393
+   21q  Veterans Home — Barstow          13w  61.9%  $   717,122  ← biggest $
+   18q  Veterans Home — Fresno            9w  50.0%  $   144,773
+   17q  Veterans Home — West L.A.         3w  17.6%  $    91,869
+   15q  DSH — Atascadero                  1w   6.7%  $     3,556
+   14q  Veterans Home — Yountville        6w  42.9%  $   154,711
+   10q  Veterans Home — Redding           3w  30.0%  $    33,895
+```
+
+**Strategic intel from the data:**
+- Veterans Home market: dominant (5 of 6 facilities ≥30% rate, $1.16M won)
+- Prison/CDCR market: weak (CIW 23.5%, CSPS 7.1%, DSH 6.7%)
+- Biggest revenue lever: CIW (81 quotes — doubling rate ≈ +20 wins)
+- Biggest revenue producer: Barstow ($717K won, 61.9% — protect this)
+
+---
+
+After 4 sessions and 30+ PRs, this is what's now live in the RFQapp,
 how it's wired together, and what to read first when planning the next
 arc. Replaces the per-session execution logs as the canonical reference.
 
@@ -97,6 +132,29 @@ won_quotes_kb rows:       1,260 (competitor intel; 0 matched to QW yet)
 ```
 
 **Win rate (last 365 days, ≥3 quotes/agency): 21%**
+
+---
+
+## Late-session adds (post-rev-1)
+
+After the original wrap, this session also shipped:
+
+| PR | What |
+|---|---|
+| #559 | `/api/admin/quotes-diagnostic` — histogram tool |
+| #560 | `/api/admin/fix-quotewerks-is-test` — clear is_test on QW imports |
+| #561 | Phase 4.3 — cost-alert scanner + triage queue |
+| #562 | Original state-of-the-union doc |
+| #563 | McKesson SKU autocomplete on MFG# input |
+| #564 | Win-Rate widget — 1y/2y/All toggle, default all-time |
+| #565 | Sticky "At this agency" intel strip on PC detail |
+| #566 | "🏆 Recent wins" preview row + `/api/oracle/recent-wins` |
+
+**Audit:** 84/84 targeted tests green. All 8 endpoints respond 200.
+`/agents` redirects 301 → `/health/quoting` correctly.
+
+**The is_test bug was the unlock.** Pre-fix: 19 quotes visible. Post-fix:
+363 quotes visible. 19× signal increase.
 
 ---
 
