@@ -460,6 +460,7 @@ def verify_quotewerks_outcomes(
     dry_run: bool = False,
     description_threshold: float = 0.45,
     date_window_days: int = 120,
+    require_agency_match: bool = False,
 ) -> dict:
     """Mike's rule (2026-04-25): a Reytech quote that appears verbatim in
     SCPRS = a won PO. A quote NOT in SCPRS = a loss.
@@ -590,17 +591,27 @@ def verify_quotewerks_outcomes(
             matched_po = None
             matched_score = 0.0
             for s in scprs_by_dept:
-                if not _agency_match(qagency, s["dept_name"]):
+                # Phase 0.7d retune (2026-04-26): SCPRS dept_name is the
+                # PARENT agency ('Dept of Corrections & Rehab') while
+                # QuoteWerks SoldToCompany is the SPECIFIC FACILITY
+                # ('California Institution for Women'). Token Jaccard
+                # over those rarely clears 0.4. Mike's rule was
+                # "verbatim in SCPRS = won" — agency-name is implied by
+                # the PO supplier=Reytech filter the SCPRS export already
+                # applies. So agency match is now a soft signal: it
+                # boosts score when present, but missing it doesn't skip.
+                if require_agency_match and not _agency_match(qagency, s["dept_name"]):
                     continue
                 if qdate and s["date"]:
                     if abs((qdate - s["date"]).days) > date_window_days:
                         continue
+                agency_boost = 0.05 if _agency_match(qagency, s["dept_name"]) else 0.0
                 for it in items:
                     if not isinstance(it, dict):
                         continue
                     score = _description_match_score(
                         it.get("description", ""), s["description"]
-                    )
+                    ) + agency_boost
                     if score >= description_threshold and score > matched_score:
                         matched_po = s["po_number"]
                         matched_score = score
