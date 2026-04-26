@@ -43,18 +43,33 @@
    if (!holder || !row) return;
    holder.style.display = 'block';
    function esc(s){return String(s||'').replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-   row.innerHTML = d.years.map(function(y){
+   row.innerHTML = d.years.map(function(y, i, arr){
     var rate = y.win_rate_pct;
     var color = (rate !== null && rate >= 30) ? '#2ecc71'
               : (rate !== null && rate >= 15) ? '#f0883e'
               : '#f85149';
     var rateStr = (rate === null || rate === undefined) ? '—' : rate + '%';
     var won = y.won_value ? '$' + Math.round(y.won_value/1000) + 'k' : '—';
+    // YoY delta vs prior year — clearer trajectory signal
+    var deltaHtml = '';
+    if (i > 0 && rate !== null) {
+     var prior = arr[i-1].win_rate_pct;
+     if (prior !== null && prior !== undefined) {
+      var diff = +(rate - prior).toFixed(1);
+      var arrow = diff > 0 ? '▲' : (diff < 0 ? '▼' : '◆');
+      var dColor = diff > 0 ? '#2ecc71' : (diff < 0 ? '#f85149' : '#8b949e');
+      var sign = diff > 0 ? '+' : '';
+      deltaHtml = '<div style="color:' + dColor + ';font-size:10px;font-weight:600;margin-top:1px">'
+                + arrow + ' ' + sign + diff + ' pts vs ' + esc(arr[i-1].year)
+                + '</div>';
+     }
+    }
     return '<div style="flex:1;background:rgba(13,17,23,.4);border:1px solid #21262d;border-radius:6px;padding:6px 10px;text-align:center">'
          + '<div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px">' + esc(y.year) + '</div>'
          + '<div style="color:' + color + ';font-weight:700;font-size:15px;margin-top:1px">' + rateStr + '</div>'
          + '<div style="color:#8b949e;font-size:10px;margin-top:1px">' + y.wins + 'w / ' + y.quotes + 'q</div>'
          + '<div style="color:#2ecc71;font-size:10px;font-weight:600">' + won + '</div>'
+         + deltaHtml
          + '</div>';
    }).join('');
   }).catch(function(){});
