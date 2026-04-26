@@ -43,6 +43,61 @@ def _normalize_agency(raw: str) -> str:
     return " ".join(tokens)
 
 
+@bp.route("/api/oracle/recent-wins")
+@auth_required
+def api_oracle_recent_wins():
+    """Recent won quotes preview — for the home page glance.
+
+    Query params:
+        limit (int, optional, default 5)
+
+    Response:
+      {ok, count, wins: [{quote_number, agency, total, po_number,
+                          created_at, notes}]}
+    """
+    try:
+        limit = max(1, min(50, int(request.args.get("limit", "5"))))
+    except (TypeError, ValueError):
+        limit = 5
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT quote_number, agency, institution, total,
+                       po_number, created_at, status_notes
+                FROM quotes
+                WHERE is_test = 0 AND status = 'won'
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (limit,)).fetchall()
+    except Exception as e:
+        log.exception("recent-wins")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    wins = []
+    for r in rows:
+        notes = (r["status_notes"] or "").strip()
+        if "[SCPRS-verify" in notes:
+            try:
+                notes = "SCPRS " + notes.split("[SCPRS-verify")[1].split("]")[0].strip()
+            except Exception:
+                pass
+        elif "QuoteWerks:" in notes:
+            notes = notes.replace("QuoteWerks:", "").strip()
+        if len(notes) > 60:
+            notes = notes[:60] + "…"
+        wins.append({
+            "quote_number": r["quote_number"],
+            "agency": r["agency"] or r["institution"] or "",
+            "total": float(r["total"] or 0),
+            "po_number": r["po_number"] or "",
+            "created_at": r["created_at"],
+            "notes": notes,
+        })
+    return jsonify({"ok": True, "count": len(wins), "wins": wins})
+
+
 @bp.route("/api/admin/fix-quotewerks-is-test", methods=["POST"])
 @auth_required
 def api_admin_fix_quotewerks_is_test():
