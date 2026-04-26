@@ -4240,6 +4240,7 @@ def api_oracle_verify_quotewerks_outcomes():
             dry_run=body.get("dry_run", False),
             description_threshold=float(body.get("description_threshold", 0.45)),
             date_window_days=int(body.get("date_window_days", 120)),
+            require_agency_match=bool(body.get("require_agency_match", False)),
         )
         return jsonify(result)
     except Exception as e:
