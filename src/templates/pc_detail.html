@@ -3019,6 +3019,33 @@
      // Debounce to avoid rapid-fire lookups
      clearTimeout(_mfgDebounce[idx]);
      _mfgDebounce[idx] = setTimeout(function() {
+      // Phase 4 enhancement (2026-04-26): if the operator typed a pure
+      // numeric SKU (6-8 digits — typical McKesson item-number format),
+      // try resolving via supplier_skus lookup FIRST. This catches the
+      // common case of pasting a McKesson catalog number from a buyer's
+      // RFQ — auto-replaces with the manufacturer part number that the
+      // catalog matcher actually recognizes.
+      var pnTrim = pn.replace(/[^0-9]/g, '');
+      if (/^\d{6,8}$/.test(pn) && pnTrim === pn) {
+       fetch('/api/catalog/supplier-sku-lookup?supplier=mckesson&sku=' + encodeURIComponent(pn), {credentials:'same-origin'})
+        .then(function(r){return r.json()})
+        .then(function(d){
+         if (d && d.ok && d.mfg_number && d.mfg_number !== pn) {
+          // Auto-replace + flash badge
+          inp.value = d.mfg_number;
+          inp.style.background = 'rgba(46,204,113,.18)';
+          setTimeout(function(){ inp.style.background = ''; }, 1500);
+          if (typeof showMsg === 'function') {
+           showMsg('🔄 McKesson #' + pn + ' → MFG# ' + d.mfg_number + (d.description ? ' (' + d.description.substring(0,50) + ')' : ''), 'ok');
+          }
+          // If description is empty, populate it from the McKesson lookup
+          var descEl = document.querySelector('[name=desc_' + idx + ']');
+          if (descEl && d.description && !(descEl.value || '').trim()) {
+           descEl.value = d.description;
+          }
+         }
+        }).catch(function(){});
+      }
       const desc = (document.querySelector('[name=desc_'+idx+']') || {}).value || '';
       fetch('/api/catalog/match-batch', {
        method: 'POST',
