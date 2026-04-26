@@ -23,11 +23,43 @@
   </div>
  </div>
  <div id="wri-agencies" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px"></div>
+ <div id="wri-yearly" style="margin-top:10px;display:none">
+  <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">📅 Year-by-year trajectory</div>
+  <div id="wri-yearly-row" style="display:flex;gap:6px;align-items:stretch"></div>
+ </div>
  <div id="wri-recent-wins" style="margin-top:10px;display:none">
   <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">🏆 Recent wins</div>
   <div id="wri-recent-wins-rows" style="display:flex;flex-direction:column;gap:3px"></div>
  </div>
 </div>
+<script>
+(function(){
+ fetch('/api/oracle/win-rate-yearly', {credentials:'same-origin'})
+  .then(function(r){return r.json()})
+  .then(function(d){
+   if (!d || !d.ok || !d.years || !d.years.length) return;
+   var holder = document.getElementById('wri-yearly');
+   var row = document.getElementById('wri-yearly-row');
+   if (!holder || !row) return;
+   holder.style.display = 'block';
+   function esc(s){return String(s||'').replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+   row.innerHTML = d.years.map(function(y){
+    var rate = y.win_rate_pct;
+    var color = (rate !== null && rate >= 30) ? '#2ecc71'
+              : (rate !== null && rate >= 15) ? '#f0883e'
+              : '#f85149';
+    var rateStr = (rate === null || rate === undefined) ? '—' : rate + '%';
+    var won = y.won_value ? '$' + Math.round(y.won_value/1000) + 'k' : '—';
+    return '<div style="flex:1;background:rgba(13,17,23,.4);border:1px solid #21262d;border-radius:6px;padding:6px 10px;text-align:center">'
+         + '<div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px">' + esc(y.year) + '</div>'
+         + '<div style="color:' + color + ';font-weight:700;font-size:15px;margin-top:1px">' + rateStr + '</div>'
+         + '<div style="color:#8b949e;font-size:10px;margin-top:1px">' + y.wins + 'w / ' + y.quotes + 'q</div>'
+         + '<div style="color:#2ecc71;font-size:10px;font-weight:600">' + won + '</div>'
+         + '</div>';
+   }).join('');
+  }).catch(function(){});
+})();
+</script>
 <script>
 (function(){
  fetch('/api/oracle/recent-wins?limit=5', {credentials:'same-origin'})
