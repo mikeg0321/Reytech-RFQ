@@ -298,6 +298,9 @@
        <span><span style="color:#8b949e">Won value:</span> <b id="ais-won-val" style="color:#c9d1d9">$0</b></span>
        <span style="margin-left:auto"><span style="color:#8b949e">Oracle markup:</span> <b id="ais-markup" style="color:#a78bfa">—</b></span>
       </div>
+      <div id="ais-yearly" style="display:none;margin-top:6px;display:flex;gap:4px;align-items:center;flex-wrap:wrap">
+       <span style="color:#8b949e;text-transform:uppercase;letter-spacing:.5px;font-size:10px">📅 Trajectory</span>
+      </div>
      </div>
      <script>
      (function(){
@@ -342,6 +345,32 @@
         if (o.markup_pct === null || o.markup_pct === undefined) return;
         document.getElementById('ais-markup').textContent =
           o.markup_pct.toFixed(1) + '% (' + (o.confidence || 'low') + ', n=' + (o.sample_size || 0) + ')';
+       }).catch(function(){});
+      // Phase 4.5: yearly trajectory at this agency
+      fetch('/api/oracle/win-rate-yearly?agency=' + encodeURIComponent(inst), {credentials:'same-origin'})
+       .then(function(r){return r.json()})
+       .then(function(d){
+        if (!d || !d.ok || !d.years || !d.years.length) return;
+        var holder = document.getElementById('ais-yearly');
+        if (!holder) return;
+        // Strip the "Trajectory" label, then append yearly tiles
+        var label = holder.firstElementChild;
+        holder.innerHTML = '';
+        if (label) holder.appendChild(label);
+        d.years.forEach(function(y){
+         var rate = y.win_rate_pct;
+         var color = (rate !== null && rate >= 30) ? '#2ecc71'
+                   : (rate !== null && rate >= 15) ? '#f0883e'
+                   : '#f85149';
+         var rateStr = (rate === null) ? '—' : rate + '%';
+         var pill = document.createElement('span');
+         pill.style.cssText = 'background:rgba(13,17,23,.5);border:1px solid #30363d;border-radius:4px;padding:2px 7px;font-size:11px;font-family:JetBrains Mono,monospace';
+         pill.innerHTML = '<span style="color:#8b949e">' + y.year + '</span> '
+                        + '<b style="color:' + color + '">' + rateStr + '</b> '
+                        + '<span style="color:#8b949e;font-size:10px">' + y.wins + '/' + y.quotes + '</span>';
+         holder.appendChild(pill);
+        });
+        holder.style.display = 'flex';
        }).catch(function(){});
      })();
      </script>
