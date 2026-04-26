@@ -40,7 +40,24 @@ won_quotes_kb, phantom flag reclassification, quote-status race fix,
 `/agents` deleted, `/growth-intel` 404 fixes, McKesson lookup endpoint
 + migration 30, deploy shim.
 
-**Total session work today: 13 PRs, no destructive actions.**
+**Total session work today: 14 PRs, no destructive actions.**
+
+**Session 3 (Mike: "continue") — one more PR landed:**
+
+5. **PR #550 — Buyer-product pricing history endpoint (Phase 4.2).** The
+   read-side complement to PR #548 (Mark Won/Lost write side). Operator
+   about to bid hits `GET /api/oracle/item-history?agency=X&description=Y`
+   and gets prior Reytech quotes for that buyer × item (won/lost + our
+   price), competitor wins from `won_quotes_kb`, winning-price stats
+   (min/median/max), and the oracle's current recommended markup. This
+   is the "should I bid $25 or $24-26?" decision support widget Mike
+   has been asking for. UI modal hook is the next PR.
+
+**Try it out (after deploy):**
+```bash
+curl -u "Reytech:Reytech0321!!" \
+  "https://web-production-dcee9.up.railway.app/api/oracle/item-history?agency=CDCR&description=Latex+Glove"
+```
 
 ---
 
