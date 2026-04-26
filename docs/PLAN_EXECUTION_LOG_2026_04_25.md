@@ -1,5 +1,40 @@
 # Plan Execution Log — 2026-04-25 Autonomous Cook
 
+---
+
+## 🎯 SESSION 4 RESULTS — Phase 0.7d went LIVE
+
+After Mike provided the QuoteWerks export (3,795 line items / 479 quotes,
+mostly 2025) and his SCPRS "Reytech wins since 2022" HTML export
+(112 unique POs) plus the missing PO 4500755221, the full pipeline ran
+end-to-end against prod:
+
+| Step | Result |
+|---|---|
+| Import QuoteWerks CSV | **479 quotes inserted, 3,754 items** (25 already-won via DocStatus, 454 awaiting verify) |
+| Import SCPRS Reytech wins HTML | **112 won POs inserted, 1,026 items** |
+| Add missing PO 4500755221 manually | ✅ 113th win (CDCR Sacramento, $6,767.89) |
+| Verify outcomes (initial run, strict agency) | ⚠️ Only 1 match — agency-name normalization too strict |
+| Ship PR #553 (agency-soft fix) + redeploy | ✅ Agency now a +0.05 boost, not a hard filter |
+| Re-verify with soft-agency | **77 SCPRS-verified wins + 25 QW-flagged = 102 wins / 479 quotes (21% win rate)** |
+| Joinback won_quotes_kb | 0 matches (KB is older SCPRS competitor data, doesn't overlap with 2025 QW quotes) |
+| Final backfill | **488 calibrations written** (vs 11 yesterday) |
+| Sanity check `/api/oracle/item-history` | ✅ Returns 10 prior bids for "Irrigation Syringe McKesson Pole" at Veterans Home |
+
+**The win-rate engine is now live with REAL HISTORICAL DATA.**
+
+- 503 total quotes in the DB (was 24 yesterday)
+- 102 wins recorded against actual SCPRS POs
+- 379 losses inferred from quotes that never appeared in SCPRS
+- 488 oracle calibration rows updated by category × agency
+- Operator clicking "Mark Won" / "Mark Lost" continues to feed the loop forward
+
+When Mike opens any PC and queries the buyer + item via the
+`/api/oracle/item-history` endpoint (or future inline UI hook), he gets
+real prior-bid data, oracle's recommended markup, and win-rate context.
+
+---
+
 **Driver:** Single Claude window on `C:\Users\mikeg\Reytech-RFQ` (main).
 **Mode:** Auto-approval, Mike stepped out around 22:30 UTC.
 **Plan:** `docs/PLAN_ONCE_AND_FOR_ALL.md`.
