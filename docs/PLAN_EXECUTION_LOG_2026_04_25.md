@@ -40,7 +40,84 @@ won_quotes_kb, phantom flag reclassification, quote-status race fix,
 `/agents` deleted, `/growth-intel` 404 fixes, McKesson lookup endpoint
 + migration 30, deploy shim.
 
-**Total session work today: 13 PRs, no destructive actions.**
+**Total session work today: 14 PRs, no destructive actions.**
+
+**Session 3 (Mike: "continue") — one more PR landed:**
+
+5. **PR #550 — Buyer-product pricing history endpoint (Phase 4.2).** The
+   read-side complement to PR #548 (Mark Won/Lost write side). Operator
+   about to bid hits `GET /api/oracle/item-history?agency=X&description=Y`
+   and gets prior Reytech quotes for that buyer × item (won/lost + our
+   price), competitor wins from `won_quotes_kb`, winning-price stats
+   (min/median/max), and the oracle's current recommended markup. This
+   is the "should I bid $25 or $24-26?" decision support widget Mike
+   has been asking for. UI modal hook is the next PR.
+
+**Try it out (after deploy):**
+```bash
+curl -u "Reytech:Reytech0321!!" \
+  "https://web-production-dcee9.up.railway.app/api/oracle/item-history?agency=CDCR&description=Latex+Glove"
+```
+
+---
+
+## 🎯 Live execution results (after deploys propagated)
+
+I ran McKesson import + joinback + backfill against prod. Results below — read these before next-session planning.
+
+### McKesson import — ✅ 2,178 SKUs live
+
+```
+POST /api/admin/import-supplier-skus  (CSV body: 365KB, 2,179 lines)
+→ {"rows_inserted": 2178, "rows_updated": 0, "errors": []}
+GET  /api/catalog/supplier-skus-stats
+→ {"total": 2178, "by_supplier": [{"supplier": "mckesson", "count": 2178}]}
+```
+
+McKesson SKU → MFG# lookup is live. Try it: when a buyer quotes McKesson item `1041721`, hit
+`GET /api/catalog/supplier-sku-lookup?supplier=mckesson&sku=1041721` — returns `{mfg_number: "64179", description: "Back Brace Mueller One Size..."}`.
+
+### won_quotes_kb joinback — ⚠️ 0 matches (data shape finding)
+
+```
+POST /api/oracle/joinback-won-quotes-kb
+→ {"kb_rows_examined": 1260, "matched": 0, "updated": 0}
+```
+
+The 1,260 `won_quotes_kb` rows are all pre-2026 SCPRS scrapes. The `quotes` table only has 24 recent entries — none of which match the historical KB rows by description + agency + date window.
+
+**This is the real bottleneck on "use 4 years of data."** The KB has competitor wins, but Reytech's own historical bids are in Mike's Gmail sent-folder (sent quote PDFs + bodies), not in the DB. To unlock historical calibration we need a Gmail-parsing backfill that walks sent quote emails and writes them into `quotes` retroactively. **This is the next big project — Phase 0.7d.**
+
+### Backfill re-run — same 11 calibrations
+
+```
+POST /api/oracle/backfill-all
+→ {"calibrations_written": 11, "kb_wins": 0, "kb_losses": 0,
+   "kb_skipped_no_bid": 1260, "quotes_lost": 4, "quotes_won": 0}
+```
+
+The 11 calibrations come from `quote_po_matches` (7 lost-to-competitor with line analysis) + 4 lost quotes. Same as session 2. The won_quotes_kb branch contributes 0 because of the data-shape finding above.
+
+### Net: engine wired, data backfill is the next bottleneck
+
+The win-rate engine is now end-to-end:
+- **Write side (PR #548):** every Mark Won/Lost click fires `calibrate_from_outcome` with items + agency + winner_prices.
+- **Read side (PR #550):** `/api/oracle/item-history` aggregates prior bids from quotes + KB + oracle's recommendation.
+- **Calibration store:** `oracle_calibration` table updates per (category, agency).
+
+Going forward Mike's outcome marks teach the oracle. **What's missing is years of pre-2026 outcomes** — that requires a Gmail backfill in a future session.
+
+---
+
+## What's next (Phase 0.7d — the actual data unlock)
+
+The honest path to "use 4 years of data" needs:
+
+1. **Gmail historical-quote parser:** walk the sent folder, identify outbound quote emails by sender/subject, extract the attached PDF, parse it for items + prices, write to `quotes` with status inferred from later replies (won = explicit award email; lost = silence past 45d).
+2. **Run the joinback again:** with `quotes` populated, the 1,260 KB rows will now have matches.
+3. **Re-run backfill:** real calibration signal lands.
+
+Estimated scope: 2-3 hours of focused work. Should be the first item next session.
 
 ---
 
