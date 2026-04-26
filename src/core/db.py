@@ -2843,13 +2843,31 @@ def _fix_data_on_boot():
                 except Exception as _e:
                     log.debug("suppressed: %s", _e)
 
-            # Fix 3: Mark test fixture quotes as is_test=1
+            # Fix 3: Mark test fixture quotes as is_test=1.
+            # 2026-04-26 (Phase 0.7d): exempt the QuoteWerks/SCPRS imports.
+            # The pre-app QuoteWerks export has DocNos like '23-0003' and
+            # 'DEMQ1001' — none of these match ^R26Q\d+$. Without the
+            # exemption, this sweep re-flags 464 of 503 prod quotes as
+            # is_test=1 every boot, breaking win-rate analytics. The
+            # importers stamp 'QuoteWerks:' or 'SCPRS-verify' into
+            # status_notes so we can recognize them here without a
+            # separate flag column.
             real_pattern = _re.compile(r'^R26Q\d+$')
-            test_quotes = conn.execute(
-                "SELECT quote_number FROM quotes WHERE is_test = 0"
-            ).fetchall()
-            test_qns = [q["quote_number"] for q in test_quotes
-                        if not real_pattern.match(q["quote_number"])]
+            test_quotes = conn.execute("""
+                SELECT quote_number, COALESCE(status_notes, '') AS notes
+                FROM quotes
+                WHERE is_test = 0
+            """).fetchall()
+            test_qns = []
+            for q in test_quotes:
+                qn = q["quote_number"] or ""
+                notes = q["notes"] or ""
+                if real_pattern.match(qn):
+                    continue
+                # Exempt rows with importer stamps — these ARE real data.
+                if "QuoteWerks:" in notes or "SCPRS-verify" in notes:
+                    continue
+                test_qns.append(qn)
             if test_qns:
                 placeholders = ",".join(["?" for _ in test_qns])
                 conn.execute(
