@@ -43,6 +43,56 @@ def _normalize_agency(raw: str) -> str:
     return " ".join(tokens)
 
 
+@bp.route("/api/admin/fix-quotewerks-is-test", methods=["POST"])
+@auth_required
+def api_admin_fix_quotewerks_is_test():
+    """One-shot fix: clear is_test=1 on the QuoteWerks-imported quotes.
+
+    Diagnostic confirmed 464 of 479 QuoteWerks-imported quotes ended up
+    with is_test=1 (likely set by an existing background sweeper that
+    doesn't recognize the QuoteWerks DocNo format). Win-rate analytics
+    skips them, so the dashboard shows ~5% of real volume.
+
+    Identifies the QuoteWerks-imported set by status_notes containing
+    'QuoteWerks:' or 'SCPRS-verify' (both are markers our importers/
+    verify endpoint stamp). Idempotent — re-running is harmless.
+
+    Body: {"dry_run": true} to preview without writing.
+    """
+    try:
+        from src.core.db import get_db
+        body = request.json or {}
+        dry_run = body.get("dry_run", False)
+
+        with get_db() as conn:
+            count_before = conn.execute("""
+                SELECT COUNT(*) FROM quotes
+                WHERE is_test = 1
+                  AND (status_notes LIKE '%QuoteWerks:%'
+                       OR status_notes LIKE '%SCPRS-verify%')
+            """).fetchone()[0]
+            if not dry_run:
+                conn.execute("""
+                    UPDATE quotes SET is_test = 0
+                    WHERE is_test = 1
+                      AND (status_notes LIKE '%QuoteWerks:%'
+                           OR status_notes LIKE '%SCPRS-verify%')
+                """)
+            count_after = conn.execute("""
+                SELECT COUNT(*) FROM quotes WHERE is_test = 1
+            """).fetchone()[0]
+
+        return jsonify({
+            "ok": True,
+            "dry_run": dry_run,
+            "matched_for_unflag": count_before,
+            "remaining_test_quotes": count_after,
+        })
+    except Exception as e:
+        log.exception("fix-quotewerks-is-test")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/admin/quotes-diagnostic")
 @auth_required
 def api_admin_quotes_diagnostic():
