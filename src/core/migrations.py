@@ -861,6 +861,33 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_supplier_skus_mfg
             ON supplier_skus(mfg_number);
     """),
+
+    (31, "scprs_reytech_wins", """
+        -- Phase 0.7d (2026-04-25): Mike's SCPRS HTML export of all
+        -- Reytech-won POs since 2022. Imported via scripts/import_scprs_
+        -- reytech_wins.py. Joins against quotes table to mark which
+        -- QuoteWerks-imported quotes actually won.
+        --
+        -- One row per won SCPRS PO. items_json stores the per-line
+        -- item descriptions extracted from the export. Re-imports key
+        -- on po_number so refreshed exports overwrite stale rows.
+        CREATE TABLE IF NOT EXISTS scprs_reytech_wins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            po_number TEXT NOT NULL,
+            business_unit TEXT,
+            dept_name TEXT,
+            associated_po TEXT,
+            start_date TEXT,
+            end_date TEXT,
+            grand_total REAL,
+            items_json TEXT,
+            imported_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_scprs_reytech_wins_po
+            ON scprs_reytech_wins(po_number);
+        CREATE INDEX IF NOT EXISTS idx_scprs_reytech_wins_dept
+            ON scprs_reytech_wins(dept_name);
+    """),
 ]
 
 

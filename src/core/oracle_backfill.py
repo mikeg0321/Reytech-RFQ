@@ -265,12 +265,32 @@ def _description_match_score(a: str, b: str) -> float:
 
 
 def _agency_match(a: str, b: str) -> bool:
-    """Loose agency match: substring either direction, lowercased."""
+    """Loose agency match.
+
+    Tries three strategies in order:
+      1. case-insensitive substring (either direction)
+      2. token-set overlap (Jaccard >= 0.4 over filtered tokens)
+
+    Strategy 2 catches the common SCPRS-vs-QuoteWerks mismatch where the
+    same agency is spelled "Dept of Veterans Affairs" in SCPRS and
+    "Veterans Home of California - Barstow" in QuoteWerks. They share
+    'veterans' which is enough signal when nothing else matches.
+    """
     a = (a or "").strip().lower()
     b = (b or "").strip().lower()
     if not a or not b:
         return False
-    return a in b or b in a
+    if a in b or b in a:
+        return True
+    # Strategy 2: drop common stopwords + short words, then Jaccard
+    _STOP = {"of", "the", "and", "for", "ca", "california", "dept",
+             "department", "inc", "co", "company", "corp", "corporation"}
+    ta = {w for w in _tokens(a) if w not in _STOP}
+    tb = {w for w in _tokens(b) if w not in _STOP}
+    if not ta or not tb:
+        return False
+    overlap = len(ta & tb) / float(len(ta | tb))
+    return overlap >= 0.4
 
 
 def joinback_won_quotes_kb(
@@ -428,5 +448,195 @@ def joinback_won_quotes_kb(
         "errors=%d dry_run=%s",
         result["kb_rows_examined"], result["matched"], result["updated"],
         len(result["errors"]), dry_run,
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Phase 0.7d — QuoteWerks-imported quote outcome verification via SCPRS
+# ──────────────────────────────────────────────────────────────────────
+
+def verify_quotewerks_outcomes(
+    dry_run: bool = False,
+    description_threshold: float = 0.45,
+    date_window_days: int = 120,
+) -> dict:
+    """Mike's rule (2026-04-25): a Reytech quote that appears verbatim in
+    SCPRS = a won PO. A quote NOT in SCPRS = a loss.
+
+    Source-of-truth: `scprs_reytech_wins` table, populated from Mike's
+    SCPRS Detail-Information HTML export. That table contains every
+    Reytech-won PO since 2022. The local dry-run parsed 112 unique POs.
+
+    Falls back to the live `scprs_po_lines` table when the won-export
+    table is empty (so we still verify against fresh SCPRS pulls).
+
+    For every quote with status='sent' (the bucket QuoteWerks import
+    leaves them in), search the won-set for a match:
+      - dept matches the quote's agency (substring either direction)
+      - at least one description token-Jaccard >= threshold
+      - PO start_date within ±date_window_days of quote.created_at
+
+    On match: status → 'won', po_number ← SCPRS po_number.
+    On no match: status → 'lost'.
+
+    Returns {ok, examined, marked_won, marked_lost, errors, dry_run, source}.
+    """
+    import json as _json
+    from datetime import datetime
+    from src.core.db import get_db
+
+    result = {
+        "ok": True, "examined": 0,
+        "marked_won": 0, "marked_lost": 0,
+        "errors": [], "dry_run": dry_run,
+        "source": "none",
+    }
+
+    try:
+        with get_db() as conn:
+            sent_quotes = conn.execute("""
+                SELECT quote_number, agency, institution, line_items,
+                       created_at, status_notes
+                FROM quotes
+                WHERE is_test = 0 AND status = 'sent'
+                  AND line_items IS NOT NULL
+            """).fetchall()
+    except Exception as e:
+        result["ok"] = False
+        result["errors"].append(f"load quotes: {e}")
+        return result
+
+    # Pick win-source: prefer curated export, fall back to live SCPRS.
+    scprs_by_dept = []
+    try:
+        with get_db() as conn:
+            wins_count = conn.execute(
+                "SELECT COUNT(*) FROM scprs_reytech_wins"
+            ).fetchone()[0]
+            if wins_count > 0:
+                result["source"] = "scprs_reytech_wins"
+                rows = conn.execute("""
+                    SELECT po_number, dept_name, start_date, items_json
+                    FROM scprs_reytech_wins
+                """).fetchall()
+                for w in rows:
+                    try:
+                        sdate = datetime.fromisoformat(
+                            (w["start_date"] or "").replace("Z", "+00:00")
+                        ).replace(tzinfo=None)
+                    except Exception:
+                        sdate = None
+                    items = []
+                    try:
+                        items = _json.loads(w["items_json"] or "[]")
+                    except Exception:
+                        items = []
+                    if not items:
+                        scprs_by_dept.append({
+                            "po_number": w["po_number"] or "",
+                            "dept_name": w["dept_name"] or "",
+                            "description": "",
+                            "date": sdate,
+                        })
+                    for it in items:
+                        scprs_by_dept.append({
+                            "po_number": w["po_number"] or "",
+                            "dept_name": w["dept_name"] or "",
+                            "description": (it.get("description")
+                                            if isinstance(it, dict)
+                                            else "") or "",
+                            "date": sdate,
+                        })
+            else:
+                result["source"] = "scprs_po_lines"
+                rows = conn.execute("""
+                    SELECT pl.po_number, pl.dept_name, pl.description, pm.start_date
+                    FROM scprs_po_lines pl
+                    JOIN scprs_po_master pm ON pm.id = pl.po_id
+                    WHERE LOWER(pm.supplier) LIKE '%reytech%'
+                      AND pm.is_test = 0
+                """).fetchall()
+                for s in rows:
+                    try:
+                        sdate = datetime.fromisoformat(
+                            (s["start_date"] or "").replace("Z", "+00:00")
+                        ).replace(tzinfo=None)
+                    except Exception:
+                        sdate = None
+                    scprs_by_dept.append({
+                        "po_number": s["po_number"] or "",
+                        "dept_name": s["dept_name"] or "",
+                        "description": s["description"] or "",
+                        "date": sdate,
+                    })
+    except Exception as e:
+        result["errors"].append(f"load scprs source: {e}")
+
+    for q in sent_quotes:
+        result["examined"] += 1
+        try:
+            items = _json.loads(q["line_items"] or "[]")
+            if not items:
+                continue
+            qagency = q["agency"] or q["institution"] or ""
+            try:
+                qdate = datetime.fromisoformat(
+                    (q["created_at"] or "").replace("Z", "+00:00")
+                ).replace(tzinfo=None)
+            except Exception:
+                qdate = None
+
+            matched_po = None
+            matched_score = 0.0
+            for s in scprs_by_dept:
+                if not _agency_match(qagency, s["dept_name"]):
+                    continue
+                if qdate and s["date"]:
+                    if abs((qdate - s["date"]).days) > date_window_days:
+                        continue
+                for it in items:
+                    if not isinstance(it, dict):
+                        continue
+                    score = _description_match_score(
+                        it.get("description", ""), s["description"]
+                    )
+                    if score >= description_threshold and score > matched_score:
+                        matched_po = s["po_number"]
+                        matched_score = score
+
+            if matched_po:
+                if not dry_run:
+                    with get_db() as conn:
+                        conn.execute("""
+                            UPDATE quotes
+                            SET status='won',
+                                po_number=COALESCE(NULLIF(?, ''), po_number),
+                                status_notes=COALESCE(status_notes, '') ||
+                                  ' [SCPRS-verify won via PO ' || ? ||
+                                  ' score=' || ? || ']'
+                            WHERE quote_number=? AND status='sent'
+                        """, (matched_po, matched_po, f"{matched_score:.2f}",
+                              q["quote_number"]))
+                result["marked_won"] += 1
+            else:
+                if not dry_run:
+                    with get_db() as conn:
+                        conn.execute("""
+                            UPDATE quotes
+                            SET status='lost',
+                                status_notes=COALESCE(status_notes, '') ||
+                                  ' [SCPRS-verify lost: no PO match]'
+                            WHERE quote_number=? AND status='sent'
+                        """, (q["quote_number"],))
+                result["marked_lost"] += 1
+        except Exception as e:
+            result["errors"].append(f"{q['quote_number']}: {e}")
+
+    log.info(
+        "quotewerks-verify: examined=%d won=%d lost=%d source=%s "
+        "errors=%d dry_run=%s",
+        result["examined"], result["marked_won"], result["marked_lost"],
+        result["source"], len(result["errors"]), dry_run,
     )
     return result

@@ -4088,6 +4088,165 @@ def api_oracle_backfill_all():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/admin/import-scprs-reytech-wins", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_import_scprs_reytech_wins():
+    """Phase 0.7d: import the SCPRS "all Reytech wins since 2022" HTML
+    export (Detail_Information_*.xls — actually HTML).
+
+    Body: raw HTML text (the .xls file content).
+    Query params: dry_run=1 to preview.
+    """
+    import os, tempfile
+
+    body = request.get_data(as_text=True)
+    if not body or len(body) < 200:
+        return jsonify({"ok": False, "error": "empty or tiny body"}), 400
+
+    dry_run = request.args.get("dry_run", "0") in ("1", "true", "yes")
+
+    try:
+        from scripts.import_scprs_reytech_wins import import_html
+        result = import_html(body, dry_run=dry_run)
+        return jsonify(result)
+    except Exception as e:
+        log.exception("scprs-reytech-wins import")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/admin/add-scprs-reytech-win", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_add_scprs_reytech_win():
+    """Manually add a single Reytech-won PO that isn't in SCPRS yet.
+
+    Body JSON:
+      {po_number, dept_name, start_date (ISO), grand_total,
+       items: [{description}], business_unit?, associated_po?}
+
+    Idempotent on po_number — re-posting overwrites.
+    """
+    import json as _json
+    body = request.json or {}
+    po_number = (body.get("po_number") or "").strip()
+    if not po_number:
+        return jsonify({"ok": False, "error": "po_number required"}), 400
+
+    try:
+        from scripts.import_scprs_reytech_wins import _ensure_table
+        from src.core.db import get_db
+        _ensure_table()
+        items_json = _json.dumps(body.get("items") or [])
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO scprs_reytech_wins
+                (po_number, business_unit, dept_name, associated_po,
+                 start_date, end_date, grand_total, items_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(po_number) DO UPDATE SET
+                    business_unit=excluded.business_unit,
+                    dept_name=excluded.dept_name,
+                    associated_po=excluded.associated_po,
+                    start_date=excluded.start_date,
+                    end_date=excluded.end_date,
+                    grand_total=excluded.grand_total,
+                    items_json=excluded.items_json,
+                    imported_at=datetime('now')
+            """, (
+                po_number,
+                (body.get("business_unit") or "").strip(),
+                (body.get("dept_name") or "").strip(),
+                (body.get("associated_po") or "").strip(),
+                (body.get("start_date") or "").strip(),
+                (body.get("end_date") or "").strip(),
+                float(body.get("grand_total") or 0),
+                items_json,
+            ))
+        return jsonify({"ok": True, "po_number": po_number})
+    except Exception as e:
+        log.exception("add-scprs-reytech-win")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/admin/import-quotewerks", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_import_quotewerks():
+    """Phase 0.7d: import a QuoteWerks export CSV into the quotes table.
+
+    Body: raw CSV text. Header row required (DocumentHeaders_DocNo, etc.
+    QuoteWerks's standard wide export shape).
+
+    Query params:
+        dry_run=1 — parse but don't write
+
+    Idempotent: keys on quote_number; existing rows are UPDATEd, new rows
+    INSERTed. Re-uploading a refreshed CSV is safe.
+
+    Use:
+        curl -u "$DASH_USER:$DASH_PASS" \\
+             -X POST \\
+             -H "Content-Type: text/csv" \\
+             --data-binary @"C:/Users/mikeg/OneDrive/Desktop/quotewerks_export_latest.csv" \\
+             https://web-production-dcee9.up.railway.app/api/admin/import-quotewerks
+    """
+    import os
+    import tempfile
+
+    csv_body = request.get_data(as_text=True)
+    if not csv_body or len(csv_body) < 100:
+        return jsonify({"ok": False, "error": "empty or tiny body"}), 400
+
+    dry_run = request.args.get("dry_run", "0") in ("1", "true", "yes")
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False,
+            encoding="utf-8", newline="",
+        ) as fh:
+            fh.write(csv_body)
+            tmp_path = fh.name
+
+        from scripts.import_quotewerks_export import import_csv as _imp
+        result = _imp(tmp_path, dry_run=dry_run)
+        return jsonify(result)
+    except Exception as e:
+        log.exception("quotewerks import")
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+@bp.route("/api/oracle/verify-quotewerks-outcomes", methods=["POST"])
+@auth_required
+@safe_route
+def api_oracle_verify_quotewerks_outcomes():
+    """Phase 0.7d: walk every status='sent' quote, search SCPRS for a
+    matching Reytech-as-supplier PO, flip to won/lost per Mike's rule.
+
+    Body: {"dry_run": true} to preview without writing.
+    Optional: {"description_threshold": 0.45, "date_window_days": 120}.
+    """
+    try:
+        from src.core.oracle_backfill import verify_quotewerks_outcomes
+        body = request.json or {}
+        result = verify_quotewerks_outcomes(
+            dry_run=body.get("dry_run", False),
+            description_threshold=float(body.get("description_threshold", 0.45)),
+            date_window_days=int(body.get("date_window_days", 120)),
+        )
+        return jsonify(result)
+    except Exception as e:
+        log.exception("verify-quotewerks-outcomes")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/oracle/joinback-won-quotes-kb", methods=["POST"])
 @auth_required
 @safe_route
