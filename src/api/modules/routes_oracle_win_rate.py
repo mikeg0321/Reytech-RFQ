@@ -43,6 +43,57 @@ def _normalize_agency(raw: str) -> str:
     return " ".join(tokens)
 
 
+@bp.route("/api/admin/quotes-diagnostic")
+@auth_required
+def api_admin_quotes_diagnostic():
+    """One-shot diagnostic — distribution of quotes table by
+    is_test × status × created_at-bucket. Helps debug why win-rate
+    aggregation undercounts."""
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM quotes"
+            ).fetchone()[0]
+            by_status = conn.execute("""
+                SELECT COALESCE(status,'NULL') as s, COUNT(*) c
+                FROM quotes GROUP BY s ORDER BY c DESC
+            """).fetchall()
+            by_test = conn.execute("""
+                SELECT COALESCE(is_test, -1) as t, COUNT(*) c
+                FROM quotes GROUP BY t
+            """).fetchall()
+            by_year = conn.execute("""
+                SELECT SUBSTR(COALESCE(created_at,'?'),1,4) as y, COUNT(*) c
+                FROM quotes GROUP BY y ORDER BY y
+            """).fetchall()
+            sample = conn.execute("""
+                SELECT quote_number, status, agency, institution,
+                       SUBSTR(created_at,1,16) ca, is_test
+                FROM quotes
+                WHERE quote_number LIKE '25-%' OR quote_number LIKE '26-%'
+                ORDER BY created_at DESC LIMIT 5
+            """).fetchall()
+            counted_in_endpoint = conn.execute("""
+                SELECT COUNT(*) FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost', 'sent')
+                  AND created_at IS NOT NULL
+            """).fetchone()[0]
+        return jsonify({
+            "ok": True,
+            "total": total,
+            "by_status": [{"status": r["s"], "count": r["c"]} for r in by_status],
+            "by_is_test": [{"is_test": r["t"], "count": r["c"]} for r in by_test],
+            "by_year": [{"year": r["y"], "count": r["c"]} for r in by_year],
+            "qw_sample": [dict(r) for r in sample],
+            "would_count_in_win_rate": counted_in_endpoint,
+        })
+    except Exception as e:
+        log.exception("quotes-diagnostic")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/oracle/win-rate-by-agency")
 @auth_required
 def api_oracle_win_rate_by_agency():
