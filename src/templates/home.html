@@ -4,6 +4,56 @@
 
 {% block content %}
 
+<!-- ═══ Win-Rate Intel (Phase 4.4 — what the calibration loop is learning) ═══ -->
+<div id="win-rate-intel" style="background:linear-gradient(135deg,rgba(46,204,113,.06),rgba(167,139,250,.06));border:1px solid rgba(167,139,250,.2);border-radius:10px;padding:14px 18px;margin-bottom:14px;display:none">
+ <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+  <div>
+   <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">📈 Win-Rate Intel <span style="color:#586069;font-weight:400">· last 365 days · target 30%</span></div>
+   <div id="wri-headline" style="font-size:14px;color:#c9d1d9;margin-top:2px">Loading…</div>
+  </div>
+  <div style="display:flex;gap:14px">
+   <div style="text-align:center"><div id="wri-rate" style="font-size:22px;font-weight:700;color:#a78bfa">—</div><div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">win rate</div></div>
+   <div style="text-align:center"><div id="wri-wins" style="font-size:22px;font-weight:700;color:#2ecc71">—</div><div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">wins</div></div>
+   <div style="text-align:center"><div id="wri-losses" style="font-size:22px;font-weight:700;color:#f85149">—</div><div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">losses</div></div>
+  </div>
+ </div>
+ <div id="wri-agencies" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px"></div>
+</div>
+<script>
+(function(){
+ var card = document.getElementById('win-rate-intel');
+ if (!card) return;
+ fetch('/api/oracle/win-rate-by-agency?days=365&min_quotes=3', {credentials:'same-origin'})
+  .then(function(r){return r.json()})
+  .then(function(d){
+    if (!d || !d.ok || !d.overall || d.overall.quotes === 0) return;
+    card.style.display = 'block';
+    var o = d.overall;
+    document.getElementById('wri-rate').textContent = (o.win_rate_pct === null ? '—' : o.win_rate_pct + '%');
+    document.getElementById('wri-wins').textContent = o.wins;
+    document.getElementById('wri-losses').textContent = o.losses;
+    var won = o.won_value ? '$' + Math.round(o.won_value).toLocaleString() : '$0';
+    var lost = o.lost_value ? '$' + Math.round(o.lost_value).toLocaleString() : '$0';
+    document.getElementById('wri-headline').innerHTML =
+      '<b>' + o.quotes + ' quotes</b> across ' + d.agencies.length + ' agencies · won ' + won + ' / lost ' + lost;
+    var agg = document.getElementById('wri-agencies');
+    var top = d.agencies.slice(0, 6);
+    agg.innerHTML = top.map(function(a){
+      var rate = a.win_rate_pct === null ? '—' : a.win_rate_pct + '%';
+      var color = (a.win_rate_pct !== null && a.win_rate_pct >= 30) ? '#2ecc71'
+                : (a.win_rate_pct !== null && a.win_rate_pct >= 15) ? '#f0883e'
+                : '#f85149';
+      var name = (a.display_name || '').replace(/</g,'&lt;');
+      if (name.length > 32) name = name.substring(0,30) + '…';
+      return '<div style="background:rgba(13,17,23,.4);border:1px solid #21262d;border-radius:6px;padding:6px 10px;font-size:12px">'
+           + '<div style="color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + name + '">' + name + '</div>'
+           + '<div style="display:flex;justify-content:space-between;margin-top:2px"><span style="color:' + color + ';font-weight:700;font-size:13px">' + rate + '</span><span style="color:#8b949e">' + a.wins + '/' + a.quotes + '</span></div>'
+           + '</div>';
+    }).join('');
+  }).catch(function(){});
+})();
+</script>
+
 <!-- ═══ Bar 1: Search + Quick Nav — PRIMARY ═══ -->
 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
  <form method="get" action="/search" style="display:flex;gap:0;flex:1;min-width:360px;background:var(--sf);border:2px solid var(--bd);border-radius:12px;overflow:hidden;transition:border-color .2s" onfocusin="this.style.borderColor='var(--ac)'" onfocusout="this.style.borderColor='var(--bd)'">
