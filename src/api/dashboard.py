@@ -5274,6 +5274,7 @@ _ROUTE_MODULES = [
     "routes_quoting_status",  # QuoteOrchestrator audit dashboard: /quoting/status + override API
     "routes_locked_costs",    # Admin: locked supplier costs panel + unlock/extend
     "routes_supplier_sku_lookup",  # Phase 1.7: supplier SKU → MFG# reverse lookup (McKesson, etc.)
+    "routes_oracle_item_history",  # Phase 4.2: buyer-product pricing history lookup
 ]
 
 for _mod in _ROUTE_MODULES:
