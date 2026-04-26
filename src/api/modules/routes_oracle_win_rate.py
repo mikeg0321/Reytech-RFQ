@@ -98,6 +98,95 @@ def api_oracle_recent_wins():
     return jsonify({"ok": True, "count": len(wins), "wins": wins})
 
 
+@bp.route("/api/oracle/win-rate-yearly")
+@auth_required
+def api_oracle_win_rate_yearly():
+    """Win-rate trajectory year-by-year. Same data as
+    /api/oracle/win-rate-by-agency but bucketed by SUBSTR(created_at,1,4).
+
+    Optional query param:
+        agency (str) — filter to one canonical agency. Match is loose
+            (substring or normalized-token containment).
+
+    Response:
+      {
+        ok, agency_filter,
+        years: [
+          {year, quotes, wins, losses, win_rate_pct,
+           won_value, lost_value}, ...
+        ]
+      }
+    """
+    agency_filter = (request.args.get("agency") or "").strip()
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT SUBSTR(COALESCE(created_at, ''), 1, 4) AS year,
+                       status, agency, institution, total
+                FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost', 'sent')
+                  AND created_at IS NOT NULL
+                  AND LENGTH(created_at) >= 4
+            """).fetchall()
+    except Exception as e:
+        log.exception("win-rate-yearly load")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    filter_canon = _normalize_agency(agency_filter) if agency_filter else ""
+
+    by_year = defaultdict(lambda: {
+        "quotes": 0, "wins": 0, "losses": 0,
+        "won_value": 0.0, "lost_value": 0.0,
+    })
+
+    for r in rows:
+        if filter_canon:
+            row_canon = _normalize_agency(r["agency"] or r["institution"] or "")
+            if not row_canon:
+                continue
+            if (filter_canon not in row_canon) and (row_canon not in filter_canon):
+                continue
+        year = r["year"]
+        if not year or not year.isdigit() or len(year) != 4:
+            continue
+        b = by_year[year]
+        b["quotes"] += 1
+        try:
+            total = float(r["total"] or 0)
+        except (TypeError, ValueError):
+            total = 0.0
+        if r["status"] == "won":
+            b["wins"] += 1
+            b["won_value"] += total
+        elif r["status"] == "lost":
+            b["losses"] += 1
+            b["lost_value"] += total
+
+    years = []
+    for y in sorted(by_year.keys()):
+        b = by_year[y]
+        decided = b["wins"] + b["losses"]
+        rate = round(100.0 * b["wins"] / decided, 1) if decided else None
+        years.append({
+            "year": y,
+            "quotes": b["quotes"],
+            "wins": b["wins"],
+            "losses": b["losses"],
+            "win_rate_pct": rate,
+            "won_value": round(b["won_value"], 2),
+            "lost_value": round(b["lost_value"], 2),
+        })
+
+    return jsonify({
+        "ok": True,
+        "agency_filter": agency_filter,
+        "years": years,
+    })
+
+
 @bp.route("/api/admin/fix-quotewerks-is-test", methods=["POST"])
 @auth_required
 def api_admin_fix_quotewerks_is_test():
