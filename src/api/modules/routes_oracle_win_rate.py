@@ -43,6 +43,182 @@ def _normalize_agency(raw: str) -> str:
     return " ".join(tokens)
 
 
+@bp.route("/api/oracle/items-yearly")
+@auth_required
+def api_oracle_items_yearly():
+    """Per-item year-by-year win/loss trajectory. Surfaces which specific
+    products are getting more or less competitive over time.
+
+    Query params:
+        agency (str, optional) — restrict to one buyer
+        min_quotes (int, optional, default 3) — only items with ≥ this
+            many total quotes across all years
+        limit (int, optional, default 30) — how many items to return
+        only_degrading (bool, optional) — set to 1 to only return items
+            where the most-recent year's win rate is lower than the year
+            prior. The actionable subset.
+
+    Item identity: token-normalized description (drop punctuation,
+    common stopwords). Two quotes with descriptions that differ only
+    in casing/box-size/qty bucket into the same item.
+
+    Response:
+      {
+        ok, agency_filter, min_quotes, limit, only_degrading,
+        items: [
+          {
+            item_key, sample_description,
+            total_quotes, total_wins, total_losses, overall_rate,
+            years: [{year, q, w, l, rate}, ...],
+            latest_year, latest_rate, prior_year, prior_rate,
+            yoy_delta_pts (None if either side missing)
+          }, ...
+        ]
+      }
+    """
+    import json as _json
+    agency_filter = (request.args.get("agency") or "").strip()
+    try:
+        min_quotes = max(1, int(request.args.get("min_quotes", "3")))
+    except (TypeError, ValueError):
+        min_quotes = 3
+    try:
+        limit = max(1, min(200, int(request.args.get("limit", "30"))))
+    except (TypeError, ValueError):
+        limit = 30
+    only_degrading = request.args.get("only_degrading", "0") in ("1", "true", "yes")
+
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT quote_number, status, agency, institution,
+                       line_items, created_at
+                FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost')
+                  AND created_at IS NOT NULL
+                  AND LENGTH(created_at) >= 4
+                  AND line_items IS NOT NULL
+            """).fetchall()
+    except Exception as e:
+        log.exception("items-yearly load")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    filter_canon = _normalize_agency(agency_filter) if agency_filter else ""
+
+    def _item_key(desc: str) -> str:
+        """Token-set key collapsing common variants — same as
+        _normalize_agency but with a different stopword set."""
+        s = (desc or "").strip().lower()
+        if not s:
+            return ""
+        out = "".join(c if c.isalnum() else " " for c in s)
+        toks = [t for t in out.split() if t and len(t) >= 3]
+        # Drop size/qty/format noise — these words don't define identity
+        item_stop = {
+            "box", "case", "pack", "each", "ea", "pkg", "ct", "count",
+            "size", "fit", "small", "medium", "large", "xl", "xs",
+            "with", "for", "the", "and", "from", "type", "set",
+        }
+        toks = sorted(set(t for t in toks if t not in item_stop))
+        return " ".join(toks[:6])  # cap to first 6 tokens for stable bucketing
+
+    # Bucket by item_key × year × status
+    from collections import defaultdict
+    items = defaultdict(lambda: {
+        "sample_description": "",
+        "total_quotes": 0, "total_wins": 0, "total_losses": 0,
+        "by_year": defaultdict(lambda: {"q": 0, "w": 0, "l": 0}),
+    })
+
+    for r in rows:
+        if filter_canon:
+            row_canon = _normalize_agency(r["agency"] or r["institution"] or "")
+            if not row_canon:
+                continue
+            if (filter_canon not in row_canon) and (row_canon not in filter_canon):
+                continue
+        year = (r["created_at"] or "")[:4]
+        if not year.isdigit() or len(year) != 4:
+            continue
+        try:
+            line_items = _json.loads(r["line_items"] or "[]")
+        except Exception:
+            continue
+        for it in line_items:
+            if not isinstance(it, dict):
+                continue
+            desc = it.get("description", "") or ""
+            key = _item_key(desc)
+            if not key:
+                continue
+            bucket = items[key]
+            if not bucket["sample_description"]:
+                bucket["sample_description"] = desc[:100]
+            bucket["total_quotes"] += 1
+            yr = bucket["by_year"][year]
+            yr["q"] += 1
+            if r["status"] == "won":
+                bucket["total_wins"] += 1
+                yr["w"] += 1
+            elif r["status"] == "lost":
+                bucket["total_losses"] += 1
+                yr["l"] += 1
+
+    out = []
+    for key, b in items.items():
+        if b["total_quotes"] < min_quotes:
+            continue
+        decided = b["total_wins"] + b["total_losses"]
+        overall_rate = (round(100.0 * b["total_wins"] / decided, 1)
+                        if decided else None)
+        years = []
+        for y in sorted(b["by_year"].keys()):
+            yr = b["by_year"][y]
+            d = yr["w"] + yr["l"]
+            rate = round(100.0 * yr["w"] / d, 1) if d else None
+            years.append({"year": y, "q": yr["q"], "w": yr["w"],
+                          "l": yr["l"], "rate": rate})
+        latest = years[-1] if years else None
+        prior = years[-2] if len(years) >= 2 else None
+        yoy = None
+        if (latest and prior and latest["rate"] is not None
+                and prior["rate"] is not None):
+            yoy = round(latest["rate"] - prior["rate"], 1)
+        if only_degrading and (yoy is None or yoy >= 0):
+            continue
+        out.append({
+            "item_key": key,
+            "sample_description": b["sample_description"],
+            "total_quotes": b["total_quotes"],
+            "total_wins": b["total_wins"],
+            "total_losses": b["total_losses"],
+            "overall_rate": overall_rate,
+            "years": years,
+            "latest_year": latest["year"] if latest else None,
+            "latest_rate": latest["rate"] if latest else None,
+            "prior_year": prior["year"] if prior else None,
+            "prior_rate": prior["rate"] if prior else None,
+            "yoy_delta_pts": yoy,
+        })
+
+    # Sort: degrading-first by largest negative yoy, otherwise by quote volume
+    if only_degrading:
+        out.sort(key=lambda x: (x["yoy_delta_pts"] or 0), reverse=False)
+    else:
+        out.sort(key=lambda x: x["total_quotes"], reverse=True)
+
+    return jsonify({
+        "ok": True,
+        "agency_filter": agency_filter,
+        "min_quotes": min_quotes,
+        "limit": limit,
+        "only_degrading": only_degrading,
+        "items": out[:limit],
+    })
+
+
 @bp.route("/api/oracle/recent-wins")
 @auth_required
 def api_oracle_recent_wins():
