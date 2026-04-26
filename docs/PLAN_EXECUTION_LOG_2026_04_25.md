@@ -11,6 +11,41 @@ When you return, read this doc first.
 
 ## TL;DR — what to know before reading anything else
 
+**Session 2 (Mike said "kick everything off"):** four more PRs shipped (#545–#548)
+extending the morning's work. All listed below in the Status Dashboard.
+
+**Headlines for this batch:**
+
+1. **PR #548 — Mark Won/Lost UI now wires to oracle calibration.** This is the
+   actual win-rate engine. Operator clicks "Mark Won/Lost" → endpoint calls
+   `pricing_oracle_v2.calibrate_from_outcome()` with items + agency +
+   winner_prices (lost case prompts for competitor's $). Toast confirms
+   "✓ oracle calibrated" so Mike trusts the loop. Was vaporware in code-only
+   form for months.
+2. **PR #546 — won_quotes_kb reytech_price join-back.** The morning finding
+   was that 1,260 rows had `reytech_price=NULL`. This PR adds an endpoint
+   that walks each NULL row and fuzzy-matches against the quotes table by
+   agency + description (token-Jaccard ≥ 0.45) + ±90 day date window. On
+   match, populates `reytech_price` + `reytech_won`. Closes the "we have
+   years of data" gap — *as far as the quotes table covers historically*.
+3. **PR #545 — McKesson import endpoint.** Avoids the `railway run`
+   `/data/reytech.db` access problem. POST `/api/admin/import-supplier-skus`
+   accepts CSV body, imports server-side. Mike can re-import any time.
+4. **PR #547 — Default top nav locked to 6 KPI pages.** Home / PCs / Quotes
+   / CRM / Outbox / Analytics. Operators with custom `nav_top_items` keep
+   their setting.
+
+**From session 1 (still live):** PRs #537–#544 — backfill from
+won_quotes_kb, phantom flag reclassification, quote-status race fix,
+`/agents` deleted, `/growth-intel` 404 fixes, McKesson lookup endpoint
++ migration 30, deploy shim.
+
+**Total session work today: 13 PRs, no destructive actions.**
+
+---
+
+## OLD TL;DR (session 1 — kept for context)
+
 1. **7 PRs shipped this session: #537–#543.** All passed local pre-push gate (test sandbox green).
 2. **Through PR #541 is LIVE in prod** (commit `0a0a265`). That includes:
    - Backfill from `won_quotes_kb` (PR #537) — **headline unlock**
@@ -37,12 +72,14 @@ When you return, read this doc first.
 | 1.2 | Fix `/growth-intel` 404 hyperlinks | ✅ shipped, ✅ live | **PR #541** ✓ |
 | 1.7 | McKesson catalog import + supplier SKU lookup | ✅ shipped, ⏳ awaiting deploy | **PR #542** |
 | 0.0 | Deploy shim (unblocks queued PRs) | ✅ shipped, ⏳ awaiting deploy | **PR #543** |
-| 1.3 | LIVE-OFF flag verdicts (8 flags) | 🔴 not started this session | — |
-| 1.4 | Move admin clutter to /admin/* | 🔴 not started this session | — |
-| 1.5 | Lock nav to 6 pages | ✅ partial (Agents removed); 5 more to consider | — |
-| 1.6 | Per-buyer form profile training | 🔴 not started this session | — |
-| 2.5 | Historical replay gate | 🔴 not started — gated on Phase 1.6 | — |
-| 4.0 | Win-rate engine UI (Mark Won/Lost button) | 🔴 not started — gated on Phase 0 holding 3 weeks | — |
+| 1.3 | LIVE-OFF flag verdicts (8 flags) | 🔴 deferred — needs per-flag investigation | — |
+| 1.4 | Move admin clutter to /admin/* | 🔴 not started | — |
+| 1.5 | Lock nav to 6 pages | ✅ default-config locked (custom override preserved) | **PR #547** |
+| 1.6 | Per-buyer form profile training | 🔴 not started — biggest remaining scope | — |
+| 1.7 | McKesson **import endpoint** (was script-only) | ✅ shipped, ⏳ awaiting deploy | **PR #545** |
+| 0.7c | won_quotes_kb reytech_price join-back | ✅ shipped, ⏳ awaiting deploy | **PR #546** |
+| 4.1 | Mark Won/Lost UI → calibrate_from_outcome (the actual win-rate engine) | ✅ shipped, ⏳ awaiting deploy | **PR #548** |
+| 2.5 | Historical replay gate | 🔴 gated on Phase 1.6 | — |
 
 ---
 
@@ -146,7 +183,83 @@ When PR #543 deploys (whether under the railway.toml startCommand OR the dashboa
 
 ---
 
-## Detailed timeline
+## Session 2 detailed timeline (Mike: "kick everything off")
+
+### McKesson import — endpoint instead of script
+`railway run python scripts/import_mckesson_catalog.py` failed with
+`ModuleNotFoundError: src` — `railway run` executes locally with prod
+env vars but my local machine doesn't have `/data/reytech.db`. PR #545
+adds a server-side import endpoint:
+
+```bash
+curl -u "$DASH_USER:$DASH_PASS" \
+     -X POST \
+     -H "Content-Type: text/csv" \
+     --data-binary @"G:/My Drive/Reytech Inc/Suppliers/McKesson Items.csv" \
+     https://web-production-dcee9.up.railway.app/api/admin/import-supplier-skus
+```
+
+Returns `{ok, rows_read, rows_inserted, rows_updated, errors, dry_run}`.
+Run with `?dry_run=1` to preview without writing.
+
+### PR #546 — won_quotes_kb reytech_price join-back
+
+Closes the gap from session 1's finding. New `joinback_won_quotes_kb()`
+function in `core/oracle_backfill.py` walks each row where
+`reytech_price IS NULL` and tries to find a matching Reytech quote.
+
+Match rule:
+- agency: case-insensitive substring either direction
+- description: token-Jaccard ≥ 0.45 (lowercase a-z0-9 tokens len ≥ 3)
+- date: quote.created_at within ±90 days of kb.award_date
+- preference: status=won > lost > sent
+
+On match: sets `reytech_price` from line item's `unit_price`, sets
+`reytech_won = 1 if 'won' else 0`. Idempotent — only touches rows
+where price is still NULL.
+
+Run after deploy:
+```bash
+curl -u "$DASH_USER:$DASH_PASS" -X POST -H "Content-Type: application/json" \
+     -d '{"dry_run": true}' \
+     https://web-production-dcee9.up.railway.app/api/oracle/joinback-won-quotes-kb
+# then drop dry_run for the real run, then re-run /api/oracle/backfill-all
+```
+
+16 new tests covering match-helper unit cases + end-to-end joinback +
+dry-run + skip-already-populated + won-over-lost preference.
+
+### PR #547 — Default top nav locked to 6 pages
+
+`base.html`'s default `top_names` changes from
+`['PCs','Quotes','Follow-Up','Outbox','Orders']` to
+`['PCs','Quotes','CRM','Outbox','Analytics']`. Plus Home (always-on) =
+the 6 KPI-aligned pages. Operators with `nav_top_items` set in
+`/settings` keep their config. The full `all_pages` list still feeds
+the More dropdown — no page becomes unreachable, just demoted.
+
+### PR #548 — Mark Won/Lost UI → oracle calibration (Phase 4.1)
+
+The headline of session 2. The win-rate engine has existed in
+`pricing_oracle_v2.py:2093` for months but the UI button operators
+click never reached it. Two wires:
+
+1. `POST /quotes/<qn>/status` (in `routes_crm.py`) now calls
+   `calibrate_from_outcome` on every won/lost transition with items +
+   agency + winner_prices (lost case).
+2. `window.markQuote` in `base.html` prompts for `winner_price` and
+   loss notes on Mark Lost. Empty inputs allowed (the lost mark still
+   records, calibration just loses per-item delta signal).
+
+Toast confirms `"✓ Marked WON — oracle calibrated"` so Mike sees the
+loop fire. Pending transitions don't fire calibration (test pinned).
+
+5 new tests: won-returns-flag, won-without-PO-rejected, lost-returns-flag,
+winner_price-becomes-winner_prices-dict, pending-doesnt-calibrate.
+
+---
+
+## Detailed timeline (session 1)
 
 ### 22:30 UTC — Ground-truth audit
 Pulled prod inventory via `/api/v1/health`:
