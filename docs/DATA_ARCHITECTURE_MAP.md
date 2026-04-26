@@ -182,22 +182,34 @@ Source: full grep of flag-checking patterns across `src/`.
 
 These are the inert features Mike asked about. Each represents engineering effort that doesn't currently affect production behavior.
 
-| Flag | File | What's gated | Recommended action |
+| Flag | File | What's gated | Phase 1.3 verdict (2026-04-26) |
 |---|---|---|---|
-| `unspsc_enrichment` | `agents/pc_enrichment_pipeline.py` | UNSPSC product classification on PC enrichment | Flip ON or delete |
-| `outbox.send_approved_enabled` | `routes_growth_prospects.py` | Auto-send approved growth outbox messages | Decide policy or delete |
-| `ingest.classifier_v2_enabled` | `routes_health.py` + `core/request_classifier.py` | Classifier V2 (the unified-ingest refactor PR #47) | **Memory says it was flipped 2026-04-14 — verify in prod admin and remove flag if stable** |
-| `bid_scoring` | `routes_intelligence.py` | Bid intelligence endpoint | Build or delete |
-| `compliance_matrix` | `routes_intelligence.py`, `routes_rfq.py` | RFQ compliance matrix endpoint | Build or delete |
-| `docling_intake` | `routes_intelligence.py`, `routes_rfq.py` | Docling-based document intake | Build or delete |
-| `nl_query_enabled` | `routes_intelligence.py`, `routes_rfq.py` | Natural-language query | Build or delete |
-| `orders_v2.poller_unified` | `routes_order_tracking.py` | Unified V2 order poller (replaces legacy) | Flip ON to begin draining shadow schema in §3.a |
-| `rfq.require_profile_match` | `routes_rfq_gen.py` | RFQ profile validation gate | Decide if needed |
-| `quote_model_v2_enabled` | `core/quote_adapter.py` | Promote V2 quote model from shadow to live | Tied to shadow telemetry — confirm before flip |
-| `rfq.readback_verifier` | `core/quote_orchestrator.py` | Quote readback verification | Build or delete |
-| `rfq.orchestrator_pipeline` | `core/quote_orchestrator.py` | Orchestrator pipeline path | Tied to V2 promotion |
-| `ingest.ghost_quarantine_enabled` | `core/ghost_detection.py`, `core/ingest_pipeline.py:265` | Ghost-record auto-quarantine on ingest | Reclassified from §5.d 2026-04-25. Decide flip-or-delete per Phase 1.3 |
-| `quote.block_unresolved_ship_to` | `forms/quote_generator.py:1015` | Refuse to render quote when ship-to unresolved | Reclassified from §5.d 2026-04-25. Decide flip-or-delete per Phase 1.3 |
+| `unspsc_enrichment` | `agents/pc_enrichment_pipeline.py` | UNSPSC product classification on PC enrichment | **DEFER-DELETE** — gated code is dead-quiet at default-off; cleanup when next touching pc_enrichment_pipeline.py |
+| `outbox.send_approved_enabled` | `routes_growth_prospects.py` | Auto-send approved growth outbox messages | **DEFER-DELETE** — auto-send risk > value at our quote volume; safe at default-off |
+| `ingest.classifier_v2_enabled` | `routes_health.py` + `core/request_classifier.py` | Classifier V2 (the unified-ingest refactor PR #47) | **VERIFY ON IN PROD** — memory says flipped 2026-04-14; confirm via /admin/flags then delete the gate |
+| `bid_scoring` | `routes_intelligence.py:329` | Bid intelligence endpoint | **DEFER-DELETE** — unbuilt; route returns early at default-off, hidden from operator |
+| `compliance_matrix` | `routes_intelligence.py:210`, `routes_rfq.py:2643`, `rfq_review.html:265` | RFQ compliance matrix endpoint | **DEFER-DELETE** — unbuilt; template `{% if %}` already hides it |
+| `docling_intake` | `routes_intelligence.py:28`, `home.html:20,210`, `routes_rfq.py:741` | Docling-based document intake | **DEFER-DELETE** — vision parser is canonical; template `{% if %}` already hides nav button + modal |
+| `nl_query_enabled` | `routes_intelligence.py:160`, `home.html:24`, `routes_rfq.py:740` | Natural-language query | **DEFER-DELETE** — speculative; template `{% if %}` already hides the panel |
+| `orders_v2.poller_unified` | `routes_order_tracking.py` | Unified V2 order poller (replaces legacy) | **KEEP** — flip ON in Phase 3 (S3 silo work). Don't delete the gate yet. |
+| `rfq.require_profile_match` | `routes_rfq_gen.py:1578` | RFQ profile validation gate | **DEFER-DELETE** — rules already enforced upstream by quote_validator |
+| `quote_model_v2_enabled` | `core/quote_adapter.py` | Promote V2 quote model from shadow to live | **KEEP** — gated on Phase 3 S12 (shadow telemetry consumer) |
+| `rfq.readback_verifier` | `core/quote_orchestrator.py:782` | Quote readback verification | **DEFER-DELETE** — unbuilt verifier path |
+| `rfq.orchestrator_pipeline` | `core/quote_orchestrator.py` | Orchestrator pipeline path | **KEEP** — tied to V2 promotion (Phase 3 S12) |
+| `ingest.ghost_quarantine_enabled` | `core/ghost_detection.py`, `core/ingest_pipeline.py:265` | Ghost-record auto-quarantine on ingest | **DEFER** — has full implementation; flip ON only after Phase 0 KPI gate (Mike sends 3 quotes hand-correction-free) |
+| `quote.block_unresolved_ship_to` | `forms/quote_generator.py:1015` | Refuse to render quote when ship-to unresolved | **CONSIDER FLIP** — already enforced at fail-closed validator (PR #525); flag is redundant safety net |
+
+**Why "DEFER-DELETE" is the verdict for 7 flags:** the gated code paths
+are already invisible at runtime (template `{% if %}` hides nav buttons,
+route handlers return 404/empty at default-off). Removing them now is
+zero-KPI-impact churn. The deletion happens cleanly when those modules
+are next touched for a real change. None of these flags can drift to
+ON without an operator going to `/admin/flags` and explicitly enabling
+them — so they cannot accidentally affect prod.
+
+Phase 1.3 of `PLAN_ONCE_AND_FOR_ALL.md` therefore RECORDS verdicts but
+does not ship code deletes. The KPI lever is elsewhere (Phase 4 win-rate
+engine, Phase 1.6 per-buyer profiles).
 
 ### 5.d — Re-classified 2026-04-25 (was "phantom")
 
