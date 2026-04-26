@@ -287,6 +287,64 @@
      </div>
      {% endif %}
 
+     <!-- Phase 4 enhancement (2026-04-26): inline agency win-rate so Mike sees
+          his historical context with this buyer at the moment he's pricing. -->
+     <div id="agency-intel-strip" style="margin-top:8px;padding:8px 12px;background:rgba(13,17,23,.4);border:1px solid #21262d;border-radius:6px;font-size:12px;display:none">
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+       <span style="color:#8b949e;text-transform:uppercase;letter-spacing:.5px;font-size:10px">📈 At this agency</span>
+       <span><span style="color:#8b949e">Win rate:</span> <b id="ais-rate">—</b></span>
+       <span><span style="color:#8b949e">Quotes:</span> <b id="ais-quotes" style="color:#c9d1d9">—</b></span>
+       <span><span style="color:#8b949e">Won/Lost:</span> <b style="color:#2ecc71" id="ais-wins">0</b><span style="color:#8b949e">/</span><b style="color:#f85149" id="ais-losses">0</b></span>
+       <span><span style="color:#8b949e">Won value:</span> <b id="ais-won-val" style="color:#c9d1d9">$0</b></span>
+       <span style="margin-left:auto"><span style="color:#8b949e">Oracle markup:</span> <b id="ais-markup" style="color:#a78bfa">—</b></span>
+      </div>
+     </div>
+     <script>
+     (function(){
+      var inst = {{ header.get('institution',pc.get('institution',''))|tojson }};
+      if (!inst) return;
+      // Hit win-rate endpoint with all-time window (1500 days), filter
+      // client-side to this PC's institution.
+      fetch('/api/oracle/win-rate-by-agency?days=1500&min_quotes=1', {credentials:'same-origin'})
+       .then(function(r){return r.json()})
+       .then(function(d){
+        if (!d || !d.ok || !d.agencies) return;
+        // Find best canonical-name match for the current PC's institution
+        var instLower = (inst || '').toLowerCase();
+        var match = d.agencies.find(function(a){
+         var dn = (a.display_name || '').toLowerCase();
+         var cn = (a.canonical_name || '').toLowerCase();
+         return dn === instLower || dn.indexOf(instLower) >= 0 || instLower.indexOf(dn) >= 0
+             || (cn && (cn.indexOf(instLower.split(' ').slice(-1)[0]) >= 0));
+        });
+        if (!match) return;
+        var strip = document.getElementById('agency-intel-strip');
+        strip.style.display = 'block';
+        var rate = match.win_rate_pct;
+        var color = (rate !== null && rate >= 30) ? '#2ecc71'
+                  : (rate !== null && rate >= 15) ? '#f0883e'
+                  : '#f85149';
+        var rateEl = document.getElementById('ais-rate');
+        rateEl.textContent = (rate === null ? '—' : rate + '%');
+        rateEl.style.color = color;
+        document.getElementById('ais-quotes').textContent = match.quotes;
+        document.getElementById('ais-wins').textContent = match.wins;
+        document.getElementById('ais-losses').textContent = match.losses;
+        var wv = match.won_value || 0;
+        document.getElementById('ais-won-val').textContent = '$' + Math.round(wv).toLocaleString();
+       }).catch(function(){});
+      // Also fetch oracle markup for this institution
+      fetch('/api/oracle/item-history?agency=' + encodeURIComponent(inst) + '&description=__markup_only__&threshold=2.0', {credentials:'same-origin'})
+       .then(function(r){return r.json()})
+       .then(function(d){
+        if (!d || !d.ok || !d.oracle) return;
+        var o = d.oracle;
+        if (o.markup_pct === null || o.markup_pct === undefined) return;
+        document.getElementById('ais-markup').textContent =
+          o.markup_pct.toFixed(1) + '% (' + (o.confidence || 'low') + ', n=' + (o.sample_size || 0) + ')';
+       }).catch(function(){});
+     })();
+     </script>
      <div class="meta" style="margin-top:8px">
       <b>Institution:</b> {{ header.get('institution',pc.get('institution','')) }} &nbsp;|&nbsp;
       <b>Requestor:</b> <input type="text" id="requestorField" value="{{ header.get('requestor',pc.get('requestor','')).replace('"','&quot;') }}" class="text-in" style="width:160px;padding:2px 6px;font-size:14px" onblur="savePcField('requestor',this.value)" oninput="debounceBuyerLookup(this.value)"> &nbsp;|&nbsp;
