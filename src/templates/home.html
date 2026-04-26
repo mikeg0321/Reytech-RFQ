@@ -23,7 +23,37 @@
   </div>
  </div>
  <div id="wri-agencies" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:6px"></div>
+ <div id="wri-recent-wins" style="margin-top:10px;display:none">
+  <div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">🏆 Recent wins</div>
+  <div id="wri-recent-wins-rows" style="display:flex;flex-direction:column;gap:3px"></div>
+ </div>
 </div>
+<script>
+(function(){
+ fetch('/api/oracle/recent-wins?limit=5', {credentials:'same-origin'})
+  .then(function(r){return r.json()})
+  .then(function(d){
+   if (!d || !d.ok || !d.wins || !d.wins.length) return;
+   var holder = document.getElementById('wri-recent-wins');
+   var rows = document.getElementById('wri-recent-wins-rows');
+   if (!holder || !rows) return;
+   holder.style.display = 'block';
+   function esc(s){return String(s||'').replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+   rows.innerHTML = d.wins.map(function(w){
+    var dt = (w.created_at || '').substring(0,10);
+    var ag = (w.agency || '').length > 40 ? w.agency.substring(0,38) + '…' : w.agency;
+    var amt = '$' + Math.round(w.total || 0).toLocaleString();
+    var po = w.po_number ? ' · PO ' + esc(w.po_number) : '';
+    return '<div style="font-size:12px;color:#c9d1d9;background:rgba(46,204,113,.05);border:1px solid rgba(46,204,113,.18);border-radius:5px;padding:5px 10px;display:flex;justify-content:space-between;gap:10px;align-items:center">'
+         + '<span style="color:#2ecc71;font-weight:700;font-family:JetBrains Mono,monospace;min-width:90px">' + esc(w.quote_number) + '</span>'
+         + '<span style="flex:1;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + esc(w.agency) + '">' + esc(ag) + '</span>'
+         + '<span style="color:#8b949e;font-size:11px">' + esc(dt) + po + '</span>'
+         + '<span style="color:#2ecc71;font-weight:600;min-width:80px;text-align:right">' + amt + '</span>'
+         + '</div>';
+   }).join('');
+  }).catch(function(){});
+})();
+</script>
 <script>
 (function(){
  var card = document.getElementById('win-rate-intel');
