@@ -547,9 +547,24 @@ def format_order_context_for_cs_draft(po_number: str = "", sender_email: str = "
 _digest_started = False
 
 def start_order_digest_scheduler(interval_hours: int = 4):
-    """Start background thread that runs daily digest and tracking checks."""
+    """Start background thread that runs daily digest and tracking checks.
+
+    Gated by `notify.order_digest_email_enabled` flag (default OFF — Mike found
+    the digest emails arrive with stale Apr 25 dates due to state-file dedup +
+    timezone gaps + 12h+ lag between scan and send. Flip back ON via
+    /admin/flags once the digest re-scans at send time).
+    """
     global _digest_started
     if _digest_started:
+        return
+    try:
+        from src.core.feature_flags import get_flag
+        if not get_flag("notify.order_digest_email_enabled", default=False):
+            log.info("Order digest scheduler disabled by flag "
+                     "notify.order_digest_email_enabled (default off)")
+            return
+    except Exception as e:
+        log.debug("flag check failed, defaulting to off: %s", e)
         return
     _digest_started = True
 

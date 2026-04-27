@@ -571,9 +571,25 @@ def build_cs_communication_summary(contact_email: str = "", quote_number: str = 
 _stale_watcher_started = False
 
 def start_stale_watcher():
-    """Start background thread that alerts when drafts sit unreviewed for 4+ hours."""
+    """Start background thread that alerts when drafts sit unreviewed for 4+ hours.
+
+    Gated by `notify.stale_drafts_email_enabled` flag (default OFF — Mike found
+    the count was inflated 268+ stale-draft emails because the outbox includes
+    auto-generated CS replies that should never auto-send. Flip the flag back
+    ON via /admin/flags once the underlying outbox query is fixed to filter
+    auto-generated drafts).
+    """
     global _stale_watcher_started
     if _stale_watcher_started:
+        return
+    try:
+        from src.core.feature_flags import get_flag
+        if not get_flag("notify.stale_drafts_email_enabled", default=False):
+            log.info("Stale outbox watcher disabled by flag "
+                     "notify.stale_drafts_email_enabled (default off)")
+            return
+    except Exception as e:
+        log.debug("flag check failed, defaulting to off: %s", e)
         return
     _stale_watcher_started = True
 
@@ -788,9 +804,25 @@ def send_daily_digest() -> dict:
 
 
 def start_daily_digest():
-    """Daemon thread that fires send_daily_digest once per day at DIGEST_HOUR:DIGEST_MIN PST."""
+    """Daemon thread that fires send_daily_digest once per day at DIGEST_HOUR:DIGEST_MIN PST.
+
+    Gated by `notify.deadline_digest_email_enabled` flag (default OFF — Mike found
+    the count was 61 stale "overdue" PCs that included items already converted to
+    RFQ or sent. Counts are frozen at 7:30am scan time and don't refresh before
+    the email arrives. Flip back ON via /admin/flags once the digest re-scans at
+    send time and excludes converted/sent PCs).
+    """
     global _daily_digest_started
     if _daily_digest_started:
+        return
+    try:
+        from src.core.feature_flags import get_flag
+        if not get_flag("notify.deadline_digest_email_enabled", default=False):
+            log.info("Daily deadline digest disabled by flag "
+                     "notify.deadline_digest_email_enabled (default off)")
+            return
+    except Exception as e:
+        log.debug("flag check failed, defaulting to off: %s", e)
         return
     _daily_digest_started = True
 
