@@ -205,7 +205,7 @@
  <a href="/quotes" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📋 Quotes DB</a>
  <a href="/contacts" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;border-color:rgba(167,139,250,.4);color:#a78bfa" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='rgba(167,139,250,.4)'">👥 CRM</a>
  <a href="/orders" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📦 Orders</a>
- <a href="/growth" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
+ <a href="/growth-intel" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
  <a href="/quoting/status" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap" title="Live quoting orchestrator audit">📡 Quoting</a>
  <a href="/qa/workflow" id="qa-nav-btn" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;display:none" title="QA Score">🔬 <span id="qa-nav-score">—</span></a>
  {% if docling_intake|default(false) %}<a href="#" onclick="document.getElementById('doc-upload-modal').style.display='flex';return false" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📄 Documents</a>{% endif %}
@@ -1232,7 +1232,7 @@ function _renderOrderHealth(d){
    <span style="flex:1;height:1px;background:var(--bd)"></span>
    <span id="growth-brief" style="font-size:14px;color:var(--tx2)"></span>
    <span style="width:1px;height:14px;background:var(--bd);margin:0 8px"></span>
-   <a href="/growth" style="font-size:14px;color:var(--ac);font-weight:600">Open Growth Dashboard →</a>
+   <a href="/growth-intel" style="font-size:14px;color:var(--ac);font-weight:600">Open Growth Dashboard →</a>
   </div>
   <div id="growth-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px"></div>
   <div id="growth-wins" style="display:none">
@@ -1269,7 +1269,7 @@ function _renderGrowth(g){
     +'<span style="padding:2px 8px;border-radius:8px;font-size:13px;font-weight:700;font-family:JetBrains Mono,monospace;background:rgba(52,211,153,.15);color:#3fb950">'+(w.win_prob||0).toFixed(0)+'%</span>'
     +'<span style="flex:1;font-weight:600">'+(w.agency||'Unknown')+'</span>'
     +'<span style="font-size:13px;color:var(--tx2)">'+(w.buyer_name||'')+'</span>'
-    +'<a href="/growth" style="font-size:13px;color:var(--ac)">View</a></div>';
+    +'<a href="/growth-intel" style="font-size:13px;color:var(--ac)">View</a></div>';
   }).join('');
  }
 }
