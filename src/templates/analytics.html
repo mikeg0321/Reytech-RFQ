@@ -196,6 +196,43 @@
  </div>
 </div>
 
+{# Plan §4.1: operator-action KPI surface — "Quotes sent this week × median
+   time-to-send." Distinct from "Avg Time to Quote" above (which is created→sent
+   in hours). This row measures keyboard time: open detail page → click Mark
+   Sent. The plan's success gate is 1-item median time-to-send <90s. #}
+<div class="card" style="margin-bottom:16px;padding:14px">
+ <div class="card-t" style="margin-bottom:10px">⚡ Operator KPI — Time to Send <span style="color:var(--tx2);font-weight:400;font-size:12px">(last 7 days)</span></div>
+ <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+  <div style="text-align:center">
+   <div style="font-size:22px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">{{ kpi_7d.count|default(0) }}</div>
+   <div style="font-size:12px;color:var(--tx2)">Quotes Sent</div>
+  </div>
+  <div style="text-align:center">
+   <div style="font-size:22px;font-weight:700;color:var(--ac);font-family:'JetBrains Mono',monospace">
+    {% if kpi_7d.median_seconds is not none %}{{ kpi_7d.median_seconds }}s{% else %}—{% endif %}
+   </div>
+   <div style="font-size:12px;color:var(--tx2)">Median Time-to-Send</div>
+  </div>
+  <div style="text-align:center">
+   <div style="font-size:22px;font-weight:700;color:{% if (kpi_7d.under_90_pct or 0) >= 80 %}var(--gn){% elif (kpi_7d.under_90_pct or 0) >= 50 %}var(--yl){% else %}var(--rd){% endif %};font-family:'JetBrains Mono',monospace">
+    {% if kpi_7d.under_90_pct is not none %}{{ kpi_7d.under_90_pct }}%{% else %}—{% endif %}
+   </div>
+   <div style="font-size:12px;color:var(--tx2)">Under 90s</div>
+  </div>
+  <div style="text-align:center">
+   <div style="font-size:22px;font-weight:700;color:{% if kpi_7d_1item.median_seconds is not none and kpi_7d_1item.median_seconds <= 90 %}var(--gn){% else %}var(--or){% endif %};font-family:'JetBrains Mono',monospace">
+    {% if kpi_7d_1item.median_seconds is not none %}{{ kpi_7d_1item.median_seconds }}s{% else %}—{% endif %}
+   </div>
+   <div style="font-size:12px;color:var(--tx2)">1-Item Median (target ≤90s)</div>
+  </div>
+ </div>
+ {% if kpi_7d.count == 0 %}
+ <div style="margin-top:8px;font-size:12px;color:var(--tx2);text-align:center">
+  No sends logged this week — telemetry begins on next Mark Sent click.
+ </div>
+ {% endif %}
+</div>
+
 <!-- Growth Outreach Funnel + Top Agencies -->
 {% if growth_kpis %}
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">
