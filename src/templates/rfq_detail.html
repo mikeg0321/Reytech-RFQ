@@ -1345,6 +1345,10 @@
    <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px" aria-label="Mark as won">🏆 Won</button>
    <button onclick="recordRfqOutcome('lost')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:6px" aria-label="Mark as lost">❌ Lost</button>
    <button onclick="recordRfqOutcome('no_response')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(139,148,158,.15);color:#8b949e;border:1px solid rgba(139,148,158,.3);border-radius:6px" aria-label="Mark as no response">⏰ No Response</button>
+   {# Plan §6.1: Mark Cancelled = lifecycle hygiene. Wires to /api/rfq/<rid>/cancel
+      which preserves the record but stops follow-ups. NOT a loss — calibration
+      does not fire. #}
+   <button onclick="recordRfqOutcome('cancelled')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(139,148,158,.10);color:#8b949e;border:1px solid rgba(139,148,158,.25);border-radius:6px" aria-label="Mark as cancelled">🗑️ Cancelled</button>
   {% endif %}
   {% if r.status in ('won', 'lost', 'no_bid', 'cancelled') %}
    <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:13px;padding:6px 14px;background:var(--sf2);color:var(--tx2);border:1px solid var(--bd);border-radius:6px" aria-label="Reopen RFQ for editing">↩ Reopen</button>
@@ -3091,6 +3095,25 @@ function recordRfqOutcome(outcome) {
     }).then(function(r){return r.json()}).then(function(d){
       if(d.ok){msg.textContent='❌ Marked LOST';msg.style.color='#f85149';setTimeout(function(){location.reload()},1500);}
       else{msg.textContent='Error: '+d.error;msg.style.color='#f85149';}
+    }).catch(function(e){msg.textContent='Error: '+e;msg.style.color='#f85149';});
+    return;
+  }
+
+  if (outcome === 'cancelled') {
+    // Plan §6.1: cancelled is lifecycle hygiene — buyer pulled, solicitation
+    // withdrawn, etc. NOT a loss; calibration does not fire. Wires to
+    // /api/rfq/<rid>/cancel which preserves the record + stops follow-ups.
+    var cReason = prompt('Reason for cancelling? (optional)\nExamples: "buyer cancelled", "solicitation withdrawn", "duplicate".', '');
+    if (cReason === null) return;
+    msg.style.display = 'block';
+    msg.textContent = '⏳ Cancelling...';
+    fetch('/api/rfq/' + RID + '/cancel', {
+      method: 'POST', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({reason: cReason || 'Cancelled by user'})
+    }).then(function(r){return r.json()}).then(function(d){
+      if(d.ok){msg.textContent='🗑️ Cancelled';msg.style.color='#8b949e';setTimeout(function(){location.reload()},1200);}
+      else{msg.textContent='Error: '+(d.error||'Failed');msg.style.color='#f85149';}
     }).catch(function(e){msg.textContent='Error: '+e;msg.style.color='#f85149';});
     return;
   }

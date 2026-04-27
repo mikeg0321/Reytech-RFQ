@@ -2146,6 +2146,9 @@ def quote_detail(qn):
         action_btns = '<div style="border-top:1px solid var(--bd);margin-top:14px;padding-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">'
         action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;won&quot;)" class="btn btn-g" style="font-size:13px">✅ Mark Won</button>'
         action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;lost&quot;)" class="btn" style="background:rgba(248,113,113,.15);color:var(--rd);border:1px solid rgba(248,113,113,.3);font-size:13px">❌ Mark Lost</button>'
+        # Plan §6.1: Mark Cancelled = lifecycle hygiene (buyer pulled, solicitation
+        # withdrawn). Removes from pipeline without polluting the oracle.
+        action_btns += f'<button onclick="markQuote(&quot;{qn}&quot;,&quot;cancelled&quot;)" class="btn" style="background:rgba(139,148,158,.15);color:var(--tx2);border:1px solid rgba(139,148,158,.3);font-size:13px">🗑️ Mark Cancelled</button>'
         action_btns += f'<button onclick="convertToOrder(&quot;{qn}&quot;)" class="btn" style="background:rgba(52,211,153,.15);color:#34d399;border:1px solid rgba(52,211,153,.3);font-size:13px">📦 Convert to Order</button>'
         action_btns += '</div>'
     elif st == 'won' and not has_order:
