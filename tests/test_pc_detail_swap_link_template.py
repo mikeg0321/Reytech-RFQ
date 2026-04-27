@@ -59,3 +59,12 @@ class TestSwapLinkRenders:
         # A re-run of oracleAutoPrice() shouldn't accumulate links
         assert ".rt-cat-swap" in self.content
         assert "if (prior) prior.remove();" in self.content
+
+    def test_logs_acceptance_to_telemetry_endpoint(self):
+        # Phase 4.7.3 wiring — clicking the swap link must POST to
+        # /api/oracle/intel-acceptance so we capture the decision
+        assert "/api/oracle/intel-acceptance" in self.content
+        # Fire-and-forget — must wrap in try/catch so failure can't
+        # block the UI swap
+        assert "accepted: true" in self.content
+        assert ".catch(function(_){})" in self.content

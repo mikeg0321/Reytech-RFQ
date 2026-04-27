@@ -2342,6 +2342,29 @@
                 }
                 swap.innerHTML = '<span style="color:#2ecc71">✓ swapped to $'
                   + altPrice.toFixed(2) + '</span>';
+                // Phase 4.7.3 telemetry: log the accept so the damping
+                // factor can be learned from rejection rate after ~30
+                // days. Fire-and-forget — failure must not block UI.
+                try {
+                  fetch('/api/oracle/intel-acceptance', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                      description: (document.querySelector('[name="desc_'+idx+'"]')||{}).value || '',
+                      agency: (window.PC_META || {}).institution || '',
+                      category: (ci || {}).category || 'unknown',
+                      flavor: (ci.suggested_alternative || {}).flavor || 'B',
+                      engine_markup_pct: it.recommended_markup || null,
+                      engine_price: it.recommended_price,
+                      suggested_markup_pct: ci.suggested_alternative.markup_pct,
+                      suggested_price: altPrice,
+                      final_price: altPrice,
+                      accepted: true,
+                      pcid: (window.PC_META || {}).pcid || ''
+                    })
+                  }).catch(function(_){});
+                } catch (_) { /* never block */ }
               });
             }
           }
