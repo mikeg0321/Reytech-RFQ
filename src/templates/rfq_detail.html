@@ -72,6 +72,9 @@
  </div>
  {% endif %}
 
+ <!-- Phase 1.6 PR3a: Fill-Plan panel (read-only) -->
+ <div id="rt-fillplan-panel" data-quote-id="{{ rid }}" data-quote-type="rfq" style="margin-top:12px"></div>
+
  <!-- ── Contract Builder (unified upload) ──
       One drop target that auto-classifies every file: email screenshot,
       703A/B/C, 704B, bid package, DSH attachments, or generic attachment.
@@ -4086,6 +4089,69 @@ function submitMarkSent(ev) {
   });
   return false;
 }
+
+// ─── Phase 1.6 PR3a: Fill-Plan panel renderer ──────────────────────────────
+(function(){
+  var panel = document.getElementById('rt-fillplan-panel');
+  if (!panel) return;
+  var qid = panel.getAttribute('data-quote-id') || '';
+  var qtype = panel.getAttribute('data-quote-type') || 'rfq';
+  if (!qid) return;
+  fetch('/api/quote/' + qtype + '/' + encodeURIComponent(qid) + '/fill-plan',
+        {credentials:'same-origin'})
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || !data.ok || !data.plan) return;
+      var p = data.plan;
+      if (!p.items || !p.items.length) return;
+      var statusColors = {
+        'ready':            {bg:'rgba(63,185,80,.10)',  br:'#238636', fg:'#3fb950', label:'READY'},
+        'generic_fallback': {bg:'rgba(210,153,34,.10)', br:'#9e6a03', fg:'#d29922', label:'GENERIC'},
+        'missing_critical': {bg:'rgba(218,54,51,.10)',  br:'#b62324', fg:'#f85149', label:'MISSING FIELDS'},
+        'unknown_variant':  {bg:'rgba(218,54,51,.10)',  br:'#b62324', fg:'#f85149', label:'UNKNOWN VARIANT'},
+        'flat_pdf':         {bg:'rgba(210,153,34,.10)', br:'#9e6a03', fg:'#d29922', label:'FLAT PDF'},
+        'no_template':      {bg:'rgba(139,148,158,.10)',br:'#484f58', fg:'#8b949e', label:'NO TEMPLATE'},
+        'no_profile':       {bg:'rgba(218,54,51,.10)',  br:'#b62324', fg:'#f85149', label:'NO PROFILE'},
+      };
+      function esc(s){
+        return String(s == null ? '' : s)
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;');
+      }
+      var hdr = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+        + '<b style="color:#c9d1d9;font-size:14px">📋 Fill Plan</b>'
+        + '<span style="color:#8b949e;font-size:12px">' + esc(p.agency_name || p.agency_key || '?') + '</span>'
+        + '<span style="color:#8b949e;font-size:11px">contract: ' + esc(p.contract_source) + '</span>'
+        + '<span style="margin-left:auto;font-size:12px">'
+        + '<span style="color:#3fb950">' + p.total_ready + ' ready</span> · '
+        + '<span style="color:#d29922">' + p.total_warning + ' warn</span> · '
+        + '<span style="color:#f85149">' + p.total_blocked + ' blocked</span>'
+        + ' / ' + p.total_required + '</span>'
+        + '</div>';
+      var rows = p.items.map(function(it){
+        var s = statusColors[it.status] || statusColors['no_profile'];
+        var missing = (it.missing_critical && it.missing_critical.length)
+          ? '<span style="color:#f85149;font-size:11px;margin-left:6px">missing: ' + it.missing_critical.join(', ') + '</span>'
+          : '';
+        var profileBadge = it.matched_profile_id
+          ? '<span style="color:#8b949e;font-size:11px;margin-left:6px">' + esc(it.matched_profile_id)
+            + (it.profile_kind === 'buyer_specific' ? ' <span style="color:#3fb950">[buyer]</span>' : '')
+            + '</span>'
+          : '';
+        var attached = it.buyer_template_filename
+          ? '<span style="color:#58a6ff;font-size:11px;margin-left:6px">📎 ' + esc(it.buyer_template_filename) + '</span>'
+          : '';
+        return '<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-left:3px solid '
+          + s.br + ';background:' + s.bg + ';margin:2px 0;border-radius:3px;font-size:13px">'
+          + '<span style="color:' + s.fg + ';font-weight:700;font-size:11px;min-width:120px">' + s.label + '</span>'
+          + '<span style="color:#c9d1d9">' + esc(it.form_name) + '</span>'
+          + profileBadge + attached + missing
+          + '</div>';
+      }).join('');
+      panel.innerHTML = '<div class="card" style="padding:12px 16px">' + hdr + rows + '</div>';
+    })
+    .catch(function(e){ console.debug('fill-plan fetch failed:', e); });
+})();
 </script>
 
 {% endblock %}
