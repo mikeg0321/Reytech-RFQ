@@ -5487,8 +5487,15 @@ def api_pc_send_quote(pcid):
         subject = data.get("subject") or f"Price Quote — {pc_num}"
     body_text = data.get("body") or _build_pc_quote_email_body(pc, pcid, to_email)
 
-    if not to_email or "@" not in to_email:
-        return jsonify({"ok": False, "error": "No valid recipient email"})
+    # Stricter than just "@" — catch typo'd domains like "@cdrc.ca.gov"
+    # missing TLDs ("test@test"), multiple @, etc. Audit 2026-04-27 P0 #4.
+    try:
+        from src.core.validators import validate_email, ValidationError
+        to_email = validate_email(to_email or "")
+        if not to_email:
+            raise ValidationError("recipient email is empty")
+    except ValidationError as ve:
+        return jsonify({"ok": False, "error": f"Invalid recipient: {ve}"}), 400
 
     # Find the latest generated PDF — check ALL possible locations
     pdf_path = ""

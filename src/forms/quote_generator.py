@@ -1303,7 +1303,19 @@ def generate_quote(
 
     for idx, _raw_item in enumerate(items):
         item = _normalize_item(_raw_item)
-        qty    = item["qty"] or 1
+        # Audit 2026-04-27 P0 #6: was `item["qty"] or 1` which silently
+        # converted missing/zero qty into 1, producing ghost line totals
+        # (uprice * 1 instead of uprice * 0). Default to 0 so missing-qty
+        # items contribute 0 to subtotal and the upstream quote_validator
+        # (PR #525) sees a $0 line for the operator to fix.
+        try:
+            qty = float(item["qty"] or 0)
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty <= 0:
+            log.warning("quote_generator: item idx=%d desc=%r has qty<=0; "
+                        "subtotal contribution=$0 (operator should fix)",
+                        idx, str(item.get("description", ""))[:60])
         uprice = item["price_per_unit"]
         if not uprice:
             uprice = _raw_item.get("unit_price") or _raw_item.get("our_price") or _raw_item.get("recommended_price") or 0
