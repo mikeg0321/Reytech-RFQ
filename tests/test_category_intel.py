@@ -291,3 +291,101 @@ class TestCategoryListEndpoint:
         assert "footwear-orthopedic" in ids
         assert "incontinence" in ids
         assert "splint-brace" in ids
+
+
+class TestCategorySummaryEndpoint:
+    """Phase 4.6.2: at-a-glance rollup of all intel buckets."""
+
+    def test_empty_db_returns_no_categories(self, client):
+        r = client.get("/api/oracle/category-summary")
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["categories"] == []
+        assert body["overall"]["quotes"] == 0
+
+    def test_buckets_appear_in_summary(self, client):
+        for i in range(6):
+            _seed_quote(
+                f"SUM-FW-{i}", "lost",
+                [{"description": "Propet Walker"}]
+            )
+        for i in range(6):
+            _seed_quote(
+                f"SUM-CTH-{i}", "won",
+                [{"description": "Foley Catheter Bardex"}]
+            )
+        r = client.get("/api/oracle/category-summary")
+        body = r.get_json()
+        cat_map = {c["category"]: c for c in body["categories"]}
+        assert "footwear-orthopedic" in cat_map
+        assert "catheter-foley" in cat_map
+        assert cat_map["footwear-orthopedic"]["danger"] is True
+        assert cat_map["catheter-foley"]["danger"] is False
+        assert "WIN BUCKET" in (cat_map["catheter-foley"]["warning_text"] or "")
+
+    def test_danger_sorts_first(self, client):
+        for i in range(6):
+            _seed_quote(
+                f"SUM-S-W-{i}", "won",
+                [{"description": "TENA Brief"}]
+            )
+        for i in range(6):
+            _seed_quote(
+                f"SUM-S-L-{i}", "lost",
+                [{"description": "Propet Walker"}]
+            )
+        r = client.get("/api/oracle/category-summary")
+        body = r.get_json()
+        first = body["categories"][0]
+        assert first["danger"] is True
+        assert first["category"] == "footwear-orthopedic"
+
+    def test_min_quotes_filter(self, client):
+        for i in range(2):
+            _seed_quote(
+                f"SUM-MQ-{i}", "lost",
+                [{"description": "Propet Walker"}]
+            )
+        r = client.get("/api/oracle/category-summary?min_quotes=5")
+        body = r.get_json()
+        assert all(c["quotes"] >= 5 for c in body["categories"])
+        assert "footwear-orthopedic" not in {
+            c["category"] for c in body["categories"]
+        }
+
+    def test_overall_aggregates_correctly(self, client):
+        for i in range(5):
+            _seed_quote(
+                f"SUM-AG-W-{i}", "won",
+                [{"description": "TENA Brief"}]
+            )
+        for i in range(5):
+            _seed_quote(
+                f"SUM-AG-L-{i}", "lost",
+                [{"description": "Propet Walker"}]
+            )
+        r = client.get("/api/oracle/category-summary")
+        body = r.get_json()
+        ov = body["overall"]
+        assert ov["quotes"] == 10
+        assert ov["wins"] == 5
+        assert ov["losses"] == 5
+        assert ov["win_rate_pct"] == 50.0
+        assert ov["danger_buckets"] == 1
+        assert ov["win_buckets"] == 1
+
+    def test_agency_filter_narrows_summary(self, client):
+        _seed_quote(
+            "SUM-AF-1", "lost",
+            [{"description": "Propet Walker"}],
+            agency="Veterans Home Barstow",
+        )
+        _seed_quote(
+            "SUM-AF-2", "lost",
+            [{"description": "Propet Walker"}],
+            agency="CDCR Sacramento",
+        )
+        r = client.get("/api/oracle/category-summary?agency=Barstow")
+        body = r.get_json()
+        cat_map = {c["category"]: c for c in body["categories"]}
+        assert cat_map.get("footwear-orthopedic", {}).get("quotes") == 1
