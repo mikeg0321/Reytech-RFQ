@@ -27,13 +27,14 @@ def _danger_threshold(quotes: int, win_rate_pct: float | None) -> bool:
 
     Rules:
       - need ≥ 5 quotes (single-quote flukes don't count)
-      - win rate < 10%
+      - win rate < 15% (against ~21% all-time baseline → meaningfully
+        below average; 10% was too strict and missed footwear at 12.9%)
     """
     if quotes < 5:
         return False
     if win_rate_pct is None:
         return False
-    return win_rate_pct < 10.0
+    return win_rate_pct < 15.0
 
 
 def _aggregate_category(description: str, agency_filter: str = ""):
@@ -184,9 +185,10 @@ def api_oracle_category_intel():
     if danger:
         warning_text = (f"LOSS BUCKET: {wins}/{quotes} wins on "
                         f"{cat_label}. Recalibrate markup before bidding.")
-    elif quotes >= 5 and rate is not None and rate >= 70:
+    elif quotes >= 5 and rate is not None and rate >= 50:
         # Bonus: surface the high-win flag too — same shape, opposite
-        # signal. UI can render this green.
+        # signal. Threshold = 50% because Mike's all-time baseline is
+        # ~21%; 50%+ is dominant against that.
         warning_text = (f"WIN BUCKET: {wins}/{quotes} wins on "
                         f"{cat_label}. Confident territory.")
 
