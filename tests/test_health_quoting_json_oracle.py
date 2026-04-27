@@ -175,3 +175,46 @@ def test_health_quoting_html_renders_gmail_send_card(auth_client):
         "{% set _gs = gmail_send %} block."
     )
     assert "Last successful send" in body
+
+
+# ── recent_quotes_cost_source card on the same JSON payload (§4.3 sub-3) ──
+
+
+def test_api_health_quoting_exposes_recent_quotes_cost_source_shape(auth_client):
+    """Plan §4.3 sub-3: chips card must be present on the JSON payload so
+    a script can scrape per-quote cost_source mix without HTML parsing."""
+    resp = auth_client.get("/api/health/quoting?days=1")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+
+    rq = data.get("recent_quotes_cost_source")
+    assert rq is not None, (
+        "recent_quotes_cost_source missing from JSON payload — "
+        "downstream monitors will break. Check "
+        "routes_health.quoting_health_json()."
+    )
+    assert "quotes" in rq and isinstance(rq["quotes"], list)
+    assert "totals" in rq and isinstance(rq["totals"], dict)
+    # Totals carry every canonical bucket so a downstream monitor can pin
+    # a check on any one without conditional defaulting.
+    for bucket in ("operator", "catalog", "amazon", "scprs",
+                   "needs_lookup", "unknown"):
+        assert bucket in rq["totals"], f"totals missing bucket: {bucket}"
+
+
+def test_health_quoting_html_renders_recent_quotes_cost_source_card(auth_client):
+    """The card title must render without UndefinedError on the empty
+    state. Chrome MCP follow-up captures visual once sent rows exist."""
+    resp = auth_client.get("/health/quoting")
+    assert resp.status_code == 200, resp.data[:500]
+    body = resp.data.decode("utf-8", errors="replace")
+    assert "Last 5 quotes" in body, (
+        "/health/quoting HTML missing the 'Last 5 quotes — cost_source mix' "
+        "card. Inspect quoting_health.html around the "
+        "{% set _rq = recent_quotes_cost_source %} block."
+    )
+    # On the empty-state branch the empty-message renders instead of the
+    # table headers, so we assert the title (always present) AND the
+    # empty-state copy (locks behavior on a fresh-boot dashboard).
+    assert "No quotes sent yet" in body

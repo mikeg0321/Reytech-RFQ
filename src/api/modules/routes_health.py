@@ -450,6 +450,7 @@ def quoting_health_page():
         "pc_rfq_link": _build_pc_rfq_link_health(),
         "email_poll": _build_email_poll_card(),
         "gmail_send": _build_gmail_send_card(),
+        "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -537,6 +538,7 @@ def quoting_health_json():
         "bid_memory_health": _build_bid_memory_health(),
         "email_poll": _build_email_poll_card(),
         "gmail_send": _build_gmail_send_card(),
+        "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
@@ -916,6 +918,142 @@ def _build_gmail_send_card():
         result["status"] = "warn"
     else:
         result["status"] = "healthy"
+
+    return result
+
+
+# Cost-source categories surfaced on the recent-quotes card. The keys are the
+# canonical buckets the pricing pipeline writes; everything else falls into
+# "unknown" so a new value never silently disappears from the UI.
+_COST_SOURCE_BUCKETS = {
+    "operator":         "operator",
+    "catalog":          "catalog",
+    "catalog_confirmed":"catalog",
+    "amazon":           "amazon",
+    "amazon_scrape":    "amazon",
+    "scprs":            "scprs",
+    "scprs_scrape":     "scprs",
+    "needs_lookup":     "needs_lookup",
+    "legacy_unknown":   "needs_lookup",
+}
+
+
+def _bucket_cost_source(raw):
+    """Map a raw `pricing.cost_source` string onto one of the 5 canonical
+    buckets used by the chips card. Unknown values land in 'unknown' so a
+    new pipeline value (e.g. a new scraper) shows up as a grey chip rather
+    than silently disappearing."""
+    if not raw:
+        return "needs_lookup"
+    return _COST_SOURCE_BUCKETS.get(str(raw).lower().strip(), "unknown")
+
+
+def _build_recent_quotes_cost_source_card(limit: int = 5):
+    """Last-N quotes with a per-quote cost_source mix (Plan §4.3 sub-3).
+
+    Pricing pipeline health = which path produced each item's cost.
+    Healthy mix is operator/catalog dominant — those are the rows that
+    fund the flywheel and stay accurate. Amazon/SCPRS dominance means
+    we're quoting from reference ceilings, not real costs. needs_lookup
+    means we shipped a quote with a gap.
+
+    The card joins `operator_quote_sent` (single source of truth for
+    "which quotes did the operator actually send") to the source PC/RFQ
+    items[].pricing.cost_source so the operator sees the same signal at
+    a glance — without having to open each PC.
+
+    Returns:
+      {
+        "ok": True/False,
+        "quotes": [
+          {
+            "quote_id", "quote_type", "sent_at", "lag_human",
+            "item_count", "agency_key", "quote_total",
+            "chips": {operator, catalog, amazon, scprs, needs_lookup, unknown},
+            "missing_source": True if items couldn't be loaded,
+          }, ...
+        ],
+        "totals": {bucket: total_count_across_all_quotes},
+      }
+    """
+    result = {"ok": True, "quotes": [], "totals": {
+        "operator": 0, "catalog": 0, "amazon": 0,
+        "scprs": 0, "needs_lookup": 0, "unknown": 0,
+    }}
+    try:
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT quote_id, quote_type, sent_at, item_count,
+                       agency_key, quote_total
+                FROM operator_quote_sent
+                ORDER BY sent_at DESC
+                LIMIT ?
+            """, (int(limit),)).fetchall()
+    except Exception as e:
+        log.debug("recent_quotes_cost_source aggregate read failed: %s", e)
+        return {"ok": False, "error": str(e), "quotes": [], "totals": result["totals"]}
+
+    if not rows:
+        return result
+
+    # Avoid importing dal at module load (circular-ish via routes registration).
+    from src.core.dal import get_pc, get_rfq
+
+    for r in rows:
+        quote_id = r["quote_id"]
+        quote_type = (r["quote_type"] or "pc").lower()
+        sent_at = (r["sent_at"] or "").strip()
+
+        chips = {"operator": 0, "catalog": 0, "amazon": 0,
+                 "scprs": 0, "needs_lookup": 0, "unknown": 0}
+        missing_source = False
+        try:
+            src = get_pc(quote_id) if quote_type == "pc" else get_rfq(quote_id)
+        except Exception as e:
+            log.debug("recent_quotes_cost_source: load %s/%s failed: %s",
+                      quote_type, quote_id, e)
+            src = None
+        if not isinstance(src, dict):
+            missing_source = True
+        else:
+            items = src.get("items") or []
+            if not isinstance(items, list):
+                items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                pricing = item.get("pricing") or {}
+                if not isinstance(pricing, dict):
+                    pricing = {}
+                bucket = _bucket_cost_source(pricing.get("cost_source"))
+                chips[bucket] = chips.get(bucket, 0) + 1
+                result["totals"][bucket] = result["totals"].get(bucket, 0) + 1
+
+        # Lag against now (TZ-aware fix from PR #617).
+        lag_seconds = None
+        lag_human = "—"
+        if sent_at:
+            try:
+                from datetime import timezone as _tz
+                dt = datetime.fromisoformat(sent_at)
+                now = datetime.now(_tz.utc) if dt.tzinfo else datetime.now()
+                lag_seconds = max(0, int((now - dt).total_seconds()))
+                lag_human = _format_lag(lag_seconds)
+            except (ValueError, TypeError):
+                pass
+
+        result["quotes"].append({
+            "quote_id": quote_id,
+            "quote_type": quote_type,
+            "sent_at": sent_at,
+            "lag_seconds": lag_seconds,
+            "lag_human": lag_human,
+            "item_count": int(r["item_count"] or 0),
+            "agency_key": r["agency_key"] or "",
+            "quote_total": float(r["quote_total"] or 0),
+            "chips": chips,
+            "missing_source": missing_source,
+        })
 
     return result
 
