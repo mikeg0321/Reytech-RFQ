@@ -136,6 +136,23 @@ def test_unknown_when_last_check_unparseable():
     assert out["lag_seconds"] is None
 
 
+def test_lag_uses_tz_when_last_check_is_aware():
+    """Originating incident 2026-04-27 (PR #616 deploy verify): server runs
+    UTC on Railway but POLL_STATUS["last_check"] is written by `_pst_now_iso()`
+    which is TZ-aware ("…-07:00"). The pre-fix code did
+    `datetime.fromisoformat(last_check[:19])` (strips TZ → naive PST)
+    then compared against naive UTC `datetime.now()` → bogus 7-8h lag,
+    flipping a healthy poller to "stale" on the dashboard.
+    Lock that the comparison stays in UTC when the timestamp is aware."""
+    from datetime import datetime, timedelta, timezone
+    aware = (datetime.now(timezone.utc) - timedelta(seconds=30)).astimezone(
+        timezone(timedelta(hours=-7))).isoformat()
+    out = _build({"last_check": aware, "running": True, "paused": False, "error": ""})
+    assert out["lag_seconds"] is not None and 0 <= out["lag_seconds"] <= 60, (
+        f"lag={out['lag_seconds']} (expected ~30s, got 7h-style overflow)")
+    assert out["status"] == "healthy"
+
+
 # ── Shape contract ──────────────────────────────────────────────────────
 
 
