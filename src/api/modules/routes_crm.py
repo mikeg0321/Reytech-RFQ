@@ -1593,6 +1593,14 @@ def start_polling(app=None):
         POLL_STATUS["running"] = True
         poll_thread = threading.Thread(target=email_poll_loop, daemon=True, name="email-poller")
         poll_thread.start()
+        # Watchdog companion: surfaces silent hangs in do_poll_check by
+        # writing POLL_STATUS["error"] when a cycle stays in-flight >5min.
+        # Independent thread because if do_poll_check is hung the poll
+        # thread itself can't watch the clock. See email_poll_watchdog
+        # docstring for the 2026-04-27 originating incident.
+        watchdog_thread = threading.Thread(
+            target=email_poll_watchdog, daemon=True, name="email-poller-watchdog")
+        watchdog_thread.start()
         log.info("Email polling started (account: %s)",
                  email_cfg.get("email") or os.environ.get("GMAIL_ADDRESS", "?"))
     else:

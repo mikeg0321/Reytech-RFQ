@@ -77,7 +77,17 @@ import time as _time
 
 # BASE_DIR, DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, CONFIG — all from src.api.config import above
 
-POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None, "paused": False}
+POLL_STATUS = {"running": False, "last_check": None, "emails_found": 0, "error": None, "paused": False, "cycle_started_at": None}
+
+# Hard upper bound on any blocking socket call. Without this the Gmail API
+# client (httplib2 under googleapiclient) has no timeout and a single hung
+# call freezes the whole poll loop indefinitely. Verified incident 2026-04-27:
+# poll thread alive 7h with last_check frozen at first cycle; running=true,
+# no error — silent stuck. 120s ceiling lets the watchdog promote the cycle
+# to error state on the very next loop iteration instead of staying invisible.
+import socket as _socket_for_timeout
+if _socket_for_timeout.getdefaulttimeout() is None:
+    _socket_for_timeout.setdefaulttimeout(120)
 
 # ── Pending PO Award Review Queue ──────────────────────────────────
 _pending_po_reviews = []  # In-memory + persisted to data/pending_po_reviews.json
@@ -3401,6 +3411,9 @@ def email_poll_loop():
 
     while POLL_STATUS["running"]:
         if not POLL_STATUS.get("paused"):
+            # Mark the cycle start so the watchdog can promote a hung poll
+            # to error state without waiting for do_poll_check to return.
+            POLL_STATUS["cycle_started_at"] = _pst_now_iso()
             try:
                 do_poll_check()
                 try:
@@ -3416,9 +3429,83 @@ def email_poll_loop():
                     heartbeat("email-poller", success=False, error=str(e)[:200])
                 except Exception as _e:
                     log.debug('suppressed in email_poll_loop: %s', _e)
+            finally:
+                POLL_STATUS["cycle_started_at"] = None
         else:
             log.debug("Email poller paused (system reset in progress)")
         time.sleep(interval)
+
+
+def email_poll_watchdog():
+    """Companion daemon: surface silent poll-thread hangs.
+
+    The poll loop calls `do_poll_check` synchronously. If a network call
+    inside Gmail API is hung (no socket timeout, OAuth refresh stuck,
+    etc.), `do_poll_check` never returns, the loop never reaches its
+    `time.sleep(interval)`, and `POLL_STATUS` keeps reporting
+    `running=true` with a stale `last_check` and no error. Mike's
+    /health/quoting card would render `stale` (correct) but with no
+    actionable error message — the operator sees "stuck" without
+    knowing why.
+
+    This watchdog runs independently. Every 60s it inspects
+    `POLL_STATUS["cycle_started_at"]`; if the running cycle is older
+    than 5 minutes, it writes a synthetic `error` so downstream
+    consumers (the email_poll card, /api/poll-now, scheduler heartbeat)
+    surface the silent stuck condition.
+
+    Does NOT kill the hung thread — Python has no safe `Thread.kill()`.
+    The 120s default socket timeout (set at module load) is what lets
+    a hung call eventually unblock; the watchdog just makes the
+    invisible state visible during the hang.
+
+    Originating incident: 2026-04-27 prod showed last_check from 7h
+    earlier, running=true, error="" — the email poll lag card (PR #615)
+    surfaced the stale state but couldn't explain why.
+    """
+    HUNG_AFTER_SECONDS = 300
+    POLL_INTERVAL_SECONDS = 60
+    log.info("Email poll watchdog started — cycle hang threshold: %ds", HUNG_AFTER_SECONDS)
+    while True:
+        try:
+            time.sleep(POLL_INTERVAL_SECONDS)
+            if not POLL_STATUS.get("running"):
+                continue
+            if POLL_STATUS.get("paused"):
+                continue
+            cycle_started = POLL_STATUS.get("cycle_started_at")
+            if not cycle_started:
+                # No cycle in flight — between sleeps; healthy.
+                continue
+            try:
+                # Both naive (legacy) and TZ-aware ISO timestamps must work
+                # because _pst_now_iso() returns TZ-aware but legacy callers
+                # might still write naive strings.
+                started_dt = datetime.fromisoformat(cycle_started)
+                if started_dt.tzinfo is None:
+                    age_s = (datetime.now() - started_dt).total_seconds()
+                else:
+                    from datetime import timezone as _tz
+                    age_s = (datetime.now(_tz.utc) - started_dt.astimezone(_tz.utc)).total_seconds()
+            except (TypeError, ValueError) as _e:
+                log.debug("watchdog: unparseable cycle_started_at=%r: %s", cycle_started, _e)
+                continue
+            if age_s > HUNG_AFTER_SECONDS:
+                msg = (f"Poll cycle hung — no progress for {int(age_s)}s "
+                       f"(started at {cycle_started}). Most likely a Gmail "
+                       f"API call stuck without a socket timeout firing. "
+                       f"Check /api/diag/inbox-peek and Gmail credentials.")
+                # Only overwrite error if it's empty or stale-hang text.
+                # Don't clobber a real exception message from the poll loop.
+                cur_err = POLL_STATUS.get("error") or ""
+                if not cur_err or "Poll cycle hung" in cur_err:
+                    POLL_STATUS["error"] = msg
+                    log.error("WATCHDOG: %s", msg)
+        except Exception as _e:
+            # Watchdog must never die quietly — if monitoring fails, log
+            # and keep going. A dead watchdog would hide the same class of
+            # silent-stuck condition we're trying to surface.
+            log.warning("watchdog tick failed: %s", _e)
 
 # ═══════════════════════════════════════════════════════════════════════
 # CRM Activity Log — Phase 16
