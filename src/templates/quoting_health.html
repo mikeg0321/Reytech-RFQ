@@ -196,6 +196,56 @@
   </div>
 </div>
 
+{# ── Email poll lag (Plan §4.3) ── #}
+{# Front-of-funnel KPI signal: if the inbox poller is stalled the operator #}
+{# never sees the next RFQ. Mirrors the JSON shape from POLL_STATUS via #}
+{# `_build_email_poll_card`. Border color follows status semantics: #}
+{# error/stale=red, paused/warn=amber, healthy=green, unknown=grey. #}
+{% set _ep = email_poll|default({}) %}
+{% set _ep_border = '#f85149' if _ep.status in ('error', 'stale')
+                    else '#d29922' if _ep.status in ('paused', 'warn')
+                    else '#3fb950' if _ep.status == 'healthy'
+                    else '#8b949e' %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {{ _ep_border }}">
+  <div class="card-t">Email poller</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+    {{ stat(_ep.lag_human|default('—'), 'Last successful poll',
+            '#3fb950' if _ep.status == 'healthy'
+             else '#d29922' if _ep.status in ('warn', 'paused')
+             else '#f85149' if _ep.status in ('error', 'stale')
+             else '#8b949e') }}
+    {{ stat('yes' if _ep.running else 'no', 'Thread running',
+            '#3fb950' if _ep.running else '#f85149') }}
+    {{ stat('paused' if _ep.paused else 'live', 'Mode',
+            '#d29922' if _ep.paused else '#3fb950') }}
+    {{ stat(_ep.emails_found_lifetime|default(0),
+            'Emails found (lifetime)', '#58a6ff') }}
+  </div>
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+    {% if _ep.status == 'error' %}
+      <strong style="color:#f85149">⚠ Last poll failed:</strong>
+      <code style="font-size:12px">{{ _ep.error|default('') }}</code>
+    {% elif _ep.status == 'paused' %}
+      <strong style="color:#d29922">⏸ Poller paused.</strong>
+      Resume from <code>/api/email/resume</code>.
+    {% elif _ep.status == 'stale' %}
+      <strong style="color:#f85149">⚠ No successful poll in over 15 minutes.</strong>
+      Expected cadence is roughly once a minute. Check
+      <a href="/api/poll-now" style="color:#58a6ff">/api/poll-now</a> + Gmail credentials.
+    {% elif _ep.status == 'warn' %}
+      <strong style="color:#d29922">⚠ Last poll {{ _ep.lag_human }}.</strong>
+      Slower than the ~60s cadence — usually transient.
+    {% elif _ep.status == 'unknown' %}
+      No <code>POLL_STATUS</code> data yet. Either the dashboard module
+      hasn't finished booting or the poll thread has never started a cycle.
+    {% else %}
+      Last successful check {{ _ep.lag_human }}; thread alive and
+      unpaused. JSON mirror at
+      <a href="/api/poll-now" style="color:#58a6ff">/api/poll-now</a>.
+    {% endif %}
+  </div>
+</div>
+
 {# ── CCHCS PC→RFQ link handoff ── #}
 {% set _pl = pc_rfq_link|default({}) %}
 <div class="card" style="margin-bottom:14px">
