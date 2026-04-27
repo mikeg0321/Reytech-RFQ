@@ -262,6 +262,42 @@
      </div>
      {% endif %}
 
+     {# Phase 0.5: Pre-Phase-1 PC cost-reset banner. Shows when the PC has items #}
+     {# but none carry a cost_source chip (created before the cost-cascade ship). #}
+     {# Click triggers the existing /api/pricecheck/<pcid>/lookup-costs endpoint  #}
+     {# which seeds chips and runs the tier cascade. Idempotent. #}
+     {% set _has_items = (items|length) > 0 %}
+     {% set _items_with_chip = (items|selectattr('pricing.cost_source', 'defined')|selectattr('pricing.cost_source')|list|length) %}
+     {% if _has_items and _items_with_chip == 0 and pc.get('status') not in ('won', 'lost', 'cancelled') %}
+     <div style="padding:10px 16px;border-radius:8px;font-size:13px;display:flex;align-items:center;gap:10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.25);color:#a78bfa;margin-bottom:10px">
+      <span style="font-size:18px">🕰️</span>
+      <div><b>Pre-Phase-1 PC</b> — costs predate the catalog-first cascade and are missing source chips. Click to seed chips and re-run lookup.</div>
+      <button onclick="resetPrePhase1Costs(this)"
+        style="margin-left:auto;padding:4px 12px;background:rgba(167,139,250,.2);color:#a78bfa;border:1px solid rgba(167,139,250,.4);border-radius:4px;font-size:13px;cursor:pointer;white-space:nowrap"
+        aria-label="Reset and refresh all costs via tier cascade">🔄 Refresh Costs</button>
+     </div>
+     <script>
+     function resetPrePhase1Costs(btn) {
+       btn.disabled = true; btn.textContent = '⏳ Refreshing...';
+       fetch('/api/pricecheck/{{pcid}}/lookup-costs', {
+         method: 'POST', credentials: 'same-origin',
+         headers: {'Content-Type': 'application/json'}
+       }).then(function(r){return r.json()}).then(function(d){
+         if (d.ok) {
+           btn.textContent = '⏳ Cascading... (15s)';
+           setTimeout(function(){ location.reload(); }, 15000);
+         } else {
+           btn.disabled = false; btn.textContent = '🔄 Refresh Costs';
+           if (typeof showMsg === 'function') showMsg('❌ ' + (d.error || 'Failed'), 'err');
+         }
+       }).catch(function(e){
+         btn.disabled = false; btn.textContent = '🔄 Refresh Costs';
+         if (typeof showMsg === 'function') showMsg('❌ ' + e.message, 'err');
+       });
+     }
+     </script>
+     {% endif %}
+
      {% if pc.get('trend_alerts') %}
      <div style="padding:8px 16px;border-radius:8px;font-size:13px;background:rgba(79,140,255,.06);border:1px solid rgba(79,140,255,.2);color:#4f8cff;margin-bottom:10px">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="font-size:16px">📉</span><b>Price Trend Alerts</b></div>
