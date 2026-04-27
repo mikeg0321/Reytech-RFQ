@@ -766,10 +766,15 @@ def _build_email_poll_card(poll_status=None):
     lag_seconds = None
     if last_check:
         try:
-            # last_check is ISO-format from datetime.now().isoformat();
-            # slice to 19 chars to drop any fractional-second tail.
-            dt = datetime.fromisoformat(last_check[:19])
-            lag_seconds = max(0, int((datetime.now() - dt).total_seconds()))
+            # POLL_STATUS["last_check"] is now written by `_pst_now_iso()` which
+            # produces a TZ-aware ISO ("…-07:00"). Server runs UTC on Railway,
+            # so a naive comparison (fromisoformat(last_check[:19]) → naive PST
+            # vs datetime.now() → naive UTC) over-reports lag by 7-8 hours.
+            # Parse the full ISO so the TZ is preserved, then compare in UTC.
+            from datetime import timezone as _tz
+            dt = datetime.fromisoformat(last_check)
+            now = datetime.now(_tz.utc) if dt.tzinfo else datetime.now()
+            lag_seconds = max(0, int((now - dt).total_seconds()))
         except (ValueError, TypeError):
             pass
 
