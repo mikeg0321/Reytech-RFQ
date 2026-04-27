@@ -5279,6 +5279,7 @@ _ROUTE_MODULES = [
     "routes_oracle_category_intel", # Phase 4.6: category loss-bucket warnings (footwear 0/111)
     "routes_cost_alerts",          # Phase 4.3: catalog-cost change detection + triage queue
     "routes_fill_plan",            # Phase 1.6 PR3a: email-contract → fill-plan binder (read-only)
+    "routes_training_corpus",      # Phase 1.6 PR3g: 12-month training-base bootstrap + coverage report
 ]
 
 for _mod in _ROUTE_MODULES:
