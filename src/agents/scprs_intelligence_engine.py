@@ -1207,31 +1207,51 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
     What contract vehicles do they use?
 
     Returns structured competitor analysis from SCPRS PO data.
+
+    Bug fix 2026-04-27: every SQL string in this function had `" + agency_clause
+    + "` LITERAL TEXT inside a triple-quoted string — Python concatenation never
+    happened, and SQLite returned `OperationalError: near "+ agency_clause +":
+    syntax error` on every call. Same problem for the f-style `{...}` braces
+    embedded in strings (line 1308 dvbe_opportunities, line 1325 stats). The
+    `/api/intel/competitors` endpoint has been silently 500'ing on prod for
+    however long this code has existed. Refactored to build SQL via real
+    Python concatenation outside the triple-quote.
+
+    Case sensitivity: `scprs_po_master.agency_key` stores AGENCY_REGISTRY
+    keys verbatim (e.g. "CCHCS", "CalVet"). Operators may pass lowercase or
+    expanded names; we compare case-insensitively via UPPER on both sides.
     """
     conn = _db()
 
-    # ── Top competitors by total spend ──
-    agency_clause = "AND p.agency_key = ?" if agency_filter else ""
-    params = (agency_filter,) if agency_filter else ()
+    # Build the agency clause + params once. Empty agency_filter → no clause.
+    if agency_filter:
+        agency_clause = " AND UPPER(p.agency_key) = UPPER(?)"
+        agency_clause_no_alias = " AND UPPER(agency_key) = UPPER(?)"
+        params = (agency_filter,)
+    else:
+        agency_clause = ""
+        agency_clause_no_alias = ""
+        params = ()
 
-    competitors = conn.execute("""
-        SELECT p.supplier,
-               COUNT(DISTINCT p.po_number) as po_count,
-               SUM(p.grand_total) as total_spend,
-               COUNT(DISTINCT p.institution) as institutions_served,
-               COUNT(DISTINCT p.agency_key) as agencies_served,
-               GROUP_CONCAT(DISTINCT p.agency_key) as agencies,
-               GROUP_CONCAT(DISTINCT p.acq_type) as contract_vehicles,
-               MIN(p.start_date) as first_po,
-               MAX(p.start_date) as last_po,
-               AVG(p.grand_total) as avg_po_value
-        FROM scprs_po_master p
-        WHERE p.supplier IS NOT NULL AND p.supplier != ''
-        " + agency_clause + "
-        GROUP BY LOWER(p.supplier)
-        ORDER BY total_spend DESC
-        LIMIT ?
-    """, (*params, limit)).fetchall()
+    # ── Top competitors by total spend ──
+    competitors = conn.execute(
+        "SELECT p.supplier, "
+        "COUNT(DISTINCT p.po_number) as po_count, "
+        "SUM(p.grand_total) as total_spend, "
+        "COUNT(DISTINCT p.institution) as institutions_served, "
+        "COUNT(DISTINCT p.agency_key) as agencies_served, "
+        "GROUP_CONCAT(DISTINCT p.agency_key) as agencies, "
+        "GROUP_CONCAT(DISTINCT p.acq_type) as contract_vehicles, "
+        "MIN(p.start_date) as first_po, "
+        "MAX(p.start_date) as last_po, "
+        "AVG(p.grand_total) as avg_po_value "
+        "FROM scprs_po_master p "
+        "WHERE p.supplier IS NOT NULL AND p.supplier != ''"
+        + agency_clause +
+        " GROUP BY LOWER(p.supplier) "
+        "ORDER BY total_spend DESC LIMIT ?",
+        (*params, limit)
+    ).fetchall()
 
     competitor_list = []
     for c in competitors:
@@ -1241,89 +1261,91 @@ def get_competitor_intelligence(agency_filter: str = "", limit: int = 50) -> dic
         d["dvbe_displace_target"] = any(inc in name for inc in KNOWN_NON_DVBE_INCUMBENTS)
         d["partner_candidate"] = any(p in name for p in DVBE_PARTNER_TARGETS)
 
-        # Get their top product categories
-        cats = conn.execute("""
-            SELECT l.category, COUNT(*) as cnt, SUM(l.line_total) as cat_spend
-            FROM scprs_po_lines l
-            JOIN scprs_po_master p ON l.po_id = p.id
-            WHERE LOWER(p.supplier) = ?
-            " + agency_clause + "
-            GROUP BY l.category ORDER BY cat_spend DESC LIMIT 5
-        """, (name, *params)).fetchall()
+        cats = conn.execute(
+            "SELECT l.category, COUNT(*) as cnt, SUM(l.line_total) as cat_spend "
+            "FROM scprs_po_lines l "
+            "JOIN scprs_po_master p ON l.po_id = p.id "
+            "WHERE LOWER(p.supplier) = ?"
+            + agency_clause +
+            " GROUP BY l.category ORDER BY cat_spend DESC LIMIT 5",
+            (name, *params)
+        ).fetchall()
         d["top_categories"] = [dict(r) for r in cats]
 
-        # Items where Reytech could compete
-        reytech_items = conn.execute("""
-            SELECT l.description, l.unit_price, l.quantity, l.line_total
-            FROM scprs_po_lines l
-            JOIN scprs_po_master p ON l.po_id = p.id
-            WHERE LOWER(p.supplier) = ? AND l.reytech_sells = 1
-            " + agency_clause + "
-            ORDER BY l.line_total DESC LIMIT 10
-        """, (name, *params)).fetchall()
+        reytech_items = conn.execute(
+            "SELECT l.description, l.unit_price, l.quantity, l.line_total "
+            "FROM scprs_po_lines l "
+            "JOIN scprs_po_master p ON l.po_id = p.id "
+            "WHERE LOWER(p.supplier) = ? AND l.reytech_sells = 1"
+            + agency_clause +
+            " ORDER BY l.line_total DESC LIMIT 10",
+            (name, *params)
+        ).fetchall()
         d["reytech_overlap_items"] = [dict(r) for r in reytech_items]
         d["reytech_overlap_value"] = sum(r["line_total"] or 0 for r in reytech_items)
 
         competitor_list.append(d)
 
     # ── Contract vehicle breakdown ──
-    vehicles = conn.execute("""
-        SELECT p.acq_type as vehicle,
-               p.acq_method as method,
-               COUNT(DISTINCT p.po_number) as po_count,
-               SUM(p.grand_total) as total_spend,
-               COUNT(DISTINCT p.supplier) as supplier_count,
-               COUNT(DISTINCT p.agency_key) as agency_count,
-               GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers
-        FROM scprs_po_master p
-        WHERE p.acq_type IS NOT NULL AND p.acq_type != ''
-        " + agency_clause + "
-        GROUP BY p.acq_type, p.acq_method
-        ORDER BY total_spend DESC
-    """, params).fetchall()
+    vehicles = conn.execute(
+        "SELECT p.acq_type as vehicle, p.acq_method as method, "
+        "COUNT(DISTINCT p.po_number) as po_count, "
+        "SUM(p.grand_total) as total_spend, "
+        "COUNT(DISTINCT p.supplier) as supplier_count, "
+        "COUNT(DISTINCT p.agency_key) as agency_count, "
+        "GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers "
+        "FROM scprs_po_master p "
+        "WHERE p.acq_type IS NOT NULL AND p.acq_type != ''"
+        + agency_clause +
+        " GROUP BY p.acq_type, p.acq_method "
+        "ORDER BY total_spend DESC",
+        params
+    ).fetchall()
 
     # ── Institution-level spending ──
-    institutions = conn.execute("""
-        SELECT p.institution, p.agency_key,
-               COUNT(DISTINCT p.po_number) as po_count,
-               SUM(p.grand_total) as total_spend,
-               COUNT(DISTINCT p.supplier) as supplier_count,
-               GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers,
-               MAX(p.start_date) as last_po
-        FROM scprs_po_master p
-        WHERE p.institution IS NOT NULL AND p.institution != ''
-        " + agency_clause + "
-        GROUP BY p.institution
-        ORDER BY total_spend DESC
-        LIMIT 30
-    """, params).fetchall()
+    institutions = conn.execute(
+        "SELECT p.institution, p.agency_key, "
+        "COUNT(DISTINCT p.po_number) as po_count, "
+        "SUM(p.grand_total) as total_spend, "
+        "COUNT(DISTINCT p.supplier) as supplier_count, "
+        "GROUP_CONCAT(DISTINCT p.supplier) as top_suppliers, "
+        "MAX(p.start_date) as last_po "
+        "FROM scprs_po_master p "
+        "WHERE p.institution IS NOT NULL AND p.institution != ''"
+        + agency_clause +
+        " GROUP BY p.institution "
+        "ORDER BY total_spend DESC LIMIT 30",
+        params
+    ).fetchall()
 
-    # ── Growth opportunities: where competitors win and Reytech can displace ──
-    dvbe_opportunities = conn.execute("""
-        SELECT p.supplier, p.institution, p.agency_key,
-               SUM(p.grand_total) as total_spend,
-               COUNT(DISTINCT p.po_number) as po_count,
-               p.acq_type as vehicle
-        FROM scprs_po_master p
-        WHERE LOWER(p.supplier) IN ({','.join('?' for _ in KNOWN_NON_DVBE_INCUMBENTS)})
-        " + agency_clause + "
-        GROUP BY LOWER(p.supplier), p.institution
-        ORDER BY total_spend DESC
-        LIMIT 30
-    """, (*[s.lower() for s in KNOWN_NON_DVBE_INCUMBENTS], *params)).fetchall()
+    # ── Growth opportunities: where non-DVBE incumbents win → Reytech can displace ──
+    dvbe_placeholders = ",".join("?" for _ in KNOWN_NON_DVBE_INCUMBENTS)
+    dvbe_opportunities = conn.execute(
+        "SELECT p.supplier, p.institution, p.agency_key, "
+        "SUM(p.grand_total) as total_spend, "
+        "COUNT(DISTINCT p.po_number) as po_count, "
+        "p.acq_type as vehicle "
+        "FROM scprs_po_master p "
+        f"WHERE LOWER(p.supplier) IN ({dvbe_placeholders})"
+        + agency_clause +
+        " GROUP BY LOWER(p.supplier), p.institution "
+        "ORDER BY total_spend DESC LIMIT 30",
+        (*[s.lower() for s in KNOWN_NON_DVBE_INCUMBENTS], *params)
+    ).fetchall()
 
     # ── Summary stats ──
-    stats = conn.execute("""
-        SELECT COUNT(DISTINCT po_number) as total_pos,
-               COUNT(DISTINCT supplier) as total_suppliers,
-               SUM(grand_total) as total_spend,
-               COUNT(DISTINCT institution) as total_institutions,
-               COUNT(DISTINCT agency_key) as total_agencies,
-               MIN(start_date) as earliest_po,
-               MAX(start_date) as latest_po
-        FROM scprs_po_master
-        {"WHERE agency_key = ?" if agency_filter else ""}
-    """, params).fetchone()
+    stats = conn.execute(
+        "SELECT COUNT(DISTINCT po_number) as total_pos, "
+        "COUNT(DISTINCT supplier) as total_suppliers, "
+        "SUM(grand_total) as total_spend, "
+        "COUNT(DISTINCT institution) as total_institutions, "
+        "COUNT(DISTINCT agency_key) as total_agencies, "
+        "MIN(start_date) as earliest_po, "
+        "MAX(start_date) as latest_po "
+        "FROM scprs_po_master"
+        + (" WHERE 1=1" + agency_clause_no_alias if agency_filter else ""),
+        params
+    ).fetchone()
 
     conn.close()
 
@@ -1344,22 +1366,38 @@ def search_scprs_data(query: str, search_type: str = "all",
     Dedicated SCPRS search. Search POs, suppliers, items, buyers.
 
     search_type: all | supplier | item | buyer | po | institution
+
+    Bug fix 2026-04-27: the `agency` parameter was accepted but never threaded
+    into any of the 5 SQL branches — operator filter was a silent no-op. Now
+    weaves an UPPER-on-both-sides clause into every branch (matches the column
+    case-insensitively because scprs_po_master.agency_key is stored verbatim
+    from AGENCY_REGISTRY keys: "CCHCS", "CalVet", etc.).
     """
     conn = _db()
     q = f"%{query.lower()}%"
     results = {"ok": True, "query": query, "results": []}
 
+    # Build agency clause once. Empty agency → no filter.
+    if agency:
+        ag_clause = " AND UPPER(agency_key) = UPPER(?)"
+        ag_clause_p = " AND UPPER(p.agency_key) = UPPER(?)"  # for joined branches
+        ag_params = (agency,)
+    else:
+        ag_clause = ""
+        ag_clause_p = ""
+        ag_params = ()
+
     if search_type in ("all", "supplier"):
-        rows = conn.execute("""
-            SELECT LOWER(supplier) as supplier, COUNT(DISTINCT po_number) as pos,
-                   SUM(grand_total) as spend, COUNT(DISTINCT institution) as insts,
-                   GROUP_CONCAT(DISTINCT agency_key) as agencies,
-                   GROUP_CONCAT(DISTINCT acq_type) as vehicles
-            FROM scprs_po_master
-            WHERE LOWER(supplier) LIKE ?
-            GROUP BY LOWER(supplier)
-            ORDER BY spend DESC LIMIT ?
-        """, (q, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT LOWER(supplier) as supplier, COUNT(DISTINCT po_number) as pos, "
+            "SUM(grand_total) as spend, COUNT(DISTINCT institution) as insts, "
+            "GROUP_CONCAT(DISTINCT agency_key) as agencies, "
+            "GROUP_CONCAT(DISTINCT acq_type) as vehicles "
+            "FROM scprs_po_master "
+            "WHERE LOWER(supplier) LIKE ?" + ag_clause +
+            " GROUP BY LOWER(supplier) ORDER BY spend DESC LIMIT ?",
+            (q, *ag_params, limit)
+        ).fetchall()
         for r in rows:
             results["results"].append({
                 "type": "supplier", "icon": "🏢",
@@ -1370,18 +1408,19 @@ def search_scprs_data(query: str, search_type: str = "all",
             })
 
     if search_type in ("all", "item"):
-        rows = conn.execute("""
-            SELECT l.description, AVG(l.unit_price) as avg_price,
-                   SUM(l.quantity) as total_qty, SUM(l.line_total) as total_spend,
-                   COUNT(DISTINCT p.supplier) as supplier_count,
-                   COUNT(DISTINCT p.po_number) as po_count,
-                   l.category
-            FROM scprs_po_lines l
-            JOIN scprs_po_master p ON l.po_id = p.id
-            WHERE LOWER(l.description) LIKE ?
-            GROUP BY LOWER(SUBSTR(l.description, 1, 50))
-            ORDER BY total_spend DESC LIMIT ?
-        """, (q, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT l.description, AVG(l.unit_price) as avg_price, "
+            "SUM(l.quantity) as total_qty, SUM(l.line_total) as total_spend, "
+            "COUNT(DISTINCT p.supplier) as supplier_count, "
+            "COUNT(DISTINCT p.po_number) as po_count, "
+            "l.category "
+            "FROM scprs_po_lines l "
+            "JOIN scprs_po_master p ON l.po_id = p.id "
+            "WHERE LOWER(l.description) LIKE ?" + ag_clause_p +
+            " GROUP BY LOWER(SUBSTR(l.description, 1, 50)) "
+            "ORDER BY total_spend DESC LIMIT ?",
+            (q, *ag_params, limit)
+        ).fetchall()
         for r in rows:
             results["results"].append({
                 "type": "item", "icon": "📦",
@@ -1391,16 +1430,16 @@ def search_scprs_data(query: str, search_type: str = "all",
             })
 
     if search_type in ("all", "buyer"):
-        rows = conn.execute("""
-            SELECT buyer_name, buyer_email, institution, agency_key,
-                   COUNT(DISTINCT po_number) as pos,
-                   SUM(grand_total) as spend
-            FROM scprs_po_master
-            WHERE (LOWER(buyer_name) LIKE ? OR LOWER(buyer_email) LIKE ?)
-              AND buyer_email IS NOT NULL AND buyer_email != ''
-            GROUP BY LOWER(buyer_email)
-            ORDER BY spend DESC LIMIT ?
-        """, (q, q, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT buyer_name, buyer_email, institution, agency_key, "
+            "COUNT(DISTINCT po_number) as pos, "
+            "SUM(grand_total) as spend "
+            "FROM scprs_po_master "
+            "WHERE (LOWER(buyer_name) LIKE ? OR LOWER(buyer_email) LIKE ?) "
+            "AND buyer_email IS NOT NULL AND buyer_email != ''" + ag_clause +
+            " GROUP BY LOWER(buyer_email) ORDER BY spend DESC LIMIT ?",
+            (q, q, *ag_params, limit)
+        ).fetchall()
         for r in rows:
             results["results"].append({
                 "type": "buyer", "icon": "👤",
@@ -1409,16 +1448,16 @@ def search_scprs_data(query: str, search_type: str = "all",
             })
 
     if search_type in ("all", "institution"):
-        rows = conn.execute("""
-            SELECT institution, agency_key,
-                   COUNT(DISTINCT po_number) as pos,
-                   SUM(grand_total) as spend,
-                   COUNT(DISTINCT supplier) as suppliers
-            FROM scprs_po_master
-            WHERE LOWER(institution) LIKE ? OR LOWER(dept_name) LIKE ?
-            GROUP BY institution
-            ORDER BY spend DESC LIMIT ?
-        """, (q, q, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT institution, agency_key, "
+            "COUNT(DISTINCT po_number) as pos, "
+            "SUM(grand_total) as spend, "
+            "COUNT(DISTINCT supplier) as suppliers "
+            "FROM scprs_po_master "
+            "WHERE (LOWER(institution) LIKE ? OR LOWER(dept_name) LIKE ?)" + ag_clause +
+            " GROUP BY institution ORDER BY spend DESC LIMIT ?",
+            (q, q, *ag_params, limit)
+        ).fetchall()
         for r in rows:
             results["results"].append({
                 "type": "institution", "icon": "🏛",
@@ -1427,13 +1466,14 @@ def search_scprs_data(query: str, search_type: str = "all",
             })
 
     if search_type in ("all", "po"):
-        rows = conn.execute("""
-            SELECT po_number, supplier, institution, agency_key,
-                   grand_total, start_date, acq_type, status
-            FROM scprs_po_master
-            WHERE po_number LIKE ?
-            ORDER BY start_date DESC LIMIT ?
-        """, (q, limit)).fetchall()
+        rows = conn.execute(
+            "SELECT po_number, supplier, institution, agency_key, "
+            "grand_total, start_date, acq_type, status "
+            "FROM scprs_po_master "
+            "WHERE po_number LIKE ?" + ag_clause +
+            " ORDER BY start_date DESC LIMIT ?",
+            (q, *ag_params, limit)
+        ).fetchall()
         for r in rows:
             results["results"].append({
                 "type": "po", "icon": "📋",
