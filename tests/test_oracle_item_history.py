@@ -213,6 +213,64 @@ class TestOracleField:
         assert "confidence" in body["oracle"]
 
 
+class TestCategoryIntelField:
+    """Phase 4.6 enrichment: item-history response now includes
+    a category_intel sub-object so the existing PC-detail modal can
+    render the loss/win bucket warning without a second fetch."""
+
+    def test_category_intel_field_present(self, client):
+        r = client.get(
+            "/api/oracle/item-history",
+            query_string={"agency": "CDCR",
+                          "description": "Generic Office Pen"},
+        )
+        body = r.get_json()
+        assert "category_intel" in body
+        ci = body["category_intel"]
+        assert "category" in ci
+        assert "danger" in ci
+        assert "warning_text" in ci
+
+    def test_loss_bucket_fires_in_history_response(self, client):
+        # Seed 6 footwear losses so the bucket clears the n>=5 floor
+        # and the < 15% danger threshold.
+        for i in range(6):
+            _seed_quote(
+                f"FW-LOSS-{i}", "lost", "CDCR Sacramento",
+                [{"description": "Propet M3705 Walker Strap White"}],
+            )
+        r = client.get(
+            "/api/oracle/item-history",
+            query_string={"agency": "CDCR Sacramento",
+                          "description": "Propet Walker"},
+        )
+        body = r.get_json()
+        ci = body["category_intel"]
+        assert ci["category"] == "footwear-orthopedic"
+        assert ci["quotes"] >= 6
+        assert ci["danger"] is True
+        assert "LOSS BUCKET" in ci["warning_text"]
+
+    def test_win_bucket_fires_in_history_response(self, client):
+        # Seed 6 incontinence wins.
+        for i in range(6):
+            _seed_quote(
+                f"INC-WIN-{i}", "won", "CDCR Sacramento",
+                [{"description": "TENA ProSkin Adult Brief XL"}],
+            )
+        r = client.get(
+            "/api/oracle/item-history",
+            query_string={"agency": "CDCR Sacramento",
+                          "description": "TENA Brief"},
+        )
+        body = r.get_json()
+        ci = body["category_intel"]
+        assert ci["category"] == "incontinence"
+        assert ci["wins"] >= 6
+        assert ci["danger"] is False
+        assert "WIN BUCKET" in ci["warning_text"]
+
+
 class TestMatchHelpers:
     def test_description_match_high(self):
         s = _description_match_score(
