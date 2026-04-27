@@ -920,6 +920,41 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_scprs_reytech_wins_dept
             ON scprs_reytech_wins(dept_name);
     """),
+
+    (33, "intel_acceptance_log", """
+        -- Phase 4.7.3 of PLAN_PRICING_ENGINE_INTEGRATION.md (2026-04-27).
+        -- Telemetry for the category-intel suggested_alternative swap link.
+        -- Each row = one accept-or-reject decision Mike made on a danger
+        -- bucket suggestion. After 30 days of data, the damping factor
+        -- (currently hand-tuned at 0.5) can be learned from rejection
+        -- rate per bucket.
+        --
+        -- accepted=1 → Mike clicked the swap link (took the lower price)
+        -- accepted=0 → Mike priced something OTHER than the suggestion
+        --              (tracked passively via post-quote autosave diff)
+        CREATE TABLE IF NOT EXISTS intel_acceptance_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            description TEXT NOT NULL,
+            agency TEXT,
+            category TEXT NOT NULL,
+            flavor TEXT NOT NULL,
+            engine_markup_pct REAL,
+            engine_price REAL,
+            suggested_markup_pct REAL,
+            suggested_price REAL,
+            final_price REAL,
+            accepted INTEGER NOT NULL DEFAULT 0,
+            quote_number TEXT,
+            pcid TEXT,
+            recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_intel_accept_category
+            ON intel_acceptance_log(category);
+        CREATE INDEX IF NOT EXISTS idx_intel_accept_recorded
+            ON intel_acceptance_log(recorded_at);
+        CREATE INDEX IF NOT EXISTS idx_intel_accept_agency
+            ON intel_acceptance_log(agency);
+    """),
 ]
 
 

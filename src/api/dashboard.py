@@ -5277,6 +5277,7 @@ _ROUTE_MODULES = [
     "routes_oracle_item_history",  # Phase 4.2: buyer-product pricing history lookup
     "routes_oracle_win_rate",      # Phase 4.4: per-agency win-rate analytics rollup
     "routes_oracle_category_intel", # Phase 4.6: category loss-bucket warnings (footwear 0/111)
+    "routes_oracle_intel_acceptance", # Phase 4.7.3: telemetry for category-intel suggestion accept/reject
     "routes_cost_alerts",          # Phase 4.3: catalog-cost change detection + triage queue
 ]
 
