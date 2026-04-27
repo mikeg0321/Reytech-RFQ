@@ -264,16 +264,23 @@ def check_pc_award(pc: dict) -> dict | None:
         
         with get_db() as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute("""
-                SELECT p.po_number, p.supplier, p.grand_total, p.start_date, p.buyer_email,
-                       l.description, l.unit_price, l.quantity
-                FROM scprs_po_master p
-                JOIN scprs_po_lines l ON l.po_id = p.id
-                WHERE p.dept_code = ?
-                  AND p.start_date >= ?
-                  AND (" + term_clauses + ")
-                ORDER BY p.start_date DESC LIMIT 10
-            """, [dept_code, pc_created] + term_params).fetchall()
+            # Bug fix 2026-04-27: `" + term_clauses + "` was sitting as
+            # LITERAL TEXT inside the triple-quoted SQL — Python concat never
+            # happened. Same root cause as PR #484 (scprs_universal_pull) and
+            # PR #611 (scprs_intelligence_engine): commit 8fe34398f introduced
+            # this anti-pattern across multiple files when "fixing" SQL
+            # injection by rewriting f-strings into `+` concat but leaving the
+            # `+` operators inside the surrounding triple-quote.
+            rows = conn.execute(
+                "SELECT p.po_number, p.supplier, p.grand_total, p.start_date, "
+                "p.buyer_email, l.description, l.unit_price, l.quantity "
+                "FROM scprs_po_master p "
+                "JOIN scprs_po_lines l ON l.po_id = p.id "
+                "WHERE p.dept_code = ? AND p.start_date >= ? "
+                "AND (" + term_clauses + ") "
+                "ORDER BY p.start_date DESC LIMIT 10",
+                [dept_code, pc_created] + term_params
+            ).fetchall()
         
         if not rows:
             return None
@@ -381,13 +388,16 @@ def get_price_suggestions(items: list, institution: str = "") -> list:
                 
                 clauses = " AND ".join(["LOWER(item_summary) LIKE ?" for _ in words])
                 like_params = [f"%{w}%" for w in words]
-                rows = conn.execute("""
-                    SELECT competitor_name, competitor_price, our_price, 
-                           price_delta_pct, found_at, agency, po_number
-                    FROM competitor_intel
-                    WHERE " + clauses + " AND outcome='lost'
-                    ORDER BY found_at DESC LIMIT 3
-                """, like_params).fetchall()
+                # Bug fix 2026-04-27: same broken-Python-in-SQL pattern as
+                # check_pc_award above and PR #611. clauses was literal text.
+                rows = conn.execute(
+                    "SELECT competitor_name, competitor_price, our_price, "
+                    "price_delta_pct, found_at, agency, po_number "
+                    "FROM competitor_intel "
+                    "WHERE " + clauses + " AND outcome='lost' "
+                    "ORDER BY found_at DESC LIMIT 3",
+                    like_params
+                ).fetchall()
                 
                 for row in rows:
                     r = dict(row)
