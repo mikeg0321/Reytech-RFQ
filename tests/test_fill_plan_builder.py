@@ -128,7 +128,8 @@ class TestStatusResolution:
             plan = build_fill_plan("PC-1", "pc", quote_data=q)
         it = next(it for it in plan.items if it.form_id == "703b")
         assert it.status == STATUS_MISSING_FIELDS
-        assert "vendor.name" in it.missing_critical
+        # Enhancement C: missing list now uses concept names not raw semantics
+        assert "vendor_name" in it.missing_critical
         assert "signature" in it.missing_critical
 
     def test_no_profile_when_form_id_unregistered(self):
@@ -145,12 +146,16 @@ class TestStatusResolution:
 
 class TestRollup:
     def test_totals_match_item_buckets(self):
-        # 1 ready, 1 generic, 1 no_profile
+        # Enhancement C: 703b critical = vendor_name + signature only.
+        # 704b critical = vendor_name + signature + items_unit_price.
+        # ready: 703b_cdcr_folsom buyer-specific with vendor.name + signature_field
+        # generic: 704b_std with vendor.name + signature_field + items[0].unit_price
+        # no_profile: bogus form
         ready = _profile("703b_cdcr_folsom", "703b",
                          agency_match=["cdcr_folsom"],
-                         fields=[_f("vendor.name"), _f("items[0].unit_price")])
+                         fields=[_f("vendor.name")])  # sig via signature_field default
         generic = _profile("704b_std", "704b",
-                           fields=[_f("vendor.name")])  # signature via field
+                           fields=[_f("vendor.name"), _f("items[0].unit_price")])
         q = _quote(requirements={"forms_required": ["703b", "704b", "bogus"]})
         with patch("src.agents.fill_plan_builder._load_profiles_safe",
                    return_value={"703b_cdcr_folsom": ready, "704b_std": generic}), \
@@ -159,9 +164,9 @@ class TestRollup:
                                  {"name": "CDCR Folsom", "required_forms": []})):
             plan = build_fill_plan("PC-1", "pc", quote_data=q)
         assert plan.total_required == 3
-        assert plan.total_ready == 1
-        assert plan.total_warning == 1   # generic_fallback
-        assert plan.total_blocked == 1   # no_profile
+        assert plan.total_ready == 1     # 703b_cdcr_folsom
+        assert plan.total_warning == 1   # 704b_std generic_fallback
+        assert plan.total_blocked == 1   # bogus → no_profile
 
 
 class TestContractSourceLabel:

@@ -50,30 +50,86 @@ FORM_DISPLAY_NAMES = {
 }
 
 
-# ─── Critical field expectations per form_type ─────────────────────────────
-# These are the fields that, if not mapped, mean the form will fill
-# "incorrectly enough that a buyer would reject it." Extend over time.
-CRITICAL_SEMANTICS = {
-    "703b":         ["vendor.name", "signature", "items[n].unit_price"],
-    "703c":         ["vendor.name", "signature", "items[n].unit_price"],
-    "704a":         ["vendor.name", "signature"],
-    "704b":         ["vendor.name", "signature", "items[n].unit_price"],
-    "dvbe843":      ["vendor.name", "signature"],
-    "darfur_act":   ["vendor.name", "signature"],
-    "cv012_cuf":    ["vendor.name", "signature"],
-    "calrecycle74": ["vendor.name", "signature"],
-    "bidder_decl":  ["vendor.name", "signature"],
-    "std204":       ["vendor.name", "vendor.fein", "signature"],
-    "std205":       ["vendor.name", "signature"],
-    "std1000":      ["vendor.name", "signature"],
-    "sellers_permit": ["vendor.name"],
-    "w9":           ["vendor.name", "vendor.fein", "signature"],
-    "drug_free":    ["vendor.name", "signature"],
-    "obs_1600":     ["vendor.name", "signature"],
-    "quote":        ["vendor.name", "items[n].unit_price"],
-    "cchcs_it_rfq": ["vendor.name", "signature", "items[n].unit_price"],
+# ─── Critical concepts: alias lists per real semantic vocabulary ──────────
+# Enhancement C (2026-04-27): chrome-verify revealed the panel was
+# falsely flagging profiles that DO map equivalent fields under
+# different semantic names. Survey of all 17 committed profiles
+# informed these alias lists.
+CRITICAL_CONCEPTS = {
+    "vendor_name": [
+        "vendor.business_name", "vendor.name", "supplier.name",
+    ],
+    "vendor_fein": [
+        "vendor.fein", "vendor.fein_2", "vendor.tax_id",
+    ],
+    "signature": [
+        "vendor.signature", "signatures.primary", "signatures.owner1",
+        "signer.name", "signer.printed_name",
+        "signer.printed_name_and_title",
+    ],
+    "items_unit_price": [
+        "items[n].unit_price",  # canonical row template; see _profile_satisfies_concept
+    ],
 }
-_DEFAULT_CRITICAL = ["signature"]
+
+# Per-form_type required CONCEPTS. 703B/703C are header/cert forms — no
+# item rows live there (those go on 704A/704B); reflect that here.
+CRITICAL_CONCEPTS_PER_FORM = {
+    "703b":         ["vendor_name", "signature"],
+    "703c":         ["vendor_name", "signature"],
+    "704a":         ["vendor_name", "signature", "items_unit_price"],
+    "704b":         ["vendor_name", "signature", "items_unit_price"],
+    "dvbe843":      ["vendor_name", "signature"],
+    "darfur_act":   ["vendor_name", "signature"],
+    "cv012_cuf":    ["vendor_name", "signature"],
+    "calrecycle74": ["vendor_name", "signature"],
+    "bidder_decl":  ["vendor_name", "signature"],
+    "std204":       ["vendor_name", "vendor_fein", "signature"],
+    "std205":       ["vendor_name", "signature"],
+    "std1000":      ["vendor_name", "signature"],
+    "sellers_permit": ["vendor_name"],
+    "w9":           ["vendor_name", "vendor_fein", "signature"],
+    "drug_free":    ["vendor_name", "signature"],
+    "obs_1600":     ["vendor_name", "signature"],
+    "quote":        ["vendor_name", "items_unit_price"],
+    "cchcs_it_rfq": ["vendor_name", "signature", "items_unit_price"],
+}
+_DEFAULT_CRITICAL_CONCEPTS = ["signature"]
+
+
+# Backwards-compat shim — older callers import CRITICAL_SEMANTICS
+CRITICAL_SEMANTICS = CRITICAL_CONCEPTS_PER_FORM
+_DEFAULT_CRITICAL = _DEFAULT_CRITICAL_CONCEPTS
+
+
+def _profile_satisfies_concept(profile, concept: str) -> bool:
+    """Does the profile cover this critical concept by any alias?
+
+    Three branches:
+      1. signature — also satisfied by signature_field set OR by
+         raw_yaml.signature being a non-empty dict (overlay-mode
+         signatures don't use a form field but ARE handled at fill time)
+      2. items_* — match any items[*] semantic with the concept's suffix
+      3. all other concepts — direct alias equality
+    """
+    aliases = CRITICAL_CONCEPTS.get(concept, [])
+    mapped = {fm.semantic for fm in getattr(profile, "fields", [])}
+
+    if concept == "signature":
+        if (getattr(profile, "signature_field", "") or "").strip():
+            return True
+        sig_decl = (getattr(profile, "raw_yaml", {}) or {}).get("signature")
+        if isinstance(sig_decl, dict) and sig_decl:
+            return True
+        # Fall through to alias check
+
+    if concept.startswith("items_"):
+        suffix = concept.replace("items_", "")
+        return any(
+            ("items[" in m) and (suffix in m) for m in mapped
+        )
+
+    return any(alias in mapped for alias in aliases)
 
 
 # ─── Status taxonomy ───────────────────────────────────────────────────────
@@ -355,7 +411,11 @@ def _build_item(form_id: str, agency_key: str, required_by: list,
                 profiles: dict, attached: list) -> FillPlanItem:
     """Resolve a single required form to a FillPlanItem."""
     name = FORM_DISPLAY_NAMES.get(form_id, form_id)
-    critical = list(CRITICAL_SEMANTICS.get(form_id, _DEFAULT_CRITICAL))
+    concepts = list(CRITICAL_CONCEPTS_PER_FORM.get(
+        form_id, _DEFAULT_CRITICAL_CONCEPTS,
+    ))
+    # critical_fields is the user-facing label list (UI uses it as-is)
+    critical = list(concepts)
 
     # Find candidate profiles for this form_id
     candidates = [p for p in profiles.values()
@@ -390,27 +450,17 @@ def _build_item(form_id: str, agency_key: str, required_by: list,
             notes=["Profiles exist for this form but none apply to this buyer"],
         )
 
-    # Detect missing critical fields
-    mapped = {fm.semantic for fm in getattr(chosen, "fields", [])}
-    sig_field = (getattr(chosen, "signature_field", "") or "").strip()
-    if sig_field:
-        mapped.add("signature")
-    # Treat indexed semantics (items[n].unit_price) as covered if any items[*]
-    # mapping exists — profiles use items[0..n] expansion
-    has_items_unit_price = any(
-        m.startswith("items[") and "unit_price" in m for m in mapped
-    )
-    missing = []
-    for c in critical:
-        if c == "signature":
-            if not sig_field and "signature" not in mapped:
-                missing.append(c)
-        elif c.startswith("items[") and "unit_price" in c:
-            if not has_items_unit_price:
-                missing.append(c)
-        else:
-            if c not in mapped:
-                missing.append(c)
+    # Detect missing critical CONCEPTS via alias-aware satisfaction check.
+    # Enhancement C: handles vendor.business_name/vendor.name, signer.* as
+    # signature, raw_yaml.signature dict for overlay-mode signatures, etc.
+    # static_attach profiles ship the pre-printed PDF verbatim — no fields
+    # to map → no critical-field check needed.
+    fill_mode = (getattr(chosen, "fill_mode", "") or "").lower()
+    if fill_mode == "static_attach":
+        missing = []
+    else:
+        missing = [c for c in concepts
+                   if not _profile_satisfies_concept(chosen, c)]
 
     status = base_status if not missing else STATUS_MISSING_FIELDS
 
