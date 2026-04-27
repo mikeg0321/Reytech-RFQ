@@ -160,3 +160,37 @@ class TestRealProfileSatisfaction:
             f"static_attach mis-flagged: {item.missing_critical}"
         assert item.status in ("ready", "generic_fallback"), \
             f"unexpected status: {item.status}"
+
+    def test_generated_profile_skips_critical_checks(self):
+        # quote_reytech_letterhead is fill_mode=generated — reportlab synthesizes
+        # the PDF from scratch; vendor name and item prices are baked into the
+        # generator function, not mapped through field semantics. Field-level
+        # critical checks would always falsely flag them as missing.
+        from src.agents.fill_plan_builder import build_fill_plan
+        from src.forms.profile_registry import load_profiles
+        from unittest.mock import patch
+        import json
+
+        profiles = load_profiles() or {}
+        if "quote_reytech_letterhead" not in profiles:
+            pytest.skip("quote_reytech_letterhead not present")
+
+        quote = {
+            "id": "PC-Q", "agency": "CCHCS",
+            "institution": "CCHCS",
+            "requirements_json": json.dumps({"forms_required": ["quote"]}),
+            "source_file": "",
+        }
+        with patch("src.agents.fill_plan_builder._load_profiles_safe",
+                   return_value=profiles), \
+             patch("src.agents.fill_plan_builder._resolve_agency",
+                   return_value=("cchcs",
+                                 {"name": "CCHCS", "required_forms": []})), \
+             patch("src.agents.fill_plan_builder._list_attachments",
+                   return_value=[]):
+            plan = build_fill_plan("PC-Q", "pc", quote_data=quote)
+        item = next(it for it in plan.items if it.form_id == "quote")
+        assert item.missing_critical == [], \
+            f"generated mis-flagged: {item.missing_critical}"
+        assert item.status in ("ready", "generic_fallback"), \
+            f"unexpected status: {item.status}"

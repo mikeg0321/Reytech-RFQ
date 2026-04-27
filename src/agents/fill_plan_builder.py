@@ -453,10 +453,11 @@ def _build_item(form_id: str, agency_key: str, required_by: list,
     # Detect missing critical CONCEPTS via alias-aware satisfaction check.
     # Enhancement C: handles vendor.business_name/vendor.name, signer.* as
     # signature, raw_yaml.signature dict for overlay-mode signatures, etc.
-    # static_attach profiles ship the pre-printed PDF verbatim — no fields
-    # to map → no critical-field check needed.
+    # static_attach (pre-printed PDF) and generated (reportlab-synthesized,
+    # like quote_reytech_letterhead) both bypass field mapping → no
+    # critical-field check needed.
     fill_mode = (getattr(chosen, "fill_mode", "") or "").lower()
-    if fill_mode == "static_attach":
+    if fill_mode in ("static_attach", "generated"):
         missing = []
     else:
         missing = [c for c in concepts
