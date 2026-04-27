@@ -127,3 +127,51 @@ def test_health_quoting_html_renders_email_poll_card(auth_client):
     )
     # The lag stat must be visible (defaulted to '—' when no data)
     assert "Last successful poll" in body
+
+
+# ── gmail_send card on the same JSON payload (Plan §4.3 sub-2) ──────────
+
+
+GMAIL_SEND_KEYS = {
+    "status", "last_send_at", "lag_seconds", "lag_human",
+    "sent_24h", "sent_7d", "failed_24h", "pending_drafts", "last_error",
+}
+
+
+def test_api_health_quoting_exposes_gmail_send_shape(auth_client):
+    """Plan §4.3 sub-2: the gmail_send card must be present on the JSON
+    payload so the same downstream monitors that already alert on poller
+    lag can alert on send-side outages too."""
+    resp = auth_client.get("/api/health/quoting?days=1")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+
+    gs = data.get("gmail_send")
+    assert gs is not None, (
+        "gmail_send missing from JSON payload — downstream monitors "
+        "will break. Check routes_health.quoting_health_json()."
+    )
+    missing = GMAIL_SEND_KEYS - set(gs.keys())
+    assert not missing, f"gmail_send missing keys: {missing}"
+
+    assert gs["status"] in (
+        "healthy", "warn", "stale", "error", "unknown"
+    )
+
+
+def test_health_quoting_html_renders_gmail_send_card(auth_client):
+    """Plan §4.3 sub-2: the HTML page renders the gmail_send card without
+    UndefinedError AND the 'Gmail send' string appears so the operator
+    sees the card title. Chrome MCP follow-up captures visual render
+    post-deploy."""
+    resp = auth_client.get("/health/quoting")
+    assert resp.status_code == 200, resp.data[:500]
+    body = resp.data.decode("utf-8", errors="replace")
+    assert "Gmail send" in body, (
+        "/health/quoting HTML missing the 'Gmail send' card — "
+        "template render swallowed an error or the card block "
+        "didn't merge. Inspect quoting_health.html around the "
+        "{% set _gs = gmail_send %} block."
+    )
+    assert "Last successful send" in body

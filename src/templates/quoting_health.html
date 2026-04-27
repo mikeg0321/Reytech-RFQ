@@ -246,6 +246,57 @@
   </div>
 </div>
 
+{# ── Gmail send health (Plan §4.3 sub-2) ── #}
+{# Companion to the Email poller card: are we DELIVERING quotes? If sends #}
+{# fail silently (OAuth lapsed, quota tripped, SMTP misconfigured) drafts #}
+{# pile up while no buyer ever sees a quote — operator has no signal until #}
+{# someone pings them. Card mirrors the inbound-poll card shape; both feed #}
+{# the §4.1 KPI gap. Status priority: error > stale > warn > healthy. #}
+{% set _gs = gmail_send|default({}) %}
+{% set _gs_border = '#f85149' if _gs.status in ('error', 'stale')
+                    else '#d29922' if _gs.status == 'warn'
+                    else '#3fb950' if _gs.status == 'healthy'
+                    else '#8b949e' %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {{ _gs_border }}">
+  <div class="card-t">Gmail send</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+    {{ stat(_gs.lag_human|default('—'), 'Last successful send',
+            '#3fb950' if _gs.status == 'healthy'
+             else '#d29922' if _gs.status == 'warn'
+             else '#f85149' if _gs.status in ('error', 'stale')
+             else '#8b949e') }}
+    {{ stat(_gs.sent_24h|default(0), 'Sent (24h)',
+            '#3fb950' if (_gs.sent_24h|default(0)) > 0 else '#8b949e') }}
+    {{ stat(_gs.failed_24h|default(0), 'Failed (24h)',
+            '#f85149' if (_gs.failed_24h|default(0)) > 0 else '#8b949e') }}
+    {{ stat(_gs.pending_drafts|default(0), 'Pending drafts',
+            '#d29922' if (_gs.pending_drafts|default(0)) > 5
+             else '#58a6ff' if (_gs.pending_drafts|default(0)) > 0
+             else '#8b949e') }}
+  </div>
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+    {% if _gs.status == 'error' %}
+      <strong style="color:#f85149">⚠ {{ _gs.failed_24h }} send failure(s) in last 24h.</strong>
+      {% if _gs.last_error %}
+        <code style="font-size:12px">{{ _gs.last_error }}</code>
+      {% endif %}
+      Check <a href="/outbox" style="color:#58a6ff">/outbox</a> + Gmail OAuth scopes.
+    {% elif _gs.status == 'stale' %}
+      <strong style="color:#f85149">⚠ No successful send in over 7 days.</strong>
+      Reytech baseline cadence is multi-quote/day; either OAuth/quota broke
+      or operator hasn't been sending. Check <a href="/outbox" style="color:#58a6ff">/outbox</a>.
+    {% elif _gs.status == 'warn' %}
+      <strong style="color:#d29922">⚠ Last send {{ _gs.lag_human }}.</strong>
+      Quiet but not broken — sends do work, just no recent activity.
+    {% elif _gs.status == 'unknown' %}
+      No <code>email_outbox</code> rows yet. Either fresh boot or no sends ever happened.
+    {% else %}
+      Last successful send {{ _gs.lag_human }}; {{ _gs.sent_24h }} delivered in last 24h.
+      JSON mirror at <a href="/api/health/quoting" style="color:#58a6ff">/api/health/quoting</a>.
+    {% endif %}
+  </div>
+</div>
+
 {# ── CCHCS PC→RFQ link handoff ── #}
 {% set _pl = pc_rfq_link|default({}) %}
 <div class="card" style="margin-bottom:14px">
