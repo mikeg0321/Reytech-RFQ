@@ -449,6 +449,7 @@ def quoting_health_page():
         "oracle_calibration": oracle_cal,
         "pc_rfq_link": _build_pc_rfq_link_health(),
         "email_poll": _build_email_poll_card(),
+        "gmail_send": _build_gmail_send_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -535,6 +536,7 @@ def quoting_health_json():
         "cert_health": _build_cert_health(),
         "bid_memory_health": _build_bid_memory_health(),
         "email_poll": _build_email_poll_card(),
+        "gmail_send": _build_gmail_send_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
@@ -804,6 +806,118 @@ def _build_email_poll_card(poll_status=None):
         "error": (error or "")[:200],
         "emails_found_lifetime": emails_found,
     }
+
+
+def _build_gmail_send_card():
+    """Gmail outbound-send health — companion to the inbound poll card
+    (Plan §4.3 sub-2).
+
+    The poll card surfaces "are we receiving RFQs"; this card surfaces
+    "are we delivering quotes". Both gaps degrade the §4.1 KPI in
+    different directions. If OAuth lapses, quota trips, or the SMTP
+    fallback misconfigures, sends start failing silently — drafts pile
+    up in /outbox while no buyer ever sees a quote, and the operator
+    has no signal until a buyer pings them.
+
+    Reads `email_outbox` directly. Status semantics:
+      • `error`    — ≥1 send failed in last 24h (`failed` /
+                     `permanently_failed`) — red
+      • `stale`    — last successful send >7d ago — red, since Reytech's
+                     baseline cadence is multi-quote/day during business
+                     weeks
+      • `warn`     — last successful send 24h-7d ago — amber, quiet but
+                     not broken
+      • `healthy`  — sent within 24h with zero failures in 24h — green
+      • `unknown`  — `email_outbox` unreadable / never had a sent row —
+                     grey (fresh-boot or schema-missing scenario)
+
+    The 24h failure check uses `created_at` (when the row was queued)
+    rather than `sent_at` (which only fills on success), so a recent
+    failure is visible whether the row was ever resent or not.
+    """
+    result = {
+        "status": "unknown",
+        "last_send_at": "",
+        "lag_seconds": None,
+        "lag_human": "—",
+        "sent_24h": 0,
+        "sent_7d": 0,
+        "failed_24h": 0,
+        "pending_drafts": 0,
+        "last_error": "",
+    }
+    try:
+        with get_db() as conn:
+            agg = conn.execute("""
+                SELECT
+                    MAX(CASE WHEN status='sent' THEN sent_at END) AS last_sent_at,
+                    SUM(CASE WHEN status='sent'
+                              AND sent_at IS NOT NULL AND sent_at != ''
+                              AND datetime(sent_at) >= datetime('now','-1 day')
+                             THEN 1 ELSE 0 END) AS sent_24h,
+                    SUM(CASE WHEN status='sent'
+                              AND sent_at IS NOT NULL AND sent_at != ''
+                              AND datetime(sent_at) >= datetime('now','-7 days')
+                             THEN 1 ELSE 0 END) AS sent_7d,
+                    SUM(CASE WHEN status IN ('failed','permanently_failed')
+                              AND created_at IS NOT NULL AND created_at != ''
+                              AND datetime(created_at) >= datetime('now','-1 day')
+                             THEN 1 ELSE 0 END) AS failed_24h,
+                    SUM(CASE WHEN status IN ('draft','cs_draft','outreach_draft',
+                                             'follow_up_draft','queued','approved')
+                             THEN 1 ELSE 0 END) AS pending_drafts
+                FROM email_outbox
+            """).fetchone()
+    except Exception as e:
+        log.debug("gmail_send_card aggregate read failed: %s", e)
+        return result
+    if not agg:
+        return result
+
+    last_sent = (agg["last_sent_at"] or "").strip()
+    result["last_send_at"] = last_sent
+    result["sent_24h"] = int(agg["sent_24h"] or 0)
+    result["sent_7d"] = int(agg["sent_7d"] or 0)
+    result["failed_24h"] = int(agg["failed_24h"] or 0)
+    result["pending_drafts"] = int(agg["pending_drafts"] or 0)
+
+    if last_sent:
+        try:
+            from datetime import timezone as _tz
+            dt = datetime.fromisoformat(last_sent)
+            now = datetime.now(_tz.utc) if dt.tzinfo else datetime.now()
+            result["lag_seconds"] = max(0, int((now - dt).total_seconds()))
+            result["lag_human"] = _format_lag(result["lag_seconds"])
+        except (ValueError, TypeError):
+            pass
+
+    if result["failed_24h"] > 0:
+        try:
+            with get_db() as conn:
+                row = conn.execute("""
+                    SELECT last_error FROM email_outbox
+                    WHERE status IN ('failed','permanently_failed')
+                      AND created_at IS NOT NULL AND created_at != ''
+                      AND datetime(created_at) >= datetime('now','-1 day')
+                    ORDER BY created_at DESC LIMIT 1
+                """).fetchone()
+            if row and row["last_error"]:
+                result["last_error"] = str(row["last_error"])[:200]
+        except Exception as e:
+            log.debug("gmail_send_card last_error read failed: %s", e)
+
+    if result["failed_24h"] > 0:
+        result["status"] = "error"
+    elif result["lag_seconds"] is None:
+        result["status"] = "unknown"
+    elif result["lag_seconds"] > 7 * 86400:
+        result["status"] = "stale"
+    elif result["lag_seconds"] > 86400:
+        result["status"] = "warn"
+    else:
+        result["status"] = "healthy"
+
+    return result
 
 
 @bp.route("/api/health/db-bloat")
