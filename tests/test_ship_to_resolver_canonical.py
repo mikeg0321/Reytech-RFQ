@@ -78,3 +78,28 @@ def test_facade_address_format_matches_legacy_for_smoke():
     # at the address_line1/line2 boundary plus one inside the city
     # line. Catches accidental tuple-return regressions.
     assert out.count(",") >= 2
+
+
+def test_institution_resolver_no_longer_carries_facility_addresses():
+    """Absence guard — Plan §4.2 / S2 follow-up (2026-04-27).
+
+    `_FACILITY_ADDRESSES` was a parallel-universe dict on
+    institution_resolver that duplicated addresses canonically owned by
+    `facility_registry.FacilityRecord`. It was deleted because zero
+    external callers consumed `get_ship_to_address` (the only reader)
+    after `ship_to_resolver` migrated to `quote_contract.ship_to_for_text`.
+
+    If a future PR re-introduces either name on institution_resolver,
+    this test fires so the parallel dict can't grow back. New facility
+    addresses MUST be added to `facility_registry._SEED` instead.
+    """
+    from src.core import institution_resolver
+    assert not hasattr(institution_resolver, "_FACILITY_ADDRESSES"), (
+        "institution_resolver._FACILITY_ADDRESSES is back. Add new facility "
+        "addresses to facility_registry._SEED — there is one canonical source."
+    )
+    assert not hasattr(institution_resolver, "get_ship_to_address"), (
+        "institution_resolver.get_ship_to_address is back. Use "
+        "quote_contract.ship_to_for_text(text) instead — it resolves "
+        "through the canonical facility_registry."
+    )

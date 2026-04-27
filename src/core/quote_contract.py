@@ -63,10 +63,14 @@ shape every renderer needs. If the canonical registry changes, call
   fallback had stale audit-W data ("300 Prison Road" for CSP-SAC) and
   zero callers, so removing it both eliminates a regression timebomb
   and shrinks the surface to one canonical source.
-- Migrate `institution_resolver._FACILITY_ADDRESSES` into
-  `FacilityRecord.mailing_address` fields on the canonical registry.
-  (Currently institution_resolver carries a parallel-universe dict
-  with 3 read sites — needs its own migration with Chrome verify.)
+- ~~Migrate `institution_resolver._FACILITY_ADDRESSES` into
+  `FacilityRecord` fields on the canonical registry.~~ DONE in S2
+  follow-up PR (2026-04-27). Canonical FacilityRecord already carried
+  `address_line1`/`address_line2` for every facility; the parallel
+  dict + its sole reader `get_ship_to_address` were deleted (zero
+  external callers — `ship_to_resolver` migrated to
+  `ship_to_for_text` on 2026-04-25). Absence-guard test in
+  `test_ship_to_resolver_canonical.py` blocks regrowth.
 """
 from __future__ import annotations
 
@@ -301,17 +305,15 @@ def ship_to_for_text(text: str) -> str:
     """Return a comma-joined ship-to address for free-text input, or "" on
     no match. Resolves through canonical `facility_registry.resolve()` then
     returns `"line1, line2"` from the FacilityRecord — never the raw
-    operator text. The output format mirrors what
-    `institution_resolver.get_ship_to_address` historically returned, so
-    callers migrating off institution_resolver get a drop-in replacement
-    without changing string assumptions downstream.
+    operator text. Output format ("line1, line2") matches what the legacy
+    `institution_resolver.get_ship_to_address` returned, so any caller
+    that migrated off the legacy helper picked up a drop-in shape.
 
     Used by `ship_to_resolver.lookup_buyer_ship_to` as the canonical
-    fallback after PO history + CRM lookup miss. Going through this facade
-    instead of importing `institution_resolver.get_ship_to_address`
-    directly keeps ship_to_resolver out of the architectural-ratchet
-    allowlist and lets a future PR delete `_FACILITY_ADDRESSES` from
-    institution_resolver without touching renderer code.
+    fallback after PO history + CRM lookup miss. As of 2026-04-27 the
+    legacy `_FACILITY_ADDRESSES` parallel dict + `get_ship_to_address`
+    function are deleted from institution_resolver — this facade is the
+    only ship-to resolver path.
     """
     rec, _reason = resolve_facility_for_text(text)
     if rec is None:

@@ -128,8 +128,8 @@ These are the *quoting-specific* hardening items. Every one of them is a regress
 ### 4.1 Operator-KPI telemetry
 A single SQLite event: `operator_quote_sent` with `(quote_id, ts, time_to_send_seconds, item_count, agency_key)`. Surfaced on `/analytics` as **"Quotes sent this week × median time-to-send"**. This is the first chart Mike checks every morning. If `time_to_send_seconds > 90` for a 1-item quote, that's a red flag we investigate.
 
-### 4.2 S2 follow-up: drop `_FACILITY_ADDRESSES` parallel dict
-`core/institution_resolver.py:163-167` reads a parallel facility-address dict. Fold into `FacilityRecord.mailing_address` on `core/facility_registry.py`. 3 read sites. Chrome-MCP verify required (per `feedback_workflow_ui_chrome_verify`).
+### 4.2 S2 follow-up: drop `_FACILITY_ADDRESSES` parallel dict — ✅ CLOSED 2026-04-27
+`core/institution_resolver.py` no longer carries a parallel facility-address dict. Audit found the only reader was `get_ship_to_address` in the same file (zero external callers — `ship_to_resolver` had migrated to `quote_contract.ship_to_for_text` on 2026-04-25). Both deleted. Canonical `FacilityRecord` already held `address_line1`/`address_line2` for every facility; the pre-existing 5-test cross-source consistency suite confirmed parity before deletion (then itself removed as vestigial). Replaced with an absence-guard ratchet in `test_ship_to_resolver_canonical.py`.
 
 ### 4.3 `/health/quoting` becomes the operator's ONLY ops page
 Roll up: DB health, email poll lag, Gmail send health, golden-path test status, last 5 quotes' `cost_source` chips, `/agents` health endpoints (from 3.1), drift counters from S3 prep.
