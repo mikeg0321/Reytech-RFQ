@@ -186,8 +186,32 @@ window.openItemHistory = function(idx){
     }
     var s = d.stats || {};
     var o = d.oracle || {};
+    var ci = d.category_intel || null;
     var quotesRows = (d.matches && d.matches.quotes) || [];
     var kbRows = (d.matches && d.matches.kb) || [];
+
+    // Category-intel banner (Phase 4.6 — top of modal, most prominent).
+    // Red for danger=true, green for WIN BUCKET, hidden if no signal.
+    var categoryIntelHtml = '';
+    if (ci && ci.warning_text) {
+      var isLoss = !!ci.danger;
+      var bg = isLoss ? 'rgba(248,81,73,.10)' : 'rgba(46,204,113,.10)';
+      var border = isLoss ? 'rgba(248,81,73,.45)' : 'rgba(46,204,113,.45)';
+      var color = isLoss ? '#f85149' : '#2ecc71';
+      var icon = isLoss ? '⚠' : '✓';
+      var rate = (ci.win_rate_pct === null || ci.win_rate_pct === undefined) ? '—' : ci.win_rate_pct.toFixed(1) + '%';
+      categoryIntelHtml = '<div style="background:' + bg + ';border:1.5px solid ' + border + ';border-radius:6px;padding:12px 14px;margin-bottom:14px">' +
+        '<div style="font-size:11px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">Category bucket signal</div>' +
+        '<div style="font-size:15px;color:' + color + ';margin-top:4px;font-weight:600">' + icon + ' ' + escapeHtml(ci.warning_text) + '</div>' +
+        '<div style="font-size:12px;color:#8b949e;margin-top:4px">Bucket: <b style="color:#c9d1d9">' + escapeHtml(ci.category_label || ci.category || '') + '</b> · ' + (ci.wins||0) + 'w / ' + (ci.losses||0) + 'l (' + rate + ')</div>' +
+      '</div>';
+    } else if (ci && ci.category && ci.category !== 'uncategorized' && (ci.quotes || 0) >= 1) {
+      // Neutral mode: bucket known but not loud — still show small stat row
+      var rateNeutral = (ci.win_rate_pct === null || ci.win_rate_pct === undefined) ? '—' : ci.win_rate_pct.toFixed(1) + '%';
+      categoryIntelHtml = '<div style="background:rgba(139,148,158,.06);border:1px solid rgba(139,148,158,.20);border-radius:6px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:#8b949e">' +
+        'Category: <b style="color:#c9d1d9">' + escapeHtml(ci.category_label || ci.category) + '</b> · ' + (ci.wins||0) + 'w / ' + (ci.losses||0) + 'l (' + rateNeutral + ')' +
+      '</div>';
+    }
 
     // Stat strip
     var winRate = (s.win_rate_pct === null || s.win_rate_pct === undefined) ? '—' : s.win_rate_pct.toFixed(0) + '%';
@@ -255,7 +279,7 @@ window.openItemHistory = function(idx){
       rowsHtml = '<div style="color:#8b949e;text-align:center;padding:14px;font-size:12px">No prior bids found for this buyer × item.</div>';
     }
 
-    body.innerHTML = stripHtml + oracleHtml + pricesHtml + rowsHtml;
+    body.innerHTML = categoryIntelHtml + stripHtml + oracleHtml + pricesHtml + rowsHtml;
   }).catch(function(e){
     var body = document.getElementById('rt-item-history-body');
     if (body) body.innerHTML = '<div style="color:#f85149;padding:12px">Network error: ' + escapeHtml(String(e)) + '</div>';
