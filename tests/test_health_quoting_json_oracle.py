@@ -77,3 +77,53 @@ def test_api_health_quoting_reports_populated_oracle_stats(auth_client, temp_dat
     # 5 / (5 + 13) = 27.78%
     assert cal["win_rate_pct"] == 27.8
     assert cal["is_stale"] is False
+
+
+# ── email_poll card on the same JSON payload (Plan §4.3) ───────────────
+
+
+EMAIL_POLL_KEYS = {
+    "status", "running", "paused", "last_check_at",
+    "lag_seconds", "lag_human", "error", "emails_found_lifetime",
+}
+
+
+def test_api_health_quoting_exposes_email_poll_shape(auth_client):
+    """Plan §4.3: the email_poll card must be present on the JSON payload
+    so external monitors can alert on poller lag without scraping HTML."""
+    resp = auth_client.get("/api/health/quoting?days=1")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+
+    ep = data.get("email_poll")
+    assert ep is not None, (
+        "email_poll missing from JSON payload — downstream monitors "
+        "will break. Check routes_health.quoting_health_json()."
+    )
+    missing = EMAIL_POLL_KEYS - set(ep.keys())
+    assert not missing, f"email_poll missing keys: {missing}"
+
+    assert ep["status"] in (
+        "healthy", "warn", "stale", "paused", "error", "unknown"
+    )
+
+
+def test_health_quoting_html_renders_email_poll_card(auth_client):
+    """Plan §4.3: the HTML page renders the new card without UndefinedError
+    AND the user-facing 'Email poller' string appears. This is the closest
+    we get to Chrome verify without Chrome MCP — it proves the Jinja
+    template binding doesn't crash on the new fields and the title is
+    visible. Chrome MCP follow-up captures the visual render post-deploy."""
+    resp = auth_client.get("/health/quoting")
+    assert resp.status_code == 200, resp.data[:500]
+    body = resp.data.decode("utf-8", errors="replace")
+    # Card title must be present so the operator sees it in the page
+    assert "Email poller" in body, (
+        "/health/quoting HTML missing the 'Email poller' card — "
+        "template render swallowed an error or the card block "
+        "didn't merge. Inspect quoting_health.html around the "
+        "{% set _ep = email_poll %} block."
+    )
+    # The lag stat must be visible (defaulted to '—' when no data)
+    assert "Last successful poll" in body

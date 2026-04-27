@@ -448,6 +448,7 @@ def quoting_health_page():
         "catalog_health": _build_catalog_health(),
         "oracle_calibration": oracle_cal,
         "pc_rfq_link": _build_pc_rfq_link_health(),
+        "email_poll": _build_email_poll_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -533,6 +534,7 @@ def quoting_health_json():
         "registry_health": _build_registry_health(),
         "cert_health": _build_cert_health(),
         "bid_memory_health": _build_bid_memory_health(),
+        "email_poll": _build_email_poll_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
@@ -702,6 +704,101 @@ def _build_db_health():
     except Exception:
         pass
     return result
+
+
+def _format_lag(seconds):
+    """Render an integer-second lag as 'Ns ago' / 'Nm ago' / 'Nh ago' /
+    'Nd ago'. Returns '—' for None so the template never renders 'None'.
+    Used by `_build_email_poll_card`; broken out so tests can pin the
+    exact thresholds."""
+    if seconds is None:
+        return "—"
+    if seconds < 60:
+        return f"{seconds}s ago"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    return f"{seconds // 86400}d ago"
+
+
+def _build_email_poll_card(poll_status=None):
+    """Email poller lag — front-of-funnel KPI signal (Plan §4.3).
+
+    If polling is stalled the operator never sees the next RFQ, so
+    time-to-send blows out and the §4.1 KPI degrades. This card surfaces
+    the same `POLL_STATUS` dict that `/api/poll-now` returns, but in a
+    passive read so the dashboard can render without triggering a fresh
+    poll cycle.
+
+    Status semantics (matched against the ~60s default poll cadence):
+      • `error`    — last cycle returned an exception (red)
+      • `paused`   — operator-paused via /api/email/pause (amber)
+      • `stale`    — no successful check in >15 minutes (red)
+      • `warn`     — no successful check in 5–15 minutes (amber)
+      • `healthy`  — last check within 5 minutes (green)
+      • `unknown`  — POLL_STATUS unavailable or never populated (grey)
+
+    `poll_status` is injectable for tests. At runtime callers pass nothing
+    and the fallback imports it from `src.api.dashboard` (the exec()-into-
+    dashboard module-loading pattern means it lives there at runtime).
+    """
+    if poll_status is None:
+        try:
+            from src.api import dashboard as _dash
+            poll_status = getattr(_dash, "POLL_STATUS", None)
+        except Exception as e:
+            log.debug("POLL_STATUS lookup failed: %s", e)
+            poll_status = None
+    if not isinstance(poll_status, dict):
+        return {
+            "status": "unknown", "running": None, "paused": None,
+            "last_check_at": "", "lag_seconds": None, "lag_human": "—",
+            "error": "", "emails_found_lifetime": 0,
+        }
+
+    last_check = (poll_status.get("last_check") or "").strip()
+    paused = bool(poll_status.get("paused"))
+    running = bool(poll_status.get("running"))
+    error = (poll_status.get("error") or "")
+    emails_found = int(poll_status.get("emails_found") or 0)
+
+    lag_seconds = None
+    if last_check:
+        try:
+            # last_check is ISO-format from datetime.now().isoformat();
+            # slice to 19 chars to drop any fractional-second tail.
+            dt = datetime.fromisoformat(last_check[:19])
+            lag_seconds = max(0, int((datetime.now() - dt).total_seconds()))
+        except (ValueError, TypeError):
+            pass
+
+    # Status priority: error > paused > stale > warn > healthy > unknown.
+    # `error` wins even if poll later succeeded once — operator should
+    # see the recent failure surfaced. Cleared on next clean cycle.
+    if error:
+        status = "error"
+    elif paused:
+        status = "paused"
+    elif lag_seconds is None:
+        status = "unknown"
+    elif lag_seconds > 900:
+        status = "stale"
+    elif lag_seconds > 300:
+        status = "warn"
+    else:
+        status = "healthy"
+
+    return {
+        "status": status,
+        "running": running,
+        "paused": paused,
+        "last_check_at": last_check,
+        "lag_seconds": lag_seconds,
+        "lag_human": _format_lag(lag_seconds),
+        "error": (error or "")[:200],
+        "emails_found_lifetime": emails_found,
+    }
 
 
 @bp.route("/api/health/db-bloat")
