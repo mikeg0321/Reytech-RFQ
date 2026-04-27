@@ -5281,6 +5281,7 @@ _ROUTE_MODULES = [
     "routes_fill_plan",            # Phase 1.6 PR3a: email-contract → fill-plan binder (read-only)
     "routes_training_corpus",      # Phase 1.6 PR3g: 12-month training-base bootstrap + coverage report
     "routes_forms_drift",          # Phase 1.6 PR3i: monthly forms-drift monitor
+    "routes_buyer_templates",      # Phase 1.6 PR3c: buyer-template auto-capture (fingerprint+register)
 ]
 
 for _mod in _ROUTE_MODULES:
