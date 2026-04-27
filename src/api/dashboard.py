@@ -5278,6 +5278,7 @@ _ROUTE_MODULES = [
     "routes_oracle_win_rate",      # Phase 4.4: per-agency win-rate analytics rollup
     "routes_oracle_category_intel", # Phase 4.6: category loss-bucket warnings (footwear 0/111)
     "routes_oracle_intel_acceptance", # Phase 4.7.3: telemetry for category-intel suggestion accept/reject
+    "routes_oracle_weekly",        # 2026-04-27: weekly digest of calibration + buckets + swap-link telemetry
     "routes_cost_alerts",          # Phase 4.3: catalog-cost change detection + triage queue
     "routes_fill_plan",            # Phase 1.6 PR3a: email-contract → fill-plan binder (read-only)
     "routes_training_corpus",      # Phase 1.6 PR3g: 12-month training-base bootstrap + coverage report
