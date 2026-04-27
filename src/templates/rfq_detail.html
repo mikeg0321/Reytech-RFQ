@@ -4141,11 +4141,19 @@ function submitMarkSent(ev) {
         var attached = it.buyer_template_filename
           ? '<span style="color:#58a6ff;font-size:11px;margin-left:6px">📎 ' + esc(it.buyer_template_filename) + '</span>'
           : '';
+        var candBadge = '';
+        if (it.candidate_id && it.candidate_id > 0) {
+          candBadge = '<span style="color:#f0883e;font-size:11px;margin-left:6px;font-weight:700"'
+            + ' title="Buyer\'s blank fingerprint not in any FormProfile yet — promote to fix">'
+            + '🆕 NEW VARIANT</span>'
+            + '<span style="color:#8b949e;font-size:10px;margin-left:4px">'
+            + 'fp ' + esc(it.candidate_fingerprint || '') + ' · seen ' + it.candidate_seen_count + 'x</span>';
+        }
         return '<div style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-left:3px solid '
           + s.br + ';background:' + s.bg + ';margin:2px 0;border-radius:3px;font-size:13px">'
           + '<span style="color:' + s.fg + ';font-weight:700;font-size:11px;min-width:120px">' + s.label + '</span>'
           + '<span style="color:#c9d1d9">' + esc(it.form_name) + '</span>'
-          + profileBadge + attached + missing
+          + profileBadge + attached + candBadge + missing
           + '</div>';
       }).join('');
       panel.innerHTML = '<div class="card" style="padding:12px 16px">' + hdr + rows + '</div>';

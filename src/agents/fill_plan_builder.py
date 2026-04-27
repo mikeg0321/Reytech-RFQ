@@ -99,6 +99,14 @@ class FillPlanItem:
     critical_fields: list = field(default_factory=list)
     missing_critical: list = field(default_factory=list)
     notes: list = field(default_factory=list)
+    # Enhancement B: candidate-badge surface. When the buyer attached a
+    # blank PDF whose fingerprint isn't covered by an existing FormProfile,
+    # the panel renders a "🆕 NEW VARIANT" badge linking to a promotion
+    # workflow. Populated only when buyer_template_capture has registered
+    # the fingerprint as a candidate.
+    candidate_id: int = 0            # buyer_template_candidates.id (0 = none)
+    candidate_fingerprint: str = ""  # truncated to 16 hex chars for display
+    candidate_seen_count: int = 0    # how many times we've seen this variant
 
 
 @dataclass
@@ -410,6 +418,14 @@ def _build_item(form_id: str, agency_key: str, required_by: list,
     # contains form_id or a known token)
     buyer_pdf = _find_buyer_blank(form_id, attached)
 
+    # Enhancement B: candidate-badge surface. If the buyer attached a
+    # blank for this form AND we have a candidate row for its
+    # fingerprint, surface the candidate metadata so the panel can
+    # render "🆕 NEW VARIANT" with a promote link.
+    cand_id, cand_fp, cand_seen = _candidate_for_attachment(
+        form_id, agency_key, attached, buyer_pdf,
+    )
+
     return FillPlanItem(
         form_id=form_id, form_name=name, required_by=required_by,
         status=status,
@@ -419,6 +435,9 @@ def _build_item(form_id: str, agency_key: str, required_by: list,
         buyer_template_filename=buyer_pdf,
         critical_fields=critical,
         missing_critical=missing,
+        candidate_id=cand_id,
+        candidate_fingerprint=cand_fp,
+        candidate_seen_count=cand_seen,
     )
 
 
@@ -444,6 +463,50 @@ def _find_buyer_blank(form_id: str, attached: list) -> str:
         if any(n in name for n in needles):
             return f["filename"]
     return ""
+
+
+def _candidate_for_attachment(form_id: str, agency_key: str,
+                              attached: list, buyer_pdf_filename: str) -> tuple:
+    """Look up a buyer_template_candidates row for the attached blank.
+
+    Returns (candidate_id, fingerprint_truncated, seen_count). Empty
+    tuple equivalents (0, "", 0) when no candidate found, or when the
+    table doesn't exist (older deploys). Defensive — never raises.
+    """
+    if not attached or not buyer_pdf_filename:
+        return (0, "", 0)
+    try:
+        from src.agents.buyer_template_capture import _fingerprint_attachment
+        from src.core.db import get_db
+    except ImportError:
+        return (0, "", 0)
+
+    # Find the attachment dict matching this filename
+    target = None
+    for a in attached:
+        if (a.get("filename") or "") == buyer_pdf_filename:
+            target = a
+            break
+    if not target:
+        return (0, "", 0)
+
+    try:
+        fp, _, _ = _fingerprint_attachment(target)
+        if not fp:
+            return (0, "", 0)
+        agency = (agency_key or "").lower().strip()
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT id, seen_count FROM buyer_template_candidates
+                   WHERE fingerprint = ? AND agency_key = ?
+                   LIMIT 1""",
+                (fp, agency),
+            ).fetchone()
+            if row:
+                return (row["id"], fp[:16], row["seen_count"])
+    except Exception as e:
+        log.debug("_candidate_for_attachment suppressed: %s", e)
+    return (0, "", 0)
 
 
 def _contract_source_label(contract: dict, attached: list) -> str:
