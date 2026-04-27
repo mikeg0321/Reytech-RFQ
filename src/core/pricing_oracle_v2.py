@@ -134,6 +134,19 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     result["tiers"] = rec.pop("tiers", [])
     result["recommendation"] = rec
 
+    # Step 6a (Phase 4.7): Category-intel modulation. Fine-grained
+    # per-bucket signal can lower the engine's markup (flavor A),
+    # suggest an alternative (flavor B — default), or hard-block
+    # (flavor C). Driven by env CATEGORY_INTEL_FLAVOR. Sidecar field
+    # `result["recommendation"]["category_intel"]` is always present
+    # so consumers can inspect the signal regardless of action taken.
+    try:
+        from src.core.category_intel_modulation import apply_category_intel
+        apply_category_intel(result["recommendation"], description,
+                             department or "", db, cost=cost)
+    except Exception as _cie:
+        log.debug("category_intel modulation skipped: %s", _cie)
+
     # Step 6b: Volume-Aware band (Phase B). Historical line-margin band
     # for this (agency, qty_bucket). Surfaced as supplementary signal;
     # becomes a ceiling constraint when flag is on and sample is dense.
