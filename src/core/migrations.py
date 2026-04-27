@@ -1267,8 +1267,12 @@ def run_migrations():
 
                 try:
                     conn.executescript(sql)
+                    # OR IGNORE so duplicate version numbers in MIGRATIONS list
+                    # (legacy: v32 has both cost_alerts and buyer_template_candidates)
+                    # don't abort the loop on PK conflict. CREATE TABLE IF NOT EXISTS
+                    # already guarantees DDL idempotence.
                     conn.execute(
-                        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
+                        "INSERT OR IGNORE INTO schema_migrations (version, name, applied_at) VALUES (?,?,?)",
                         (version, name, datetime.now().isoformat())
                     )
                     applied += 1
