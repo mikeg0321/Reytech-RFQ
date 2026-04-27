@@ -65,9 +65,17 @@ def _get_recent_scprs_pos(agency: str, months: int = 3) -> list:
         from src.agents.sales_intel import _load_json as _il, BUYERS_FILE as _BF
         buyers = _il(_BF)
         buyer_list = buyers.get("buyers", []) if isinstance(buyers, dict) else buyers
-        agency_lower = agency.lower()
+        # intel_buyers.json may store expanded SCPRS agency names
+        # ("California Correctional Health Care Services") — operator UI
+        # passes "CCHCS" abbreviation. Expand to full pattern list.
+        try:
+            from src.core.agency_config import resolve_agency_patterns
+            agency_patterns = resolve_agency_patterns(agency or "")
+        except Exception:
+            agency_patterns = [agency.lower()] if agency else []
         for b in buyer_list:
-            if agency_lower not in (b.get("agency") or "").lower():
+            row_a = (b.get("agency") or "").lower()
+            if agency_patterns and not any(p in row_a for p in agency_patterns):
                 continue
             for po in b.get("recent_pos", b.get("purchase_orders", [])):
                 try:
