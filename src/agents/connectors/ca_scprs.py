@@ -104,9 +104,17 @@ class CASCPRSConnector(BaseConnector):
         try:
             from src.agents.scprs_lookup import FIELD_DEPT
             raw = self.session.search(from_date=from_str)
-            # Filter to this agency
+            # SCPRS dept fields store expanded names ("California Correctional
+            # Health Care Services") — operator passes "CCHCS" abbreviation.
+            # Expand to full pattern list before substring matching.
+            try:
+                from src.core.agency_config import resolve_agency_patterns
+                patterns = resolve_agency_patterns(agency or "")
+            except Exception:
+                patterns = [(agency or "").lower()] if agency else []
             filtered = [r for r in (raw or [])
-                        if agency.lower() in (r.get("dept", "") or "").lower()]
+                        if any(p in (r.get("dept", "") or "").lower()
+                               for p in patterns)]
             return [self.normalize(r) for r in filtered]
         except Exception as e:
             log.error("SCPRS agency search '%s' failed: %s", agency, e)
