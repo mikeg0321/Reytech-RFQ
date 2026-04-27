@@ -148,21 +148,40 @@ def build_fill_plan(quote_id: str, quote_type: str,
     agency_key, agency_cfg = _resolve_agency(quote_data)
     agency_required = list(agency_cfg.get("required_forms", []))
 
-    # 3. Merge required forms — agency baseline + contract additions
-    contract_required = list(contract.get("forms_required", []))
-    effective_required = _merge_required(agency_required, contract_required)
-
-    # 4. Profile registry + attached files
+    # 3. Profile registry + attached files
     profiles = _load_profiles_safe()
     attached = _list_attachments(quote_id, quote_type)
 
+    # 3b. PR3b: parse PDF attachments for additional contract data.
+    # Often the buyer's "Bid Instructions" PDF is the real forms list;
+    # the email body just says "see attached." Without this, the
+    # contract is incomplete and the panel under-reports requirements.
+    attachment_required = _attachment_required_forms(attached)
+    if attachment_required:
+        existing = list(contract.get("forms_required", []))
+        for f in attachment_required:
+            if f and f not in existing:
+                existing.append(f)
+        contract["forms_required"] = existing
+        contract["forms_required_from_attachments"] = attachment_required
+
+    # 4. Merge required forms — agency baseline + contract additions
+    contract_required = list(contract.get("forms_required", []))
+    effective_required = _merge_required(agency_required, contract_required)
+
     # 5. Build per-form items
+    attachment_required_set = set(
+        contract.get("forms_required_from_attachments") or []
+    )
     items = []
     for form_id in effective_required:
+        rb = _required_by_for(form_id, agency_required, contract_required)
+        if form_id in attachment_required_set and "attachment_contract" not in rb:
+            rb = list(rb) + ["attachment_contract"]
         item = _build_item(
             form_id=form_id,
             agency_key=agency_key,
-            required_by=_required_by_for(form_id, agency_required, contract_required),
+            required_by=rb,
             profiles=profiles,
             attached=attached,
         )
@@ -261,6 +280,22 @@ def _required_by_for(form_id: str, agency_required: list,
     if form_id in contract_required:
         sources.append("email_contract")
     return sources or ["unknown"]
+
+
+def _attachment_required_forms(attached: list) -> list:
+    """Run the regex extractor over PDF attachments and return the
+    union of required form_ids. Defensive — never raises."""
+    if not attached:
+        return []
+    try:
+        from src.agents.attachment_contract_parser import (
+            parse_attachments_for_requirements,
+        )
+        merged = parse_attachments_for_requirements(attached)
+        return list(getattr(merged, "forms_required", []) or [])
+    except Exception as e:
+        log.debug("_attachment_required_forms suppressed: %s", e)
+        return []
 
 
 def _load_profiles_safe() -> dict:
@@ -412,10 +447,16 @@ def _find_buyer_blank(form_id: str, attached: list) -> str:
 
 
 def _contract_source_label(contract: dict, attached: list) -> str:
-    has_contract = bool(contract.get("forms_required") or contract.get("due_date"))
-    has_attachments = bool(attached)
-    if has_contract and has_attachments:
+    has_email = bool(contract.get("forms_required") or contract.get("due_date"))
+    has_attach_extracted = bool(contract.get("forms_required_from_attachments"))
+    has_attach_files = bool(attached)
+    if has_email and has_attach_extracted:
         return "email+attachment"
-    if has_contract:
+    if has_attach_extracted:
+        return "attachment"
+    if has_email:
         return "email"
+    if has_attach_files:
+        # attachments present but parser found nothing parseable
+        return "email" if contract else "agency_only"
     return "agency_only"
