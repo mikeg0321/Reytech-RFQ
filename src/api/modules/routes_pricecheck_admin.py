@@ -2838,6 +2838,11 @@ def api_pc_oracle_auto_price(pcid):
                     "delta_pct": delta_pct,
                 }
 
+            # Phase 4.7: surface the category-intel sidecar so the
+            # PC-detail price cell can render the danger banner +
+            # suggested_alternative swap link inline.
+            cat_intel = rec.get("category_intel")
+
             item_recs.append({
                 "idx": idx,
                 "skip": False,
@@ -2852,6 +2857,7 @@ def api_pc_oracle_auto_price(pcid):
                 "data_confidence": rec.get("data_confidence", ""),
                 "qty": qty,
                 "cost_alert": cost_alert,
+                "category_intel": cat_intel,
             })
 
         # ═══ Pass 2: Portfolio-level optimization ═══

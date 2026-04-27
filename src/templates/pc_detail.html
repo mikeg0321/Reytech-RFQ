@@ -2303,6 +2303,49 @@
           var mkp=((it.recommended_price-actualCost)/actualCost*100);
           markupEl.value=Math.round(mkp);
         }
+        // Phase 4.7: category-intel swap link. When the engine flagged this
+        // item's bucket as a known loser AND emitted a damped suggestion,
+        // surface a one-click "↓ swap" button under the price input.
+        // Mike sees both numbers; the click swaps the input + flashes
+        // confirmation so the operator knows the swap fired.
+        var ci = it.category_intel || null;
+        var altPrice = ci && ci.suggested_alternative
+                       ? ci.suggested_alternative.quote_price : null;
+        if (priceEl && ci && altPrice && altPrice > 0
+            && Math.abs(altPrice - it.recommended_price) > 0.01) {
+          var priceTd = priceEl.parentNode;
+          if (priceTd) {
+            // Drop any prior swap link from a previous run
+            var prior = priceTd.querySelector('.rt-cat-swap');
+            if (prior) prior.remove();
+            var swap = document.createElement('div');
+            swap.className = 'rt-cat-swap';
+            swap.style.cssText = 'margin-top:4px;font-size:11px';
+            var label = ci.danger ? '🔴 LOSS BUCKET' : '⚠';
+            swap.innerHTML = '<span style="color:#f85149">' + label + '</span>'
+              + ' · <a href="#" class="rt-swap-link" '
+              + 'style="color:#58a6ff;text-decoration:underline;cursor:pointer">↓ swap to $'
+              + altPrice.toFixed(2) + '</a>';
+            priceTd.appendChild(swap);
+            var lnk = swap.querySelector('.rt-swap-link');
+            if (lnk) {
+              lnk.addEventListener('click', function(e){
+                e.preventDefault();
+                priceEl.value = altPrice.toFixed(2);
+                priceEl.style.transition = 'background .5s';
+                priceEl.style.background = '#f8514933';
+                setTimeout(function(){ priceEl.style.background = ''; }, 1500);
+                // Recalc markup from cost
+                if (markupEl && actualCost > 0) {
+                  var newMkp = ((altPrice - actualCost) / actualCost * 100);
+                  markupEl.value = Math.round(newMkp);
+                }
+                swap.innerHTML = '<span style="color:#2ecc71">✓ swapped to $'
+                  + altPrice.toFixed(2) + '</span>';
+              });
+            }
+          }
+        }
         // Add recommendation badge to the # cell
         var numCell=row.querySelector('td:first-child');
         if(numCell){
