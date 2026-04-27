@@ -37,6 +37,7 @@ from src.forms.profile_registry import (
     FormProfile,
     load_profiles,
     match_profile,
+    match_profile_for_agency,
 )
 from src.forms.parse_engine import parse, ParseWarning
 from src.forms.fill_engine import fill, approve_and_sign
@@ -89,9 +90,19 @@ def pick_profile(
         candidate_pdfs.append(pdf_hint)
     candidate_pdfs.extend(quote.provenance.parsed_from_files)
 
+    # Phase 1.6 PR2: agency-aware match. When a buyer-specific profile
+    # exists for the same fingerprint, it overrides the generic standard.
+    # Falls back to generic when no buyer-specific is committed yet, so
+    # this change is safe to roll out before any per-buyer YAMLs land.
+    agency_for_lookup = (
+        getattr(quote.header, "agency_key", "") or
+        getattr(quote.header, "institution_key", "") or
+        ""
+    )
+
     for pdf in candidate_pdfs:
         if pdf and os.path.exists(pdf):
-            matched = match_profile(pdf, profiles)
+            matched = match_profile_for_agency(pdf, profiles, agency_for_lookup)
             if matched:
                 return matched
 
