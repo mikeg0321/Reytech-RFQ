@@ -144,8 +144,15 @@ def api_bundle_send(bundle_id):
 
         data = request.get_json(force=True, silent=True) or {}
         to_email = data.get("to") or bundle_pcs[0].get("requestor_email", "")
-        if not to_email or "@" not in to_email:
-            return jsonify({"ok": False, "error": "No valid recipient email"})
+        # Stricter than just "@" — catch typo'd domains, missing TLDs, etc.
+        # Audit 2026-04-27 P0 #4.
+        try:
+            from src.core.validators import validate_email, ValidationError
+            to_email = validate_email(to_email or "")
+            if not to_email:
+                raise ValidationError("recipient email is empty")
+        except ValidationError as ve:
+            return jsonify({"ok": False, "error": f"Invalid recipient: {ve}"}), 400
 
         # Find bundle PDF
         bundle_pdf = bundle_pcs[0].get("bundle_output_pdf", "")
