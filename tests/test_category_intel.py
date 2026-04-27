@@ -144,6 +144,49 @@ class TestCategoryIntelEndpoint:
         assert body["quotes"] == 4
         assert body["danger"] is False
 
+    def test_danger_fires_at_actual_footwear_rate(self, client):
+        # Real prod data shows footwear at 12.9% — ensure the
+        # threshold is loose enough to flag it. Seed 4 wins / 27
+        # losses (matches live as of 2026-04-26).
+        for i in range(4):
+            _seed_quote(
+                f"CI-FW-WIN-{i}", "won",
+                [{"description": "Propet Walker"}]
+            )
+        for i in range(27):
+            _seed_quote(
+                f"CI-FW-LOSS-{i}", "lost",
+                [{"description": "Propet Walker"}]
+            )
+        r = client.get(
+            "/api/oracle/category-intel?description=Propet+Walker"
+        )
+        body = r.get_json()
+        assert body["quotes"] == 31
+        assert body["win_rate_pct"] == 12.9
+        assert body["danger"] is True
+
+    def test_win_bucket_fires_at_56_percent(self, client):
+        # Real prod data shows incontinence at 56.4% — ensure the
+        # green threshold catches it. Seed 22 wins / 17 losses.
+        for i in range(22):
+            _seed_quote(
+                f"CI-INC-WIN-{i}", "won",
+                [{"description": "TENA Adult Brief XL"}]
+            )
+        for i in range(17):
+            _seed_quote(
+                f"CI-INC-LOSS-{i}", "lost",
+                [{"description": "TENA Adult Brief XL"}]
+            )
+        r = client.get(
+            "/api/oracle/category-intel?description=TENA+Adult+Brief"
+        )
+        body = r.get_json()
+        assert body["win_rate_pct"] == 56.4
+        assert body["danger"] is False
+        assert "WIN BUCKET" in body["warning_text"]
+
     def test_quote_with_multiple_items_same_cat_counts_once(self, client):
         # A single quote with 3 footwear items should count as ONE
         # quote in the bucket — not three.
