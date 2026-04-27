@@ -989,6 +989,39 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_intel_accept_agency
             ON intel_acceptance_log(agency);
     """),
+
+    (34, "operator_quote_sent_telemetry", """
+        -- Plan §4.1 of PLAN_ONCE_AND_FOR_ALL.md (2026-04-27).
+        -- KPI is "1 quote sent in <90 seconds." Until now we had no
+        -- way to MEASURE that — quote send fired without a timer.
+        --
+        -- One row per Mark Sent click. quote_id is the canonical
+        -- pcid/rfq_id (whichever flavor of quote was sent). started_at
+        -- is when the operator opened the detail page (or first edit
+        -- if we can't get that — falls back to created_at).
+        -- time_to_send_seconds = sent_at - started_at, computed at
+        -- ingest time so analytics aren't paying the cost.
+        --
+        -- agency_key + item_count let us slice by buyer × complexity:
+        -- "median time-to-send for 1-item CCHCS quotes this week."
+        CREATE TABLE IF NOT EXISTS operator_quote_sent (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quote_id TEXT NOT NULL,
+            quote_type TEXT NOT NULL DEFAULT 'pc',
+            sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+            started_at TEXT,
+            time_to_send_seconds INTEGER,
+            item_count INTEGER DEFAULT 0,
+            agency_key TEXT DEFAULT '',
+            quote_total REAL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_operator_quote_sent_at
+            ON operator_quote_sent(sent_at);
+        CREATE INDEX IF NOT EXISTS idx_operator_quote_sent_agency
+            ON operator_quote_sent(agency_key);
+        CREATE INDEX IF NOT EXISTS idx_operator_quote_sent_quote
+            ON operator_quote_sent(quote_id);
+    """),
 ]
 
 

@@ -316,6 +316,21 @@ def api_rfq_mark_sent_manually(rid):
     except Exception as _e:
         log.debug("DAL update_rfq_status(sent) suppressed: %s", _e)
 
+    # Plan §4.1: KPI telemetry — measure time-to-send for the <90s KPI.
+    # Best-effort; never blocks the mark-sent flip.
+    try:
+        from src.core.operator_kpi import log_quote_sent
+        _items = r.get("items") or r.get("line_items") or []
+        log_quote_sent(
+            quote_id=rid, quote_type="rfq",
+            started_at=r.get("created_at") or r.get("opened_at"),
+            item_count=len(_items),
+            agency_key=(r.get("agency_key") or r.get("agency") or ""),
+            quote_total=float(r.get("total") or 0),
+        )
+    except Exception as _kpi_e:
+        log.debug("KPI logging suppressed: %s", _kpi_e)
+
     # Fire on_sent hooks. Each wrapped so one failure cannot block the
     # mark-sent flip — the status write is the source of truth; hooks are
     # best-effort archive/log side-effects.
