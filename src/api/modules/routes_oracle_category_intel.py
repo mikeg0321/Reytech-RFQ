@@ -210,6 +210,47 @@ def api_oracle_category_intel():
     })
 
 
+@bp.route("/api/oracle/category-intel-flavor")
+@auth_required
+def api_oracle_category_intel_flavor():
+    """Phase 4.7 introspection: report which modulation flavor is
+    active and where the value came from.
+
+    Source values:
+      - 'flag'    → runtime flag oracle.category_intel_flavor is set
+      - 'env'     → env var CATEGORY_INTEL_FLAVOR is set
+      - 'default' → neither set; using B (suggest)
+
+    To flip flavors at runtime without a redeploy:
+      POST /api/admin/flags
+        body: {"key": "oracle.category_intel_flavor", "value": "A"}
+
+    Or delete the flag to fall back to env / default:
+      DELETE /api/admin/flags/oracle.category_intel_flavor
+    """
+    try:
+        from src.core.category_intel_modulation import (
+            _get_flavor_source, FLAG_KEY,
+        )
+        flavor, source = _get_flavor_source()
+        descriptions = {
+            "A": "auto_lower — engine markup damped 50% on danger buckets",
+            "B": "suggest — sidecar suggested_alternative; engine unchanged",
+            "C": "block — hard-block on severe loss buckets (rate<8%, n>=10)",
+            "OFF": "modulation disabled — engine fully untouched",
+        }
+        return jsonify({
+            "ok": True,
+            "flavor": flavor,
+            "source": source,
+            "description": descriptions.get(flavor, "unknown"),
+            "flag_key": FLAG_KEY,
+        })
+    except Exception as e:
+        log.exception("category_intel_flavor")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @bp.route("/api/oracle/category-list")
 @auth_required
 def api_oracle_category_list():

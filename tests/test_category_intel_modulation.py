@@ -233,3 +233,100 @@ class TestUnknownFlavorFallsBackToB:
         os.environ["CATEGORY_INTEL_FLAVOR"] = "ZZZ"
         from src.core.category_intel_modulation import _get_active_flavor
         assert _get_active_flavor() == "B"
+
+
+class TestRuntimeFlagOverride:
+    """Phase 4.7.1: runtime feature flag wins over env var so Mike
+    can flip flavors via /api/admin/flags without a redeploy."""
+
+    def _set_flag(self, value):
+        from src.core.flags import set_flag
+        set_flag("oracle.category_intel_flavor", value,
+                 updated_by="test", description="test")
+
+    def _clear_flag(self):
+        from src.core.flags import delete_flag, _cache
+        delete_flag("oracle.category_intel_flavor")
+        # Bust the per-worker cache too
+        with __import__("threading").RLock():
+            _cache.clear()
+
+    def teardown_method(self):
+        # Always clean up so other tests don't see a stale flag
+        try:
+            self._clear_flag()
+        except Exception:
+            pass
+
+    def test_flag_overrides_env(self, client):
+        os.environ["CATEGORY_INTEL_FLAVOR"] = "B"
+        self._set_flag("A")
+        # Bust the get_flag cache
+        from src.core.flags import _cache
+        _cache.clear()
+        from src.core.category_intel_modulation import _get_active_flavor
+        assert _get_active_flavor() == "A"
+
+    def test_flag_source_attribution(self, client):
+        from src.core.category_intel_modulation import _get_flavor_source
+        from src.core.flags import _cache
+        # Default mode
+        os.environ.pop("CATEGORY_INTEL_FLAVOR", None)
+        _cache.clear()
+        assert _get_flavor_source() == ("B", "default")
+        # Env mode
+        os.environ["CATEGORY_INTEL_FLAVOR"] = "A"
+        _cache.clear()
+        assert _get_flavor_source() == ("A", "env")
+        # Flag mode (wins)
+        self._set_flag("C")
+        _cache.clear()
+        assert _get_flavor_source() == ("C", "flag")
+
+    def test_garbage_flag_value_falls_through(self, client):
+        os.environ["CATEGORY_INTEL_FLAVOR"] = "A"
+        self._set_flag("ZZZ")
+        from src.core.category_intel_modulation import _get_active_flavor
+        from src.core.flags import _cache
+        _cache.clear()
+        # Garbage in flag → falls through to env (A)
+        assert _get_active_flavor() == "A"
+
+
+class TestFlavorIntrospectionEndpoint:
+    """GET /api/oracle/category-intel-flavor reports active mode."""
+
+    def test_returns_default_when_unset(self, client):
+        os.environ.pop("CATEGORY_INTEL_FLAVOR", None)
+        from src.core.flags import _cache
+        _cache.clear()
+        r = client.get("/api/oracle/category-intel-flavor")
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["flavor"] == "B"
+        assert body["source"] == "default"
+        assert "suggest" in body["description"]
+
+    def test_reports_env_source(self, client):
+        os.environ["CATEGORY_INTEL_FLAVOR"] = "A"
+        from src.core.flags import _cache
+        _cache.clear()
+        r = client.get("/api/oracle/category-intel-flavor")
+        body = r.get_json()
+        assert body["flavor"] == "A"
+        assert body["source"] == "env"
+
+    def test_reports_flag_source(self, client):
+        from src.core.flags import set_flag, delete_flag, _cache
+        set_flag("oracle.category_intel_flavor", "C",
+                 updated_by="test", description="test")
+        _cache.clear()
+        try:
+            r = client.get("/api/oracle/category-intel-flavor")
+            body = r.get_json()
+            assert body["flavor"] == "C"
+            assert body["source"] == "flag"
+            assert "block" in body["description"]
+        finally:
+            delete_flag("oracle.category_intel_flavor")
+            _cache.clear()

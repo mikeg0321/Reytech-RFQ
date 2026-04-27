@@ -59,12 +59,55 @@ MIN_QUOTES_FOR_BLOCK = 10
 
 # ── Flavor selection ──────────────────────────────────────────────
 
+FLAG_KEY = "oracle.category_intel_flavor"
+"""Runtime feature flag key — overrides env var. Set via
+POST /api/admin/flags with body {"key": "oracle.category_intel_flavor",
+"value": "A"|"B"|"C"|"OFF"} to flip in <60s without a redeploy."""
+
+
 def _get_active_flavor() -> str:
-    """Read flavor from env. Default 'B' (suggest only — safest)."""
+    """Resolve flavor with this precedence:
+        1. Runtime feature flag `oracle.category_intel_flavor`
+        2. Env var `CATEGORY_INTEL_FLAVOR`
+        3. Default 'B' (suggest only — safest)
+
+    Unknown values fall through to 'B'.
+    """
+    # Try runtime flag first (defensive — flags layer is best-effort)
+    try:
+        from src.core.flags import get_flag
+        flag_val = get_flag(FLAG_KEY, "")
+        if flag_val:
+            raw = str(flag_val).strip().upper()
+            if raw in ("A", "B", "C", "OFF"):
+                return raw
+    except Exception as e:
+        log.debug("flag lookup skipped: %s", e)
+
+    # Fall back to env
     raw = (os.environ.get("CATEGORY_INTEL_FLAVOR") or "B").strip().upper()
     if raw not in ("A", "B", "C", "OFF"):
         return "B"
     return raw
+
+
+def _get_flavor_source() -> tuple[str, str]:
+    """Return (flavor, source). source is 'flag'|'env'|'default'."""
+    try:
+        from src.core.flags import get_flag
+        flag_val = get_flag(FLAG_KEY, "")
+        if flag_val:
+            raw = str(flag_val).strip().upper()
+            if raw in ("A", "B", "C", "OFF"):
+                return (raw, "flag")
+    except Exception:
+        pass
+    env_val = os.environ.get("CATEGORY_INTEL_FLAVOR")
+    if env_val:
+        raw = env_val.strip().upper()
+        if raw in ("A", "B", "C", "OFF"):
+            return (raw, "env")
+    return ("B", "default")
 
 
 # ── Public entry point ────────────────────────────────────────────
