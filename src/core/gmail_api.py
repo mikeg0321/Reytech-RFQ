@@ -327,8 +327,16 @@ def _build_mime_message(
 
     for path in attachment_paths:
         if not os.path.exists(path):
-            log.warning("send_message: attachment not found, skipping: %s", path)
-            continue
+            # Loud-fail: silently skipping a missing attachment causes the
+            # worst kind of silent failure — operator hits "Send Quote",
+            # email goes out with NO PDF, DB marks status=sent, buyer gets
+            # a bare email body. Raise so the caller's outer try/except
+            # surfaces a red error toast and status does NOT get set to sent.
+            raise FileNotFoundError(
+                f"Attachment not found at send time: {path!r}. "
+                f"This is a bug — the file should have existed when the "
+                f"send was queued. Re-generate the PDF and retry."
+            )
         with open(path, "rb") as f:
             part = MIMEBase("application", "octet-stream")
             part.set_payload(f.read())

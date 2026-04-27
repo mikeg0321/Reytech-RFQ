@@ -70,15 +70,18 @@ def test_attachment_produces_multipart_mixed():
         os.unlink(path)
 
 
-def test_missing_attachment_file_is_skipped_with_warning():
-    msg = gmail_api._build_mime_message(
-        to="buyer@example.gov",
-        subject="Quote",
-        body_plain="body",
-        attachments=["/nonexistent/path/quote.pdf"],
-    )
-    parsed = message_from_bytes(msg.as_bytes())
-    assert parsed.get_content_type() == "text/plain"
+def test_missing_attachment_file_raises_loud():
+    """A missing attachment must raise — silent-skip caused operators to
+    hit Send Quote, email went out with no PDF, DB marked sent, buyer
+    received a bare email. Bug found in audit 2026-04-27."""
+    import pytest
+    with pytest.raises(FileNotFoundError, match="Attachment not found"):
+        gmail_api._build_mime_message(
+            to="buyer@example.gov",
+            subject="Quote",
+            body_plain="body",
+            attachments=["/nonexistent/path/quote.pdf"],
+        )
 
 
 def test_cc_appears_in_header_bcc_does_not():
