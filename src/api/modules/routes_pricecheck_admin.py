@@ -5607,6 +5607,21 @@ def api_pc_send_quote(pcid):
         except Exception as _e:
             log.debug("Suppressed: %s", _e)
 
+        # Plan §4.1: KPI telemetry — measure time-to-send for the <90s KPI.
+        # Best-effort; never blocks the send response.
+        try:
+            from src.core.operator_kpi import log_quote_sent
+            _items = pc.get("items") or []
+            log_quote_sent(
+                quote_id=pcid, quote_type="pc",
+                started_at=pc.get("created_at") or pc.get("opened_at"),
+                item_count=len(_items),
+                agency_key=(pc.get("agency_key") or pc.get("agency") or ""),
+                quote_total=float(pc.get("total") or 0),
+            )
+        except Exception as _kpi_e:
+            log.debug("KPI logging suppressed: %s", _kpi_e)
+
         return jsonify({"ok": True, "sent_to": to_email, "quote": qn})
     except Exception as e:
         log.error("PC send-quote: %s", e, exc_info=True)
