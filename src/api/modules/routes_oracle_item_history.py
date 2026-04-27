@@ -23,6 +23,7 @@ from src.api.shared import bp, auth_required
 from src.core.oracle_backfill import (
     _agency_match, _description_match_score,
 )
+from src.core.intel_categories import intel_category
 
 log = logging.getLogger("reytech")
 
@@ -206,6 +207,73 @@ def api_oracle_item_history():
         log.debug("item_history oracle: %s", e)
         oracle["rationale"] = f"oracle unavailable: {e}"
 
+    # ── Category intel (Phase 4.6) ──
+    # Surfaces the bucket-level historical loss/win signal so the
+    # existing modal can render the warning without a second fetch.
+    cat_id, cat_label = intel_category(description)
+    cat_intel = {
+        "category": cat_id,
+        "category_label": cat_label,
+        "danger": False,
+        "warning_text": None,
+        "quotes": 0, "wins": 0, "losses": 0, "win_rate_pct": None,
+    }
+    try:
+        with get_db() as conn:
+            cat_rows = conn.execute("""
+                SELECT status, agency, institution, line_items
+                FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost')
+                  AND line_items IS NOT NULL
+            """).fetchall()
+        cat_q = cat_w = cat_l = 0
+        for r in cat_rows:
+            try:
+                items = json.loads(r["line_items"] or "[]")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(items, list):
+                continue
+            seen = False
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                rid, _ = intel_category(it.get("description") or "")
+                if rid == cat_id:
+                    seen = True
+                    break
+            if not seen:
+                continue
+            cat_q += 1
+            if r["status"] == "won":
+                cat_w += 1
+            elif r["status"] == "lost":
+                cat_l += 1
+        decided = cat_w + cat_l
+        rate = (round(100.0 * cat_w / decided, 1) if decided else None)
+        cat_intel.update({
+            "quotes": cat_q,
+            "wins": cat_w,
+            "losses": cat_l,
+            "win_rate_pct": rate,
+        })
+        # Same thresholds as /api/oracle/category-intel.
+        if cat_q >= 5 and rate is not None:
+            if rate < 15.0:
+                cat_intel["danger"] = True
+                cat_intel["warning_text"] = (
+                    f"LOSS BUCKET: {cat_w}/{cat_q} wins on {cat_label}. "
+                    f"Recalibrate markup before bidding."
+                )
+            elif rate >= 50.0:
+                cat_intel["warning_text"] = (
+                    f"WIN BUCKET: {cat_w}/{cat_q} wins on {cat_label}. "
+                    f"Confident territory."
+                )
+    except Exception as e:
+        log.debug("item_history category intel: %s", e)
+
     # ── Cap matches ──
     matches_quotes = matches_quotes[:limit]
     matches_kb = matches_kb[:limit]
@@ -220,4 +288,5 @@ def api_oracle_item_history():
         },
         "stats": stats,
         "oracle": oracle,
+        "category_intel": cat_intel,
     })
