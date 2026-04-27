@@ -5280,6 +5280,7 @@ _ROUTE_MODULES = [
     "routes_cost_alerts",          # Phase 4.3: catalog-cost change detection + triage queue
     "routes_fill_plan",            # Phase 1.6 PR3a: email-contract → fill-plan binder (read-only)
     "routes_training_corpus",      # Phase 1.6 PR3g: 12-month training-base bootstrap + coverage report
+    "routes_forms_drift",          # Phase 1.6 PR3i: monthly forms-drift monitor
 ]
 
 for _mod in _ROUTE_MODULES:
