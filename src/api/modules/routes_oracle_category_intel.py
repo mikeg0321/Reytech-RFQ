@@ -63,12 +63,18 @@ def _aggregate_category(description: str, agency_filter: str = ""):
         """
         rows = conn.execute(sql).fetchall()
 
-    agency_filter_lc = (agency_filter or "").strip().lower()
+    # Expand agency to all known match-patterns so an "CCHCS" filter still
+    # hits rows stored as "California Correctional Health Care Services".
+    try:
+        from src.core.agency_config import resolve_agency_patterns
+        agency_patterns = resolve_agency_patterns(agency_filter or "")
+    except Exception:
+        agency_patterns = [(agency_filter or "").strip().lower()] if agency_filter else []
 
     for r in rows:
-        if agency_filter_lc:
+        if agency_patterns:
             row_agency = (r["agency"] or r["institution"] or "").lower()
-            if agency_filter_lc not in row_agency:
+            if not any(p in row_agency for p in agency_patterns):
                 continue
         try:
             items = json.loads(r["line_items"] or "[]")
@@ -321,11 +327,15 @@ def api_oracle_category_summary():
         log.exception("category_summary load")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-    agency_lc = agency.lower()
+    try:
+        from src.core.agency_config import resolve_agency_patterns
+        agency_patterns = resolve_agency_patterns(agency)
+    except Exception:
+        agency_patterns = [agency.lower()] if agency else []
     for r in rows:
-        if agency_lc:
+        if agency_patterns:
             row_a = (r["agency"] or r["institution"] or "").lower()
-            if agency_lc not in row_a:
+            if not any(p in row_a for p in agency_patterns):
                 continue
         try:
             items = json.loads(r["line_items"] or "[]")

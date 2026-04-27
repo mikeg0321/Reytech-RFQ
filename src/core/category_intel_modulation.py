@@ -210,14 +210,21 @@ def _bucket_stats(db, cat_id: str, agency: str) -> dict:
           AND line_items IS NOT NULL
     """
     rows = db.execute(sql).fetchall()
-    agency_lc = (agency or "").lower()
+    # Expand agency to all known match-patterns so an "CCHCS" filter still
+    # hits rows stored as "California Correctional Health Care Services".
+    try:
+        from src.core.agency_config import resolve_agency_patterns
+        patterns = resolve_agency_patterns(agency or "")
+    except Exception:
+        patterns = [(agency or "").lower()] if agency else []
 
     quotes = wins = losses = 0
     for r in rows:
-        if agency_lc:
+        if patterns:
             row_a = ((r[1] if isinstance(r, (tuple, list)) else r["agency"]) or
                      (r[2] if isinstance(r, (tuple, list)) else r["institution"]) or "")
-            if agency_lc not in row_a.lower():
+            row_a_lc = row_a.lower()
+            if not any(p in row_a_lc for p in patterns):
                 continue
         try:
             if isinstance(r, (tuple, list)):

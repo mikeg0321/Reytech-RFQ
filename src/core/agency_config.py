@@ -191,6 +191,49 @@ def get_agency_config(agency_key):
     return DEFAULT_AGENCY_CONFIGS.get(resolved, DEFAULT_AGENCY_CONFIGS.get("other", {}))
 
 
+def resolve_agency_patterns(agency: str) -> list[str]:
+    """Return a lowercased list of match-patterns for an agency identifier.
+
+    Used by aggregations (category-intel, oracle modulation, etc.) that need
+    to filter rows in the `quotes` table by agency. The table stores
+    expanded names ("California Correctional Health Care Services") while
+    operators search by abbreviations ("CCHCS"). A naive substring match
+    on the abbreviation matches zero rows.
+
+    Strategy:
+      1. If `agency` is a known config key (or alias), return all of that
+         config's match_patterns lowercased.
+      2. Otherwise, run `match_agency` on it as if it were a free-form
+         agency string, and return the resolved key's patterns.
+      3. Fall back to `[agency.lower()]` so callers always get something.
+
+    Empty input returns `[]` — caller should treat that as "no filter".
+    """
+    if not agency:
+        return []
+    key_in = agency.lower().strip()
+    cfg = DEFAULT_AGENCY_CONFIGS.get(key_in)
+    if cfg is None:
+        # Try alias map (e.g. "cdcr" → "cchcs")
+        _alias_map = {"cdcr": "cchcs", "calvet": "calvet", "cal vet": "calvet",
+                      "cal fire": "calfire", "cal_fire": "calfire"}
+        resolved = _alias_map.get(key_in)
+        if resolved:
+            cfg = DEFAULT_AGENCY_CONFIGS.get(resolved)
+    if cfg is None:
+        # Free-form input — let match_agency resolve it via patterns
+        try:
+            _key, _cfg = match_agency({"agency": agency})
+            if _key and _key != "other":
+                cfg = _cfg
+        except Exception:
+            cfg = None
+    if cfg and isinstance(cfg.get("match_patterns"), list):
+        return [p.lower() for p in cfg["match_patterns"] if p]
+    # Last resort — substring match on input
+    return [key_in]
+
+
 def extract_required_forms_from_text(text):
     """Parse email body or PDF text to detect which forms the buyer is asking for.
 
