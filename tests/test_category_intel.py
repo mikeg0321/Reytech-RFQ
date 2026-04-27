@@ -62,6 +62,38 @@ class TestClassifier:
         )
         assert cat == "snack-food"
 
+    def test_allevyn_foam_dressing_is_gauze_wound(self):
+        cat, _ = intel_category(
+            "Thin Silicone Foam Dressing Allevyn Gentle Border Lite 6 X 6"
+        )
+        assert cat == "gauze-wound"
+
+    def test_elastic_bandage_is_gauze_wound(self):
+        cat, _ = intel_category(
+            "McKesson Brand #16-1033-4 Elastic Bandage 4 Inch X 5 Yard"
+        )
+        assert cat == "gauze-wound"
+
+    def test_back_support_is_splint_brace(self):
+        cat, _ = intel_category(
+            "Scott Specialties Sport-Aid Occupational Back Support Medium"
+        )
+        assert cat == "splint-brace"
+
+    def test_composition_notebook_is_office(self):
+        cat, _ = intel_category(
+            "Three Leaf 80 Ct, 9-3/4 X 7-1/2, Composition Notebook, Wide"
+        )
+        assert cat == "office"
+
+    def test_coloring_pages_is_arts_crafts(self):
+        cat, _ = intel_category("COLORING ART PAGES DIAMOND / 12 PK")
+        assert cat == "arts-crafts"
+
+    def test_brass_letters_is_signage(self):
+        cat, _ = intel_category("Brass Letters Font: Helvetica Bold Size 5\"")
+        assert cat == "signage"
+
     def test_unknown_description_is_uncategorized(self):
         # Categorizer should NOT silently bucket unknown items as
         # 'general' — uncategorized is the honest answer.

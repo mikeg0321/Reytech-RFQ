@@ -42,7 +42,7 @@ _CATEGORIES = [
     ]),
     ("splint-brace", "Splints / Braces / Slings", [
         "splint", "softpro", "brace", "sling", "immobilizer",
-        "wrist support", "ankle support",
+        "wrist support", "ankle support", "back support",
     ]),
     ("catheter-foley", "Catheters (Foley / Urinary)", [
         "catheter", "foley", "urinary drainage", "bardex",
@@ -57,6 +57,7 @@ _CATEGORIES = [
     ("gauze-wound", "Gauze / Wound Dressing", [
         "gauze", "wound dress", "abdominal pad", "abd pad",
         "non-adherent", "non adherent", "abd-pad",
+        "foam dressing", "allevyn", "elastic bandage",
     ]),
     ("sharps-container", "Sharps Containers", [
         "sharps container", "sharpstar", "biohazard container",
@@ -82,6 +83,18 @@ _CATEGORIES = [
         "pen", "pencil", "stapler", "binder clip", "folder",
         "envelope", "post-it", "post it", "highlighter",
         "ink cartridge", "toner cartridge",
+        "notebook", "composition book",
+    ]),
+
+    ("arts-crafts", "Arts / Crafts / Coloring", [
+        "coloring", "art page", "art pages", "crayon",
+        "construction paper", "tempera paint", "watercolor",
+        "drawing pad",
+    ]),
+
+    ("signage", "Signage / Engraving / Letters", [
+        "brass letter", "sign letter", "engrav", "name plate",
+        "name tag", "placard", "vinyl sign",
     ]),
 ]
 
