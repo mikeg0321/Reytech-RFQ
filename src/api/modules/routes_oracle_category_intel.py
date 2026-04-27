@@ -222,3 +222,157 @@ def api_oracle_category_list():
             for (cid, label) in all_categories().items()
         ],
     })
+
+
+@bp.route("/api/oracle/category-summary")
+@auth_required
+def api_oracle_category_summary():
+    """Phase 4.6.2: at-a-glance rollup of ALL intel categories.
+
+    Walks the quotes table once, buckets every line item by intel
+    category, returns one row per category with quotes/wins/losses/
+    win_rate/danger/warning. Sorted with danger=true first, then by
+    quote volume.
+
+    Use case: Mike wants to know 'which categories am I losing right
+    now' without probing each one individually.
+
+    Query params:
+        agency (str, optional) — substring filter
+        min_quotes (int, optional, default 1) — drop low-volume rows
+
+    Response:
+      {
+        ok, agency_filter, min_quotes,
+        categories: [
+          {category, category_label, quotes, wins, losses,
+           win_rate_pct, danger, warning_text, won_value, lost_value},
+          ...
+        ],
+        overall: {quotes, wins, losses, win_rate_pct,
+                  danger_buckets, win_buckets},
+      }
+    """
+    from src.core.db import get_db
+
+    agency = (request.args.get("agency") or "").strip()
+    try:
+        min_quotes = max(1, int(request.args.get("min_quotes", "1")))
+    except (TypeError, ValueError):
+        min_quotes = 1
+
+    rollup = defaultdict(lambda: {
+        "quotes": 0, "wins": 0, "losses": 0,
+        "won_value": 0.0, "lost_value": 0.0,
+        "label": "",
+    })
+
+    try:
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT status, agency, institution, line_items, total
+                FROM quotes
+                WHERE is_test = 0
+                  AND status IN ('won', 'lost')
+                  AND line_items IS NOT NULL
+            """).fetchall()
+    except Exception as e:
+        log.exception("category_summary load")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    agency_lc = agency.lower()
+    for r in rows:
+        if agency_lc:
+            row_a = (r["agency"] or r["institution"] or "").lower()
+            if agency_lc not in row_a:
+                continue
+        try:
+            items = json.loads(r["line_items"] or "[]")
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(items, list):
+            continue
+        try:
+            total = float(r["total"] or 0)
+        except (TypeError, ValueError):
+            total = 0.0
+        denom = max(1, len(items))
+        per_line = total / denom if total else 0.0
+
+        seen_cats = set()
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            from src.core.intel_categories import intel_category
+            cid, label = intel_category(it.get("description") or "")
+            if cid in seen_cats:
+                continue
+            seen_cats.add(cid)
+            b = rollup[cid]
+            b["label"] = label
+            b["quotes"] += 1
+            if r["status"] == "won":
+                b["wins"] += 1
+                b["won_value"] += per_line
+            elif r["status"] == "lost":
+                b["losses"] += 1
+                b["lost_value"] += per_line
+
+    out = []
+    danger_n = win_n = 0
+    overall_q = overall_w = overall_l = 0
+    for cid, b in rollup.items():
+        if b["quotes"] < min_quotes:
+            continue
+        decided = b["wins"] + b["losses"]
+        rate = (round(100.0 * b["wins"] / decided, 1) if decided else None)
+        danger = (b["quotes"] >= 5 and rate is not None and rate < 15.0)
+        warning = None
+        if danger:
+            warning = (f"LOSS BUCKET: {b['wins']}/{b['quotes']} wins on "
+                       f"{b['label']}. Recalibrate markup before bidding.")
+            danger_n += 1
+        elif b["quotes"] >= 5 and rate is not None and rate >= 50.0:
+            warning = (f"WIN BUCKET: {b['wins']}/{b['quotes']} wins on "
+                       f"{b['label']}. Confident territory.")
+            win_n += 1
+        out.append({
+            "category": cid,
+            "category_label": b["label"] or cid,
+            "quotes": b["quotes"],
+            "wins": b["wins"],
+            "losses": b["losses"],
+            "win_rate_pct": rate,
+            "won_value": round(b["won_value"], 2),
+            "lost_value": round(b["lost_value"], 2),
+            "danger": danger,
+            "warning_text": warning,
+        })
+        overall_q += b["quotes"]
+        overall_w += b["wins"]
+        overall_l += b["losses"]
+
+    # Sort: danger first, then by quote volume desc
+    out.sort(key=lambda x: (
+        not x["danger"],
+        -x["quotes"],
+    ))
+
+    overall_decided = overall_w + overall_l
+    overall_rate = (round(100.0 * overall_w / overall_decided, 1)
+                    if overall_decided else None)
+
+    return jsonify({
+        "ok": True,
+        "agency_filter": agency,
+        "min_quotes": min_quotes,
+        "categories": out,
+        "overall": {
+            "quotes": overall_q,
+            "wins": overall_w,
+            "losses": overall_l,
+            "win_rate_pct": overall_rate,
+            "danger_buckets": danger_n,
+            "win_buckets": win_n,
+        },
+    })
