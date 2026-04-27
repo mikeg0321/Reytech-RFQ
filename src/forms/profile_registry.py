@@ -65,6 +65,21 @@ class FormProfile:
     # Empty dict = no overflow declared; fill engine raises to prevent silent
     # item drop past the row-field limit.
     overflow: dict = field(default_factory=dict)
+    # Phase 1.6 — per-buyer profile training. Tokens (lowercase, normalized)
+    # of the agencies this profile is tuned for. Empty list = generic
+    # standard profile that applies to ANY agency. When matching, a
+    # buyer-specific profile (non-empty list with matching agency) wins
+    # over the standard for the same fingerprint.
+    #
+    # Examples:
+    #   []                                → standard, applies anywhere
+    #   ["cdcr"]                          → all CDCR facilities
+    #   ["cdcr_folsom"]                   → only CDCR Folsom
+    #   ["veterans_home_barstow",
+    #    "veterans_home_yountville"]     → multi-facility shared overrides
+    #
+    # Matching is substring/token-based — see _agency_matches().
+    agency_match: list[str] = field(default_factory=list)
     raw_yaml: dict = field(default_factory=dict)
 
     @property
@@ -182,6 +197,17 @@ def load_profile(yaml_path: str) -> FormProfile:
     overflow_raw = raw.get("overflow", {}) or {}
     overflow = dict(overflow_raw) if isinstance(overflow_raw, dict) else {}
 
+    # Phase 1.6: read agency_match from YAML (top-level or under meta:).
+    # Always normalized to lowercase tokens with non-alphanum collapsed to
+    # underscores so "CDCR Folsom" → "cdcr_folsom" matches both
+    # "CDCR-Folsom" and "cdcr_folsom" forms.
+    agency_match_raw = (raw.get("agency_match") or
+                        (raw.get("meta", {}) or {}).get("agency_match") or [])
+    if isinstance(agency_match_raw, str):
+        agency_match_raw = [agency_match_raw]
+    agency_match = [_normalize_agency_token(s) for s in agency_match_raw if s]
+    agency_match = [s for s in agency_match if s]
+
     profile = FormProfile(
         id=raw.get("id", ""),
         form_type=raw.get("form_type", ""),
@@ -194,6 +220,7 @@ def load_profile(yaml_path: str) -> FormProfile:
         signature_field=sig.get("field", ""),
         defaults=defaults,
         overflow=overflow,
+        agency_match=agency_match,
         raw_yaml=raw,
     )
 
@@ -234,12 +261,43 @@ def load_profiles(profiles_dir: str = PROFILES_DIR) -> dict[str, FormProfile]:
     return profiles
 
 
+def _normalize_agency_token(s: str) -> str:
+    """Phase 1.6: collapse 'CDCR Folsom' / 'CDCR-Folsom' / 'cdcr_folsom'
+    into one canonical form so substring/token matching is consistent."""
+    out = "".join(c.lower() if c.isalnum() else "_" for c in (s or ""))
+    # Collapse runs of underscores
+    while "__" in out:
+        out = out.replace("__", "_")
+    return out.strip("_")
+
+
+def _agency_matches(profile_tokens: list[str], agency: str) -> bool:
+    """Return True if any token in the profile's agency_match list is
+    a substring of (or equals) the normalized agency. Empty list never
+    matches — that's the standard profile path. The caller decides
+    fallback semantics."""
+    if not profile_tokens or not agency:
+        return False
+    norm = _normalize_agency_token(agency)
+    if not norm:
+        return False
+    for tok in profile_tokens:
+        if not tok:
+            continue
+        # Exact match OR token is a substring of the normalized agency
+        if tok == norm or tok in norm or norm in tok:
+            return True
+    return False
+
+
 def match_profile(pdf_path: str, profiles: dict[str, FormProfile]) -> Optional[FormProfile]:
     """Match an uploaded PDF to a profile by field fingerprint.
 
     1. Compute fingerprint of the uploaded PDF
     2. Look for exact match in profiles
     3. If no match, return None (caller should fall back to Simple Submit)
+
+    For agency-aware matching, see `match_profile_for_agency()`.
     """
     fingerprint = _compute_fingerprint(pdf_path)
     if not fingerprint:
@@ -252,6 +310,80 @@ def match_profile(pdf_path: str, profiles: dict[str, FormProfile]) -> Optional[F
 
     log.info("No profile match for %s (fingerprint=%s)", pdf_path, fingerprint[:12])
     return None
+
+
+def match_profile_for_agency(
+    pdf_path: str,
+    profiles: dict[str, FormProfile],
+    agency: str = "",
+) -> Optional[FormProfile]:
+    """Phase 1.6: agency-aware profile match.
+
+    Resolution order for the same fingerprint:
+      1. Buyer-specific profile whose agency_match contains the agency
+         (most-specific match — longest token wins on ties).
+      2. Generic profile (agency_match is empty).
+      3. None if no fingerprint match at all.
+
+    This means the standard '703b_reytech_standard' profile remains the
+    safe fallback while a buyer-specific '703b_cdcr_folsom' overrides
+    it the moment one is committed.
+
+    Args:
+      pdf_path: uploaded buyer PDF (used to compute fingerprint).
+      profiles: result of `load_profiles()`.
+      agency:   normalized buyer/agency identifier (any case/format).
+                Empty string falls straight through to the generic match.
+    """
+    fingerprint = _compute_fingerprint(pdf_path)
+    if not fingerprint:
+        return None
+
+    # Bucket fingerprint-matching profiles into specific vs generic
+    specific: list[FormProfile] = []
+    generic: list[FormProfile] = []
+    for profile in profiles.values():
+        if not profile.fingerprint or profile.fingerprint != fingerprint:
+            continue
+        if profile.agency_match:
+            specific.append(profile)
+        else:
+            generic.append(profile)
+
+    if not specific and not generic:
+        log.info("No profile match for %s (fingerprint=%s)",
+                 pdf_path, fingerprint[:12])
+        return None
+
+    if agency and specific:
+        # Best buyer-specific = longest matching token
+        candidates = []
+        for p in specific:
+            for tok in p.agency_match:
+                if _agency_matches([tok], agency):
+                    candidates.append((len(tok), p))
+                    break
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            chosen = candidates[0][1]
+            log.info("Matched %s to BUYER-SPECIFIC profile %s "
+                     "(agency=%s)", pdf_path, chosen.id, agency)
+            return chosen
+
+    if generic:
+        chosen = generic[0]
+        log.info("Matched %s to generic profile %s (agency=%r had no buyer-specific)",
+                 pdf_path, chosen.id, agency)
+        return chosen
+
+    # Specific profiles exist but none matched the agency, no generic
+    # available — return the first specific so the caller still gets a
+    # form profile rather than nothing. Mike can add a generic later.
+    chosen = specific[0]
+    log.warning("Matched %s to specific profile %s as fallback "
+                "(agency=%r didn't match its tokens)",
+                pdf_path, chosen.id, agency)
+    return chosen
 
 
 def check_template_profile_matches(
