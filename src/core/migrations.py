@@ -920,6 +920,40 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_scprs_reytech_wins_dept
             ON scprs_reytech_wins(dept_name);
     """),
+
+    (32, "buyer_template_candidates", """
+        -- Phase 1.6 PR3c (2026-04-26): every incoming attached PDF gets
+        -- fingerprinted and registered here. When a fingerprint is unknown
+        -- (no matching FormProfile yet), the operator can promote it to a
+        -- buyer-specific YAML profile via /settings/forms (PR3f, future).
+        --
+        -- Status lifecycle: candidate → promoted | ignored.
+        -- Dedup key: (fingerprint, agency_key) — same blank can apply to
+        -- multiple agencies, but we only register once per agency.
+        CREATE TABLE IF NOT EXISTS buyer_template_candidates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fingerprint TEXT NOT NULL,
+            agency_key TEXT NOT NULL DEFAULT '',
+            form_type_guess TEXT NOT NULL DEFAULT '',
+            sample_filename TEXT NOT NULL DEFAULT '',
+            sample_quote_id TEXT NOT NULL DEFAULT '',
+            sample_quote_type TEXT NOT NULL DEFAULT '',
+            field_count INTEGER NOT NULL DEFAULT 0,
+            page_count INTEGER NOT NULL DEFAULT 0,
+            first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+            seen_count INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'candidate',
+            promoted_profile_id TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT ''
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_buyer_template_candidates_dedup
+            ON buyer_template_candidates(fingerprint, agency_key);
+        CREATE INDEX IF NOT EXISTS idx_buyer_template_candidates_status
+            ON buyer_template_candidates(status);
+        CREATE INDEX IF NOT EXISTS idx_buyer_template_candidates_form_type
+            ON buyer_template_candidates(form_type_guess);
+    """),
 ]
 
 
