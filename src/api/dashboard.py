@@ -5585,6 +5585,80 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
     except Exception as _e:
         log.warning("Form updater setup: %s", _e)
 
+    # ── Phase 1.6 Enh-A: Forms-drift monitor (1st of month, 4AM PST) ─────
+    try:
+        def _forms_drift_scheduler():
+            import time as _fdt
+            _fdt.sleep(600)  # Wait 10min after boot before first check
+            while True:
+                try:
+                    from zoneinfo import ZoneInfo as _ZI
+                    _now = datetime.now(_ZI("America/Los_Angeles"))
+                    # Run on the 1st of every month between 4-5 AM PST
+                    if _now.day == 1 and 4 <= _now.hour <= 5:
+                        try:
+                            from src.agents.forms_drift_monitor import (
+                                scan_forms_drift, save_report,
+                            )
+                            report = scan_forms_drift(days=30)
+                            save_report(report)
+                            n_new = len(report.get("new_form_mentions", []))
+                            n_rev = len(report.get("revised_templates", []))
+                            n_anom = len(report.get("agency_anomalies", []))
+                            log.info(
+                                "Forms drift: %d new mentions, %d revised templates, "
+                                "%d agency anomalies", n_new, n_rev, n_anom,
+                            )
+                            _fdt.sleep(86400)  # Sleep a day so we don't refire
+                            continue
+                        except Exception as _de:
+                            log.debug("forms drift scan failed: %s", _de)
+                    _fdt.sleep(3600)  # Check hourly
+                except Exception as _fe:
+                    log.warning("Forms drift scheduler: %s", _fe)
+                    _fdt.sleep(3600)
+        threading.Thread(target=_forms_drift_scheduler, daemon=True,
+                         name="forms-drift").start()
+        log.info("Forms drift monitor scheduled (1st of month, 4AM PST)")
+    except Exception as _e:
+        log.warning("Forms drift setup: %s", _e)
+
+    # ── Phase 1.6 Enh-A: Training-corpus bootstrap (one-shot on first boot) ─
+    try:
+        def _training_corpus_bootstrap():
+            import time as _tct
+            _tct.sleep(900)  # Wait 15min after boot to let DB settle
+            try:
+                from src.agents.training_corpus import (
+                    coverage_report, bootstrap_from_orders,
+                )
+                cov = coverage_report()
+                if cov.get("total_pairs", 0) > 0:
+                    log.info(
+                        "Training corpus: %d pairs already on disk, "
+                        "skipping bootstrap", cov["total_pairs"],
+                    )
+                    return
+                log.info("Training corpus: empty — bootstrapping from "
+                         "last-365-days orders…")
+                summary = bootstrap_from_orders(days=365)
+                log.info(
+                    "Training corpus bootstrap: scanned=%d created=%d "
+                    "skipped=%d errors=%d",
+                    summary.get("scanned", 0), summary.get("created", 0),
+                    (summary.get("skipped_no_data", 0)
+                     + summary.get("skipped_no_artifacts", 0)
+                     + summary.get("skipped_exists", 0)),
+                    summary.get("errors", 0),
+                )
+            except Exception as _be:
+                log.debug("training corpus bootstrap suppressed: %s", _be)
+        threading.Thread(target=_training_corpus_bootstrap, daemon=True,
+                         name="training-bootstrap").start()
+        log.info("Training corpus bootstrap scheduled (one-shot, 15min after boot)")
+    except Exception as _e:
+        log.warning("Training corpus bootstrap setup: %s", _e)
+
     # ── Backfill RFQ metadata on boot ──────────────────────────
     try:
         _bf_meta = backfill_rfq_metadata()
