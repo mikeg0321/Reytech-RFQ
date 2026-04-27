@@ -5278,6 +5278,7 @@ _ROUTE_MODULES = [
     "routes_oracle_win_rate",      # Phase 4.4: per-agency win-rate analytics rollup
     "routes_oracle_category_intel", # Phase 4.6: category loss-bucket warnings (footwear 0/111)
     "routes_cost_alerts",          # Phase 4.3: catalog-cost change detection + triage queue
+    "routes_fill_plan",            # Phase 1.6 PR3a: email-contract → fill-plan binder (read-only)
 ]
 
 for _mod in _ROUTE_MODULES:
