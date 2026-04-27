@@ -500,6 +500,18 @@ def analytics_dashboard():
         except Exception as _e:
             log.debug('suppressed in analytics_dashboard: %s', _e)
 
+        # Plan §4.1: operator KPI — "Quotes sent this week × median time-to-send".
+        # The <90s KPI is the headline operator metric; the 1-item filter is
+        # the harshest cut (the plan's success gate is "1-item median <90s").
+        kpi_7d = {"count": 0, "median_seconds": None, "under_90_pct": None}
+        kpi_7d_1item = {"count": 0, "median_seconds": None, "under_90_pct": None}
+        try:
+            from src.core.operator_kpi import get_kpi_stats
+            kpi_7d = get_kpi_stats(window_days=7) or kpi_7d
+            kpi_7d_1item = get_kpi_stats(window_days=7, one_item_only=True) or kpi_7d_1item
+        except Exception as _e:
+            log.debug('operator KPI fetch suppressed: %s', _e)
+
         data.update(
             funnel=funnel,
             statuses=dict(statuses),
@@ -515,6 +527,8 @@ def analytics_dashboard():
             qa_eff=qa_eff,
             strategy_stats=strategy_stats,
             top_failing=top_failing,
+            kpi_7d=kpi_7d,
+            kpi_7d_1item=kpi_7d_1item,
         )
 
     elif tab == "business_intel":
