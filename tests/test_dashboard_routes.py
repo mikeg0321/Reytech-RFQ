@@ -655,6 +655,30 @@ class TestQuoteStatusAPI:
                          content_type="application/json")
         assert r2.get_json()["ok"] is True
 
+    def test_mark_cancelled_does_not_calibrate(self, client, seed_pc, monkeypatch):
+        # Plan §6.1: cancelled is lifecycle hygiene only — calibration MUST NOT
+        # fire (no signal to learn from). Stub calibrate_from_outcome and assert
+        # it stays uncalled when cancelled is the new status.
+        from src.core import pricing_oracle_v2
+        calls = []
+
+        def _spy(*a, **kw):
+            calls.append((a, kw))
+
+        monkeypatch.setattr(pricing_oracle_v2, "calibrate_from_outcome", _spy)
+
+        r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
+        qn = r.get_json()["quote_number"]
+        r2 = client.post(f"/quotes/{qn}/status",
+                         json={"status": "cancelled",
+                               "notes": "buyer pulled the bid"},
+                         content_type="application/json")
+        assert r2.get_json()["ok"] is True
+        assert calls == [], (
+            f"calibrate_from_outcome must not fire on cancelled; "
+            f"called {len(calls)} times: {calls}"
+        )
+
     def test_invalid_status_rejected(self, client, seed_pc):
         r = client.post(f"/pricecheck/{seed_pc}/generate-quote")
         qn = r.get_json()["quote_number"]

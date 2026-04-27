@@ -75,6 +75,17 @@ window.markQuote = function(qn, status){
     var po = window.prompt('PO number for ' + qn + '?\n(required — only formal POs count as wins)');
     if (!po || !po.trim()) return;
     body.po_number = po.trim();
+  } else if (status === 'cancelled') {
+    // Plan §6.1: cancelled is lifecycle hygiene — buyer pulled the bid,
+    // solicitation withdrawn, etc. NOT a loss; calibration does not fire.
+    var reason = window.prompt(
+      'Reason for cancelling ' + qn + '? (optional)\n' +
+      'Examples: "buyer cancelled", "solicitation withdrawn", "duplicate".\n' +
+      'This removes the quote from the active pipeline without recording\n' +
+      'a loss or feeding the pricing oracle.'
+    );
+    if (reason === null) return;  // User clicked Cancel on the prompt
+    if (reason) body.notes = reason;
   } else if (status === 'lost') {
     // Optional but high-value: capture the winning vendor's price so the
     // oracle can calibrate. Empty input still lets the lost mark go through
@@ -97,7 +108,10 @@ window.markQuote = function(qn, status){
     if (lossNotes === null) return;  // Cancel
     if (lossNotes) body.notes = lossNotes;
   }
-  rtConfirm('Mark quote ' + qn + ' as ' + status.toUpperCase() + '?', function(){
+  var confirmMsg = (status === 'cancelled')
+    ? 'Cancel quote ' + qn + '? (no loss recorded, oracle does not learn)'
+    : 'Mark quote ' + qn + ' as ' + status.toUpperCase() + '?';
+  rtConfirm(confirmMsg, function(){
     fetch('/quotes/' + encodeURIComponent(qn) + '/status', {
       method: 'POST',
       credentials: 'same-origin',

@@ -386,7 +386,7 @@ def peek_next_quote_number() -> str:
 # QUOTES DATABASE — searchable log with Win/Loss tracking
 # ═══════════════════════════════════════════════════════════════════════════════
 
-VALID_STATUSES = ("pending", "won", "lost", "draft", "sent", "expired")
+VALID_STATUSES = ("pending", "won", "lost", "draft", "sent", "expired", "cancelled")
 
 def get_all_quotes(include_test: bool = False) -> list:
     """Return all quotes. By default excludes test/QA quotes.
@@ -576,6 +576,14 @@ def update_quote_status(quote_number: str, status: str, po_number: str = "",
             # Auto-set sent_at when marking as sent
             if status == "sent" and not qt.get("sent_at"):
                 qt["sent_at"] = now
+            # Plan §6.1: cancelled is lifecycle hygiene, not an outcome.
+            # Record the timestamp + reason so analytics can distinguish
+            # "buyer pulled the bid" from genuine wins/losses. Calibration
+            # explicitly does NOT fire on cancelled (no signal to learn from).
+            if status == "cancelled":
+                qt["cancelled_at"] = now
+                if notes:
+                    qt["cancelled_reason"] = notes
             # Append to status_history (create if missing for legacy records)
             history = qt.get("status_history", [])
             entry = {"status": status, "timestamp": now, "actor": actor}

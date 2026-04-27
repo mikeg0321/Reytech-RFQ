@@ -327,6 +327,26 @@ class TestWinLossTracking:
         q = next(q for q in get_all_quotes(include_test=True) if q["quote_number"] == "PEND1")
         assert q["status"] == "pending"
 
+    def test_mark_cancelled_writes_metadata(self, tmp_path, sample_stryker_quote):
+        # Plan §6.1: cancelled is lifecycle hygiene — buyer pulled the bid.
+        # Status flips, cancelled_at is recorded, optional reason stored.
+        self._gen(tmp_path, sample_stryker_quote, "CANC1")
+        ok = update_quote_status("CANC1", "cancelled", notes="buyer cancelled solicitation")
+        assert ok is True
+        q = next(q for q in get_all_quotes(include_test=True) if q["quote_number"] == "CANC1")
+        assert q["status"] == "cancelled"
+        assert q.get("cancelled_at"), "cancelled_at timestamp must be written"
+        assert q.get("cancelled_reason") == "buyer cancelled solicitation"
+
+    def test_mark_cancelled_no_reason(self, tmp_path, sample_stryker_quote):
+        # Reason is optional — empty notes still works.
+        self._gen(tmp_path, sample_stryker_quote, "CANC2")
+        ok = update_quote_status("CANC2", "cancelled")
+        assert ok is True
+        q = next(q for q in get_all_quotes(include_test=True) if q["quote_number"] == "CANC2")
+        assert q["status"] == "cancelled"
+        assert q.get("cancelled_at")
+
     def test_invalid_status(self, tmp_path, sample_stryker_quote):
         self._gen(tmp_path, sample_stryker_quote, "INV1")
         ok = update_quote_status("INV1", "invalid_status")

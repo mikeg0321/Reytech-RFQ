@@ -1651,7 +1651,7 @@ def quote_update_status(quote_number):
     new_status = data.get("status", "").lower()
     po_number = data.get("po_number", "")
     notes = data.get("notes", "")
-    if new_status not in ("won", "lost", "pending"):
+    if new_status not in ("won", "lost", "pending", "cancelled"):
         return jsonify({"ok": False, "error": f"Invalid status: {new_status}"})
 
     # Business rule: quotes can only be marked "won" with a formal PO number
@@ -1731,6 +1731,15 @@ def quote_update_status(quote_number):
                 log_competitor_intel(quote_number, "lost", {"notes": notes or ""})
             except Exception as e:
                 log.error("Competitor intel logging failed: %s", e)
+
+    elif new_status == "cancelled":
+        # Plan §6.1: cancelled = lifecycle hygiene (buyer pulled the bid,
+        # solicitation withdrawn, etc.). Removes quote from active pipeline
+        # without polluting the oracle with a synthetic loss. Calibration
+        # explicitly does NOT fire below.
+        _log_crm_activity(quote_number, "quote_cancelled",
+                          f"Quote {quote_number} marked CANCELLED" + (f" — {notes}" if notes else ""),
+                          actor="user")
 
     # ── Phase 4.1: Oracle calibration from outcome (the win-rate engine) ──
     # PLAN_ONCE_AND_FOR_ALL.md: every operator-marked outcome MUST feed
