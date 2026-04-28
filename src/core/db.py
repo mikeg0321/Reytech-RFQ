@@ -1880,6 +1880,38 @@ def _migrate_columns():
         except Exception as _e:
             log.debug("CalVet prefix backfill suppressed: %s", _e)
 
+        # DSH PO prefix backfill (2026-04-28, PR #637). Sibling of the
+        # CalVet backfill above. PR #635's po_prefix card showed 0
+        # POs in the DSH bucket; PR #636 verified live that DSH POs
+        # exist on prod but get parse-stripped of their `4440-`
+        # prefix the same way CalVet `8955-` was. The Atascadero row
+        # `0000050349` ($34k, R24Q22) is the visible exemplar.
+        #
+        # Scope: institution contains "State Hospital" (the canonical
+        # name pattern across all DSH facilities — Atascadero, Napa,
+        # Patton, Metropolitan, Coalinga). Bare numeric po_number of
+        # length 7-12 (DSH tail length is shorter than CalVet's 10).
+        # Idempotent — `NOT LIKE '4440-%'` excludes already-prefixed.
+        try:
+            r = conn.execute("""
+                UPDATE orders
+                SET po_number = '4440-' || po_number
+                WHERE po_number IS NOT NULL
+                  AND po_number GLOB '[0-9]*'
+                  AND length(po_number) BETWEEN 7 AND 12
+                  AND po_number NOT LIKE '8955-%'
+                  AND po_number NOT LIKE '4500%'
+                  AND po_number NOT LIKE '4440-%'
+                  AND COALESCE(institution, '') LIKE '%State Hospital%'
+            """)
+            if r.rowcount:
+                log.info(
+                    "DSH PO prefix backfill: prepended '4440-' to %d "
+                    "State Hospital order rows", r.rowcount
+                )
+        except Exception as _e:
+            log.debug("DSH prefix backfill suppressed: %s", _e)
+
         # Sentinel-PO backfill (2026-04-28). po_aggregate card surfaced
         # the literal "N/A" entered as po_number on 6 distinct orders
         # ($219k total) — masquerading as a multi-quote PO. Other
