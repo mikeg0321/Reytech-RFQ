@@ -1809,6 +1809,42 @@ def _migrate_columns():
         except Exception as _e:
             log.debug("suppressed: %s", _e)  # agency_code column may not exist on fresh installs
 
+        # Partial UNIQUE INDEX on (po_number, quote_number) (S3-prep
+        # PR-2, 2026-04-28). The orders→PO relationship is naturally
+        # 1:N (one PO covers N quotes — verified on prod via
+        # po_aggregate), so UNIQUE on po_number alone would fail.
+        # Same-PO + same-quote on multiple rows is a real write-path
+        # bug (the same order got created twice). Partial WHERE
+        # po_number != '' allows the "no PO yet" case (status=new
+        # rows pre-PO-email) to repeat freely.
+        #
+        # CREATE UNIQUE INDEX is idempotent (IF NOT EXISTS) but it
+        # FAILS if existing data violates uniqueness. That's
+        # intentional — if it fails, the duplicate_orders card
+        # surfaces the offenders, the operator merges them, and the
+        # next boot lands the constraint. The card's `index_active`
+        # field reflects whether it landed.
+        try:
+            conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_orders_po_quote
+                ON orders(po_number, quote_number)
+                WHERE po_number != '' AND po_number IS NOT NULL
+                  AND quote_number != '' AND quote_number IS NOT NULL
+            """)
+            log.info("Partial UNIQUE index on orders(po_number, quote_number) ensured")
+        except sqlite3.IntegrityError as _e:
+            # Existing rows violate uniqueness. Don't crash the
+            # boot — the card will surface the offending pairs so
+            # the operator can merge them.
+            log.warning(
+                "Partial UNIQUE index on orders(po_number, quote_number) "
+                "rejected by existing duplicates: %s — see "
+                "/health/quoting Duplicate orders card", _e
+            )
+        except Exception as _e:
+            log.debug("Partial UNIQUE index creation suppressed: %s", _e)
+
         # Sentinel-PO backfill (2026-04-28). po_aggregate card surfaced
         # the literal "N/A" entered as po_number on 6 distinct orders
         # ($219k total) — masquerading as a multi-quote PO. Other

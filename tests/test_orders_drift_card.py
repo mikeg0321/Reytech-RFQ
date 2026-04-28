@@ -145,15 +145,24 @@ def test_error_when_20pct_or_more_won_quotes_orphaned():
 
 
 def test_error_when_duplicate_po_numbers_exist():
-    """Even one duplicate po_number flips the card to error — the S3
-    UNIQUE constraint can't land while duplicates exist, and the
-    operator needs to see them BEFORE they cause UNIQUE failures
-    later."""
+    """The drift card's legacy `duplicate_po_numbers` counter still
+    flags any po_number appearing on 2+ rows — even legitimate
+    multi-quote POs (one buyer PO covering N quotes). The
+    po_aggregate card (PR #632) reframes those as legit; this
+    counter is preserved as a raw signal until the legacy semantics
+    are migrated.
+
+    Note: as of S3-prep PR-2 (PR #634), same-PO + same-quote on
+    multiple rows is BLOCKED by the partial UNIQUE index. So this
+    test deliberately uses DIFFERENT quote_numbers under the same
+    po_number — a legit multi-quote PO that still counts as
+    `duplicate_po_numbers` in the legacy counter."""
     with _conn() as c:
         _wipe(c)
         _seed_quote(c, quote_number="Q1", status="won")
+        _seed_quote(c, quote_number="Q2", status="won")
         _seed_order(c, order_id="o1", quote_number="Q1", po_number="PO-DUP")
-        _seed_order(c, order_id="o2", quote_number="Q1", po_number="PO-DUP")
+        _seed_order(c, order_id="o2", quote_number="Q2", po_number="PO-DUP")
         c.commit()
     out = _build()
     assert out["duplicate_po_numbers"] == 1
