@@ -542,6 +542,85 @@
   </div>
 </div>
 
+{# ── PO prefix pattern card (canonical agency prefixes) ── #}
+{# California buyer POs follow agency-specific prefixes: CalVet         #}
+{# starts 8955-00000, CCHCS starts 4500, DSH starts 4440-. An order      #}
+{# whose po_number matches none of these is either non-standard or      #}
+{# (more commonly) a parse bug where the prefix was stripped before     #}
+{# storage. The unidentified bucket surfaces the ones worth chasing.    #}
+{% set _pp = po_prefix|default({"status":"unknown","total_with_po":0,"by_prefix":{},"unidentified":0,"unidentified_pct":0.0,"unidentified_samples":[]}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    PO prefix patterns —
+    {% if _pp.status == 'error' %}<span style="color:#f85149">⛔ {{ _pp.unidentified_pct }}% unidentified</span>
+    {% elif _pp.status == 'warn' %}<span style="color:#d29922">⚠ {{ _pp.unidentified }} unidentified ({{ _pp.unidentified_pct }}%)</span>
+    {% elif _pp.status == 'healthy' %}<span style="color:#3fb950">✓ all {{ _pp.total_with_po }} POs match a known prefix</span>
+    {% else %}<span style="color:#6e7681">no PO data yet</span>{% endif %}
+  </div>
+  <div style="padding:10px 12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _pp.by_prefix.get('CalVet', 0) }}</div>
+        <div style="font-size:11px;color:#8b949e" title="po_number starts 8955-00000">CalVet (8955-)</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _pp.by_prefix.get('CCHCS', 0) }}</div>
+        <div style="font-size:11px;color:#8b949e" title="po_number starts 4500">CCHCS (4500)</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _pp.by_prefix.get('DSH', 0) }}</div>
+        <div style="font-size:11px;color:#8b949e" title="po_number starts 4440-">DSH (4440-)</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _pp.unidentified > 0 %}#f85149{% else %}#3fb950{% endif %}">{{ _pp.unidentified }}</div>
+        <div style="font-size:11px;color:#8b949e" title="non-empty po_number, no canonical prefix match">UNIDENTIFIED</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
+      {% if _pp.status == 'error' %}
+        <strong style="color:#f85149">⛔ Most POs missing a canonical prefix.</strong>
+        Likely a parse bug — buyer email PO comes in as <code>8955-0000044935</code> but stored as <code>0000044935</code>. Fix the ingest path before all new orders inherit the same defect.
+      {% elif _pp.status == 'warn' %}
+        <strong style="color:#d29922">⚠ Some POs don't match a known agency prefix.</strong>
+        The drawer below shows the biggest unidentified ones — eyeball whether they're parse bugs (numeric tail only) or legitimately non-standard buyers.
+      {% elif _pp.status == 'healthy' %}
+        <strong style="color:#3fb950">✓ Every PO matches its agency prefix.</strong>
+      {% else %}
+        No POs to classify yet.
+      {% endif %}
+      <span style="color:#6e7681"> · Per canonical PO prefixes confirmed via buyer email.</span>
+    </div>
+
+    {% if _pp.unidentified_samples %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">
+        Unidentified POs ({{ _pp.unidentified_samples|length }}{% if _pp.unidentified_samples|length == 10 and _pp.unidentified > 10 %} of {{ _pp.unidentified }}{% endif %}) — top by $$$
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">PO #</th>
+            <th style="padding:4px 8px">Quote #</th>
+            <th style="padding:4px 8px">Agency</th>
+            <th style="padding:4px 8px;text-align:right">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for u in _pp.unidentified_samples %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace">{{ u.po_number }}</td>
+            <td style="padding:4px 8px;font-family:monospace"><a href="/quote/{{ u.quote_number }}" style="color:#58a6ff">{{ u.quote_number }}</a></td>
+            <td style="padding:4px 8px">{{ u.agency }}</td>
+            <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(u.total) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
 {# ── PO aggregate (S3-prep PR-2 corrected scope) ── #}
 {# Companion to the Orders drift card. The drift card flags raw         #}
 {# duplicate po_numbers as ⛔; this card reframes them by showing the     #}

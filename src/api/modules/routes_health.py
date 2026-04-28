@@ -456,6 +456,7 @@ def quoting_health_page():
         "agents_runtime": _build_agents_runtime_health(),
         "orders_drift": _build_orders_drift_card(),
         "duplicate_orders": _build_duplicate_orders_card(),
+        "po_prefix": _build_po_prefix_card(),
         "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -550,6 +551,7 @@ def quoting_health_json():
         "agents_runtime": _build_agents_runtime_health(),
         "orders_drift": _build_orders_drift_card(),
         "duplicate_orders": _build_duplicate_orders_card(),
+        "po_prefix": _build_po_prefix_card(),
         "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -717,6 +719,42 @@ def _build_orders_drift_card():
     return result
 
 
+# ── Canonical PO prefix patterns (per Mike 2026-04-28) ─────────────────
+#
+# State-of-CA buyer POs follow a fixed prefix pattern per agency.
+# The match here is on po_number prefix; agency assignment is NOT
+# derived from the orders.agency string (which carries free-form
+# facility names like "Veterans Home of California - Barstow",
+# not the canonical agency code). PO prefix wins.
+#
+# CalVet POs sometimes appear on prod WITHOUT the "8955-" prefix
+# (numeric portion only) — the parse path appears to strip it.
+# That's exactly what this card surfaces: the operator can see
+# how many records are missing their canonical prefix.
+
+_AGENCY_PO_PREFIXES = (
+    # (agency_label, prefix_to_match_case_insensitive)
+    ("CalVet", "8955-00000"),
+    ("CCHCS",  "4500"),
+    ("DSH",    "4440-"),
+)
+
+
+def _classify_po_by_prefix(po_number):
+    """Return the agency label whose prefix matches po_number, or
+    "" if none. Case-insensitive prefix match on the trimmed
+    value. Empty po_number returns ""."""
+    if not po_number:
+        return ""
+    s = str(po_number).strip().upper()
+    if not s:
+        return ""
+    for label, prefix in _AGENCY_PO_PREFIXES:
+        if s.startswith(prefix.upper()):
+            return label
+    return ""
+
+
 # ── Duplicate orders detection (S3-prep PR-2) ──────────────────────────
 
 
@@ -803,6 +841,85 @@ def _build_duplicate_orders_card():
         # No dups, but constraint hasn't landed (likely a fresh
         # DB or migration suppressed). Not an error — observational.
         result["status"] = "warn"
+    return result
+
+
+# ── PO prefix pattern card (canonical agency prefixes) ────────────────
+
+
+def _build_po_prefix_card():
+    """Classify every non-empty po_number by which canonical agency
+    prefix it matches.
+
+    Per Mike 2026-04-28: California buyer POs follow agency-specific
+    prefixes (CalVet `8955-00000`, CCHCS `4500`, DSH `4440-`). An
+    order whose po_number matches none of these is either out-of-
+    state, a non-standard buyer, or — far more commonly — a parse
+    bug where the prefix was stripped off the buyer's PO email
+    before storage.
+
+    Surfaces:
+      - by_prefix: {agency_label: count} for matched POs
+      - unidentified: count whose po_number is non-empty but
+        matches none
+      - unidentified_samples: top 10 such PO numbers so the
+        operator can eyeball whether they're parse bugs vs.
+        legitimately non-standard buyers
+    """
+    result = {
+        "status": "unknown",
+        "total_with_po": 0,
+        "by_prefix": {label: 0 for label, _ in _AGENCY_PO_PREFIXES},
+        "unidentified": 0,
+        "unidentified_pct": 0.0,
+        "unidentified_samples": [],
+        # [{po_number, quote_number, agency, total}], capped at 10
+    }
+    try:
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT po_number, quote_number, agency, total
+                FROM orders
+                WHERE COALESCE(is_test, 0) = 0
+                  AND po_number IS NOT NULL AND po_number != ''
+            """).fetchall()
+            unidentified = []
+            for row in rows:
+                po = row["po_number"] or ""
+                label = _classify_po_by_prefix(po)
+                result["total_with_po"] += 1
+                if label:
+                    result["by_prefix"][label] += 1
+                else:
+                    result["unidentified"] += 1
+                    unidentified.append({
+                        "po_number": po,
+                        "quote_number": row["quote_number"] or "",
+                        "agency": row["agency"] or "",
+                        "total": float(row["total"] or 0),
+                    })
+            # Top 10 unidentified by total descending — biggest
+            # money first, since those are the ones worth chasing.
+            unidentified.sort(key=lambda r: r["total"], reverse=True)
+            result["unidentified_samples"] = unidentified[:10]
+    except Exception as e:
+        log.debug("po_prefix_card read failed: %s", e)
+        return result
+
+    if result["total_with_po"] > 0:
+        result["unidentified_pct"] = round(
+            100.0 * result["unidentified"] / result["total_with_po"], 1
+        )
+
+    if result["total_with_po"] == 0:
+        result["status"] = "unknown"
+    elif result["unidentified_pct"] >= 30:
+        # Systemic parse problem: most POs missing prefix.
+        result["status"] = "error"
+    elif result["unidentified"] > 0:
+        result["status"] = "warn"
+    else:
+        result["status"] = "healthy"
     return result
 
 
