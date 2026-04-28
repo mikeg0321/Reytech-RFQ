@@ -129,7 +129,10 @@
     {% for q in detail.quotes %}
     <tr style="border-bottom:1px solid var(--bd,#30363d)">
      <td style="padding:8px;font-family:monospace;font-size:12px">
-      {{ q.quote_number }}
+      {# Plan §6.2 sub-3: click-through to per-quote cost trace. #}
+      <a href="/growth-intel/quote?id={{ q.quote_number|urlencode }}"
+         style="color:var(--ac);text-decoration:none"
+         title="Open per-line cost trace">{{ q.quote_number }} →</a>
       {% if q.source_pc_id %}<br><span style="font-size:10px;color:var(--tx2)">PC {{ q.source_pc_id[:12] }}</span>{% endif %}
       {% if q.source_rfq_id %}<br><span style="font-size:10px;color:var(--tx2)">RFQ {{ q.source_rfq_id[:12] }}</span>{% endif %}
      </td>
