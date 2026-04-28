@@ -196,6 +196,60 @@
   </div>
 </div>
 
+{# ── Time-to-send KPI (Plan §4.1 headline) ── #}
+{# The plan's headline KPI: "1 quote sent in <90 seconds." Sources from #}
+{# operator_quote_sent (PR #608 + #622). Two-window view: 24h shows  #}
+{# today's behavior, 7d shows the trend. Border color: red < 30% under 90s, #}
+{# amber 30-60%, green ≥ 60% (target). #}
+{% set _kpi = time_to_send_kpi|default({"window_24h":{},"window_7d":{}}) %}
+{% set _kpi_border = '#f85149' if _kpi.status == 'error'
+                    else '#d29922' if _kpi.status == 'warn'
+                    else '#3fb950' if _kpi.status == 'healthy'
+                    else '#8b949e' %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid {{ _kpi_border }}">
+  <div class="card-t">⏱ Time-to-send KPI <span style="font-size:11px;color:var(--tx2);font-weight:400">— target: ≥ {{ _kpi.kpi_target_pct|default(60) }}% under 90s</span></div>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:12px">
+    {# Last 24h column #}
+    <div style="padding:10px;border:1px solid var(--bd,#30363d);border-radius:6px">
+      <div style="font-size:11px;color:var(--tx2);margin-bottom:6px;letter-spacing:0.5px">LAST 24H</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:13px">
+        <div><div style="font-size:18px;font-weight:700">{{ _kpi.window_24h.count|default(0) }}</div><div style="color:var(--tx2);font-size:11px">Sent</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_24h.median_seconds is not none %}{{ _kpi.window_24h.median_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">Median</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_24h.p95_seconds is not none %}{{ _kpi.window_24h.p95_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">p95</div></div>
+        <div><div style="font-size:18px;font-weight:700;color:{% if _kpi.window_24h.under_90_pct is not none and _kpi.window_24h.under_90_pct >= 60 %}#3fb950{% elif _kpi.window_24h.under_90_pct is not none and _kpi.window_24h.under_90_pct >= 30 %}#d29922{% elif _kpi.window_24h.under_90_pct is not none %}#f85149{% else %}var(--tx2){% endif %}">
+          {% if _kpi.window_24h.under_90_pct is not none %}{{ _kpi.window_24h.under_90_pct }}%{% else %}—{% endif %}
+        </div><div style="color:var(--tx2);font-size:11px">&lt;90s</div></div>
+      </div>
+    </div>
+    {# Last 7d column #}
+    <div style="padding:10px;border:1px solid var(--bd,#30363d);border-radius:6px">
+      <div style="font-size:11px;color:var(--tx2);margin-bottom:6px;letter-spacing:0.5px">LAST 7D</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:13px">
+        <div><div style="font-size:18px;font-weight:700">{{ _kpi.window_7d.count|default(0) }}</div><div style="color:var(--tx2);font-size:11px">Sent</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_7d.median_seconds is not none %}{{ _kpi.window_7d.median_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">Median</div></div>
+        <div><div style="font-size:18px;font-weight:700">{% if _kpi.window_7d.p95_seconds is not none %}{{ _kpi.window_7d.p95_seconds }}s{% else %}—{% endif %}</div><div style="color:var(--tx2);font-size:11px">p95</div></div>
+        <div><div style="font-size:18px;font-weight:700;color:{% if _kpi.window_7d.under_90_pct is not none and _kpi.window_7d.under_90_pct >= 60 %}#3fb950{% elif _kpi.window_7d.under_90_pct is not none and _kpi.window_7d.under_90_pct >= 30 %}#d29922{% elif _kpi.window_7d.under_90_pct is not none %}#f85149{% else %}var(--tx2){% endif %}">
+          {% if _kpi.window_7d.under_90_pct is not none %}{{ _kpi.window_7d.under_90_pct }}%{% else %}—{% endif %}
+        </div><div style="color:var(--tx2);font-size:11px">&lt;90s</div></div>
+      </div>
+    </div>
+  </div>
+  <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
+    {% if _kpi.status == 'unknown' %}
+      No <code>operator_quote_sent</code> rows in the last 7 days. Once the operator
+      ships a quote (PC or RFQ Mark Sent), this card lights up.
+    {% elif _kpi.status == 'error' %}
+      <strong style="color:#f85149">⚠ KPI broken — only {{ _kpi.window_7d.under_90_pct }}% under 90s in last 7d.</strong>
+      Target is ≥ {{ _kpi.kpi_target_pct }}%.
+    {% elif _kpi.status == 'warn' %}
+      <strong style="color:#d29922">⚠ KPI degrading — {{ _kpi.window_7d.under_90_pct }}% under 90s in last 7d.</strong>
+      Target is ≥ {{ _kpi.kpi_target_pct }}%.
+    {% else %}
+      KPI on track — {{ _kpi.window_7d.under_90_count }} of {{ _kpi.window_7d.count }} quotes ({{ _kpi.window_7d.under_90_pct }}%) shipped under 90s in last 7d.
+    {% endif %}
+  </div>
+</div>
+
 {# ── Email poll lag (Plan §4.3) ── #}
 {# Front-of-funnel KPI signal: if the inbox poller is stalled the operator #}
 {# never sees the next RFQ. Mirrors the JSON shape from POLL_STATUS via #}
