@@ -1808,6 +1808,32 @@ def _migrate_columns():
             """)
         except Exception as _e:
             log.debug("suppressed: %s", _e)  # agency_code column may not exist on fresh installs
+
+        # Sentinel-PO backfill (2026-04-28). po_aggregate card surfaced
+        # the literal "N/A" entered as po_number on 6 distinct orders
+        # ($219k total) — masquerading as a multi-quote PO. Other
+        # sentinels (TBD/PENDING/?/etc) likely lurk too. NULL them out
+        # so po_aggregate stops counting them as legit POs and the
+        # orders-drift "orders_no_po" counter sees them correctly.
+        # Idempotent — re-running the UPDATE on already-empty rows is
+        # a no-op.
+        try:
+            r = conn.execute("""
+                UPDATE orders
+                SET po_number = ''
+                WHERE po_number IS NOT NULL
+                  AND TRIM(UPPER(po_number)) IN
+                    ('N/A','NA','TBD','TBA','PENDING','NONE','NULL',
+                     '?','??','???','-','--','X','XX','XXX','UNKNOWN')
+            """)
+            if r.rowcount:
+                log.info(
+                    "Sentinel-PO backfill: cleared po_number on %d rows",
+                    r.rowcount
+                )
+        except Exception as _e:
+            log.debug("sentinel-PO backfill suppressed: %s", _e)
+
         conn.commit()
         conn.close()
     except Exception as e:

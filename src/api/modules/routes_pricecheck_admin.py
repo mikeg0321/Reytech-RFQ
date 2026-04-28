@@ -318,7 +318,8 @@ def api_pricecheck_mark_won(pcid):
     except Exception as e:
         log.debug("FI$Cal catalog learning on win: %s", e)
     # ── Auto-create order if PO number provided (P1.1) ──
-    po_number = data.get("po_number", "")
+    from src.core.order_dal import clean_po_number
+    po_number = clean_po_number(data.get("po_number", ""))
     order_created = False
     if po_number:
         try:

@@ -18,6 +18,40 @@ from datetime import datetime, timezone
 log = logging.getLogger("reytech.order_dal")
 
 # ═══════════════════════════════════════════════════════════════════════
+# PO sentinel sanitization
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Operators (and some upstream parsers) sometimes write placeholder
+# strings into po_number when a real PO isn't known yet — `N/A`,
+# `TBD`, `PENDING`, etc. Surfaced 2026-04-28 via po_aggregate card:
+# the literal `"N/A"` was on 6 unrelated orders ($219k total),
+# masquerading as a multi-quote PO. These sentinels are not POs;
+# they should be treated as "no PO yet" (empty string).
+#
+# Centralizing the sentinel set here so every write path agrees on
+# what counts. Comparison is case-insensitive on the trimmed value.
+
+_PO_SENTINELS = frozenset({
+    "", "N/A", "NA", "TBD", "TBA", "PENDING", "NONE", "NULL",
+    "?", "??", "???", "-", "--", "X", "XX", "XXX", "UNKNOWN",
+})
+
+
+def clean_po_number(raw) -> str:
+    """Return a real PO number, or '' for sentinels / placeholders.
+
+    Use at every orders write site so the orders table never carries
+    `N/A`-style strings in po_number — they should be empty/NULL,
+    which the orders-drift "orders_no_po" counter tracks correctly.
+    """
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    if s.upper() in _PO_SENTINELS:
+        return ""
+    return s
+
+# ═══════════════════════════════════════════════════════════════════════
 # Status definitions
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -344,7 +378,7 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
             """, (
                 order_id,
                 order.get("quote_number", ""),
-                order.get("po_number", ""),
+                clean_po_number(order.get("po_number", "")),
                 order.get("agency", ""),
                 order.get("institution", order.get("customer", "")),
                 order.get("total", 0),

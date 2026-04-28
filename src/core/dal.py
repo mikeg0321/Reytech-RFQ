@@ -27,6 +27,21 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("dal")
 
+
+def _clean_po_number_for_dal(raw):
+    """Lazy delegation to order_dal.clean_po_number — defers the
+    import until first call to avoid the dal↔order_dal circular at
+    module load time. Sentinel set lives in order_dal so every
+    write site agrees on what counts as a placeholder."""
+    try:
+        from src.core.order_dal import clean_po_number
+        return clean_po_number(raw)
+    except Exception:
+        # Defensive — if order_dal import fails, fall back to
+        # passing the raw value through. Sentinels will still be
+        # caught by the daily backfill.
+        return str(raw or "").strip()
+
 try:
     from src.core.paths import DATA_DIR
     from src.core.db import get_db
@@ -1138,7 +1153,8 @@ def save_order(order: dict, actor: str = "system") -> bool:
                     notes=excluded.notes, updated_at=excluded.updated_at,
                     is_test=excluded.is_test
             """, (order_id, order.get("quote_number", ""), order.get("agency", ""),
-                  order.get("institution", ""), order.get("po_number", ""),
+                  order.get("institution", ""),
+                  _clean_po_number_for_dal(order.get("po_number", "")),
                   order.get("po_date", ""), order.get("status", "new"),
                   order.get("total", 0),
                   json.dumps(order.get("items", order.get("line_items", [])), default=str),
