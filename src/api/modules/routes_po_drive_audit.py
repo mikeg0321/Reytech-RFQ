@@ -194,13 +194,78 @@ def _build_audit(limit: int = 50, only_unidentified: bool = False) -> dict:
     return summary
 
 
+def _probe_drive_root() -> dict:
+    """Diagnostic: enumerate the actual Drive structure.
+
+    Used to debug 'all orders return no_folder' — answers:
+      - Is the root folder reachable?
+      - Are there year folders (2025/2026/...)? With what names?
+      - For the most recent year: what quarter folders exist?
+      - For one quarter: how many PO-* folders are there, sample names?
+
+    Returns a tree dict so the operator can compare against
+    expected_folder paths from the main audit.
+    """
+    from src.core.gdrive import (
+        is_configured, list_files, GOOGLE_DRIVE_ROOT_FOLDER_ID,
+    )
+
+    out = {
+        "drive_configured": is_configured(),
+        "root_folder_id": GOOGLE_DRIVE_ROOT_FOLDER_ID or "",
+    }
+    if not out["drive_configured"]:
+        out["error"] = "Drive not configured"
+        return out
+
+    try:
+        root_children = list_files(GOOGLE_DRIVE_ROOT_FOLDER_ID)
+    except Exception as e:
+        out["error"] = f"list root failed: {e}"
+        return out
+
+    folders = [f for f in root_children
+               if f.get("mimeType") == "application/vnd.google-apps.folder"]
+    out["root_children_count"] = len(root_children)
+    out["root_folder_names"] = sorted([f.get("name", "") for f in folders])
+
+    # Probe most recent year if it looks like a year folder.
+    year_candidates = [f for f in folders
+                       if (f.get("name", "").isdigit()
+                           and 2020 <= int(f.get("name", "0")) <= 2030)]
+    if year_candidates:
+        year = max(year_candidates, key=lambda f: f["name"])
+        out["sampled_year"] = year["name"]
+        try:
+            yc = list_files(year["id"])
+            out["year_children"] = sorted([f.get("name", "") for f in yc])
+            qs = [f for f in yc
+                  if f.get("name", "") in ("Q1", "Q2", "Q3", "Q4")]
+            if qs:
+                q = qs[0]
+                out["sampled_quarter"] = q["name"]
+                qc = list_files(q["id"])
+                names = sorted([f.get("name", "") for f in qc])
+                out["quarter_children_count"] = len(names)
+                out["quarter_children_sample"] = names[:30]
+        except Exception as e:
+            out["probe_error"] = str(e)
+
+    return out
+
+
 @bp.route("/api/admin/po-drive-audit")
 @auth_required
 def po_drive_audit_json():
     """JSON audit report. Query params:
       - limit: max orders to check (default 50, max 500 to bound API calls)
       - only_unidentified: if "1", restrict to mismatched-prefix orders
+      - probe: if "1", return Drive structure probe (for debugging
+        why all orders categorize as no_folder)
     """
+    if request.args.get("probe", "0") == "1":
+        return jsonify(_probe_drive_root())
+
     try:
         limit = max(1, min(500, int(request.args.get("limit", "50"))))
     except (TypeError, ValueError):
