@@ -1845,6 +1845,41 @@ def _migrate_columns():
         except Exception as _e:
             log.debug("Partial UNIQUE index creation suppressed: %s", _e)
 
+        # CalVet PO prefix backfill (2026-04-28, PR #636). PR #635's
+        # po_prefix card surfaced 57.3% of prod POs as "unidentified"
+        # — most were CalVet records stored as bare numeric tails
+        # (`0000067018` instead of canonical `8955-0000067018`)
+        # because the parse regex captured digits only and split at
+        # the dash. The write-path is now fixed; this backfill cleans
+        # up the existing rows so the surface flips healthy.
+        #
+        # Scope is conservative — only rows that (a) belong to a
+        # CalVet facility (institution contains "Veterans Home" — the
+        # canonical name pattern across all 8+ CalVet facilities),
+        # (b) carry a bare numeric po_number of canonical CalVet tail
+        # length (10 digits, like `0000067018`), and (c) don't already
+        # start with `8955-`. Idempotent — re-running matches no rows
+        # the second time.
+        try:
+            r = conn.execute("""
+                UPDATE orders
+                SET po_number = '8955-' || po_number
+                WHERE po_number IS NOT NULL
+                  AND po_number GLOB '[0-9]*'
+                  AND length(po_number) BETWEEN 8 AND 12
+                  AND po_number NOT LIKE '8955-%'
+                  AND po_number NOT LIKE '4500%'
+                  AND po_number NOT LIKE '4440-%'
+                  AND COALESCE(institution, '') LIKE '%Veterans Home%'
+            """)
+            if r.rowcount:
+                log.info(
+                    "CalVet PO prefix backfill: prepended '8955-' to %d "
+                    "Veterans Home order rows", r.rowcount
+                )
+        except Exception as _e:
+            log.debug("CalVet prefix backfill suppressed: %s", _e)
+
         # Sentinel-PO backfill (2026-04-28). po_aggregate card surfaced
         # the literal "N/A" entered as po_number on 6 distinct orders
         # ($219k total) — masquerading as a multi-quote PO. Other

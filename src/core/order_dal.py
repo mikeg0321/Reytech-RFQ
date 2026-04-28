@@ -13,6 +13,7 @@
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 log = logging.getLogger("reytech.order_dal")
@@ -50,6 +51,73 @@ def clean_po_number(raw) -> str:
     if s.upper() in _PO_SENTINELS:
         return ""
     return s
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PO number extraction from text (subjects, bodies, PDFs)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# California buyer POs follow agency-specific prefix patterns (per
+# Mike 2026-04-28, confirmed via buyer email archive):
+#   CalVet:  8955-NNNNNNNNNN
+#   CCHCS:   4500NNNNNNNN
+#   DSH:     4440-NNNNNNN
+#
+# Pre-2026-04-28: every extraction site used `(\d{7,13})` (digits only),
+# which captured the bare numeric tail and stripped the dashed prefix
+# from CalVet and DSH POs. CCHCS survived only because its prefix has
+# no dash. PR #635's po_prefix card surfaced this — 57.3% of prod POs
+# were "unidentified" because the prefix had been stripped at parse
+# time. PR #636 (this file) adds a unified token pattern that captures
+# the full canonical PO including any dashed prefix, used at every
+# site that pulls a PO number from buyer text.
+#
+# Pattern: digit run of ≥4, optionally followed by a single dashed
+# digit suffix (also ≥4 digits). Word-boundary anchored on each end.
+
+# Re-exported for the email parsing modules so they don't each
+# re-derive it. `re.search(PO_TOKEN_REGEX, text)` is the canonical
+# call; group(0) is the matched PO.
+PO_TOKEN_REGEX = r'\b\d{4,}(?:-\d{4,})?\b'
+
+
+def extract_canonical_po(text):
+    """Return the most-PO-like token in `text`, or '' if none found.
+
+    Looks for canonical agency-prefixed POs FIRST (CalVet `8955-`,
+    DSH `4440-`, CCHCS `4500`) and falls back to a generic
+    digit-run pattern. This priority ordering ensures that a
+    document containing both a date `02192026` AND a CalVet PO
+    `8955-0000044935` returns the latter.
+
+    For texts where multiple PO-like tokens appear (typical for
+    CalVet PDFs whose header line includes a date + zeros + the
+    real PO), prefer the LONGEST canonical-prefix match; if none,
+    take the longest generic match.
+    """
+    if not text:
+        return ""
+    s = str(text)
+
+    # Priority 1: canonical agency-prefixed POs.
+    canonical = []
+    for pat in (
+        r'\b8955-\d{8,12}\b',     # CalVet
+        r'\b4440-\d{4,12}\b',     # DSH
+        r'\b4500\d{4,12}\b',      # CCHCS
+    ):
+        canonical.extend(re.findall(pat, s, re.IGNORECASE))
+    if canonical:
+        return max(canonical, key=len)
+
+    # Priority 2: any digit run of ≥7 (long enough to look PO-ish,
+    # not a date or line number).
+    generic = re.findall(r'\b\d{7,13}\b', s)
+    if generic:
+        return max(generic, key=len)
+    return ""
+
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Status definitions
