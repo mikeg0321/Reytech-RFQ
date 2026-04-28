@@ -484,22 +484,29 @@ def _parse_po_pdf(pdf_path: str) -> dict:
               "ship_to_address": [], "total": 0, "_raw_text": text[:3000]}
     
     # ── Extract PO / Encumbrance Number ──
-    # STD-65 format: "PURCHASE ORDER NUMBER\n00015 02/19/2026 00000000 4500750017"
-    # The PO number is the last (longest) number on the line after the header
+    # STD-65 format examples:
+    #   CCHCS:  "PURCHASE ORDER NUMBER\n00015 02/19/2026 00000000 4500750017"
+    #   CalVet: "PURCHASE ORDER NUMBER\n00015 02/19/2026 00000000 8955-0000044935"
+    #   DSH:    "PURCHASE ORDER NUMBER\n00015 02/19/2026 00000000 4440-1234567"
+    #
+    # Pre-PR #636: regex was `(\d{7,13})` (digits only) and the comment
+    # said "PO is typically the longest/last" — but for CalVet the
+    # dashed prefix split into `8955` + `0000044935` and `nums[-1]`
+    # picked the latter, stripping the prefix permanently. Use the
+    # shared `extract_canonical_po` which prefers canonical agency
+    # prefixes (8955-/4440-/4500) over bare digit runs.
+    from src.core.order_dal import extract_canonical_po as _extract_po
     po_header = re.search(r'PURCHASE\s*ORDER\s*NUMBER\s*\n([^\n]+)', text, re.IGNORECASE)
     if po_header:
-        # Find all 7+ digit numbers on that line — PO is typically the longest/last
-        nums = re.findall(r'\b(\d{7,13})\b', po_header.group(1))
-        if nums:
-            result["po_number"] = nums[-1]  # Last long number is the PO
-    
+        result["po_number"] = _extract_po(po_header.group(1))
+
     if not result["po_number"]:
         for pat in [
-            r'(?:Purchase\s*Order|P\.?O\.?)\s*(?:Number|No\.?|#)?\s*:?\s*(\d{7,13})',
-            r'(?:PO|STD\s*65)\s*#?\s*:?\s*(\d{7,13})',
-            r'Order\s*(?:Number|No\.?)\s*:?\s*(\d{7,13})',
-            r'Encumbrance\s*(?:Number|No\.?|#)?\s*:?\s*(\d{7,13})',
-            r'Document\s*(?:Number|No\.?|#|ID)\s*:?\s*(\d{7,13})',
+            r'(?:Purchase\s*Order|P\.?O\.?)\s*(?:Number|No\.?|#)?\s*:?\s*(\d{4,}(?:-\d{4,})?)',
+            r'(?:PO|STD\s*65)\s*#?\s*:?\s*(\d{4,}(?:-\d{4,})?)',
+            r'Order\s*(?:Number|No\.?)\s*:?\s*(\d{4,}(?:-\d{4,})?)',
+            r'Encumbrance\s*(?:Number|No\.?|#)?\s*:?\s*(\d{4,}(?:-\d{4,})?)',
+            r'Document\s*(?:Number|No\.?|#|ID)\s*:?\s*(\d{4,}(?:-\d{4,})?)',
         ]:
             m = re.search(pat, text, re.IGNORECASE)
             if m:
@@ -796,15 +803,18 @@ def is_purchase_order_email(subject, body, sender, pdf_names):
     else:
         return None
     
-    # Extract PO number
+    # Extract PO number. Patterns updated PR #636 — last 3 used to be
+    # `(\d{7,13})` (digits-only), which stripped the dashed prefix off
+    # CalVet (8955-) and DSH (4440-) POs. Now uniform with the shared
+    # token shape `\d{4,}(?:-\d{4,})?` so all three agencies survive.
     po_number = None
     po_patterns = [
         r'(?:purchase\s*order|p\.?o\.?)\s*#?\s*(\d[\w\-]{3,20})',
         r'(?:po\s*number|po#|po\s*#)\s*:?\s*(\d[\w\-]{3,20})',
         r'std\s*65\s*#?\s*(\d[\w\-]{3,20})',
-        r'po\s*distribution\s*:?\s*(\d{7,13})',           # "PO Distribution: 4500750017"
-        r'fi\$cal.*?(\d{7,13})',                           # "Fi$cal ... 4500750017"
-        r'encumbrance.*?(\d{7,13})',                       # "Encumbrance 4500750017"
+        r'po\s*distribution\s*:?\s*(\d{4,}(?:-\d{4,})?)',     # CCHCS + CalVet/DSH
+        r'fi\$cal.*?(\d{4,}(?:-\d{4,})?)',
+        r'encumbrance.*?(\d{4,}(?:-\d{4,})?)',
     ]
     for pat in po_patterns:
         m = re.search(pat, combined, re.IGNORECASE)
@@ -1908,9 +1918,11 @@ class EmailPoller:
                         po_number = po_detect.get("po_number", "")
                         sol_number = extract_solicitation_number(subject, body or "", pdf_names)
                         
-                        # Special handling for "PO Distribution: PO#, SOL#, FACILITY, VENDOR" format
+                        # Special handling for "PO Distribution: PO#, SOL#, FACILITY, VENDOR" format.
+                        # PR #636: PO group widened from `(\d+)` to `(\d{4,}(?:-\d{4,})?)`
+                        # to capture CalVet's `8955-NNNNNNNN` and DSH's `4440-NNNNNNN`.
                         po_dist_match = re.match(
-                            r'(?:re:\s*)?po\s*distribution\s*:?\s*(\d+)\s*,\s*(\d{7,8})',
+                            r'(?:re:\s*)?po\s*distribution\s*:?\s*(\d{4,}(?:-\d{4,})?)\s*,\s*(\d{7,8})',
                             subject, re.IGNORECASE
                         )
                         if po_dist_match:

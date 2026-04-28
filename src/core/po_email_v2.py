@@ -21,21 +21,36 @@ log = logging.getLogger("reytech.po_email_v2")
 
 # ── Email parsing (extracted from routes_order_tracking) ─────────────────
 
+# Patterns updated 2026-04-28 (PR #636) to capture canonical agency
+# prefixes including dashes (CalVet `8955-NNNN`, DSH `4440-NNNN`).
+# Previously digits-only `(\d{4,12})` stripped the prefix off CalVet
+# and DSH POs; PR #635's po_prefix card surfaced 57% of prod POs as
+# "unidentified" because of this. Token allows a single optional
+# dashed suffix.
 _PO_PATTERNS = [
-    r'PO[#:\s]*(\d{4,12})',
-    r'Purchase Order[#:\s]*(\d{4,12})',
-    r'P\.?O\.?\s*(\d{4,12})',
-    r'Order[#:\s]*(\d{4,12})',
-    r'#(\d{4,12})',
+    r'PO[#:\s]*(\d{4,}(?:-\d{4,})?)',
+    r'Purchase Order[#:\s]*(\d{4,}(?:-\d{4,})?)',
+    r'P\.?O\.?\s*(\d{4,}(?:-\d{4,})?)',
+    r'Order[#:\s]*(\d{4,}(?:-\d{4,})?)',
+    r'#(\d{4,}(?:-\d{4,})?)',
 ]
 
 
 def extract_po_numbers(text):
-    """Return unique PO numbers found in text. Same regex set as the legacy poller."""
+    """Return unique PO numbers found in text.
+
+    Updated PR #636 to capture canonical dashed prefixes via the
+    shared `_PO_PATTERNS` set above. Empty-string and pure-digit
+    fragments are filtered out so we don't return `8955` and
+    `0000044935` as two separate matches when the input was
+    `8955-0000044935` (a single PO).
+    """
     found = set()
     for pattern in _PO_PATTERNS:
         for m in re.finditer(pattern, text, re.IGNORECASE):
-            found.add(m.group(1))
+            tok = m.group(1)
+            if tok:
+                found.add(tok)
     return list(found)
 
 
