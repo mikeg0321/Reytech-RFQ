@@ -351,6 +351,95 @@
   </div>
 </div>
 
+{# ── Pending drafts breakdown (Plan §4.3 sub-2 follow-up) ── #}
+{# PR #618's Gmail card surfaces "N pending drafts" as one number. This card  #}
+{# breaks the pile down by status × age so the operator can decide purge vs   #}
+{# review without leaving the page. >30d rows are the genuine triage signal.  #}
+{% set _pdb = pending_drafts_breakdown|default({"total": 0, "by_status": {}, "by_age": {}, "samples": []}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Pending drafts —
+    {% if _pdb.status == 'error' %}<span style="color:#f85149">⛔ TRIAGE</span>
+    {% elif _pdb.status == 'warn' %}<span style="color:#d29922">⚠ working pile</span>
+    {% elif _pdb.status == 'healthy' %}<span style="color:#3fb950">✓ empty</span>
+    {% else %}<span style="color:#6e7681">unknown</span>{% endif %}
+  </div>
+  {% if _pdb.total == 0 %}
+  <div style="padding:14px;color:#8b949e;font-size:13px">
+    Outbox draft queue is empty. <code>email_outbox</code> may also be missing
+    if this is a fresh-boot DB.
+  </div>
+  {% else %}
+  <div style="padding:10px 12px;font-size:13px">
+    <div style="margin-bottom:8px">
+      <strong style="font-size:18px">{{ _pdb.total }}</strong> rows in pending states.
+      {% if _pdb.by_age.gt_90d > 0 or _pdb.by_age['30_90d'] > 0 %}
+      <span style="color:#f85149">{{ _pdb.by_age['30_90d'] + _pdb.by_age.gt_90d }} are &gt;30d old.</span>
+      {% endif %}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:10px">
+      {% for key, label, color in [
+          ('lt_1d', '<1d', '#3fb950'),
+          ('1_7d', '1-7d', '#58a6ff'),
+          ('7_30d', '7-30d', '#d29922'),
+          ('30_90d', '30-90d', '#f85149'),
+          ('gt_90d', '>90d', '#a371f7'),
+      ] %}
+      <div style="text-align:center;padding:6px;border:1px solid #30363d;border-radius:6px">
+        <div style="font-size:18px;font-weight:700;color:{{ color }}">{{ _pdb.by_age[key]|default(0) }}</div>
+        <div style="font-size:11px;color:#8b949e">{{ label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div style="margin-bottom:10px">
+      <div style="font-size:11px;color:#8b949e;margin-bottom:4px">By status:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+      {% for st, n in _pdb.by_status.items() %}
+        <span style="padding:2px 8px;border-radius:10px;background:#21262d;color:#8b949e;font-size:11px;font-weight:600">
+          {{ st }} · {{ n }}
+        </span>
+      {% endfor %}
+      </div>
+    </div>
+
+    {% if _pdb.samples %}
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#58a6ff">Oldest {{ _pdb.samples|length }} samples</summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px">Age</th>
+            <th style="padding:4px">Status</th>
+            <th style="padding:4px">Recipient</th>
+            <th style="padding:4px">Subject</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for s in _pdb.samples %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px;color:{% if s.age_days and s.age_days >= 30 %}#f85149{% elif s.age_days and s.age_days >= 7 %}#d29922{% else %}#8b949e{% endif %}">
+              {{ s.age_days }}d
+            </td>
+            <td style="padding:4px;color:#8b949e">{{ s.status }}</td>
+            <td style="padding:4px;font-family:monospace;font-size:10px">{{ s.recipient }}</td>
+            <td style="padding:4px;color:#8b949e">{{ s.subject }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+
+    <div style="margin-top:8px;font-size:12px;color:#8b949e">
+      Act on rows from <a href="/outbox" style="color:#58a6ff">/outbox</a>.
+      &gt;30d rows almost certainly want purging; &lt;7d rows are working pile.
+    </div>
+  </div>
+  {% endif %}
+</div>
+
 {# ── Last-5 quotes cost_source chips (Plan §4.3 sub-3) ── #}
 {# Pricing pipeline health at a glance. Each chip = N items in one cost_source #}
 {# bucket. Healthy mix is operator/catalog dominant — those are the rows that  #}

@@ -452,6 +452,7 @@ def quoting_health_page():
         "gmail_send": _build_gmail_send_card(),
         "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
+        "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -541,6 +542,7 @@ def quoting_health_json():
         "gmail_send": _build_gmail_send_card(),
         "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
+        "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
@@ -917,6 +919,145 @@ def _build_gmail_send_card():
     elif result["lag_seconds"] > 7 * 86400:
         result["status"] = "stale"
     elif result["lag_seconds"] > 86400:
+        result["status"] = "warn"
+    else:
+        result["status"] = "healthy"
+
+    return result
+
+
+def _build_pending_drafts_breakdown_card(sample_per_age=3):
+    """Plan §4.3 sub-2 follow-up — break down the email_outbox pending
+    pile.
+
+    PR #618's gmail_send card surfaced "268 pending drafts" on prod
+    with no detail. This card answers the natural next question: WHAT
+    is in that pile? An operator can't decide "purge vs review" from a
+    single integer — they need to see whether it's old test artifacts,
+    a stuck follow-up batch, or real waiting-to-send messages.
+
+    Breakdown axes:
+      • by status — draft / cs_draft / outreach_draft / follow_up_draft
+                    / queued / approved (PR #618's pending-bucket
+                    membership). Each implies a different intent.
+      • by age — <1d, 1-7d, 7-30d, 30-90d, >90d. The vast majority of a
+                 healthy pile should be <1d (recently composed,
+                 awaiting send); rows older than 30d are almost
+                 certainly orphaned.
+      • samples — first N rows from each age bucket so the operator
+                  sees actual recipients/subjects without leaving the
+                  page.
+
+    Status semantics for the card itself:
+      • `healthy`  — 0 pending (rare; the outbox is rarely empty)
+      • `warn`     — 1-49 pending (normal working pile)
+      • `error`    — ≥50 pending OR any rows >30d old (the >30d rows
+                     are the genuine triage signal — they prove the
+                     pile is accruing rather than draining)
+      • `unknown`  — query failed / table missing
+    """
+    result = {
+        "status": "unknown",
+        "total": 0,
+        "by_status": {},
+        "by_age": {
+            "lt_1d": 0, "1_7d": 0, "7_30d": 0, "30_90d": 0, "gt_90d": 0,
+        },
+        "samples": [],
+    }
+    try:
+        with get_db() as conn:
+            # Same status set the gmail_send card treats as "pending".
+            pending_states = (
+                "draft", "cs_draft", "outreach_draft",
+                "follow_up_draft", "queued", "approved",
+            )
+            placeholders = ",".join("?" for _ in pending_states)
+
+            by_status_rows = conn.execute(
+                f"""
+                SELECT status, COUNT(*) AS n
+                FROM email_outbox
+                WHERE status IN ({placeholders})
+                GROUP BY status
+                ORDER BY n DESC
+                """, pending_states).fetchall()
+            for r in by_status_rows:
+                result["by_status"][r["status"]] = int(r["n"] or 0)
+            result["total"] = sum(result["by_status"].values())
+
+            # Age buckets via SQLite's `julianday('now') - julianday(created_at)`
+            # in days. NULL/missing created_at lands in lt_1d as a safe
+            # default — those rows just got queued.
+            age_rows = conn.execute(
+                f"""
+                SELECT
+                  SUM(CASE WHEN created_at IS NULL OR created_at = ''
+                           OR julianday('now') - julianday(created_at) < 1
+                          THEN 1 ELSE 0 END) AS lt_1d,
+                  SUM(CASE WHEN julianday('now') - julianday(created_at) >= 1
+                            AND julianday('now') - julianday(created_at) < 7
+                          THEN 1 ELSE 0 END) AS d1_7,
+                  SUM(CASE WHEN julianday('now') - julianday(created_at) >= 7
+                            AND julianday('now') - julianday(created_at) < 30
+                          THEN 1 ELSE 0 END) AS d7_30,
+                  SUM(CASE WHEN julianday('now') - julianday(created_at) >= 30
+                            AND julianday('now') - julianday(created_at) < 90
+                          THEN 1 ELSE 0 END) AS d30_90,
+                  SUM(CASE WHEN julianday('now') - julianday(created_at) >= 90
+                          THEN 1 ELSE 0 END) AS gt_90
+                FROM email_outbox
+                WHERE status IN ({placeholders})
+                """, pending_states).fetchone()
+            if age_rows:
+                result["by_age"] = {
+                    "lt_1d": int(age_rows["lt_1d"] or 0),
+                    "1_7d": int(age_rows["d1_7"] or 0),
+                    "7_30d": int(age_rows["d7_30"] or 0),
+                    "30_90d": int(age_rows["d30_90"] or 0),
+                    "gt_90d": int(age_rows["gt_90"] or 0),
+                }
+
+            # A few samples from each age bucket. Operators care most
+            # about the >30d rows (proof of pile-accrual), so seed the
+            # table with those first by ORDER BY created_at ASC.
+            sample_rows = conn.execute(
+                f"""
+                SELECT id, status, to_address, subject, created_at
+                FROM email_outbox
+                WHERE status IN ({placeholders})
+                ORDER BY created_at ASC
+                LIMIT ?
+                """, (*pending_states, sample_per_age * 5)).fetchall()
+            for r in sample_rows:
+                age_days = None
+                if r["created_at"]:
+                    try:
+                        from datetime import timezone as _tz
+                        dt = datetime.fromisoformat(r["created_at"])
+                        now = datetime.now(_tz.utc) if dt.tzinfo else datetime.now()
+                        age_days = max(0.0, (now - dt).total_seconds() / 86400)
+                    except (ValueError, TypeError):
+                        pass
+                result["samples"].append({
+                    "id": r["id"],
+                    "status": r["status"] or "",
+                    "recipient": (r["to_address"] or "")[:80],
+                    "subject": (r["subject"] or "")[:100],
+                    "created_at": r["created_at"] or "",
+                    "age_days": round(age_days, 1) if age_days is not None else None,
+                })
+    except Exception as e:
+        log.debug("pending_drafts_breakdown read failed: %s", e)
+        return result
+
+    # Status semantics: >30d rows are the genuine pile-accrual signal.
+    over_30d = result["by_age"]["30_90d"] + result["by_age"]["gt_90d"]
+    if over_30d > 0:
+        result["status"] = "error"
+    elif result["total"] >= 50:
+        result["status"] = "error"
+    elif result["total"] > 0:
         result["status"] = "warn"
     else:
         result["status"] = "healthy"
