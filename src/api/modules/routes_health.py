@@ -455,6 +455,7 @@ def quoting_health_page():
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
         "orders_drift": _build_orders_drift_card(),
+        "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -547,6 +548,7 @@ def quoting_health_json():
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
         "orders_drift": _build_orders_drift_card(),
+        "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
@@ -710,6 +712,81 @@ def _build_orders_drift_card():
     else:
         result["status"] = "healthy"
 
+    return result
+
+
+# ── PO aggregate summary (S3-prep PR-2) ─────────────────────────────────
+
+
+def _build_po_aggregate_card():
+    """Surface the `po_aggregate` SQL view on /health/quoting.
+
+    Companion to the orders-drift card. The drift card flags raw
+    duplicate po_numbers as ⛔; this card reframes them by showing the
+    legitimate 1:N PO→quote relationship. A multi-quote PO is NORMAL
+    (one buyer PO covering N awarded quotes) — the drift card's
+    "DUP POs" counter conflates these with operator typos.
+
+    Once the operator can see both cards, follow-up work can refine
+    the drift card's duplicate signal to flag only same-PO + same-
+    quote-number rows (true dups). For now, surface only — no
+    behavior change.
+
+    Reads from a VIEW (`po_aggregate`) so there's no sync to maintain
+    and no risk of the parent diverging from the orders rows.
+    """
+    result = {
+        "status": "unknown",
+        "total_pos": 0,
+        "single_quote_pos": 0,
+        "multi_quote_pos": 0,
+        "max_quote_count": 0,
+        "biggest_pos": [],   # [{po_number, quote_count, total_amount, agency}]
+    }
+    try:
+        with get_db() as conn:
+            r = conn.execute("""
+                SELECT
+                  COUNT(*)                                AS n_total,
+                  SUM(CASE WHEN quote_count = 1 THEN 1 ELSE 0 END) AS n_single,
+                  SUM(CASE WHEN quote_count > 1 THEN 1 ELSE 0 END) AS n_multi,
+                  COALESCE(MAX(quote_count), 0)           AS max_qc
+                FROM po_aggregate
+                WHERE COALESCE(is_test, 0) = 0
+            """).fetchone()
+            if r:
+                result["total_pos"] = int(r["n_total"] or 0)
+                result["single_quote_pos"] = int(r["n_single"] or 0)
+                result["multi_quote_pos"] = int(r["n_multi"] or 0)
+                result["max_quote_count"] = int(r["max_qc"] or 0)
+
+            # Top multi-quote POs so the operator can see WHICH ones
+            # span multiple quotes. Capped at 10 entries — anything
+            # past that is tail noise, the headline data lives in the
+            # top spans.
+            biggest = conn.execute("""
+                SELECT po_number, quote_count, total_amount, agency
+                FROM po_aggregate
+                WHERE COALESCE(is_test, 0) = 0
+                  AND quote_count > 1
+                ORDER BY quote_count DESC, total_amount DESC
+                LIMIT 10
+            """).fetchall()
+            for row in biggest:
+                result["biggest_pos"].append({
+                    "po_number": row["po_number"] or "",
+                    "quote_count": int(row["quote_count"] or 0),
+                    "total_amount": float(row["total_amount"] or 0),
+                    "agency": row["agency"] or "",
+                })
+    except Exception as e:
+        log.debug("po_aggregate_card read failed: %s", e)
+        return result
+
+    # Observational, not gating. Healthy when the view has any rows;
+    # unknown when empty (no orders with po_numbers yet).
+    if result["total_pos"] > 0:
+        result["status"] = "healthy"
     return result
 
 

@@ -463,6 +463,80 @@
   </div>
 </div>
 
+{# ── PO aggregate (S3-prep PR-2 corrected scope) ── #}
+{# Companion to the Orders drift card. The drift card flags raw         #}
+{# duplicate po_numbers as ⛔; this card reframes them by showing the     #}
+{# legitimate 1:N PO→quote relationship. A multi-quote PO (one buyer    #}
+{# PO covering N awarded quotes) is NORMAL — the drift card's "DUP POs" #}
+{# counter conflates these with operator typos. Surface only — no       #}
+{# behavior change to drift card semantics in this PR. Reads from the   #}
+{# `po_aggregate` SQL view (live, no sync, no drift).                    #}
+{% set _po = po_aggregate|default({"status":"unknown","total_pos":0,"single_quote_pos":0,"multi_quote_pos":0,"max_quote_count":0,"biggest_pos":[]}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    PO aggregate —
+    {% if _po.status == 'healthy' %}<span style="color:#3fb950">✓ {{ _po.total_pos }} POs covering {{ _po.single_quote_pos + _po.multi_quote_pos }} groups</span>
+    {% else %}<span style="color:#6e7681">no PO data yet</span>{% endif %}
+  </div>
+  <div style="padding:10px 12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _po.total_pos }}</div>
+        <div style="font-size:11px;color:#8b949e">TOTAL POs</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#3fb950">{{ _po.single_quote_pos }}</div>
+        <div style="font-size:11px;color:#8b949e" title="one buyer PO covers exactly one quote">SINGLE-QUOTE</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#58a6ff">{{ _po.multi_quote_pos }}</div>
+        <div style="font-size:11px;color:#8b949e" title="one buyer PO covers 2+ quotes — legitimate 1:N">MULTI-QUOTE</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _po.max_quote_count }}</div>
+        <div style="font-size:11px;color:#8b949e" title="largest PO span — quotes covered by a single PO">MAX SPAN</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
+      {% if _po.multi_quote_pos > 0 %}
+        <strong style="color:#58a6ff">{{ _po.multi_quote_pos }} multi-quote POs are legitimate.</strong>
+        These are NOT operator typos — one buyer PO covers multiple awarded quotes. The orders drift card's "DUP POs" counter conflates these; refining it is a follow-up scope item.
+      {% else %}
+        No multi-quote POs yet. Orders drift "DUP POs" still counts raw duplicates including operator typos; this card will reframe them as 1:N relationships once they exist.
+      {% endif %}
+      <span style="color:#6e7681"> · Parent table for S3 schema cleanup (PLAN_ONCE_AND_FOR_ALL §5.1).</span>
+    </div>
+
+    {% if _po.biggest_pos %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">
+        Biggest multi-quote POs ({{ _po.biggest_pos|length }})
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">PO #</th>
+            <th style="padding:4px 8px;text-align:right">Quotes</th>
+            <th style="padding:4px 8px;text-align:right">Total</th>
+            <th style="padding:4px 8px">Agency</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for p in _po.biggest_pos %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace">{{ p.po_number }}</td>
+            <td style="padding:4px 8px;text-align:right;color:#58a6ff">{{ p.quote_count }}</td>
+            <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(p.total_amount) }}</td>
+            <td style="padding:4px 8px">{{ p.agency }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
 {# ── Agent runtime health (Plan §4.3 sub-4) ── #}
 {# Surveys the 14 src/agents/*.py modules that expose get_agent_status().    #}
 {# A failing import = boot regression; surfaces here BEFORE a user hits the  #}

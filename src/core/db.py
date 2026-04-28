@@ -361,6 +361,29 @@ CREATE TABLE IF NOT EXISTS order_audit_log (
 CREATE INDEX IF NOT EXISTS idx_oal_order ON order_audit_log(order_id);
 CREATE INDEX IF NOT EXISTS idx_oal_action ON order_audit_log(action);
 
+-- PO aggregate VIEW (S3-prep PR-2 corrected scope, 2026-04-28).
+-- The orders→PO relationship is naturally 1:N: a single buyer PO can cover
+-- multiple awarded quotes (verified on prod — PO 0000053217 spans 7
+-- quotes). Earlier plans called for UNIQUE on orders.po_number, which
+-- would have failed against legitimate multi-quote POs. This view
+-- exposes the per-PO aggregate (quote_count, total_amount) derived
+-- live from orders rows — no sync, no drift possible, no name
+-- collision with the unrelated `purchase_orders` table owned by
+-- routes_order_tracking.py (PO email tracking subsystem).
+CREATE VIEW IF NOT EXISTS po_aggregate AS
+SELECT
+    po_number,
+    COUNT(*)                                   AS quote_count,
+    COALESCE(SUM(total), 0)                    AS total_amount,
+    COALESCE(MAX(agency), '')                  AS agency,
+    COALESCE(MAX(institution), '')             AS institution,
+    COALESCE(MIN(created_at), '')              AS first_seen,
+    COALESCE(MAX(updated_at), MAX(created_at), '') AS last_updated,
+    COALESCE(MAX(is_test), 0)                  AS is_test
+FROM orders
+WHERE po_number IS NOT NULL AND po_number != ''
+GROUP BY po_number;
+
 CREATE TABLE IF NOT EXISTS order_attachments (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id    TEXT NOT NULL,
