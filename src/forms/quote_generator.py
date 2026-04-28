@@ -564,8 +564,31 @@ def update_quote_status(quote_number: str, status: str, po_number: str = "",
     quotes = get_all_quotes(include_test=True)
     found = False
     now = datetime.now().isoformat()
+    _kpi_should_log = False
+    _kpi_payload: dict | None = None
     for qt in quotes:
         if qt.get("quote_number") == quote_number:
+            # KPI gate: only log on the TRANSITION INTO 'sent' (not on
+            # idempotent re-saves of an already-sent quote). Two RFQ
+            # send paths today flip status to 'sent' via this function
+            # without explicitly calling log_quote_sent — empty
+            # operator_quote_sent on prod despite 102/379 W/L all-time
+            # in PR #620 was the symptom. Centralizing here unblocks
+            # the §4.1 KPI surface AND PR #619's cost_source chips card.
+            _old_status = qt.get("status")
+            if status == "sent" and _old_status != "sent" and not qt.get("is_test"):
+                _kpi_should_log = True
+                _kpi_payload = {
+                    "quote_id": quote_number,
+                    "quote_type": "rfq" if qt.get("source_rfq_id") else "pc",
+                    "started_at": qt.get("created_at"),
+                    "item_count": int(qt.get("items_count") or
+                                      len(qt.get("items_detail") or
+                                          qt.get("line_items") or [])),
+                    "agency_key": (qt.get("agency_key") or
+                                   qt.get("agency") or ""),
+                    "quote_total": float(qt.get("total") or 0),
+                }
             qt["status"] = status
             qt["status_updated"] = now
             qt["updated_at"] = now
@@ -618,6 +641,17 @@ def update_quote_status(quote_number: str, status: str, po_number: str = "",
         _save_all_quotes(quotes)
         log.info("Quote %s marked as %s%s", quote_number, status.upper(),
                  f" (PO: {po_number})" if po_number else "")
+        # KPI telemetry — see _kpi_should_log gate above. Best-effort:
+        # never raises, never blocks the status flip. Idempotent paths
+        # (already-sent quotes being re-saved) are gated out at the
+        # transition check. Catches the two RFQ-send routes that
+        # historically flipped status without logging.
+        if _kpi_should_log and _kpi_payload:
+            try:
+                from src.core.operator_kpi import log_quote_sent
+                log_quote_sent(**_kpi_payload)
+            except Exception as _kpi_e:
+                log.debug("KPI log on status-flip suppressed: %s", _kpi_e)
     return found
 
 def get_quote_stats() -> dict:
