@@ -129,7 +129,7 @@
  <div class="card" style="margin-bottom:14px">
   <div class="card-t">📋 Per-line cost trace</div>
   <div style="overflow-x:auto">
-  <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:1100px">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:1280px">
    <thead>
     <tr style="color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd,#30363d)">
      <th style="padding:6px 8px">#</th>
@@ -143,6 +143,7 @@
      <th style="padding:6px 8px;text-align:right" title="State paid (reference ceiling)">SCPRS</th>
      <th style="padding:6px 8px;text-align:right" title="Canonical catalog cost">Catalog</th>
      <th style="padding:6px 8px;text-align:right" title="Amazon retail (reference)">Amazon</th>
+     <th style="padding:6px 8px;text-align:right" title="Last winning bid for THIS buyer × THIS product (Plan §6.2)">Last won (buyer)</th>
     </tr>
    </thead>
    <tbody>
@@ -175,6 +176,25 @@
      </td>
      <td style="padding:8px;text-align:right;color:var(--tx2)">
       {% if it.amazon_price > 0 %}${{ '{:,.2f}'.format(it.amazon_price) }}{% else %}—{% endif %}
+     </td>
+     <td style="padding:8px;text-align:right;font-size:11px">
+      {% if it.last_won and it.last_won.price %}
+       <a href="/growth-intel/quote?id={{ it.last_won.quote_number|urlencode }}"
+          style="color:var(--ac);text-decoration:none"
+          title="View that quote's cost trace">
+        ${{ '{:,.2f}'.format(it.last_won.price) }}
+       </a>
+       <div style="font-size:10px;color:var(--tx2)">{{ it.last_won.won_at }}</div>
+       {% if it.delta_vs_last_won is not none %}
+       {# Negative delta = we're bidding LOWER than last won (more aggressive). #}
+       {# Positive delta = we're bidding HIGHER (might lose where we won before). #}
+       <div style="font-size:10px;font-weight:600;color:{% if it.delta_vs_last_won < 0 %}var(--gn){% elif it.delta_vs_last_won > 0 %}var(--rd){% else %}var(--tx2){% endif %}">
+        {% if it.delta_vs_last_won > 0 %}+{% endif %}${{ '{:,.2f}'.format(it.delta_vs_last_won) }} Δ
+       </div>
+       {% endif %}
+      {% else %}
+       <span style="color:var(--tx2)">—</span>
+      {% endif %}
      </td>
     </tr>
     {% endfor %}

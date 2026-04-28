@@ -1199,6 +1199,100 @@ def growth_intel_quote_trace_page():
                        trace=trace, quote_number=quote_number)
 
 
+def _last_won_price_for_buyer(conn, contact_email: str,
+                              description: str, part_number: str,
+                              exclude_quote_number: str,
+                              days: int = 730) -> dict:
+    """Find this buyer's last WON unit_price for an item matching by
+    part_number (preferred) or fuzzy description match.
+
+    Plan §6.2's headline: "delta vs. our last winning bid for that
+    buyer" — the decision support Mike has been asking for. For each
+    line item on a quote, this answers "what did we bid the LAST time
+    they bought something like this, and did we win?"
+
+    Returns {price, quote_number, won_at} or empty dict when no match
+    exists in the window. Uses one connection passed in by the caller
+    so the per-line lookups don't open N connections.
+
+    Match priority:
+      1. Exact part_number == part_number (when both non-empty)
+      2. Description LIKE %first_3_words% (case-insensitive)
+
+    The fuzzy description match leans on the fact that buyer's RFQ
+    descriptions tend to be stable (same vendor catalog, same
+    boilerplate), so the first three words of the description usually
+    pin the product.
+    """
+    email = (contact_email or "").strip()
+    if not email:
+        return {}
+
+    pn = (part_number or "").strip()
+    desc = (description or "").strip()
+    desc_words = [w for w in desc.split() if len(w) >= 3][:3]
+    desc_pattern = "%" + "%".join(desc_words) + "%" if desc_words else ""
+
+    try:
+        # Pull won quotes for this buyer in the window. Match against
+        # line_items JSON Python-side — SQLite's JSON1 functions are
+        # available but LIKE on the JSON blob is good enough for
+        # description/part-number matching, which is fuzzy by nature.
+        rows = conn.execute("""
+            SELECT quote_number, sent_at, line_items
+            FROM quotes
+            WHERE COALESCE(is_test,0) = 0
+              AND LOWER(contact_email) = LOWER(?)
+              AND status = 'won'
+              AND quote_number != ?
+              AND COALESCE(NULLIF(sent_at,''), created_at) >= datetime('now', ?)
+            ORDER BY COALESCE(NULLIF(sent_at,''), created_at) DESC
+            LIMIT 50
+        """, (email, exclude_quote_number or "",
+              f"-{int(days)} days")).fetchall()
+    except Exception as e:
+        log.debug("last_won_price_for_buyer query failed: %s", e)
+        return {}
+
+    import json as _json
+    for r in rows:
+        try:
+            items = _json.loads(r["line_items"] or "[]")
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(items, list):
+            continue
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_pn = (item.get("part_number") or "").strip()
+            item_desc = (item.get("description") or "").strip().lower()
+
+            matched = False
+            if pn and item_pn and pn.lower() == item_pn.lower():
+                matched = True
+            elif desc_words:
+                if all(w.lower() in item_desc for w in desc_words):
+                    matched = True
+
+            if matched:
+                pricing = item.get("pricing") or {}
+                if not isinstance(pricing, dict):
+                    pricing = {}
+                price = (pricing.get("unit_price")
+                         or pricing.get("recommended_price")
+                         or item.get("unit_price") or 0)
+                if not price:
+                    continue
+                return {
+                    "price": round(float(price), 2),
+                    "quote_number": r["quote_number"] or "",
+                    "won_at": (r["sent_at"] or "")[:10],
+                }
+    return {}
+
+
 def _build_quote_cost_trace(quote_number: str) -> dict:
     """Per-quote cost trace — Plan §6.2 sub-3.
 
@@ -1310,6 +1404,33 @@ def _build_quote_cost_trace(quote_number: str) -> dict:
     unit_cost_total = 0.0
     extension_total = 0.0
 
+    # Reuse one connection across all per-line "last won" lookups
+    # (Plan §6.2 — "delta vs last winning bid for this buyer").
+    # Skip the lookup entirely when contact_email is empty so we don't
+    # waste a query.
+    _lw_email = result["header"]["contact_email"]
+
+    def _lookup_last_won(conn, item_dict):
+        if not _lw_email or conn is None:
+            return {}
+        return _last_won_price_for_buyer(
+            conn,
+            contact_email=_lw_email,
+            description=item_dict.get("description") or "",
+            part_number=item_dict.get("part_number") or "",
+            exclude_quote_number=qn,
+        )
+
+    _conn_ctx = get_db() if _lw_email else None
+    _lw_conn = None
+    if _conn_ctx is not None:
+        try:
+            _lw_conn = _conn_ctx.__enter__()
+        except Exception as e:
+            log.debug("last-won conn open failed: %s", e)
+            _conn_ctx = None
+            _lw_conn = None
+
     for idx, item in enumerate(items, start=1):
         if not isinstance(item, dict):
             continue
@@ -1339,6 +1460,14 @@ def _build_quote_cost_trace(quote_number: str) -> dict:
         unit_cost_total += line_cost
         extension_total += extension
 
+        last_won = _lookup_last_won(_lw_conn, item)
+        # Delta = current quote price - last won price. Negative = we're
+        # bidding lower than last time we won (more aggressive); positive
+        # = we're bidding higher (might lose where we won before).
+        delta_vs_last_won = None
+        if last_won and last_won.get("price") and unit_price > 0:
+            delta_vs_last_won = round(unit_price - last_won["price"], 2)
+
         result["items"].append({
             "line_number": item.get("line_number") or idx,
             "description": item.get("description") or "",
@@ -1355,7 +1484,16 @@ def _build_quote_cost_trace(quote_number: str) -> dict:
             "amazon_price": round(float(pricing.get("amazon_price") or 0), 2),
             "markup_pct": float(pricing.get("markup_pct") or 0),
             "margin_dollars": round(line_margin, 2),
+            "last_won": last_won,
+            "delta_vs_last_won": delta_vs_last_won,
         })
+
+    # Release the lookup connection (was opened manually above).
+    if _conn_ctx is not None:
+        try:
+            _conn_ctx.__exit__(None, None, None)
+        except Exception as e:
+            log.debug("last-won conn close failed: %s", e)
 
     result["totals"]["unit_cost_total"] = round(unit_cost_total, 2)
     result["totals"]["extension_total"] = round(extension_total, 2)
