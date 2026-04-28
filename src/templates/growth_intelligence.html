@@ -119,8 +119,13 @@
       {% for b in _bpm.rows %}
       <tr style="border-bottom:1px solid var(--bd,#30363d)">
        <td style="padding:8px">
-        {% if b.contact_name %}<strong>{{ b.contact_name }}</strong><br>{% endif %}
-        <span style="font-size:11px;color:var(--tx2)">{{ b.contact_email }}</span>
+        {# Plan §6.2 sub-2: click-through to per-buyer drilldown. #}
+        <a href="/growth-intel/buyer?email={{ b.contact_email|urlencode }}"
+           style="color:inherit;text-decoration:none"
+           title="Open buyer history">
+         {% if b.contact_name %}<strong>{{ b.contact_name }}</strong><br>{% endif %}
+         <span style="font-size:11px;color:var(--ac)">{{ b.contact_email }} →</span>
+        </a>
        </td>
        <td style="padding:8px;color:var(--tx2)">{{ b.agency_last|default('—') }}</td>
        <td style="padding:8px;text-align:right">{{ b.quote_count }}</td>
