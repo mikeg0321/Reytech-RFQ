@@ -1181,6 +1181,30 @@ def growth_intel_page():
     )
 
 
+@bp.route("/growth-intel/buyer")
+@auth_required
+@safe_page
+def growth_intel_buyer_detail_page():
+    """Per-buyer drilldown (Plan §6.2 sub-2). Click-through from the
+    Buyer Pricing Memory rollup on /growth-intel.
+
+    Query string form so emails (with '@' + '.') don't need path
+    encoding gymnastics. Default window is 180d — a wider lens than the
+    rollup's 90d so older won quotes still appear in the per-buyer
+    history. Window is operator-tunable via ?days= for ad-hoc digs.
+    """
+    email = (request.args.get("email") or "").strip()
+    try:
+        window_days = max(1, min(int(request.args.get("days", 180)), 730))
+    except (ValueError, TypeError):
+        window_days = 180
+
+    detail = _build_buyer_detail(email, window_days=window_days)
+    return render_page("growth_intel_buyer_detail.html",
+                       detail=detail, email=email,
+                       window_days=window_days)
+
+
 def _build_buyer_pricing_memory(window_days: int = 90, limit: int = 20) -> dict:
     """Per-buyer quote rollup — first slice of Plan §6.2 (buyer-product
     pricing memory view).
@@ -1288,6 +1312,177 @@ def _build_buyer_pricing_memory(window_days: int = 90, limit: int = 20) -> dict:
         result["totals"]["value_usd"] += float(r["total_value"] or 0)
 
     result["totals"]["value_usd"] = round(result["totals"]["value_usd"], 2)
+    return result
+
+
+def _build_buyer_detail(contact_email: str, window_days: int = 180) -> dict:
+    """Per-buyer drilldown — Plan §6.2 sub-2 (click-through from the
+    Buyer Pricing Memory rollup).
+
+    The rollup answers "which buyers are we working most actively?"
+    This view answers the next question an operator immediately asks:
+    "what does this buyer's quoting history actually look like — what
+    have we sent them, did they win, and where did the costs come from?"
+
+    Pulls every quote for `contact_email` in the window (default 180d so
+    the picture is wider than the rollup's 90d). For each quote, joins
+    the source PC/RFQ to tally cost_source chips — same buckets as the
+    /health/quoting cost-source-chips card (PR #619), so an operator
+    sees pricing-pipeline health *per buyer*.
+
+    Returns:
+      {
+        "ok", "contact_email", "window_days",
+        "header": {contact_name, agency_last, first_seen, last_seen,
+                   quote_count, won/lost/pending, win_rate_pct,
+                   won_value_usd, total_value_usd},
+        "quotes": [{quote_number, status, total, agency, created_at,
+                    sent_at, source_pc_id, source_rfq_id,
+                    chips: {operator, catalog, amazon, scprs,
+                            needs_lookup, unknown},
+                    missing_source: bool}, ...],
+        "totals": {bucket: count_across_all_quotes_for_this_buyer},
+      }
+    """
+    email = (contact_email or "").strip()
+    result = {
+        "ok": True, "contact_email": email, "window_days": window_days,
+        "header": {
+            "contact_name": "", "agency_last": "",
+            "first_seen": "", "last_seen": "",
+            "quote_count": 0, "won_count": 0, "lost_count": 0,
+            "pending_count": 0, "win_rate_pct": None,
+            "won_value_usd": 0.0, "total_value_usd": 0.0,
+        },
+        "quotes": [],
+        "totals": {
+            "operator": 0, "catalog": 0, "amazon": 0,
+            "scprs": 0, "needs_lookup": 0, "unknown": 0,
+        },
+    }
+    if not email:
+        result["ok"] = False
+        result["error"] = "contact_email is required"
+        return result
+
+    try:
+        with get_db() as conn:
+            # Case-insensitive match — buyers sometimes mix case in their
+            # signatures (Buyer@cdcr vs buyer@cdcr) and the rollup query
+            # in `_build_buyer_pricing_memory` groups on the literal
+            # value, so a click-through could otherwise miss rows.
+            rows = conn.execute("""
+                SELECT quote_number, status, total, agency,
+                       contact_name, created_at, sent_at,
+                       source_pc_id, source_rfq_id
+                FROM quotes
+                WHERE COALESCE(is_test,0) = 0
+                  AND LOWER(contact_email) = LOWER(?)
+                  AND COALESCE(NULLIF(sent_at,''), created_at) >= datetime('now', ?)
+                ORDER BY COALESCE(NULLIF(sent_at,''), created_at) DESC
+            """, (email, f"-{int(window_days)} days")).fetchall()
+    except Exception as e:
+        log.warning("buyer_detail query failed for %s: %s", email, e)
+        return {"ok": False, "error": str(e),
+                "contact_email": email, "window_days": window_days,
+                "header": result["header"], "quotes": [],
+                "totals": result["totals"]}
+
+    if not rows:
+        return result
+
+    # Lazy imports — same circular-dodge pattern used by
+    # routes_health._build_recent_quotes_cost_source_card. Keeps
+    # module load order independent of routes_health.
+    from src.core.dal import get_pc, get_rfq
+    from src.api.modules.routes_health import _bucket_cost_source
+
+    won = lost = pending = 0
+    won_value = 0.0
+    total_value = 0.0
+    contact_name = ""
+    agency_last = ""
+
+    for r in rows:
+        status = (r["status"] or "").lower()
+        total = float(r["total"] or 0)
+        if status == "won":
+            won += 1
+            won_value += total
+        elif status == "lost":
+            lost += 1
+        elif status in ("pending", "sent", "draft", "priced"):
+            pending += 1
+        total_value += total
+
+        # First non-empty contact_name wins; rows are DESC by recency so
+        # the most recent name is preferred. Same for agency_last.
+        if not contact_name and (r["contact_name"] or "").strip():
+            contact_name = r["contact_name"].strip()
+        if not agency_last and (r["agency"] or "").strip():
+            agency_last = r["agency"].strip()
+
+        chips = {"operator": 0, "catalog": 0, "amazon": 0,
+                 "scprs": 0, "needs_lookup": 0, "unknown": 0}
+        missing_source = False
+        src = None
+        try:
+            if r["source_pc_id"]:
+                src = get_pc(r["source_pc_id"])
+            elif r["source_rfq_id"]:
+                src = get_rfq(r["source_rfq_id"])
+        except Exception as e:
+            log.debug("buyer_detail load source failed for %s: %s",
+                      r["quote_number"], e)
+
+        if not isinstance(src, dict):
+            missing_source = True
+        else:
+            for item in (src.get("items") or []):
+                if not isinstance(item, dict):
+                    continue
+                pricing = item.get("pricing") or {}
+                if not isinstance(pricing, dict):
+                    pricing = {}
+                bucket = _bucket_cost_source(pricing.get("cost_source"))
+                chips[bucket] = chips.get(bucket, 0) + 1
+                result["totals"][bucket] = result["totals"].get(bucket, 0) + 1
+
+        result["quotes"].append({
+            "quote_number": r["quote_number"] or "",
+            "status": r["status"] or "",
+            "total": round(total, 2),
+            "agency": r["agency"] or "",
+            "created_at": r["created_at"] or "",
+            "sent_at": r["sent_at"] or "",
+            "source_pc_id": r["source_pc_id"] or "",
+            "source_rfq_id": r["source_rfq_id"] or "",
+            "chips": chips,
+            "missing_source": missing_source,
+        })
+
+    decided = won + lost
+    win_rate_pct = round(100.0 * won / decided, 1) if decided > 0 else None
+
+    # Rows are sorted DESC by recency: index 0 = last_seen, last = first_seen.
+    last_seen = (result["quotes"][0]["sent_at"]
+                 or result["quotes"][0]["created_at"])
+    first_seen = (result["quotes"][-1]["sent_at"]
+                  or result["quotes"][-1]["created_at"])
+
+    result["header"].update({
+        "contact_name": contact_name,
+        "agency_last": agency_last,
+        "first_seen": first_seen,
+        "last_seen": last_seen,
+        "quote_count": len(result["quotes"]),
+        "won_count": won,
+        "lost_count": lost,
+        "pending_count": pending,
+        "win_rate_pct": win_rate_pct,
+        "won_value_usd": round(won_value, 2),
+        "total_value_usd": round(total_value, 2),
+    })
     return result
 
 

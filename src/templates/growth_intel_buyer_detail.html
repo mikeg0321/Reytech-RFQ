@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}Buyer Detail — {{ email }}{% endblock %}
+{% from "partials/_growth_tabs.html" import growth_tabs %}
+{% block content %}
+{{ growth_tabs('intelligence') }}
+<div style="max-width:1400px;margin:0 auto">
+
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px">
+  <div>
+   <a href="/growth-intel" style="font-size:13px;color:var(--ac);text-decoration:none">← Back to Growth Intelligence</a>
+   <h2 style="margin:6px 0 0;font-size:20px">
+    👤 {{ detail.header.contact_name|default(email or '(no email)', true) }}
+   </h2>
+   {% if detail.header.contact_name and email %}
+   <div style="font-size:12px;color:var(--tx2);margin-top:2px">{{ email }}</div>
+   {% endif %}
+  </div>
+  <div style="font-size:11px;color:var(--tx2);text-align:right">
+   <div>Window: last {{ window_days }} days</div>
+   {% if detail.header.first_seen %}
+   <div>First quoted: {{ detail.header.first_seen[:10] }}</div>
+   {% endif %}
+   {% if detail.header.last_seen %}
+   <div>Last activity: {{ detail.header.last_seen[:10] }}</div>
+   {% endif %}
+  </div>
+ </div>
+
+ {% if not detail.ok %}
+ <div class="card" style="padding:14px;border-left:4px solid var(--rd)">
+  <div style="font-weight:600;color:var(--rd);margin-bottom:4px">Could not load buyer detail</div>
+  <div style="font-size:13px;color:var(--tx2)">
+   {{ detail.error|default('Unknown error.') }}
+  </div>
+ </div>
+ {% elif not detail.quotes %}
+ <div class="card" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">
+  No quotes for <strong>{{ email or '(empty)' }}</strong> in the last {{ window_days }} days.
+ </div>
+ {% else %}
+
+ <!-- Header KPI strip -->
+ <div class="card" style="margin-bottom:14px;padding:12px">
+  <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px">
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700">{{ detail.header.quote_count }}</div>
+    <div style="font-size:11px;color:var(--tx2)">QUOTES</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700;color:var(--gn)">{{ detail.header.won_count }}</div>
+    <div style="font-size:11px;color:var(--tx2)">WON</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700;color:var(--rd)">{{ detail.header.lost_count }}</div>
+    <div style="font-size:11px;color:var(--tx2)">LOST</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700;color:var(--yl)">{{ detail.header.pending_count }}</div>
+    <div style="font-size:11px;color:var(--tx2)">PENDING</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700">
+     {% if detail.header.win_rate_pct is not none %}
+       <span style="color:{% if detail.header.win_rate_pct >= 50 %}var(--gn){% elif detail.header.win_rate_pct >= 25 %}var(--yl){% else %}var(--rd){% endif %}">{{ detail.header.win_rate_pct }}%</span>
+     {% else %}
+       <span style="color:var(--tx2)">—</span>
+     {% endif %}
+    </div>
+    <div style="font-size:11px;color:var(--tx2)">WIN RATE</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700">${{ '{:,.0f}'.format(detail.header.total_value_usd) }}</div>
+    <div style="font-size:11px;color:var(--tx2)">QUOTED $</div>
+   </div>
+  </div>
+  {% if detail.header.agency_last %}
+  <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd);font-size:12px;color:var(--tx2)">
+   Most recent agency: <strong style="color:var(--tx)">{{ detail.header.agency_last }}</strong>
+   {% if detail.header.won_value_usd %}
+   · Won value: <strong style="color:var(--gn)">${{ '{:,.0f}'.format(detail.header.won_value_usd) }}</strong>
+   {% endif %}
+  </div>
+  {% endif %}
+ </div>
+
+ <!-- Cost-source totals across this buyer's quotes -->
+ {% set _has_chip_data = (detail.totals.operator + detail.totals.catalog + detail.totals.amazon + detail.totals.scprs + detail.totals.needs_lookup + detail.totals.unknown) > 0 %}
+ {% if _has_chip_data %}
+ <div class="card" style="margin-bottom:14px;padding:12px">
+  <div style="font-size:13px;font-weight:600;margin-bottom:6px">💰 Cost-source mix across all {{ detail.header.quote_count }} quotes</div>
+  <div style="font-size:11px;color:var(--tx2);margin-bottom:8px">
+   Healthy mix is operator/catalog dominant — those are the rows that fund the flywheel.
+   Amazon/SCPRS = reference ceilings, not real costs. <code>needs_lookup</code> = a gap shipped.
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px">
+   {% for bucket, label, color in [
+     ('operator', 'operator', '#2ea043'),
+     ('catalog', 'catalog', '#3fb950'),
+     ('amazon', 'amazon', '#d29922'),
+     ('scprs', 'scprs', '#a371f7'),
+     ('needs_lookup', 'needs lookup', '#f85149'),
+     ('unknown', 'unknown', '#6e7681'),
+   ] %}
+   {% if detail.totals[bucket] %}
+   <span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:10px;background:{{ color }}22;color:{{ color }};font-size:12px;font-weight:600">
+    {{ label }} · {{ detail.totals[bucket] }}
+   </span>
+   {% endif %}
+   {% endfor %}
+  </div>
+ </div>
+ {% endif %}
+
+ <!-- Per-quote table -->
+ <div class="card" style="margin-bottom:14px">
+  <div class="card-t">📋 Quote history</div>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+   <thead>
+    <tr style="color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd,#30363d)">
+     <th style="padding:6px 8px">Quote</th>
+     <th style="padding:6px 8px">Status</th>
+     <th style="padding:6px 8px">Agency</th>
+     <th style="padding:6px 8px;text-align:right">Total</th>
+     <th style="padding:6px 8px">Cost-source mix</th>
+     <th style="padding:6px 8px">Sent</th>
+    </tr>
+   </thead>
+   <tbody>
+    {% for q in detail.quotes %}
+    <tr style="border-bottom:1px solid var(--bd,#30363d)">
+     <td style="padding:8px;font-family:monospace;font-size:12px">
+      {{ q.quote_number }}
+      {% if q.source_pc_id %}<br><span style="font-size:10px;color:var(--tx2)">PC {{ q.source_pc_id[:12] }}</span>{% endif %}
+      {% if q.source_rfq_id %}<br><span style="font-size:10px;color:var(--tx2)">RFQ {{ q.source_rfq_id[:12] }}</span>{% endif %}
+     </td>
+     <td style="padding:8px">
+      {% set _s = (q.status or '')|lower %}
+      <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:{% if _s=='won' %}rgba(46,160,67,.18);color:var(--gn){% elif _s=='lost' %}rgba(248,81,73,.18);color:var(--rd){% elif _s in ('sent','pending','draft','priced') %}rgba(210,153,34,.18);color:var(--yl){% else %}var(--sf2);color:var(--tx2){% endif %}">{{ q.status or '—' }}</span>
+     </td>
+     <td style="padding:8px;color:var(--tx2)">{{ q.agency or '—' }}</td>
+     <td style="padding:8px;text-align:right">${{ '{:,.2f}'.format(q.total) }}</td>
+     <td style="padding:8px">
+      {% if q.missing_source %}
+       <span style="font-size:11px;color:var(--tx2)">— source missing —</span>
+      {% else %}
+       {% set _any = (q.chips.operator + q.chips.catalog + q.chips.amazon + q.chips.scprs + q.chips.needs_lookup + q.chips.unknown) > 0 %}
+       {% if not _any %}
+        <span style="font-size:11px;color:var(--tx2)">— no items —</span>
+       {% else %}
+        <div style="display:flex;flex-wrap:wrap;gap:4px">
+         {% for bucket, label, color in [
+           ('operator', 'op', '#2ea043'),
+           ('catalog', 'cat', '#3fb950'),
+           ('amazon', 'amz', '#d29922'),
+           ('scprs', 'scprs', '#a371f7'),
+           ('needs_lookup', 'gap', '#f85149'),
+           ('unknown', '?', '#6e7681'),
+         ] %}
+         {% if q.chips[bucket] %}
+         <span style="padding:1px 6px;border-radius:8px;background:{{ color }}22;color:{{ color }};font-size:10px;font-weight:600">{{ label }} {{ q.chips[bucket] }}</span>
+         {% endif %}
+         {% endfor %}
+        </div>
+       {% endif %}
+      {% endif %}
+     </td>
+     <td style="padding:8px;color:var(--tx2);font-size:12px">
+      {{ (q.sent_at or q.created_at or '')[:10] }}
+     </td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+ </div>
+
+ {% endif %}
+</div>
+{% endblock %}
