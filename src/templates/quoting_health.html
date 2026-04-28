@@ -351,6 +351,62 @@
   </div>
 </div>
 
+{# ── Agent runtime health (Plan §4.3 sub-4) ── #}
+{# Surveys the 14 src/agents/*.py modules that expose get_agent_status().    #}
+{# A failing import = boot regression; surfaces here BEFORE a user hits the  #}
+{# broken feature. /api/agents/health-sweep covers QB+DB; this covers the    #}
+{# runners. Empty agent fleet on a fresh-boot DB is normal.                  #}
+{% set _ar = agents_runtime|default({"total": 0, "healthy": 0, "errored": 0, "agents": []}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Agent runtime —
+    {% if _ar.status == 'error' %}<span style="color:#f85149">⛔ {{ _ar.errored }} broken</span>
+    {% elif _ar.status == 'warn' %}<span style="color:#d29922">⚠ {{ _ar.errored }} flagged</span>
+    {% elif _ar.status == 'healthy' %}<span style="color:#3fb950">✓ {{ _ar.healthy }}/{{ _ar.total }} healthy</span>
+    {% else %}<span style="color:#6e7681">unknown</span>{% endif %}
+  </div>
+  {% if not _ar.agents %}
+  <div style="padding:14px;color:#8b949e;font-size:13px">
+    No agents enumerated. Either fresh boot or the agent registry is empty.
+  </div>
+  {% else %}
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+        <th style="padding:5px 8px">Agent</th>
+        <th style="padding:5px 8px">Status</th>
+        <th style="padding:5px 8px">Signal</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for a in _ar.agents %}
+      <tr style="border-bottom:1px solid #21262d">
+        <td style="padding:5px 8px;font-family:monospace;font-size:11px">{{ a.name }}</td>
+        <td style="padding:5px 8px">
+          {% if a.ok %}
+          <span style="padding:1px 6px;border-radius:8px;background:#3fb95022;color:#3fb950;font-size:10px;font-weight:600">{{ a.status }}</span>
+          {% else %}
+          <span style="padding:1px 6px;border-radius:8px;background:#f8514922;color:#f85149;font-size:10px;font-weight:600">error</span>
+          {% endif %}
+        </td>
+        <td style="padding:5px 8px;color:#8b949e">
+          {% if a.error %}
+            <code style="font-size:10px;color:#f85149">{{ a.error|truncate(120) }}</code>
+          {% else %}
+            {{ a.detail or '—' }}
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top:8px;padding:6px 10px;font-size:11px;color:#8b949e">
+    Full status payloads at <a href="/api/health/quoting" style="color:#58a6ff">/api/health/quoting</a> →
+    <code>agents_runtime.agents[].payload</code>.
+  </div>
+  {% endif %}
+</div>
+
 {# ── Pending drafts breakdown (Plan §4.3 sub-2 follow-up) ── #}
 {# PR #618's Gmail card surfaces "N pending drafts" as one number. This card  #}
 {# breaks the pile down by status × age so the operator can decide purge vs   #}
