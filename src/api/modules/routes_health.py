@@ -451,6 +451,7 @@ def quoting_health_page():
         "email_poll": _build_email_poll_card(),
         "gmail_send": _build_gmail_send_card(),
         "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
+        "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -539,6 +540,7 @@ def quoting_health_json():
         "email_poll": _build_email_poll_card(),
         "gmail_send": _build_gmail_send_card(),
         "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
+        "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
@@ -915,6 +917,70 @@ def _build_gmail_send_card():
     elif result["lag_seconds"] > 7 * 86400:
         result["status"] = "stale"
     elif result["lag_seconds"] > 86400:
+        result["status"] = "warn"
+    else:
+        result["status"] = "healthy"
+
+    return result
+
+
+def _build_time_to_send_kpi_card():
+    """Headline §4.1 KPI on /health/quoting: time-to-send distribution.
+
+    The plan's KPI is "1 quote sent in <90 seconds." PR #608 wired the
+    `operator_quote_sent` telemetry table; PR #622 closed the gap that
+    kept the table empty for two RFQ-send paths. This card renders the
+    median, p95, count, and %-under-90s for two windows (24h + 7d) so
+    the operator can see whether the KPI is being met today AND
+    whether the trend is healthy.
+
+    Status semantics (priority error > warn > healthy > unknown):
+      • `healthy`  — under_90_pct >= 60% in 7d window AND any rows in 24h
+      • `warn`     — under_90_pct 30-60% (KPI degrading)
+      • `error`    — under_90_pct < 30% in 7d window (KPI broken)
+      • `unknown`  — no rows in 7d window (no signal yet)
+
+    Reads via `operator_kpi.get_kpi_stats` so the same logic that the
+    /analytics page uses drives this card. No duplication.
+    """
+    result = {
+        "status": "unknown",
+        "kpi_target_pct": 60,  # we want >= 60% of quotes sent <90s
+        "window_24h": {"count": 0, "median_seconds": None,
+                       "p95_seconds": None, "under_90_pct": None,
+                       "under_90_count": 0},
+        "window_7d":  {"count": 0, "median_seconds": None,
+                       "p95_seconds": None, "under_90_pct": None,
+                       "under_90_count": 0},
+    }
+    try:
+        from src.core.operator_kpi import get_kpi_stats
+        s24 = get_kpi_stats(window_days=1)
+        s7  = get_kpi_stats(window_days=7)
+    except Exception as e:
+        log.debug("time_to_send_kpi: get_kpi_stats failed: %s", e)
+        return result
+
+    if not (s24 or {}).get("ok") or not (s7 or {}).get("ok"):
+        return result
+
+    for src, dst_key in ((s24, "window_24h"), (s7, "window_7d")):
+        result[dst_key] = {
+            "count":          int(src.get("count") or 0),
+            "median_seconds": src.get("median_seconds"),
+            "p95_seconds":    src.get("p95_seconds"),
+            "under_90_pct":   src.get("under_90_pct"),
+            "under_90_count": int(src.get("under_90_count") or 0),
+        }
+
+    pct_7d = result["window_7d"]["under_90_pct"]
+    if result["window_7d"]["count"] == 0:
+        result["status"] = "unknown"
+    elif pct_7d is None:
+        result["status"] = "unknown"
+    elif pct_7d < 30:
+        result["status"] = "error"
+    elif pct_7d < 60:
         result["status"] = "warn"
     else:
         result["status"] = "healthy"
