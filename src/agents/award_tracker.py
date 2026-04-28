@@ -567,6 +567,22 @@ def run_award_check(force: bool = False) -> dict:
                         _sync_linked_pc(pc_id, "won", notes)
                 except Exception as we:
                     log.debug("Win sync: %s", we)
+
+                # Materialize the orders row. The operator-driven Mark
+                # Won path in routes_crm calls _create_order_from_quote;
+                # this background path needs an equivalent or the
+                # /health/quoting orders-drift card surfaces 100% drift
+                # (see PR #629). Idempotent — safe even if a manual
+                # Mark Won later targets the same quote.
+                try:
+                    from src.core.orders_backfill import (
+                        ensure_order_for_won_quote,
+                    )
+                    ensure_order_for_won_quote(
+                        quote_num, po_number=po_number,
+                        actor="award_tracker")
+                except Exception as oe:
+                    log.debug("ensure_order from award_tracker: %s", oe)
             else:
                 outcome = "lost_to_competitor"
                 total_losses += 1

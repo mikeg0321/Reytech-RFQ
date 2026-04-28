@@ -2148,6 +2148,22 @@ class EmailPoller:
                                     POLL_STATUS["pos_detected"] = POLL_STATUS.get("pos_detected", 0) + 1
                                     log.info("AWARD_BRIDGE: %s marked won via email (PO %s)",
                                              matched_quote, po_number)
+                                    # Materialize orders row — see PR #629's
+                                    # 100% drift finding. Without this, an
+                                    # email-detected win never produces an
+                                    # order, /orders shows nothing, and the
+                                    # operator can't track fulfillment.
+                                    if _won_rowcount > 0:
+                                        try:
+                                            from src.core.orders_backfill import (
+                                                ensure_order_for_won_quote,
+                                            )
+                                            ensure_order_for_won_quote(
+                                                matched_quote,
+                                                po_number=po_number or "",
+                                                actor="email_poller")
+                                        except Exception as _oe:
+                                            log.debug("ensure_order from email_poller: %s", _oe)
                                 except Exception as _abe:
                                     log.debug("Award tracker bridge: %s", _abe)
 

@@ -135,6 +135,23 @@ def reconcile_revenue() -> dict:
             """).fetchall()
 
             for q in won:
+                # Materialize an orders row if the quote is won but
+                # no order exists yet — closes the 100% drift PR #629
+                # surfaced. Idempotent (skips when row already exists),
+                # so safe to fire on every revenue sync. Runs BEFORE
+                # the revenue-log skip checks so the orders row gets
+                # created even on already-revenue-logged quotes.
+                try:
+                    from src.core.orders_backfill import (
+                        ensure_order_for_won_quote,
+                    )
+                    ensure_order_for_won_quote(
+                        q["quote_number"],
+                        po_number=q["po_number"] or "",
+                        actor="revenue_engine")
+                except Exception as _oe:
+                    log.debug("ensure_order from revenue_engine: %s", _oe)
+
                 rev_id = f"rev-{q['quote_number']}"
                 if rev_id in existing_ids:
                     continue
