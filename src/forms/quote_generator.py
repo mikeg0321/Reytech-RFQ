@@ -1566,6 +1566,17 @@ def generate_quote(
         # Bidirectional linking — trace to source document
         "source_pc_id": quote_data.get("source_pc_id", ""),
         "source_rfq_id": quote_data.get("source_rfq_id", ""),
+        # Buyer identity — must propagate to `quotes.contact_email` so the
+        # /growth-intel buyer pricing memory panel (PR #620) and any
+        # downstream buyer-keyed view actually has data. Both PC and RFQ
+        # callers populate these in their `quote_data`; without
+        # this passthrough they silently dropped at `_log_quote`.
+        "email":          quote_data.get("email", "") or quote_data.get("requestor_email", "") or quote_data.get("contact_email", ""),
+        "requestor_email": quote_data.get("requestor_email", "") or quote_data.get("contact_email", "") or quote_data.get("email", ""),
+        "contact_email":   quote_data.get("contact_email", "") or quote_data.get("requestor_email", "") or quote_data.get("email", ""),
+        "contact_name":    quote_data.get("contact_name", "") or quote_data.get("requestor", "") or "",
+        "requestor":       quote_data.get("requestor", "") or quote_data.get("contact_name", "") or "",
+        "phone":           quote_data.get("phone", "") or quote_data.get("contact_phone", ""),
     }
     # Fail-closed contract validation 2026-04-25.
     #
@@ -1772,6 +1783,22 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
         to_name = institution
         to_addr = list(ship_addr)
 
+    # Buyer email — must flow through to `quotes.contact_email` so the
+    # /growth-intel buyer pricing memory panel (PR #620) and any future
+    # buyer-keyed view actually has data. PCs hold the buyer email in
+    # two places depending on ingest path: `parsed.header.requestor_email`
+    # (parser-extracted from the inbound PDF) and `original_sender` (the
+    # Gmail thread sender column). Prefer the parsed header (more
+    # specific), fall back to the Gmail sender. Both paths are best-
+    # effort — empty stays empty, no crash on missing fields.
+    _pc_email = (header.get("requestor_email", "") or
+                 pc.get("requestor_email", "") or
+                 pc.get("contact_email", "") or
+                 pc.get("original_sender", "") or "").strip()
+    _pc_contact_name = (header.get("requestor_name", "") or
+                        pc.get("contact_name", "") or
+                        pc.get("requestor", "") or "").strip()
+
     data = {
         "institution": to_name,
         "to_address": to_addr,
@@ -1779,6 +1806,9 @@ def generate_quote_from_pc(pc: dict, output_path: str, **kwargs) -> dict:
         "ship_to_address": ship_addr,
         "rfq_number": pc.get("pc_number", ""),
         "source_pc_id": pc.get("id", ""),
+        "requestor_email": _pc_email,
+        "contact_email": _pc_email,
+        "contact_name": _pc_contact_name,
         "line_items": [],
     }
 
