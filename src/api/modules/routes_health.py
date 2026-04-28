@@ -453,6 +453,7 @@ def quoting_health_page():
         "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
+        "agents_runtime": _build_agents_runtime_health(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -543,7 +544,119 @@ def quoting_health_json():
         "recent_quotes_cost_source": _build_recent_quotes_cost_source_card(),
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
+        "agents_runtime": _build_agents_runtime_health(),
         "gate": _build_health_gate(oracle_cal),
+    }
+
+
+# ── Agent runtime health (Plan §4.3 sub-4) ──────────────────────────────
+
+# All agent modules under src/agents/ that expose a `get_agent_status()`
+# function. New agents added to this list will surface on the /health/
+# quoting card automatically.
+_AGENTS_WITH_STATUS = (
+    "cs_agent",
+    "email_lifecycle",
+    "email_outreach",
+    "item_identifier",
+    "lead_gen_agent",
+    "lead_nurture_agent",
+    "manager_agent",
+    "notify_agent",
+    "quickbooks_agent",
+    "quote_lifecycle",
+    "revenue_engine",
+    "vendor_intelligence",
+    "vendor_ordering_agent",
+    "voice_agent",
+)
+
+# Counter keys we surface in the per-agent detail string, in priority
+# order. Agent payloads use different shapes; whichever key shows first
+# is what the operator sees.
+_AGENT_DETAIL_KEYS = (
+    "pending_cs_drafts", "pending_drafts", "pending_replies",
+    "outbox_total", "queued", "active_runs", "scheduler_running",
+    "configured", "gmail_configured", "sent_log_count",
+)
+
+
+def _build_agents_runtime_health():
+    """Plan §4.3 sub-4 — aggregate `get_agent_status()` across all
+    runtime agents.
+
+    /api/agents/health-sweep already covers QB + DB tables; this card
+    covers the AGENT-LAYER status reporters (the runners themselves).
+    A failing get_agent_status() = the agent module is broken on
+    import, not just missing config — that's a real boot regression.
+
+    Each row is normalized to {name, status, detail, ok, error}. The
+    raw payload is preserved under `payload` so an operator can inspect
+    it via /api/health/quoting if they need the full shape.
+
+    Card-level status:
+      • `error`    — ≥5 agents errored (something systemic broke)
+      • `warn`     — 1-4 agents errored
+      • `healthy`  — all agents responded
+    """
+    rows = []
+    healthy = 0
+    errored = 0
+    for name in _AGENTS_WITH_STATUS:
+        row = {"name": name, "status": "unknown",
+               "detail": "", "ok": False, "error": "",
+               "payload": {}}
+        try:
+            mod = __import__(f"src.agents.{name}",
+                             fromlist=["get_agent_status"])
+            fn = getattr(mod, "get_agent_status", None)
+            if not callable(fn):
+                row["error"] = "no get_agent_status()"
+                errored += 1
+            else:
+                payload = fn()
+                if not isinstance(payload, dict):
+                    row["error"] = f"non-dict payload ({type(payload).__name__})"
+                    errored += 1
+                else:
+                    row["payload"] = payload
+                    # Normalize status. Agent payloads use either `status`
+                    # (most do) or `state` — prefer explicit fields.
+                    raw_status = (payload.get("status")
+                                  or payload.get("state")
+                                  or "ok")
+                    row["status"] = str(raw_status).lower()
+                    row["ok"] = True
+                    healthy += 1
+                    # Build a one-line detail from the most-informative
+                    # counter we recognize.
+                    for key in _AGENT_DETAIL_KEYS:
+                        if key in payload:
+                            row["detail"] = f"{key}={payload[key]}"
+                            break
+                    # Capabilities is informational; fallback if no counter.
+                    if not row["detail"]:
+                        caps = payload.get("capabilities") or []
+                        if isinstance(caps, list):
+                            row["detail"] = f"{len(caps)} capabilities"
+        except Exception as e:
+            row["error"] = str(e)[:200]
+            errored += 1
+        rows.append(row)
+
+    if errored >= 5:
+        overall = "error"
+    elif errored > 0:
+        overall = "warn"
+    else:
+        overall = "healthy"
+
+    return {
+        "status": overall,
+        "total": len(rows),
+        "healthy": healthy,
+        "errored": errored,
+        "agents": rows,
     }
 
 
