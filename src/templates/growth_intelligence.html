@@ -81,6 +81,75 @@
     {% endif %}
    </div>
 
+   <!-- §6.2 sub-1: Buyer Pricing Memory (per-buyer rollup) -->
+   {# Surfaces the second axis of the same pricing data the price-alerts #}
+   {# panel shows: which buyers are we quoting most + how those quotes  #}
+   {# resolve. Sources `quotes` table grouped by contact_email.          #}
+   {% set _bpm = buyer_pricing_memory|default({"rows": [], "totals": {}, "total_buyers": 0}) %}
+   <div class="card" style="margin-bottom:14px">
+    <div class="card-t">👥 Buyer Pricing Memory <span style="font-size:11px;color:var(--tx2);font-weight:400">— last 90d</span></div>
+    {% if not _bpm.rows %}
+    <div style="padding:20px;text-align:center;color:var(--tx2);font-size:13px">
+     No quotes with a buyer email in the last 90 days. As soon as a quote ships
+     with <code>contact_email</code> populated, that buyer's history appears here.
+    </div>
+    {% else %}
+    <div style="font-size:12px;color:var(--tx2);margin-bottom:8px">
+     Showing top {{ _bpm.rows|length }} of {{ _bpm.total_buyers }} buyers (by recency).
+     Totals across visible rows:
+     <strong>{{ _bpm.totals.quotes|default(0) }}</strong> quotes ·
+     <span style="color:var(--gn)">{{ _bpm.totals.won|default(0) }} won</span> ·
+     <span style="color:var(--rd)">{{ _bpm.totals.lost|default(0) }} lost</span> ·
+     <span style="color:var(--yl)">{{ _bpm.totals.pending|default(0) }} pending</span> ·
+     ${{ '{:,.0f}'.format(_bpm.totals.value_usd|default(0)) }} quoted.
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+     <thead>
+      <tr style="color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd,#30363d)">
+       <th style="padding:6px 8px">Buyer</th>
+       <th style="padding:6px 8px">Agency</th>
+       <th style="padding:6px 8px;text-align:right">Quotes</th>
+       <th style="padding:6px 8px;text-align:right">W / L / P</th>
+       <th style="padding:6px 8px;text-align:right">Win %</th>
+       <th style="padding:6px 8px;text-align:right">Quoted $</th>
+       <th style="padding:6px 8px">Last activity</th>
+      </tr>
+     </thead>
+     <tbody>
+      {% for b in _bpm.rows %}
+      <tr style="border-bottom:1px solid var(--bd,#30363d)">
+       <td style="padding:8px">
+        {% if b.contact_name %}<strong>{{ b.contact_name }}</strong><br>{% endif %}
+        <span style="font-size:11px;color:var(--tx2)">{{ b.contact_email }}</span>
+       </td>
+       <td style="padding:8px;color:var(--tx2)">{{ b.agency_last|default('—') }}</td>
+       <td style="padding:8px;text-align:right">{{ b.quote_count }}</td>
+       <td style="padding:8px;text-align:right;font-size:12px">
+        <span style="color:var(--gn)">{{ b.won_count }}</span>
+        / <span style="color:var(--rd)">{{ b.lost_count }}</span>
+        / <span style="color:var(--yl)">{{ b.pending_count }}</span>
+       </td>
+       <td style="padding:8px;text-align:right">
+        {% if b.win_rate_pct is not none %}
+          <span style="color:{% if b.win_rate_pct >= 50 %}var(--gn){% elif b.win_rate_pct >= 25 %}var(--yl){% else %}var(--rd){% endif %}">
+            {{ b.win_rate_pct }}%
+          </span>
+        {% else %}
+          <span style="color:var(--tx2)">—</span>
+        {% endif %}
+       </td>
+       <td style="padding:8px;text-align:right">${{ '{:,.0f}'.format(b.total_value_usd) }}</td>
+       <td style="padding:8px;color:var(--tx2);font-size:12px">
+        {{ (b.last_activity_at or '')[:10] }}
+        {% if b.last_quote_number %}<br><code style="font-size:11px">{{ b.last_quote_number }}</code>{% endif %}
+       </td>
+      </tr>
+      {% endfor %}
+     </tbody>
+    </table>
+    {% endif %}
+   </div>
+
    <!-- #11: Win/Loss Analysis -->
    <div class="card" style="margin-bottom:14px">
     <div class="card-t">🏆 Win/Loss Analysis</div>
