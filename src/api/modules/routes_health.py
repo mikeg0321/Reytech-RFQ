@@ -455,6 +455,7 @@ def quoting_health_page():
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
         "orders_drift": _build_orders_drift_card(),
+        "duplicate_orders": _build_duplicate_orders_card(),
         "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -548,6 +549,7 @@ def quoting_health_json():
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
         "orders_drift": _build_orders_drift_card(),
+        "duplicate_orders": _build_duplicate_orders_card(),
         "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -712,6 +714,95 @@ def _build_orders_drift_card():
     else:
         result["status"] = "healthy"
 
+    return result
+
+
+# ── Duplicate orders detection (S3-prep PR-2) ──────────────────────────
+
+
+def _build_duplicate_orders_card():
+    """True duplicate orders — same (po_number, quote_number) on
+    2+ rows.
+
+    Distinct from:
+      - po_aggregate.multi_quote_pos (legit: same po_number,
+        DIFFERENT quote_numbers)
+      - orders_drift.duplicate_po_numbers (counts raw po_number
+        dups including the legit multi-quote case)
+
+    A true duplicate is a write-path bug: the same quote got an
+    order row created twice for the same PO. Once these are zero,
+    the partial UNIQUE INDEX
+        idx_orders_po_quote ON orders(po_number, quote_number)
+        WHERE po_number != ''
+    can land safely. The index will refuse to create while dups
+    exist; this card tells the operator which rows to merge.
+
+    The migration in src/core/db.py:_migrate_columns attempts the
+    CREATE UNIQUE INDEX every boot; success surfaces here as
+    `index_active = True`.
+    """
+    result = {
+        "status": "unknown",
+        "duplicate_pairs": 0,
+        "duplicate_rows_total": 0,
+        "index_active": False,
+        "samples": [],   # [{po_number, quote_number, order_ids, count}]
+    }
+    try:
+        with get_db() as conn:
+            # Is the partial UNIQUE index present?
+            idx = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='index' AND name='idx_orders_po_quote'
+            """).fetchone()
+            result["index_active"] = bool(idx)
+
+            # True duplicates: same po_number AND same quote_number
+            # on 2+ orders rows. Empty po_number doesn't count
+            # (those are "no PO yet" — different signal). Empty
+            # quote_number on top of empty po_number is doubly
+            # uninteresting; require both to be non-empty.
+            groups = conn.execute("""
+                SELECT
+                    po_number,
+                    quote_number,
+                    COUNT(*) AS c,
+                    GROUP_CONCAT(id) AS ids
+                FROM orders
+                WHERE COALESCE(is_test, 0) = 0
+                  AND po_number IS NOT NULL AND po_number != ''
+                  AND quote_number IS NOT NULL AND quote_number != ''
+                GROUP BY po_number, quote_number
+                HAVING c > 1
+                ORDER BY c DESC, po_number, quote_number
+                LIMIT 20
+            """).fetchall()
+            result["duplicate_pairs"] = len(groups)
+            for row in groups:
+                result["duplicate_rows_total"] += int(row["c"] or 0)
+                ids = [s.strip() for s in (row["ids"] or "").split(",")
+                       if s.strip()][:5]
+                result["samples"].append({
+                    "po_number": row["po_number"] or "",
+                    "quote_number": row["quote_number"] or "",
+                    "count": int(row["c"] or 0),
+                    "order_ids": ids,
+                })
+    except Exception as e:
+        log.debug("duplicate_orders_card read failed: %s", e)
+        return result
+
+    if result["duplicate_pairs"] > 0:
+        result["status"] = "error"
+    elif result["index_active"]:
+        # Constraint is live and no offenders — the operator-typo
+        # write-path is now blocked at insert time.
+        result["status"] = "healthy"
+    else:
+        # No dups, but constraint hasn't landed (likely a fresh
+        # DB or migration suppressed). Not an error — observational.
+        result["status"] = "warn"
     return result
 
 

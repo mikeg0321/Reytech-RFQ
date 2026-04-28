@@ -463,6 +463,85 @@
   </div>
 </div>
 
+{# ── Duplicate orders + UNIQUE constraint status (S3-prep PR-2) ── #}
+{# True duplicates: same (po_number, quote_number) on 2+ rows.        #}
+{# Distinct from po_aggregate (which counts legit multi-quote POs).   #}
+{# index_active = the partial UNIQUE INDEX has landed; constraint is   #}
+{# now blocking future operator-typo dups at insert time.              #}
+{% set _du = duplicate_orders|default({"status":"unknown","duplicate_pairs":0,"duplicate_rows_total":0,"index_active":false,"samples":[]}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Duplicate orders —
+    {% if _du.status == 'error' %}<span style="color:#f85149">⛔ {{ _du.duplicate_pairs }} pair{{ '' if _du.duplicate_pairs == 1 else 's' }} ({{ _du.duplicate_rows_total }} rows)</span>
+    {% elif _du.status == 'healthy' %}<span style="color:#3fb950">✓ no dups · UNIQUE constraint active</span>
+    {% elif _du.status == 'warn' %}<span style="color:#d29922">⚠ no dups · constraint not landed</span>
+    {% else %}<span style="color:#6e7681">unknown</span>{% endif %}
+  </div>
+  <div style="padding:10px 12px">
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _du.duplicate_pairs > 0 %}#f85149{% else %}#3fb950{% endif %}">{{ _du.duplicate_pairs }}</div>
+        <div style="font-size:11px;color:#8b949e" title="(po_number, quote_number) groups with 2+ orders">DUP PAIRS</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _du.duplicate_rows_total > 0 %}#f85149{% else %}#3fb950{% endif %}">{{ _du.duplicate_rows_total }}</div>
+        <div style="font-size:11px;color:#8b949e" title="total orders rows involved in any duplicate group">DUP ROWS</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _du.index_active %}#3fb950{% else %}#d29922{% endif %}">
+          {% if _du.index_active %}✓{% else %}—{% endif %}
+        </div>
+        <div style="font-size:11px;color:#8b949e" title="partial UNIQUE on (po_number, quote_number)">CONSTRAINT</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
+      {% if _du.duplicate_pairs > 0 %}
+        <strong style="color:#f85149">⛔ Same (po_number, quote_number) duplicated.</strong>
+        Each pair below = one quote that got an order row written twice for the same PO. Until merged, the partial UNIQUE index can't land.
+      {% elif _du.index_active %}
+        <strong style="color:#3fb950">✓ UNIQUE(po_number, quote_number) is active.</strong>
+        Future double-writes will be rejected by SQLite at insert time. Legitimate multi-quote POs still allowed (different quote_number for the same po_number).
+      {% else %}
+        No duplicates, but the partial UNIQUE index hasn't been created yet. Likely a fresh DB or migration suppressed; will land on next boot.
+      {% endif %}
+      <span style="color:#6e7681"> · Closes S3-prep PR-2 from PLAN_ONCE_AND_FOR_ALL §5.1.</span>
+    </div>
+
+    {% if _du.samples %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">
+        Duplicate pairs ({{ _du.samples|length }})
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">PO #</th>
+            <th style="padding:4px 8px">Quote #</th>
+            <th style="padding:4px 8px;text-align:right">Rows</th>
+            <th style="padding:4px 8px">Order IDs</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for d in _du.samples %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace">{{ d.po_number }}</td>
+            <td style="padding:4px 8px;font-family:monospace"><a href="/quote/{{ d.quote_number }}" style="color:#58a6ff">{{ d.quote_number }}</a></td>
+            <td style="padding:4px 8px;text-align:right;color:#f85149">{{ d.count }}</td>
+            <td style="padding:4px 8px;font-family:monospace;font-size:10px;color:#8b949e">
+              {{ d.order_ids|join(', ') }}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div style="margin-top:6px;font-size:10px;color:#6e7681">
+        Merging is destructive (deleting one orders row + its line items). Needs explicit go before bulk action.
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
 {# ── PO aggregate (S3-prep PR-2 corrected scope) ── #}
 {# Companion to the Orders drift card. The drift card flags raw         #}
 {# duplicate po_numbers as ⛔; this card reframes them by showing the     #}
