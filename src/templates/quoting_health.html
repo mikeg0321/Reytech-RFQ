@@ -399,6 +399,67 @@
      {% endif %}
      <span style="color:#6e7681"> · DATA_ARCHITECTURE_MAP §7 silo S3-prep.</span>
     </div>
+
+    {% if _od.orphan_quotes %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">
+        Orphan won quotes ({{ _od.orphan_quotes|length }}{% if _od.orphan_quotes|length == 20 and _od.won_quotes_no_order > 20 %} of {{ _od.won_quotes_no_order }}{% endif %}) — won status, no orders row
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">Quote #</th>
+            <th style="padding:4px 8px">Agency</th>
+            <th style="padding:4px 8px;text-align:right">Total</th>
+            <th style="padding:4px 8px">Sent</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for q in _od.orphan_quotes %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace">
+              <a href="/quote/{{ q.quote_number }}" style="color:#58a6ff">{{ q.quote_number }}</a>
+            </td>
+            <td style="padding:4px 8px">{{ q.agency }}</td>
+            <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(q.total) }}</td>
+            <td style="padding:4px 8px;color:#8b949e">{{ q.sent_at or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+
+    {% if _od.duplicate_pos %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">
+        Duplicate PO numbers ({{ _od.duplicate_pos|length }}{% if _od.duplicate_pos|length == 20 and _od.duplicate_po_numbers > 20 %} of {{ _od.duplicate_po_numbers }}{% endif %}) — same po_number on 2+ orders
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">PO #</th>
+            <th style="padding:4px 8px;text-align:right">Count</th>
+            <th style="padding:4px 8px">Quote refs</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for d in _od.duplicate_pos %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace">{{ d.po_number }}</td>
+            <td style="padding:4px 8px;text-align:right;color:#f85149">{{ d.count }}</td>
+            <td style="padding:4px 8px;font-family:monospace;font-size:10px;color:#8b949e">
+              {% for qn in d.quote_numbers %}<a href="/quote/{{ qn }}" style="color:#58a6ff">{{ qn }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div style="margin-top:6px;font-size:10px;color:#6e7681">
+        Dedupe is destructive (merging or deleting orders rows) — needs explicit go before bulk action. Tracked in <code>docs/PLAN_ONCE_AND_FOR_ALL.md</code> §5.1 (S3-prep PR-2).
+      </div>
+    </details>
+    {% endif %}
   </div>
 </div>
 

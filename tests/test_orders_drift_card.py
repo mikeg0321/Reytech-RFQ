@@ -254,3 +254,127 @@ def test_health_quoting_html_renders_orders_drift_card(auth_client):
     # Card description references the silo it covers so a future maintainer
     # finds the docs reference quickly.
     assert "S3-prep" in body
+
+
+# ── Actionable detail (orphan_quotes / duplicate_pos) ───────────────────
+
+
+def test_orphan_quotes_and_duplicate_pos_present_in_payload_keys():
+    """Detail fields exist on every response, even when empty, so the
+    template's `{% if _od.orphan_quotes %}` guard never KeyErrors."""
+    with _conn() as c:
+        _wipe(c)
+    out = _build()
+    assert "orphan_quotes" in out
+    assert "duplicate_pos" in out
+    assert out["orphan_quotes"] == []
+    assert out["duplicate_pos"] == []
+
+
+def test_orphan_quotes_lists_won_quotes_without_orders_row():
+    """The list is THE actionable surface — operator sees which quote
+    numbers to investigate. Each entry carries quote_number, agency,
+    total, sent_at."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="ORPHAN-A", status="won")
+        _seed_quote(c, quote_number="ORPHAN-B", status="won")
+        _seed_quote(c, quote_number="HASORDER", status="won")
+        _seed_order(c, order_id="o1", quote_number="HASORDER",
+                    po_number="PO-1")
+        c.commit()
+    out = _build()
+    qns = sorted(q["quote_number"] for q in out["orphan_quotes"])
+    assert qns == ["ORPHAN-A", "ORPHAN-B"]
+    sample = out["orphan_quotes"][0]
+    assert "agency" in sample
+    assert "total" in sample
+    assert "sent_at" in sample
+
+
+def test_orphan_quotes_capped_at_20():
+    """100% drift on a fresh boot would dump 100+ rows into the page —
+    cap at 20 so the dashboard stays bounded."""
+    with _conn() as c:
+        _wipe(c)
+        for i in range(25):
+            _seed_quote(c, quote_number=f"BULK-{i:02d}", status="won")
+        c.commit()
+    out = _build()
+    assert out["won_quotes_no_order"] == 25
+    assert len(out["orphan_quotes"]) == 20
+
+
+def test_orphan_quotes_excludes_test_quotes():
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="TQ", status="won", is_test=1)
+        _seed_quote(c, quote_number="REAL", status="won")
+        c.commit()
+    out = _build()
+    qns = [q["quote_number"] for q in out["orphan_quotes"]]
+    assert "TQ" not in qns
+    assert "REAL" in qns
+
+
+def test_duplicate_pos_lists_po_with_quote_refs():
+    """Operator sees WHICH po_number is duplicated AND which quote
+    rows reference it — enough context to act without running ad-hoc
+    SQL."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="DUP-A", status="won")
+        _seed_quote(c, quote_number="DUP-B", status="won")
+        _seed_order(c, order_id="o1", quote_number="DUP-A",
+                    po_number="PO-SHARED")
+        _seed_order(c, order_id="o2", quote_number="DUP-B",
+                    po_number="PO-SHARED")
+        c.commit()
+    out = _build()
+    assert len(out["duplicate_pos"]) == 1
+    entry = out["duplicate_pos"][0]
+    assert entry["po_number"] == "PO-SHARED"
+    assert entry["count"] == 2
+    assert sorted(entry["quote_numbers"]) == ["DUP-A", "DUP-B"]
+
+
+def test_duplicate_pos_empty_when_healthy():
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="OK", status="won")
+        _seed_order(c, order_id="o", quote_number="OK", po_number="PO-OK")
+        c.commit()
+    out = _build()
+    assert out["duplicate_pos"] == []
+
+
+def test_duplicate_pos_capped_at_20():
+    with _conn() as c:
+        _wipe(c)
+        for i in range(25):
+            qa = f"DA{i:02d}"
+            qb = f"DB{i:02d}"
+            _seed_quote(c, quote_number=qa, status="won")
+            _seed_quote(c, quote_number=qb, status="won")
+            po = f"PO-DUP-{i:02d}"
+            _seed_order(c, order_id=f"oa{i}", quote_number=qa, po_number=po)
+            _seed_order(c, order_id=f"ob{i}", quote_number=qb, po_number=po)
+        c.commit()
+    out = _build()
+    assert out["duplicate_po_numbers"] == 25
+    assert len(out["duplicate_pos"]) == 20
+
+
+def test_health_quoting_html_renders_orphan_quotes_details(auth_client):
+    """When the card is in error state with orphans, the template
+    shows the <details> drawer with the quote list — not just the
+    counter."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="ORPHAN-X", status="won")
+        c.commit()
+    resp = auth_client.get("/health/quoting")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8", errors="replace")
+    assert "Orphan won quotes" in body
+    assert "ORPHAN-X" in body
