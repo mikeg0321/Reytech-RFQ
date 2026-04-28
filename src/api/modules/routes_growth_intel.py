@@ -1159,6 +1159,10 @@ def growth_intel_page():
     # so stale Oracle prices aren't mistaken for current market data.
     scprs_freshness = _scprs_pull_freshness()
 
+    # Plan §6.2 first slice: per-buyer rollup from `quotes`. Surfaces the
+    # second axis of the same pricing data the price-alerts panel shows.
+    buyer_pricing_memory = _build_buyer_pricing_memory()
+
     return render_page("growth_intelligence.html",
         catalog_stats=catalog_stats,
         alerts=alerts,
@@ -1173,7 +1177,118 @@ def growth_intel_page():
         outreach_targets=outreach_targets[:20],
         outreach_queue=outreach_queue[-10:][::-1],
         scprs_freshness=scprs_freshness,
+        buyer_pricing_memory=buyer_pricing_memory,
     )
+
+
+def _build_buyer_pricing_memory(window_days: int = 90, limit: int = 20) -> dict:
+    """Per-buyer quote rollup — first slice of Plan §6.2 (buyer-product
+    pricing memory view).
+
+    Replaces what the old /growth-intel "price alerts" panel could not
+    show: which BUYERS have we been quoting recently, and how are those
+    quotes resolving (won / lost / still pending)? The product-centric
+    price-trend panel is keeping its slot for now; this is an additive
+    panel that surfaces a second axis of the same pricing data.
+
+    Sources `quotes` table directly. Groups by `contact_email` (buyer
+    identity), then computes per-buyer:
+      • count of quotes in window
+      • last quote sent_at + amount
+      • win/loss/pending tally (status ∈ won/lost/pending+sent)
+      • win-rate %
+      • total quoted $
+      • a representative agency/name (most recent row)
+
+    Sorted by recency (last quote DESC). The card displays the top N so
+    operators see who they've been working most actively without having
+    to rebuild this from /quotes.
+
+    Returns {ok, window_days, total_buyers, rows: [...], totals: {...}}.
+    """
+    result = {
+        "ok": True, "window_days": window_days,
+        "total_buyers": 0, "rows": [], "totals": {
+            "quotes": 0, "won": 0, "lost": 0, "pending": 0, "value_usd": 0.0,
+        },
+    }
+    try:
+        with get_db() as conn:
+            # The aggregate is per-buyer; SQLite's MAX(...) FILTER (...) isn't
+            # universal so we use CASE WHEN. We only consider rows where
+            # contact_email is non-empty — anonymous quotes don't contribute
+            # to a buyer-keyed memory.
+            rows = conn.execute("""
+                SELECT
+                    contact_email,
+                    MAX(contact_name)             AS contact_name,
+                    MAX(agency)                   AS agency_last,
+                    COUNT(*)                      AS quote_count,
+                    SUM(CASE WHEN status='won'  THEN 1 ELSE 0 END) AS won_count,
+                    SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) AS lost_count,
+                    SUM(CASE WHEN status IN ('pending','sent','draft','priced')
+                             THEN 1 ELSE 0 END)   AS pending_count,
+                    SUM(CASE WHEN status='won'  THEN COALESCE(total,0) ELSE 0 END) AS won_value,
+                    SUM(COALESCE(total,0))        AS total_value,
+                    MAX(COALESCE(NULLIF(sent_at,''), created_at)) AS last_activity_at,
+                    MAX(quote_number)             AS last_quote_number
+                FROM quotes
+                WHERE COALESCE(is_test,0) = 0
+                  AND contact_email IS NOT NULL AND contact_email <> ''
+                  AND COALESCE(NULLIF(sent_at,''), created_at) >= datetime('now', ?)
+                GROUP BY contact_email
+                ORDER BY last_activity_at DESC
+                LIMIT ?
+            """, (f"-{int(window_days)} days", int(limit))).fetchall()
+
+            # Total-buyer count for the same window (for the "1 of N" header)
+            total_buyers = conn.execute("""
+                SELECT COUNT(DISTINCT contact_email) AS n FROM quotes
+                WHERE COALESCE(is_test,0) = 0
+                  AND contact_email IS NOT NULL AND contact_email <> ''
+                  AND COALESCE(NULLIF(sent_at,''), created_at) >= datetime('now', ?)
+            """, (f"-{int(window_days)} days",)).fetchone()
+    except Exception as e:
+        log.warning("buyer_pricing_memory query failed: %s", e)
+        return {"ok": False, "error": str(e),
+                "window_days": window_days, "total_buyers": 0,
+                "rows": [], "totals": result["totals"]}
+
+    result["total_buyers"] = int(total_buyers["n"] if total_buyers else 0)
+
+    for r in rows:
+        qc = int(r["quote_count"] or 0)
+        won = int(r["won_count"] or 0)
+        lost = int(r["lost_count"] or 0)
+        pending = int(r["pending_count"] or 0)
+        # Win rate against decided quotes (won + lost). Pending doesn't enter
+        # the denominator — it's not yet a verdict. If nothing's decided yet,
+        # win_rate is None so the UI shows "—" rather than a misleading 0%.
+        decided = won + lost
+        win_rate_pct = round(100.0 * won / decided, 1) if decided > 0 else None
+
+        result["rows"].append({
+            "contact_email": r["contact_email"] or "",
+            "contact_name": (r["contact_name"] or "").strip(),
+            "agency_last": (r["agency_last"] or "").strip(),
+            "quote_count": qc,
+            "won_count": won,
+            "lost_count": lost,
+            "pending_count": pending,
+            "won_value_usd": round(float(r["won_value"] or 0), 2),
+            "total_value_usd": round(float(r["total_value"] or 0), 2),
+            "win_rate_pct": win_rate_pct,
+            "last_activity_at": r["last_activity_at"] or "",
+            "last_quote_number": r["last_quote_number"] or "",
+        })
+        result["totals"]["quotes"] += qc
+        result["totals"]["won"] += won
+        result["totals"]["lost"] += lost
+        result["totals"]["pending"] += pending
+        result["totals"]["value_usd"] += float(r["total_value"] or 0)
+
+    result["totals"]["value_usd"] = round(result["totals"]["value_usd"], 2)
+    return result
 
 
 def _scprs_pull_freshness() -> dict:
