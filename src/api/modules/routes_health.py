@@ -592,6 +592,11 @@ def _build_orders_drift_card():
         "won_quotes_no_order": 0,
         "total_won_quotes": 0,
         "drift_pct": 0.0,
+        # Actionable detail surfaced under <details> on the card so the
+        # operator can act without having to re-query themselves. Capped
+        # so a 100% drift state doesn't dump 100 rows into the page.
+        "orphan_quotes": [],         # [{quote_number, agency, total, sent_at}]
+        "duplicate_pos": [],         # [{po_number, count, quote_numbers}]
     }
     try:
         with get_db() as conn:
@@ -637,6 +642,54 @@ def _build_orders_drift_card():
                   )
             """).fetchone()
             result["won_quotes_no_order"] = int(r["n"] or 0) if r else 0
+
+            # Orphan-quote detail: which quotes are still without an
+            # orders row? Bounded to 20 so the dashboard payload stays
+            # bounded even in a 100%-drift fresh-boot state.
+            orphan_rows = conn.execute("""
+                SELECT q.quote_number, q.agency, q.total, q.sent_at
+                FROM quotes q
+                WHERE COALESCE(q.is_test,0)=0
+                  AND q.status = 'won'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM orders o
+                    WHERE o.quote_number = q.quote_number
+                      AND COALESCE(o.is_test,0)=0
+                  )
+                ORDER BY COALESCE(NULLIF(q.sent_at,''), q.created_at) DESC
+                LIMIT 20
+            """).fetchall()
+            for row in orphan_rows:
+                result["orphan_quotes"].append({
+                    "quote_number": row["quote_number"] or "",
+                    "agency": row["agency"] or "",
+                    "total": float(row["total"] or 0),
+                    "sent_at": (row["sent_at"] or "")[:10],
+                })
+
+            # Duplicate-PO detail: for each po_number that appears on
+            # 2+ orders rows, list the quote_numbers using it. Bounded
+            # to 20 PO groups (and 5 quote refs each) so the page stays
+            # readable.
+            dup_groups = conn.execute("""
+                SELECT po_number, COUNT(*) AS c,
+                       GROUP_CONCAT(quote_number) AS quote_numbers
+                FROM orders
+                WHERE COALESCE(is_test,0)=0
+                  AND po_number IS NOT NULL AND po_number != ''
+                GROUP BY po_number
+                HAVING c > 1
+                ORDER BY c DESC, po_number
+                LIMIT 20
+            """).fetchall()
+            for row in dup_groups:
+                qns = [q.strip() for q in (row["quote_numbers"] or "").split(",")
+                       if q.strip()][:5]
+                result["duplicate_pos"].append({
+                    "po_number": row["po_number"] or "",
+                    "count": int(row["c"] or 0),
+                    "quote_numbers": qns,
+                })
     except Exception as e:
         log.debug("orders_drift_card read failed: %s", e)
         return result
