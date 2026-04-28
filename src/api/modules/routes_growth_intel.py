@@ -1181,6 +1181,193 @@ def growth_intel_page():
     )
 
 
+@bp.route("/growth-intel/quote")
+@auth_required
+@safe_page
+def growth_intel_quote_trace_page():
+    """Per-quote line-by-line cost trace (Plan §6.2 sub-3).
+
+    Click-through from any quote row in the buyer drilldown
+    (/growth-intel/buyer). Buyer detail answered "what does this buyer
+    look like in aggregate?" — this view answers "for this one quote,
+    how did each line item's cost come together, and how does it
+    compare to the references we have on file?"
+    """
+    quote_number = (request.args.get("id") or "").strip()
+    trace = _build_quote_cost_trace(quote_number)
+    return render_page("growth_intel_quote_trace.html",
+                       trace=trace, quote_number=quote_number)
+
+
+def _build_quote_cost_trace(quote_number: str) -> dict:
+    """Per-quote cost trace — Plan §6.2 sub-3.
+
+    Reads the source PC/RFQ for the quote (PR #619/#624 use the same
+    join) and returns each item's full pricing context so the operator
+    can see at a glance:
+
+      • What we paid (unit_cost) — the cost basis
+      • Which pipeline the cost came from (cost_source bucket)
+      • What we quoted (unit_price) and the markup that derives
+      • What SCPRS shows the state has paid for similar items
+        (reference ceiling, never our cost — see CLAUDE.md)
+      • What our catalog has on file (canonical cost basis)
+      • What Amazon shows (informational reference)
+
+    The compare columns let an operator decide whether to hold prices
+    next time this buyer comes back — or whether the cost has drifted
+    enough to refresh.
+
+    Returns:
+      {
+        "ok", "found": bool, "quote_number",
+        "header": {agency, contact_name, contact_email, status,
+                   total, sent_at, source_pc_id, source_rfq_id},
+        "items": [{line_number, description, qty, uom,
+                   unit_cost, unit_price, extension,
+                   cost_source (bucket), cost_source_raw,
+                   scprs_price, catalog_cost, amazon_price,
+                   markup_pct, margin_dollars}, ...],
+        "totals": {unit_cost_total, extension_total,
+                   margin_dollars, margin_pct,
+                   chips: {bucket: count}},
+      }
+    """
+    qn = (quote_number or "").strip()
+    result = {
+        "ok": True, "found": False, "quote_number": qn,
+        "header": {
+            "agency": "", "contact_name": "", "contact_email": "",
+            "status": "", "total": 0.0, "sent_at": "",
+            "source_pc_id": "", "source_rfq_id": "",
+        },
+        "items": [],
+        "totals": {
+            "unit_cost_total": 0.0, "extension_total": 0.0,
+            "margin_dollars": 0.0, "margin_pct": None,
+            "chips": {"operator": 0, "catalog": 0, "amazon": 0,
+                      "scprs": 0, "needs_lookup": 0, "unknown": 0},
+        },
+    }
+    if not qn:
+        result["ok"] = False
+        result["error"] = "quote_number is required"
+        return result
+
+    try:
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT quote_number, status, total, agency,
+                       contact_name, contact_email, sent_at,
+                       source_pc_id, source_rfq_id, is_test
+                FROM quotes
+                WHERE quote_number = ?
+                LIMIT 1
+            """, (qn,)).fetchone()
+    except Exception as e:
+        log.warning("quote_cost_trace query failed for %s: %s", qn, e)
+        return {"ok": False, "error": str(e), "found": False,
+                "quote_number": qn,
+                "header": result["header"], "items": [],
+                "totals": result["totals"]}
+
+    if not row:
+        return result
+
+    result["found"] = True
+    result["header"].update({
+        "agency": row["agency"] or "",
+        "contact_name": row["contact_name"] or "",
+        "contact_email": row["contact_email"] or "",
+        "status": row["status"] or "",
+        "total": float(row["total"] or 0),
+        "sent_at": row["sent_at"] or "",
+        "source_pc_id": row["source_pc_id"] or "",
+        "source_rfq_id": row["source_rfq_id"] or "",
+    })
+
+    # Lazy imports — same circular-dodge pattern as _build_buyer_detail.
+    from src.core.dal import get_pc, get_rfq
+    from src.api.modules.routes_health import _bucket_cost_source
+
+    src = None
+    try:
+        if row["source_pc_id"]:
+            src = get_pc(row["source_pc_id"])
+        elif row["source_rfq_id"]:
+            src = get_rfq(row["source_rfq_id"])
+    except Exception as e:
+        log.debug("quote_cost_trace load source failed: %s", e)
+
+    if not isinstance(src, dict):
+        # No source PC/RFQ → header still useful, but no per-item trace.
+        return result
+
+    items = src.get("items") or []
+    if not isinstance(items, list):
+        items = []
+
+    unit_cost_total = 0.0
+    extension_total = 0.0
+
+    for idx, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        pricing = item.get("pricing") or {}
+        if not isinstance(pricing, dict):
+            pricing = {}
+
+        qty = float(item.get("qty") or 1)
+        unit_cost = float(pricing.get("unit_cost") or 0)
+        unit_price = float(pricing.get("unit_price")
+                           or pricing.get("recommended_price") or 0)
+        extension = float(pricing.get("extension") or (unit_price * qty))
+
+        cost_source_raw = pricing.get("cost_source") or ""
+        bucket = _bucket_cost_source(cost_source_raw)
+        result["totals"]["chips"][bucket] = (
+            result["totals"]["chips"].get(bucket, 0) + 1
+        )
+
+        # Margin per line: extension - (unit_cost * qty). When unit_cost
+        # is zero (still a cost gap) margin shows full extension and
+        # margin_pct is None — UI distinguishes "100% margin" from
+        # "we don't know our cost".
+        line_cost = unit_cost * qty
+        line_margin = extension - line_cost
+
+        unit_cost_total += line_cost
+        extension_total += extension
+
+        result["items"].append({
+            "line_number": item.get("line_number") or idx,
+            "description": item.get("description") or "",
+            "part_number": item.get("part_number") or "",
+            "qty": qty,
+            "uom": item.get("uom") or "EA",
+            "unit_cost": round(unit_cost, 2),
+            "unit_price": round(unit_price, 2),
+            "extension": round(extension, 2),
+            "cost_source": bucket,
+            "cost_source_raw": cost_source_raw,
+            "scprs_price": round(float(pricing.get("scprs_price") or 0), 2),
+            "catalog_cost": round(float(pricing.get("catalog_cost") or 0), 2),
+            "amazon_price": round(float(pricing.get("amazon_price") or 0), 2),
+            "markup_pct": float(pricing.get("markup_pct") or 0),
+            "margin_dollars": round(line_margin, 2),
+        })
+
+    result["totals"]["unit_cost_total"] = round(unit_cost_total, 2)
+    result["totals"]["extension_total"] = round(extension_total, 2)
+    result["totals"]["margin_dollars"] = round(extension_total - unit_cost_total, 2)
+    result["totals"]["margin_pct"] = (
+        round(100.0 * (extension_total - unit_cost_total) / extension_total, 1)
+        if extension_total > 0 and unit_cost_total > 0
+        else None
+    )
+    return result
+
+
 @bp.route("/growth-intel/buyer")
 @auth_required
 @safe_page

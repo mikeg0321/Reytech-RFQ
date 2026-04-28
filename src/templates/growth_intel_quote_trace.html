@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Cost trace — {{ quote_number }}{% endblock %}
+{% from "partials/_growth_tabs.html" import growth_tabs %}
+{% block content %}
+{{ growth_tabs('intelligence') }}
+<div style="max-width:1400px;margin:0 auto">
+
+ <div style="margin-bottom:16px">
+  {% if trace.header.contact_email %}
+  <a href="/growth-intel/buyer?email={{ trace.header.contact_email|urlencode }}"
+     style="font-size:13px;color:var(--ac);text-decoration:none">
+   ← Back to {{ trace.header.contact_name or trace.header.contact_email }}
+  </a>
+  {% else %}
+  <a href="/growth-intel" style="font-size:13px;color:var(--ac);text-decoration:none">
+   ← Back to Growth Intelligence
+  </a>
+  {% endif %}
+  <h2 style="margin:6px 0 0;font-size:20px">
+   💰 Cost trace — <code style="font-size:18px">{{ quote_number }}</code>
+  </h2>
+ </div>
+
+ {% if not trace.ok %}
+ <div class="card" style="padding:14px;border-left:4px solid var(--rd)">
+  <div style="font-weight:600;color:var(--rd);margin-bottom:4px">Could not load cost trace</div>
+  <div style="font-size:13px;color:var(--tx2)">{{ trace.error|default('Unknown error.') }}</div>
+ </div>
+ {% elif not trace.found %}
+ <div class="card" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">
+  Quote <code>{{ quote_number }}</code> not found.
+ </div>
+ {% else %}
+
+ <!-- Quote header strip -->
+ <div class="card" style="margin-bottom:14px;padding:12px">
+  <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;font-size:13px">
+   <div>
+    <div style="color:var(--tx2);font-size:11px">BUYER</div>
+    <div style="font-weight:600">{{ trace.header.contact_name or '—' }}</div>
+    <div style="color:var(--tx2);font-size:11px">{{ trace.header.contact_email or '' }}</div>
+   </div>
+   <div>
+    <div style="color:var(--tx2);font-size:11px">AGENCY</div>
+    <div style="font-weight:600">{{ trace.header.agency or '—' }}</div>
+   </div>
+   <div>
+    <div style="color:var(--tx2);font-size:11px">STATUS</div>
+    {% set _s = (trace.header.status or '')|lower %}
+    <div>
+     <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:{% if _s=='won' %}rgba(46,160,67,.18);color:var(--gn){% elif _s=='lost' %}rgba(248,81,73,.18);color:var(--rd){% elif _s in ('sent','pending','draft','priced') %}rgba(210,153,34,.18);color:var(--yl){% else %}var(--sf2);color:var(--tx2){% endif %}">{{ trace.header.status or '—' }}</span>
+    </div>
+   </div>
+   <div>
+    <div style="color:var(--tx2);font-size:11px">SENT</div>
+    <div style="font-weight:600">{{ (trace.header.sent_at or '')[:10] or '—' }}</div>
+   </div>
+  </div>
+ </div>
+
+ <!-- Margin summary -->
+ {% if trace['items'] %}
+ <div class="card" style="margin-bottom:14px;padding:12px">
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700">${{ '{:,.2f}'.format(trace.totals.extension_total) }}</div>
+    <div style="font-size:11px;color:var(--tx2)">QUOTED</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700">${{ '{:,.2f}'.format(trace.totals.unit_cost_total) }}</div>
+    <div style="font-size:11px;color:var(--tx2)">COST</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700;color:{% if trace.totals.margin_dollars > 0 %}var(--gn){% elif trace.totals.margin_dollars < 0 %}var(--rd){% else %}var(--tx2){% endif %}">
+     ${{ '{:,.2f}'.format(trace.totals.margin_dollars) }}
+    </div>
+    <div style="font-size:11px;color:var(--tx2)">MARGIN $</div>
+   </div>
+   <div style="text-align:center">
+    <div style="font-size:22px;font-weight:700">
+     {% if trace.totals.margin_pct is not none %}
+      <span style="color:{% if trace.totals.margin_pct >= 20 %}var(--gn){% elif trace.totals.margin_pct >= 10 %}var(--yl){% else %}var(--rd){% endif %}">{{ trace.totals.margin_pct }}%</span>
+     {% else %}
+      <span style="color:var(--tx2)">—</span>
+     {% endif %}
+    </div>
+    <div style="font-size:11px;color:var(--tx2)">MARGIN %</div>
+   </div>
+  </div>
+  {# margin_pct is None when unit_cost total is 0 — i.e., we shipped the
+     quote without ever recording our actual cost basis. Surface that. #}
+  {% if trace.totals.margin_pct is none and trace.totals.extension_total > 0 %}
+  <div style="margin-top:8px;padding:6px 10px;background:rgba(248,81,73,.10);border-radius:6px;font-size:12px;color:var(--rd)">
+   ⚠ Margin unknown — no <code>unit_cost</code> recorded for any line.
+   This quote shipped with a cost gap. Cost-source mix below shows the chips.
+  </div>
+  {% endif %}
+ </div>
+ {% endif %}
+
+ <!-- Cost-source chip totals -->
+ {% set _has_chips = (trace.totals.chips.operator + trace.totals.chips.catalog + trace.totals.chips.amazon + trace.totals.chips.scprs + trace.totals.chips.needs_lookup + trace.totals.chips.unknown) > 0 %}
+ {% if _has_chips %}
+ <div class="card" style="margin-bottom:14px;padding:12px">
+  <div style="font-size:13px;font-weight:600;margin-bottom:6px">💰 Cost-source mix on this quote</div>
+  <div style="display:flex;flex-wrap:wrap;gap:6px">
+   {% for bucket, label, color in [
+     ('operator', 'operator', '#2ea043'),
+     ('catalog', 'catalog', '#3fb950'),
+     ('amazon', 'amazon', '#d29922'),
+     ('scprs', 'scprs', '#a371f7'),
+     ('needs_lookup', 'needs lookup', '#f85149'),
+     ('unknown', 'unknown', '#6e7681'),
+   ] %}
+   {% if trace.totals.chips[bucket] %}
+   <span style="padding:3px 8px;border-radius:10px;background:{{ color }}22;color:{{ color }};font-size:12px;font-weight:600">{{ label }} · {{ trace.totals.chips[bucket] }}</span>
+   {% endif %}
+   {% endfor %}
+  </div>
+ </div>
+ {% endif %}
+
+ <!-- Per-item cost trace table -->
+ {% if not trace['items'] %}
+ <div class="card" style="padding:24px;text-align:center;color:var(--tx2);font-size:13px">
+  No source items found for this quote (source PC/RFQ may have been deleted).
+ </div>
+ {% else %}
+ <div class="card" style="margin-bottom:14px">
+  <div class="card-t">📋 Per-line cost trace</div>
+  <div style="overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:1100px">
+   <thead>
+    <tr style="color:var(--tx2);text-align:left;border-bottom:1px solid var(--bd,#30363d)">
+     <th style="padding:6px 8px">#</th>
+     <th style="padding:6px 8px">Description</th>
+     <th style="padding:6px 8px;text-align:right">Qty</th>
+     <th style="padding:6px 8px;text-align:right" title="Reytech's actual cost basis">Cost</th>
+     <th style="padding:6px 8px">Source</th>
+     <th style="padding:6px 8px;text-align:right">Quote $</th>
+     <th style="padding:6px 8px;text-align:right">Ext.</th>
+     <th style="padding:6px 8px;text-align:right" title="Margin = ext − cost·qty">Margin</th>
+     <th style="padding:6px 8px;text-align:right" title="State paid (reference ceiling)">SCPRS</th>
+     <th style="padding:6px 8px;text-align:right" title="Canonical catalog cost">Catalog</th>
+     <th style="padding:6px 8px;text-align:right" title="Amazon retail (reference)">Amazon</th>
+    </tr>
+   </thead>
+   <tbody>
+    {% for it in trace['items'] %}
+    <tr style="border-bottom:1px solid var(--bd,#30363d)">
+     <td style="padding:8px;color:var(--tx2)">{{ it.line_number }}</td>
+     <td style="padding:8px">
+      {{ it.description|truncate(80) }}
+      {% if it.part_number %}<br><code style="font-size:10px;color:var(--tx2)">{{ it.part_number }}</code>{% endif %}
+     </td>
+     <td style="padding:8px;text-align:right">{{ '{:,.0f}'.format(it.qty) }} {{ it.uom }}</td>
+     <td style="padding:8px;text-align:right">
+      {% if it.unit_cost > 0 %}${{ '{:,.2f}'.format(it.unit_cost) }}{% else %}<span style="color:var(--rd)">—</span>{% endif %}
+     </td>
+     <td style="padding:8px">
+      {% set _b = it.cost_source %}
+      {% set _color = '#2ea043' if _b == 'operator' else ('#3fb950' if _b == 'catalog' else ('#d29922' if _b == 'amazon' else ('#a371f7' if _b == 'scprs' else ('#f85149' if _b == 'needs_lookup' else '#6e7681')))) %}
+      <span style="padding:1px 6px;border-radius:8px;background:{{ _color }}22;color:{{ _color }};font-size:10px;font-weight:600">{{ _b }}</span>
+     </td>
+     <td style="padding:8px;text-align:right">${{ '{:,.2f}'.format(it.unit_price) }}</td>
+     <td style="padding:8px;text-align:right">${{ '{:,.2f}'.format(it.extension) }}</td>
+     <td style="padding:8px;text-align:right;color:{% if it.margin_dollars > 0 %}var(--gn){% elif it.margin_dollars < 0 %}var(--rd){% else %}var(--tx2){% endif %}">
+      ${{ '{:,.2f}'.format(it.margin_dollars) }}
+     </td>
+     <td style="padding:8px;text-align:right;color:var(--tx2)">
+      {% if it.scprs_price > 0 %}${{ '{:,.2f}'.format(it.scprs_price) }}{% else %}—{% endif %}
+     </td>
+     <td style="padding:8px;text-align:right;color:var(--tx2)">
+      {% if it.catalog_cost > 0 %}${{ '{:,.2f}'.format(it.catalog_cost) }}{% else %}—{% endif %}
+     </td>
+     <td style="padding:8px;text-align:right;color:var(--tx2)">
+      {% if it.amazon_price > 0 %}${{ '{:,.2f}'.format(it.amazon_price) }}{% else %}—{% endif %}
+     </td>
+    </tr>
+    {% endfor %}
+   </tbody>
+  </table>
+  </div>
+ </div>
+ {% endif %}
+
+ {% endif %}
+</div>
+{% endblock %}
