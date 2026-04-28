@@ -254,6 +254,61 @@ def _probe_drive_root() -> dict:
     return out
 
 
+def _probe_drive_path(segments: list) -> dict:
+    """Generic Drive folder navigator. Walks ROOT → segments[0] →
+    segments[1] → … and returns children of the final folder.
+
+    Used to inspect legacy archive trees ('2024 - Purchase Orders ',
+    'Archive ') whose names don't match the year/quarter convention
+    the audit assumes."""
+    from src.core.gdrive import (
+        is_configured, list_files, GOOGLE_DRIVE_ROOT_FOLDER_ID,
+    )
+
+    out = {
+        "drive_configured": is_configured(),
+        "root_folder_id": GOOGLE_DRIVE_ROOT_FOLDER_ID or "",
+        "path": segments,
+    }
+    if not out["drive_configured"]:
+        out["error"] = "Drive not configured"
+        return out
+
+    try:
+        current_id = GOOGLE_DRIVE_ROOT_FOLDER_ID
+        for seg in segments:
+            children = list_files(current_id)
+            match = next(
+                (c for c in children
+                 if c.get("name", "") == seg
+                 and c.get("mimeType") == "application/vnd.google-apps.folder"),
+                None,
+            )
+            if not match:
+                out["error"] = f"segment not found: {seg!r}"
+                out["available_segments"] = sorted([
+                    c.get("name", "") for c in children
+                    if c.get("mimeType") == "application/vnd.google-apps.folder"
+                ])
+                return out
+            current_id = match["id"]
+        # Reached final folder — list its children.
+        children = list_files(current_id)
+        folders = [c for c in children
+                   if c.get("mimeType") == "application/vnd.google-apps.folder"]
+        files = [c for c in children
+                 if c.get("mimeType") != "application/vnd.google-apps.folder"]
+        out["folder_id"] = current_id
+        out["children_count"] = len(children)
+        out["folder_count"] = len(folders)
+        out["file_count"] = len(files)
+        out["folder_names"] = sorted([c.get("name", "") for c in folders])[:50]
+        out["file_names"] = sorted([c.get("name", "") for c in files])[:30]
+    except Exception as e:
+        out["error"] = f"probe failed: {e}"
+    return out
+
+
 @bp.route("/api/admin/po-drive-audit")
 @auth_required
 def po_drive_audit_json():
@@ -262,7 +317,14 @@ def po_drive_audit_json():
       - only_unidentified: if "1", restrict to mismatched-prefix orders
       - probe: if "1", return Drive structure probe (for debugging
         why all orders categorize as no_folder)
+      - path: comma-separated folder names to navigate from root,
+        e.g. path=2026 - Purchase Orders ,Q3 (note trailing spaces).
+        Returns children of the final folder.
     """
+    path_param = request.args.get("path", "")
+    if path_param:
+        segments = [s for s in path_param.split("|") if s != ""]
+        return jsonify(_probe_drive_path(segments))
     if request.args.get("probe", "0") == "1":
         return jsonify(_probe_drive_root())
 
