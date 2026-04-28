@@ -454,6 +454,7 @@ def quoting_health_page():
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
+        "orders_drift": _build_orders_drift_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -545,8 +546,118 @@ def quoting_health_json():
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
+        "orders_drift": _build_orders_drift_card(),
         "gate": _build_health_gate(oracle_cal),
     }
+
+
+# ── Orders drift counters (Plan §4.3 sub-5, S3-prep silo) ───────────────
+
+
+def _build_orders_drift_card():
+    """Plan §4.3 sub-5 — drift counters from the S3-prep silo cleanup
+    (DATA_ARCHITECTURE_MAP §7).
+
+    Surfaces silent divergence between the unified order write path
+    (`core/order_dal.py:save_order`) and the legacy paths still
+    sprinkled across the codebase (`core/dal.py:save_order_full`,
+    `routes_pricecheck_admin.py` direct INSERT). The S3-prep gate per
+    PLAN_ONCE_AND_FOR_ALL.md §5.1 is "100 PO writes with zero
+    divergence" — this card is the metric that gate reads.
+
+    Three counters:
+      • orders_no_po — orders with status open/shipped/closed but
+        po_number is NULL/empty. A real PO-tracking gap; the unified
+        path always writes po_number, legacy paths sometimes skip it.
+      • duplicate_po_numbers — distinct po_number values appearing on
+        2+ orders rows. orders.po_number is NOT UNIQUE in the schema
+        (S3-prep PR-2 will add it), so duplicates can sneak in via
+        legacy paths and represent the silos to dedupe.
+      • won_quotes_no_order — quote.status='won' but no orders row
+        references the quote_number. The operator marked-won via the
+        quote page but no order materialized → write-path hole.
+
+    drift_pct = won_quotes_no_order / total_won_quotes. Status:
+      • `error`    — duplicate_po_numbers > 0 OR drift_pct ≥ 20%
+                     (systemic write-path break)
+      • `warn`     — drift_pct 5-20% OR orders_no_po > 0
+      • `healthy`  — drift_pct < 5%, no missing POs, no duplicates
+      • `unknown`  — no won quotes yet (no signal)
+    """
+    result = {
+        "status": "unknown",
+        "total_orders": 0,
+        "orders_no_po": 0,
+        "duplicate_po_numbers": 0,
+        "won_quotes_no_order": 0,
+        "total_won_quotes": 0,
+        "drift_pct": 0.0,
+    }
+    try:
+        with get_db() as conn:
+            r = conn.execute(
+                "SELECT COUNT(*) AS n FROM orders WHERE COALESCE(is_test,0)=0"
+            ).fetchone()
+            result["total_orders"] = int(r["n"] or 0) if r else 0
+
+            r = conn.execute("""
+                SELECT COUNT(*) AS n FROM orders
+                WHERE COALESCE(is_test,0)=0
+                  AND status IN ('open','shipped','closed','completed','invoiced')
+                  AND (po_number IS NULL OR po_number = '')
+            """).fetchone()
+            result["orders_no_po"] = int(r["n"] or 0) if r else 0
+
+            r = conn.execute("""
+                SELECT COUNT(*) AS n FROM (
+                    SELECT po_number, COUNT(*) AS c
+                    FROM orders
+                    WHERE COALESCE(is_test,0)=0
+                      AND po_number IS NOT NULL AND po_number != ''
+                    GROUP BY po_number
+                    HAVING c > 1
+                )
+            """).fetchone()
+            result["duplicate_po_numbers"] = int(r["n"] or 0) if r else 0
+
+            r = conn.execute("""
+                SELECT COUNT(*) AS n FROM quotes
+                WHERE COALESCE(is_test,0)=0 AND status = 'won'
+            """).fetchone()
+            result["total_won_quotes"] = int(r["n"] or 0) if r else 0
+
+            r = conn.execute("""
+                SELECT COUNT(*) AS n FROM quotes q
+                WHERE COALESCE(q.is_test,0)=0
+                  AND q.status = 'won'
+                  AND NOT EXISTS (
+                    SELECT 1 FROM orders o
+                    WHERE o.quote_number = q.quote_number
+                      AND COALESCE(o.is_test,0)=0
+                  )
+            """).fetchone()
+            result["won_quotes_no_order"] = int(r["n"] or 0) if r else 0
+    except Exception as e:
+        log.debug("orders_drift_card read failed: %s", e)
+        return result
+
+    if result["total_won_quotes"] > 0:
+        result["drift_pct"] = round(
+            100.0 * result["won_quotes_no_order"] / result["total_won_quotes"], 1
+        )
+
+    if result["duplicate_po_numbers"] > 0:
+        result["status"] = "error"
+    elif result["drift_pct"] >= 20:
+        result["status"] = "error"
+    elif result["drift_pct"] >= 5 or result["orders_no_po"] > 0:
+        result["status"] = "warn"
+    elif result["total_won_quotes"] == 0:
+        result["status"] = "unknown"
+    else:
+        result["status"] = "healthy"
+
+    return result
 
 
 # ── Agent runtime health (Plan §4.3 sub-4) ──────────────────────────────

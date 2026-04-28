@@ -351,6 +351,57 @@
   </div>
 </div>
 
+{# ── Orders drift counters (Plan §4.3 sub-5, S3-prep silo) ── #}
+{# Surfaces divergence between unified `record_po`/order_dal write path     #}
+{# and legacy paths. Gate per PLAN_ONCE_AND_FOR_ALL §5.1 = "100 PO writes   #}
+{# zero divergence". This card IS the metric that gate reads.                #}
+{% set _od = orders_drift|default({"total_orders": 0, "orders_no_po": 0, "duplicate_po_numbers": 0, "won_quotes_no_order": 0, "total_won_quotes": 0, "drift_pct": 0.0}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Orders drift —
+    {% if _od.status == 'error' %}<span style="color:#f85149">⛔ DIVERGENCE</span>
+    {% elif _od.status == 'warn' %}<span style="color:#d29922">⚠ {{ _od.drift_pct }}% drift</span>
+    {% elif _od.status == 'healthy' %}<span style="color:#3fb950">✓ {{ _od.drift_pct }}% drift</span>
+    {% else %}<span style="color:#6e7681">no won-quote baseline yet</span>{% endif %}
+  </div>
+  <div style="padding:10px 12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _od.total_orders }}</div>
+        <div style="font-size:11px;color:#8b949e">TOTAL ORDERS</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _od.orders_no_po > 0 %}#d29922{% else %}#3fb950{% endif %}">{{ _od.orders_no_po }}</div>
+        <div style="font-size:11px;color:#8b949e" title="status open/shipped/closed but po_number empty">NO PO #</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _od.duplicate_po_numbers > 0 %}#f85149{% else %}#3fb950{% endif %}">{{ _od.duplicate_po_numbers }}</div>
+        <div style="font-size:11px;color:#8b949e" title="po_number values appearing on 2+ rows">DUP POs</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _od.drift_pct >= 20 %}#f85149{% elif _od.drift_pct >= 5 %}#d29922{% else %}#3fb950{% endif %}">{{ _od.won_quotes_no_order }}/{{ _od.total_won_quotes }}</div>
+        <div style="font-size:11px;color:#8b949e" title="won quotes with no orders row">ORPHAN WON</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
+     {% if _od.status == 'error' %}
+       <strong style="color:#f85149">⛔ Divergence detected.</strong>
+       {% if _od.duplicate_po_numbers > 0 %}<code>{{ _od.duplicate_po_numbers }}</code> po_numbers appear on 2+ orders rows — UNIQUE constraint can't land until these are deduped.{% endif %}
+       {% if _od.drift_pct >= 20 %} {{ _od.won_quotes_no_order }} won quotes have no matching orders row ({{ _od.drift_pct }}% drift). Mark Won is firing without writing the order.{% endif %}
+     {% elif _od.status == 'warn' %}
+       <strong style="color:#d29922">⚠ Drift below systemic threshold.</strong>
+       {% if _od.orders_no_po > 0 %}{{ _od.orders_no_po }} active orders are missing po_number — legacy write path skipped it.{% endif %}
+       {% if _od.drift_pct >= 5 %}{{ _od.drift_pct }}% of won quotes have no orders row.{% endif %}
+     {% elif _od.status == 'unknown' %}
+       No won quotes yet to baseline divergence against. Once Mark Won fires, drift_pct populates.
+     {% else %}
+       <strong style="color:#3fb950">✓ Order write paths converged.</strong> 100% of won quotes have a matching orders row, no PO duplicates, no missing po_numbers.
+     {% endif %}
+     <span style="color:#6e7681"> · DATA_ARCHITECTURE_MAP §7 silo S3-prep.</span>
+    </div>
+  </div>
+</div>
+
 {# ── Agent runtime health (Plan §4.3 sub-4) ── #}
 {# Surveys the 14 src/agents/*.py modules that expose get_agent_status().    #}
 {# A failing import = boot regression; surfaces here BEFORE a user hits the  #}
