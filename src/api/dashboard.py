@@ -5358,6 +5358,7 @@ _ROUTE_MODULES = [
     "routes_deadlines",       # Phase 0.5: Deadline tracking API + hard alerts
     "routes_shadow",          # Phase 2: Shadow mode admin dashboard + diff API
     "routes_build_health",    # Build health: fixes vs features tracking
+    "routes_po_drive_audit",  # 2026-04-28: PO ↔ Drive verification (PR #638)
     "routes_quoting_status",  # QuoteOrchestrator audit dashboard: /quoting/status + override API
     "routes_locked_costs",    # Admin: locked supplier costs panel + unlock/extend
     "routes_supplier_sku_lookup",  # Phase 1.7: supplier SKU → MFG# reverse lookup (McKesson, etc.)

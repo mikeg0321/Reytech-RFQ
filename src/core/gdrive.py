@@ -292,6 +292,48 @@ def list_files(folder_id: str) -> List[dict]:
     return results.get("files", [])
 
 
+def find_folder(name: str, parent_id: str) -> Optional[str]:
+    """Return the Drive folder ID matching `name` under `parent_id`,
+    or None if not found. Read-only — never creates.
+
+    Used by the PO audit (PR #638) to verify whether a given order's
+    PO folder actually exists in the archive structure without
+    creating it as a side effect.
+    """
+    service = _get_service()
+    safe_name = name.replace("'", "\\'")
+    query = (
+        f"name='{safe_name}' and '{parent_id}' in parents "
+        "and mimeType='application/vnd.google-apps.folder' "
+        "and trashed=false"
+    )
+    results = service.files().list(
+        q=query, fields="files(id,name)", pageSize=1,
+        supportsAllDrives=True, includeItemsFromAllDrives=True,
+    ).execute()
+    files = results.get("files", [])
+    return files[0]["id"] if files else None
+
+
+def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
+    """Resolve `{year}/{quarter}/PO-{po_number}/` to a Drive folder ID,
+    or None if any segment is missing. Read-only.
+
+    Per drive_triggers.on_po_received, PO folders are named
+    `PO-{po_number}` (with `PO-` prepended if not already present).
+    """
+    if not GOOGLE_DRIVE_ROOT_FOLDER_ID:
+        return None
+    folder_name = po_number if po_number.startswith("PO-") else f"PO-{po_number}"
+    year_id = find_folder(year, GOOGLE_DRIVE_ROOT_FOLDER_ID)
+    if not year_id:
+        return None
+    quarter_id = find_folder(quarter, year_id)
+    if not quarter_id:
+        return None
+    return find_folder(folder_name, quarter_id)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # Audit Trail
 # ═══════════════════════════════════════════════════════════════════════
