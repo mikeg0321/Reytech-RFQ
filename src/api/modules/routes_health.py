@@ -457,6 +457,7 @@ def quoting_health_page():
         "orders_drift": _build_orders_drift_card(),
         "duplicate_orders": _build_duplicate_orders_card(),
         "po_prefix": _build_po_prefix_card(),
+        "scprs_reconcile": _build_scprs_reconcile_card(),
         "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -552,6 +553,7 @@ def quoting_health_json():
         "orders_drift": _build_orders_drift_card(),
         "duplicate_orders": _build_duplicate_orders_card(),
         "po_prefix": _build_po_prefix_card(),
+        "scprs_reconcile": _build_scprs_reconcile_card(),
         "po_aggregate": _build_po_aggregate_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -917,6 +919,199 @@ def _build_po_prefix_card():
         # Systemic parse problem: most POs missing prefix.
         result["status"] = "error"
     elif result["unidentified"] > 0:
+        result["status"] = "warn"
+    else:
+        result["status"] = "healthy"
+    return result
+
+
+# ── SCPRS reconciliation (PR-1, 2026-04-28) ─────────────────────────────
+
+
+def _scprs_canonical_po(business_unit: str, po_doc: str) -> str:
+    """Assemble a canonical PO key from SCPRS Business Unit + Purchase
+    Document #.
+
+    SCPRS strips the agency prefix and stores it in a separate column
+    (Business Unit). To compare against `orders.po_number` (which does
+    carry the prefix when the parse path is correct), we re-attach it:
+
+      8955 (CalVet)         → '8955-' + po_doc   e.g. 8955-0000076737
+      4440 (DSH)            → '4440-' + po_doc   e.g. 4440-0000063878
+      5225 (CCHCS sub-CDCR) → po_doc as-is       e.g. 4500752793
+                              (the 4500 is already in po_doc)
+      Other / unknown BU    → po_doc as-is       graceful fallback
+
+    Per Mike 2026-04-28 confirming SCPRS Business Unit values from the
+    Detail Information export and the canonical-prefix memory.
+    """
+    bu = (business_unit or "").strip().lstrip("'")
+    po = (po_doc or "").strip().lstrip("'")
+    if not po:
+        return ""
+    if bu == "8955":
+        return f"8955-{po}"
+    if bu == "4440":
+        return f"4440-{po}"
+    return po
+
+
+def _build_scprs_reconcile_card():
+    """4-bucket reconciliation between `scprs_reytech_wins` (state's
+    record of POs awarded to Reytech) and `orders` (operational
+    record). Drives the verify-against-actual-data workflow Mike
+    requested 2026-04-28.
+
+    Buckets:
+      exact_match    — canonical PO matches a string in orders.po_number
+      format_drift   — same canonical PO, but orders has the bare/altered
+                       form (parse-bug stragglers — fixable by writing
+                       the canonical back to DB)
+      scprs_only     — SCPRS knows about it, orders doesn't (operator
+                       hasn't logged it; needs ingest)
+      orders_only    — orders has it, SCPRS doesn't (recent pre-SCPRS-
+                       indexing, RFQ-in-po, or true orphan)
+
+    Plus header counters so the card surfaces volume + last-import
+    timestamp.
+    """
+    result = {
+        "status": "unknown",
+        "wins_count": 0,
+        "orders_with_po": 0,
+        "exact_match": 0,
+        "format_drift": 0,
+        "scprs_only": 0,
+        "orders_only": 0,
+        "last_import_at": None,
+        "watcher": None,
+        "samples": {
+            "format_drift": [],
+            "scprs_only": [],
+            "orders_only": [],
+        },
+    }
+    try:
+        with get_db() as conn:
+            wins_rows = conn.execute("""
+                SELECT po_number, business_unit, dept_name, grand_total,
+                       imported_at, start_date
+                FROM scprs_reytech_wins
+            """).fetchall()
+            order_rows = conn.execute("""
+                SELECT po_number, agency, institution, total
+                FROM orders
+                WHERE COALESCE(is_test, 0) = 0
+                  AND po_number IS NOT NULL AND po_number != ''
+            """).fetchall()
+    except Exception as e:
+        log.debug("scprs_reconcile read failed: %s", e)
+        return result
+
+    # Index orders by exact po_number string (after strip).
+    orders_by_po = {}
+    for o in order_rows:
+        po = (o["po_number"] or "").strip()
+        if po:
+            orders_by_po[po] = {
+                "po_number": po,
+                "agency": o["agency"] or "",
+                "institution": o["institution"] or "",
+                "total": float(o["total"] or 0),
+            }
+    result["orders_with_po"] = len(orders_by_po)
+
+    # Index wins by canonical key. Track raw bare po_number too so we
+    # can detect format_drift (orders has the bare, SCPRS canonical is
+    # prefixed).
+    wins_by_canonical = {}
+    raw_to_canonical = {}
+    for w in wins_rows:
+        bu = w["business_unit"] or ""
+        bare = (w["po_number"] or "").strip()
+        canon = _scprs_canonical_po(bu, bare)
+        if not canon:
+            continue
+        wins_by_canonical[canon] = {
+            "canonical": canon,
+            "bare_po": bare,
+            "agency": w["dept_name"] or "",
+            "total": float(w["grand_total"] or 0),
+            "start_date": w["start_date"] or "",
+        }
+        raw_to_canonical[bare] = canon
+    result["wins_count"] = len(wins_by_canonical)
+
+    # Last import timestamp (max across all rows — same value for the
+    # latest re-ingest).
+    if wins_rows:
+        result["last_import_at"] = max(
+            (w["imported_at"] or "") for w in wins_rows
+        ) or None
+
+    # Cross-walk wins → orders.
+    for canon, w in wins_by_canonical.items():
+        if canon in orders_by_po:
+            result["exact_match"] += 1
+        elif w["bare_po"] in orders_by_po and w["bare_po"] != canon:
+            # orders has the bare (stripped) PO; SCPRS canonical includes
+            # the prefix. This is the parse-bug straggler bucket.
+            result["format_drift"] += 1
+            result["samples"]["format_drift"].append({
+                "canonical": canon,
+                "stored_po": w["bare_po"],
+                "agency": w["agency"],
+                "total": w["total"],
+                "start_date": w["start_date"],
+            })
+        else:
+            result["scprs_only"] += 1
+            result["samples"]["scprs_only"].append({
+                "canonical": canon,
+                "agency": w["agency"],
+                "total": w["total"],
+                "start_date": w["start_date"],
+            })
+
+    # Orders-only — anything in orders that isn't covered by either the
+    # canonical or bare key from wins.
+    covered = set(wins_by_canonical.keys()) | set(raw_to_canonical.keys())
+    for po, o in orders_by_po.items():
+        if po not in covered:
+            result["orders_only"] += 1
+            result["samples"]["orders_only"].append({
+                "po_number": po,
+                "agency": o["agency"],
+                "institution": o["institution"],
+                "total": o["total"],
+            })
+
+    # Sort each samples list by total $ desc and cap at 20.
+    for k in ("format_drift", "scprs_only", "orders_only"):
+        result["samples"][k].sort(
+            key=lambda r: r.get("total", 0) or 0, reverse=True
+        )
+        result["samples"][k] = result["samples"][k][:20]
+
+    # Watcher status — surfaced inline so the card shows whether the
+    # auto-ingest loop is alive.
+    try:
+        from src.agents.scprs_export_watcher import get_status as _ws
+        result["watcher"] = _ws()
+    except Exception as e:
+        log.debug("scprs watcher status read failed: %s", e)
+        result["watcher"] = {"running": False, "error": str(e)}
+
+    if result["wins_count"] == 0 and result["orders_with_po"] == 0:
+        # Nothing to reconcile on either side — genuinely unknown.
+        result["status"] = "unknown"
+    elif result["scprs_only"] > 0 or result["orders_only"] > 0:
+        # Something's missing on one side — surface for action. Includes
+        # the 'SCPRS not yet imported but orders has rows' case (which
+        # is itself a setup gap worth flagging).
+        result["status"] = "error"
+    elif result["format_drift"] > 0:
+        # Parse-bug stragglers, fixable by rewriting canonical in orders.
         result["status"] = "warn"
     else:
         result["status"] = "healthy"

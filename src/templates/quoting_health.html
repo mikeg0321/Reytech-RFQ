@@ -621,6 +621,81 @@
   </div>
 </div>
 
+{# ── SCPRS reconciliation (PR-1 SCPRS-as-source-of-truth) ── #}
+{# Joins state's Detail Information export (scprs_reytech_wins) against   #}
+{# the operational orders table. Surfaces 4 buckets so any drift is       #}
+{# actionable: format_drift = parse-bug stragglers (DB has bare PO,       #}
+{# SCPRS has prefixed canonical), scprs_only = SCPRS knows it but orders  #}
+{# missing the row, orders_only = ours but state hasn't indexed yet (or   #}
+{# truly orphan). Mike 2026-04-28: SCPRS = ground truth for awarded POs.  #}
+{% set _sc = scprs_reconcile|default({"status":"unknown","wins_count":0,"orders_with_po":0,"exact_match":0,"format_drift":0,"scprs_only":0,"orders_only":0,"last_import_at":null,"watcher":{"running":false},"samples":{"format_drift":[],"scprs_only":[],"orders_only":[]}}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    SCPRS reconciliation —
+    {% if _sc.status == 'healthy' %}<span style="color:#3fb950">✓ all {{ _sc.wins_count }} SCPRS wins match orders</span>
+    {% elif _sc.status == 'warn' %}<span style="color:#d29922">⚠ {{ _sc.format_drift }} parse-bug stragglers</span>
+    {% elif _sc.status == 'error' %}<span style="color:#f85149">⛔ {{ _sc.scprs_only }} SCPRS-only · {{ _sc.orders_only }} orders-only</span>
+    {% else %}<span style="color:#6e7681">no SCPRS imports yet</span>{% endif %}
+  </div>
+  <div style="padding:10px 12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#3fb950">{{ _sc.exact_match }}</div>
+        <div style="font-size:11px;color:#8b949e">EXACT MATCH</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#d29922">{{ _sc.format_drift }}</div>
+        <div style="font-size:11px;color:#8b949e" title="SCPRS canonical has prefix; orders has stripped form">FORMAT DRIFT</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#f85149">{{ _sc.scprs_only }}</div>
+        <div style="font-size:11px;color:#8b949e" title="state recorded the PO; ours missing">SCPRS-ONLY</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:#f85149">{{ _sc.orders_only }}</div>
+        <div style="font-size:11px;color:#8b949e" title="we have it; state hasn't indexed (or orphan)">ORDERS-ONLY</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;font-size:11px;color:#8b949e">
+      {{ _sc.wins_count }} SCPRS wins · {{ _sc.orders_with_po }} orders with PO ·
+      last import: <span style="color:#c9d1d9">{{ _sc.last_import_at or 'never' }}</span> ·
+      watcher: {% if _sc.watcher and _sc.watcher.running %}<span style="color:#3fb950">running</span> ({{ _sc.watcher.scans_completed|default(0) }} scans, {{ _sc.watcher.files_ingested|default(0) }} files){% else %}<span style="color:#f85149">stopped</span>{% endif %}
+      {% if _sc.watcher and _sc.watcher.last_file_seen %}· last file: <span style="color:#c9d1d9">{{ _sc.watcher.last_file_seen }}</span>{% endif %}
+    </div>
+    {% if _sc.samples.format_drift or _sc.samples.scprs_only or _sc.samples.orders_only %}
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:12px;color:#58a6ff">show drift detail</summary>
+      <div style="margin-top:8px;font-size:12px">
+        {% if _sc.samples.format_drift %}
+          <div style="margin-top:8px;color:#d29922;font-weight:600">FORMAT DRIFT (write canonical back to orders)</div>
+          {% for s in _sc.samples.format_drift %}
+            <div style="font-family:ui-monospace,monospace;font-size:11px;color:#8b949e">
+              {{ s.canonical }} ← stored as {{ s.stored_po }} · {{ s.agency }} · ${{ '%.2f'|format(s.total) }}
+            </div>
+          {% endfor %}
+        {% endif %}
+        {% if _sc.samples.scprs_only %}
+          <div style="margin-top:8px;color:#f85149;font-weight:600">SCPRS-ONLY (need to ingest)</div>
+          {% for s in _sc.samples.scprs_only %}
+            <div style="font-family:ui-monospace,monospace;font-size:11px;color:#8b949e">
+              {{ s.canonical }} · {{ s.agency }} · ${{ '%.2f'|format(s.total) }} · {{ s.start_date }}
+            </div>
+          {% endfor %}
+        {% endif %}
+        {% if _sc.samples.orders_only %}
+          <div style="margin-top:8px;color:#f85149;font-weight:600">ORDERS-ONLY (no SCPRS record)</div>
+          {% for s in _sc.samples.orders_only %}
+            <div style="font-family:ui-monospace,monospace;font-size:11px;color:#8b949e">
+              {{ s.po_number }} · {{ s.institution or s.agency }} · ${{ '%.2f'|format(s.total) }}
+            </div>
+          {% endfor %}
+        {% endif %}
+      </div>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
 {# ── PO aggregate (S3-prep PR-2 corrected scope) ── #}
 {# Companion to the Orders drift card. The drift card flags raw         #}
 {# duplicate po_numbers as ⛔; this card reframes them by showing the     #}
