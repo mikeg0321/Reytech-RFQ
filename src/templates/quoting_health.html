@@ -837,6 +837,87 @@
   {% endif %}
 </div>
 
+{# ── Diagnostics (Plan §3.1) ── #}
+{# Folds /api/agents/health-sweep (QB + DB tables) into the page so the      #}
+{# operator no longer needs to bookmark the legacy diagnostic URL. The      #}
+{# expensive 14-endpoint /api/agents/batch-test stays behind a button —     #}
+{# the page render must not make 14 HTTP self-calls.                        #}
+{% set _dx = diagnostics|default({"total": 0, "healthy": 0, "grade": "?", "status": "unknown", "rows": []}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Diagnostics —
+    {% if _dx.status == 'healthy' %}<span style="color:#3fb950">✓ {{ _dx.healthy }}/{{ _dx.total }} grade {{ _dx.grade }}</span>
+    {% elif _dx.status == 'warn' %}<span style="color:#d29922">⚠ {{ _dx.healthy }}/{{ _dx.total }} grade {{ _dx.grade }}</span>
+    {% elif _dx.status == 'error' %}<span style="color:#f85149">⛔ {{ _dx.healthy }}/{{ _dx.total }} grade {{ _dx.grade }}</span>
+    {% else %}<span style="color:#6e7681">unknown</span>{% endif %}
+  </div>
+  {% if not _dx.rows %}
+  <div style="padding:14px;color:#8b949e;font-size:13px">
+    No diagnostics enumerated.
+  </div>
+  {% else %}
+  <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <thead>
+      <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+        <th style="padding:5px 8px">Check</th>
+        <th style="padding:5px 8px">Status</th>
+        <th style="padding:5px 8px">Detail</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in _dx.rows %}
+      <tr style="border-bottom:1px solid #21262d">
+        <td style="padding:5px 8px;font-family:monospace;font-size:11px">{{ r.name }}</td>
+        <td style="padding:5px 8px">
+          {% if r.ok %}
+          <span style="padding:1px 6px;border-radius:8px;background:#3fb95022;color:#3fb950;font-size:10px;font-weight:600">ok</span>
+          {% else %}
+          <span style="padding:1px 6px;border-radius:8px;background:#f8514922;color:#f85149;font-size:10px;font-weight:600">fail</span>
+          {% endif %}
+        </td>
+        <td style="padding:5px 8px;color:#8b949e">{{ r.detail or '—' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div style="margin-top:10px;padding:8px 10px;border-top:1px solid #21262d;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <button id="dx-batch-test-btn" type="button"
+            style="padding:5px 12px;border-radius:4px;border:1px solid #30363d;background:#21262d;color:#c9d1d9;cursor:pointer;font-size:12px">
+      Run self-test
+    </button>
+    <span id="dx-batch-test-out" style="font-size:11px;color:#8b949e">
+      14-endpoint batch test (not run; click to execute)
+    </span>
+  </div>
+  <script>
+  (function(){
+    var btn = document.getElementById('dx-batch-test-btn');
+    var out = document.getElementById('dx-batch-test-out');
+    if (!btn || !out) return;
+    btn.addEventListener('click', function(){
+      btn.disabled = true;
+      out.textContent = 'running…';
+      out.style.color = '#8b949e';
+      fetch('/api/agents/batch-test', {credentials:'same-origin'})
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          var failed = (d.results||[]).filter(function(x){return !x.ok;}).map(function(x){return x.name;});
+          var msg = (d.passed||0) + '/' + (d.total||0) + ' passed · grade ' + (d.grade||'?');
+          if (failed.length) msg += ' · failed: ' + failed.join(', ');
+          out.textContent = msg;
+          out.style.color = (d.grade === 'A') ? '#3fb950' : (d.grade === 'B' ? '#d29922' : '#f85149');
+        })
+        .catch(function(e){
+          out.textContent = 'self-test error: ' + e;
+          out.style.color = '#f85149';
+        })
+        .finally(function(){ btn.disabled = false; });
+    });
+  })();
+  </script>
+  {% endif %}
+</div>
+
 {# ── Pending drafts breakdown (Plan §4.3 sub-2 follow-up) ── #}
 {# PR #618's Gmail card surfaces "N pending drafts" as one number. This card  #}
 {# breaks the pile down by status × age so the operator can decide purge vs   #}
