@@ -1569,16 +1569,15 @@ def generate_rfq_package(rid):
                 "PDFs on the RFQ detail page if the buyer did send them."
             )
 
-        # ── Pre-flight: template fingerprint gate (feature-flagged) ──
-        # Blocks generation when a buyer-uploaded template does not match any
-        # registered FormProfile. Off by default — soak period so we can
-        # gather fingerprints for buyer variants before hard-blocking.
-        try:
-            from src.core.flags import get_flag as _get_flag
-            _require_profile_match = bool(_get_flag("rfq.require_profile_match", False))
-        except Exception:
-            _require_profile_match = False
-
+        # ── Pre-flight: template fingerprint observability ──
+        # Walk the buyer-supplied 703B/703C/704B templates and record
+        # whether each matches a registered FormProfile. Profile mismatches
+        # used to hard-block via the `rfq.require_profile_match` feature
+        # flag, but (a) the flag was never enabled in production and
+        # (b) upstream rules already enforce template registration. Plan
+        # §3.3 (2026-04-29) removed the flag and the hard-block branch.
+        # The match report still surfaces as steps/warnings on the trace
+        # so operators see fingerprints when investigating fill issues.
         try:
             from src.forms.profile_registry import check_template_profile_matches
             _profile_slots = {
@@ -1588,11 +1587,6 @@ def generate_rfq_package(rid):
             }
             if _profile_slots:
                 _match_report = check_template_profile_matches(_profile_slots)
-                _unmatched = {
-                    _slot: _info
-                    for _slot, _info in _match_report.items()
-                    if not _info.get("matched")
-                }
                 for _slot, _info in _match_report.items():
                     if _info.get("matched"):
                         t.step(f"{_slot.upper()} template matched profile {_info['profile_id']}",
@@ -1601,21 +1595,6 @@ def generate_rfq_package(rid):
                         t.warn(f"{_slot.upper()} template has no registered profile",
                                fingerprint=_info.get("fingerprint", "")[:12],
                                reason=_info.get("reason"))
-                if _unmatched and _require_profile_match:
-                    return jsonify({
-                        "ok": False,
-                        "error": "One or more buyer templates do not match a registered "
-                                 "form profile. Generating would fill blind. Register the "
-                                 "profile (scripts/generate_profile.py) or clear the "
-                                 "rfq.require_profile_match flag.",
-                        "unmatched_templates": {
-                            _slot: {
-                                "fingerprint": _info.get("fingerprint", ""),
-                                "reason": _info.get("reason"),
-                            }
-                            for _slot, _info in _unmatched.items()
-                        },
-                    }), 422
         except Exception as _pm_e:
             log.debug("Profile-match preflight suppressed: %s", _pm_e)
 

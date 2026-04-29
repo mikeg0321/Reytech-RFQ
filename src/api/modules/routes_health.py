@@ -7,15 +7,14 @@ Reads directly from the canonical tables:
     quotes            — outbound quotes with cost/margin
     utilization_events — feature-use events recorded by time_feature /
                          record_feature_use (60-day window)
-    feature_flags     — runtime flag state (ingest.classifier_v2_enabled
-                        in particular)
+    feature_flags     — runtime flag state (live runtime flags only;
+                        the historical `ingest.classifier_v2_enabled`
+                        was removed 2026-04-29 — v2 is canonical)
 
-Surfaces the things that matter right after the unified-ingest flag
-goes live:
-    1. Is the flag actually on?
-    2. Is the v2 classifier getting invoked?
-    3. Is it crashing? (ingest.classify_crashed feature presence)
-    4. Confidence distribution — are we landing in high-confidence or
+Surfaces the things that matter for ingest-pipeline observability:
+    1. Is the v2 classifier getting invoked?
+    2. Is it crashing? (ingest.classify_crashed feature presence)
+    3. Confidence distribution — are we landing in high-confidence or
        tripping through low-confidence review?
     5. Ingest → PC/RFQ → link → quote funnel for the last 24h and 7d
     6. PC→RFQ link success rate (linked vs unlinked new RFQs)
@@ -76,11 +75,12 @@ def _safe_fetchone(sql: str, params=()):
 # ── Dashboard data builders ──────────────────────────────────────────────
 
 def _build_flag_card():
-    """Current state of the critical classifier_v2 flag + all runtime flags."""
+    """All runtime feature flags. The classifier_v2 path is now permanent
+    (Plan §3.3 2026-04-29 — flag removed); `classifier_v2_on` reports
+    True for backward compat with any operator UI that was reading it."""
     flags = list_flags() or []
-    classifier_v2 = get_flag("ingest.classifier_v2_enabled", False)
     return {
-        "classifier_v2_on": bool(classifier_v2),
+        "classifier_v2_on": True,
         "flags": flags,
         "flag_count": len(flags),
     }

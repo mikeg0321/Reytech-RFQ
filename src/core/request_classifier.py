@@ -17,9 +17,9 @@ upload, /api/v1) routes through `classify_request()`. The result
 drives downstream dispatch in `ingest_pipeline.py` (Phase 2) and the
 detail-page conditional UI (Phase 3).
 
-Feature-flagged via `ingest.classifier_v2_enabled` — callers can
-disable it to fall back to the legacy parallel PC/RFQ paths if
-anything goes sideways.
+Canonical ingest path as of 2026-04-29 (Plan §3.3 flag sprint —
+`ingest.classifier_v2_enabled` removed; v2 was on continuously in prod
+since 2026-04-14). `classify_enabled()` always returns True.
 
 Ground truth: tests in test_request_classifier.py exercise every
 classification branch against real fixtures in
@@ -787,15 +787,18 @@ def _score_confidence(
 
 
 def classify_enabled() -> bool:
-    """Feature flag gate. When False, callers fall back to the legacy
-    parallel PC/RFQ paths. Defaults to False during Phase 1 shipping —
-    the classifier runs in shadow mode (logged but not dispatched).
+    """Always returns True — the unified classifier is the canonical
+    ingest path. Plan §3.3 (2026-04-29) removed the
+    `ingest.classifier_v2_enabled` flag check after verifying production
+    had it set to True since 2026-04-14 with no rollback signal.
+
+    The function is kept as a public callable so existing call sites in
+    `dashboard.py`, `routes_pricecheck.py`, `routes_rfq.py` don't have
+    to be edited in this PR — their `if classify_enabled():` branches
+    now always take the v2 path; the legacy `else` branches are dead
+    code that can be deleted in a follow-up.
     """
-    try:
-        from src.core.flags import get_flag
-        return bool(get_flag("ingest.classifier_v2_enabled", False))
-    except Exception:
-        return False
+    return True
 
 
 __all__ = [

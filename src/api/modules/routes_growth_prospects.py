@@ -422,11 +422,9 @@ def api_growth_outreach():
     ?dry_run=true (default) previews without sending.
     ?dry_run=false sends live emails.
 
-    UX Audit 2026-04-14 §9.2: dry_run=false is blocked until the
-    CS-reply agent rewrite ships. Dry-run previews still work so the
-    operator can inspect drafts. Runtime override via the
-    `outbox.send_approved_enabled` feature flag (shared with the
-    outbox send-approved endpoint).
+    UX Audit 2026-04-14 §9.2 / Plan §3.3 2026-04-29: dry_run=false is
+    permanently blocked. Dry-run previews still work so the operator
+    can inspect drafts; live sends route through `/outbox` per draft.
     """
     if not GROWTH_AVAILABLE:
         return jsonify({"ok": False, "error": "Growth agent not available"})

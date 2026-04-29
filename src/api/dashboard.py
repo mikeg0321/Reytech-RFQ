@@ -1737,12 +1737,11 @@ def process_rfq_email(rfq_email):
                 t.ok("Skipped: duplicate solicitation+sender", existing_id=_eid)
                 return None
 
-    # ── Classifier V2 path (feature-flagged) ───────────────────────────────
-    # When ingest.classifier_v2_enabled is on, dispatch to the unified
-    # ingest pipeline instead of the legacy parallel PC/RFQ branches.
-    # Legacy dedup above still runs; this only short-circuits when v2
-    # successfully creates a record. On any failure we fall through so
-    # no email is lost.
+    # ── Classifier V2 path (canonical since 2026-04-14) ───────────────────
+    # `classify_enabled()` always returns True after the §3.3 flag sprint
+    # (2026-04-29). Dispatch to the unified ingest pipeline; legacy dedup
+    # above still runs; this short-circuits when v2 successfully creates
+    # a record. On any failure we fall through so no email is lost.
     try:
         from src.core.request_classifier import classify_enabled
         if classify_enabled():

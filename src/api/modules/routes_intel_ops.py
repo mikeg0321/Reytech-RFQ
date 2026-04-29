@@ -2359,12 +2359,12 @@ def api_outbox_send(email_id):
 def api_outbox_send_all():
     """Send all approved emails.
 
-    UX Audit 2026-04-14 §9.2: hard-disabled until the CS-reply agent
-    rewrite ships. Bulk-approving canned text is the class of action
+    UX Audit 2026-04-14 §9.2 / Plan §3.3 2026-04-29: permanently
+    hard-disabled. Bulk-approving canned text is the class of action
     that can damage real customer relationships, so the endpoint
     rejects with 423 (Locked) instead of just hiding the UI button.
-    Runtime override via `outbox.send_approved_enabled=true` feature
-    flag for when the rewrite lands.
+    The runtime override flag (`outbox.send_approved_enabled`) was
+    removed in the §3.3 sprint — auto-send risk > value at our volume.
     """
     from src.core.flags import send_approved_guard_ok
     ok, blocked = send_approved_guard_ok(label="Send All Approved")

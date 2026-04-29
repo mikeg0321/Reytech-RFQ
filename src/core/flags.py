@@ -274,47 +274,28 @@ def list_flags() -> list:
 
 
 def send_approved_guard_ok(*, label: str) -> tuple:
-    """Shared killswitch helper for every live outbound-email route (IN-7).
+    """Shared killswitch for every live outbound-email route.
 
-    Returns `(True, None)` if the `outbox.send_approved_enabled` flag is on
-    and live sends are permitted. Returns `(False, payload)` otherwise, where
-    `payload` is the JSON body the caller should return with HTTP 423
-    (Locked). Fails *closed* — if the flag layer itself errors, the helper
-    returns a deny payload so a half-broken DB can never accidentally open
-    the killswitch.
+    Always returns `(False, payload)` — bulk auto-send is permanently
+    disabled at our volume; operator review per draft in `/outbox` is the
+    only sanctioned path. Plan §3.3 (2026-04-29) made the deny permanent
+    by removing the `outbox.send_approved_enabled` flag override that
+    used to gate this — the flag was never enabled in production and
+    "auto-send risk > value at our volume."
 
     `label` is the human-readable name of the action ("Send All Approved",
     "Live growth outreach", "Distro-list campaign"). It shows up in the
     blocked-reason body so logs / UI stay specific per call site.
-
-    Before this existed, each route open-coded the flag check with subtly
-    different error strings — and the distro-list campaign silently
-    *didn't* check it at all. Extracting the guard closes that killswitch
-    inconsistency.
     """
-    try:
-        if not get_flag("outbox.send_approved_enabled", False):
-            return False, {
-                "ok": False,
-                "error": (
-                    f"BLOCKED: {label} is disabled until the CS-reply "
-                    f"agent rewrite ships. Use dry_run=true to preview, "
-                    f"or review drafts individually in /outbox."
-                ),
-                "blocked_reason": "ux_audit_p0_2",
-            }
-    except Exception as e:
-        log.debug("send_approved_guard_ok flag check failed: %s", e)
-        # Flag layer broken → deny. This endpoint is destructive enough
-        # that fail-closed is the only safe default.
-        return False, {
-            "ok": False,
-            "error": (
-                f"BLOCKED: feature flag layer unavailable, "
-                f"defaulting to deny for {label}."
-            ),
-        }
-    return True, None
+    return False, {
+        "ok": False,
+        "error": (
+            f"BLOCKED: {label} is permanently disabled. Bulk auto-send "
+            f"is off at Reytech's volume — review and send drafts "
+            f"individually in /outbox, or use dry_run=true to preview."
+        ),
+        "blocked_reason": "manual_send_only",
+    }
 
 
 __all__ = [

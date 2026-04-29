@@ -12,8 +12,9 @@ request IS, and forcing the linker to agree on canonical identity
 (agency + solicitation number) before it can even consider an item
 match.
 
-Feature-flagged via `ingest.classifier_v2_enabled` (default False).
-When disabled, callers fall through to the legacy ingest paths.
+Canonical ingest path as of 2026-04-29 (Plan §3.3 flag sprint —
+`ingest.classifier_v2_enabled` removed). Live in production since
+2026-04-14 with no rollback signal.
 
 Callers:
   - email_poller.py — when a buyer email arrives
