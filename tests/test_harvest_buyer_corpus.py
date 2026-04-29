@@ -209,21 +209,88 @@ def test_extract_attachments_returns_filename_and_bytes(hb):
 
 def test_classify_message_recognizes_amendment_award_rfq(hb):
     assert hb._classify_message(
-        {"subject": "Amendment 03 to PO 8955-..."}, "", [],
+        {"subject": "Amendment 03 to PO 8955-...",
+         "from": "buyer@cdcr.ca.gov", "to": "sales@reytechinc.com"},
+        "", [],
     ) == "amendment"
     assert hb._classify_message(
-        {"subject": "Purchase Order issued"}, "", [],
+        {"subject": "Purchase Order issued",
+         "from": "buyer@cdcr.ca.gov", "to": "sales@reytechinc.com"},
+        "", [],
     ) == "award"
     assert hb._classify_message(
-        {"subject": "Request for Quote — Echelon"}, "", [],
+        {"subject": "Request for Quote — Echelon",
+         "from": "buyer@cchcs.ca.gov", "to": "sales@reytechinc.com"},
+        "", [],
     ) == "rfq"
     assert hb._classify_message(
-        {"subject": "Quote attached", "from": "sales@reytechinc.com"},
+        {"subject": "Quote attached",
+         "from": "sales@reytechinc.com", "to": "buyer@cdcr.ca.gov"},
         "", [],
     ) == "quote_sent"
     assert hb._classify_message(
-        {"subject": "thanks"}, "", [],
+        {"subject": "thanks", "from": "x@y.com", "to": "sales@reytechinc.com"},
+        "", [],
     ) == "other"
+
+
+def test_classify_message_app_internal_self_to_self(hb):
+    """The notification stream Mike's app sends to its own mailbox
+    (Order Digest, [URGENT], 500 Error, etc.) must NOT be classified
+    as rfq/award/quote_sent — those would corrupt buyer-corpus stats."""
+    cases = [
+        # explicit Reytech-prefixed subjects
+        "🔔 Reytech: 500 Error: MethodNotAllowed",
+        "🔔 Reytech: Order Digest: 5 action items",
+        "[ACTION] CS Draft Ready",
+        "[REMINDER] Drafts Waiting",
+        "[URGENT] New RFQ Arrived",
+        "Daily Digest",
+        # neutral self-to-self that doesn't look like a sent quote
+        "fyi",
+    ]
+    for subj in cases:
+        cls = hb._classify_message(
+            {"subject": subj,
+             "from": "sales@reytechinc.com",
+             "to": "sales@reytechinc.com"},
+            "",
+            [],
+        )
+        assert cls == "app_internal", f"{subj!r} → {cls}"
+
+
+def test_classify_message_outbound_quote_to_buyer_is_quote_sent(hb):
+    """Sales → external buyer with 'quote' in subject is the real
+    outbound stream, not app_internal."""
+    assert hb._classify_message(
+        {"subject": "Reytech Quote — gauze pads",
+         "from": "sales@reytechinc.com",
+         "to": "buyer@cdcr.ca.gov"},
+        "",
+        [],
+    ) == "quote_sent"
+
+
+def test_decode_header_handles_rfc2047_encoded_words(hb):
+    # Quoted-printable form
+    qp = "=?UTF-8?Q?=F0=9F=94=94_Reytech=3A_500_Error?="
+    out = hb._decode_header(qp)
+    assert "Reytech" in out and "500 Error" in out
+    # Base64 form
+    b64 = "=?utf-8?b?8J+aqCBbVVJHRU5UXSBOZXcgUkZRIEFycml2ZWQ=?="
+    out = hb._decode_header(b64)
+    assert "[URGENT]" in out and "RFQ" in out
+    # Plain ASCII passes through unchanged
+    assert hb._decode_header("plain subject") == "plain subject"
+
+
+def test_extract_address_pulls_email_from_display_name(hb):
+    assert hb._extract_address(
+        '"Sales Support (Reytech)" <sales@reytechinc.com>'
+    ) == "sales@reytechinc.com"
+    assert hb._extract_address("plain@example.com") == "plain@example.com"
+    assert hb._extract_address("") == ""
 
 
 # ─── End-to-end harvest with fake Gmail ──────────────────────────────

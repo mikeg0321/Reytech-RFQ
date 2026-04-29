@@ -54,6 +54,14 @@ from datetime import datetime, timedelta, timezone
 from email.message import Message
 from typing import Any
 
+# Force UTF-8 stdout so unicode glyphs in progress banners (→, ─, …)
+# don't crash on Windows cp1252 consoles.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 
 def _utcnow() -> datetime:
     """Naive UTC timestamp; replacement for the deprecated
@@ -67,6 +75,15 @@ sys.path.insert(0, _REPO_ROOT)
 DEFAULT_OUT_DIR = os.path.join(_REPO_ROOT, "data", "buyer_corpus")
 DEFAULT_INBOXES = ("sales", "mike")
 DEFAULT_DAYS = 5 * 365
+
+# Reytech-owned addresses. Mail from these *to* these is the app's
+# own notification stream (CS Draft Ready, Order Digest, 500 Error,
+# etc.) — useful as ops telemetry but pollution for buyer corpus
+# work. We tag those as `app_internal` so the trainer skips them.
+_OWN_ADDRESSES = {
+    "sales@reytechinc.com",
+    "mike@reytechinc.com",
+}
 
 # RFQ-shaped subject keywords. We OR these into a fallback query if
 # `has:attachment` is too narrow. Cast a wide net — better to harvest
@@ -196,6 +213,32 @@ def _parse_date_iso(raw: str) -> str:
         return ""
 
 
+def _decode_header(raw: str) -> str:
+    """Decode RFC 2047 encoded-word headers (`=?utf-8?b?...?=`,
+    `=?UTF-8?Q?...?=`) into plain Unicode. Buyers and Reytech's
+    own notification emails frequently use Q/B encoding for emoji
+    and non-ASCII, and a raw-string compare misses every keyword."""
+    if not raw:
+        return ""
+    try:
+        from email.header import decode_header, make_header
+        return str(make_header(decode_header(raw)))
+    except Exception:
+        return raw
+
+
+def _extract_address(raw_from_header: str) -> str:
+    """Pull just the bare email out of an RFC 5322 address. e.g.
+    `'Sales Support (Reytech) <sales@reytechinc.com>'` → `sales@reytechinc.com`."""
+    if not raw_from_header:
+        return ""
+    try:
+        _name, addr = email.utils.parseaddr(raw_from_header)
+        return (addr or "").strip().lower()
+    except Exception:
+        return ""
+
+
 # ─── Agency resolution ───────────────────────────────────────────────
 
 
@@ -232,27 +275,50 @@ def _resolve_agency(headers: dict, body: str) -> str:
 
 def _classify_message(headers: dict, body: str,
                       attachments: list[tuple[str, bytes]]) -> str:
-    """Coarse single-label classification — `rfq` / `award` /
-    `amendment` / `quote_sent` / `other`. Used as an index hint, not
-    for downstream decisions."""
-    subj = (headers.get("subject", "") or "").lower()
+    """Coarse single-label classification — `app_internal` / `rfq` /
+    `award` / `amendment` / `quote_sent` / `other`. Used as an index
+    hint; trainer ignores `app_internal` rows."""
+    subj = (headers.get("subject", "") or "")
+    from_addr = _extract_address(headers.get("from", ""))
+    to_addr = _extract_address(headers.get("to", ""))
+    subj_l = subj.lower()
     body_l = (body or "").lower()[:1000]
-    text = subj + " " + body_l
+    text = subj_l + " " + body_l
+
+    # App-internal notifications: the app sends these to its own
+    # mailbox (CS Draft Ready, Order Digest, 500 Error, [URGENT] New
+    # RFQ Arrived, [REMINDER] Drafts Waiting). Detect *before* keyword
+    # matching so they don't false-positive as 'rfq' / 'award'.
+    own = _OWN_ADDRESSES
+    if from_addr in own and (to_addr in own or not to_addr):
+        # Subject patterns that confirm app-internal even without
+        # to-address parity (some notifications have empty To headers
+        # in their MIME).
+        internal_markers = (
+            "[ACTION]", "[REMINDER]", "[URGENT]",
+            "Reytech: ", "Reytech 5", "Order Digest",
+            "Draft Ready", "Drafts Waiting", "Daily Digest",
+        )
+        if any(m.lower() in subj_l for m in internal_markers):
+            return "app_internal"
+        # If both from + to are us and subject doesn't look like a
+        # quote-sent (no "quote" / "bid" / "RFQ" reply pattern), treat
+        # as internal too. Real outbound buyer quotes are sent TO the
+        # buyer, not back to ourselves.
+        if "quote" not in subj_l and "rfq" not in subj_l:
+            return "app_internal"
 
     if "amendment" in text:
         return "amendment"
-    if "purchase order" in text or "award" in text or "po " in subj:
+    if "purchase order" in text or "award" in text or "po " in subj_l:
         return "award"
     if any(k in text for k in (
         "request for quote", "rfq", "solicitation", "bid",
     )):
         return "rfq"
     # Sent quotes from us — Reytech outbound has 'quote' in subject
-    # plus we own the From: address.
-    if "quote" in subj and (
-        "reytech" in (headers.get("from") or "").lower()
-        or "sales@" in (headers.get("from") or "").lower()
-    ):
+    # plus we own the From: address (and recipient is NOT us).
+    if "quote" in subj_l and from_addr in own and to_addr not in own:
         return "quote_sent"
     return "other"
 
@@ -399,6 +465,59 @@ def _update_indexes(out_dir: str, msg_id: str, meta: dict) -> None:
     _write_json_atomic(by_thread_path, by_thread)
 
 
+def _reclassify_in_place(out_dir: str) -> dict:
+    """Walk every messages/<msg_id>/meta.json, re-decode the headers
+    (RFC 2047 may be raw if harvested before the decoder fix), re-run
+    the classifier and agency resolver, and rewrite meta.json + the
+    indexes. No Gmail call — purely local correction.
+
+    Used after a classifier upgrade to re-tag an existing corpus
+    without paying the bandwidth cost of a full re-harvest.
+    """
+    msgs_dir = os.path.join(out_dir, "messages")
+    if not os.path.isdir(msgs_dir):
+        return {"reclassified": 0, "missing": 0,
+                "class_changes": 0, "agency_changes": 0}
+    out = {"reclassified": 0, "missing": 0,
+           "class_changes": 0, "agency_changes": 0}
+    for entry in sorted(os.listdir(msgs_dir)):
+        meta_path = os.path.join(msgs_dir, entry, "meta.json")
+        meta = _load_json(meta_path, None)
+        if not meta:
+            out["missing"] += 1
+            continue
+        h = meta.get("headers", {}) or {}
+        # Re-decode subject + from + to (no-op if already decoded)
+        new_h = dict(h)
+        new_h["subject"] = _decode_header(h.get("subject", ""))
+        new_h["from"] = _decode_header(h.get("from", ""))
+        new_h["to"] = _decode_header(h.get("to", ""))
+        # Re-classify with the NEW classifier on the decoded headers
+        body_path = os.path.join(msgs_dir, entry, "body.txt")
+        body = ""
+        if os.path.exists(body_path):
+            try:
+                with open(body_path, "r", encoding="utf-8",
+                          errors="replace") as f:
+                    body = f.read()
+            except OSError:
+                pass
+        new_class = _classify_message(new_h, body, [])
+        new_agency = _resolve_agency(new_h, body)
+        if new_class != meta.get("classification"):
+            out["class_changes"] += 1
+        if new_agency != meta.get("agency_key"):
+            out["agency_changes"] += 1
+        meta["headers"] = new_h
+        meta["classification"] = new_class
+        meta["agency_key"] = new_agency
+        _write_json_atomic(meta_path, meta)
+        out["reclassified"] += 1
+    # Rebuild indexes off the corrected meta.json files
+    _rebuild_indexes(out_dir)
+    return out
+
+
 def _rebuild_indexes(out_dir: str) -> dict:
     """Walk messages/<msg_id>/meta.json and regenerate the indexes
     from disk. Useful after manual edits or partial-write recovery."""
@@ -443,6 +562,14 @@ def harvest(args) -> int:
         result = _rebuild_indexes(out_dir)
         print(f"Rebuilt indexes: {result['rebuilt']} messages "
               f"({result['missing']} missing meta.json)")
+        return 0
+
+    if args.reclassify:
+        result = _reclassify_in_place(out_dir)
+        print(f"Reclassified {result['reclassified']} messages")
+        print(f"  classification changes : {result['class_changes']}")
+        print(f"  agency changes         : {result['agency_changes']}")
+        print(f"  missing meta.json      : {result['missing']}")
         return 0
 
     try:
@@ -512,10 +639,10 @@ def harvest(args) -> int:
                 continue
 
             headers = {
-                "from": m.get("From", "") or "",
-                "to": m.get("To", "") or "",
-                "cc": m.get("Cc", "") or "",
-                "subject": m.get("Subject", "") or "",
+                "from": _decode_header(m.get("From", "") or ""),
+                "to": _decode_header(m.get("To", "") or ""),
+                "cc": _decode_header(m.get("Cc", "") or ""),
+                "subject": _decode_header(m.get("Subject", "") or ""),
                 "date": m.get("Date", "") or "",
                 "date_iso": _parse_date_iso(m.get("Date", "")),
                 "message_id_header": m.get("Message-ID", "") or "",
@@ -608,6 +735,11 @@ def main():
     p.add_argument("--rebuild-indexes", action="store_true",
                    help="Rebuild index.json/by_agency.json/by_thread.json "
                         "from on-disk meta.json files (no Gmail call)")
+    p.add_argument("--reclassify", action="store_true",
+                   help="Re-decode headers + re-run classifier and "
+                        "agency resolver on every saved message in place. "
+                        "No Gmail call. Use after a classifier upgrade to "
+                        "re-tag existing corpus.")
     p.add_argument("--progress", type=int, default=50,
                    help="Print a progress line every N messages (0=off)")
     args = p.parse_args()
