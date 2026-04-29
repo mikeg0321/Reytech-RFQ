@@ -506,7 +506,7 @@ setTimeout(function(){
       var html = '';
       d.emergency.forEach(function(e){
         html += '<a href="' + esc(e.url) + '" style="display:flex;justify-content:space-between;padding:6px 0;color:#e6edf3;text-decoration:none;font-size:14px;border-bottom:1px solid rgba(248,81,73,.2)">'
-          + '<span>' + esc((e.doc_type||'').toUpperCase()) + ' #' + esc(e.pc_number) + ' · ' + esc(e.institution) + '</span>'
+          + '<span>' + esc((e.doc_type||'').toUpperCase()) + (e.pc_number ? ' #' + esc(e.pc_number) : ' (pending)') + ' · ' + esc(e.institution) + '</span>'
           + '<span style="color:#f85149">' + fmtTime(e.hours_left) + ' · ' + esc(e.loe_text) + '</span>'
           + '</a>';
       });
@@ -521,7 +521,7 @@ setTimeout(function(){
       card.href = nu.url || '#';
       var c = urgencyColor(nu.hours_left, nu.loe_minutes);
       card.style.borderColor = c + '66';
-      document.getElementById('triage-next-up-title').textContent = (nu.doc_type||'').toUpperCase() + ' #' + (nu.pc_number||'');
+      document.getElementById('triage-next-up-title').textContent = (nu.doc_type||'').toUpperCase() + (nu.pc_number ? ' #' + nu.pc_number : ' (pending)');
       document.getElementById('triage-next-up-meta').textContent = nu.institution || '';
       var timeEl = document.getElementById('triage-next-up-time');
       timeEl.innerHTML = esc(fmtTime(nu.hours_left))
@@ -549,7 +549,7 @@ setTimeout(function(){
         html += '<a href="' + esc(q.url) + '" style="display:grid;grid-template-columns:120px 1fr 90px 80px 100px;gap:12px;padding:8px 4px;border-bottom:1px solid rgba(139,148,158,.08);text-decoration:none;color:var(--tx);font-size:13px;align-items:center" '
           + 'onmouseover="this.style.background=\'rgba(79,140,255,.04)\'" onmouseout="this.style.background=\'\'">'
           + timeCell
-          + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>' + esc((q.doc_type||'').toUpperCase()) + ' #' + esc(q.pc_number) + '</b> · <span style="color:var(--tx2)">' + esc(q.institution || '') + '</span></span>'
+          + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>' + esc((q.doc_type||'').toUpperCase()) + (q.pc_number ? ' #' + esc(q.pc_number) : ' (pending)') + '</b> · <span style="color:var(--tx2)">' + esc(q.institution || '') + '</span></span>'
           + '<span style="color:var(--tx2);text-align:right">' + (q.item_count||0) + ' items</span>'
           + '<span style="color:var(--tx2);text-align:right">~' + esc(q.loe_text || '?') + '</span>'
           + '<span style="text-align:right">' + fitBadge(q.hours_left, q.loe_minutes) + '</span>'

@@ -117,6 +117,16 @@ def _build_deadline_item(doc_type, doc_id, doc):
     pc_number = (header.get("pc_number") or doc.get("solicitation_number")
                  or doc.get("rfq_number") or doc.get("pc_number") or doc_id[:8])
 
+    # Hide placeholder labels (legacy "GOOD"/"WORKSHEET" + new AUTO_<id>) so
+    # the home triage card shows "PC (pending)" instead of feeding operators
+    # buyer-content junk that looks like real numbers.
+    try:
+        from src.core.queue_helpers import _is_placeholder_number
+        if _is_placeholder_number(pc_number):
+            pc_number = ""
+    except ImportError:
+        pass
+
     items = doc.get("line_items") or doc.get("items") or []
     item_count = len(items) if isinstance(items, list) else 0
 

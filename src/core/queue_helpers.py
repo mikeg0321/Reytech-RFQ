@@ -29,6 +29,7 @@ def _resolve_display_number(number, raw):
 
 STATUS_DISPLAY = {
     "new": "New", "parsed": "New", "parse_error": "New",
+    "needs_review": "Needs Review",
     "draft": "Draft", "priced": "Draft", "ready": "Draft",
     "auto_drafted": "Draft", "quoted": "Draft", "generated": "Draft",
     "completed": "Draft", "converted": "Draft",
@@ -40,10 +41,33 @@ STATUS_DISPLAY = {
 
 STATUS_COLOR = {
     "New": "#4f8cff",
+    "Needs Review": "#f0883e",
     "Draft": "#fbbf24",
     "Sent": "#3fb950",
     "Not Responding": "#f85149",
 }
+
+
+# Junk values from the legacy email-poller subject[:40] fallback. The
+# new ingest path produces "AUTO_<short_id>" instead, but pre-PR-A
+# rows still carry "GOOD" / "WORKSHEET" / "RFQ" etc. Mirror of
+# src.api.dashboard._is_placeholder_number — kept inline so this
+# module doesn't drag in the Flask import graph.
+def _is_placeholder_number(value: str) -> bool:
+    """True when the value looks like a buyer-content-derived placeholder."""
+    if not value:
+        return True
+    s = str(value).strip()
+    if not s or s == "(blank)":
+        return True
+    if s.startswith("AUTO_"):
+        return True  # auto-generated, not a real number — show "Pending"
+    if s.isupper() and s.isalpha() and 2 <= len(s) <= 20:
+        return True
+    if s.lower() in {"unknown", "rfq", "quote", "request", "worksheet", "good",
+                     "bid", "vendor", "price", "check", "form"}:
+        return True
+    return False
 
 
 def _derive_buyer(raw, queue_type):
