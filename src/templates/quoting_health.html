@@ -262,7 +262,7 @@
                     else '#8b949e' %}
 <div class="card" style="margin-bottom:14px;border-left:4px solid {{ _ep_border }}">
   <div class="card-t">Email poller</div>
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px">
     {{ stat(_ep.lag_human|default('—'), 'Last successful poll',
             '#3fb950' if _ep.status == 'healthy'
              else '#d29922' if _ep.status in ('warn', 'paused')
@@ -272,8 +272,10 @@
             '#3fb950' if _ep.running else '#f85149') }}
     {{ stat('paused' if _ep.paused else 'live', 'Mode',
             '#d29922' if _ep.paused else '#3fb950') }}
-    {{ stat(_ep.emails_found_lifetime|default(0),
-            'Emails found (lifetime)', '#58a6ff') }}
+    {{ stat(_ep.emails_found_24h|default(0),
+            'RFQs in last 24h', '#58a6ff') }}
+    {{ stat(_ep.emails_found_7d|default(0),
+            'RFQs in last 7d', '#58a6ff') }}
   </div>
   <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd,#30363d);font-size:13px;color:var(--tx2,#8b949e)">
     {% if _ep.status == 'error' %}

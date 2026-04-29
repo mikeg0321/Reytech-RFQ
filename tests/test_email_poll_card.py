@@ -157,11 +157,19 @@ def test_lag_uses_tz_when_last_check_is_aware():
 
 
 def test_response_shape_is_stable():
-    """Templates rely on these keys — any rename is a breaking change."""
+    """Templates rely on these keys — any rename is a breaking change.
+
+    `emails_found_lifetime` was renamed to `emails_found_24h` +
+    `emails_found_7d` because the old field was an in-memory counter
+    that reset on every Railway deploy (incident: Mike's prod showed
+    0 even with 20+ poller-detected RFQs in the table). The new fields
+    query rfqs + price_checks tables directly and survive deploys.
+    """
     out = _build({})
     expected_keys = {
         "status", "running", "paused", "last_check_at",
-        "lag_seconds", "lag_human", "error", "emails_found_lifetime",
+        "lag_seconds", "lag_human", "error",
+        "emails_found_24h", "emails_found_7d",
     }
     assert set(out.keys()) == expected_keys
 
@@ -175,9 +183,43 @@ def test_error_field_truncated_to_200_chars():
     assert len(out["error"]) == 200
 
 
-def test_emails_found_lifetime_default_zero():
+def test_emails_found_24h_default_zero(temp_data_dir):
+    """Empty rfqs + price_checks → both counters = 0 (not error)."""
     out = _build({"last_check": _iso(30)})
-    assert out["emails_found_lifetime"] == 0
+    assert out["emails_found_24h"] == 0
+    assert out["emails_found_7d"] == 0
+
+
+def test_emails_found_24h_counts_recent_email_rfqs(temp_data_dir):
+    """RFQ from email source within 24h must count toward 24h + 7d."""
+    from src.core.db import get_db
+    now = datetime.now()
+    recent = (now - timedelta(hours=2)).isoformat()
+    week_old = (now - timedelta(days=3)).isoformat()
+    too_old = (now - timedelta(days=10)).isoformat()
+    with get_db() as conn:
+        conn.execute("""INSERT INTO rfqs (id, received_at, source)
+                        VALUES (?, ?, ?)""",
+                     ("rfq-recent", recent, "email"))
+        conn.execute("""INSERT INTO rfqs (id, received_at, source)
+                        VALUES (?, ?, ?)""",
+                     ("rfq-week", week_old, "email"))
+        conn.execute("""INSERT INTO rfqs (id, received_at, source)
+                        VALUES (?, ?, ?)""",
+                     ("rfq-old", too_old, "email"))
+        conn.execute("""INSERT INTO rfqs (id, received_at, source)
+                        VALUES (?, ?, ?)""",
+                     ("rfq-manual", recent, "manual"))
+        # price_checks uses email_uid presence as the poller signal
+        conn.execute("""INSERT INTO price_checks
+                        (id, created_at, email_uid, total_items)
+                        VALUES (?, ?, ?, ?)""",
+                     ("pc-recent", recent, "msg-id-abc123", 1))
+        conn.commit()
+
+    out = _build({"last_check": _iso(30)})
+    assert out["emails_found_24h"] == 2  # 1 rfq + 1 pc within 24h
+    assert out["emails_found_7d"] == 3   # +1 rfq from week ago
 
 
 # ── _format_lag thresholds ──────────────────────────────────────────────
