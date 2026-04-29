@@ -43,12 +43,16 @@ _status = {
     "scans_completed": 0,
     "last_error": None,
     "watch_path": "/".join(WATCH_FOLDER_PATH),
+    "watch_folder_id": None,
+    "bootstrap_status": None,
+    "bootstrap_at": None,
 }
 
 
 def _find_watch_folder_id() -> Optional[str]:
     """Walk Drive root → Backups → SCPRS Exports. Returns None if any
-    segment is missing — operator hasn't set up the folder yet."""
+    segment is missing — operator hasn't set up the folder yet.
+    Read-only — never creates."""
     from src.core.gdrive import (
         is_configured, find_folder, GOOGLE_DRIVE_ROOT_FOLDER_ID,
     )
@@ -62,6 +66,42 @@ def _find_watch_folder_id() -> Optional[str]:
             return None
         parent = nxt
     return parent
+
+
+def _ensure_watch_folder_id() -> Optional[str]:
+    """Create the Backups/SCPRS Exports/ folder chain if missing,
+    return its ID. Called once on watcher boot so the operator never
+    has to manually create folders just to trigger auto-ingest.
+
+    Idempotent — `_get_or_create_folder` is itself a get-or-create, so
+    repeated boots find the existing folder and return its cached ID.
+
+    Returns None if Drive isn't configured (no Drive creds, no root
+    folder env). The watcher still starts in that case; scan_once just
+    finds zero files.
+    """
+    from src.core.gdrive import (
+        is_configured, _get_or_create_folder, GOOGLE_DRIVE_ROOT_FOLDER_ID,
+    )
+    if not is_configured() or not GOOGLE_DRIVE_ROOT_FOLDER_ID:
+        _status["bootstrap_status"] = "skipped_no_drive_config"
+        return None
+    parent = GOOGLE_DRIVE_ROOT_FOLDER_ID
+    try:
+        for seg in WATCH_FOLDER_PATH:
+            parent = _get_or_create_folder(seg, parent)
+        _status["bootstrap_status"] = "ok"
+        _status["watch_folder_id"] = parent
+        _status["bootstrap_at"] = datetime.now().isoformat()
+        log.info(
+            "SCPRS watch folder ensured: %s (id=%s)",
+            "/".join(WATCH_FOLDER_PATH), parent,
+        )
+        return parent
+    except Exception as e:
+        _status["bootstrap_status"] = f"error: {e}"
+        log.error("ensure_watch_folder_id failed: %s", e, exc_info=True)
+        return None
 
 
 def _last_imported_at_iso() -> str:
@@ -193,18 +233,27 @@ def _run_loop():
 
 def start_watcher() -> None:
     """Start the watcher in a daemon thread. Idempotent — calling twice
-    in quick succession is a no-op."""
+    in quick succession is a no-op.
+
+    Bootstraps the Drive watch folder before starting the loop. If
+    creation fails (missing creds / Drive 5xx), we still start the
+    loop — `scan_once()` re-resolves the folder via `_find_watch_folder_id`
+    each tick, so a recovered Drive will pick it up automatically.
+    """
     global _thread
     if _thread and _thread.is_alive():
         return
+    _ensure_watch_folder_id()
     _thread = threading.Thread(
         target=_run_loop, daemon=True, name="scprs-export-watcher"
     )
     _thread.start()
     _status["running"] = True
     log.info(
-        "SCPRS export watcher started (interval=%ds, watch=%s)",
+        "SCPRS export watcher started (interval=%ds, watch=%s, "
+        "bootstrap=%s)",
         POLL_INTERVAL_SEC, "/".join(WATCH_FOLDER_PATH),
+        _status.get("bootstrap_status"),
     )
 
 
