@@ -8,14 +8,16 @@ actually needed operator triage. Concrete: rfq_7813c4e1 + pc_a391db8f
 from keith.alsing@calvet.ca.gov.
 
 This script:
-  1. Scans price_checks (JSON) and rfqs (JSON + DB) for placeholder values
+  1. Scans SQLite price_checks + rfqs tables (single source of truth)
   2. For rows with len(items) == 0 AND placeholder pc_number/sol#, flips
      status -> 'needs_review' so they re-surface on the operator queue
-  3. Writes a ledger row so re-runs skip already-processed IDs
+  3. Updates both the column AND the data_json blob (data_layer reads
+     status from column-first when available)
 
 Usage:
     python scripts/backfill_placeholder_pc_numbers.py --dry-run
     python scripts/backfill_placeholder_pc_numbers.py
+    railway ssh "python scripts/backfill_placeholder_pc_numbers.py --dry-run"
     railway ssh "python scripts/backfill_placeholder_pc_numbers.py"
 """
 from __future__ import annotations
@@ -31,11 +33,11 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 
-def _default_data_dir() -> str:
-    for candidate in ("/data", "data"):
-        if os.path.isdir(candidate):
+def _default_db_path() -> str:
+    for candidate in ("/data/reytech.db", "data/reytech.db", "reytech.db"):
+        if os.path.exists(candidate):
             return candidate
-    return "data"
+    return "data/reytech.db"
 
 
 def _is_placeholder(value: str) -> bool:
@@ -56,60 +58,90 @@ def _is_placeholder(value: str) -> bool:
     return False
 
 
-def _scan_price_checks(data_dir: str, dry_run: bool) -> int:
-    """Walk data/price_checks/*.json — flip placeholder + zero-items rows."""
-    pc_dir = os.path.join(data_dir, "price_checks")
-    if not os.path.isdir(pc_dir):
-        print(f"[skip] no price_checks dir at {pc_dir}")
-        return 0
-    flipped = 0
-    for fn in os.listdir(pc_dir):
-        if not fn.endswith(".json"):
-            continue
-        path = os.path.join(pc_dir, fn)
+def _items_count(items_raw, data_json_raw) -> int:
+    """Count items from either the items column or the data_json blob.
+    The data_json blob is authoritative for newer rows; older rows have
+    items in the dedicated column."""
+    # data_json wins when present
+    if data_json_raw:
         try:
-            with open(path) as f:
-                pc = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"[err]  {fn}: {e}")
+            blob = json.loads(data_json_raw)
+            if isinstance(blob, dict):
+                items = blob.get("items") or blob.get("line_items") or []
+                if isinstance(items, list):
+                    return len(items)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if items_raw:
+        try:
+            parsed = json.loads(items_raw) if isinstance(items_raw, str) else items_raw
+            if isinstance(parsed, list):
+                return len(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return 0
+
+
+def _flip_data_json_status(data_json_raw: str, new_status: str) -> str:
+    """Update the status field inside the data_json blob (if present)."""
+    if not data_json_raw:
+        return data_json_raw
+    try:
+        blob = json.loads(data_json_raw)
+        if isinstance(blob, dict):
+            blob["status"] = new_status
+            return json.dumps(blob)
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return data_json_raw
+
+
+_FLIPPABLE_STATUSES = {"parsed", "new", ""}
+
+
+def _scan_price_checks(conn: sqlite3.Connection, dry_run: bool) -> int:
+    flipped = 0
+    cur = conn.execute(
+        "SELECT id, pc_number, status, items, data_json FROM price_checks"
+    )
+    for row in cur.fetchall():
+        rid, pc_num, status, items_raw, data_json_raw = row
+        # Only flip in-queue rows. Never touch sent/won/lost/voided/etc —
+        # those represent real actions that mustn't be reverted.
+        if (status or "") not in _FLIPPABLE_STATUSES:
             continue
-        items = pc.get("items") or pc.get("line_items") or []
-        pc_num = pc.get("pc_number", "")
-        if len(items) == 0 and _is_placeholder(pc_num):
-            print(f"[pc]   {pc.get('id','?')} pc_number={pc_num!r} items=0 -> needs_review")
+        n_items = _items_count(items_raw, data_json_raw)
+        if n_items == 0 and _is_placeholder(pc_num):
+            print(f"[pc]   {rid} pc_number={pc_num!r} status={status!r} items=0 -> needs_review")
             if not dry_run:
-                pc["status"] = "needs_review"
-                with open(path, "w") as f:
-                    json.dump(pc, f, indent=2)
+                new_blob = _flip_data_json_status(data_json_raw, "needs_review")
+                conn.execute(
+                    "UPDATE price_checks SET status=?, data_json=? WHERE id=?",
+                    ("needs_review", new_blob, rid),
+                )
             flipped += 1
     return flipped
 
 
-def _scan_rfqs(data_dir: str, dry_run: bool) -> int:
-    """Walk data/rfqs/*.json — same gate on solicitation_number / rfq_number."""
-    rfq_dir = os.path.join(data_dir, "rfqs")
-    if not os.path.isdir(rfq_dir):
-        print(f"[skip] no rfqs dir at {rfq_dir}")
-        return 0
+def _scan_rfqs(conn: sqlite3.Connection, dry_run: bool) -> int:
     flipped = 0
-    for fn in os.listdir(rfq_dir):
-        if not fn.endswith(".json"):
+    cur = conn.execute(
+        "SELECT id, solicitation_number, rfq_number, status, items, data_json FROM rfqs"
+    )
+    for row in cur.fetchall():
+        rid, sol_num, rfq_num, status, items_raw, data_json_raw = row
+        if (status or "") not in _FLIPPABLE_STATUSES:
             continue
-        path = os.path.join(rfq_dir, fn)
-        try:
-            with open(path) as f:
-                rfq = json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"[err]  {fn}: {e}")
-            continue
-        items = rfq.get("line_items") or rfq.get("items") or []
-        sol = rfq.get("solicitation_number") or rfq.get("rfq_number") or ""
-        if len(items) == 0 and _is_placeholder(sol):
-            print(f"[rfq]  {rfq.get('id','?')} sol={sol!r} items=0 -> needs_review")
+        n_items = _items_count(items_raw, data_json_raw)
+        sol = sol_num or rfq_num or ""
+        if n_items == 0 and _is_placeholder(sol):
+            print(f"[rfq]  {rid} sol={sol!r} status={status!r} items=0 -> needs_review")
             if not dry_run:
-                rfq["status"] = "needs_review"
-                with open(path, "w") as f:
-                    json.dump(rfq, f, indent=2)
+                new_blob = _flip_data_json_status(data_json_raw, "needs_review")
+                conn.execute(
+                    "UPDATE rfqs SET status=?, data_json=? WHERE id=?",
+                    ("needs_review", new_blob, rid),
+                )
             flipped += 1
     return flipped
 
@@ -118,15 +150,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--dry-run", action="store_true",
                         help="Print what would change, don't write")
-    parser.add_argument("--data-dir", default=None,
-                        help="Override data dir (defaults to /data or ./data)")
+    parser.add_argument("--db", default=None,
+                        help="Override DB path (defaults to /data/reytech.db or data/reytech.db)")
     args = parser.parse_args()
 
-    data_dir = args.data_dir or _default_data_dir()
-    print(f"data_dir={data_dir} dry_run={args.dry_run}")
+    db_path = args.db or _default_db_path()
+    print(f"db={db_path} dry_run={args.dry_run}")
 
-    pc_count = _scan_price_checks(data_dir, args.dry_run)
-    rfq_count = _scan_rfqs(data_dir, args.dry_run)
+    if not os.path.exists(db_path):
+        print(f"[err] DB not found at {db_path}")
+        return 1
+
+    conn = sqlite3.connect(db_path)
+    try:
+        pc_count = _scan_price_checks(conn, args.dry_run)
+        rfq_count = _scan_rfqs(conn, args.dry_run)
+        if not args.dry_run:
+            conn.commit()
+    finally:
+        conn.close()
 
     verb = "would flip" if args.dry_run else "flipped"
     print(f"\n{verb}: {pc_count} PCs, {rfq_count} RFQs -> needs_review")
