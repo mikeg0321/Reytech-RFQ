@@ -70,9 +70,9 @@ FORM_TEXT_PATTERNS = {
     "drug_free":    ["DRUG-FREE", "DRUG FREE WORKPLACE"],
     "obs_1600":     ["OBS 1600", "FOOD PRODUCT", "AGRICULTURAL PRODUCT"],
     "quote":        ["YOUR QUOTE", "YOUR BID", "PRICE QUOTE", "QUOTATION"],
-    "703b":         ["703B", "703-B", "AMS 703"],
-    "703c":         ["703C", "703-C", "FAIR AND REASONABLE"],
-    "704b":         ["704B", "704-B", "QUOTE WORKSHEET"],
+    "703b":         ["703B", "703-B", "AMS 703B", "AMS 703-B"],
+    "703c":         ["703C", "703-C", "AMS 703C", "FAIR AND REASONABLE"],
+    "704b":         ["704B", "704-B", "AMS 704B", "AMS 704-B"],
     "cchcs_it_rfq": ["IT GOODS AND SERVICES", "IT GOODS/SERVICES",
                      "REQUEST FOR QUOTATION IT", "NON-CLOUD RFQ"],
 }
