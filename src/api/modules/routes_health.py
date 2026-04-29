@@ -454,6 +454,7 @@ def quoting_health_page():
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
+        "diagnostics": _build_diagnostics_card(),
         "orders_drift": _build_orders_drift_card(),
         "duplicate_orders": _build_duplicate_orders_card(),
         "po_prefix": _build_po_prefix_card(),
@@ -550,6 +551,7 @@ def quoting_health_json():
         "time_to_send_kpi": _build_time_to_send_kpi_card(),
         "pending_drafts_breakdown": _build_pending_drafts_breakdown_card(),
         "agents_runtime": _build_agents_runtime_health(),
+        "diagnostics": _build_diagnostics_card(),
         "orders_drift": _build_orders_drift_card(),
         "duplicate_orders": _build_duplicate_orders_card(),
         "po_prefix": _build_po_prefix_card(),
@@ -1396,6 +1398,73 @@ def _build_agents_runtime_health():
         "healthy": healthy,
         "errored": errored,
         "agents": rows,
+    }
+
+
+def _build_diagnostics_card():
+    """Plan §3.1 — fold the cheap half of /api/agents/health-sweep into
+    a /health/quoting card so the operator sees QB-config + DB-table
+    grade inline. The expensive 14-endpoint /api/agents/batch-test stays
+    behind a "Run self-test" button on the card (the page render must
+    not make 14 HTTP self-calls).
+    """
+    from src.core.db import get_db
+    rows = []
+    healthy = 0
+
+    try:
+        from src.agents.quickbooks_agent import is_configured, get_access_token
+        configured = bool(is_configured())
+        has_token = bool(get_access_token()) if configured else False
+        ok = configured and has_token
+        if ok:
+            healthy += 1
+            detail = "configured + token"
+        elif configured:
+            detail = "configured, no token"
+        else:
+            detail = "not configured"
+        rows.append({"name": "QuickBooks", "ok": ok, "detail": detail})
+    except Exception as e:
+        rows.append({"name": "QuickBooks", "ok": False,
+                     "detail": f"module error: {str(e)[:80]}"})
+
+    db_checks = [
+        ("database", "SELECT 1", "ping"),
+        ("catalog", "SELECT COUNT(*) FROM catalog", "rows"),
+        ("quotes", "SELECT COUNT(*) FROM quotes WHERE is_test=0", "rows"),
+        ("orders", "SELECT COUNT(*) FROM orders", "rows"),
+        ("price_checks", "SELECT COUNT(*) FROM price_checks", "rows"),
+    ]
+    for name, sql, label in db_checks:
+        try:
+            with get_db() as conn:
+                r = conn.execute(sql).fetchone()
+            n = r[0] if r else 0
+            healthy += 1
+            rows.append({"name": name, "ok": True,
+                         "detail": f"{n} {label}" if label != "ping" else "ok"})
+        except Exception as e:
+            rows.append({"name": name, "ok": False,
+                         "detail": f"error: {str(e)[:80]}"})
+
+    total = len(rows)
+    if healthy == total:
+        status = "healthy"
+        grade = "A"
+    elif healthy >= total - 1:
+        status = "warn"
+        grade = "B"
+    else:
+        status = "error"
+        grade = "C" if healthy >= total * 0.6 else "F"
+
+    return {
+        "status": status,
+        "total": total,
+        "healthy": healthy,
+        "grade": grade,
+        "rows": rows,
     }
 
 
