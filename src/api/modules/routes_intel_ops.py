@@ -4223,6 +4223,199 @@ def api_admin_scprs_format_drift_fix():
     return jsonify(result)
 
 
+def _scprs_bu_to_agency_label(bu: str) -> str:
+    """SCPRS Business Unit → canonical agency label used in orders.agency.
+    Per Mike + memory `reference_agency_po_prefixes`:
+      8955 → CalVet (Veterans Affairs)
+      4440 → DSH    (State Hospitals)
+      5225 → CCHCS  (CDCR healthcare sub-agency)
+    Anything else → empty string (operator will fill on review)."""
+    bu = (bu or "").strip().lstrip("'")
+    return {
+        "8955": "CalVet",
+        "4440": "DSH",
+        "5225": "CCHCS",
+    }.get(bu, "")
+
+
+@bp.route("/api/admin/scprs-only-stub-generate", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_scprs_only_stub_generate():
+    """Auto-create operator-review-flagged stub `orders` rows for every
+    SCPRS-known canonical PO that has no corresponding orders entry.
+
+    Closes the scprs_only branch of the SCPRS reconciler card. Per Mike
+    2026-04-28: "2026 POs need to be updated, I haven't logged them
+    all properly". The 63 SCPRS-only entries are awarded POs the
+    operator hasn't yet ingested into the operational orders table.
+    Generating stubs surfaces them on /orders so they can be reviewed
+    + enriched without manual data entry from scratch.
+
+    Each stub:
+      id            STUB-{canonical_po}    (deterministic, idempotent)
+      quote_number  '' (no quote yet — these landed without going
+                    through the quoting flow)
+      agency        derived from SCPRS BU (8955→CalVet, 4440→DSH,
+                    5225→CCHCS)
+      institution   '' (no ship-to in SCPRS export — operator fills
+                    from buyer email or PDF)
+      po_number     canonical (per `_scprs_canonical_po`)
+      po_date       SCPRS start_date
+      status        'stub'  (so operator surfaces flag them as
+                    needing review before treating as real orders)
+      total         SCPRS grand_total
+      items         scprs_reytech_wins.items_json verbatim (line_num,
+                    item_id, description, unspsc — no qty/price yet,
+                    that's a follow-up parser extension)
+      notes         'auto-stub from SCPRS Detail Information import
+                    {imported_at}'
+      created_at    SCPRS start_date if available else now()
+      updated_at    now()
+      is_test       0
+
+    Idempotent: id is `STUB-{canonical_po}`, so re-running uses
+    INSERT OR IGNORE — already-stubbed POs are skipped without
+    error.
+
+    Query:
+      dry_run=1 → preview only (default 0 → apply)
+
+    Returns:
+      {dry_run, candidates: int, rows_inserted: int, rows_skipped: int,
+       inserts: [...], failures: [...]}
+
+    NOT in scope here:
+      - Writing rich items (qty, unit_price). Detail Information
+        export carries those columns but the existing parser
+        (scripts/import_scprs_reytech_wins.py) only captures
+        line_num/item_id/description/unspsc. Extending the parser
+        is a follow-up.
+      - Inferring institution from dept_name. SCPRS dept_name is
+        the umbrella ('Dept of Veterans Affairs'), not a specific
+        facility ('Veterans Home of California - Yountville'). The
+        operator confirms institution from the buyer email/STD-65.
+    """
+    from src.api.modules.routes_health import _scprs_canonical_po
+    from src.core.db import get_db
+    from datetime import datetime
+    import json as _json
+
+    body = request.get_json(silent=True) or {}
+    dry_run = (request.args.get("dry_run", "0") in ("1", "true", "yes")
+               or body.get("dry_run") in (True, "1", "true"))
+
+    with get_db() as conn:
+        wins = conn.execute("""
+            SELECT po_number, business_unit, dept_name, grand_total,
+                   start_date, items_json, imported_at
+            FROM scprs_reytech_wins
+        """).fetchall()
+        existing_pos = {
+            (r["po_number"] or "").strip()
+            for r in conn.execute(
+                "SELECT po_number FROM orders "
+                "WHERE po_number IS NOT NULL AND po_number != ''"
+            ).fetchall()
+        }
+        existing_ids = {
+            r["id"] for r in conn.execute(
+                "SELECT id FROM orders WHERE id LIKE 'STUB-%'"
+            ).fetchall()
+        }
+
+    candidates = []
+    for w in wins:
+        bu = w["business_unit"] or ""
+        bare = (w["po_number"] or "").strip()
+        canon = _scprs_canonical_po(bu, bare)
+        if not canon:
+            continue
+        # Skip if any orders row already covers this canonical PO
+        # (whether by canonical or bare form — covered by exact_match
+        # or format_drift bucket).
+        if canon in existing_pos or bare in existing_pos:
+            continue
+        candidates.append({
+            "canonical": canon,
+            "stub_id": f"STUB-{canon}",
+            "agency": _scprs_bu_to_agency_label(bu),
+            "dept_name": w["dept_name"] or "",
+            "po_date": w["start_date"] or "",
+            "total": float(w["grand_total"] or 0),
+            "items_json": w["items_json"] or "[]",
+            "imported_at": w["imported_at"] or "",
+            "already_stubbed": f"STUB-{canon}" in existing_ids,
+        })
+
+    result = {
+        "dry_run": dry_run,
+        "candidates": len(candidates),
+        "rows_inserted": 0,
+        "rows_skipped_already_stubbed": 0,
+        "inserts": [],
+        "failures": [],
+    }
+
+    if dry_run:
+        result["inserts"] = candidates
+        return jsonify(result)
+
+    now = datetime.now().isoformat()
+    with get_db() as conn:
+        for c in candidates:
+            if c["already_stubbed"]:
+                result["rows_skipped_already_stubbed"] += 1
+                continue
+            try:
+                cur = conn.execute("""
+                    INSERT OR IGNORE INTO orders
+                    (id, quote_number, agency, institution,
+                     po_number, po_date, status, total, items, notes,
+                     created_at, updated_at, is_test)
+                    VALUES (?, '', ?, '', ?, ?, 'stub', ?, ?, ?, ?, ?, 0)
+                """, (
+                    c["stub_id"],
+                    c["agency"],
+                    c["canonical"],
+                    c["po_date"],
+                    c["total"],
+                    c["items_json"],
+                    f"auto-stub from SCPRS Detail Information import {c['imported_at']}",
+                    c["po_date"] or now,
+                    now,
+                ))
+                # SQLite INSERT OR IGNORE: rowcount is 1 if inserted,
+                # 0 if conflict caused the row to be skipped.
+                if cur.rowcount == 1:
+                    result["rows_inserted"] += 1
+                    result["inserts"].append({
+                        "stub_id": c["stub_id"],
+                        "canonical": c["canonical"],
+                        "agency": c["agency"],
+                        "total": c["total"],
+                    })
+                else:
+                    # Row already existed — race condition or stale
+                    # `existing_ids` snapshot. Treat as already-stubbed.
+                    result["rows_skipped_already_stubbed"] += 1
+            except Exception as e:
+                result["failures"].append({
+                    "stub_id": c["stub_id"],
+                    "canonical": c["canonical"],
+                    "error": str(e),
+                })
+        conn.commit()
+
+    log.info(
+        "scprs-only stub generate: candidates=%d inserted=%d failed=%d "
+        "dry_run=%s",
+        result["candidates"], result["rows_inserted"],
+        len(result["failures"]), dry_run,
+    )
+    return jsonify(result)
+
+
 @bp.route("/api/admin/scprs-orders-only-sentinel-cleanup", methods=["POST"])
 @auth_required
 @safe_route
