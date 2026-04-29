@@ -30,19 +30,21 @@
  </div>
 
  {# ── E5: Pipeline Summary ── #}
+ {# Counters are recomputed client-side after each row dismiss via         #}
+ {# recomputeQueueCounts() in home.html — keep the IDs stable so the JS    #}
+ {# can find them. The display:none guards make the empty-state hide      #}
+ {# automatically when the active queue empties out.                       #}
  {% set ns = namespace(total=0, overdue=0, priced_sum=0) %}
  {% for id, r in items.items() %}
   {% set ns.total = ns.total + 1 %}
   {% if r._urgency == 'overdue' %}{% set ns.overdue = ns.overdue + 1 %}{% endif %}
   {% set ns.priced_sum = ns.priced_sum + r._readiness.get('priced', 0)|default(0) %}
  {% endfor %}
- {% if ns.total > 0 %}
- <div style="display:flex;gap:16px;font-size:12px;color:var(--tx2);margin-bottom:8px;font-family:'JetBrains Mono',monospace;letter-spacing:.3px">
-  <span>{{ ns.total }} active</span>
-  {% if ns.overdue > 0 %}<span style="color:#f85149;font-weight:600">{{ ns.overdue }} overdue</span>{% endif %}
-  <span>{{ ns.priced_sum }} items priced</span>
+ <div id="{{ queue_type }}-summary" style="display:{% if ns.total > 0 %}flex{% else %}none{% endif %};gap:16px;font-size:12px;color:var(--tx2);margin-bottom:8px;font-family:'JetBrains Mono',monospace;letter-spacing:.3px">
+  <span><span id="{{ queue_type }}-summary-total">{{ ns.total }}</span> active</span>
+  <span id="{{ queue_type }}-summary-overdue-wrap" style="color:#f85149;font-weight:600;display:{% if ns.overdue > 0 %}inline{% else %}none{% endif %}"><span id="{{ queue_type }}-summary-overdue">{{ ns.overdue }}</span> overdue</span>
+  <span><span id="{{ queue_type }}-summary-priced">{{ ns.priced_sum }}</span> items priced</span>
  </div>
- {% endif %}
 
  {# ── Active Queue Table ── #}
  {% if items %}
@@ -67,6 +69,8 @@
    <tr class="home-row" id="{{ queue_type }}-row-{{ id }}"
        onclick="location.href='{{ r.url }}'"
        data-search="{{ (r.number or '')|lower }} {{ (r.institution or '')|lower }} {{ (r.buyer or '')|lower }} {{ r.display_status|lower }}"
+       data-urgency="{{ r._urgency|default('') }}"
+       data-priced="{{ r._readiness.get('priced', 0)|default(0) }}"
        style="border-left:3px solid {% if r._urgency == 'overdue' %}#f85149{% elif r._urgency == 'critical' %}#f0883e{% elif r._urgency == 'urgent' %}#e6a700{% elif r._urgency == 'soon' %}#d29922{% else %}transparent{% endif %};{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
     {# Col 0: Checkbox #}
     <td onclick="event.stopPropagation()"><input type="checkbox" class="{{ queue_type }}-check row-check" value="{{ id }}" onchange="updateBulkBar('{{ queue_type }}')"></td>

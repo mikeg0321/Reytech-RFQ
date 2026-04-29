@@ -975,6 +975,38 @@ var _dismissType = '';
 var _dismissId = '';
 var _dismissRow = null;
 
+// Recompute the "N active · M overdue · K items priced" pipeline summary
+// from the live DOM. Called after each row dismiss so the counters don't
+// drift away from what the user sees (incident: the X-button removed the
+// row but the header counters stayed at their server-rendered values).
+// Each row carries its source-of-truth in data-urgency / data-priced
+// (set by _queue_table.html) so we don't depend on inline-style colors.
+function recomputeQueueCounts(queueType) {
+  var rows = document.querySelectorAll('tr.home-row[id^="' + queueType + '-row-"]');
+  var total = 0, overdue = 0, priced = 0;
+  rows.forEach(function(r){
+    if (r.style.opacity === '0') return;  // mid-fade — already dismissed
+    total += 1;
+    if ((r.dataset.urgency || '') === 'overdue') overdue += 1;
+    priced += parseInt(r.dataset.priced || '0', 10) || 0;
+  });
+  var summary = document.getElementById(queueType + '-summary');
+  if (!summary) return;
+  if (total === 0) {
+    summary.style.display = 'none';
+    return;
+  }
+  summary.style.display = 'flex';
+  var t = document.getElementById(queueType + '-summary-total');
+  if (t) t.textContent = total;
+  var o = document.getElementById(queueType + '-summary-overdue');
+  if (o) o.textContent = overdue;
+  var oWrap = document.getElementById(queueType + '-summary-overdue-wrap');
+  if (oWrap) oWrap.style.display = (overdue > 0) ? 'inline' : 'none';
+  var p = document.getElementById(queueType + '-summary-priced');
+  if (p) p.textContent = priced;
+}
+
 function showDismissMenu(type, id, btn, e) {
   e.stopPropagation();
   e.preventDefault();
@@ -1015,15 +1047,22 @@ function doDismiss(reason) {
     console.log('Dismiss result:', d);
     if (d.ok) {
       showMsg('✅ Dismissed (' + (reason||'ok') + ')', 'ok');
+      var dismissedType = _dismissType;
       if (_dismissRow) {
         _dismissRow.style.transition = 'opacity .3s';
         _dismissRow.style.opacity = '0';
-        setTimeout(function(){ _dismissRow.remove(); }, 300);
+        setTimeout(function(){
+          _dismissRow.remove();
+          recomputeQueueCounts(dismissedType);
+        }, 300);
       } else {
         location.reload();
       }
-      // Update queue count in header
-      var countId = _dismissType === 'pc' ? 'pc-queue-count' : 'rfq-queue-count';
+      // Update queue count in header (the small N next to the title).
+      // The "X active · Y overdue · Z items priced" pipeline summary is
+      // recomputed inside recomputeQueueCounts() above, after the row's
+      // 300ms fade-out completes.
+      var countId = dismissedType === 'pc' ? 'pc-queue-count' : 'rfq-queue-count';
       var countEl = document.getElementById(countId);
       if (countEl) {
         var cur = parseInt(countEl.textContent) || 0;
