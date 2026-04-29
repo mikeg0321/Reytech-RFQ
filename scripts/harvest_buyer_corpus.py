@@ -242,48 +242,128 @@ def _extract_address(raw_from_header: str) -> str:
 # ─── Agency resolution ───────────────────────────────────────────────
 
 
+# Newsletter / aggregator senders that look like RFQs but aren't real
+# buyer mail. Skip agency resolution and tag the message via
+# classification (`aggregator`) so the trainer ignores them.
+_AGGREGATOR_DOMAINS = (
+    "candspublishing", "unisonglobal", "bidnetdirect", "publicpurchase",
+    "demandstar", "govbids", "constructconnect", "biddoc", "biddingo",
+    "ssgaa.org",
+)
+
+
+def _is_aggregator(from_addr: str) -> bool:
+    """True if the sender is a procurement-newsletter aggregator
+    rather than an actual buyer."""
+    addr = (from_addr or "").lower()
+    return any(d in addr for d in _AGGREGATOR_DOMAINS)
+
+
+# Canonical PO prefix → agency. Mirrors `core/order_dal.extract_canonical_po`
+# patterns; if the subject carries `8955-...`, `4440-...`, or `4500...`
+# we know the agency without a domain match.
+_PO_PREFIX_AGENCY = (
+    (re.compile(r"\b8955-\d{4,12}\b"), "calvet"),
+    (re.compile(r"\b4440-\d{4,12}\b"), "dsh"),
+    (re.compile(r"\b4500\d{4,12}\b"), "cchcs"),
+)
+
+
+def _agency_from_po_prefix(text: str) -> str:
+    """Return the canonical agency if the text contains a Reytech-known
+    PO prefix; '' otherwise. Used as a strong subject/body signal that
+    bypasses domain-based resolution (forwarded RFQs and Reytech
+    outbound replies still mention the original PO)."""
+    if not text:
+        return ""
+    for pat, agency in _PO_PREFIX_AGENCY:
+        if pat.search(text):
+            return agency
+    return ""
+
+
 def _resolve_agency(headers: dict, body: str) -> str:
-    """Best-effort agency_key derivation. Order: From-domain → body
-    keywords → Subject keywords → 'unknown'."""
+    """Best-effort agency_key derivation. Resolution order:
+      1. Aggregator domain → 'aggregator' (newsletter, not real mail)
+      2. Canonical PO prefix in subject → agency  (8955-, 4440-, 4500)
+      3. From-address domain via institution_resolver
+      4. To-address domain  (catches Reytech outbound replies where
+         the buyer is the recipient, not sender)
+      5. Subject as institution name
+      6. First 500 chars of body
+      7. PO prefix in body (last-ditch)
+      → 'unknown' if all fail.
+    """
     try:
         from src.core.institution_resolver import resolve as _resolve
     except Exception:
         return "unknown"
 
     from_addr = headers.get("from", "")
+    to_addr = headers.get("to", "")
     subject = headers.get("subject", "")
 
-    # Try email-domain first (cheapest + most reliable)
+    # Step 1: aggregator domain check (skip the rest, tag as such)
+    if _is_aggregator(from_addr):
+        return "aggregator"
+
+    # Step 2: PO prefix in subject — strongest single signal
+    ag = _agency_from_po_prefix(subject)
+    if ag:
+        return ag
+
+    # Step 3: From-address domain
     out = _resolve("", email=from_addr)
     if out and out.get("agency"):
         return out["agency"]
 
-    # Try subject as the institution name
-    if subject:
-        out = _resolve(subject, email=from_addr)
+    # Step 4: To-address domain (Reytech outbound replies have us in
+    # From and the buyer in To — a 'Re: PO ...' from sales@reytechinc.com
+    # to a CDCR buyer should resolve to cdcr).
+    own = _OWN_ADDRESSES
+    from_bare = _extract_address(from_addr)
+    if from_bare in own and to_addr:
+        out = _resolve("", email=to_addr)
         if out and out.get("agency"):
             return out["agency"]
 
-    # Try first 500 chars of body
+    # Step 5: Subject as the institution name
+    if subject:
+        out = _resolve(subject, email=from_addr or to_addr)
+        if out and out.get("agency"):
+            return out["agency"]
+
+    # Step 6: first 500 chars of body
     if body:
         out = _resolve(body[:500], email=from_addr)
         if out and out.get("agency"):
             return out["agency"]
+
+    # Step 7: last-ditch — PO prefix in body
+    ag = _agency_from_po_prefix(body[:2000] if body else "")
+    if ag:
+        return ag
 
     return "unknown"
 
 
 def _classify_message(headers: dict, body: str,
                       attachments: list[tuple[str, bytes]]) -> str:
-    """Coarse single-label classification — `app_internal` / `rfq` /
-    `award` / `amendment` / `quote_sent` / `other`. Used as an index
-    hint; trainer ignores `app_internal` rows."""
+    """Coarse single-label classification — `app_internal` /
+    `aggregator` / `rfq` / `award` / `amendment` / `quote_sent` /
+    `other`. Trainer ignores `app_internal` and `aggregator`."""
     subj = (headers.get("subject", "") or "")
     from_addr = _extract_address(headers.get("from", ""))
     to_addr = _extract_address(headers.get("to", ""))
     subj_l = subj.lower()
     body_l = (body or "").lower()[:1000]
     text = subj_l + " " + body_l
+
+    # Procurement-newsletter aggregators ('Calling all subcontractors',
+    # 'Daily Buy Digest', etc.) hit the `bid` keyword but aren't real
+    # buyer mail. Tag them so the trainer skips them entirely.
+    if _is_aggregator(from_addr):
+        return "aggregator"
 
     # App-internal notifications: the app sends these to its own
     # mailbox (CS Draft Ready, Order Digest, 500 Error, [URGENT] New

@@ -140,6 +140,7 @@ def _args(out_dir, **overrides):
         force=False,
         keep_all_attachments=False,
         rebuild_indexes=False,
+        reclassify=False,
         progress=0,
     )
     base.update(overrides)
@@ -291,6 +292,84 @@ def test_extract_address_pulls_email_from_display_name(hb):
     ) == "sales@reytechinc.com"
     assert hb._extract_address("plain@example.com") == "plain@example.com"
     assert hb._extract_address("") == ""
+
+
+def test_is_aggregator_detects_known_newsletter_domains(hb):
+    cases = [
+        '"Daily Reporter" <newsletter@candspublishing.com>',
+        "notifications@mp.unisonglobal.com",
+        '"Bid Alert" <alerts@bidnetdirect.com>',
+    ]
+    for f in cases:
+        assert hb._is_aggregator(f), f
+    # Real buyer mail must NOT trigger aggregator
+    assert not hb._is_aggregator(
+        '"Wodneh, Worke@CalVet" <Worke.Wodneh@calvet.ca.gov>'
+    )
+    assert not hb._is_aggregator("buyer@cdcr.ca.gov")
+
+
+def test_agency_from_po_prefix(hb):
+    assert hb._agency_from_po_prefix(
+        "Re: Approved PO 8955-0000076737"
+    ) == "calvet"
+    assert hb._agency_from_po_prefix(
+        "Amendment to PO 4440-0000063878 ..."
+    ) == "dsh"
+    assert hb._agency_from_po_prefix(
+        "PO Distribution: 4500752793, 10840878, CIW, Reytech"
+    ) == "cchcs"
+    assert hb._agency_from_po_prefix("Re: thanks") == ""
+    assert hb._agency_from_po_prefix("") == ""
+
+
+def test_resolve_agency_uses_po_prefix_in_subject(hb):
+    """Subject like 'Re: Approved PO 8955-...' from sales@reytechinc.com
+    must resolve to calvet via PO prefix even though the From-domain is
+    Reytech (not the buyer)."""
+    headers = {
+        "from": "sales@reytechinc.com",
+        "to": "buyer@calvet.ca.gov",
+        "subject": "Re: Approved PO 8955-0000076737",
+    }
+    assert hb._resolve_agency(headers, "") == "calvet"
+
+
+def test_resolve_agency_falls_through_to_to_address(hb):
+    """When From is Reytech (sender) and the subject doesn't carry a
+    PO prefix, the To-address is the buyer signal. CCHCS shares the
+    cdcr.ca.gov domain (sub-agency of CDCR) — the institution resolver
+    treats it as cchcs."""
+    headers = {
+        "from": "sales@reytechinc.com",
+        "to": "buyer@cdcr.ca.gov",
+        "subject": "Re: thanks for the order",
+    }
+    assert hb._resolve_agency(headers, "") in ("cdcr", "cchcs")
+
+
+def test_resolve_agency_aggregator_short_circuits(hb):
+    """Newsletters like 'Daily Reporter' must NOT resolve to a buyer
+    just because their body mentions one."""
+    headers = {
+        "from": '"Daily Reporter" <news@candspublishing.com>',
+        "to": "sales@reytechinc.com",
+        "subject": "Calling all subcontractors",
+    }
+    assert hb._resolve_agency(
+        headers, "CDCR project notice — bid by Friday",
+    ) == "aggregator"
+
+
+def test_classify_aggregator_does_not_become_rfq(hb):
+    """The 'bid' keyword in aggregator newsletter subjects must not
+    flip them to classification=rfq (was the corpus bug)."""
+    headers = {
+        "from": '"Daily Reporter" <news@candspublishing.com>',
+        "to": "sales@reytechinc.com",
+        "subject": "Calling all subcontractors, jobs to bid on inside!",
+    }
+    assert hb._classify_message(headers, "", []) == "aggregator"
 
 
 # ─── End-to-end harvest with fake Gmail ──────────────────────────────
