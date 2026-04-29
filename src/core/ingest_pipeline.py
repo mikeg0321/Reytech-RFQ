@@ -632,11 +632,17 @@ def _create_record(
     now = datetime.now().isoformat()
     short_id = uuid.uuid4().hex[:8]
 
+    # Zero-items gate: a "parsed" record with no items is misleading — the
+    # operator queue treats it as done when it actually needs manual triage.
+    # Body-only RFQs (no parseable attachment) hit this when the body-text
+    # extractor isn't wired yet. Mark needs_review so it surfaces as triage.
+    initial_status = "needs_review" if not items else "parsed"
+
     record: Dict[str, Any] = {
         "id": f"{record_type}_{short_id}",
         "created_at": now,
         "updated_at": now,
-        "status": "parsed",
+        "status": initial_status,
         "source": "ingest_v2",
         "email_uid": email_uid,
         "email_subject": email_subject,
