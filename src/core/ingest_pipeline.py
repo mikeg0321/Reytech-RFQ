@@ -207,6 +207,37 @@ def process_buyer_request(
 
     if parse_error:
         result.warnings.append(f"parse: {parse_error}")
+
+    # ── Step 3b: body-text fallback when attachment yielded zero items ──
+    # Buyers who paste the RFQ into the email body (no parseable attachment)
+    # used to land as zero-item placeholders. The body extractor is regex-only
+    # — production-quality preprocessor (HTML/signature strip) + 5 pattern
+    # stages — so it stays fast on the ingest hot path.
+    #
+    # Flag-gated: ingest.body_extraction_enabled (default True). If extraction
+    # yields anything, items are tagged source='email_body_regex' so downstream
+    # surfaces can flag operator review.
+    if not items and email_body:
+        try:
+            from src.core.flags import get_flag
+            if get_flag("ingest.body_extraction_enabled", True):
+                from src.forms.email_body_extractor import extract_items as _bx
+                body_items = _bx(email_body)
+                if body_items:
+                    items = body_items
+                    result.reasons.append(
+                        f"body-extract: {len(body_items)} items from email body"
+                    )
+                    log.info(
+                        "body_extract: rescued %d items from email body "
+                        "(no parseable attachment)", len(body_items),
+                    )
+                else:
+                    result.reasons.append("body-extract: 0 items found in email body")
+        except Exception as _e:
+            log.warning("body extraction failed: %s", _e)
+            result.warnings.append(f"body-extract: {_e}")
+
     result.items_parsed = len(items)
 
     # ── Step 4: create or update the record ──
@@ -220,6 +251,7 @@ def process_buyer_request(
             record_id = _create_record(
                 record_type, items, header, classification,
                 primary_path, email_subject, email_sender, email_uid,
+                email_body=email_body,
             )
         result.record_id = record_id
     except Exception as e:
@@ -627,6 +659,7 @@ def _create_record(
     email_subject: str,
     email_sender: str,
     email_uid: str,
+    email_body: str = "",
 ) -> str:
     """Create a new PC or RFQ with the classification stored on it."""
     now = datetime.now().isoformat()
@@ -655,6 +688,10 @@ def _create_record(
         "agency": classification.agency,
         "requestor_email": email_sender,
         "requestor_name": header.get("requestor", "") or header.get("requestor_name", ""),
+        # Persist email body so the support view can show it as a copy-paste
+        # reference when the body extractor missed items (operator-fallback per
+        # project_email_body_rfq_parser_gap.md fix shape #3).
+        "body_text": (email_body or "")[:10000],
     }
 
     if record_type == "pc":
