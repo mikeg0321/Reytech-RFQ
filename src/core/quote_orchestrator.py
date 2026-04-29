@@ -774,15 +774,11 @@ class QuoteOrchestrator:
             # without this, qa_pass filled bytes were thrown away and routes
             # had to re-run draft() on the same profiles).
             per_form: list[dict] = []
-            # Read-back verifier — presence check for every field the filler
-            # intended to write. Complements the whitelist-based value
-            # compare in qa_engine. Behind a feature flag for soak.
-            try:
-                from src.core.flags import get_flag as _get_flag
-                _readback_enabled = bool(_get_flag("rfq.readback_verifier", False))
-            except Exception:
-                _readback_enabled = False
-
+            # Per-profile QA — `qa_report` already carries the
+            # whitelist-based value compare from qa_engine. The
+            # `rfq.readback_verifier` flag (Plan §3.3) used to layer a
+            # second presence check, but the verifier was never built and
+            # the flag was always off; removed 2026-04-29.
             for profile in profiles:
                 try:
                     draft = quote_engine.draft(quote, profile_id=profile.id, run_qa=True)
@@ -795,26 +791,11 @@ class QuoteOrchestrator:
                     continue
                 result.drafts.append(draft)
 
-                readback_errors: list[str] = []
-                if _readback_enabled and draft.pdf_bytes:
-                    try:
-                        from src.forms.readback import verify_readback
-                        rb = verify_readback(draft.pdf_bytes, quote, profile)
-                        if not rb.passed:
-                            for m in rb.misses[:20]:
-                                readback_errors.append(
-                                    f"readback miss: {m.pdf_field} "
-                                    f"(expected '{m.expected_value}')"
-                                )
-                    except Exception as _rb_e:
-                        log.debug("readback suppressed for %s: %s", profile.id, _rb_e)
-
                 qa_errs = [str(e) for e in getattr(draft.qa_report, "errors", [])]
-                qa_errs.extend(readback_errors)
                 per_form.append({
                     "profile_id": profile.id,
                     "filled": True,
-                    "qa_passed": draft.qa_report.passed and not readback_errors,
+                    "qa_passed": draft.qa_report.passed,
                     "warnings": [str(w) for w in getattr(draft.qa_report, "warnings", [])],
                     "errors": qa_errs,
                     "bytes": len(draft.pdf_bytes) if draft.pdf_bytes else 0,
