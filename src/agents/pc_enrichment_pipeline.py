@@ -961,35 +961,6 @@ def _run_pipeline(pc_id: str, force: bool):
         log.info("ENRICH %s: %d price trend alerts", pc_id, len(trend_alerts))
     _mark_step_done(pc_id,"trends")
 
-    # ── Step 9: UNSPSC + Country of Origin classification ──────────────
-    try:
-        from src.core.feature_flags import get_flag
-        if get_flag("unspsc_enrichment", default=False):
-            _update_status(pc_id, "classification", f"0/{total} items")
-            try:
-                from src.agents.unspsc_classifier import classify_batch
-                uncl = [it for it in items if not it.get("unspsc_code")]
-                if uncl:
-                    results = classify_batch(uncl)
-                    classified = 0
-                    for it, res in zip(uncl, results):
-                        if res.get("unspsc_code"):
-                            it["unspsc_code"] = res["unspsc_code"]
-                            it["unspsc_description"] = res.get("unspsc_description", "")
-                            it["country_of_origin"] = res.get("country_of_origin", "")
-                            it["taa_compliant"] = res.get("taa_compliant", -1)
-                            classified += 1
-                    counters["classified"] = classified
-                    log.info("ENRICH %s: classified %d/%d items (UNSPSC + COO)",
-                             pc_id, classified, len(uncl))
-                _update_status(pc_id, "classification",
-                               f"{counters.get('classified', 0)}/{total} items")
-            except Exception as e:
-                log.warning("ENRICH %s: classification error: %s", pc_id, e)
-            _mark_step_done(pc_id, "classification")
-    except ImportError as _e:
-        log.debug("suppressed: %s", _e)
-
     # ── Save enriched PC ─────────────────────────────────────────────────
     _update_status(pc_id, "saving", "persisting results")
     pc["items"] = items
