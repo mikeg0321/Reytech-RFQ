@@ -683,9 +683,20 @@
           {% endfor %}
         {% endif %}
         {% if _sc.samples.orders_only %}
-          <div style="margin-top:8px;color:#f85149;font-weight:600">ORDERS-ONLY (no SCPRS record)</div>
+          <div style="margin-top:8px;color:#f85149;font-weight:600">
+            ORDERS-ONLY (no SCPRS record)
+            {% if _sc.orders_only_by_class %}
+              <span style="font-weight:400;color:#8b949e;font-size:10px">
+                ·
+                {% for cls, n in _sc.orders_only_by_class.items() %}{{ cls }}={{ n }}{% if not loop.last %}, {% endif %}{% endfor %}
+              </span>
+            {% endif %}
+          </div>
           {% for s in _sc.samples.orders_only %}
             <div style="font-family:ui-monospace,monospace;font-size:11px;color:#8b949e">
+              {% set _cls = s.classification|default('unknown') %}
+              {% set _color = {'sentinel':'#f85149','rfq_as_po':'#d29922','bare_numeric_unknown':'#d29922','looks_canonical':'#3fb950','unknown':'#8b949e'}[_cls]|default('#8b949e') %}
+              <span style="color:{{ _color }};font-weight:600">[{{ _cls }}]</span>
               {{ s.po_number }} · {{ s.institution or s.agency }} · ${{ '%.2f'|format(s.total) }}
             </div>
           {% endfor %}

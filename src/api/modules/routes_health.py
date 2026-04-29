@@ -956,6 +956,53 @@ def _scprs_canonical_po(business_unit: str, po_doc: str) -> str:
     return po
 
 
+def _classify_orders_only_po(po: str) -> str:
+    """Classify an orders-only po_number to suggest the right cleanup
+    action. Each row falls into one of:
+
+      sentinel             — TEST / N/A / TBD / etc — junk to is_test=1
+      rfq_as_po            — operator stored RFQ#/quote# in PO field
+                              ('RFQ882023', 'RFQ Gowns', 'R23O20')
+      looks_canonical      — already matches a known agency prefix —
+                              just SCPRS hasn't indexed yet (recent PO)
+      bare_numeric_unknown — 7-12 digit pure-numeric, no known prefix —
+                              probably a CDCR non-medical requisition#
+                              that got misparsed as a PO (NKSP 10820146)
+                              OR an undocumented prefix
+      unknown              — anything else
+    """
+    if not po:
+        return "unknown"
+    s = po.strip().upper()
+    # sentinel / junk values
+    sentinels = {"TEST", "N/A", "NA", "TBD", "PENDING", "?", "X",
+                 "NONE", "NULL", "TODO"}
+    if s in sentinels:
+        return "sentinel"
+    # RFQ#/quote# stored as PO — leading R or contains RFQ
+    if s.startswith("RFQ") or "RFQ " in s:
+        return "rfq_as_po"
+    # Reytech quote-number pattern: R{2-digit-year}{Q|O}{1-3 digits}
+    import re
+    if re.fullmatch(r"R\d{2}[QO]\d{1,3}", s):
+        return "rfq_as_po"
+    # Canonical CalVet prefix
+    if s.startswith("8955-") and re.fullmatch(r"8955-\d{4,12}", s):
+        return "looks_canonical"
+    # Canonical DSH prefix
+    if s.startswith("4440-") and re.fullmatch(r"4440-\d{4,12}", s):
+        return "looks_canonical"
+    # Canonical CCHCS prefix (no dash)
+    if re.fullmatch(r"4500\d{4,9}", s):
+        return "looks_canonical"
+    # Bare numeric — likely requisition# misparsed (per memory:
+    # NKSP/CMF/CIW are CDCR non-medical, 8-digit tracking numbers
+    # like 10820146 commonly leak in)
+    if re.fullmatch(r"\d{7,12}", s):
+        return "bare_numeric_unknown"
+    return "unknown"
+
+
 def _build_scprs_reconcile_card():
     """4-bucket reconciliation between `scprs_reytech_wins` (state's
     record of POs awarded to Reytech) and `orders` (operational
@@ -1074,17 +1121,25 @@ def _build_scprs_reconcile_card():
             })
 
     # Orders-only — anything in orders that isn't covered by either the
-    # canonical or bare key from wins.
+    # canonical or bare key from wins. Each row gets a classification
+    # so the operator can pick the right cleanup action without
+    # eyeballing all 8 cases manually.
     covered = set(wins_by_canonical.keys()) | set(raw_to_canonical.keys())
+    classification_counts = {}
     for po, o in orders_by_po.items():
         if po not in covered:
+            cls = _classify_orders_only_po(po)
+            classification_counts[cls] = classification_counts.get(cls, 0) + 1
             result["orders_only"] += 1
             result["samples"]["orders_only"].append({
                 "po_number": po,
                 "agency": o["agency"],
                 "institution": o["institution"],
                 "total": o["total"],
+                "classification": cls,
             })
+    if classification_counts:
+        result["orders_only_by_class"] = classification_counts
 
     # Sort each samples list by total $ desc and cap at 20.
     for k in ("format_drift", "scprs_only", "orders_only"):
