@@ -442,7 +442,7 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
                     po_pdf_path=excluded.po_pdf_path,
                     fulfillment_type=excluded.fulfillment_type,
                     notes=excluded.notes,
-                    is_test=excluded.is_test
+                    is_test=MAX(orders.is_test, excluded.is_test)
             """, (
                 order_id,
                 order.get("quote_number", ""),
