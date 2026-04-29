@@ -477,10 +477,30 @@ def save_order(order_id: str, order: dict, actor: str = "system") -> bool:
 
     try:
         db_retry(_do, max_retries=3, delay=1.0)
-        return True
     except Exception as e:
         log.error("save_order(%s) failed: %s", order_id, e, exc_info=True)
         return False
+
+    # Architecture-layer fix: an order's existence implies its quote was won.
+    # Without this hook, the inverse-direction drift (PO arrives -> quote
+    # stays 'open') leaves the recent-wins KPI under-reporting until PR #660's
+    # workaround query covers it. Fire-and-forget so a quote update failure
+    # never breaks the order write.
+    qnum = (order.get("quote_number") or "").strip()
+    if qnum:
+        try:
+            from src.core.quotes_backfill import ensure_quote_won_for_order
+            ensure_quote_won_for_order(
+                quote_number=qnum,
+                order_id=order_id,
+                po_number=order.get("po_number", ""),
+                actor=actor,
+            )
+        except Exception as _e:
+            log.debug("ensure_quote_won_for_order suppressed for %s: %s",
+                      qnum, _e)
+
+    return True
 
 
 def save_line_item(order_id: str, item: dict) -> int | None:
