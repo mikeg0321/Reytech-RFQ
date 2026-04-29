@@ -4110,6 +4110,119 @@ def api_admin_scprs_reconcile():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+@bp.route("/api/admin/scprs-format-drift-fix", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_scprs_format_drift_fix():
+    """One-shot DB fix for orders rows with bare PO numbers that should
+    carry an agency prefix.
+
+    Background (Mike 2026-04-28): the parse path before PR #636 stripped
+    `8955-` and `4440-` prefixes from CalVet/DSH POs because the regex
+    only captured digits. PR #636 fixed new writes; some legacy rows
+    were missed. The SCPRS reconciler card surfaces these as
+    `format_drift` — same canonical PO, but DB has the bare form
+    (e.g. `0000057329` when SCPRS canonical is `8955-0000057329`).
+
+    SCPRS = ground truth (Mike copied PO from PDF directly into the
+    folder name; SCPRS file echoes that). So the fix direction is
+    one-way: rewrite orders.po_number to the canonical form.
+
+    Query:
+      dry_run=1 → preview only (default 0 → apply)
+
+    Returns:
+      {dry_run, candidates: int, rows_updated: int, rows_failed: int,
+       updates: [...], failures: [...]}
+
+    Idempotent — re-running after a successful fix returns
+    candidates=0 (the bare forms are gone).
+
+    Per-row error isolation: a UNIQUE-constraint conflict on one
+    row (e.g., the canonical form + same quote_number already exists)
+    is logged in failures[] and the batch continues.
+    """
+    from src.api.modules.routes_health import _scprs_canonical_po
+    from src.core.db import get_db
+
+    body = request.get_json(silent=True) or {}
+    dry_run = (request.args.get("dry_run", "0") in ("1", "true", "yes")
+               or body.get("dry_run") in (True, "1", "true"))
+
+    # Re-derive the FULL drift set (not the card's 20-sample cap).
+    with get_db() as conn:
+        wins = conn.execute("""
+            SELECT po_number, business_unit, dept_name, grand_total
+            FROM scprs_reytech_wins
+        """).fetchall()
+        order_pos = {
+            (r["po_number"] or "").strip()
+            for r in conn.execute(
+                "SELECT po_number FROM orders "
+                "WHERE COALESCE(is_test, 0) = 0 "
+                "AND po_number IS NOT NULL AND po_number != ''"
+            ).fetchall()
+        }
+
+    drift = []
+    for w in wins:
+        bu = w["business_unit"] or ""
+        bare = (w["po_number"] or "").strip()
+        canon = _scprs_canonical_po(bu, bare)
+        if canon and canon != bare and bare in order_pos:
+            drift.append((bare, canon, w["dept_name"] or "",
+                          float(w["grand_total"] or 0)))
+
+    result = {
+        "dry_run": dry_run,
+        "candidates": len(drift),
+        "rows_updated": 0,
+        "rows_failed": 0,
+        "updates": [],
+        "failures": [],
+    }
+
+    if dry_run:
+        result["updates"] = [
+            {"from_po": bare, "to_po": canon, "agency": agency,
+             "total": total}
+            for bare, canon, agency, total in drift
+        ]
+        return jsonify(result)
+
+    # Apply. One UPDATE per drift row so a single constraint violation
+    # only kills that row, not the whole batch.
+    with get_db() as conn:
+        for bare, canon, agency, total in drift:
+            try:
+                cur = conn.execute(
+                    "UPDATE orders SET po_number = ? "
+                    "WHERE po_number = ? AND COALESCE(is_test, 0) = 0",
+                    (canon, bare),
+                )
+                count = cur.rowcount
+                if count > 0:
+                    result["rows_updated"] += count
+                    result["updates"].append({
+                        "from_po": bare, "to_po": canon, "rows": count,
+                        "agency": agency, "total": total,
+                    })
+            except Exception as e:
+                result["rows_failed"] += 1
+                result["failures"].append({
+                    "from_po": bare, "to_po": canon, "error": str(e),
+                })
+        conn.commit()
+
+    log.info(
+        "scprs format-drift fix applied: candidates=%d updated=%d "
+        "failed=%d dry_run=%s",
+        result["candidates"], result["rows_updated"],
+        result["rows_failed"], dry_run,
+    )
+    return jsonify(result)
+
+
 @bp.route("/api/admin/scprs-watcher-scan", methods=["POST"])
 @auth_required
 @safe_route
