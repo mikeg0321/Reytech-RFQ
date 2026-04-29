@@ -732,24 +732,13 @@ def home():
 
     log.info("HOME: rendering template, %d PCs + %d RFQs + %d actions, total %.0fms",
              len(sorted_pcs), len(active_rfqs), len(action_items), (_ht.time()-_t0)*1000)
-    # Feature flags for intelligence layer UI
-    _nl_q = False
-    _doc_intake = False
-    try:
-        from src.core.feature_flags import get_flag
-        _nl_q = get_flag("nl_query_enabled", default=False)
-        _doc_intake = get_flag("docling_intake", default=False)
-    except Exception as _e:
-        log.debug('suppressed in _pc_sort_key: %s', _e)
-
     return render_page("home.html", active_page="Home",
                        rfqs=active_rfqs, price_checks=sorted_pcs,
                        sent_rfqs=sent_rfqs, sent_pcs=sent_pcs,
                        norm_pcs=norm_pcs, norm_sent_pcs=norm_sent_pcs,
                        norm_rfqs=norm_rfqs, norm_sent_rfqs=norm_sent_rfqs,
                        pc_bulk_actions=pc_bulk_actions, rfq_bulk_actions=rfq_bulk_actions,
-                       action_items=action_items,
-                       nl_query_enabled=_nl_q, docling_intake=_doc_intake)
+                       action_items=action_items)
 
 @bp.route("/growth")
 @auth_required
@@ -2637,13 +2626,6 @@ def review_package(rid):
             _bidpkg_internal = {"dvbe843", "sellers_permit", "calrecycle74", "darfur_act",
                                 "bidder_decl", "std21", "genai_708"}
 
-    _cm_enabled = False
-    try:
-        from src.core.feature_flags import get_flag
-        _cm_enabled = get_flag("compliance_matrix", default=False)
-    except Exception as _e:
-        log.debug('suppressed in review_package: %s', _e)
-
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
         manifest=manifest,
@@ -2651,7 +2633,6 @@ def review_package(rid):
         buyer_prefs=buyer_prefs,
         timeline=timeline,
         bidpkg_internal=_bidpkg_internal,
-        compliance_matrix_enabled=_cm_enabled,
         active_page="Home")
 
 

@@ -208,83 +208,7 @@
  <a href="/growth-intel" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">🚀 Growth</a>
  <a href="/quoting/status" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap" title="Live quoting orchestrator audit">📡 Quoting</a>
  <a href="/qa/workflow" id="qa-nav-btn" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap;display:none" title="QA Score">🔬 <span id="qa-nav-score">—</span></a>
- {% if docling_intake|default(false) %}<a href="#" onclick="document.getElementById('doc-upload-modal').style.display='flex';return false" class="btn btn-s" style="padding:14px 18px;font-size:14px;font-weight:600;white-space:nowrap">📄 Documents</a>{% endif %}
 </div>
-
-<!-- ═══ NL Query Panel (collapsible) ═══ -->
-{% if nl_query_enabled|default(false) %}
-<div id="nl-query-panel" style="margin-bottom:14px">
- <div onclick="var b=document.getElementById('nl-query-body');b.style.display=b.style.display==='none'?'block':'none'" style="cursor:pointer;padding:10px 14px;background:var(--sf);border:1px solid var(--bd);border-radius:8px 8px 0 0;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--tx2)">
-  <span style="font-size:16px">💬</span> <strong style="color:var(--tx)">Ask your data</strong> <span style="margin-left:auto;font-size:12px">click to expand</span>
- </div>
- <div id="nl-query-body" style="display:none;background:var(--sf);border:1px solid var(--bd);border-top:none;border-radius:0 0 8px 8px;padding:12px 14px">
-  <div style="display:flex;gap:8px;margin-bottom:10px">
-   <input id="nl-query-input" type="text" placeholder="e.g. How many quotes did we send this month?" style="flex:1;padding:10px 14px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:14px" onkeydown="if(event.key==='Enter'){document.getElementById('nl-query-btn').click()}">
-   <button id="nl-query-btn" onclick="runNlQuery()" style="padding:10px 20px;background:var(--ac);border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer;font-size:14px">Ask</button>
-  </div>
-  <div id="nl-query-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
-  <div id="nl-query-status" style="display:none;padding:8px;font-size:13px;color:var(--tx2)"></div>
-  <div id="nl-query-results" style="max-height:400px;overflow:auto"></div>
-  <div id="nl-query-chart" style="display:none;margin-top:10px;max-height:300px"><canvas id="nl-chart-canvas"></canvas></div>
- </div>
-</div>
-<script>
-function runNlQuery(){
- var inp=document.getElementById('nl-query-input');
- var btn=document.getElementById('nl-query-btn');
- var st=document.getElementById('nl-query-status');
- var res=document.getElementById('nl-query-results');
- if(!inp||!inp.value.trim())return;
- btn.disabled=true;btn.textContent='...';
- st.style.display='block';st.textContent='Thinking...';
- res.innerHTML='';
- fetch('/api/v1/search/nl',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:inp.value.trim()})})
- .then(function(r){return r.json()})
- .then(function(d){
-  btn.disabled=false;btn.textContent='Ask';
-  if(!d.ok){st.textContent='Error: '+(d.error||'Unknown');st.style.color='#f87171';return}
-  st.style.color='var(--tx2)';
-  st.innerHTML='<span style="color:#4ade80">'+d.row_count+' results</span> in '+d.duration_ms+'ms — <code style="font-size:12px;color:var(--tx2)">'+((d.sql||'').length>120?d.sql.substring(0,120)+'...':d.sql)+'</code>';
-  if(d.explanation)st.innerHTML+='<br><em style="font-size:12px">'+d.explanation+'</em>';
-  if(!d.results||!d.results.length){res.innerHTML='<div style="padding:8px;color:var(--tx2)">No results</div>';return}
-  var cols=d.columns||Object.keys(d.results[0]);
-  var h='<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px"><thead><tr>';
-  cols.forEach(function(c){h+='<th style="text-align:left;padding:6px 8px;border-bottom:2px solid var(--bd);color:var(--tx2);font-size:12px">'+c+'</th>'});
-  h+='</tr></thead><tbody>';
-  d.results.forEach(function(row,i){
-   h+='<tr style="border-bottom:1px solid var(--bd);'+(i%2?'background:rgba(255,255,255,.02)':'')+'\">';
-   cols.forEach(function(c){var v=row[c];if(v===null||v===undefined)v='';h+='<td style="padding:5px 8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+String(v)+'</td>'});
-   h+='</tr>'});
-  h+='</tbody></table>';
-  res.innerHTML=h;
-  tryRenderChart(d);
- })
- .catch(function(e){btn.disabled=false;btn.textContent='Ask';st.textContent='Network error';st.style.color='#f87171'});
-}
-var _nlChart=null;
-function tryRenderChart(d){
- var cc=document.getElementById('nl-query-chart'),cv=document.getElementById('nl-chart-canvas');
- if(!cc||!cv||!d.results||!d.results.length||!d.columns||d.columns.length<2||d.columns.length>3)return void(cc&&(cc.style.display='none'));
- var lc=d.columns[0],vc=d.columns[1],fv=d.results[0][vc];
- if(typeof fv!=='number'&&isNaN(parseFloat(fv))||d.results.length>20)return void(cc.style.display='none');
- cc.style.display='block';
- if(_nlChart)_nlChart.destroy();
- if(typeof Chart==='undefined')return void(cc.style.display='none');
- _nlChart=new Chart(cv,{type:'bar',data:{labels:d.results.map(function(r){return String(r[lc]).substring(0,30)}),datasets:[{label:vc,data:d.results.map(function(r){return parseFloat(r[vc])||0}),backgroundColor:'rgba(99,102,241,.6)',borderColor:'rgba(99,102,241,1)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#8b949e'}},x:{ticks:{color:'#8b949e',maxRotation:45}}}}});
-}
-(function(){
- fetch('/api/v1/search/nl/suggestions').then(function(r){return r.json()}).then(function(d){
-  var c=document.getElementById('nl-query-chips');if(!c||!d.suggestions)return;
-  d.suggestions.forEach(function(s){
-   var b=document.createElement('button');b.textContent=s.text;
-   b.style.cssText='padding:4px 10px;border-radius:12px;border:1px solid var(--bd);background:var(--bg);color:var(--tx2);font-size:12px;cursor:pointer';
-   b.onclick=function(){var i=document.getElementById('nl-query-input');if(i){i.value=s.text;runNlQuery()}};
-   c.appendChild(b);
-  });
- }).catch(function(){});
-})();
-</script>
-{% endif %}
 
 <!-- ═══ Triage Widget — NEXT UP + queue sorted by (time, LOE) ═══ -->
 {# Bundle-3 PR-3c (audit U): moved ABOVE the Expiring Quotes / QA /
@@ -398,52 +322,6 @@ setTimeout(function(){
 </script>
 
 <!-- ═══ Document Upload Modal ═══ -->
-{% if docling_intake|default(false) %}
-<div id="doc-upload-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:999;align-items:center;justify-content:center">
- <div style="background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px;max-width:500px;width:90%">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-   <h3 style="margin:0;color:var(--tx)">Upload Document</h3>
-   <button onclick="document.getElementById('doc-upload-modal').style.display='none'" style="background:none;border:none;color:var(--tx2);cursor:pointer;font-size:20px">&times;</button>
-  </div>
-  <form id="doc-upload-form" onsubmit="uploadDoc(event)">
-   <input type="file" id="doc-file" accept=".pdf,.docx,.doc,.xlsx" required style="margin-bottom:12px;color:var(--tx)">
-   <select id="doc-type" style="width:100%;padding:8px;margin-bottom:12px;background:var(--bg);border:1px solid var(--bd);border-radius:6px;color:var(--tx)">
-    <option value="unknown">Document type...</option>
-    <option value="solicitation">Solicitation/RFP</option>
-    <option value="competing_quote">Competing Quote</option>
-    <option value="invoice">Supplier Invoice</option>
-    <option value="spec">Product Specification</option>
-    <option value="other">Other</option>
-   </select>
-   <button type="submit" id="doc-upload-btn" style="width:100%;padding:10px;background:var(--ac);border:none;border-radius:6px;color:#fff;font-weight:600;cursor:pointer">Upload & Parse</button>
-  </form>
-  <div id="doc-upload-status" style="margin-top:10px;font-size:13px;color:var(--tx2)"></div>
- </div>
-</div>
-<script>
-function uploadDoc(e){
- e.preventDefault();
- var fi=document.getElementById('doc-file');
- var btn=document.getElementById('doc-upload-btn');
- var st=document.getElementById('doc-upload-status');
- if(!fi||!fi.files[0])return;
- var fd=new FormData();
- fd.append('file',fi.files[0]);
- fd.append('doc_type',document.getElementById('doc-type').value);
- btn.disabled=true;btn.textContent='Parsing...';st.textContent='';
- fetch('/api/documents/upload',{method:'POST',body:fd})
- .then(function(r){return r.json()})
- .then(function(d){
-  btn.disabled=false;btn.textContent='Upload & Parse';
-  if(!d.ok){st.innerHTML='<span style="color:#f87171">Error: '+d.error+'</span>';return}
-  st.innerHTML='<span style="color:#4ade80">Parsed: '+d.page_count+' pages, '+d.tables_found+' tables ('+d.duration_ms+'ms)</span>';
-  if(d.doc_id)st.innerHTML+=' — <a href="/documents/'+d.doc_id+'" style="color:var(--ac)">View</a>';
- })
- .catch(function(){btn.disabled=false;btn.textContent='Upload & Parse';st.innerHTML='<span style="color:#f87171">Network error</span>'});
-}
-</script>
-{% endif %}
-
 <!-- ═══ QA Status Banner (hidden when all clear) ═══ -->
 <div id="qa-banner" style="display:none;margin-bottom:10px;padding:10px 14px;border-radius:8px;border:1px solid rgba(248,113,113,.4);background:rgba(248,113,113,.06);align-items:center;gap:10px;font-size:13px">
  <span style="font-size:18px">⚠️</span>
