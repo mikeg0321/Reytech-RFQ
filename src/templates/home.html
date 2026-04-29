@@ -12,10 +12,13 @@
    <div id="wri-headline" style="font-size:14px;color:#c9d1d9;margin-top:2px">Loading…</div>
   </div>
   <div style="display:flex;gap:14px;align-items:center">
-   <div style="display:flex;gap:0;background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden">
-    <button type="button" data-window="365"  class="wri-window-btn" style="background:transparent;border:none;color:#8b949e;padding:4px 8px;font-size:11px;cursor:pointer;border-right:1px solid #30363d">1y</button>
-    <button type="button" data-window="730"  class="wri-window-btn" style="background:transparent;border:none;color:#8b949e;padding:4px 8px;font-size:11px;cursor:pointer;border-right:1px solid #30363d">2y</button>
-    <button type="button" data-window="1500" class="wri-window-btn wri-window-active" style="background:rgba(167,139,250,.18);border:none;color:#a78bfa;padding:4px 8px;font-size:11px;cursor:pointer;font-weight:700">All</button>
+   <div id="wri-year-strip" style="display:flex;gap:0;background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden">
+    {# Year-toggle strip — populated by JS once the data window is known.    #}
+    {# Default visible: current year + previous year + More + All. Clicking  #}
+    {# More expands to reveal the older years (descending) up to the         #}
+    {# earliest year present in the data. Layout intentionally cheap so the  #}
+    {# placeholder text doesn't shift the row when buttons hydrate.          #}
+    <span style="padding:4px 10px;font-size:11px;color:#586069">loading…</span>
    </div>
    <div style="text-align:center"><div id="wri-rate" style="font-size:22px;font-weight:700;color:#a78bfa">—</div><div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">win rate</div></div>
    <div style="text-align:center"><div id="wri-wins" style="font-size:22px;font-weight:700;color:#2ecc71">—</div><div style="font-size:10px;color:#8b949e;text-transform:uppercase;letter-spacing:.5px">wins</div></div>
@@ -138,16 +141,95 @@
 (function(){
  var card = document.getElementById('win-rate-intel');
  if (!card) return;
- var labels = {'365':'last 1 year','730':'last 2 years','1500':'all-time (since 2022)'};
 
- function loadWindow(days){
-  fetch('/api/oracle/win-rate-by-agency?days=' + days + '&min_quotes=3', {credentials:'same-origin'})
+ // Year-strip state. `currentYear` (e.g. 2026) defaults to the present
+ // year and is the initial selection. `expanded` is the More-toggle —
+ // false hides everything older than currentYear-1, true reveals all
+ // years back to the earliest year in the data.
+ var currentYear = new Date().getFullYear();
+ var allYears = [];   // populated after first fetch (descending: [2026,2025,...])
+ var selected = String(currentYear);   // string: "2026" | "2025" | "all"
+ var expanded = false;
+
+ function setSelected(token){
+  selected = String(token);
+  // Re-paint the strip so the active button highlights, then load.
+  paintStrip();
+  loadFor(token);
+ }
+
+ function paintStrip(){
+  var strip = document.getElementById('wri-year-strip');
+  if (!strip) return;
+  // Decide which years are visible. Mike's spec: default shows the
+  // current year + one year behind, regardless of whether data exists
+  // for either — keeps the layout predictable when current-year data
+  // is still being collected. More toggle reveals everything older
+  // that has at least one quote in `allYears`.
+  var defaultYears = [currentYear, currentYear - 1];
+  var hiddenYears = allYears.filter(function(y){ return defaultYears.indexOf(y) < 0 && y < currentYear - 1; });
+  var visibleYears = expanded ? defaultYears.concat(hiddenYears) : defaultYears;
+  // If a hidden year is currently selected (e.g. user clicked More then
+  // picked 2024 then collapsed), keep it visible so the active button
+  // doesn't disappear.
+  if (selected !== 'all' && visibleYears.indexOf(parseInt(selected, 10)) < 0
+      && allYears.indexOf(parseInt(selected, 10)) >= 0) {
+   visibleYears.push(parseInt(selected, 10));
+   visibleYears.sort(function(a,b){ return b - a; });
+  }
+
+  function btn(label, token, isActive, extraStyle){
+   var s = (extraStyle || '') +
+     ';background:' + (isActive ? 'rgba(167,139,250,.18)' : 'transparent') +
+     ';border:none;color:' + (isActive ? '#a78bfa' : '#8b949e') +
+     ';padding:4px 8px;font-size:11px;cursor:pointer' +
+     ';font-weight:' + (isActive ? '700' : '400') +
+     ';border-right:1px solid #30363d';
+   return '<button type="button" data-token="' + token + '" '
+        + 'class="wri-year-btn" style="' + s + '">' + label + '</button>';
+  }
+
+  var html = '';
+  visibleYears.forEach(function(y){
+   var token = String(y);
+   html += btn(String(y).slice(2), token, selected === token);
+  });
+  // More toggle — only render if there are hidden years to reveal.
+  if (hiddenYears.length > 0) {
+   var moreLabel = expanded ? 'less' : ('more (' + hiddenYears.length + ')');
+   html += '<button type="button" id="wri-year-more" '
+         + 'style="background:transparent;border:none;color:#8b949e;padding:4px 8px;'
+         + 'font-size:11px;cursor:pointer;border-right:1px solid #30363d">'
+         + moreLabel + '</button>';
+  }
+  // All — strip the trailing border-right by overriding it.
+  html += btn('All', 'all', selected === 'all',
+              ';border-right:0px solid transparent');
+  strip.innerHTML = html;
+
+  // Re-bind clicks on the freshly painted buttons.
+  strip.querySelectorAll('.wri-year-btn').forEach(function(b){
+   b.addEventListener('click', function(){
+    setSelected(b.getAttribute('data-token'));
+   });
+  });
+  var more = document.getElementById('wri-year-more');
+  if (more) more.addEventListener('click', function(){
+   expanded = !expanded;
+   paintStrip();
+  });
+ }
+
+ function loadFor(token){
+  var qs = (token === 'all') ? 'year=all' : ('year=' + encodeURIComponent(token));
+  fetch('/api/oracle/win-rate-by-agency?' + qs + '&min_quotes=3', {credentials:'same-origin'})
    .then(function(r){return r.json()})
    .then(function(d){
-     if (!d || !d.ok || !d.overall || d.overall.quotes === 0) return;
+     if (!d || !d.ok || !d.overall) return;
      card.style.display = 'block';
      var o = d.overall;
-     document.getElementById('wri-window-label').textContent = '· ' + (labels[String(days)] || ('last ' + days + 'd'));
+     var label = (token === 'all') ? 'all-time' : ('year ' + token);
+     document.getElementById('wri-window-label').textContent = '· ' + label;
      document.getElementById('wri-rate').textContent = (o.win_rate_pct === null ? '—' : o.win_rate_pct + '%');
      document.getElementById('wri-wins').textContent = o.wins;
      document.getElementById('wri-losses').textContent = o.losses;
@@ -173,25 +255,30 @@
    }).catch(function(){});
  }
 
- // Wire window-toggle buttons
- var btns = card.querySelectorAll('.wri-window-btn');
- btns.forEach(function(b){
-  b.addEventListener('click', function(){
-   btns.forEach(function(x){
-    x.classList.remove('wri-window-active');
-    x.style.background = 'transparent';
-    x.style.color = '#8b949e';
-    x.style.fontWeight = '400';
-   });
-   b.classList.add('wri-window-active');
-   b.style.background = 'rgba(167,139,250,.18)';
-   b.style.color = '#a78bfa';
-   b.style.fontWeight = '700';
-   loadWindow(b.getAttribute('data-window'));
+ // Probe /api/oracle/win-rate-yearly for the year list so the strip
+ // knows how far back to go on More-expand. Falls back to a hardcoded
+ // 2022 floor if the endpoint is missing or returns nothing.
+ fetch('/api/oracle/win-rate-yearly', {credentials:'same-origin'})
+  .then(function(r){return r.json()})
+  .then(function(d){
+   if (d && d.ok && Array.isArray(d.years) && d.years.length) {
+    allYears = d.years.map(function(y){ return parseInt(y.year, 10); })
+                      .filter(function(y){ return !isNaN(y); })
+                      .sort(function(a,b){ return b - a; });
+   }
+   // Belt and suspenders — if upstream returns just one year, still
+   // include the current year so the default strip is non-empty.
+   if (allYears.indexOf(currentYear) < 0) allYears.unshift(currentYear);
+   paintStrip();
+  })
+  .catch(function(){
+   allYears = [currentYear, currentYear - 1, currentYear - 2,
+               currentYear - 3, currentYear - 4];
+   paintStrip();
   });
- });
 
- loadWindow(1500);  // Default: all-time (covers QuoteWerks 2022-2026 import)
+ // Default selection — current year. Triggers the first fetch.
+ loadFor(selected);
 })();
 </script>
 

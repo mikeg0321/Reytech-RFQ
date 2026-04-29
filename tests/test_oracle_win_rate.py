@@ -29,14 +29,15 @@ def _normalize_agency(raw):
     return " ".join(tokens)
 
 
-def _seed_quote(qnum, status, agency, total=100.0, days_ago=10):
-    created = (datetime.now() - timedelta(days=days_ago)).isoformat()
+def _seed_quote(qnum, status, agency, total=100.0, days_ago=10, created_at=None):
+    if created_at is None:
+        created_at = (datetime.now() - timedelta(days=days_ago)).isoformat()
     with get_db() as conn:
         conn.execute("""
             INSERT INTO quotes (quote_number, status, agency, institution,
                                 line_items, total, created_at, is_test)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-        """, (qnum, status, agency, agency, "[]", total, created))
+        """, (qnum, status, agency, agency, "[]", total, created_at))
         conn.commit()
 
 
@@ -127,3 +128,67 @@ class TestEndpoint:
         r = client.get("/api/oracle/win-rate-by-agency?days=365&min_quotes=1")
         body = r.get_json()
         assert body["agencies"][0]["canonical_name"] == "busyagency"
+
+
+class TestYearFilter:
+    """Year filter — calendar-year filtering, distinct from days rolling
+    window. Default visible toggle on home.html is current year + previous
+    year, with a More expand for older + an All option."""
+
+    def test_year_2026_isolates_to_calendar_year(self, client):
+        _seed_quote("WR-Y26-1", "won", "AgencyA", created_at="2026-06-15")
+        _seed_quote("WR-Y25-1", "won", "AgencyA", created_at="2025-06-15")
+        _seed_quote("WR-Y24-1", "won", "AgencyA", created_at="2024-06-15")
+        r = client.get("/api/oracle/win-rate-by-agency?year=2026&min_quotes=1")
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["year"] == 2026
+        assert body["overall"]["quotes"] == 1
+
+    def test_year_2025(self, client):
+        _seed_quote("WR-Y26-1", "won", "AgencyA", created_at="2026-06-15")
+        _seed_quote("WR-Y25-1", "won", "AgencyA", created_at="2025-06-15")
+        _seed_quote("WR-Y25-2", "lost", "AgencyA", created_at="2025-12-31")
+        _seed_quote("WR-Y24-1", "won", "AgencyA", created_at="2024-12-31")
+        r = client.get("/api/oracle/win-rate-by-agency?year=2025&min_quotes=1")
+        body = r.get_json()
+        assert body["overall"]["quotes"] == 2
+        assert body["overall"]["wins"] == 1
+        assert body["overall"]["losses"] == 1
+
+    def test_year_all_returns_everything(self, client):
+        _seed_quote("WR-OLD", "won", "AgencyA", created_at="2022-01-01")
+        _seed_quote("WR-MID", "won", "AgencyA", created_at="2024-06-01")
+        _seed_quote("WR-NEW", "won", "AgencyA", created_at="2026-04-01")
+        r = client.get("/api/oracle/win-rate-by-agency?year=all&min_quotes=1")
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["year"] == "all"
+        assert body["overall"]["quotes"] == 3
+
+    def test_year_takes_precedence_over_days(self, client):
+        # quote outside the days window but inside the requested year —
+        # year filter must win and include it.
+        _seed_quote("WR-Y22-1", "won", "AgencyA", created_at="2022-03-15")
+        r = client.get("/api/oracle/win-rate-by-agency?year=2022&days=30&min_quotes=1")
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["overall"]["quotes"] == 1
+
+    def test_invalid_year_falls_back_to_days(self, client):
+        _seed_quote("WR-DAYS", "won", "AgencyA", days_ago=10)
+        # year=banana → invalid → fall through to days behavior (default 365)
+        r = client.get("/api/oracle/win-rate-by-agency?year=banana&min_quotes=1")
+        body = r.get_json()
+        assert body["ok"] is True
+        assert body["year"] is None
+        assert body["overall"]["quotes"] == 1
+
+    def test_year_outside_range_returns_empty(self, client):
+        _seed_quote("WR-NOW", "won", "AgencyA", created_at="2026-04-01")
+        r = client.get("/api/oracle/win-rate-by-agency?year=2010&min_quotes=1")
+        body = r.get_json()
+        # 2010 is in the accepted [2000, 2100] window so the SQL filter
+        # runs and matches nothing — overall.quotes=0, no error.
+        assert body["ok"] is True
+        assert body["overall"]["quotes"] == 0

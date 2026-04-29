@@ -467,30 +467,38 @@ def api_admin_quotes_diagnostic():
 @bp.route("/api/oracle/win-rate-by-agency")
 @auth_required
 def api_oracle_win_rate_by_agency():
-    """Per-agency win-rate rollup over the last N days.
+    """Per-agency win-rate rollup over a calendar year or rolling window.
 
     Query params:
-        days (int, optional, default 365) — lookback window
+        year (str|int, optional) — calendar-year filter. Pass "2026" for a
+            single year (Jan 1 → Dec 31). Pass "all" for no date filter.
+            Takes precedence over `days` if both are given.
+        days (int, optional, default 365) — rolling lookback in days.
+            Only consulted when `year` is absent or invalid.
         min_quotes (int, optional, default 3) — only show agencies with
             ≥ this many quotes (cuts noise)
 
     Response:
       {
-        ok, days, min_quotes, overall: {quotes, wins, losses, win_rate_pct,
-                                        won_value, lost_value},
-        agencies: [
-          {
-            canonical_name, display_name (most-common spelling),
-            quotes, wins, losses, win_rate_pct,
-            won_value, lost_value,
-            recent_quote_dates: [...up to 5 most recent ISO dates]
-          }, ...
-        ]
+        ok, year, days, min_quotes,
+        overall: {quotes, wins, losses, win_rate_pct, won_value, lost_value},
+        agencies: [...],
       }
 
-    Sorted by quote count descending so the busiest buyers come first —
-    that's where to focus the calibration work.
+    Sorted by quote count descending so the busiest buyers come first.
     """
+    year_arg = (request.args.get("year") or "").strip().lower()
+    year_filter = None  # None = use days; "all" = no date filter; int = calendar year
+    if year_arg == "all":
+        year_filter = "all"
+    elif year_arg:
+        try:
+            yi = int(year_arg)
+            if 2000 <= yi <= 2100:
+                year_filter = yi
+        except (TypeError, ValueError):
+            year_filter = None
+
     try:
         days = max(1, min(3650, int(request.args.get("days", "365"))))
     except (TypeError, ValueError):
@@ -500,19 +508,29 @@ def api_oracle_win_rate_by_agency():
     except (TypeError, ValueError):
         min_quotes = 3
 
-    cutoff = (datetime.now() - timedelta(days=days)).date().isoformat()
+    sql_filter = ""
+    sql_args: tuple
+    if year_filter == "all":
+        sql_args = ()
+    elif isinstance(year_filter, int):
+        sql_filter = "AND created_at >= ? AND created_at < ?"
+        sql_args = (f"{year_filter}-01-01", f"{year_filter + 1}-01-01")
+    else:
+        cutoff = (datetime.now() - timedelta(days=days)).date().isoformat()
+        sql_filter = "AND created_at >= ?"
+        sql_args = (cutoff,)
 
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            rows = conn.execute("""
+            rows = conn.execute(f"""
                 SELECT quote_number, status, agency, institution,
                        total, created_at
                 FROM quotes
                 WHERE is_test = 0
                   AND status IN ('won', 'lost', 'sent')
-                  AND created_at >= ?
-            """, (cutoff,)).fetchall()
+                  {sql_filter}
+            """, sql_args).fetchall()
     except Exception as e:
         log.exception("win_rate_by_agency load")
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -591,6 +609,7 @@ def api_oracle_win_rate_by_agency():
 
     return jsonify({
         "ok": True,
+        "year": year_filter,  # None / int / "all"
         "days": days,
         "min_quotes": min_quotes,
         "overall": {
