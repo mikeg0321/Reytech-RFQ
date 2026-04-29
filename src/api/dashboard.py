@@ -1615,6 +1615,43 @@ def _extract_solicitation(text):
     return ""
 
 
+def _auto_placeholder_number(record_id: str) -> str:
+    """Deterministic placeholder when no real solicitation/PC number can be extracted.
+
+    Replaces buyer-content-derived fallbacks (subject[:40], filename stems) that
+    silently produced junk values like "WORKSHEET" or "GOOD" on prod when an
+    email-body-only RFQ slipped through with no solicitation in subject + no
+    parseable attachment. Pattern matches ingest_v2 (ingest_pipeline.py:_create_record).
+    """
+    short = record_id.split("_", 1)[-1] if "_" in record_id else record_id
+    return f"AUTO_{short[:8]}"
+
+
+def _is_placeholder_number(value: str) -> bool:
+    """True if the string looks like a buyer-content-derived placeholder.
+
+    Backfill helper: flips legacy rows where pc_number/solicitation_number was
+    seeded from `subject[:40]`, filename word-fragments, or single-word body
+    matches (e.g., "WORKSHEET", "GOOD", "RFQ"). The new AUTO_<id> format is
+    explicitly excluded — only catches the buyer-content junk.
+    """
+    if not value:
+        return True
+    s = str(value).strip()
+    if not s:
+        return True
+    if s.startswith("AUTO_"):
+        return False
+    # Single all-caps word (any length) — junk like "WORKSHEET", "GOOD", "RFQ", "QUOTE"
+    if s.isupper() and s.isalpha() and 2 <= len(s) <= 20:
+        return True
+    # Known sentinels
+    if s.lower() in {"unknown", "rfq", "quote", "request", "worksheet", "good",
+                     "bid", "vendor", "price", "check", "form"}:
+        return True
+    return False
+
+
 def _extract_due_date(text):
     """Extract due date from text (email subject, body, PDF text).
     Normalizes all dates to MM/DD/YYYY format."""
@@ -2091,7 +2128,7 @@ def process_rfq_email(rfq_email):
                         pcs = _load_price_checks()
                         pcs[pc_id] = {
                             "id": pc_id,
-                            "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or os.path.splitext(_pc_basename)[0][:40],
+                            "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or _auto_placeholder_number(pc_id),
                             "institution": "", "due_date": _email_due_date,
                             "requestor": _buyer_name,
                             "requestor_email": _buyer_email,
@@ -2179,7 +2216,7 @@ def process_rfq_email(rfq_email):
                                     '', _subj_raw, flags=_pcre2.IGNORECASE
                                 ).strip()
                                 _stripped = _pcre2.sub(r'\s*[-\u2013]\s*\d{2}\.\d{2}\.\d{2,4}', '', _stripped).strip()
-                                pc_num = _stripped or os.path.splitext(_pc_basename)[0][:40] or "unknown"
+                                pc_num = _stripped or _auto_placeholder_number(pc_id)
                                 _trace.append(f"pc_number fallback from subject: '{pc_num}'")
 
                         # Dedup: same PC# + institution + due_date
@@ -2306,7 +2343,7 @@ def process_rfq_email(rfq_email):
                     pcs = _load_price_checks()
                     pcs[pc_id] = {
                         "id": pc_id,
-                        "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or rfq_email.get("subject", "")[:40],
+                        "pc_number": _filename_pc_name or rfq_email.get("solicitation_hint", "") or _auto_placeholder_number(pc_id),
                         "institution": "", "due_date": _email_due_date,
                         "requestor": _buyer_name,
                         "requestor_email": _buyer_email,
@@ -2360,7 +2397,7 @@ def process_rfq_email(rfq_email):
                     pcs = _load_price_checks()
                     pcs[_force_id] = {
                         "id": _force_id,
-                        "pc_number": rfq_email.get("solicitation_hint", "") or rfq_email.get("subject", "")[:40],
+                        "pc_number": rfq_email.get("solicitation_hint", "") or _auto_placeholder_number(_force_id),
                         "institution": "", "due_date": "",
                         "requestor": rfq_email.get("sender_email", rfq_email.get("sender", "")),
                         "requestor_email": rfq_email.get("sender_email", ""),
