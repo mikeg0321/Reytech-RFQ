@@ -308,3 +308,116 @@ def test_watcher_admin_endpoint_runs_scan(
     data = resp.get_json()
     assert "scanned" in data
     assert data["scanned"] == 0
+
+
+# ── Folder bootstrap on watcher boot ──────────────────────────────────
+
+
+def _reset_status():
+    """Reset the module-level status dict so each bootstrap test starts
+    with a clean slate (the dict persists across tests in the same
+    interpreter)."""
+    from src.agents import scprs_export_watcher as w
+    w._status["bootstrap_status"] = None
+    w._status["watch_folder_id"] = None
+    w._status["bootstrap_at"] = None
+
+
+def test_ensure_watch_folder_skipped_when_drive_unconfigured(monkeypatch):
+    """No Drive creds → bootstrap returns None and records the
+    'skipped_no_drive_config' status; the watcher still functions, it
+    just never finds files."""
+    from src.agents import scprs_export_watcher as w
+    _reset_status()
+    _patch_drive(monkeypatch, configured=False)
+
+    fid = w._ensure_watch_folder_id()
+    assert fid is None
+    assert w._status["bootstrap_status"] == "skipped_no_drive_config"
+
+
+def test_ensure_watch_folder_creates_chain_when_missing(monkeypatch):
+    """First boot in a fresh tenant: Backups/SCPRS Exports/ doesn't
+    exist yet. Bootstrap walks the chain via _get_or_create_folder
+    and ends up with a folder ID + ok status."""
+    from src.agents import scprs_export_watcher as w
+    from src.core import gdrive as _g
+    _reset_status()
+
+    created = []
+
+    def _goc(name, parent):
+        created.append((name, parent))
+        # Pretend each segment is created with a deterministic ID
+        return f"id_{name.replace(' ', '_')}"
+
+    monkeypatch.setattr(_g, "is_configured", lambda: True)
+    monkeypatch.setattr(_g, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "ROOT",
+                        raising=False)
+    monkeypatch.setattr(_g, "_get_or_create_folder", _goc)
+
+    fid = w._ensure_watch_folder_id()
+    assert fid == "id_SCPRS_Exports"
+    assert created == [("Backups", "ROOT"),
+                       ("SCPRS Exports", "id_Backups")]
+    assert w._status["bootstrap_status"] == "ok"
+    assert w._status["watch_folder_id"] == "id_SCPRS_Exports"
+    assert w._status["bootstrap_at"] is not None
+
+
+def test_ensure_watch_folder_idempotent_on_repeat(monkeypatch):
+    """Calling bootstrap twice with the same folders already present
+    is a no-op (the underlying _get_or_create_folder finds the
+    existing folder by name)."""
+    from src.agents import scprs_export_watcher as w
+    from src.core import gdrive as _g
+    _reset_status()
+
+    monkeypatch.setattr(_g, "is_configured", lambda: True)
+    monkeypatch.setattr(_g, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "ROOT",
+                        raising=False)
+    # The "existing folder" case — _get_or_create_folder just returns
+    # the cached ID without creating.
+    monkeypatch.setattr(
+        _g, "_get_or_create_folder",
+        lambda name, parent: f"id_{name.replace(' ', '_')}",
+    )
+
+    a = w._ensure_watch_folder_id()
+    b = w._ensure_watch_folder_id()
+    assert a == b == "id_SCPRS_Exports"
+
+
+def test_ensure_watch_folder_records_error_on_drive_failure(monkeypatch):
+    """If Drive returns a 5xx mid-walk, bootstrap records the error
+    string and returns None — the watcher's main loop still starts
+    and re-resolves the folder on each tick."""
+    from src.agents import scprs_export_watcher as w
+    from src.core import gdrive as _g
+    _reset_status()
+
+    def _boom(name, parent):
+        if name == "SCPRS Exports":
+            raise RuntimeError("Drive 503")
+        return f"id_{name}"
+
+    monkeypatch.setattr(_g, "is_configured", lambda: True)
+    monkeypatch.setattr(_g, "GOOGLE_DRIVE_ROOT_FOLDER_ID", "ROOT",
+                        raising=False)
+    monkeypatch.setattr(_g, "_get_or_create_folder", _boom)
+
+    fid = w._ensure_watch_folder_id()
+    assert fid is None
+    assert w._status["bootstrap_status"].startswith("error:")
+    assert "Drive 503" in w._status["bootstrap_status"]
+
+
+def test_get_status_includes_bootstrap_fields(monkeypatch):
+    """The /health/quoting watcher card surfaces bootstrap state via
+    get_status(); make sure the new fields are there."""
+    from src.agents import scprs_export_watcher as w
+    _reset_status()
+    s = w.get_status()
+    assert "bootstrap_status" in s
+    assert "watch_folder_id" in s
+    assert "bootstrap_at" in s
