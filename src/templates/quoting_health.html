@@ -920,6 +920,100 @@
   {% endif %}
 </div>
 
+{# ── Body-extract telemetry (PR-B follow-up) ── #}
+{# Surfaces the email-body item extractor's effectiveness so the kill          #}
+{# criterion ("operators delete >50% of body-extracted items") becomes         #}
+{# observable. Per-stage breakdown shows whether tabular or inline patterns    #}
+{# dominate — inline-heavy = extractor is being too permissive.                #}
+{% set _bx = body_extract|default({"status":"unknown","total_24h":0,"total_7d":0,"by_stage_7d":{},"status_split_7d":{"parsed":0,"needs_review":0,"other":0},"rows":[]}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Body extractor —
+    {% if _bx.status == 'healthy' %}<span style="color:#3fb950">✓ {{ _bx.total_24h }} in 24h, {{ _bx.total_7d }} in 7d</span>
+    {% elif _bx.status == 'warming' %}<span style="color:#d29922">⚠ {{ _bx.total_7d }} in 7d (none parsed yet)</span>
+    {% elif _bx.status == 'kill_signal' %}<span style="color:#f85149">⛔ {{ _bx.total_7d }} extracted, all stuck triage — kill flag?</span>
+    {% elif _bx.status == 'no_data' %}<span style="color:#6e7681">no activity (no body-only RFQs in 7d)</span>
+    {% elif _bx.status == 'error' %}<span style="color:#f85149">⛔ scan error</span>
+    {% else %}<span style="color:#6e7681">unknown</span>{% endif %}
+  </div>
+  {% if _bx.total_7d == 0 %}
+  <div style="padding:14px;color:#8b949e;font-size:13px">
+    No body-extracted records in the last 7 days. Either no body-only RFQs
+    arrived (most buyers attach 704s), or the
+    <code>ingest.body_extraction_enabled</code> flag is off.
+  </div>
+  {% else %}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:8px 4px 12px">
+    <div>
+      <div style="font-size:11px;color:#8b949e;font-weight:600;letter-spacing:.4px;margin-bottom:6px">PER-STAGE ITEMS (7d)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tbody>
+        {% for stage, count in _bx.by_stage_7d.items() %}
+          {% if count > 0 %}
+          <tr>
+            <td style="padding:4px 8px;color:#c9d1d9"><code style="font-size:11px">{{ stage }}</code></td>
+            <td style="padding:4px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#c9d1d9">{{ count }}</td>
+          </tr>
+          {% endif %}
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <div style="font-size:11px;color:#8b949e;font-weight:600;letter-spacing:.4px;margin-bottom:6px">RECORD STATUS (7d)</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <tbody>
+        <tr>
+          <td style="padding:4px 8px;color:#3fb950">parsed (advanced past triage)</td>
+          <td style="padding:4px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#3fb950">{{ _bx.status_split_7d.parsed }}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;color:#d29922">needs_review (in triage)</td>
+          <td style="padding:4px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#d29922">{{ _bx.status_split_7d.needs_review }}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;color:#8b949e">other (sent / dismissed / etc)</td>
+          <td style="padding:4px 8px;text-align:right;font-family:'JetBrains Mono',monospace;color:#8b949e">{{ _bx.status_split_7d.other }}</td>
+        </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% if _bx.rows %}
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px">
+    <thead>
+      <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+        <th style="padding:5px 8px">Recent body-extracted records</th>
+        <th style="padding:5px 8px">Status</th>
+        <th style="padding:5px 8px;text-align:center">Items</th>
+        <th style="padding:5px 8px">Stage</th>
+        <th style="padding:5px 8px">Received</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for r in _bx.rows %}
+      <tr style="border-bottom:1px solid #21262d">
+        <td style="padding:5px 8px"><a href="{% if r.id.startswith('pc_') %}/pricecheck/{{ r.id }}{% else %}/rfq/{{ r.id }}{% endif %}" style="color:#58a6ff;text-decoration:none"><code style="font-size:11px">{{ r.id }}</code></a></td>
+        <td style="padding:5px 8px">
+          {% if r.status == 'parsed' %}<span style="color:#3fb950">{{ r.status }}</span>
+          {% elif r.status == 'needs_review' %}<span style="color:#f0883e">{{ r.status }}</span>
+          {% else %}<span style="color:#8b949e">{{ r.status or '—' }}</span>{% endif %}
+        </td>
+        <td style="padding:5px 8px;text-align:center;font-family:'JetBrains Mono',monospace">{{ r.item_count }}</td>
+        <td style="padding:5px 8px"><code style="font-size:11px;color:#8b949e">{{ r.stage }}</code></td>
+        <td style="padding:5px 8px;color:#8b949e;font-size:11px">{{ r.received_at|truncate(19, true, '') }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <div style="margin-top:8px;padding:6px 10px;font-size:11px;color:#8b949e">
+    Kill criterion: if needs_review keeps trending up while parsed stays flat,
+    flip <code>ingest.body_extraction_enabled</code> off via /api/admin/flags.
+  </div>
+  {% endif %}
+</div>
+
 {# ── Pending drafts breakdown (Plan §4.3 sub-2 follow-up) ── #}
 {# PR #618's Gmail card surfaces "N pending drafts" as one number. This card  #}
 {# breaks the pile down by status × age so the operator can decide purge vs   #}
