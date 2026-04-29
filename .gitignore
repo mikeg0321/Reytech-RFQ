@@ -34,6 +34,7 @@ data/.write_test
 
 # ── Email corpus (PII, buyer names, prices — never commit raw data) ──────────
 data/email_corpus/
+data/buyer_corpus/
 
 # ── High-volume transient logs (too large / rebuilt at runtime) ───────────────
 data/processed_emails.json
