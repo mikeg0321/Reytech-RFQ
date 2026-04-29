@@ -570,9 +570,12 @@ def pricechecks_archive():
     # Reverse created_at within non-due items
     total = len(pc_list)
 
-    # Map internal statuses → 4 display statuses
+    # Map internal statuses → display statuses. `needs_review` is the
+    # PR-A triage bucket — folded into 'new' here so it shows up in the
+    # New tab; the orange badge in the row UI distinguishes it from
+    # genuinely new records.
     DISPLAY_STATUS = {
-        "new": "new", "parsed": "new", "parse_error": "new",
+        "new": "new", "parsed": "new", "parse_error": "new", "needs_review": "new",
         "draft": "draft", "priced": "draft", "ready": "draft", "auto_drafted": "draft",
         "quoted": "draft", "generated": "draft", "completed": "draft", "converted": "draft",
         "sent": "sent", "pending_award": "sent", "won": "sent",

@@ -417,7 +417,11 @@ def home():
         return False
     user_pcs = {k: v for k, v in user_pcs.items() if _keep_pc(v)}
     # Split: active queue vs sent/completed
-    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched"}
+    # `needs_review` is the PR-A triage status — body-only RFQs and
+    # placeholder-flipped records land here. Excluding it from the
+    # actionable set hid them from the home queue table; the orange
+    # "Needs Review" badge shipped in PR #666 had nowhere to render.
+    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched", "needs_review"}
     active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
 
@@ -591,8 +595,9 @@ def home():
     for pid, pc in sorted_pcs.items():
         _compute_urgency(pc)
 
-    # Same for RFQs — split active from sent/completed
-    _actionable_rfq = {"new", "draft", "ready", "generated", "parsed", "priced"}
+    # Same for RFQs — split active from sent/completed. `needs_review` is
+    # the PR-A triage status (see _pc_actionable comment above).
+    _actionable_rfq = {"new", "draft", "ready", "generated", "parsed", "priced", "needs_review"}
     all_rfqs = load_rfqs()
     active_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in _actionable_rfq}
     # Filter ghost RFQs: 0 items + no real solicitation
