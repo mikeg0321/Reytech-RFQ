@@ -4857,3 +4857,285 @@ def api_admin_scprs_backfill_mfg():
     result = backfill_mfg_numbers(dry_run=dry_run, limit_per_table=limit)
     log.info("admin scprs backfill-mfg done: %s", result.get("stats"))
     return jsonify(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Orders-only Gmail investigator + manual PO rewrite
+#
+# After PRs #641-#644 closed format_drift / scprs_only / sentinel, the
+# residual orders_only rows are real write-path bugs: the operator
+# stored an RFQ#, requisition#, or text label in po_number instead of
+# the canonical PO. The buyer email that delivered the actual PO is
+# still in Gmail — searching by quote# or stored_po surfaces it.
+#
+# Workflow:
+#   1. Operator (or script) calls /api/admin/orders-only-investigate.
+#      It walks each orders_only row, builds a Gmail query from the
+#      classification, runs it against the sales inbox, and returns
+#      candidate canonical POs extracted from message subjects/snippets.
+#   2. Operator reviews the candidates and POSTs each rewrite via
+#      /api/admin/orders-po-rewrite (idempotent, audit-logged).
+#
+# The investigator never writes — it's read-only. Per Mike 2026-04-28:
+# "provide the numbers and links and I can confirm manually" — but
+# Gmail is now in the loop so the operator doesn't have to grep
+# threads by hand.
+# ═══════════════════════════════════════════════════════════════════════
+
+def _investigate_orders_only_row(row, gmail_service, max_messages=10):
+    """For one orders_only row, search Gmail using its hint, parse the
+    message subjects/snippets through extract_canonical_po(), and
+    return up to N candidate canonical POs (deduped, ranked by length
+    so 8955-prefixed beats bare numerics).
+
+    Returns:
+      {
+        "order_id": str,
+        "po_number": str,           # what the row currently stores
+        "quote_number": str,
+        "classification": str,
+        "search_query": str,        # the Gmail query that ran
+        "matched_message_count": int,
+        "candidates": [
+          {"canonical": "8955-...", "subject": "...", "msg_id": "..."},
+          ...
+        ],
+        "suggested_rewrite": str,   # top candidate, or "" if none
+        "error": str,               # populated only on per-row failure
+      }
+    """
+    from src.core.order_dal import extract_canonical_po
+    from src.core import gmail_api as _ga
+
+    out = {
+        "order_id": row.get("order_id", ""),
+        "po_number": row.get("po_number", ""),
+        "quote_number": row.get("quote_number", ""),
+        "classification": row.get("classification", ""),
+        "search_query": row.get("gmail_search_hint", "") or "",
+        "matched_message_count": 0,
+        "candidates": [],
+        "suggested_rewrite": "",
+        "error": "",
+    }
+    query = out["search_query"]
+    if not query:
+        return out
+
+    try:
+        msg_ids = _ga.list_message_ids(
+            gmail_service, query=query, max_results=max_messages,
+        )
+    except Exception as e:
+        out["error"] = f"list_message_ids: {e}"
+        return out
+    out["matched_message_count"] = len(msg_ids)
+
+    seen = set()
+    for mid in msg_ids[:max_messages]:
+        try:
+            meta = _ga.get_message_metadata(gmail_service, mid) or {}
+        except Exception as e:
+            log.debug("get_message_metadata(%s) failed: %s", mid, e)
+            continue
+        subject = (meta.get("subject") or "")
+        snippet = (meta.get("snippet") or "")
+        # extract_canonical_po prefers 8955-/4440-/4500 prefixed POs
+        # and falls back to longest digit run; this is the same
+        # extractor the email poller uses, so we stay consistent.
+        for src_text in (subject, snippet):
+            cand = extract_canonical_po(src_text)
+            if cand and cand not in seen:
+                seen.add(cand)
+                out["candidates"].append({
+                    "canonical": cand,
+                    "subject": subject[:160],
+                    "msg_id": mid,
+                })
+
+    # Rank candidates: prefer canonical-prefixed (have a dash or start
+    # with 4500), then by length descending. Stable order otherwise.
+    def _rank(c):
+        s = c["canonical"]
+        prefixed = (s.startswith("8955-") or s.startswith("4440-")
+                    or s.startswith("4500"))
+        return (0 if prefixed else 1, -len(s))
+    out["candidates"].sort(key=_rank)
+
+    # Don't suggest the row's own current po_number back at it.
+    own_po = (out["po_number"] or "").strip()
+    for c in out["candidates"]:
+        if c["canonical"] != own_po:
+            out["suggested_rewrite"] = c["canonical"]
+            break
+    return out
+
+
+@bp.route("/api/admin/orders-only-investigate", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_orders_only_investigate():
+    """Walk each orders_only row from the SCPRS reconciler and run a
+    Gmail search to surface the canonical PO that should have been
+    stored.
+
+    Read-only. Never writes. Operator (or follow-up script) feeds the
+    suggestions into /api/admin/orders-po-rewrite to apply.
+
+    Body (optional):
+      {
+        "order_ids": ["...", ...],   # restrict to specific rows
+        "max_messages": 10,          # per-row Gmail message cap
+        "inbox": "sales"             # which inbox to search
+      }
+
+    Returns:
+      {
+        "ok": True,
+        "candidates_count": int,
+        "rows_with_suggestion": int,
+        "rows": [...]  # one entry per investigated row
+      }
+
+    Per-row errors are isolated — one failure doesn't kill the batch.
+    """
+    from src.api.modules.routes_health import _build_scprs_reconcile_card
+    from src.core import gmail_api as _ga
+
+    body = request.get_json(silent=True) or {}
+    only_ids = body.get("order_ids") or []
+    max_messages = int(body.get("max_messages") or 10)
+    inbox = (body.get("inbox") or "sales").strip() or "sales"
+
+    if not _ga.is_configured():
+        return jsonify({
+            "ok": False,
+            "error": "gmail_api_not_configured",
+            "hint": "GMAIL_OAUTH_REFRESH_TOKEN missing — re-run "
+                    "scripts/gmail_oauth_setup.py to wire it up.",
+        }), 503
+
+    card = _build_scprs_reconcile_card()
+    samples = card.get("samples", {}).get("orders_only", []) or []
+    if only_ids:
+        keep = set(str(x) for x in only_ids)
+        samples = [s for s in samples if str(s.get("order_id", "")) in keep]
+
+    try:
+        service = _ga.get_service(inbox)
+    except Exception as e:
+        log.exception("orders-only-investigate: gmail service")
+        return jsonify({"ok": False, "error": f"gmail_service: {e}"}), 500
+
+    rows = []
+    suggestion_count = 0
+    candidate_count = 0
+    for s in samples:
+        r = _investigate_orders_only_row(
+            s, service, max_messages=max_messages,
+        )
+        rows.append(r)
+        candidate_count += len(r["candidates"])
+        if r["suggested_rewrite"]:
+            suggestion_count += 1
+
+    log.info(
+        "orders-only-investigate: examined=%d candidates=%d suggestions=%d "
+        "inbox=%s", len(rows), candidate_count, suggestion_count, inbox,
+    )
+    return jsonify({
+        "ok": True,
+        "examined": len(rows),
+        "candidates_count": candidate_count,
+        "rows_with_suggestion": suggestion_count,
+        "rows": rows,
+    })
+
+
+@bp.route("/api/admin/orders-po-rewrite", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_orders_po_rewrite():
+    """Apply a manual po_number rewrite to an `orders` row, with
+    audit logging.
+
+    Mike's directive 2026-04-28: "provide the numbers and links and I
+    can confirm manually" — this endpoint is the apply step. The
+    operator (or a UI) decides which canonical PO to write; we just
+    persist + log.
+
+    Body JSON:
+      {
+        "order_id": "...",     # required
+        "new_po": "...",       # required (canonical, e.g. 8955-...)
+        "reason": "...",       # optional free text for audit
+        "dry_run": false       # optional
+      }
+
+    Returns:
+      {ok, order_id, old_po, new_po, dry_run, audit_logged}
+
+    Idempotent: if the row already stores `new_po`, the call is a no-op
+    (rows_updated=0) but still returns ok=True so retries are safe.
+    """
+    from src.core.security import _log_audit_internal
+
+    body = request.get_json(silent=True) or {}
+    order_id = (body.get("order_id") or "").strip()
+    new_po = (body.get("new_po") or "").strip()
+    reason = (body.get("reason") or "").strip()
+    dry_run = bool(body.get("dry_run", False))
+
+    if not order_id or not new_po:
+        return jsonify({
+            "ok": False,
+            "error": "order_id and new_po are required",
+        }), 400
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, po_number FROM orders WHERE id = ?",
+            (order_id,),
+        ).fetchone()
+        if not row:
+            return jsonify({
+                "ok": False,
+                "error": f"order_id not found: {order_id}",
+            }), 404
+        old_po = (row["po_number"] or "").strip()
+
+        result = {
+            "ok": True,
+            "order_id": order_id,
+            "old_po": old_po,
+            "new_po": new_po,
+            "dry_run": dry_run,
+            "rows_updated": 0,
+            "audit_logged": False,
+            "noop": old_po == new_po,
+        }
+        if dry_run or old_po == new_po:
+            return jsonify(result)
+
+        cur = conn.execute(
+            "UPDATE orders SET po_number = ? WHERE id = ?",
+            (new_po, order_id),
+        )
+        result["rows_updated"] = cur.rowcount
+        conn.commit()
+
+    try:
+        _log_audit_internal(
+            "orders_po_rewrite",
+            f"order_id={order_id} {old_po!r} -> {new_po!r}"
+            + (f" reason={reason!r}" if reason else ""),
+        )
+        result["audit_logged"] = True
+    except Exception as e:
+        log.warning("orders_po_rewrite audit log failed: %s", e)
+
+    log.info(
+        "orders_po_rewrite: order_id=%s old=%s new=%s rows_updated=%d",
+        order_id, old_po, new_po, result["rows_updated"],
+    )
+    return jsonify(result)

@@ -1003,6 +1003,36 @@ def _classify_orders_only_po(po: str) -> str:
     return "unknown"
 
 
+def _gmail_search_hint_for_po(po: str, quote_number: str,
+                              classification: str) -> str:
+    """Build a Gmail search query to surface the buyer email that
+    actually carries the canonical PO for an orders_only row.
+
+    The classification picks the strongest signal available:
+      rfq_as_po            — search by quote#  (the PO field is bogus,
+                              the quote# is what links to the buyer)
+      bare_numeric_unknown — search by both PO and quote# (covers
+                              requisition-as-PO write-path bug)
+      looks_canonical      — search by PO directly
+      sentinel             — no useful query
+      unknown              — fall back to PO-or-quote OR
+    """
+    po = (po or "").strip()
+    qn = (quote_number or "").strip()
+    if classification == "sentinel":
+        return ""
+    if classification == "rfq_as_po" and qn:
+        return f'"{qn}"'
+    if classification == "looks_canonical" and po:
+        return f'"{po}"'
+    parts = []
+    if po:
+        parts.append(f'"{po}"')
+    if qn and qn != po:
+        parts.append(f'"{qn}"')
+    return " OR ".join(parts)
+
+
 def _build_scprs_reconcile_card():
     """4-bucket reconciliation between `scprs_reytech_wins` (state's
     record of POs awarded to Reytech) and `orders` (operational
@@ -1046,7 +1076,8 @@ def _build_scprs_reconcile_card():
                 FROM scprs_reytech_wins
             """).fetchall()
             order_rows = conn.execute("""
-                SELECT po_number, agency, institution, total
+                SELECT id, po_number, agency, institution, total,
+                       quote_number, status
                 FROM orders
                 WHERE COALESCE(is_test, 0) = 0
                   AND po_number IS NOT NULL AND po_number != ''
@@ -1065,6 +1096,9 @@ def _build_scprs_reconcile_card():
                 "agency": o["agency"] or "",
                 "institution": o["institution"] or "",
                 "total": float(o["total"] or 0),
+                "id": o["id"],
+                "quote_number": o["quote_number"] or "",
+                "status": o["status"] or "",
             }
     result["orders_with_po"] = len(orders_by_po)
 
@@ -1137,6 +1171,12 @@ def _build_scprs_reconcile_card():
                 "institution": o["institution"],
                 "total": o["total"],
                 "classification": cls,
+                "order_id": o.get("id", ""),
+                "quote_number": o.get("quote_number", ""),
+                "status": o.get("status", ""),
+                "gmail_search_hint": _gmail_search_hint_for_po(
+                    po, o.get("quote_number", ""), cls,
+                ),
             })
     if classification_counts:
         result["orders_only_by_class"] = classification_counts
