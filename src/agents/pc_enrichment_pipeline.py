@@ -265,6 +265,59 @@ def _run_pipeline(pc_id: str, force: bool):
         log.warning("ENRICH %s: identifier extraction error: %s", pc_id, e)
     _mark_step_done(pc_id,"identifiers")
 
+    # ── Step 1.25: Resolve supplier SKUs via supplier_skus table ─────────
+    # When a buyer's RFQ pastes a bare supplier item number (e.g. McKesson
+    # `1001682`), the catalog matcher won't find it because we key catalog
+    # rows on manufacturer part numbers. Translate via supplier_skus first.
+    # The PC detail UI already does this on MFG# blur (handleMfgInput in
+    # pc_detail.html); this step closes the gap on the auto-enrichment side.
+    _update_status(pc_id, "sku_resolution", f"0/{total} items")
+    counters.setdefault("supplier_sku_resolved", 0)
+    try:
+        from src.core.db import get_db
+        with get_db() as conn:
+            for i, it in enumerate(items):
+                _mfg = (it.get("mfg_number") or "").strip()
+                _explicit_mck = (it.get("supplier_skus") or {}).get("mckesson") or ""
+                # item_enricher.py captures `MCK-1234` and stores it as
+                # `MCK1234` (prefix preserved); the catalog table stores
+                # bare item numbers, so strip the MCK prefix for lookup.
+                if _explicit_mck.upper().startswith("MCK"):
+                    _explicit_mck = _explicit_mck[3:]
+                lookup_sku = ""
+                if _explicit_mck:
+                    lookup_sku = _explicit_mck
+                elif _mfg.isdigit() and 6 <= len(_mfg) <= 8:
+                    lookup_sku = _mfg
+                if not lookup_sku:
+                    continue
+                try:
+                    row = conn.execute(
+                        "SELECT mfg_number, description FROM supplier_skus "
+                        "WHERE supplier='mckesson' AND supplier_sku=?",
+                        (lookup_sku,),
+                    ).fetchone()
+                except Exception as _e:
+                    log.debug("supplier_skus lookup error: %s", _e)
+                    break  # table missing / schema drift — skip step entirely
+                if not row:
+                    continue
+                resolved_mfg = (row["mfg_number"] or "").strip()
+                resolved_desc = (row["description"] or "").strip()
+                if resolved_mfg and resolved_mfg != _mfg:
+                    it["mfg_number"] = resolved_mfg
+                    counters["supplier_sku_resolved"] += 1
+                    log.info(
+                        "ENRICH %s: McKesson SKU %s -> MFG# %s",
+                        pc_id, lookup_sku, resolved_mfg,
+                    )
+                if resolved_desc and not (it.get("description") or "").strip():
+                    it["description"] = resolved_desc
+                _update_status(pc_id, "sku_resolution", f"{i+1}/{total} items")
+    except Exception as e:
+        log.warning("ENRICH %s: supplier SKU resolution error: %s", pc_id, e)
+    _mark_step_done(pc_id, "sku_resolution")
+
     # ── Step 1.5: Resolve UPCs via Grok product validation ─────────────
     # Replaced SerpApi ($50/mo subscription) with Grok (pay-per-use, ~$0.001/call)
     _update_status(pc_id, "upc_resolution", "resolving barcodes")
