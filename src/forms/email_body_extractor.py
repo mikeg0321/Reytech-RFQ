@@ -210,7 +210,7 @@ def _is_real_description(desc: str) -> bool:
 
 
 def _make_item(qty: int, desc: str, *, item_no: int, mfg: str = "",
-               uom: str = "EA") -> Dict[str, Any]:
+               uom: str = "EA", source_stage: str = "") -> Dict[str, Any]:
     return {
         "item_number": str(item_no),
         "qty": qty,
@@ -220,6 +220,7 @@ def _make_item(qty: int, desc: str, *, item_no: int, mfg: str = "",
         "row_index": item_no,
         "pricing": {},
         "source": "email_body_regex",
+        "source_stage": source_stage,  # which regex stage produced this — feeds telemetry
         "needs_review": True,  # extracted from prose, operator should verify
     }
 
@@ -259,6 +260,7 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
                 items.append(_make_item(
                     qty, desc, item_no=int(m.group(1)),
                     mfg=mfg, uom=m.group(3).upper(),
+                    source_stage="tabular_full",
                 ))
     if items:
         log.info("body_extract: tabular_full found %d items", len(items))
@@ -274,7 +276,8 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
             qty = int(m.group(2))
             desc = m.group(3).strip()
             if 1 <= qty <= 99999 and _is_real_description(desc):
-                items.append(_make_item(qty, desc, item_no=int(m.group(1))))
+                items.append(_make_item(qty, desc, item_no=int(m.group(1)),
+                                        source_stage="tabular_simple"))
     if items:
         log.info("body_extract: tabular_simple found %d items", len(items))
         return items
@@ -286,7 +289,8 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
             qty = int(m.group(1))
             desc = m.group(2).strip()
             if 1 <= qty <= 99999 and _is_real_description(desc):
-                items.append(_make_item(qty, desc, item_no=len(items) + 1))
+                items.append(_make_item(qty, desc, item_no=len(items) + 1,
+                                        source_stage="bullet"))
     if items:
         log.info("body_extract: bullet found %d items", len(items))
         return items
@@ -297,7 +301,8 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
             qty = int(m.group(1))
             desc = m.group(2).strip()
             if 1 <= qty <= 99999 and _is_real_description(desc):
-                items.append(_make_item(qty, desc, item_no=len(items) + 1))
+                items.append(_make_item(qty, desc, item_no=len(items) + 1,
+                                        source_stage="please_quote"))
     if items:
         log.info("body_extract: please_quote found %d items", len(items))
         return items
@@ -313,7 +318,8 @@ def extract_items(body_text: str) -> List[Dict[str, Any]]:
             if key in seen_descs:
                 continue
             if 1 <= qty <= 99999 and _is_real_description(desc):
-                items.append(_make_item(qty, desc, item_no=len(items) + 1))
+                items.append(_make_item(qty, desc, item_no=len(items) + 1,
+                                        source_stage="inline_qty_x_desc"))
                 seen_descs.add(key)
     if items:
         log.info("body_extract: inline_qty_desc found %d items", len(items))

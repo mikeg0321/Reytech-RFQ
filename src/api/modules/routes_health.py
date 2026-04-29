@@ -419,6 +419,170 @@ def _build_health_gate(oracle_calibration):
     }
 
 
+# ── Body-extract telemetry ──────────────────────────────────────────────
+
+
+_BODY_EXTRACT_STAGES = (
+    "tabular_full", "tabular_simple", "bullet", "please_quote", "inline_qty_x_desc",
+)
+
+
+def _scan_body_extracted_records(window_iso_24h: str, window_iso_7d: str):
+    """Scan rfqs + price_checks for records whose items contain at least one
+    `source='email_body_regex'` entry. Returns lists of (record_dict, items)
+    for each window. Single scan, two windows — one DB pass, JSON-parse cost
+    in Python."""
+    records_24h = []
+    records_7d = []
+    # Pull a slightly wider window than 7d so the JSON parse picks up records
+    # whose received_at falls in the window even if updated_at is older.
+    rfq_rows = _safe_fetchall(
+        """SELECT id, received_at, status, items, data_json
+             FROM rfqs
+            WHERE COALESCE(received_at, '') >= ?
+            ORDER BY received_at DESC LIMIT 5000""",
+        (window_iso_7d,),
+    )
+    pc_rows = _safe_fetchall(
+        """SELECT id, created_at AS received_at, status, items, data_json
+             FROM price_checks
+            WHERE COALESCE(created_at, '') >= ?
+            ORDER BY created_at DESC LIMIT 5000""",
+        (window_iso_7d,),
+    )
+
+    for r in (rfq_rows + pc_rows):
+        # Items can live in the column or inside data_json; data_json wins
+        # when present (newer ingest path writes there).
+        items = []
+        blob = r.get("data_json") or ""
+        if blob:
+            try:
+                parsed = json.loads(blob)
+                if isinstance(parsed, dict):
+                    items = parsed.get("items") or parsed.get("line_items") or []
+            except (ValueError, TypeError):
+                pass
+        if not items:
+            raw = r.get("items") or "[]"
+            try:
+                items = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            except (ValueError, TypeError):
+                items = []
+        if not isinstance(items, list):
+            items = []
+
+        # Skip records with no body-extracted items
+        body_items = [
+            it for it in items
+            if isinstance(it, dict) and it.get("source") == "email_body_regex"
+        ]
+        if not body_items:
+            continue
+
+        rec = {
+            "id": r.get("id", ""),
+            "received_at": r.get("received_at", ""),
+            "status": r.get("status", ""),
+            "item_count": len(body_items),
+        }
+        records_7d.append((rec, body_items))
+        if r.get("received_at", "") >= window_iso_24h:
+            records_24h.append((rec, body_items))
+
+    return records_24h, records_7d
+
+
+def _build_body_extract_card():
+    """Telemetry for the PR-B email-body extractor.
+
+    Surfaces:
+      - 24h + 7d count of records ingested via body extraction
+      - per-stage breakdown so we can tell which regex tier is doing the
+        work (production-quality bias was tabular-first; if inline_qty_x_desc
+        dominates, the extractor is being too permissive)
+      - parsed vs needs_review status split — extracted but operator-rejected
+        is the kill-criterion signal
+      - last 5 records for spot-check
+
+    Override-rate metric (extractor items vs final quote items) is a
+    follow-up — needs the original-vs-final diff that doesn't exist yet.
+    """
+    now = datetime.now()
+    window_24h = (now - timedelta(hours=24)).isoformat()
+    window_7d = (now - timedelta(days=7)).isoformat()
+
+    try:
+        recs_24h, recs_7d = _scan_body_extracted_records(window_24h, window_7d)
+    except Exception as e:
+        log.debug("body_extract_card scan failed: %s", e)
+        return {
+            "status": "error",
+            "total_24h": 0, "total_7d": 0,
+            "by_stage_7d": {s: 0 for s in _BODY_EXTRACT_STAGES},
+            "status_split_7d": {"parsed": 0, "needs_review": 0, "other": 0},
+            "rows": [],
+            "error": str(e)[:200],
+        }
+
+    # Per-stage item count (over 7d window)
+    by_stage = {s: 0 for s in _BODY_EXTRACT_STAGES}
+    by_stage["unknown"] = 0
+    for _rec, body_items in recs_7d:
+        for it in body_items:
+            stage = it.get("source_stage") or "unknown"
+            if stage in by_stage:
+                by_stage[stage] += 1
+            else:
+                by_stage["unknown"] += 1
+
+    # Status split tells us if extracted records ever advance past triage.
+    # If everything stays needs_review, the extractor is contributing items
+    # the operator doesn't trust — kill-criterion signal.
+    status_split = {"parsed": 0, "needs_review": 0, "other": 0}
+    for rec, _ in recs_7d:
+        st = (rec.get("status") or "").lower()
+        if st == "parsed":
+            status_split["parsed"] += 1
+        elif st == "needs_review":
+            status_split["needs_review"] += 1
+        else:
+            status_split["other"] += 1
+
+    # Last 5 records for the operator to drill into
+    last_rows = []
+    for rec, body_items in recs_7d[:5]:
+        last_rows.append({
+            "id": rec["id"],
+            "received_at": rec["received_at"],
+            "status": rec["status"],
+            "item_count": rec["item_count"],
+            "stage": (body_items[0].get("source_stage") if body_items else "") or "unknown",
+        })
+
+    # Status: red if extractor is producing junk (everything stuck in
+    # needs_review), green if records are advancing, gray if no activity.
+    total_7d = len(recs_7d)
+    if total_7d == 0:
+        status = "no_data"
+    elif status_split["needs_review"] == total_7d and total_7d >= 3:
+        # >=3 records, ALL stuck triage = signal to kill the flag
+        status = "kill_signal"
+    elif status_split["parsed"] >= 1:
+        status = "healthy"
+    else:
+        status = "warming"
+
+    return {
+        "status": status,
+        "total_24h": len(recs_24h),
+        "total_7d": total_7d,
+        "by_stage_7d": by_stage,
+        "status_split_7d": status_split,
+        "rows": last_rows,
+    }
+
+
 # ── Route ───────────────────────────────────────────────────────────────
 
 @bp.route("/health/quoting")
@@ -460,6 +624,7 @@ def quoting_health_page():
         "po_prefix": _build_po_prefix_card(),
         "scprs_reconcile": _build_scprs_reconcile_card(),
         "po_aggregate": _build_po_aggregate_card(),
+        "body_extract": _build_body_extract_card(),
         "gate": _build_health_gate(oracle_cal),
     }
     return render_page("quoting_health.html", active_page="Health", **data)
@@ -557,6 +722,7 @@ def quoting_health_json():
         "po_prefix": _build_po_prefix_card(),
         "scprs_reconcile": _build_scprs_reconcile_card(),
         "po_aggregate": _build_po_aggregate_card(),
+        "body_extract": _build_body_extract_card(),
         "gate": _build_health_gate(oracle_cal),
     }
 
