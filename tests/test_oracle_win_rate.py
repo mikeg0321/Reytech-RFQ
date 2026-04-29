@@ -41,6 +41,21 @@ def _seed_quote(qnum, status, agency, total=100.0, days_ago=10, created_at=None)
         conn.commit()
 
 
+def _seed_order(order_id, qnum, agency, po_number, total=100.0,
+                po_date="", status="new", created_at=None):
+    if created_at is None:
+        created_at = datetime.now().isoformat()
+    with get_db() as conn:
+        conn.execute("""
+            INSERT INTO orders (id, quote_number, agency, institution,
+                                po_number, po_date, status, total, items,
+                                notes, created_at, updated_at, is_test)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', '', ?, ?, 0)
+        """, (order_id, qnum, agency, agency, po_number, po_date,
+              status, total, created_at, created_at))
+        conn.commit()
+
+
 class TestNormalizeAgency:
     def test_collapses_punctuation(self):
         a = _normalize_agency("California State Prison - Sacramento")
@@ -192,3 +207,82 @@ class TestYearFilter:
         # runs and matches nothing — overall.quotes=0, no error.
         assert body["ok"] is True
         assert body["overall"]["quotes"] == 0
+
+
+class TestRecentWinsOrdersDriven:
+    """Recent-wins must drive off the orders table because that's where
+    PO arrivals land. The historical quotes-only query missed every PO
+    where the paired quote was never mark-won (incident: 3 real 2026
+    POs visible only as 1 in the home page recent-wins card)."""
+
+    def test_orders_with_po_show_even_if_quote_not_won(self, client):
+        # Quote sent but never mark-won — order arrived via Gmail/SCPRS
+        _seed_quote("RW-ORD-1", "sent", "AgencyA",
+                    created_at="2026-03-01")
+        _seed_order("ORD-RW1", "RW-ORD-1", "AgencyA",
+                    "PO-12345", total=5000.0,
+                    po_date="2026-03-15")
+        r = client.get("/api/oracle/recent-wins?limit=5")
+        body = r.get_json()
+        assert body["ok"] is True
+        wins = body["wins"]
+        match = [w for w in wins if w["quote_number"] == "RW-ORD-1"]
+        assert len(match) == 1, "order-driven win should appear"
+        assert match[0]["po_number"] == "PO-12345"
+        assert match[0]["source"] == "order"
+        assert match[0]["created_at"] == "2026-03-15"
+
+    def test_legacy_quote_won_without_order_still_shows(self, client):
+        # Pre-PR-#630 quote: status='won' but no orders row exists.
+        _seed_quote("RW-LEG-1", "won", "AgencyA",
+                    created_at="2025-08-01")
+        r = client.get("/api/oracle/recent-wins?limit=5")
+        body = r.get_json()
+        match = [w for w in body["wins"] if w["quote_number"] == "RW-LEG-1"]
+        assert len(match) == 1
+        assert match[0]["source"] == "quote"
+
+    def test_orders_without_po_are_excluded(self, client):
+        _seed_quote("RW-NOPO", "sent", "AgencyA",
+                    created_at="2026-04-01")
+        _seed_order("ORD-RW2", "RW-NOPO", "AgencyA",
+                    "PENDING", total=1000.0, po_date="2026-04-15")
+        r = client.get("/api/oracle/recent-wins?limit=5")
+        body = r.get_json()
+        match = [w for w in body["wins"] if w["quote_number"] == "RW-NOPO"]
+        assert len(match) == 0, \
+            "PENDING placeholder PO should not surface as a win"
+
+    def test_cancelled_orders_excluded(self, client):
+        _seed_order("ORD-CXL", "RW-CXL-1", "AgencyA",
+                    "PO-X", total=1.0, po_date="2026-04-01",
+                    status="cancelled")
+        r = client.get("/api/oracle/recent-wins?limit=5")
+        body = r.get_json()
+        match = [w for w in body["wins"] if w["quote_number"] == "RW-CXL-1"]
+        assert len(match) == 0
+
+    def test_dedupe_when_both_order_and_won_quote_exist(self, client):
+        # PR-#630-vintage quote: order written + quote.status='won'.
+        # The order-row source wins; the legacy fallback skips because
+        # the quote_number was already seen via orders.
+        _seed_quote("RW-DUP-1", "won", "AgencyA",
+                    created_at="2026-04-01")
+        _seed_order("ORD-DUP", "RW-DUP-1", "AgencyA",
+                    "PO-DUP", total=2500.0, po_date="2026-04-10")
+        r = client.get("/api/oracle/recent-wins?limit=10")
+        body = r.get_json()
+        match = [w for w in body["wins"] if w["quote_number"] == "RW-DUP-1"]
+        assert len(match) == 1, "must not double-count when both exist"
+        assert match[0]["source"] == "order"
+
+    def test_orders_sorted_by_po_date_desc(self, client):
+        _seed_order("ORD-OLD", "RW-T-OLD", "A1", "PO-OLD",
+                    total=1, po_date="2025-01-15")
+        _seed_order("ORD-NEW", "RW-T-NEW", "A1", "PO-NEW",
+                    total=2, po_date="2026-04-15")
+        r = client.get("/api/oracle/recent-wins?limit=2")
+        body = r.get_json()
+        qnums = [w["quote_number"] for w in body["wins"]]
+        # Newest first
+        assert qnums.index("RW-T-NEW") < qnums.index("RW-T-OLD")
