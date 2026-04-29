@@ -1,0 +1,79 @@
+[
+  {
+    "msg_id": "194af435173f5bc5",
+    "expected_agency_key": "cchcs",
+    "from": "\"Chechi, Mohammad@CDCR\" <Mohammad.Chechi@cdcr.ca.gov>",
+    "subject": "RE: PREQ 10800255",
+    "date": "2025-01-28"
+  },
+  {
+    "msg_id": "1953a26a50c704d9",
+    "expected_agency_key": "cchcs",
+    "from": "\"Harris2, Kellie\" <Kellie.harris2@cdcr.ca.gov>",
+    "subject": "RE: Request for Bid - 10804116",
+    "date": "2025-02-24"
+  },
+  {
+    "msg_id": "19543c4a95dfd05a",
+    "expected_agency_key": "cchcs",
+    "from": "\"Harris2, Kellie\" <Kellie.harris2@cdcr.ca.gov>",
+    "subject": "RE: Request for Bid - 10804116",
+    "date": "2025-02-26"
+  },
+  {
+    "msg_id": "19547fe051e0fdb5",
+    "expected_agency_key": "cchcs",
+    "from": "\"Harris2, Kellie\" <Kellie.harris2@cdcr.ca.gov>",
+    "subject": "RE: Request for Bid - 10804116",
+    "date": "2025-02-27"
+  },
+  {
+    "msg_id": "19561ddabc8d34cc",
+    "expected_agency_key": "calvet",
+    "from": "\"Yanez, Gary@CalVet\" <Gary.Yanez@calvet.ca.gov>",
+    "subject": "RE: RFQ # 15",
+    "date": "2025-03-04"
+  },
+  {
+    "msg_id": "1956246a2ab9de2c",
+    "expected_agency_key": "calvet",
+    "from": "\"Yanez, Gary@CalVet\" <Gary.Yanez@calvet.ca.gov>",
+    "subject": "RE: RFQ # 15",
+    "date": "2025-03-04"
+  },
+  {
+    "msg_id": "195628d81047ce1a",
+    "expected_agency_key": "calvet",
+    "from": "\"Yanez, Gary@CalVet\" <Gary.Yanez@calvet.ca.gov>",
+    "subject": "RE: RFQ # 15",
+    "date": "2025-03-04"
+  },
+  {
+    "msg_id": "1956340b4377b98a",
+    "expected_agency_key": "calvet",
+    "from": "\"Yanez, Gary@CalVet\" <Gary.Yanez@calvet.ca.gov>",
+    "subject": "RE: RFQ # 15",
+    "date": "2025-03-04"
+  },
+  {
+    "msg_id": "19563558421dd044",
+    "expected_agency_key": "calvet",
+    "from": "\"Yanez, Gary@CalVet\" <Gary.Yanez@calvet.ca.gov>",
+    "subject": "RE: RFQ # 15",
+    "date": "2025-03-04"
+  },
+  {
+    "msg_id": "19586b33202e8051",
+    "expected_agency_key": "cchcs",
+    "from": "\"Pech, Sommony@CDCR\" <Sommony.Pech@cdcr.ca.gov>",
+    "subject": "RE: Request for Quote: 10805688- CIW",
+    "date": "2025-03-11"
+  },
+  {
+    "msg_id": "194696278d8daf54",
+    "expected_agency_key": "other",
+    "from": "BidNet Direct <noreply@bidnet.com>",
+    "subject": "Cancelled: LCS04 Suction Unit 20250109 - LCS04 Suction Unit",
+    "date": "2025-01-15"
+  }
+]
