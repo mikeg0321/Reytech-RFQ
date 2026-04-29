@@ -222,14 +222,25 @@ def api_oracle_items_yearly():
 @bp.route("/api/oracle/recent-wins")
 @auth_required
 def api_oracle_recent_wins():
-    """Recent won quotes preview — for the home page glance.
+    """Recent wins preview — for the home page glance.
+
+    Drives off the `orders` table (source of truth for "PO arrived")
+    rather than `quotes.status='won'`, because the inverse of PR #630's
+    fix — auto-flipping a paired quote to 'won' when an order is
+    recorded — is not yet wired. Without this drive change the home
+    page misses every PO that lands via the Gmail/SCPRS poller path
+    (incident: 3 real 2026 POs but only 1 visible in recent-wins).
+
+    Falls back to `quotes WHERE status='won'` rows that don't have a
+    paired order row (legacy mark-won quotes from before PR #630).
 
     Query params:
         limit (int, optional, default 5)
 
     Response:
       {ok, count, wins: [{quote_number, agency, total, po_number,
-                          created_at, notes}]}
+                          created_at, notes, source}]}
+        source = 'order' (from orders) | 'quote' (legacy quote-only)
     """
     try:
         limit = max(1, min(50, int(request.args.get("limit", "5"))))
@@ -239,21 +250,56 @@ def api_oracle_recent_wins():
     try:
         from src.core.db import get_db
         with get_db() as conn:
-            rows = conn.execute("""
+            # 1. Orders-driven: real PO arrivals. Use po_date as the
+            #    win date when present, fall back to created_at. Exclude
+            #    cancelled/voided/deleted. Stubs from the SCPRS-reconcile
+            #    import (per PRs #641-#644) DO count — they're historical
+            #    wins, not noise.
+            order_rows = conn.execute("""
+                SELECT
+                    o.id            AS order_id,
+                    o.quote_number,
+                    o.agency,
+                    o.institution,
+                    o.total,
+                    o.po_number,
+                    COALESCE(NULLIF(o.po_date, ''), o.created_at) AS win_date,
+                    o.status        AS order_status,
+                    q.status_notes  AS quote_notes
+                FROM orders o
+                LEFT JOIN quotes q
+                  ON q.quote_number = o.quote_number AND q.is_test = 0
+                WHERE o.is_test = 0
+                  AND COALESCE(o.status, '') NOT IN ('cancelled', 'voided', 'deleted')
+                  AND COALESCE(o.po_number, '') NOT IN ('', 'PENDING', 'TBD', 'N/A')
+                ORDER BY win_date DESC
+                LIMIT ?
+            """, (limit * 2,)).fetchall()
+
+            # 2. Legacy quotes-only fallback: status='won' rows whose
+            #    quote_number doesn't appear in orders. Pre-PR-#630 wins
+            #    that never got an orders row written.
+            seen_qnums = sorted({
+                (r["quote_number"] or "") for r in order_rows if r["quote_number"]
+            })
+            placeholders = ",".join("?" * len(seen_qnums)) if seen_qnums else "''"
+            sql = f"""
                 SELECT quote_number, agency, institution, total,
-                       po_number, created_at, status_notes
+                       po_number, created_at AS win_date, status_notes
                 FROM quotes
                 WHERE is_test = 0 AND status = 'won'
+                  AND COALESCE(quote_number, '') NOT IN ({placeholders})
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (limit,)).fetchall()
+            """
+            params = list(seen_qnums) + [limit]
+            quote_rows = conn.execute(sql, params).fetchall()
     except Exception as e:
         log.exception("recent-wins")
         return jsonify({"ok": False, "error": str(e)}), 500
 
-    wins = []
-    for r in rows:
-        notes = (r["status_notes"] or "").strip()
+    def _trim_notes(raw):
+        notes = (raw or "").strip()
         if "[SCPRS-verify" in notes:
             try:
                 notes = "SCPRS " + notes.split("[SCPRS-verify")[1].split("]")[0].strip()
@@ -263,15 +309,35 @@ def api_oracle_recent_wins():
             notes = notes.replace("QuoteWerks:", "").strip()
         if len(notes) > 60:
             notes = notes[:60] + "…"
-        wins.append({
-            "quote_number": r["quote_number"],
+        return notes
+
+    merged = []
+    for r in order_rows:
+        merged.append({
+            "quote_number": r["quote_number"] or "",
             "agency": r["agency"] or r["institution"] or "",
             "total": float(r["total"] or 0),
             "po_number": r["po_number"] or "",
-            "created_at": r["created_at"],
-            "notes": notes,
+            "created_at": r["win_date"],
+            "notes": _trim_notes(r["quote_notes"]),
+            "source": "order",
         })
-    return jsonify({"ok": True, "count": len(wins), "wins": wins})
+    for r in quote_rows:
+        merged.append({
+            "quote_number": r["quote_number"] or "",
+            "agency": r["agency"] or r["institution"] or "",
+            "total": float(r["total"] or 0),
+            "po_number": r["po_number"] or "",
+            "created_at": r["win_date"],
+            "notes": _trim_notes(r["status_notes"]),
+            "source": "quote",
+        })
+
+    # Final sort by win date desc — interleaves order-sourced + legacy
+    # quote-only wins by recency without privileging either source.
+    merged.sort(key=lambda w: (w["created_at"] or ""), reverse=True)
+    out = merged[:limit]
+    return jsonify({"ok": True, "count": len(out), "wins": out})
 
 
 @bp.route("/api/oracle/win-rate-yearly")
