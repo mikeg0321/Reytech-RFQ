@@ -1679,18 +1679,60 @@ def _build_email_poll_card(poll_status=None):
         except Exception as e:
             log.debug("POLL_STATUS lookup failed: %s", e)
             poll_status = None
+    # `emails_found_24h` and `emails_found_7d` are queried from the
+    # rfqs + price_checks tables — POLL_STATUS["emails_found"] is an
+    # in-process counter that resets on every Railway deploy, so it was
+    # always misleadingly stuck near 0 (incident: counter showed 0 even
+    # though Mike had 20+ R26Q quotes from the poller). DB-backed
+    # numbers survive deploys and represent a real "is the poller doing
+    # its job" signal.
+    # rfqs uses source='email'; price_checks uses email_uid presence as
+    # the "this came from the poller" signal (no source column on PCs).
+    # Filtering this way so manual / API-injected rows don't inflate
+    # the "poller is doing its job" metric.
+    emails_24h = 0
+    emails_7d = 0
+    try:
+        from src.core.db import get_db
+        from datetime import timezone as _tz
+        now = datetime.now(_tz.utc)
+        cutoff_24h = (now - timedelta(hours=24)).isoformat()
+        cutoff_7d = (now - timedelta(days=7)).isoformat()
+        with get_db() as conn:
+            row = conn.execute("""
+                SELECT
+                  (SELECT COUNT(*) FROM rfqs
+                    WHERE COALESCE(source,'') = 'email'
+                      AND received_at >= ?) +
+                  (SELECT COUNT(*) FROM price_checks
+                    WHERE COALESCE(email_uid,'') != ''
+                      AND created_at >= ?) AS h24,
+                  (SELECT COUNT(*) FROM rfqs
+                    WHERE COALESCE(source,'') = 'email'
+                      AND received_at >= ?) +
+                  (SELECT COUNT(*) FROM price_checks
+                    WHERE COALESCE(email_uid,'') != ''
+                      AND created_at >= ?) AS d7
+            """, (cutoff_24h, cutoff_24h, cutoff_7d, cutoff_7d)).fetchone()
+            if row:
+                emails_24h = int(row["h24"] or 0)
+                emails_7d = int(row["d7"] or 0)
+    except Exception as e:
+        log.debug("email_poll counts query suppressed: %s", e)
+
     if not isinstance(poll_status, dict):
         return {
             "status": "unknown", "running": None, "paused": None,
             "last_check_at": "", "lag_seconds": None, "lag_human": "—",
-            "error": "", "emails_found_lifetime": 0,
+            "error": "",
+            "emails_found_24h": emails_24h,
+            "emails_found_7d": emails_7d,
         }
 
     last_check = (poll_status.get("last_check") or "").strip()
     paused = bool(poll_status.get("paused"))
     running = bool(poll_status.get("running"))
     error = (poll_status.get("error") or "")
-    emails_found = int(poll_status.get("emails_found") or 0)
 
     lag_seconds = None
     if last_check:
@@ -1731,7 +1773,8 @@ def _build_email_poll_card(poll_status=None):
         "lag_seconds": lag_seconds,
         "lag_human": _format_lag(lag_seconds),
         "error": (error or "")[:200],
-        "emails_found_lifetime": emails_found,
+        "emails_found_24h": emails_24h,
+        "emails_found_7d": emails_7d,
     }
 
 
