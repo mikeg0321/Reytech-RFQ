@@ -2626,6 +2626,12 @@ def _scprs_autostart():
     threading.Thread(target=_auto_backfill, daemon=True, name="scprs-auto-backfill").start()
 
     try:
+        from src.agents.scprs_export_watcher import start_watcher as _scprs_export_start
+        _scprs_export_start()
+    except Exception as _sew:
+        log.debug("SCPRS export watcher: %s", _sew)
+
+    try:
         from src.agents.notify_agent import start_stale_watcher
         start_stale_watcher()
     except Exception as _sw:
@@ -4085,6 +4091,37 @@ def api_oracle_backfill_all():
         return jsonify(result)
     except Exception as e:
         log.exception("oracle-backfill-all")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/admin/scprs-reconcile", methods=["GET"])
+@auth_required
+@safe_route
+def api_admin_scprs_reconcile():
+    """4-bucket SCPRS ↔ orders reconciliation. Backed by
+    `_build_scprs_reconcile_card()` so the card and this endpoint
+    return identical data — same source of truth, no drift between
+    UI and JSON consumers."""
+    try:
+        from src.api.modules.routes_health import _build_scprs_reconcile_card
+        return jsonify(_build_scprs_reconcile_card())
+    except Exception as e:
+        log.exception("scprs-reconcile")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/admin/scprs-watcher-scan", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_scprs_watcher_scan():
+    """Manually trigger one watcher scan. Returns the same summary
+    the background loop would log. Useful right after dropping a new
+    SCPRS export into Drive — no need to wait the 5-min poll cycle."""
+    try:
+        from src.agents.scprs_export_watcher import scan_once
+        return jsonify(scan_once())
+    except Exception as e:
+        log.exception("scprs-watcher-scan")
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
