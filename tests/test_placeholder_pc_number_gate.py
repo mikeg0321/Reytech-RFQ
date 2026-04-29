@@ -116,6 +116,86 @@ def test_ingest_v2_zero_items_lands_as_needs_review(temp_data_dir, monkeypatch):
         f"zero-items record stamped {rfq['status']!r} — must be 'needs_review'")
 
 
+def test_ingest_v2_body_extraction_rescues_zero_attachment_items(temp_data_dir):
+    """End-to-end: process_buyer_request with no files but a real RFQ-style
+    email body should produce a 'parsed' record with extracted items, not a
+    'needs_review' shell. PR-B body-text extractor is the rescue path."""
+    from src.core.ingest_pipeline import process_buyer_request
+
+    body = """
+Hello Reytech,
+
+Please quote the following items for our facility:
+
+LINE NO  QTY  U OF M  PART #         DESCRIPTION
+1        24   CS      MCK-1001682    INCONTINENCE BRIEF LARGE
+2        50   EA      W12919         GAUZE PAD 4X4 STERILE
+
+Thanks,
+Keith Alsing
+"""
+    result = process_buyer_request(
+        files=[],
+        email_body=body,
+        email_subject="Quote request - facility supplies",
+        email_sender="keith.alsing@calvet.ca.gov",
+        email_uid="msg-uid-body-only",
+    )
+
+    assert result.ok is True
+    assert result.items_parsed == 2, (
+        f"expected body extraction to find 2 items, got {result.items_parsed}; "
+        f"reasons={result.reasons}")
+    assert any("body-extract" in r for r in result.reasons), (
+        f"expected body-extract reason, got {result.reasons}")
+
+    # Record must land as 'parsed' (with items) not 'needs_review' (zero items gate)
+    if result.record_type == "rfq":
+        from src.api.data_layer import load_rfqs
+        rec = load_rfqs().get(result.record_id)
+    else:
+        from src.api.data_layer import _load_price_checks
+        rec = _load_price_checks().get(result.record_id)
+    assert rec is not None
+    assert rec["status"] == "parsed", (
+        f"body-extracted record must be 'parsed', got {rec['status']!r}")
+
+    # Items must be tagged for downstream review
+    items = rec.get("items") or rec.get("line_items") or []
+    assert len(items) == 2
+    assert all(i.get("source") == "email_body_regex" for i in items)
+
+
+def test_ingest_v2_body_only_with_no_extractable_items_persists_body(temp_data_dir):
+    """When the body extractor also finds 0 items, the email body MUST be
+    persisted on the record so the operator can copy-paste manually from
+    the support view (Q3b fallback)."""
+    from src.core.ingest_pipeline import process_buyer_request
+
+    body = "Just touching base — nothing structured here. Call me if you have questions."
+    result = process_buyer_request(
+        files=[],
+        email_body=body,
+        email_subject="Touch base",
+        email_sender="someone@calvet.ca.gov",
+        email_uid="msg-uid-prose-only",
+    )
+
+    assert result.ok is True
+    assert result.items_parsed == 0
+
+    if result.record_type == "rfq":
+        from src.api.data_layer import load_rfqs
+        rec = load_rfqs().get(result.record_id)
+    else:
+        from src.api.data_layer import _load_price_checks
+        rec = _load_price_checks().get(result.record_id)
+    assert rec is not None
+    assert rec["status"] == "needs_review"
+    # Body persisted so operator can read it on the support view
+    assert "touching base" in (rec.get("body_text") or "").lower()
+
+
 def test_ingest_v2_with_items_still_lands_as_parsed(temp_data_dir, monkeypatch):
     """Sanity check: the gate only fires on items==0. Non-empty items
     keep the 'parsed' status."""
