@@ -4223,6 +4223,87 @@ def api_admin_scprs_format_drift_fix():
     return jsonify(result)
 
 
+@bp.route("/api/admin/scprs-orders-only-sentinel-cleanup", methods=["POST"])
+@auth_required
+@safe_route
+def api_admin_scprs_orders_only_sentinel_cleanup():
+    """Mark orders rows as is_test=1 when their po_number is a sentinel
+    value (TEST, N/A, TBD, etc.).
+
+    Per Mike 2026-04-28 + memory project_session_2026_04_28_sentinel_pos:
+    these are operator placeholders that leaked through without being
+    flagged as test data. Marking is_test=1 (rather than deleting) keeps
+    the order history but excludes it from operational counters and
+    from the SCPRS reconciler.
+
+    Scoped to the SCPRS reconciler's `orders_only.classification ==
+    'sentinel'` rows so we don't accidentally flip is_test=1 on a
+    legit row whose po_number happens to look junky.
+
+    Query:
+      dry_run=1 → preview only (default 0 → apply)
+
+    Returns:
+      {dry_run, candidates: int, rows_updated: int, samples: [...]}
+
+    Idempotent — once flipped, the row drops out of the orders_with_po
+    set (because the reconciler excludes is_test=1) so a second run
+    finds nothing.
+    """
+    from src.api.modules.routes_health import _classify_orders_only_po
+    from src.core.db import get_db
+
+    body = request.get_json(silent=True) or {}
+    dry_run = (request.args.get("dry_run", "0") in ("1", "true", "yes")
+               or body.get("dry_run") in (True, "1", "true"))
+
+    with get_db() as conn:
+        order_rows = conn.execute("""
+            SELECT id, po_number, agency, institution, total
+            FROM orders
+            WHERE COALESCE(is_test, 0) = 0
+              AND po_number IS NOT NULL AND po_number != ''
+        """).fetchall()
+
+    candidates = []
+    for r in order_rows:
+        po = (r["po_number"] or "").strip()
+        if _classify_orders_only_po(po) == "sentinel":
+            candidates.append({
+                "id": r["id"],
+                "po_number": po,
+                "agency": r["agency"] or "",
+                "institution": r["institution"] or "",
+                "total": float(r["total"] or 0),
+            })
+
+    result = {
+        "dry_run": dry_run,
+        "candidates": len(candidates),
+        "rows_updated": 0,
+        "samples": candidates,
+    }
+
+    if dry_run or not candidates:
+        return jsonify(result)
+
+    with get_db() as conn:
+        for c in candidates:
+            cur = conn.execute(
+                "UPDATE orders SET is_test = 1 WHERE id = ?",
+                (c["id"],),
+            )
+            result["rows_updated"] += cur.rowcount
+        conn.commit()
+
+    log.info(
+        "scprs orders-only sentinel cleanup: candidates=%d updated=%d "
+        "dry_run=%s", result["candidates"], result["rows_updated"],
+        dry_run,
+    )
+    return jsonify(result)
+
+
 @bp.route("/api/admin/scprs-watcher-scan", methods=["POST"])
 @auth_required
 @safe_route
