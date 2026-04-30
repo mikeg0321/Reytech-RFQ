@@ -5380,7 +5380,6 @@ _ROUTE_MODULES = [
     "routes_catalog_finance",  # Catalog, shipping, pricing, margins, payments, audit
     "routes_prd28",           # PRD-28: Quote lifecycle, email overhaul, leads, revenue, vendor intel
     "routes_analytics",       # PRD-29: Pipeline analytics, buyer intel, margin optimizer, settings, API v1
-    "routes_order_tracking",  # PRD-29: PO tracking, separate email inbox, line item lifecycle
     "routes_growth_intel",    # Features #8,10,11,13: Catalog growth, price alerts, win/loss, outreach
     "routes_v1",              # MCP-ready /api/v1/ endpoints for external AI agents
     "routes_search",          # Universal search across all record types
@@ -5563,14 +5562,6 @@ if os.environ.get("ENABLE_BACKGROUND_AGENTS", "true").lower() not in ("false", "
                         "volume failure = total data loss.")
     except Exception as _e:
         log.warning("Drive backup scheduler failed to start: %s", _e)
-
-    # ── Start PO Tracking Email Poller (auto-updates order status from vendor emails) ──
-    try:
-        # _start_po_poller is already in namespace from exec'd routes_order_tracking
-        _start_po_poller()
-        log.info("PO tracking poller started (checks vendor emails every 5min)")
-    except Exception as _e:
-        log.warning("PO tracking poller failed to start: %s", _e)
 
     # ── Start Invoice Poller (picks up QB invoice emails, enhances PDF) ─────
     try:
