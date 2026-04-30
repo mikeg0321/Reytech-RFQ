@@ -2185,6 +2185,7 @@ def api_pc_item_oracle(pcid, item_idx):
         result = get_pricing(
             description=desc, quantity=qty, cost=cost if cost > 0 else None,
             item_number=item_num, qty_per_uom=qpu, department=agency,
+            upc=item.get("upc", ""),
         )
         result["ok"] = True
         result["item_idx"] = item_idx
@@ -2768,7 +2769,8 @@ def api_pc_oracle_auto_price(pcid):
             oracle = get_pricing(
                 description=desc, quantity=qty,
                 cost=cost if cost > 0 else None,
-                item_number=item_num, qty_per_uom=qpu
+                item_number=item_num, qty_per_uom=qpu,
+                upc=item.get("upc", "") or p.get("upc", ""),
             )
             rec = oracle.get("recommendation") or {}
             market = oracle.get("market") or {}
@@ -3055,7 +3057,8 @@ def api_pc_quote_analysis(pcid):
             oracle = get_pricing(
                 description=desc, quantity=qty,
                 cost=cost if cost > 0 else None,
-                item_number=item_num, qty_per_uom=qpu
+                item_number=item_num, qty_per_uom=qpu,
+                upc=item.get("upc", "") or p.get("upc", ""),
             )
             market = oracle.get("market") or {}
             sc = oracle.get("source_counts") or {}

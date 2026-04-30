@@ -28,6 +28,7 @@ def recommend_price(
     source_type: str = "general",
     quantity: float = 1,
     config_overrides: Optional[dict] = None,
+    upc: str = "",
 ) -> dict:
     """Thin wrapper around pricing_oracle_v2.get_pricing()."""
     try:
@@ -35,7 +36,7 @@ def recommend_price(
         result = get_pricing(
             description, quantity=int(quantity or 1),
             cost=supplier_cost, item_number=item_number,
-            department=agency,
+            department=agency, upc=upc,
         )
         rec = result.get("recommendation", {})
         market = result.get("market", {})

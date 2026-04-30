@@ -55,6 +55,7 @@ def api_pricing_recommend():
                 item_number=item.get("item_number", ""),
                 department=agency,
                 line_count=line_count,
+                upc=item.get("upc", ""),
             )
             priced.append(r)
         result = {

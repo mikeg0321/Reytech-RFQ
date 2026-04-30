@@ -149,6 +149,7 @@ class LineItem(BaseModel):
     """Single line item with pricing."""
     line_no: int = 0
     item_no: str = ""           # MFG#, not ASIN (per feedback_item_identity)
+    upc: str = ""               # 12-digit UPC; strongest identifier for oracle lookup
     description: str = ""
     qty: Decimal = Decimal("1")
     uom: str = "EA"
