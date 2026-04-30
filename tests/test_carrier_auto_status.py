@@ -1,13 +1,16 @@
 """Carrier auto-status tests (Batch F2).
 
-Attaching a tracking number to an order line — whether on the V2
-order_line_items path (`order_dal.update_line_status`) or the legacy
-`/api/po/<id>/update-item` route — should auto-promote the line to
-``shipped`` and stamp ``carrier`` + ``ship_date`` without requiring
-the operator to also click a status button.
+Attaching a tracking number to an order line on the V2
+``order_dal.update_line_status`` path should auto-promote the line to
+``shipped`` and stamp ``carrier`` + ``ship_date`` without requiring the
+operator to also click a status button.
 
 Promotion is one-way: a tracking number must NEVER downgrade a line
 that was already manually marked ``delivered``.
+
+The legacy `/api/po/<id>/update-item` route was deleted with the orphan
+PO-tracking subsystem on 2026-04-29 (purchase_orders table family);
+its tests went with it.
 """
 import sqlite3
 import uuid
@@ -21,17 +24,6 @@ def _conn(temp_data_dir):
     db = sqlite3.connect(os.path.join(temp_data_dir, "reytech.db"))
     db.row_factory = sqlite3.Row
     return db
-
-
-def _ot_module():
-    import sys
-    return sys.modules["src.api.modules.routes_order_tracking"]
-
-
-@pytest.fixture(autouse=True)
-def _init_po_schema(app, temp_data_dir):
-    _ot_module()._init_po_tracking_db()
-    yield
 
 
 def _seed_v2_line(temp_data_dir, order_id, line_number=1, status="pending",
@@ -191,70 +183,3 @@ class TestV2DALAutoPromote:
         assert row["carrier"] == "DHL"
 
 
-class TestLegacyPOAutoPromote:
-    """The /api/po/<id>/update-item route is what the operator clicks.
-    Sending a tracking number with no explicit status must work."""
-
-    def _seed_po(self, temp_data_dir, po_number="PO-AUTO-LEG-1"):
-        from src.core.db import get_db
-        now = datetime.now().isoformat()
-        po_id = "po_" + po_number.replace("-", "_").lower()
-        with get_db() as conn:
-            conn.execute(
-                "INSERT INTO purchase_orders (id, po_number, status, total_amount, created_at, updated_at) "
-                "VALUES (?,?,?,?,?,?)",
-                (po_id, po_number, "received", 0, now, now)
-            )
-            cur = conn.execute(
-                "INSERT INTO po_line_items (po_id, line_number, description, "
-                "qty_ordered, unit_price, status, updated_at) "
-                "VALUES (?,?,?,?,?,?,?)",
-                (po_id, 1, "Widget", 1, 10.00, "pending", now)
-            )
-            return po_id, cur.lastrowid
-
-    def test_tracking_only_auto_promotes(self, auth_client, temp_data_dir):
-        po_id, line_id = self._seed_po(temp_data_dir, "PO-AUTO-LEG-A")
-
-        resp = auth_client.post(
-            f"/api/po/{po_id}/update-item",
-            json={"item_id": line_id, "tracking_number": "1Z999AA10123456784"}
-        )
-        assert resp.status_code == 200
-        assert resp.get_json()["ok"] is True
-
-        db = _conn(temp_data_dir)
-        row = db.execute(
-            "SELECT status, tracking_number, carrier, ship_date "
-            "FROM po_line_items WHERE id=?", (line_id,)
-        ).fetchone()
-        db.close()
-        assert row["status"] == "shipped"
-        assert row["tracking_number"] == "1Z999AA10123456784"
-        assert row["carrier"] == "UPS"
-        assert row["ship_date"]
-
-    def test_explicit_status_still_honored(self, auth_client, temp_data_dir):
-        """Operator passing status=delivered + tracking should land on delivered."""
-        po_id, line_id = self._seed_po(temp_data_dir, "PO-AUTO-LEG-B")
-
-        resp = auth_client.post(
-            f"/api/po/{po_id}/update-item",
-            json={"item_id": line_id, "status": "delivered",
-                  "tracking_number": "1Z999AA10123456784"}
-        )
-        assert resp.status_code == 200
-
-        db = _conn(temp_data_dir)
-        row = db.execute(
-            "SELECT status FROM po_line_items WHERE id=?", (line_id,)
-        ).fetchone()
-        db.close()
-        assert row["status"] == "delivered"
-
-    def test_no_status_no_tracking_returns_400(self, auth_client, temp_data_dir):
-        po_id, line_id = self._seed_po(temp_data_dir, "PO-AUTO-LEG-C")
-        resp = auth_client.post(
-            f"/api/po/{po_id}/update-item", json={"item_id": line_id}
-        )
-        assert resp.status_code == 400

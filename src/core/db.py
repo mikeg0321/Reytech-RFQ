@@ -367,9 +367,11 @@ CREATE INDEX IF NOT EXISTS idx_oal_action ON order_audit_log(action);
 -- quotes). Earlier plans called for UNIQUE on orders.po_number, which
 -- would have failed against legitimate multi-quote POs. This view
 -- exposes the per-PO aggregate (quote_count, total_amount) derived
--- live from orders rows — no sync, no drift possible, no name
--- collision with the unrelated `purchase_orders` table owned by
--- routes_order_tracking.py (PO email tracking subsystem).
+-- live from orders rows — no sync, no drift possible. The `purchase_orders`
+-- table family (po_emails, po_line_items, po_status_history) was a
+-- never-adopted parallel system, deleted 2026-04-29; the boot-time merge
+-- block below still tolerates the legacy tables on existing dev DBs but
+-- skips silently when they're gone.
 CREATE VIEW IF NOT EXISTS po_aggregate AS
 SELECT
     po_number,
