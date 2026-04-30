@@ -2400,6 +2400,7 @@ def lookup_prices(parsed_pc: dict) -> dict:
                     quantity=item.get("qty", 1) or 1,
                     cost=supplier_cost if supplier_cost > 0 else None,
                     item_number=item.get("item_number", ""),
+                    upc=item.get("upc", ""),
                 )
                 rec_price = (oracle.get("recommendation") or {}).get("quote_price")
                 if rec_price:

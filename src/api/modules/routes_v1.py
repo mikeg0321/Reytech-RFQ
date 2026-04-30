@@ -2302,9 +2302,10 @@ def api_v1_pricing_lookup():
     cost_str = request.args.get("cost")
     cost = float(cost_str) if cost_str else None
     item_num = request.args.get("item_number", "")
+    upc = request.args.get("upc", "")
     if not q:
         return api_response(error="No query", status=400)
-    result = get_pricing(q, quantity=qty, cost=cost, item_number=item_num)
+    result = get_pricing(q, quantity=qty, cost=cost, item_number=item_num, upc=upc)
     try:
         from src.core.usage_tracker import track_feature
         track_feature("pricing_lookup", q[:60])

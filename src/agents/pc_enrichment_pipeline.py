@@ -926,6 +926,7 @@ def _run_pipeline(pc_id: str, force: bool):
                 cost=it["pricing"].get("unit_cost") or it.get("supplier_cost"),
                 item_number=it.get("item_number", ""),
                 qty_per_uom=it.get("qty_per_uom", 1),
+                upc=it.get("upc", ""),
             )
             if oracle.get("recommendation", {}).get("quote_price"):
                 it["oracle_price"] = oracle["recommendation"]["quote_price"]

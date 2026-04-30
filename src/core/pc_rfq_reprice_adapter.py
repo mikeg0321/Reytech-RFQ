@@ -93,6 +93,7 @@ def oracle_pricer_for_line(line: dict, agency: str = "") -> dict | None:
             cost=cost,
             item_number=mfg,
             department=agency or "",
+            upc=(line.get("upc") or "").strip(),
         )
     except Exception as e:
         log.warning("oracle_pricer_for_line: get_pricing failed for %r: %s",

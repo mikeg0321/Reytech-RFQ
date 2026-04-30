@@ -214,6 +214,7 @@ def enrich_pricing(quote: Quote, *, apply: bool = False) -> Quote:
                 description=item.description,
                 quantity=float(item.qty or 1),
                 item_number=item.item_no or "",
+                upc=item.upc or "",
             )
             rec = _oracle_recommendation_to_flat(raw)
         except Exception as e:

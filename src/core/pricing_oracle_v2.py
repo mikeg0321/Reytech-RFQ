@@ -45,13 +45,16 @@ def drain_skips() -> list[SkipReason]:
 
 def get_pricing(description, quantity=1, cost=None, item_number="",
                 department="", force_refresh=False, qty_per_uom=1,
-                line_count=None):
+                line_count=None, upc=""):
     """THE pricing function. Call this for everything.
     qty_per_uom: pack size (e.g., 200 for a box of 200 markers). Used to
     normalize cost to per-unit for proper comparison with market data.
     line_count: total line count on the quote/PC (BUILD-2). When the
     caller knows this, the volume-aware band narrows by line-count
-    bucket; missing it falls to the mid-density 'lc_4_15' default."""
+    bucket; missing it falls to the mid-density 'lc_4_15' default.
+    upc: 12-digit UPC. When present, item-memory matches by UPC first
+    (strongest identifier) before MFG#/description. Pass through from
+    item['upc'] so 704B / parsed-PDF items get the strongest match."""
     import sqlite3
     from src.core.db import DB_PATH
 
@@ -69,7 +72,7 @@ def get_pricing(description, quantity=1, cost=None, item_number="",
     db = sqlite3.connect(DB_PATH, timeout=10)
 
     # Step 1: Check item memory
-    memory = _check_item_memory(db, description, item_number)
+    memory = _check_item_memory(db, description, item_number, upc=upc)
     if memory:
         result["matched_item"] = memory
         result["confidence"] = memory.get("confidence", 0.95)
@@ -278,7 +281,7 @@ def recommend_quote_markup(agency, items=None, parent_agency=None, limit=200):
             "outliers_dropped": agency_dropped + parent_dropped}
 
 
-def recommend_for_item(description, part_number="", qty=1):
+def recommend_for_item(description, part_number="", qty=1, upc=""):
     """Flat-shape adapter over get_pricing() for quote_engine.enrich_pricing.
 
     quote_engine imports this symbol and expects a flat dict with keys
@@ -290,7 +293,7 @@ def recommend_for_item(description, part_number="", qty=1):
     was dead on every orchestrated quote run.
     """
     try:
-        out = get_pricing(description, quantity=qty, item_number=part_number or "")
+        out = get_pricing(description, quantity=qty, item_number=part_number or "", upc=upc or "")
     except Exception as e:
         log.warning("recommend_for_item: get_pricing failed for %r: %s", description, e)
         return None
@@ -318,8 +321,13 @@ def recommend_for_item(description, part_number="", qty=1):
     }
 
 
-def _check_item_memory(db, description, item_number=""):
-    """Return ALL stored fields for a matched item."""
+def _check_item_memory(db, description, item_number="", upc=""):
+    """Return ALL stored fields for a matched item.
+
+    Lookup priority (per Mike's identifier-first rule): UPC -> MFG#/item_number
+    -> exact description. UPC is the strongest physical-product identifier;
+    we honor it before MFG# because the same MFG# can collide across SKUs
+    when one supplier mis-keys an item."""
     _cols = """canonical_description, canonical_item_number, product_url, mfg_number,
                supplier, last_cost, confidence, times_confirmed, asin, uom,
                supplier_url, last_sell_price, mfg_name"""
@@ -341,6 +349,15 @@ def _check_item_memory(db, description, item_number=""):
         }
 
     try:
+        if upc:
+            row = db.execute(f"""
+                SELECT {_cols} FROM item_mappings
+                WHERE LOWER(upc)=LOWER(?) AND confirmed=1 LIMIT 1
+            """, (upc,)).fetchone()
+            result = _row_to_dict(row, "exact_upc")
+            if result:
+                return result
+
         if item_number:
             row = db.execute(f"""
                 SELECT {_cols} FROM item_mappings
