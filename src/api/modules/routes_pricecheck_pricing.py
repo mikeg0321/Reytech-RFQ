@@ -846,12 +846,6 @@ def api_pricecheck_mark_sent(pcid):
     
     _save_single_pc(pcid, pc)
 
-    try:
-        from src.core.dal import save_pc as _dal_save_pc
-        _dal_save_pc(pc)
-    except Exception as _e:
-        log.debug("DAL save_pc: %s", _e)
-    
     _log_crm_activity(pc.get("reytech_quote_number", pcid), "quote_sent",
         f"Quote sent for PC #{pc.get('pc_number','')} to {pc.get('institution','')}", actor="user")
     
@@ -927,11 +921,6 @@ def api_pricecheck_mark_sent_manually(pcid):
     }
 
     _save_single_pc(pcid, pc)
-    try:
-        from src.core.dal import save_pc as _dal_save_pc
-        _dal_save_pc(pc)
-    except Exception as _e:
-        log.debug("DAL save_pc (manual sent) suppressed: %s", _e)
 
     # On-sent hooks, each wrapped so one failure can't block the flip.
     try:

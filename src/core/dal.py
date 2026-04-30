@@ -28,19 +28,9 @@ from datetime import datetime, timezone
 log = logging.getLogger("dal")
 
 
-def _clean_po_number_for_dal(raw):
-    """Lazy delegation to order_dal.clean_po_number — defers the
-    import until first call to avoid the dal↔order_dal circular at
-    module load time. Sentinel set lives in order_dal so every
-    write site agrees on what counts as a placeholder."""
-    try:
-        from src.core.order_dal import clean_po_number
-        return clean_po_number(raw)
-    except Exception:
-        # Defensive — if order_dal import fails, fall back to
-        # passing the raw value through. Sentinels will still be
-        # caught by the daily backfill.
-        return str(raw or "").strip()
+# _clean_po_number_for_dal removed 2026-04-30 with save_order (V1 DAL audit
+# drift #1). order_dal.clean_po_number is called directly by every remaining
+# write site.
 
 try:
     from src.core.paths import DATA_DIR
@@ -735,17 +725,10 @@ def _audit(entity_type: str, entity_id: str, action: str, actor: str = None,
         log.warning("_audit(%s, %s, %s) failed: %s", entity_type, entity_id, action, e)
 
 
-def _snapshot_before_update(entity_type: str, entity_id: str, get_fn):
-    """Take a snapshot before overwriting an existing record. Never raises."""
-    try:
-        existing = get_fn(entity_id)
-        if existing:
-            from src.core.snapshots import create_snapshot, init_snapshots
-            init_snapshots()  # Ensure table exists (idempotent)
-            create_snapshot("dal", entity_type, existing, run_id=entity_id,
-                           notes=f"pre-update snapshot for {entity_type} {entity_id}")
-    except Exception as e:
-        log.warning("_snapshot_before_update(%s, %s) failed: %s", entity_type, entity_id, e)
+# _snapshot_before_update removed 2026-04-30 with save_rfq/save_pc/save_order
+# (V1 DAL audit drift #1). Pre-update snapshots are now the responsibility of
+# the canonical writers (data_layer + order_dal) — order_dal already records
+# audit_log rows on every write; data_layer writes through the same DB lock.
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -798,58 +781,10 @@ def list_rfqs(status: str = None, limit: int = 500) -> list[dict]:
         raise
 
 
-def save_rfq(rfq: dict, actor: str = "system") -> bool:
-    """Insert or update an RFQ record.
-    Input: rfq dict (must have 'id'), actor (str for audit trail)
-    Output: True on success.
-    Side effects: Writes to rfqs table.
-    """
-    rfq_id = rfq.get("id")
-    if not rfq_id:
-        raise ValueError("RFQ must have an 'id' field")
-    try:
-        with get_db() as conn:
-            _existing = conn.execute("SELECT id FROM rfqs WHERE id=?", (rfq_id,)).fetchone()
-            if _existing:
-                _snapshot_before_update("rfq", rfq_id, get_rfq)
-            conn.execute("""
-                INSERT INTO rfqs (id, received_at, agency, institution, requestor_name,
-                    requestor_email, rfq_number, items, status, source, email_uid, notes, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-                ON CONFLICT(id) DO UPDATE SET
-                    agency=excluded.agency, institution=excluded.institution,
-                    requestor_name=excluded.requestor_name, requestor_email=excluded.requestor_email,
-                    rfq_number=excluded.rfq_number, items=excluded.items,
-                    status=excluded.status, source=excluded.source,
-                    email_uid=excluded.email_uid, notes=excluded.notes,
-                    updated_at=excluded.updated_at
-            """, (rfq_id, rfq.get("received_at", ""), rfq.get("agency", ""),
-                  rfq.get("institution", ""), rfq.get("requestor_name", ""),
-                  rfq.get("requestor_email", ""), rfq.get("rfq_number", ""),
-                  json.dumps(rfq.get("items", []), default=str),
-                  rfq.get("status", "new"), rfq.get("source", ""),
-                  rfq.get("email_uid", ""), rfq.get("notes", "")))
-        # Audit trail
-        try:
-            _audit("rfq", rfq_id, "create" if not _existing else "update", actor,
-                   new_value=json.dumps(rfq, default=str)[:2000])
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
-        # Fire webhook for new RFQ creation
-        try:
-            from src.core.webhooks import fire_webhook
-            fire_webhook("rfq.created", {
-                "rfq_id": rfq_id,
-                "solicitation_number": rfq.get("solicitation_number", ""),
-                "agency": rfq.get("agency", ""),
-                "item_count": len(rfq.get("items", [])),
-            })
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
-        return True
-    except Exception as e:
-        log.error("save_rfq(%s) failed: %s", rfq_id, e, exc_info=True)
-        raise
+# save_rfq() deleted 2026-04-30 (V1 DAL audit drift #1). It wrote a 12-col
+# subset of rfqs and silently dropped solicitation_number / due_date /
+# form_type / body_text on rollback. Canonical writer lives in
+# src/api/data_layer.py:_save_single_rfq (22 cols + cache sync).
 
 
 def update_rfq_status(rfq_id: str, status: str, actor: str = "system") -> bool:
@@ -971,52 +906,8 @@ def list_pcs(status: str = None, limit: int = 500) -> list[dict]:
         raise
 
 
-def save_pc(pc: dict, actor: str = "system") -> bool:
-    """Insert or update a price check record.
-    Input: pc dict (must have 'id'), actor for audit
-    Output: True on success.
-    Side effects: Writes to price_checks table.
-    """
-    pc_id = pc.get("id")
-    if not pc_id:
-        raise ValueError("PC must have an 'id' field")
-    try:
-        with get_db() as conn:
-            _existing = conn.execute("SELECT id FROM price_checks WHERE id=?", (pc_id,)).fetchone()
-            if _existing:
-                _snapshot_before_update("price_check", pc_id, get_pc)
-            conn.execute("""
-                INSERT INTO price_checks (id, created_at, requestor, agency, institution,
-                    items, source_file, quote_number, pc_number, total_items, status,
-                    email_uid, email_subject, due_date, pc_data, ship_to)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(id) DO UPDATE SET
-                    requestor=excluded.requestor, agency=excluded.agency,
-                    institution=excluded.institution, items=excluded.items,
-                    status=excluded.status, quote_number=excluded.quote_number,
-                    pc_number=excluded.pc_number, total_items=excluded.total_items,
-                    email_uid=excluded.email_uid, email_subject=excluded.email_subject,
-                    due_date=excluded.due_date, pc_data=excluded.pc_data,
-                    ship_to=excluded.ship_to
-            """, (pc_id, pc.get("created_at", ""), pc.get("requestor", ""),
-                  pc.get("agency", ""), pc.get("institution", ""),
-                  json.dumps(pc.get("items", []), default=str),
-                  pc.get("source_file", ""), pc.get("quote_number", ""),
-                  pc.get("pc_number", ""), len(pc.get("items", [])),
-                  pc.get("status", "parsed"),
-                  pc.get("email_uid", ""), pc.get("email_subject", ""),
-                  pc.get("due_date", ""), pc.get("pc_data", "{}"),
-                  pc.get("ship_to", "")))
-        # Audit trail
-        try:
-            _audit("price_check", pc_id, "create" if not _existing else "update", actor,
-                   new_value=json.dumps(pc, default=str)[:2000])
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
-        return True
-    except Exception as e:
-        log.error("save_pc(%s) failed: %s", pc_id, e, exc_info=True)
-        raise
+# save_pc() deleted 2026-04-30 (V1 DAL audit drift #1). 16-col subset writer
+# replaced by canonical src/api/data_layer.py:_save_single_pc.
 
 
 def update_pc_status(pc_id: str, status: str, actor: str = "system") -> bool:
@@ -1107,68 +998,9 @@ def list_orders(status: str = None, limit: int = 500) -> list[dict]:
         raise
 
 
-def save_order(order: dict, actor: str = "system") -> bool:
-    """Insert or update an order record.
-    Input: order dict (must have 'id'), actor for audit
-    Output: True on success.
-    Side effects: Writes to orders table — `items` column only.
-
-    Orders V2 phase 4 (2026-04-14): the data_json blob write is
-    removed. order_dal.py already stopped writing the blob in V2
-    phase 3; this function was the last writer. The column itself
-    will be dropped in a follow-up PR after a 48h monitoring window.
-    """
-    order_id = order.get("id")
-    if not order_id:
-        raise ValueError("Order must have an 'id' field")
-    try:
-        with get_db() as conn:
-            _existing = conn.execute("SELECT id FROM orders WHERE id=?", (order_id,)).fetchone()
-            if _existing:
-                _snapshot_before_update("order", order_id, get_order)
-            # BUILD-10: mirror is_test from the linked quote so analytics
-            # can filter test orders out of headline revenue. If the order
-            # dict carries is_test directly, trust that; else resolve from
-            # the quote row.
-            _is_test = 1 if order.get("is_test") else 0
-            if not _is_test and order.get("quote_number"):
-                try:
-                    _qr = conn.execute(
-                        "SELECT is_test FROM quotes WHERE quote_number=?",
-                        (order.get("quote_number"),)
-                    ).fetchone()
-                    if _qr and _qr[0]:
-                        _is_test = 1
-                except Exception as _e:
-                    log.debug("is_test lookup suppressed: %s", _e)
-            conn.execute("""
-                INSERT INTO orders (id, quote_number, agency, institution, po_number,
-                    po_date, status, total, items, notes, created_at, updated_at, is_test)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)
-                ON CONFLICT(id) DO UPDATE SET
-                    quote_number=excluded.quote_number, agency=excluded.agency,
-                    institution=excluded.institution, po_number=excluded.po_number,
-                    po_date=excluded.po_date, status=excluded.status,
-                    total=excluded.total, items=excluded.items,
-                    notes=excluded.notes, updated_at=excluded.updated_at,
-                    is_test=excluded.is_test
-            """, (order_id, order.get("quote_number", ""), order.get("agency", ""),
-                  order.get("institution", ""),
-                  _clean_po_number_for_dal(order.get("po_number", "")),
-                  order.get("po_date", ""), order.get("status", "new"),
-                  order.get("total", 0),
-                  json.dumps(order.get("items", order.get("line_items", [])), default=str),
-                  order.get("notes", ""), order.get("created_at", ""), _is_test))
-        # Audit trail
-        try:
-            _audit("order", order_id, "create" if not _existing else "update", actor,
-                   new_value=json.dumps(order, default=str)[:2000])
-        except Exception as _e:
-            log.debug("suppressed: %s", _e)
-        return True
-    except Exception as e:
-        log.error("save_order(%s) failed: %s", order_id, e, exc_info=True)
-        raise
+# save_order() deleted 2026-04-30 (V1 DAL audit drift #1). 13-col subset
+# writer replaced by src/core/order_dal.py:save_order (20-col canonical
+# writer with the PR #664 ensure_quote_won_for_order hook).
 
 
 def update_order_status(order_id: str, status: str, actor: str = "system") -> bool:

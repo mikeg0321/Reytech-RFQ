@@ -23,18 +23,30 @@ def _read_data_json(order_id: str):
 
 
 class TestSaveOrderStopsDataJsonWrite:
-    def test_dal_save_order_does_not_write_blob(self, temp_data_dir):
-        from src.core.dal import save_order
-        save_order({
-            "id": "ord_test_1",
-            "quote_number": "R26Q999",
-            "agency": "cchcs",
-            "po_number": "PO123",
-            "total": 500.0,
-            "items": [{"description": "Test Item", "qty": 5, "price": 100}],
-            "status": "new",
-            "created_at": "2026-04-14T12:00:00",
-        })
+    def test_canonical_save_order_does_not_write_blob(self, temp_data_dir):
+        """Lock the V2 phase 4 invariant: orders.data_json is never written.
+
+        Originally tested core.dal.save_order, which was deleted 2026-04-30
+        (V1 DAL audit drift #1). The canonical writer in order_dal.save_order
+        is now the only path; this test confirms it also doesn't touch the
+        blob, so the column-drop follow-up stays safe."""
+        from src.core.order_dal import save_order
+        save_order(
+            "ord_test_1",
+            {
+                "id": "ord_test_1",
+                "order_id": "ord_test_1",
+                "quote_number": "R26Q999",
+                "agency": "cchcs",
+                "po_number": "PO123",
+                "total": 500.0,
+                "items": [{"description": "Test Item", "qty": 5, "price": 100}],
+                "line_items": [{"description": "Test Item", "qty": 5, "price": 100}],
+                "status": "new",
+                "created_at": "2026-04-14T12:00:00",
+            },
+            actor="test",
+        )
         blob = _read_data_json("ord_test_1")
         assert blob is None or blob == "", \
             f"data_json was written: {blob[:120] if blob else ''}"
