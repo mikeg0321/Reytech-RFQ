@@ -4,7 +4,23 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from src.core.db import init_db
-from src.core.dal import save_rfq, save_pc, save_order
+# Canonical writers — legacy core.dal.save_* stubs deleted 2026-04-30
+# (V1 DAL audit drift #1). _save_single_* takes (id, data); save_order
+# takes (order_id, order, actor).
+from src.api.data_layer import _save_single_rfq, _save_single_pc
+from src.core.order_dal import save_order as _save_order
+
+
+def save_rfq(data):
+    _save_single_rfq(data["id"], data)
+
+
+def save_pc(data):
+    _save_single_pc(data["id"], data)
+
+
+def save_order(data):
+    _save_order(data["id"], data, actor="test")
 
 
 @pytest.fixture

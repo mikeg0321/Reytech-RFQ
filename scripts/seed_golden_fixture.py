@@ -47,7 +47,9 @@ def seed():
     h = f["header"]
     items = f["line_items"]
 
-    from src.core.dal import save_pc, save_rfq
+    # Canonical writers (legacy core.dal.save_pc / save_rfq deleted 2026-04-30,
+    # V1 DAL audit drift #1).
+    from src.api.data_layer import _save_single_pc, _save_single_rfq
 
     now_iso = datetime.utcnow().isoformat(timespec="seconds")
 
@@ -77,7 +79,7 @@ def seed():
         "pc_data": json.dumps(pc_data, default=str),
         "ship_to": h["ship_to"],
     }
-    save_pc(pc, actor="seed_golden_fixture")
+    _save_single_pc(PC_ID, pc)
 
     rfq = {
         "id": RFQ_ID,
@@ -93,7 +95,7 @@ def seed():
         "email_uid": "",
         "notes": f"Test fixture from R25Q94 (real CCHCS quote, sol {h['solicitation_number']}). NEVER REAL.",
     }
-    save_rfq(rfq, actor="seed_golden_fixture")
+    _save_single_rfq(RFQ_ID, rfq)
 
     print(f"Seeded PC {PC_ID!r} and RFQ {RFQ_ID!r} (quote {RFQ_QUOTE_NUMBER!r})")
     print(f"  agency={h['agency']}, institution={h['institution']}")

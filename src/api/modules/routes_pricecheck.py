@@ -3042,11 +3042,6 @@ def pricecheck_upload_pdf(pcid):
         pc["status"] = "parsed"
         _sync_pc_items(pc, items)
         _save_single_pc(pcid, pc)
-        try:
-            from src.core.dal import save_pc as _dal_save_pc
-            _dal_save_pc(pc)
-        except Exception as _e:
-            log.debug("DAL save_pc: %s", _e)
         log.info("PC %s: uploaded file parsed → %d items", pcid, len(items))
         # Auto-enrich in background thread
         try:

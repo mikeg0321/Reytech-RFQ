@@ -21,9 +21,14 @@ log = logging.getLogger("reytech.task_consumer")
 
 def _handle_submit_rfq(payload: dict) -> dict:
     """Create a new RFQ from webhook payload."""
-    from src.core.dal import save_rfq
     rfq_id = payload.get("rfq_id", payload.get("id", ""))
-    save_rfq(payload, actor="task_queue")
+    if not rfq_id:
+        raise ValueError("submit_rfq payload missing rfq_id/id")
+    # Canonical writer: full 22-col shape + cache sync. The legacy
+    # core.dal.save_rfq stub was deleted 2026-04-30 (V1 DAL audit drift #1).
+    from src.api.data_layer import _save_single_rfq
+    payload["id"] = rfq_id
+    _save_single_rfq(rfq_id, payload)
     return {"rfq_id": rfq_id}
 
 

@@ -169,17 +169,12 @@ def api_v1_create_rfq():
         rfq["line_items"] = items  # alias — generate endpoint reads line_items
         rfq["_original_items"] = [dict(i) for i in items]  # snapshot for validation
 
-        from src.core.dal import save_rfq
-        save_rfq(rfq, actor="manual_form")
-
-        # Also write to JSON + dashboard cache so generate/autosave can find it
-        try:
-            from src.api.dashboard import load_rfqs, save_rfqs
-            rfqs = load_rfqs()
-            rfqs[rfq_id] = rfq
-            save_rfqs(rfqs)
-        except Exception as _e:
-            log.debug("RFQ JSON dual-write: %s", _e)
+        # Canonical writer — _save_single_rfq writes the full 22-column shape
+        # AND keeps the in-process cache in sync. The legacy core.dal.save_rfq
+        # was a 12-col stub that silently dropped solicitation_number / due_date /
+        # form_type / body_text on rollback (audit 2026-04-30 drift #1).
+        from src.api.data_layer import _save_single_rfq
+        _save_single_rfq(rfq_id, rfq)
 
         # If form submission, redirect to RFQ detail page
         if request.form:
@@ -472,19 +467,33 @@ def api_v1_rollback(snapshot_id):
     """Restore an entity from a snapshot."""
     try:
         from src.core.snapshots import restore_snapshot
-        from src.core.dal import save_rfq, save_pc, save_order
         result = restore_snapshot(snapshot_id)
         if not result.get("ok"):
             return api_response(error=result.get("error", "Restore failed"), status=404)
-        # Write restored data back via DAL
+        # Write restored data back via canonical writers. The legacy
+        # core.dal.save_* stubs (deleted 2026-04-30) silently dropped
+        # buyer_email / total_cost / margin_pct / ship_to_address AND
+        # skipped the PR #664 ensure_quote_won_for_order hook — meaning
+        # rolling back a paid order left its quote in 'open' status.
+        # Architecture-layer fix: rollback now uses the same writers as
+        # every other path, so the order→quote flip fires automatically.
         entity_type = result.get("entity")
         data = result.get("data")
         if entity_type == "rfq" and isinstance(data, dict):
-            save_rfq(data, actor="rollback")
+            rfq_id = data.get("id")
+            if rfq_id:
+                from src.api.data_layer import _save_single_rfq
+                _save_single_rfq(rfq_id, data)
         elif entity_type == "price_check" and isinstance(data, dict):
-            save_pc(data, actor="rollback")
+            pc_id = data.get("id")
+            if pc_id:
+                from src.api.data_layer import _save_single_pc
+                _save_single_pc(pc_id, data)
         elif entity_type == "order" and isinstance(data, dict):
-            save_order(data, actor="rollback")
+            order_id = data.get("id") or data.get("order_id")
+            if order_id:
+                from src.core.order_dal import save_order as _save_order_canonical
+                _save_order_canonical(order_id, data, actor="rollback")
         return api_response({"restored": True, "entity_type": entity_type,
                              "entity_id": result.get("row_count")})
     except Exception as e:
