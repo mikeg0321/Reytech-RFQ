@@ -74,6 +74,53 @@ def test_base_html_has_no_po_tracking_nav():
         "base.html still labels a nav entry 'PO Track'."
 
 
+def test_migration_35_drops_orphan_tables_idempotently():
+    """Migration 35 (drop_orphan_po_tracking_tables) uses IF EXISTS so it
+    runs cleanly whether the tables are present (prod migration path) or
+    already absent (fresh dev installs since PR #671 deleted the schema)."""
+    import sqlite3
+    import tempfile
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        # Pre-create the orphan tables to simulate a long-running prod DB.
+        conn = sqlite3.connect(path)
+        conn.executescript("""
+            CREATE TABLE purchase_orders (id TEXT PRIMARY KEY);
+            CREATE TABLE po_emails (id INTEGER PRIMARY KEY);
+            CREATE TABLE po_line_items (id INTEGER PRIMARY KEY);
+            CREATE TABLE po_status_history (id INTEGER PRIMARY KEY);
+        """)
+        conn.commit()
+
+        # Find migration 35 in the registry and run it.
+        from src.core.migrations import MIGRATIONS
+        m = [x for x in MIGRATIONS if x[0] == 35]
+        assert len(m) == 1, "migration 35 (drop_orphan_po_tracking_tables) missing"
+        version, name, sql = m[0]
+        assert name == "drop_orphan_po_tracking_tables"
+        conn.executescript(sql)
+        conn.commit()
+
+        names = {r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()}
+        assert "purchase_orders" not in names
+        assert "po_emails" not in names
+        assert "po_line_items" not in names
+        assert "po_status_history" not in names
+
+        # Idempotent: running again on the now-empty schema must succeed.
+        conn.executescript(sql)
+        conn.commit()
+        conn.close()
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def test_no_app_writes_to_purchase_orders_table():
     """No app code may INSERT/UPDATE/DELETE the `purchase_orders` family.
 

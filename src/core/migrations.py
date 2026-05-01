@@ -1022,6 +1022,22 @@ MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_operator_quote_sent_quote
             ON operator_quote_sent(quote_id);
     """),
+
+    (35, "drop_orphan_po_tracking_tables", """
+        -- Follow-up to PR #671 (2026-04-30 deletion of the orphan
+        -- routes_order_tracking subsystem). The 4 tables below were
+        -- never adopted in production — verified 0/0/0/0 rows on prod
+        -- before deletion. Their CREATE TABLE statements lived inside
+        -- the deleted route module, so fresh dev DBs since #671 don't
+        -- have them; this migration drops them where they still exist
+        -- (long-running prod + older dev shells) so future schema
+        -- introspection isn't misled by their presence. IF EXISTS keeps
+        -- the migration idempotent on fresh installs.
+        DROP TABLE IF EXISTS po_status_history;
+        DROP TABLE IF EXISTS po_emails;
+        DROP TABLE IF EXISTS po_line_items;
+        DROP TABLE IF EXISTS purchase_orders;
+    """),
 ]
 
 

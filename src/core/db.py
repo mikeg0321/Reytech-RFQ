@@ -369,9 +369,10 @@ CREATE INDEX IF NOT EXISTS idx_oal_action ON order_audit_log(action);
 -- exposes the per-PO aggregate (quote_count, total_amount) derived
 -- live from orders rows — no sync, no drift possible. The `purchase_orders`
 -- table family (po_emails, po_line_items, po_status_history) was a
--- never-adopted parallel system, deleted 2026-04-29; the boot-time merge
--- block below still tolerates the legacy tables on existing dev DBs but
--- skips silently when they're gone.
+-- never-adopted parallel system: routes deleted 2026-04-29 (PR #671),
+-- tables dropped 2026-05-01 (migration 35). The boot-time merge block
+-- below still gates on `sqlite_master` so it short-circuits on fresh
+-- installs and post-drop prod alike.
 CREATE VIEW IF NOT EXISTS po_aggregate AS
 SELECT
     po_number,
