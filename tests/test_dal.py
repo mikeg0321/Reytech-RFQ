@@ -1,4 +1,10 @@
-"""Tests for the DAL (Data Access Layer) — RFQ, PriceCheck, Order, LineItem."""
+"""Tests for the DAL (Data Access Layer) — RFQ, PriceCheck, Order, LineItem.
+
+Read/update tests still cover dal.py functions directly. The legacy
+`save_rfq` / `save_pc` / `save_order` were deleted on 2026-04-30 (V1 DAL
+audit drift #1, PR #669) because they wrote a 12-13 col subset and
+skipped the PR #664 ensure_quote_won_for_order hook. Tests now seed
+through the canonical writers, same pattern as test_v1_api.py."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -6,11 +12,29 @@ import pytest
 import sqlite3
 from src.core.db import get_db, DB_PATH, init_db
 from src.core.dal import (
-    get_rfq, list_rfqs, save_rfq, update_rfq_status,
-    get_pc, list_pcs, save_pc, update_pc_status,
-    get_order, list_orders, save_order, update_order_status,
+    get_rfq, list_rfqs, update_rfq_status,
+    get_pc, list_pcs, update_pc_status,
+    get_order, list_orders, update_order_status,
     get_line_items, save_line_items,
 )
+from src.api.data_layer import _save_single_rfq, _save_single_pc
+from src.core.order_dal import save_order as _save_order_canonical
+
+
+def save_rfq(data):
+    """Shim — canonical writer. Returns True for legacy call sites."""
+    _save_single_rfq(data["id"], data)
+    return True
+
+
+def save_pc(data):
+    _save_single_pc(data["id"], data)
+    return True
+
+
+def save_order(data):
+    _save_order_canonical(data["id"], data, actor="test")
+    return True
 
 
 @pytest.fixture(autouse=True)
@@ -116,34 +140,8 @@ class TestLineItems:
         assert items == []
 
 
-class TestAuditTrail:
-    def test_save_rfq_creates_audit(self):
-        save_rfq({"id": "AUD1", "status": "new", "received_at": "2026-01-01"})
-        from src.core.db import get_db
-        with get_db() as conn:
-            rows = conn.execute(
-                "SELECT * FROM audit_trail WHERE item_description='rfq' AND rfq_id='AUD1'"
-            ).fetchall()
-            assert len(rows) >= 1
-            assert rows[0]["field_changed"] in ("create", "update")
-
-
-class TestSnapshots:
-    def test_snapshot_taken_before_update(self):
-        save_rfq({"id": "SNAP1", "status": "new", "received_at": "2026-01-01", "agency": "BEFORE"})
-        save_rfq({"id": "SNAP1", "status": "new", "received_at": "2026-01-01", "agency": "AFTER"})
-        from src.core.snapshots import list_snapshots
-        snaps = list_snapshots(agent_name="dal")
-        snap_ids = [s["run_id"] for s in snaps]
-        assert "SNAP1" in snap_ids
-
-    def test_restore_returns_original(self):
-        save_rfq({"id": "REST1", "status": "new", "received_at": "2026-01-01", "agency": "ORIG"})
-        save_rfq({"id": "REST1", "status": "draft", "received_at": "2026-01-01", "agency": "CHANGED"})
-        from src.core.snapshots import list_snapshots
-        snaps = [s for s in list_snapshots(agent_name="dal") if s.get("run_id") == "REST1"]
-        assert len(snaps) >= 1
-        from src.core.snapshots import restore_snapshot
-        result = restore_snapshot(snaps[0]["id"])
-        assert result["ok"] is True
-        assert result["data"]["agency"] == "ORIG"
+# TestAuditTrail + TestSnapshots removed 2026-05-01: they locked the side
+# effects of the legacy `dal.save_rfq` (audit_trail row + agent_snapshots
+# entry on update). That writer was deleted with PR #669; the canonical
+# `_save_single_rfq` has its own audit semantics covered by the per-record
+# tests rather than as a side-effect contract on a no-longer-existent func.
