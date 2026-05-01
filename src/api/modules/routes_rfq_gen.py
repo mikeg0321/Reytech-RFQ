@@ -2049,6 +2049,21 @@ def generate_rfq_package(rid):
             if locked_qn:
                 t.step(f"Reusing locked quote number: {locked_qn}")
             else:
+                # Ghost-data gate (incident rfq_7813c4e1 / R26Q45 2026-05-01):
+                # never burn a real counter seq on an RFQ that hasn't passed
+                # ingest sanity — placeholder sol#, zero items, Reytech buyer.
+                from src.api.dashboard import is_ready_for_quote_allocation
+                _ok, _reasons = is_ready_for_quote_allocation(r)
+                if not _ok:
+                    t.fail("Quote number allocation BLOCKED — ghost data",
+                           reasons=_reasons)
+                    flash(
+                        "Cannot allocate a Reytech quote number — "
+                        + "; ".join(_reasons)
+                        + ". Fix the issues on the RFQ detail page, then re-generate.",
+                        "error",
+                    )
+                    return redirect(f"/rfq/{rid}")
                 # Allocate number BEFORE generating and save immediately
                 from src.forms.quote_generator import _next_quote_number
                 locked_qn = _next_quote_number()
@@ -2880,6 +2895,22 @@ def rfq_generate_quote(rid):
         except Exception as _e:
             log.debug('suppressed in rfq_generate_quote: %s', _e)
     if not locked_qn:
+        # Ghost-data gate (mirrors generate_rfq_package — incident
+        # rfq_7813c4e1 / R26Q45 2026-05-01). Refuse to burn a counter
+        # seq when the RFQ has placeholder sol#, zero items, or a
+        # Reytech-internal buyer.
+        from src.api.dashboard import is_ready_for_quote_allocation
+        _ok, _reasons = is_ready_for_quote_allocation(r)
+        if not _ok:
+            t.fail("Quote number allocation BLOCKED — ghost data",
+                   reasons=_reasons)
+            flash(
+                "Cannot allocate a Reytech quote number — "
+                + "; ".join(_reasons)
+                + ". Fix the issues on the RFQ detail page, then re-generate.",
+                "error",
+            )
+            return redirect(f"/rfq/{rid}")
         from src.forms.quote_generator import _next_quote_number
         locked_qn = _next_quote_number()
         r["reytech_quote_number"] = locked_qn
