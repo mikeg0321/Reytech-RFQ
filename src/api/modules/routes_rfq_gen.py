@@ -1613,7 +1613,14 @@ def generate_rfq_package(rid):
         # the filler that matches. Per Mike's directive, unknown templates
         # surface for manual profile registration — never blind-fill.
         # Closes audit item M.
-        if _include("703b") or _include("703c") or "703c" in tmpl or "703b" in tmpl:
+        #
+        # Agency-gate (incident 2026-05-01): a stale `tmpl["703b"]` carried
+        # over from a prior CCHCS workflow caused a CalVet RFQ to generate
+        # an empty 3-page 703B PDF (no /AcroForm fields) which then flunked
+        # 14 form_qa registry checks. Only attempt 703B/703C fill when the
+        # agency actually requires those forms — buyer-uploaded templates
+        # alone are not authorization to write a form the agency doesn't ship.
+        if _include("703b") or _include("703c"):
             _703_key = "703c" if "703c" in tmpl else "703b"
             _703_label = "703C" if _703_key == "703c" else "703B"
             if _703_key in tmpl and os.path.exists(tmpl[_703_key]):

@@ -137,13 +137,20 @@ FORM_FIELD_REGISTRY = {
         "required_fields": {
             "ContractorCompany Name": "company.name",
             "Address": "company.address",
-            "Phone": "company.phone",
-            "Email": "company.email",
+            # Vendor phone lives in `Phone_2`. The bare `Phone`, `Email`,
+            # `State Agency`, `Purchasing Agent`, and `PO` fields are the
+            # state-side blocks the buyer agency fills in — fill_calrecycle_standalone
+            # intentionally writes a single-space sentinel into them. Don't
+            # QA-check buyer fields against vendor identity.
+            "Phone_2": "company.phone",
             "Print Name": "company.owner",
             "Title": "company.title",
-            "State Agency": "rfq.agency",
         },
-        "date_fields": ["Date"],
+        # `Date` is rendered via `_calrecycle_fix_date` ReportLab overlay
+        # because the form's Date AcroField is unnamed and can't be
+        # populated through the values dict. Pypdf form-field readback
+        # always sees it empty — checking it here would always fail.
+        "date_fields": [],
         "signature_fields": ["Signature"],
     },
     "darfur": {
@@ -172,7 +179,9 @@ FORM_FIELD_REGISTRY = {
         "prefix_detect": False,
         "required_fields": {
             "NAME (This is required. Do not leave this line blank. Must match the payee\u2019s federal tax return)": "company.name",
-            "Federal Employer Identification Number (FEIN)": "company.fein",
+            # FEIN is rendered via `_overlay_std204_fein` because the
+            # template uses individual underline rectangles per digit, not
+            # a single AcroField \u2014 no form value to read back.
             "MAILING ADDRESS (number, street, apt. or suite no.) (See instructions on Page 2)": "company.address",
             "NAME OF AUTHORIZED PAYEE REPRESENTATIVE": "company.owner",
             "TITLE": "company.title",
@@ -582,8 +591,26 @@ def verify_package_completeness(
             fid = "darfur_act"
         elif "bidder" in fn_lower:
             fid = "bidder_decl"
-        elif "std204" in fn_lower:
+        elif "std204" in fn_lower or "payee" in fn_lower:
             fid = "std204"
+        elif "std205" in fn_lower:
+            fid = "std205"
+        elif "std1000" in fn_lower:
+            fid = "std1000"
+        elif "barstow" in fn_lower:
+            fid = "barstow_cuf"
+        elif "cv012" in fn_lower or "cuf" in fn_lower:
+            fid = "cv012_cuf"
+        elif "obs" in fn_lower or "1600" in fn_lower:
+            fid = "obs_1600"
+        elif "drug" in fn_lower:
+            fid = "drug_free"
+        elif "dsh" in fn_lower and "atta" in fn_lower:
+            fid = "dsh_attA"
+        elif "dsh" in fn_lower and "attb" in fn_lower:
+            fid = "dsh_attB"
+        elif "dsh" in fn_lower and "attc" in fn_lower:
+            fid = "dsh_attC"
         generated_ids.add(fid)
         result["generated"].append({"filename": fn, "form_id": fid})
 
