@@ -1652,6 +1652,53 @@ def _is_placeholder_number(value: str) -> bool:
     return False
 
 
+def is_ready_for_quote_allocation(rfq: dict) -> tuple[bool, list[str]]:
+    """Gate before burning a real quote-counter sequence on an RFQ.
+
+    Returns (ok, reasons). Caller should refuse to call _next_quote_number()
+    when ok is False and surface the reasons to the operator instead — never
+    silent-burn a seq on a ghost RFQ.
+
+    Incident 2026-05-01 (rfq_7813c4e1, R26Q45): Keith Alsing CalVet RFQ
+    parsed with `solicitation_number="WORKSHEET"` (placeholder fallback).
+    The generate route allocated R26Q45 unconditionally, polluting the
+    QuoteWerks-synced sequence with a phantom on bad data. Mike's fix:
+    block allocation when ghost markers are present; force the operator
+    to fix the sol# (or buyer/items) before any counter moves.
+
+    Hard rules (block allocation):
+      1. solicitation_number is a placeholder per `_is_placeholder_number`
+         (covers WORKSHEET / GOOD / RFQ / blank / single all-caps junk)
+      2. Zero line items (nothing to quote)
+      3. Buyer email is a Reytech address (Reytech is never the buyer)
+
+    Soft rules (warn but allow) live separately on the operator UI —
+    classifier confidence, missing institution, etc. — so this gate
+    stays narrow + grep-able and the operator override path stays clear.
+    """
+    reasons: list[str] = []
+
+    sol = rfq.get("solicitation_number") or ""
+    if _is_placeholder_number(sol):
+        reasons.append(
+            f"solicitation_number is a placeholder ({sol!r}) — fix the "
+            f"sol# on the RFQ detail page before generating"
+        )
+
+    items = rfq.get("line_items") or rfq.get("items") or []
+    if not items:
+        reasons.append("zero line items — nothing to quote")
+
+    buyer_email = (rfq.get("requestor_email") or "").lower().strip()
+    if buyer_email.endswith("@reytechinc.com"):
+        reasons.append(
+            f"buyer email {buyer_email!r} is a Reytech address — "
+            "Reytech is never the buyer (parser misclassified sender)"
+        )
+
+    return (len(reasons) == 0, reasons)
+
+
 def _extract_due_date(text):
     """Extract due date from text (email subject, body, PDF text).
     Normalizes all dates to MM/DD/YYYY format."""
