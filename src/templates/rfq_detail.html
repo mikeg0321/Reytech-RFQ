@@ -88,7 +88,23 @@
     <span style="font-size:12px;color:var(--tx2)">drop anything — auto-routes to slots</span>
    </div>
    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">
-    {% set _slot_defs = [('email_screenshot','📧','Email'),('703b','📄','703B'),('703c','📄','703C'),('704b','📋','704B'),('bidpkg','📦','BidPkg')] %}
+    {# Slot row is agency-aware. Each agency surfaces only the buyer-issued #}
+    {# document slots the form_classifier can actually route to for that   #}
+    {# workflow. CalVet/DGS/CalFire RFQs don't ship 703B/704B at all —     #}
+    {# surfacing those slots was misleading (Mike, 2026-05-01). DSH ships  #}
+    {# AttA/B/C; the classifier already has slots for those. For agencies  #}
+    {# without classifier slots, only Email is tracked here — the buyer's  #}
+    {# RFQ PDF lands in the attachments table and surfaces in that section.#}
+    {% set _ak = (agency_key or 'cchcs')|lower %}
+    {% if _ak == 'cchcs' %}
+     {% set _slot_defs = [('email_screenshot','📧','Email'),('703b','📄','703B'),('703c','📄','703C'),('704b','📋','704B'),('bidpkg','📦','BidPkg')] %}
+    {% elif _ak == 'dsh' %}
+     {% set _slot_defs = [('email_screenshot','📧','Email'),('dsh_attA','📄','AttA'),('dsh_attB','📄','AttB'),('dsh_attC','📄','AttC')] %}
+    {% else %}
+     {# CalVet, CalVet-Barstow, DGS, CalFire, and any other non-CCHCS    #}
+     {# agency: only the Email slot. RFQ PDF goes to attachments.        #}
+     {% set _slot_defs = [('email_screenshot','📧','Email')] %}
+    {% endif %}
     {% for slot, icon, label in _slot_defs %}
      {% set _filled = (slot == 'email_screenshot' and _es.get('path')) or (slot != 'email_screenshot' and _t.get(slot)) %}
      <span style="padding:3px 9px;border-radius:5px;font-weight:600;{% if _filled %}background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.3){% else %}background:var(--sf2);color:var(--tx2);border:1px solid var(--bd){% endif %}" title="{{ 'uploaded' if _filled else 'missing' }}">{{ icon }} {{ label }}{% if _filled %} ✓{% endif %}</span>
@@ -98,7 +114,10 @@
   <div id="cb-drop" ondragover="event.preventDefault();this.style.borderColor='#58a6ff';this.style.background='rgba(88,166,255,.08)'" ondragleave="this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent'" ondrop="event.preventDefault();this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent';_cbUpload(event.dataTransfer.files)" onclick="document.getElementById('cb-input').click()" style="cursor:pointer;padding:18px;border:2px dashed rgba(88,166,255,.4);border-radius:8px;text-align:center;color:var(--tx2);font-size:13px;transition:all .15s">
    <div style="font-size:20px;margin-bottom:4px">⬆️</div>
    <div><strong style="color:var(--tx)">Drop files or click to upload</strong></div>
-   <div style="margin-top:4px;font-size:12px">PDFs (703B, 703C, 704B, bid package) · Images (email screenshot as contract) · Anything else → attachment</div>
+   <div style="margin-top:4px;font-size:12px">
+    {% if _ak == 'cchcs' %}PDFs (703B, 703C, 704B, bid package){% elif _ak == 'dsh' %}PDFs (Attachments A, B, C){% else %}RFQ PDFs and supporting documents{% endif %}
+    · Images (email screenshot as contract) · Anything else → attachment
+   </div>
    <input type="file" id="cb-input" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tif,.tiff" style="display:none" onchange="_cbUpload(this.files)">
   </div>
   <div id="cb-results" style="display:none;margin-top:10px;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:12px;font-family:'JetBrains Mono',monospace"></div>
@@ -759,6 +778,12 @@
   </div>
  </div>
 
+ {# QA gate banner — sits ABOVE the action bar so its bullet list never #}
+ {# crowds or visually overlaps the Finalize/Generate/Send buttons.    #}
+ {# Filled by applyGate() in rfqQaGate() below. Empty (display:none)   #}
+ {# until the QA fetch returns blockers.                                #}
+ <div id="rfq-qa-gate-banner" data-testid="rfq-qa-gate-banner" style="display:none;margin-top:14px;margin-bottom:6px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px;line-height:1.5"></div>
+
  <!-- ── Primary Actions (Bundle-3 PR-3a: one primary CTA + collapsed More ▾) ── -->
  <div data-testid="rfq-primary-actions" style="margin-top:14px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
   <button type="submit" class="btn btn-p" data-testid="rfq-save-pricing" data-qa-gated="1" onclick="this.textContent='⏳ Saving...';this.disabled=true;this.form.submit()" style="font-size:15px;padding:12px 28px;font-weight:700" aria-label="Finalize pricing and save">✅ Finalize Pricing</button>
@@ -807,7 +832,6 @@
    b.setAttribute('aria-expanded', 'false');
  });
  </script>
- <div id="rfq-qa-gate-banner" style="display:none;margin-top:10px;padding:10px 14px;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.35);border-radius:8px;color:#f85149;font-size:13px"></div>
 
  {# ── Bundle-3 PR-3b: Sticky CTA bar (audit Q — scroll fatigue) ──
     A 1-line companion bar pinned to viewport bottom. Mirrors the
@@ -821,6 +845,11 @@
     testid lookup, so QA gating, busy-state toggles, and click logging
     all flow through the existing primary-bar code path. #}
  <div id="rfq-sticky-cta" data-testid="rfq-sticky-cta" role="region" aria-label="Sticky quote actions" style="position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(13,17,23,.96);border-top:1px solid var(--bd);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:10px 16px;display:none;box-shadow:0 -4px 18px rgba(0,0,0,.45)">
+  {# QA gate chip — slim version of the inline banner, lives INSIDE the #}
+  {# sticky CTA so when the user is scrolled past the inline action bar #}
+  {# the blocker count + most-urgent message travels with the buttons.  #}
+  {# Click to scroll to the inline banner for the full bullet list.     #}
+  <div id="sticky-qa-gate-chip" data-testid="sticky-qa-gate-chip" onclick="document.getElementById('rfq-qa-gate-banner').scrollIntoView({behavior:'smooth',block:'center'})" style="display:none;max-width:1400px;margin:0 auto 8px auto;padding:6px 10px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);border-radius:6px;color:#f85149;font-size:12px;font-weight:600;cursor:pointer;line-height:1.4"></div>
   <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between">
    <div style="display:flex;align-items:center;gap:18px;font-size:12px;color:var(--tx2);min-width:0">
     <div><span style="text-transform:uppercase;font-size:9px;letter-spacing:.5px;color:var(--tx2);margin-right:6px">Total</span><span id="sticky-total" data-testid="sticky-total" style="font-family:'JetBrains Mono',monospace;color:var(--tx);font-weight:700;font-size:15px">$0.00</span></div>
@@ -1415,9 +1444,11 @@ var _landedSummary = {{landed_summary|default({})|tojson}};
   function applyGate(report){
     var blockers = (report && report.issues || []).filter(function(i){ return i.severity === 'blocker'; });
     var banner = document.getElementById('rfq-qa-gate-banner');
+    var stickyChip = document.getElementById('sticky-qa-gate-chip');
     var btns = document.querySelectorAll('[data-qa-gated="1"]');
     if (!blockers.length) {
       if (banner) banner.style.display = 'none';
+      if (stickyChip) stickyChip.style.display = 'none';
       btns.forEach(function(b){
         if (b.dataset._qaDisabled === '1') {
           b.disabled = false;
@@ -1434,6 +1465,16 @@ var _landedSummary = {{landed_summary|default({})|tojson}};
       var more = blockers.length > 3 ? '<br><span style="opacity:.7">+ ' + (blockers.length - 3) + ' more</span>' : '';
       banner.innerHTML = '🚫 <b>' + blockers.length + ' QA blocker' + (blockers.length === 1 ? '' : 's') + '</b> — destructive actions disabled until cleared.<br>' + first + more;
       banner.style.display = 'block';
+    }
+    if (stickyChip) {
+      // Sticky chip mirrors the inline banner with a one-line summary so
+      // when the operator is scrolled past the inline action bar, the
+      // most-urgent blocker travels with them. Clicking jumps back to
+      // the inline banner for the full bullet list.
+      var top = blockers[0];
+      var topMsg = (top && (top.message || top.field)) || 'blocker';
+      stickyChip.innerHTML = '🚫 <b>' + blockers.length + ' QA blocker' + (blockers.length === 1 ? '' : 's') + '</b> — ' + topMsg + (blockers.length > 1 ? ' <span style="opacity:.7">(+' + (blockers.length - 1) + ' more — click to view)</span>' : '');
+      stickyChip.style.display = 'block';
     }
     btns.forEach(function(b){
       b.disabled = true;
