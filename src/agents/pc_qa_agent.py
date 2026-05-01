@@ -195,10 +195,28 @@ def _check_math(idx: int, item: dict, p: dict) -> list:
 # ─── PROFIT: do we meet the $75 floor? ─────────────────────────────────────
 
 def _check_profit(pc: dict, items: list) -> list:
+    """Profit-floor check. Skips when any active item lacks a sell price —
+    in that state, the per-item `_sell_price` returns 0 while `unit_cost`
+    is set, so iterating the items computes profit as `(0 - cost) * qty`
+    on the unpriced lines. That produces a giant negative number that
+    looks like a real loss but is actually a "missing price" signal.
+    The per-item "Cost exists but no sell price set" + aggregate "N of M
+    active items have no price" blockers in `_check_completeness` already
+    cover the actionable state; firing the profit floor on top of them
+    just confuses the operator with a fictional profit figure (incident
+    2026-05-01, Mike's screenshot)."""
     issues = []
-    profit_summary = pc.get("profit_summary") or {}
 
-    # Calculate from items if no summary
+    active = [it for it in items if not it.get("no_bid")]
+    unpriced_active = sum(
+        1 for it in active
+        if _sell_price(it, it.get("pricing") or {}) <= 0
+        and float((it.get("pricing") or {}).get("unit_cost") or it.get("vendor_cost") or 0) > 0
+    )
+    if unpriced_active:
+        return issues  # profit unknowable until prices are set
+
+    profit_summary = pc.get("profit_summary") or {}
     total_revenue = float(profit_summary.get("total_revenue") or 0)
     total_cost = float(profit_summary.get("total_cost") or 0)
     gross_profit = float(profit_summary.get("gross_profit") or 0)
@@ -206,11 +224,10 @@ def _check_profit(pc: dict, items: list) -> list:
     if not gross_profit and total_revenue and total_cost:
         gross_profit = total_revenue - total_cost
 
-    # Fallback: calculate from items directly
+    # Fallback: calculate from items directly. Safe now that we've gated on
+    # unpriced_active above — every active item has a sell price ≥ 0.
     if not gross_profit:
-        for it in items:
-            if it.get("no_bid"):
-                continue
+        for it in active:
             p = it.get("pricing") or {}
             price = _sell_price(it, p)
             cost = float(p.get("unit_cost") or it.get("vendor_cost") or 0)
