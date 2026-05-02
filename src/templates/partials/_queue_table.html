@@ -68,9 +68,13 @@
    {% for id, r in items.items() %}
    <tr class="home-row" id="{{ queue_type }}-row-{{ id }}"
        onclick="location.href='{{ r.url }}'"
+       oncontextmenu="showQueueContextMenu('{{ queue_type }}','{{ id }}',event)"
+       data-testid="queue-row-{{ queue_type }}-{{ id }}"
        data-search="{{ (r.number or '')|lower }} {{ (r.institution or '')|lower }} {{ (r.buyer or '')|lower }} {{ r.display_status|lower }}"
        data-urgency="{{ r._urgency|default('') }}"
        data-priced="{{ r._readiness.get('priced', 0)|default(0) }}"
+       data-status="{{ (r.status or '')|lower }}"
+       data-url="{{ r.url }}"
        style="border-left:3px solid {% if r._urgency == 'overdue' %}#f85149{% elif r._urgency == 'critical' %}#f0883e{% elif r._urgency == 'urgent' %}#e6a700{% elif r._urgency == 'soon' %}#d29922{% else %}transparent{% endif %};{% if r.status in ('sent','generated') %}opacity:0.55{% endif %}">
     {# Col 0: Checkbox #}
     <td onclick="event.stopPropagation()"><input type="checkbox" class="{{ queue_type }}-check row-check" value="{{ id }}" onchange="updateBulkBar('{{ queue_type }}')"></td>
