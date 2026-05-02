@@ -145,19 +145,21 @@ def _apply_one(conn: sqlite3.Connection, c: dict, thread_id: str) -> None:
     blob["email_thread_id"] = thread_id
     blob["email_thread_id_backfilled_at"] = _utc_iso()
     table = "price_checks" if c["kind"] == "pc" else "rfqs"
-    # Update both the JSON blob and (if column exists) the dedicated column.
-    # Try column update first; fall back gracefully on older schemas.
-    try:
-        conn.execute(
-            f"UPDATE {table} SET data_json=?, email_thread_id=?, "
-            f"updated_at=? WHERE id=?",
-            (json.dumps(blob, default=str), thread_id, _utc_iso(), c["id"])
-        )
-    except sqlite3.OperationalError:
-        conn.execute(
-            f"UPDATE {table} SET data_json=?, updated_at=? WHERE id=?",
-            (json.dumps(blob, default=str), _utc_iso(), c["id"])
-        )
+    # Build UPDATE dynamically from the columns the table actually has.
+    # Older prod schemas lack `updated_at`; B1 added `email_thread_id` but
+    # we still want this script to work against fresh test DBs that don't
+    # have it yet either.
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    sets = ["data_json=?"]
+    params = [json.dumps(blob, default=str)]
+    if "email_thread_id" in cols:
+        sets.append("email_thread_id=?")
+        params.append(thread_id)
+    if "updated_at" in cols:
+        sets.append("updated_at=?")
+        params.append(_utc_iso())
+    params.append(c["id"])
+    conn.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE id=?", params)
 
 
 def _fmt_row(c: dict, tid: str = "") -> str:
