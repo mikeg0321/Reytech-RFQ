@@ -1123,10 +1123,20 @@ def stale_quotes():
 
     stale = []
 
+    # PR-3 (#693): "stale awaiting buyer" reads off canonical
+    # `is_awaiting_buyer` (status in {sent, pending_award} + non-empty
+    # sent_at + sent_at != created_at). The integrity guard was the
+    # bug Mike caught on 2026-05-02 — every row in the Sent table
+    # stamped "today" because a writer was filling sent_at with
+    # created_at. Routing the awaiting widget through canonical means
+    # those bogus rows don't show as "stale 0 days" any more; they
+    # show up in PR-5's integrity sweep instead.
+    from src.core.canonical_state import is_awaiting_buyer
+
     # Check RFQs
     rfqs = load_rfqs()
     for rid, r in rfqs.items():
-        if r.get("status") != "sent":
+        if not is_awaiting_buyer(r):
             continue
         sent_at = r.get("sent_at", "")
         if sent_at and sent_at < cutoff:
@@ -1151,10 +1161,19 @@ def stale_quotes():
                 "link": f"/rfq/{rid}",
             })
 
-    # Check PCs
+    # Check PCs — same canonical predicate. PCs accept
+    # `pending_award` too (PC-only post-sent state where the buyer is
+    # still selecting between competing vendor prices). Both are
+    # buyer-owes-work; the operator has nothing to do until reply.
     pcs = _load_price_checks()
     for pid, pc in pcs.items():
-        if pc.get("status") not in ("sent", "pending_award"):
+        # PCs sometimes stamp `completed_at` instead of `sent_at`;
+        # surface that field through to the canonical predicate so
+        # the integrity check still applies.
+        _pc_for_canon = dict(pc)
+        if not _pc_for_canon.get("sent_at"):
+            _pc_for_canon["sent_at"] = pc.get("completed_at", "")
+        if not is_awaiting_buyer(_pc_for_canon):
             continue
         sent_at = pc.get("sent_at", pc.get("completed_at", ""))
         if sent_at and sent_at < cutoff:

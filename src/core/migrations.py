@@ -1162,6 +1162,34 @@ MIGRATIONS = [
           AND logged_at >= '2026-01-01' AND logged_at < '2027-01-01'
           AND COALESCE(source, '') != 'order';
     """),
+    (38, "active_queue_views_exclude_pending_award", """
+        -- PR-3: ACTIVE_QUEUE_EXCLUDED_STATUSES grew `pending_award`.
+        -- It's a Price-Check post-sent state (buyer is comparing
+        -- vendor prices before issuing the PO) — operator-owes-zero,
+        -- buyer-owes-everything. Belongs out of the active queue.
+        -- Recreate v_active_queue_pcs and v_active_queue_rfqs to
+        -- match the Python predicate `is_active_queue` so the view
+        -- and predicate don't drift.
+        DROP VIEW IF EXISTS v_active_queue_rfqs;
+        CREATE VIEW v_active_queue_rfqs AS
+        SELECT *
+        FROM rfqs
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled');
+
+        DROP VIEW IF EXISTS v_active_queue_pcs;
+        CREATE VIEW v_active_queue_pcs AS
+        SELECT *
+        FROM price_checks
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled');
+    """),
 ]
 
 

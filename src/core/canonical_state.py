@@ -83,10 +83,25 @@ REVENUE_YEAR: int = 2026
 
 #: Statuses that take an RFQ/PC out of the active operator queue. Once
 #: a record reaches any of these, the operator is no longer expected
-#: to act on it as part of "today's work". Sent → buyer's turn; the
-#: rest are terminal outcomes.
+#: to act on it as part of "today's work". Sent / pending_award →
+#: buyer's turn; the rest are terminal outcomes.
+#:
+#: `pending_award` is a Price-Check-only state meaning "we sent the
+#: PC, buyer is comparing competing prices before issuing the PO".
+#: From the operator's perspective it's identical to 'sent' (no
+#: action owed until the buyer responds) so it lives here, not in
+#: the active queue. Added 2026-05-02 (PR-3) when migrating the
+#: home page filters off ad-hoc allow-lists.
 ACTIVE_QUEUE_EXCLUDED_STATUSES: frozenset[str] = frozenset({
-    "sent", "won", "lost", "no_bid", "cancelled",
+    "sent", "pending_award", "won", "lost", "no_bid", "cancelled",
+})
+
+#: Statuses where we've handed off to the buyer and are now waiting
+#: for them to act. Powers the "Awaiting Response" / stale-quotes
+#: widget. RFQs flip to `sent`; PCs flip to `sent` or `pending_award`
+#: (depending on agency workflow). Both are buyer-owes-work states.
+AWAITING_BUYER_STATUSES: frozenset[str] = frozenset({
+    "sent", "pending_award",
 })
 
 #: Subset of ACTIVE_QUEUE_EXCLUDED_STATUSES that are *terminal*
@@ -218,16 +233,45 @@ def is_real_sent(record: Mapping[str, Any]) -> bool:
         return False
     if _normalize_status(record) != "sent":
         return False
+    return _has_real_sent_at(record)
+
+
+def _has_real_sent_at(record: Mapping[str, Any]) -> bool:
+    """Shared sent_at integrity check used by is_real_sent and
+    is_awaiting_buyer. Three guards: non-empty, not equal to
+    created_at (writer-stamped-creation bug), parseable."""
     sent_at = (record.get("sent_at") or "").strip()
     if not sent_at:
         return False
     created_at = (record.get("created_at") or "").strip()
-    # If both timestamps exist and match exactly, the writer is
-    # almost certainly stamping created_at into sent_at. Suspect.
     if created_at and sent_at == created_at:
         return False
-    # Sanity check: must parse as a real timestamp.
     return _parse_iso(sent_at) is not None
+
+
+def is_awaiting_buyer(record: Mapping[str, Any]) -> bool:
+    """Did we send this to the buyer + we're now waiting on them?
+
+    Superset of `is_real_sent` that also accepts `status='pending_award'`
+    (Price-Check-only state — buyer received the price check and is
+    selecting between competing vendor quotes before issuing the PO).
+    Both are buyer-owes-work states: nothing for the operator to do
+    until the buyer responds.
+
+    Same sent_at integrity guards as `is_real_sent`: non-empty +
+    not equal to created_at (writer-stamping-creation bug) +
+    parseable.
+
+    This is the predicate behind the home-page "Awaiting Response"
+    widget and `/api/stale-quotes`. Folded out of two ad-hoc checks
+    (RFQ: status=='sent', PC: status in {sent, pending_award}) on
+    2026-05-02 in PR-3.
+    """
+    if record.get("is_test"):
+        return False
+    if _normalize_status(record) not in AWAITING_BUYER_STATUSES:
+        return False
+    return _has_real_sent_at(record)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -396,11 +440,13 @@ def revenue_year_sql_clause(
 __all__ = [
     "REVENUE_YEAR",
     "ACTIVE_QUEUE_EXCLUDED_STATUSES",
+    "AWAITING_BUYER_STATUSES",
     "TERMINAL_STATUSES",
     "INVOICED_OR_PAID_STATUSES",
     "revenue_year_start",
     "revenue_year_end",
     "is_active_queue",
+    "is_awaiting_buyer",
     "is_real_sent",
     "is_sourceable_po",
     "is_year_revenue",

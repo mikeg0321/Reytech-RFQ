@@ -1,53 +1,55 @@
 """Regression tests for the home queue's status filter.
 
 PR-A added status='needs_review' as the triage bucket; PR #666 added
-the orange badge in queue_helpers. But the home route's actionable-
-status SETs (`_pc_actionable` and `_actionable_rfq` in routes_rfq.home)
-were missing 'needs_review' — so triage rows never reached the queue
-table to render the badge.
+the orange badge in queue_helpers. PR-3 (#693) replaced the home
+route's allow-list (`_pc_actionable` / `_actionable_rfq`) with the
+canonical `is_active_queue` deny-list, so the contract is now: any
+status NOT in {sent, pending_award, won, lost, no_bid, cancelled}
+appears in the queue. needs_review is therefore included by default,
+along with any future triage status someone adds.
 
-Locks the active-set inclusion so a future tweak doesn't regress and
-silently re-hide the operator's triage queue.
+These tests now lock the canonical predicate's behavior, not the
+deleted set literals.
 """
 from __future__ import annotations
 
 
-def test_needs_review_in_pc_actionable_set():
-    """The status set is defined inside the home() route function, so we
-    introspect via the source rather than importing — but the easier
-    contract test: load the home route and confirm a needs_review PC
-    is in the queryset."""
+def test_needs_review_pc_passes_active_queue_predicate():
+    """Triage rows must surface in the home queue — the orange
+    'Needs Review' badge has nowhere to render if the predicate
+    drops them."""
+    from src.core.canonical_state import is_active_queue
+    rec = {"status": "needs_review", "is_test": 0}
+    assert is_active_queue(rec) is True
+
+
+def test_needs_review_rfq_passes_active_queue_predicate():
+    from src.core.canonical_state import is_active_queue
+    rec = {"status": "needs_review", "is_test": 0}
+    assert is_active_queue(rec) is True
+
+
+def test_home_route_uses_canonical_is_active_queue():
+    """Lock the migration: home() must call canonical, not redefine
+    its own status set. PR-6 will harden this with a pre-push lint
+    guard; for now the test grep is the gate."""
     from src.api.modules.routes_rfq import home
     import inspect
     src = inspect.getsource(home)
-    # Lock that needs_review appears in the actionable set literal
-    assert "_pc_actionable" in src
-    # Find the line with _pc_actionable assignment + verify needs_review present
-    in_actionable = False
-    for ln in src.splitlines():
-        if "_pc_actionable" in ln and "{" in ln:
-            assert "needs_review" in ln, (
-                f"needs_review missing from _pc_actionable: {ln.strip()}"
-            )
-            in_actionable = True
-            break
-    assert in_actionable, "could not locate _pc_actionable assignment"
-
-
-def test_needs_review_in_rfq_actionable_set():
-    from src.api.modules.routes_rfq import home
-    import inspect
-    src = inspect.getsource(home)
-    assert "_actionable_rfq" in src
-    in_actionable = False
-    for ln in src.splitlines():
-        if "_actionable_rfq" in ln and "{" in ln:
-            assert "needs_review" in ln, (
-                f"needs_review missing from _actionable_rfq: {ln.strip()}"
-            )
-            in_actionable = True
-            break
-    assert in_actionable, "could not locate _actionable_rfq assignment"
+    assert "is_active_queue" in src, (
+        "PR-3: home() must use canonical is_active_queue predicate"
+    )
+    # Sanity: the deleted allow-list assignments should not have
+    # crept back. Match the assignment pattern (`= {`) rather than
+    # the bare name so archeology comments stay legal.
+    assert "_pc_actionable = {" not in src, (
+        "PR-3 regressed: home() reintroduced the _pc_actionable "
+        "allow-list — use canonical is_active_queue instead"
+    )
+    assert "_actionable_rfq = {" not in src, (
+        "PR-3 regressed: home() reintroduced the _actionable_rfq "
+        "allow-list — use canonical is_active_queue instead"
+    )
 
 
 def test_pricecheck_list_display_status_maps_needs_review():

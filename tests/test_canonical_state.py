@@ -49,18 +49,27 @@ def test_revenue_year_is_calendar_2026():
 
 
 def test_active_queue_excluded_set_matches_glossary():
-    """Locked: sent + the 4 terminal statuses."""
+    """Locked: sent + pending_award + the 4 terminal statuses.
+
+    PR-3 (#693) added `pending_award` — a Price-Check post-sent
+    state where the buyer is choosing between competing vendor
+    quotes. Operator owes nothing, buyer owes everything → out
+    of active queue.
+    """
     assert ACTIVE_QUEUE_EXCLUDED_STATUSES == frozenset({
-        "sent", "won", "lost", "no_bid", "cancelled",
+        "sent", "pending_award", "won", "lost", "no_bid", "cancelled",
     })
 
 
 def test_terminal_set_is_subset_of_excluded():
-    """Sanity: all terminals are excluded, but 'sent' is excluded
-    without being terminal (still moves to won/lost)."""
+    """Sanity: all terminals are excluded, but 'sent' / 'pending_award'
+    are excluded without being terminal (they still flow to won/lost
+    as the buyer responds)."""
     assert TERMINAL_STATUSES.issubset(ACTIVE_QUEUE_EXCLUDED_STATUSES)
     assert "sent" not in TERMINAL_STATUSES
     assert "sent" in ACTIVE_QUEUE_EXCLUDED_STATUSES
+    assert "pending_award" not in TERMINAL_STATUSES
+    assert "pending_award" in ACTIVE_QUEUE_EXCLUDED_STATUSES
 
 
 # ─── is_active_queue ─────────────────────────────────────────────────────
@@ -164,6 +173,82 @@ def test_real_sent_excludes_test_rows():
         "is_test": 1,
     }
     assert is_real_sent(rec) is False
+
+
+# ─── is_awaiting_buyer ───────────────────────────────────────────────────
+
+
+def test_awaiting_buyer_accepts_sent():
+    """RFQs / quotes flip to 'sent' on dispatch — exactly the same
+    integrity contract as is_real_sent."""
+    from src.core.canonical_state import is_awaiting_buyer
+    rec = {
+        "status": "sent",
+        "created_at": "2026-05-01T10:00:00",
+        "sent_at": "2026-05-02T14:30:00",
+    }
+    assert is_awaiting_buyer(rec) is True
+
+
+def test_awaiting_buyer_accepts_pending_award():
+    """PCs use pending_award as their post-sent / pre-PO state.
+    Same integrity contract."""
+    from src.core.canonical_state import is_awaiting_buyer
+    rec = {
+        "status": "pending_award",
+        "created_at": "2026-05-01T10:00:00",
+        "sent_at": "2026-05-02T14:30:00",
+    }
+    assert is_awaiting_buyer(rec) is True
+
+
+def test_awaiting_buyer_rejects_pre_send_statuses():
+    """Records still on the operator's side don't belong in
+    'awaiting buyer'."""
+    from src.core.canonical_state import is_awaiting_buyer
+    for status in ("new", "draft", "priced", "ready", "needs_review"):
+        rec = {
+            "status": status,
+            "created_at": "2026-05-01T10:00:00",
+            "sent_at": "2026-05-02T14:30:00",
+        }
+        assert is_awaiting_buyer(rec) is False, status
+
+
+def test_awaiting_buyer_rejects_terminal_statuses():
+    """Once won/lost/cancelled, the buyer has acted — nobody is
+    awaiting them any more."""
+    from src.core.canonical_state import is_awaiting_buyer
+    for status in ("won", "lost", "no_bid", "cancelled"):
+        rec = {
+            "status": status,
+            "created_at": "2026-05-01T10:00:00",
+            "sent_at": "2026-05-02T14:30:00",
+        }
+        assert is_awaiting_buyer(rec) is False, status
+
+
+def test_awaiting_buyer_rejects_sent_at_equal_to_created_at():
+    """Same writer-stamped-creation guard as is_real_sent. Without
+    this, the home-page widget shows ghost rows as 'stale 0 days'."""
+    from src.core.canonical_state import is_awaiting_buyer
+    rec = {
+        "status": "sent",
+        "created_at": "2026-05-02T10:00:00",
+        "sent_at": "2026-05-02T10:00:00",
+    }
+    assert is_awaiting_buyer(rec) is False
+
+
+def test_awaiting_buyer_excludes_test_rows():
+    from src.core.canonical_state import is_awaiting_buyer
+    rec = {
+        "status": "pending_award",
+        "created_at": "2026-05-01T10:00:00",
+        "sent_at": "2026-05-02T14:30:00",
+        "is_test": 1,
+    }
+    assert is_awaiting_buyer(rec) is False
 
 
 # ─── is_sourceable_po ────────────────────────────────────────────────────

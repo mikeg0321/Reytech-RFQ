@@ -1273,7 +1273,7 @@ function searchActive(qtype, query) {
 {% from "partials/_queue_table.html" import queue_table %}
 <div id="queues" class="bento bento-2e" style="margin-bottom:14px">
  {{ queue_table('pc', norm_pcs, norm_sent_pcs, 'Price Checks', '(AMS 704 — price your response)', pc_bulk_actions, 'No Price Checks yet — upload a 704 or configure email polling') }}
- {{ queue_table('rfq', norm_rfqs, norm_sent_rfqs, 'RFQ Queue', '(704A/704B + formal quote package)', rfq_bulk_actions, 'No RFQs — configure email polling or upload below') }}
+ {{ queue_table('rfq', norm_rfqs, norm_sent_rfqs, 'Queue', '(704A/704B + formal quote package)', rfq_bulk_actions, 'No RFQs — configure email polling or upload below') }}
 </div>
 
 <!-- ═══ Stale Quotes Widget ═══ -->
