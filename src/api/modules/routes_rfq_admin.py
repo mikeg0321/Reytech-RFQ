@@ -2601,6 +2601,139 @@ def api_rfq_ready_to_quote():
     })
 
 
+@bp.route("/api/admin/scan-ghost-quote-bindings")
+@auth_required
+@safe_route
+def api_scan_ghost_quote_bindings():
+    """Scan all RFQs for `reytech_quote_number` bindings that fail the
+    ghost-data gate. POST to /clear to release them.
+
+    Incident 2026-05-01 (rfq_7813c4e1, R26Q45): the new ghost-data gate
+    (#675) prevents future placeholder-sol# RFQs from burning the
+    counter, but pre-existing bindings remained. This endpoint reuses
+    `is_ready_for_quote_allocation` to find every RFQ where the locked
+    quote_number is bound to ghost markers (placeholder sol#, zero
+    items, or Reytech-internal buyer email).
+
+    Returns:
+        {
+          "ok": True,
+          "total_with_quote": N,
+          "ghost_bound": [{"rid","quote_number","sol","reasons"}, ...],
+          "clean_bound": [{"rid","quote_number","sol"}, ...],
+          "ghost_count": N,
+          "clean_count": N,
+        }
+    """
+    from src.api.dashboard import is_ready_for_quote_allocation
+    # Resolve DATA_DIR at request time so test fixtures that monkeypatch
+    # `src.core.paths.DATA_DIR` (see conftest:129) reach this code.
+    from src.core import paths as _paths
+    rfqs_path = os.path.join(_paths.DATA_DIR, "rfqs.json")
+    if not os.path.exists(rfqs_path):
+        return jsonify({"ok": True, "total_with_quote": 0,
+                        "ghost_bound": [], "clean_bound": [],
+                        "ghost_count": 0, "clean_count": 0})
+    with open(rfqs_path) as f:
+        rfqs = json.load(f)
+
+    ghost_bound, clean_bound = [], []
+    for rid, r in rfqs.items():
+        qn = r.get("reytech_quote_number") or ""
+        if not qn:
+            continue
+        ok, reasons = is_ready_for_quote_allocation(r)
+        entry = {
+            "rid": rid,
+            "quote_number": qn,
+            "sol": r.get("solicitation_number") or "",
+            "agency": r.get("agency") or r.get("institution") or "",
+            "requestor_email": r.get("requestor_email") or "",
+            "items_count": len(r.get("line_items") or r.get("items") or []),
+            "status": r.get("status") or "",
+        }
+        if ok:
+            clean_bound.append(entry)
+        else:
+            entry["reasons"] = reasons
+            ghost_bound.append(entry)
+
+    # Sort ghost by quote seq descending so the most recent burns are first
+    def _seq(qn: str) -> int:
+        try:
+            return int(qn.split("Q", 1)[-1]) if "Q" in qn else 0
+        except (ValueError, IndexError):
+            return 0
+    ghost_bound.sort(key=lambda e: _seq(e["quote_number"]), reverse=True)
+    clean_bound.sort(key=lambda e: _seq(e["quote_number"]), reverse=True)
+
+    return jsonify({
+        "ok": True,
+        "total_with_quote": len(ghost_bound) + len(clean_bound),
+        "ghost_count": len(ghost_bound),
+        "clean_count": len(clean_bound),
+        "ghost_bound": ghost_bound,
+        "clean_bound": clean_bound,
+    })
+
+
+@bp.route("/api/admin/clear-ghost-quote-bindings", methods=["POST"])
+@auth_required
+@safe_route
+def api_clear_ghost_quote_bindings():
+    """Clear `reytech_quote_number` on every RFQ flagged by the scan.
+
+    Idempotent — only clears RFQs that currently fail the ghost gate.
+    Body: `{"dry_run": true}` returns what WOULD be cleared without
+    mutating; default is to clear.
+    """
+    from src.api.dashboard import (
+        is_ready_for_quote_allocation,
+        _save_single_rfq,
+    )
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", False))
+
+    from src.core import paths as _paths
+    rfqs_path = os.path.join(_paths.DATA_DIR, "rfqs.json")
+    if not os.path.exists(rfqs_path):
+        return jsonify({"ok": True, "cleared": [], "count": 0})
+    with open(rfqs_path) as f:
+        rfqs = json.load(f)
+
+    cleared = []
+    for rid, r in list(rfqs.items()):
+        qn = r.get("reytech_quote_number") or ""
+        if not qn:
+            continue
+        ok, reasons = is_ready_for_quote_allocation(r)
+        if ok:
+            continue  # not a ghost — leave alone
+        cleared.append({
+            "rid": rid,
+            "quote_number": qn,
+            "sol": r.get("solicitation_number") or "",
+            "reasons": reasons,
+        })
+        if not dry_run:
+            rfqs[rid]["reytech_quote_number"] = ""
+
+    # Single atomic write back to the same rfqs.json the scan read from.
+    # Avoids `_save_single_rfq` here because that helper resolves DATA_DIR
+    # through the dashboard module which can drift from `_paths.DATA_DIR`
+    # in test fixtures, leaving the file appearing unchanged.
+    if not dry_run and cleared:
+        with open(rfqs_path, "w", encoding="utf-8") as f:
+            json.dump(rfqs, f, indent=2)
+
+    return jsonify({
+        "ok": True,
+        "dry_run": dry_run,
+        "count": len(cleared),
+        "cleared": cleared,
+    })
+
+
 @bp.route("/api/rfq/<rid>/clean-items", methods=["POST"])
 @auth_required
 @safe_route
