@@ -217,6 +217,81 @@ if [ -n "$UI_CHANGED" ]; then
     fi
 fi
 
+# ── CANONICAL-STATE GATE (PR-1, 2026-05-02) ─────────────────────────────────
+# Blocks new inline `WHERE status IN (...)`, `WHERE created_at >= ...`, and
+# similar ad-hoc filters from landing outside `src/core/`. PR-1 put the
+# canonical predicates in src/core/canonical_state.py with matching SQL VIEWs
+# (v_active_queue_rfqs, v_real_sent, v_sourceable_pos, v_revenue_year_2026).
+#
+# Why this gate: home-page numbers diverged because every panel ran its own
+# ad-hoc WHERE filter. New filters outside the truth layer reintroduce drift.
+# Existing usages are NOT failed (would block every push); the ratchet only
+# fires on new additions, so PR-2..PR-6 can migrate consumers incrementally.
+#
+# Override (rare, document the reason): CANONICAL_STATE_SKIP=1.
+
+REMOTE_BRANCH_FOR_GATE="origin/main"
+if git rev-parse "$REMOTE_BRANCH_FOR_GATE" >/dev/null 2>&1; then
+    # New lines added vs main, restricted to source files OUTSIDE src/core/
+    # (where canonical_state.py + migrations.py legitimately define filters)
+    # and tests/ (where seed inserts use the columns).
+    NEW_INLINE=$(git diff "$REMOTE_BRANCH_FOR_GATE...HEAD" -- \
+        'src/' \
+        ':(exclude)src/core/**' \
+        ':(exclude)tests/**' 2>/dev/null \
+      | grep -E '^\+[^+]' \
+      | grep -viE '^\+\s*(#|//|\*|--|/\*)' \
+      | grep -iE 'WHERE\s+(LOWER\()?(status|created_at|sent_at|invoice_date|logged_at)' \
+      || true)
+
+    # Apply allowlist (.canonical_allowlist.txt): full source lines that
+    # we're explicitly grandfathering during the migration arc.
+    if [ -f .canonical_allowlist.txt ] && [ -n "$NEW_INLINE" ]; then
+        FILTERED=""
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            stripped=$(echo "$line" | sed 's/^+//')
+            if ! grep -Fxq "$stripped" .canonical_allowlist.txt; then
+                FILTERED="${FILTERED}${line}\n"
+            fi
+        done <<< "$NEW_INLINE"
+        NEW_INLINE=$(printf "%b" "$FILTERED" | sed '/^$/d')
+    fi
+
+    if [ -n "$NEW_INLINE" ] && [ "${CANONICAL_STATE_SKIP:-0}" != "1" ]; then
+        echo ""
+        echo "============================================================"
+        echo "  PUSH BLOCKED: new inline WHERE status / WHERE created_at /"
+        echo "  sent_at / invoice_date / logged_at filter detected outside"
+        echo "  src/core/ — these belong in src.core.canonical_state."
+        echo "============================================================"
+        echo ""
+        echo "  Why this gate: home-page numbers diverged because every"
+        echo "  panel ran its own ad-hoc filter. PR-1 (2026-05-02) put the"
+        echo "  canonical predicates in src/core/canonical_state.py with"
+        echo "  matching SQL VIEWs (v_active_queue_rfqs, v_real_sent,"
+        echo "  v_sourceable_pos, v_revenue_year_2026). Use those instead."
+        echo ""
+        echo "  Offending new lines:"
+        echo ""
+        echo "$NEW_INLINE" | head -20 | sed 's/^/    /'
+        echo ""
+        echo "  Fix: replace the inline filter with a call to"
+        echo "  is_active_queue() / is_real_sent() / is_sourceable_po() /"
+        echo "  is_year_revenue() — or SELECT FROM the matching VIEW."
+        echo ""
+        echo "  ESCAPE HATCH (rare, document the reason):"
+        echo "       CANONICAL_STATE_SKIP=1 make ship"
+        echo ""
+        echo "============================================================"
+        exit 1
+    fi
+
+    if [ "${CANONICAL_STATE_SKIP:-0}" = "1" ]; then
+        echo "Canonical-state gate: SKIP flag set — confirm no new ad-hoc filters."
+    fi
+fi
+
 echo ""
 echo "All pre-push checks passed."
 exit 0
