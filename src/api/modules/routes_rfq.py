@@ -2670,6 +2670,66 @@ def review_package(rid):
         active_page="Home")
 
 
+@bp.route("/api/rfq/<rid>/locate-email", methods=["POST"])
+@auth_required
+@safe_route
+def api_locate_email(rid):
+    """Search Gmail for the original RFQ email when binding is missing.
+
+    Mike's PR-B1 directive: "every PC/RFQ will have an email, even manual
+    upload has emails, are only manual because parse didnt work or needs
+    reset. locate email, is best." This endpoint is the operator escape
+    hatch — when the ingest path didn't capture (or the user uploaded
+    manually), the operator clicks Locate Email and we search Gmail.
+
+    Response: {ok, candidates: [...]}.
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    try:
+        from src.core import gmail_api
+        from src.api.email_locator import locate_candidate_emails
+        if not gmail_api.is_configured():
+            return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
+        service = gmail_api.get_service()
+        cands = locate_candidate_emails(service, r, max_results=10)
+        return jsonify({"ok": True, "candidates": cands})
+    except Exception as e:
+        log.error("locate-email failed for %s: %s", rid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/rfq/<rid>/bind-email", methods=["POST"])
+@auth_required
+@safe_route
+def api_bind_email(rid):
+    """Persist a Gmail message_id + thread_id onto the RFQ record.
+
+    Body: {"message_id": "<...>", "thread_id": "..."} — both required.
+    The frontend's locate-email picker calls this once the operator
+    selects which thread is the original RFQ email.
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    data = request.get_json(silent=True) or {}
+    msg_id = (data.get("message_id") or "").strip()
+    thr_id = (data.get("thread_id") or "").strip()
+    if not (msg_id and thr_id):
+        return jsonify({"ok": False, "error": "message_id and thread_id are required"}), 400
+
+    r["email_message_id"] = msg_id
+    r["email_thread_id"] = thr_id
+    rfqs[rid] = r
+    _save_single_rfq(rid, r)
+    log.info("Email bound to RFQ %s: thread=%s msg=%s",
+             rid, thr_id[:30], msg_id[:50])
+    return jsonify({"ok": True, "thread_id": thr_id, "message_id": msg_id})
+
+
 @bp.route("/rfq/<rid>/support")
 @auth_required
 @safe_route

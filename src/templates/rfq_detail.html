@@ -30,6 +30,11 @@
   </div>
   <span class="badge b-{{r.status}}">{{r.status}}</span>
   <button onclick="toggleSourcePanel()" style="padding:4px 10px;background:var(--sf);border:1px solid var(--bd);border-radius:6px;color:var(--ac);font-size:12px;cursor:pointer;margin-left:8px" title="View original email and attachments">📧 Source</button>
+  {% if r.get('email_thread_id') %}
+  <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="padding:4px 10px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);border-radius:6px;color:var(--ac);font-size:12px;margin-left:4px;text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
+  {% else %}
+  <button onclick="locateEmail()" style="padding:4px 10px;background:rgba(210,153,34,.1);border:1px solid rgba(210,153,34,.3);border-radius:6px;color:#d29922;font-size:12px;cursor:pointer;margin-left:4px" title="Find original buyer email in Gmail and bind to this RFQ">🔍 Locate Gmail thread</button>
+  {% endif %}
   {% if r.get('output_files') or r.get('status') == 'generated' %}
   <a href="/rfq/{{ r.id }}/review-package" class="btn btn-sm" style="font-size:12px;background:rgba(79,140,255,.1);color:var(--ac);border:1px solid rgba(79,140,255,.2)" title="Review and download the full RFP package">📦 Review Package</a>
   {% endif %}
@@ -3939,6 +3944,48 @@ function reviseQuote(){
   }else{alert('Revision failed: '+d.error);}
  }).catch(function(e){btn.disabled=false;btn.textContent='✏️ Revise Quote';alert('Error: '+e.message);});
 }
+function locateEmail(){
+  // PR-B1: search Gmail for the original buyer email and bind it to this RFQ.
+  // Used when the ingest path didn't capture or RFQ was manually uploaded.
+  var btn = event && event.currentTarget;
+  if (btn) { btn.disabled = true; btn.textContent = '🔍 Searching Gmail...'; }
+  fetch('/api/rfq/{{ r.id }}/locate-email', {method:'POST', credentials:'same-origin'})
+   .then(function(r){ return r.json(); })
+   .then(function(d){
+     if (btn) btn.disabled = false;
+     if (!d.ok) { alert('Locate failed: ' + (d.error || 'unknown')); return; }
+     var cands = d.candidates || [];
+     if (!cands.length) {
+       alert('No matching emails found in Gmail (last 120d). The RFQ may need a manual sol# or buyer email update before locator can match.');
+       if (btn) btn.textContent = '🔍 Locate Gmail thread';
+       return;
+     }
+     var lines = cands.slice(0,8).map(function(c, i){
+       return (i+1) + '. ' + (c.date || '?').substring(0,16)
+              + ' · ' + (c.from || '').substring(0,40)
+              + '\n     ' + (c.subject || '(no subject)').substring(0,80);
+     });
+     var pick = prompt(
+       'Found ' + cands.length + ' Gmail thread(s). Type the number to bind to this RFQ:\n\n'
+       + lines.join('\n\n') + '\n\n(Cancel to skip)');
+     var n = parseInt(pick||'', 10);
+     if (!n || n < 1 || n > cands.length) {
+       if (btn) btn.textContent = '🔍 Locate Gmail thread';
+       return;
+     }
+     var picked = cands[n-1];
+     fetch('/api/rfq/{{ r.id }}/bind-email', {
+       method:'POST', credentials:'same-origin',
+       headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({message_id: picked.message_id, thread_id: picked.thread_id})
+     }).then(function(r){return r.json();}).then(function(rd){
+       if (rd.ok) { alert('Bound. Reloading.'); location.reload(); }
+       else alert('Bind failed: ' + (rd.error||'unknown'));
+     });
+   })
+   .catch(function(e){ if (btn) btn.disabled=false; alert('Locate error: ' + e.message); });
+}
+
 function downloadCurrentQuote(){
  var btn=document.getElementById('download-quote-btn');
  if(btn&&btn._downloadUrl){window.open(btn._downloadUrl,'_blank');return;}

@@ -1692,6 +1692,14 @@ def _migrate_columns():
         ("price_checks", "original_sender", "TEXT DEFAULT ''"),
         ("rfqs", "email_message_id", "TEXT DEFAULT ''"),
         ("rfqs", "original_sender", "TEXT DEFAULT ''"),
+        # ── Gmail thread binding (PR-B1, 2026-05-01) — RFC2822 Message-ID is
+        # what Gmail uses for In-Reply-To / References headers when threading
+        # a reply, but Gmail's API also wants its own threadId on draft +
+        # send to put the message in the same thread. Capturing both at
+        # ingest enables: app→Gmail deeplinks, reply-on-original-thread on
+        # send, and operator-side email locator for manual RFQs.
+        ("rfqs", "email_thread_id", "TEXT DEFAULT ''"),
+        ("price_checks", "email_thread_id", "TEXT DEFAULT ''"),
         # ── Orders V2: structured columns on orders (currently only in data_json blob) ──
         ("orders", "buyer_name", "TEXT DEFAULT ''"),
         ("orders", "buyer_email", "TEXT DEFAULT ''"),

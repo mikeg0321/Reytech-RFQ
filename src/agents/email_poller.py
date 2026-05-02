@@ -1672,7 +1672,12 @@ class EmailPoller:
                 try:
                     try:
                         from src.core.gmail_api import get_raw_message
-                        raw_bytes = get_raw_message(self._gmail_service, uid)
+                        # PR-B1: capture Gmail's internal threadId alongside
+                        # the raw bytes — needed for reply-on-thread send
+                        # (gmail_api.send_message / save_draft want the
+                        # threadId, not just the RFC 2822 Message-ID).
+                        raw_bytes, gmail_thread_id = get_raw_message(
+                            self._gmail_service, uid, return_thread_id=True)
                     except Exception as _gfe:
                         log.warning("Gmail API fetch failed for %s: %s", uid, _gfe)
                         continue
@@ -2495,6 +2500,7 @@ class EmailPoller:
                             "id": pc_rfq_id,
                             "email_uid": uid,
                             "message_id": msg.get("Message-ID", ""),
+                            "gmail_thread_id": gmail_thread_id,  # PR-B1
                             "subject": _pc_clean_subj if _pc_was_fwd else subject,
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
@@ -2675,6 +2681,7 @@ class EmailPoller:
                             "id": rfq_id,
                             "email_uid": uid,
                             "message_id": msg.get("Message-ID", ""),
+                            "gmail_thread_id": gmail_thread_id,  # PR-B1
                             "subject": _rfq_clean_subj if _rfq_was_fwd else subject,
                             "sender": sender,
                             "sender_email": sender_email_raw if sender_email_raw else self._extract_email(sender),
