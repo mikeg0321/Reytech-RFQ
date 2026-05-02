@@ -882,14 +882,16 @@ def api_manager_metrics():
     sent_count = len([q for q in quotes if q.get("status") == "sent"])
     won_count = len(won)
 
-    # Orders count
+    # Orders count — canonical sourceable POs (PR-4 #694).
+    # Pre-canonical: status IN ('active','processing','shipped') —
+    # narrow flow filter that missed every real "needs sourcing" PO
+    # whose status was the empty default or 'new'. Now reads from
+    # `v_sourceable_pos` via get_active_orders so /api/manager/metrics
+    # reports the same number as /api/funnel/stats.
     orders_active = 0
     try:
-        from src.core.db import get_db
-        with get_db() as _oconn:
-            orders_active = _oconn.execute(
-                "SELECT COUNT(*) FROM orders WHERE status IN ('active', 'processing', 'shipped')"
-            ).fetchone()[0]
+        from src.core.metrics import get_active_orders as _get_ao
+        orders_active = _get_ao().get("total", 0)
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
 
@@ -2083,9 +2085,20 @@ def api_funnel_stats():
     sent_count = quotes_sent + pcs_sent + rfqs_sent
 
     # ── Orders ──
+    # PR-4 (#694): orders_active was `status not in ('closed',)` —
+    # so every non-closed row counted, including invoiced/paid/
+    # cancelled and orders already linked to a quote. That's the
+    # "99 POs? doesnt even make sense" surface Mike screenshotted
+    # on 2026-05-02. Canonical sourceable definition narrows it to
+    # POs the operator actually owes work on.
     all_orders = _load_orders()
     orders = {k: v for k, v in all_orders.items() if not v.get("is_test")}
-    orders_active = sum(1 for o in orders.values() if o.get("status") not in ("closed",))
+    try:
+        from src.core.metrics import get_active_orders as _get_ao_fs
+        orders_active = _get_ao_fs().get("total", 0)
+    except Exception as _e:
+        log.debug("Suppressed: %s", _e)
+        orders_active = sum(1 for o in orders.values() if o.get("status") not in ("closed",))
     orders_total = len(orders)
     items_shipped = 0
     items_delivered = 0
