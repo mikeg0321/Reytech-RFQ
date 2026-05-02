@@ -27,6 +27,7 @@ import gzip as _gzip
 import logging
 import time
 from flask import Flask, request, jsonify
+from werkzeug.exceptions import HTTPException
 
 print(f"[BOOT] app.py loading at {time.time():.0f}", flush=True)
 
@@ -294,7 +295,14 @@ def create_app():
 
     @app.errorhandler(Exception)
     def _unhandled_exception(e):
-        """Catch-all: any unhandled exception returns JSON for API routes."""
+        """Catch-all: any unhandled exception returns JSON for API routes.
+
+        HTTPException subclasses (404 / 405 / 403 / 400 / etc.) are
+        client-side errors — let Flask render them natively instead of
+        masking as 500. Specific @errorhandler(<code>) handlers above
+        still win for codes that have one (404, 413, 500)."""
+        if isinstance(e, HTTPException):
+            return e
         _route = f"{request.method} {request.path}"
         logging.getLogger("reytech").error("Unhandled: %s → %s: %s",
             _route, type(e).__name__, str(e)[:200])
