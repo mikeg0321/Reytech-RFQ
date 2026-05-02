@@ -83,21 +83,37 @@ class TestActiveOrders:
         assert result["total"] == 0
 
     def test_excludes_cancelled(self):
+        """PR-4 (#694): canonical sourceable definition requires a
+        real po_number. Seeds use distinct PO numbers so the
+        UNIQUE(po_number, quote_number) index doesn't collide."""
         from src.core.order_dal import save_order
-        save_order("ORD-M1", {"status": "new", "total": 500}, actor="test")
-        save_order("ORD-M2", {"status": "cancelled", "total": 1000}, actor="test")
+        save_order("ORD-M1", {"status": "new", "total": 500,
+                              "po_number": "0000099001"}, actor="test")
+        save_order("ORD-M2", {"status": "cancelled", "total": 1000,
+                              "po_number": "0000099002"}, actor="test")
         result = metrics.get_active_orders()
         assert result["total"] == 1
         assert result["total_value"] == 500.0
 
     def test_closed_vs_active(self):
+        """PR-4 (#694): `total` is now canonical sourceable POs only.
+        Closed orders no longer inflate the headline number — they
+        still count via `closed` for the dashboard's "completed"
+        badge, but `total` reflects POs the operator owes work on."""
         from src.core.order_dal import save_order
-        save_order("ORD-M3", {"status": "new", "total": 200}, actor="test")
-        save_order("ORD-M4", {"status": "closed", "total": 800}, actor="test")
+        save_order("ORD-M3", {"status": "new", "total": 200,
+                              "po_number": "0000099003"}, actor="test")
+        save_order("ORD-M4", {"status": "closed", "total": 800,
+                              "po_number": "0000099004"}, actor="test")
         result = metrics.get_active_orders()
         assert result["active"] == 1
         assert result["closed"] == 1
-        assert result["total"] == 2
+        # Pre-PR-4: total = 2 (both rows counted regardless of closed
+        # status). Post-PR-4: closed orders are NOT sourceable, so
+        # total reflects only the new (sourceable) row. Legacy total
+        # is preserved in `total_legacy` for the Scientist diff log.
+        assert result["total"] == 1
+        assert result["total_legacy"] == 2
 
 
 class TestInboxCounts:
