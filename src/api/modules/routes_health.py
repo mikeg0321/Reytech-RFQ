@@ -624,6 +624,7 @@ def quoting_health_page():
         "po_prefix": _build_po_prefix_card(),
         "scprs_reconcile": _build_scprs_reconcile_card(),
         "po_aggregate": _build_po_aggregate_card(),
+        "sent_at_integrity": _build_sent_at_integrity_card(),
         "body_extract": _build_body_extract_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -722,6 +723,7 @@ def quoting_health_json():
         "po_prefix": _build_po_prefix_card(),
         "scprs_reconcile": _build_scprs_reconcile_card(),
         "po_aggregate": _build_po_aggregate_card(),
+        "sent_at_integrity": _build_sent_at_integrity_card(),
         "body_extract": _build_body_extract_card(),
         "gate": _build_health_gate(oracle_cal),
     }
@@ -1453,6 +1455,109 @@ def _build_po_aggregate_card():
     # unknown when empty (no orders with po_numbers yet).
     if result["total_pos"] > 0:
         result["status"] = "healthy"
+    return result
+
+
+def _build_sent_at_integrity_card():
+    """PR-5: count of rows where `sent_at == created_at`.
+
+    The bug Mike caught on 2026-05-02 — every Sent-table row stamped
+    "today" because some writer was filling sent_at with created_at.
+    PR-3's canonical `is_real_sent` filters these at read time, so
+    they don't pollute the Awaiting widget. This card surfaces the
+    count so Mike can see the cleanup progress (and how big the
+    legacy puddle was). Run `scripts/sweep_sent_at_integrity.py
+    --apply` to drain it.
+
+    Status:
+      - 'healthy' when zero bad rows.
+      - 'warn' when any rows exist (data quality, not blocker —
+        canonical predicate already hides them from the operator).
+    """
+    result = {
+        "status": "unknown",
+        "quotes_bad": 0,
+        "rfqs_bad": 0,
+        "price_checks_bad": 0,
+        "total_bad": 0,
+        "samples": [],   # [{table, id, status, created_at, sent_at}]
+    }
+    try:
+        import json as _json
+        with get_db() as conn:
+            # Heterogeneous schema (see scripts/sweep_sent_at_integrity.py
+            # for the full notes): quotes + price_checks have column-
+            # level created_at + sent_at; rfqs only has them in the
+            # data_json blob and uses `received_at` for creation.
+            for table, id_col, key, created_col in (
+                ("quotes", "quote_number", "quotes_bad", "created_at"),
+                ("price_checks", "id", "price_checks_bad", "created_at"),
+                ("rfqs", "id", "rfqs_bad", "received_at"),
+            ):
+                cols = {r[1] for r in conn.execute(
+                    f"PRAGMA table_info({table})").fetchall()}
+                if "status" not in cols:
+                    continue
+
+                bad_rows = []
+                if {"sent_at", created_col}.issubset(cols):
+                    # Path A — column-level sweep.
+                    bad_rows = conn.execute(
+                        f"""
+                        SELECT {id_col} AS rid, status,
+                               {created_col} AS created_at, sent_at
+                        FROM {table}
+                        WHERE LOWER(COALESCE(status, '')) = 'sent'
+                          AND sent_at IS NOT NULL
+                          AND TRIM(sent_at) != ''
+                          AND {created_col} IS NOT NULL
+                          AND TRIM({created_col}) != ''
+                          AND sent_at = {created_col}
+                        LIMIT 100
+                        """
+                    ).fetchall()
+                elif "data_json" in cols:
+                    # Path B — blob-only sweep (rfqs).
+                    raw = conn.execute(
+                        f"SELECT {id_col} AS rid, status, data_json "
+                        f"FROM {table} "
+                        f"WHERE LOWER(COALESCE(status, '')) = 'sent' "
+                        f"LIMIT 1000"
+                    ).fetchall()
+                    for r in raw:
+                        try:
+                            blob = _json.loads(r["data_json"] or "")
+                        except (_json.JSONDecodeError, TypeError):
+                            continue
+                        if not isinstance(blob, dict):
+                            continue
+                        sent_at = (blob.get("sent_at") or "").strip()
+                        created_at = (blob.get("created_at")
+                                      or blob.get(created_col) or "").strip()
+                        if sent_at and created_at and sent_at == created_at:
+                            bad_rows.append({
+                                "rid": r["rid"], "status": r["status"],
+                                "created_at": created_at, "sent_at": sent_at,
+                            })
+
+                result[key] = len(bad_rows)
+                for r in bad_rows[: max(0, 5 - len(result["samples"]))]:
+                    result["samples"].append({
+                        "table": table,
+                        "id": r["rid"] if hasattr(r, "keys") else r.get("rid"),
+                        "status": r["status"] if hasattr(r, "keys") else r.get("status"),
+                        "created_at": r["created_at"] if hasattr(r, "keys") else r.get("created_at"),
+                        "sent_at": r["sent_at"] if hasattr(r, "keys") else r.get("sent_at"),
+                    })
+    except Exception as e:
+        log.debug("sent_at_integrity_card read failed: %s", e)
+        return result
+
+    result["total_bad"] = (
+        result["quotes_bad"] + result["rfqs_bad"]
+        + result["price_checks_bad"]
+    )
+    result["status"] = "healthy" if result["total_bad"] == 0 else "warn"
     return result
 
 
