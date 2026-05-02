@@ -2631,6 +2631,34 @@ def review_package(rid):
             _bidpkg_internal = {"dvbe843", "sellers_permit", "calrecycle74", "darfur_act",
                                 "bidder_decl", "std21", "genai_708"}
 
+    # ── Alignment rollup (5 checks + items + forms checklist) ──
+    # See src/api/review_alignment.py for the rules.
+    try:
+        from src.api.review_alignment import compute_review_alignment
+        from src.core.agency_config import match_agency
+        try:
+            _ak2, _ac2 = match_agency(r)
+        except Exception:
+            _ak2, _ac2 = "", {}
+        _output_dir = os.path.join(DATA_DIR, "output", sol) if sol else None
+        # source_items: no field captures buyer-original items at ingest today
+        # (audit gap — flagged for follow-up). Pass None so the items table
+        # renders with the "no source captured — verify manually" banner.
+        alignment = compute_review_alignment(
+            rfq=r, manifest=manifest, agency_cfg=_ac2,
+            output_dir=_output_dir if _output_dir and os.path.isdir(_output_dir) else None,
+            bidpkg_internal=_bidpkg_internal or None,
+            source_items=None,
+        )
+    except Exception as _ae:
+        log.error("review_alignment failed for %s: %s", rid, _ae, exc_info=True)
+        alignment = {
+            "rollup": {"aligned": False, "issues": [f"Alignment compute error: {_ae}"],
+                       "checks": {}, "summary": {}},
+            "items_alignment": {"has_source": False, "rows": [], "buyer_extra_count": 0},
+            "forms_checklist": [],
+        }
+
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
         manifest=manifest,
@@ -2638,6 +2666,7 @@ def review_package(rid):
         buyer_prefs=buyer_prefs,
         timeline=timeline,
         bidpkg_internal=_bidpkg_internal,
+        alignment=alignment,
         active_page="Home")
 
 

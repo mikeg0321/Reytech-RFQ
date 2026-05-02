@@ -2,13 +2,13 @@
 {% block title %}Review Package — RFQ #{{ sol }}{% endblock %}
 {% block content %}
 <style>
-.rv-wrap{max-width:1600px;margin:0 auto;padding:0 12px}
-.rv-header{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--bd);margin-bottom:16px}
+.rv-wrap{max-width:none;margin:0;padding:0 8px}
+.rv-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);margin-bottom:8px}
 .rv-header h2{margin:0;font-size:18px;color:var(--tx)}
-.rv-3col{display:grid;grid-template-columns:220px 1fr 360px;gap:12px;min-height:calc(100vh - 180px)}
-.rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:10px;overflow-y:auto;max-height:calc(100vh - 200px)}
-.rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
-.rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 200px)}
+.rv-3col{display:grid;grid-template-columns:180px 1fr 360px;gap:8px;min-height:calc(100vh - 100px)}
+.rv-checklist{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:8px;overflow-y:auto;max-height:calc(100vh - 100px)}
+.rv-preview{background:var(--sf);border:1px solid var(--bd);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;height:calc(100vh - 100px)}
+.rv-audit{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:12px;overflow-y:auto;max-height:calc(100vh - 100px)}
 .rv-form-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;margin-bottom:5px;border:1px solid transparent;font-size:15px}
 .rv-form-item:hover{background:rgba(79,140,255,.06)}
 .rv-form-item.active{background:rgba(79,140,255,.1);border-color:rgba(79,140,255,.3)}
@@ -43,6 +43,55 @@
 .rv-float-form.active{background:rgba(79,140,255,.15);border-color:rgba(79,140,255,.3)}
 .rv-float-form.v-approved{border-color:rgba(63,185,80,.3);color:#3fb950}
 .rv-float-form.v-rejected{border-color:rgba(248,81,73,.3);color:#f85149}
+/* Alignment rollup banner — collapsed when aligned to give the viewer the
+   real estate it deserves. Click to expand the issue list / check pills. */
+.rv-rollup{border-radius:8px;padding:10px 14px;margin-bottom:10px;border:1px solid;display:flex;gap:14px;align-items:center}
+.rv-rollup.aligned{background:rgba(63,185,80,.08);border-color:rgba(63,185,80,.3)}
+.rv-rollup.blocked{background:rgba(248,81,73,.08);border-color:rgba(248,81,73,.3)}
+.rv-rollup-icon{font-size:28px;line-height:1;flex-shrink:0}
+.rv-rollup-body{flex:1;min-width:0}
+.rv-rollup-headline{font-size:18px;font-weight:700;margin-bottom:2px;letter-spacing:-.01em}
+.rv-rollup.aligned .rv-rollup-headline{color:#3fb950}
+.rv-rollup.blocked .rv-rollup-headline{color:#f85149}
+.rv-rollup-sub{font-size:13px;color:var(--tx2);margin-bottom:0;line-height:1.4}
+.rv-rollup-issues{margin:6px 0 0 0;padding:0 0 0 20px;font-size:14px;color:#f85149;line-height:1.5}
+.rv-rollup-issues li{margin:2px 0}
+.rv-rollup-checks{display:flex;gap:8px;flex-wrap:wrap;margin-top:0;font-size:12px;flex-shrink:0;align-self:center}
+.rv-rollup-check{padding:5px 10px;border-radius:14px;border:1px solid var(--bd);background:var(--bg);white-space:nowrap;font-weight:500}
+.rv-rollup-check.ok{color:#3fb950;border-color:rgba(63,185,80,.3);background:rgba(63,185,80,.06)}
+.rv-rollup-check.fail{color:#f85149;border-color:rgba(248,81,73,.3);background:rgba(248,81,73,.06)}
+.rv-rollup-check.warn{color:#d29922;border-color:rgba(210,153,34,.3);background:rgba(210,153,34,.06)}
+.rv-rollup-check.unknown{color:var(--tx2)}
+/* Items alignment table */
+.rv-items-section{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin-bottom:18px}
+.rv-items-title{font-size:14px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:10px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.rv-items-banner{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:10px 12px;font-size:14px;color:#d29922;margin-bottom:10px;line-height:1.5}
+.rv-items-table{width:100%;border-collapse:collapse;font-size:15px}
+.rv-items-table th{text-align:left;font-size:12px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;padding:8px 10px;border-bottom:1px solid var(--bd);font-weight:600}
+.rv-items-table td{padding:10px;border-bottom:1px solid rgba(139,148,158,.1);vertical-align:top;color:var(--tx);line-height:1.5}
+.rv-items-table .rv-sub{font-size:13px;color:var(--tx2)}
+.rv-items-table .rv-match-icon{font-size:18px}
+.rv-items-empty{padding:18px;text-align:center;color:var(--tx2);font-size:15px}
+/* Forms checklist — bigger text + filenames legible */
+.rv-checklist .rv-form-item{font-size:15px}
+.rv-checklist .rv-form-item .rv-name{font-size:15px}
+.rv-checklist .rv-fname{font-family:ui-monospace,Consolas,monospace;font-size:12px;word-break:break-all;color:var(--tx2)}
+.rv-checklist .rv-size{color:var(--tx2);white-space:nowrap;font-size:12px}
+.rv-checklist .rv-qa-pill{display:inline-block;padding:2px 7px;border-radius:9px;font-size:11px;font-weight:600}
+.rv-checklist .rv-qa-pass{background:rgba(63,185,80,.15);color:#3fb950}
+.rv-checklist .rv-qa-fail{background:rgba(248,81,73,.15);color:#f85149}
+.rv-checklist .rv-qa-warn{background:rgba(210,153,34,.15);color:#d29922}
+.rv-checklist .rv-qa-unknown{background:rgba(139,148,158,.15);color:#8b949e}
+.rv-req-star{color:#f85149;margin-left:2px}
+/* Default to wide-preview layout — audit panel slides in only when needed.
+   Slim 180px checklist gives the iframe ~92% of viewport width (matches
+   Drive/PDF.js viewer proportions). */
+.rv-3col{grid-template-columns:180px 1fr 0px}
+.rv-3col .rv-audit{display:none}
+.rv-3col.show-audit{grid-template-columns:180px 1fr 360px}
+.rv-3col.show-audit .rv-audit{display:block}
+.rv-3col.collapse-left{grid-template-columns:0 1fr 0}
+.rv-3col.collapse-left .rv-checklist{display:none}
 </style>
 
 <div class="rv-wrap">
@@ -69,98 +118,139 @@
   </div>
   {% endif %}
 
-  {% if manifest.source_validation %}
-  {% set sv = manifest.source_validation %}
-  {% if sv.errors or sv.warnings %}
-  <div class="{% if sv.errors %}rv-error{% else %}rv-warn{% endif %}" style="margin-bottom:8px">
-    <b>📧 Source Validation:</b> {{ sv.summary or '' }}
-    {% for e in sv.get('errors',[]) %}<div style="margin-top:4px">❌ {{ e }}</div>{% endfor %}
-    {% for w in sv.get('warnings',[]) %}<div style="margin-top:4px">⚠️ {{ w }}</div>{% endfor %}
-    {% for c in sv.get('checks',[]) %}<div style="margin-top:4px;color:#3fb950">✅ {{ c }}</div>{% endfor %}
+  {# ── Alignment rollup — single source of truth, replaces 3 prior banners ── #}
+  {% set _rollup = (alignment|default({})).get('rollup', {}) %}
+  {% set _checks = _rollup.get('checks', {}) %}
+  {% set _summary = _rollup.get('summary', {}) %}
+  <div class="rv-rollup {{ 'aligned' if _rollup.get('aligned') else 'blocked' }}" data-testid="rv-rollup" data-aligned="{{ '1' if _rollup.get('aligned') else '0' }}">
+    <div class="rv-rollup-icon">{{ '✅' if _rollup.get('aligned') else '⚠️' }}</div>
+    <div class="rv-rollup-body">
+      {% if _rollup.get('aligned') %}
+        <div class="rv-rollup-headline">READY TO SEND</div>
+        <div class="rv-rollup-sub">All alignment checks passed — package matches what the buyer asked for, every required form is on disk, QA is green.</div>
+      {% else %}
+        <div class="rv-rollup-headline">{{ _rollup.get('issues', [])|length }} issue(s) blocking send</div>
+        <div class="rv-rollup-sub">Resolve each item below before finalizing the package.</div>
+        {% if _rollup.get('issues') %}
+        <ul class="rv-rollup-issues">
+          {% for issue in _rollup.get('issues', []) %}<li>{{ issue }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+      {% endif %}
+      <div class="rv-rollup-checks">
+        <span class="rv-rollup-check {{ 'ok' if _checks.get('forms_on_disk') else 'fail' }}" title="Every required form has an on-disk file with size > 0">📋 Forms {{ _summary.get('forms_present', 0) }}/{{ _summary.get('forms_required', 0) }}</span>
+        <span class="rv-rollup-check {{ 'ok' if _checks.get('qa_passed') else ('fail' if _checks.get('qa_passed') == false else 'unknown') }}" title="Form QA verified field-level correctness">🔍 QA {{ 'passed' if _checks.get('qa_passed') else ('failed' if _checks.get('qa_passed') == false else 'not run') }}</span>
+        <span class="rv-rollup-check {{ 'ok' if _checks.get('source_valid') else 'fail' }}" title="Buyer/sol# match between source email and package">📧 Source</span>
+        <span class="rv-rollup-check {{ 'ok' if _checks.get('buyer_present') else 'fail' }}" title="Buyer name + email + agency present">🏢 Buyer/agency</span>
+        <span class="rv-rollup-check {{ 'ok' if _checks.get('due_date_present') else 'warn' }}" title="Due date populated on RFQ">⏰ Due date</span>
+        <span class="rv-rollup-check {{ 'ok' if _checks.get('items_priced') else 'fail' }}" title="Every line item has unit price > 0">💲 Items priced ({{ _summary.get('items_priced', 0) }}/{{ _summary.get('items_total', 0) }})</span>
+      </div>
+    </div>
   </div>
-  {% elif sv.get('checks') %}
-  <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#3fb950;margin-bottom:8px">
-    ✅ <b>Source Validation:</b> {{ sv.get('checks',[])|join(' · ') }}
-  </div>
-  {% endif %}
-  {% endif %}
 
-  {% if manifest.missing_forms and manifest.missing_forms|length > 0 %}
-  <div class="rv-error" style="margin-bottom:12px">
-    <b>Missing Forms:</b> {{ manifest.missing_forms|join(', ') }} — required by {{ manifest.agency_name|agency_display }} but not generated.
-  </div>
-  {% endif %}
-
-  {% if manifest.field_audit and manifest.field_audit.get('_qa_passed') == false %}
-  <div class="rv-error" style="margin-bottom:12px">
-    <b>Form QA Failed</b> — {{ manifest.field_audit.get('_qa_summary', {}).get('critical_issues', [])|length }} critical issue(s) found. Fix errors before finalizing.
-    {% set _qa_issues = manifest.field_audit.get('_qa_summary', {}).get('critical_issues', []) %}
-    {% for issue in _qa_issues %}
-    <div style="margin-top:4px{% if loop.index0 >= 5 %};display:none{% endif %}" class="rv-qa-issue">❌ {{ issue }}</div>
-    {% endfor %}
-    {% if _qa_issues|length > 5 %}
-    <div style="margin-top:6px"><a onclick="document.querySelectorAll('.rv-qa-issue').forEach(function(e){e.style.display='block'});this.style.display='none'" style="cursor:pointer;color:#58a6ff;font-size:12px">Show all {{ _qa_issues|length }} issues</a></div>
+  {# ── Items alignment — buyer-asked vs the agency's primary response form ── #}
+  {# Collapsed by default so the PDF viewer takes the visible real estate.
+     Open from inside the rollup or via the disclosure caret. #}
+  {% set _items = (alignment|default({})).get('items_alignment', {}) %}
+  {% set _primary_label = (alignment|default({})).get('primary_form_label', 'Quote') %}
+  <details class="rv-items-section" data-testid="rv-items-alignment" {% if not _rollup.get('aligned') %}open{% endif %}>
+    <summary class="rv-items-title" style="cursor:pointer;list-style:revert">
+      <span>📦 Item Alignment — Buyer-Asked vs Your {{ _primary_label }}</span>
+      <span style="color:var(--tx2);font-size:13px;text-transform:none;letter-spacing:0">{{ _items.get('rows', [])|length }} item(s) in your quote{% if _rollup.get('aligned') %} · click to inspect{% endif %}</span>
+    </summary>
+    {% if not _items.get('has_source') and _items.get('rows') %}
+    <div class="rv-items-banner">
+      ⚠️ No buyer-source items captured at ingest — verify your items below match the original RFQ PDF/email by hand. (Audit-trail gap: parsed buyer items aren't preserved when operator edits.)
+    </div>
     {% endif %}
-  </div>
-  {% elif manifest.field_audit and manifest.field_audit.get('_qa_passed') == true %}
-  <div style="background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.2);border-radius:6px;padding:8px 10px;font-size:13px;color:#3fb950;margin-bottom:8px">
-    ✅ <b>Form QA Passed</b> — {{ manifest.field_audit.get('_qa_summary', {}).get('forms_checked', 0) }} forms verified ({{ manifest.field_audit.get('_qa_summary', {}).get('duration_ms', 0) }}ms)
-  </div>
-  {% endif %}
+    {% if _items.get('rows') %}
+    <table class="rv-items-table">
+      <thead>
+        <tr>
+          <th style="width:36px">#</th>
+          <th>Buyer asked</th>
+          <th>Your {{ _primary_label }}</th>
+          <th style="width:60px">Match</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in _items.get('rows', []) %}
+        <tr>
+          <td>{{ row.line }}</td>
+          <td>
+            {% if row.their_desc %}
+              {{ row.their_desc[:90] }}{% if row.their_desc|length > 90 %}…{% endif %}<br>
+              <span class="rv-sub">qty {{ row.their_qty }}{% if row.their_mfg %} · MFG# {{ row.their_mfg }}{% endif %}</span>
+            {% else %}
+              <span style="color:var(--tx2);font-style:italic">— no source captured —</span>
+            {% endif %}
+          </td>
+          <td>
+            {{ (row.our_desc or '(no description)')[:90] }}{% if row.our_desc and row.our_desc|length > 90 %}…{% endif %}<br>
+            <span class="rv-sub">qty {{ row.our_qty }} @ ${{ "%.2f"|format(row.our_unit) }}{% if row.our_mfg %} · MFG# {{ row.our_mfg }}{% endif %}</span>
+          </td>
+          <td class="rv-match-icon" title="{{ row.match }}">
+            {% if row.match == 'matched' %}✅
+            {% elif row.match == 'qty_differs' %}⚠️
+            {% elif row.match == 'desc_differs' %}⚠️
+            {% elif row.match == 'no_source' %}—
+            {% else %}❌{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if _items.get('buyer_extra_count', 0) > 0 %}
+    <div class="rv-items-banner" style="margin-top:8px">
+      ❌ Buyer-source has {{ _items.get('buyer_extra_count') }} extra item(s) not in your quote — review the source PDF.
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="rv-items-empty">No line items on this RFQ — add items before generating the package.</div>
+    {% endif %}
+  </details>
 
   <div class="rv-3col">
-    <!-- LEFT: Form Checklist -->
+    <!-- LEFT: Form Checklist (filenames + sizes + QA) -->
     <div class="rv-checklist">
-      <div style="font-size:13px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:6px;padding:0 4px;font-weight:700">Deliverables</div>
+      <div style="font-size:13px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:8px;padding:0 4px;font-weight:700">Deliverables — On Disk</div>
 
       <div id="rv-form-list">
-        <div style="font-size:11px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;margin-bottom:2px">📄 Quote</div>
-        {% for review in manifest.reviews %}
-        {% if review.form_id == 'quote' %}
-        <div class="rv-form-item {% if loop.first %}active{% endif %}"
-             data-form-id="{{ review.form_id }}"
-             data-filename="{{ review.form_filename }}"
-             data-verdict="{{ review.verdict }}"
-             onclick="selectForm(this, '{{ review.form_id }}', '{{ review.form_filename }}')">
-          <span class="rv-icon">
-            {% if review.verdict == 'approved' %}✅
-            {% elif review.verdict == 'rejected' %}❌
-            {% else %}⏳{% endif %}
-          </span>
-          <span class="rv-name">Reytech Quote</span>
-          <span class="rv-badge rv-badge-{{ review.verdict }}">{{ review.verdict|upper }}</span>
-          <button class="rv-edit-btn" onclick="event.stopPropagation();openEditModal('quote')" title="Edit & Refill">&#9998;</button>
-        </div>
-        {% endif %}
-        {% endfor %}
-        <div style="font-size:11px;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;padding:4px 12px;margin-top:8px;margin-bottom:2px;border-top:1px solid var(--bd);padding-top:8px">📋 Compliance Forms</div>
-        {% for review in manifest.reviews %}
-        {% if review.form_id != 'quote' and review.form_id not in bidpkg_internal|default([]) and review.form_filename %}
-        <div class="rv-form-item"
-             data-form-id="{{ review.form_id }}"
-             data-filename="{{ review.form_filename }}"
-             data-verdict="{{ review.verdict }}"
-             onclick="selectForm(this, '{{ review.form_id }}', '{{ review.form_filename }}')">
-          <span class="rv-icon">
-            {% if review.verdict == 'approved' %}✅
-            {% elif review.verdict == 'rejected' %}❌
-            {% else %}⏳{% endif %}
-          </span>
-          <span class="rv-name">{{ review.form_id|replace('_',' ')|title }}</span>
-          <span class="rv-badge rv-badge-{{ review.verdict }}">{{ review.verdict|upper }}</span>
-          <button class="rv-edit-btn" onclick="event.stopPropagation();openEditModal('{{ review.form_id }}')" title="Edit & Refill">&#9998;</button>
-        </div>
-        {% endif %}
-        {% endfor %}
-
-        {% if manifest.missing_forms %}
-        {% for missing in manifest.missing_forms %}
-        <div class="rv-form-item" style="opacity:.6">
-          <span class="rv-icon">🚫</span>
-          <span class="rv-name">{{ missing|replace('_',' ')|title }}</span>
-          <span class="rv-badge rv-badge-missing">MISSING</span>
+        {% set _flist = (alignment|default({})).get('forms_checklist', []) %}
+        {% if _flist %}
+        {% for f in _flist %}
+        <div class="rv-form-item {% if loop.first %}active{% endif %}{% if f.missing %} missing{% endif %}"
+             data-form-id="{{ f.form_id }}"
+             data-filename="{{ f.filename }}"
+             data-verdict="{{ f.verdict }}"
+             style="display:block;padding:8px 10px"
+             onclick="{% if f.filename %}selectForm(this, '{{ f.form_id }}', '{{ f.filename }}'){% endif %}">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="rv-icon" style="font-size:16px">
+              {% if f.missing %}🚫
+              {% elif f.verdict == 'approved' %}✅
+              {% elif f.verdict == 'rejected' %}❌
+              {% else %}⏳{% endif %}
+            </span>
+            <span class="rv-name" style="flex:1;font-weight:600;font-size:13px">{{ f.display_name }}{% if f.required %}<span class="rv-req-star" title="Required by agency">*</span>{% endif %}</span>
+            {% if f.qa_verdict == 'pass' %}<span class="rv-qa-pill rv-qa-pass">QA ✓</span>
+            {% elif f.qa_verdict == 'fail' %}<span class="rv-qa-pill rv-qa-fail">QA ✗</span>
+            {% elif f.qa_verdict == 'warn' %}<span class="rv-qa-pill rv-qa-warn">QA !</span>
+            {% else %}<span class="rv-qa-pill rv-qa-unknown">QA ?</span>{% endif %}
+            {% if f.filename %}<button class="rv-edit-btn" onclick="event.stopPropagation();openEditModal('{{ f.form_id }}')" title="Edit & Refill">&#9998;</button>{% endif %}
+          </div>
+          <div style="display:flex;gap:6px;margin-top:4px;font-size:11px;color:var(--tx2)">
+            {% if f.missing %}
+              <span style="color:#f85149">{% if f.filename %}File missing on disk{% else %}Not generated{% endif %}</span>
+            {% else %}
+              <span class="rv-fname" title="{{ f.filename }}">{{ f.filename or '—' }}</span>
+              <span class="rv-size">· {% if f.size_kb %}{{ f.size_kb }} KB{% else %}—{% endif %}</span>
+            {% endif %}
+          </div>
         </div>
         {% endfor %}
+        {% else %}
+        <div style="padding:12px;text-align:center;color:var(--tx2);font-size:12px">No forms in manifest yet. Generate the package first.</div>
         {% endif %}
       </div>
 
@@ -176,18 +266,17 @@
           🔒 Finalize Package
         </button>
         <div id="rv-finalize-hint" style="text-align:center;font-size:11px;color:var(--tx2);margin-top:4px">Review all forms to enable</div>
-        <button class="btn btn-sm" style="width:100%;background:rgba(210,153,34,.15);color:#d29922;font-size:12px;padding:8px;border-radius:6px;margin-top:6px" onclick="forceApprove()">⚡ Force Approve (skip reviews)</button>
       </div>
-      <div style="margin-top:10px;display:flex;flex-direction:column;gap:6px">
-        <a href="/api/rfq/{{ rid }}/download-complete-package" class="btn btn-sm" style="font-size:13px;width:100%;text-align:center;background:var(--ac);color:#fff;padding:8px;font-weight:600;margin-bottom:4px">⬇ Download Complete RFQ (All Forms)</a>
-        <div style="display:flex;gap:6px">
-          {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}
-          <a href="/api/download/{{ sol }}/{{ review.form_filename }}" target="_blank" class="btn btn-sm" style="font-size:12px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac);padding:6px">📄 Quote</a>
-          {% endif %}{% endfor %}
-          {% if manifest.package_filename %}
-          <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}" target="_blank" class="btn btn-sm" style="font-size:12px;flex:1;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;padding:6px">📋 Package</a>
-          {% endif %}
-        </div>
+      {# Bulk-download removed 2026-05-01 — Drive-folder integration replaces it
+         (PR-B). Per-form click loads the iframe preview; ↗️ Open opens any single
+         form in a new tab as a permalink. #}
+      <div style="margin-top:10px;display:flex;gap:6px">
+        {% for review in manifest.reviews %}{% if review.form_id == 'quote' and review.form_filename %}
+        <a href="/api/download/{{ sol }}/{{ review.form_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(79,140,255,.1);color:var(--ac);padding:8px">📄 Open Quote</a>
+        {% endif %}{% endfor %}
+        {% if manifest.package_filename %}
+        <a href="/api/download/{{ sol }}/{{ manifest.package_filename }}?inline=1" target="_blank" class="btn btn-sm" style="font-size:13px;flex:1;text-align:center;background:rgba(63,185,80,.1);color:#3fb950;padding:8px">📋 Open Package</a>
+        {% endif %}
       </div>
     </div>
 
@@ -195,9 +284,10 @@
     <div class="rv-preview">
       <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:8px">
         <span id="rv-preview-title" style="font-size:14px;font-weight:600;color:var(--tx);flex:1">Select a form to preview</span>
-        <button class="rv-expand-btn" onclick="toggleView('hide-right')" title="Hide audit panel">◀ Wide</button>
+        <button class="rv-expand-btn active" onclick="toggleView('')" title="Wide preview (default)">📄 Wide</button>
+        <button class="rv-expand-btn" onclick="toggleView('collapse-left')" title="Hide form list, max viewer width">⤢ Max</button>
+        <button class="rv-expand-btn" onclick="toggleView('show-audit')" title="Show review/audit panel">🛈 Audit</button>
         <button class="rv-expand-btn" onclick="toggleView('expand-preview')" title="Full screen preview">⛶ Full</button>
-        <button class="rv-expand-btn active" onclick="toggleView('')" title="All panels">☰ All</button>
         <a id="rv-download-link" href="#" target="_blank" class="rv-expand-btn" style="text-decoration:none;display:none">⬇ Download</a>
       </div>
       <div id="rv-preview-empty" class="rv-preview-empty">
@@ -207,7 +297,7 @@
         </div>
       </div>
       <iframe id="rv-preview-frame"
-        style="display:none;flex:1;border:none;min-height:calc(100vh - 250px);width:100%;background:#fff"
+        style="display:none;flex:1;border:none;height:100%;width:100%;background:#fff"
         allow="fullscreen"
         title="Document Preview">
       </iframe>
@@ -452,7 +542,7 @@ function toggleView(mode) {
   var grid = document.querySelector('.rv-3col');
   var floatBar = document.getElementById('rv-floating-bar');
   var preview = document.querySelector('.rv-preview');
-  grid.classList.remove('expand-preview', 'hide-right');
+  grid.classList.remove('expand-preview', 'hide-right', 'show-audit', 'collapse-left');
   if (mode) grid.classList.add(mode);
   floatBar.style.display = (mode === 'expand-preview') ? 'flex' : 'none';
   if (preview) preview.style.paddingBottom = (mode === 'expand-preview') ? '70px' : '0';
@@ -556,24 +646,7 @@ function finalizePackage(){
  }).catch(function(e){alert('Finalize error: '+e.message);});
 }
 
-function forceApprove(){
- if(!confirm('Force approve this package? This skips all form review checks.'))return;
- fetch('/api/rfq/'+RID+'/manifest/'+MANIFEST_ID+'/approve?force=1',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'}})
- .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){
-  if(!d.ok){alert('Force approve failed: '+(d.error||'unknown'));return;}
-  document.getElementById('rv-status-badge').textContent='APPROVED';
-  document.getElementById('rv-status-badge').style.background='rgba(63,185,80,.15)';
-  document.getElementById('rv-status-badge').style.color='#3fb950';
-  var btn=document.getElementById('rv-finalize-btn');
-  btn.textContent='✅ Package Approved';btn.disabled=true;btn.style.background='rgba(63,185,80,.15)';btn.style.color='#3fb950';
-  var _pkgFn = {{ (manifest.package_filename or '')|tojson }} || 'RFQ_Package_'+SOL+'_ReytechInc.pdf';
-  var _dl = '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">';
-  _dl += '<a href="/api/download/'+SOL+'/'+_pkgFn+'" target="_blank" class="btn btn-sm" style="background:rgba(63,185,80,.15);color:#3fb950;font-size:13px;flex:1;text-align:center">📋 Download Package</a>';
-  _dl += '<a href="/api/rfq/' + RID + '/download-complete-package" class="btn btn-sm" style="background:var(--ac);color:#fff;font-size:13px;flex:1;text-align:center;font-weight:600">⬇ Complete RFQ</a>';
-  _dl += '</div><a href="/rfq/'+RID+'" class="btn btn-sm" style="background:var(--sf);color:var(--tx);border:1px solid var(--bd);font-size:13px;width:100%;text-align:center;margin-top:4px">📧 Go to Send</a>';
-  document.getElementById('rv-finalize-hint').innerHTML = _dl;
- }).catch(function(e){alert('Force approve error: '+e.message);});
-}
+// (Force-approve helper removed 2026-05-01 — alignment rollup is the gate now.)
 
 function downloadAllForms() {
   var links = [];

@@ -77,6 +77,43 @@ FORM_TEXT_PATTERNS = {
                      "REQUEST FOR QUOTATION IT", "NON-CLOUD RFQ"],
 }
 
+# ── Email-domain → agency priority map ──────────────────────────────────────
+# Mike's 2026-05-01 directive: a buyer email at *@calvet.ca.gov is canonically
+# CalVet, regardless of whether the body text contains "CCHCS" or other agency
+# keywords. Domain wins over keyword scoring.
+#
+# CDCR + CCHCS share the same form set per the cchcs config (CDCR forms route
+# through the CCHCS package), so cdcr.ca.gov maps to cchcs.
+EMAIL_DOMAIN_AGENCY_MAP = {
+    "calvet.ca.gov": "calvet",
+    "cdcr.ca.gov": "cchcs",       # CDCR uses CCHCS form set
+    "cchcs.ca.gov": "cchcs",
+    "dsh.ca.gov": "dsh",
+    "fire.ca.gov": "calfire",
+    "calfire.ca.gov": "calfire",
+    "calrecycle.ca.gov": "calrecycle",
+    "dgs.ca.gov": "dgs",
+}
+
+
+def _agency_from_email_domain(email):
+    """Return agency_key if email domain matches a known mapping, else None.
+
+    Matches longest-suffix first so subdomains (e.g. *.calvet.ca.gov) hit the
+    parent map. Pure helper — no side effects.
+    """
+    if not email or "@" not in str(email):
+        return None
+    domain = str(email).split("@", 1)[1].lower().strip().rstrip(">").rstrip(".")
+    if not domain:
+        return None
+    # Longest-suffix match: calvet.ca.gov beats ca.gov
+    for known in sorted(EMAIL_DOMAIN_AGENCY_MAP, key=lambda x: -len(x)):
+        if domain == known or domain.endswith("." + known):
+            return EMAIL_DOMAIN_AGENCY_MAP[known]
+    return None
+
+
 DEFAULT_AGENCY_CONFIGS = {
     "calvet": {
         "name": "Cal Vet / DVA",
@@ -84,6 +121,7 @@ DEFAULT_AGENCY_CONFIGS = {
                           "VETERANS AFFAIRS", "CALVET.CA.GOV"],
         "required_forms": ["quote", "calrecycle74", "bidder_decl", "dvbe843", "darfur_act",
                           "cv012_cuf", "std204", "std205", "std1000", "sellers_permit"],
+        "primary_response_form": "cv012_cuf",  # form that carries the line-item response
         "optional_forms": ["obs_1600", "drug_free", "w9"],
         "notes": "California Department of Veterans Affairs. No AMS 703B/704B — uses Reytech quote + compliance forms. STD 205 supplement required. Non-Barstow CalVets use cv012_cuf only (Barstow has its own profile with barstow_cuf).",
         "default_markup_pct": 25,
@@ -96,6 +134,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "match_patterns": ["BARSTOW", "BARSTOW VETERANS"],
         "required_forms": ["quote", "calrecycle74", "bidder_decl", "dvbe843", "darfur_act",
                           "cv012_cuf", "barstow_cuf", "std204", "std205", "std1000", "sellers_permit"],
+        "primary_response_form": "cv012_cuf",
         "optional_forms": ["obs_1600", "drug_free"],
         "notes": "Cal Vet Barstow facility — requires BOTH CV 012 CUF AND Barstow-specific CUF.",
         "default_markup_pct": 25,
@@ -118,6 +157,7 @@ DEFAULT_AGENCY_CONFIGS = {
                           "CHOWCHILLA", "IMPERIAL", "BLYTHE", "CORONA",
                           "CDCR.CA.GOV", "CCHCS.CA.GOV"],
         "required_forms": ["703b", "704b", "bidpkg", "quote"],
+        "primary_response_form": "704b",
         "optional_forms": ["703c", "sellers_permit", "dvbe843", "std204", "calrecycle74",
                           "bidder_decl", "darfur_act", "obs_1600", "drug_free", "std1000",
                           "cchcs_it_rfq"],
@@ -135,6 +175,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "required_forms": ["quote", "dsh_attA", "dsh_attB", "dsh_attC",
                           "std204", "sellers_permit", "dvbe843", "bidder_decl",
                           "darfur_act", "calrecycle74"],
+        "primary_response_form": "dsh_attB",  # AttB is the pricing/items page
         "optional_forms": ["std1000", "drug_free", "std205", "w9"],
         "notes": "Department of State Hospitals. Per-solicitation packet ships AttA (bidder identity), AttB (pricing page), and AttC (forms checklist) as flat PDFs we overlay-fill from the buyer's source.",
         "default_markup_pct": 25,
@@ -146,6 +187,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "name": "DGS",
         "match_patterns": ["DGS", "GENERAL SERVICES"],
         "required_forms": ["quote", "std204", "sellers_permit", "dvbe843", "bidder_decl", "darfur_act"],
+        "primary_response_form": "quote",
         "optional_forms": ["std1000", "calrecycle74"],
         "notes": "Department of General Services. No AMS forms — uses their own bid format.",
         "default_markup_pct": 25,
@@ -157,6 +199,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "name": "CAL FIRE",
         "match_patterns": ["CALFIRE", "CAL FIRE", "FORESTRY", "FIRE PROTECTION"],
         "required_forms": ["quote", "std204", "sellers_permit", "dvbe843"],
+        "primary_response_form": "quote",
         "optional_forms": ["bidder_decl", "darfur_act"],
         "notes": "California Department of Forestry and Fire Protection.",
         "default_markup_pct": 20,
@@ -168,6 +211,7 @@ DEFAULT_AGENCY_CONFIGS = {
         "name": "Other / Unknown",
         "match_patterns": [],
         "required_forms": ["quote", "std204", "sellers_permit"],
+        "primary_response_form": "quote",
         "optional_forms": ["dvbe843", "bidder_decl"],
         "notes": "Default config for unrecognized agencies. Minimal forms.",
         "default_markup_pct": 25,
@@ -317,8 +361,39 @@ def match_agency(rfq_data):
 
     Returns: (agency_key, agency_config_dict)
     The config dict includes 'matched_by' with the pattern/source that triggered the match.
+
+    Email domain wins (added 2026-05-01): a buyer at *@calvet.ca.gov is
+    canonically CalVet even if the body text contains "CCHCS" keywords or vice
+    versa. See EMAIL_DOMAIN_AGENCY_MAP. Falls through to keyword + history
+    matching when no domain hit.
     """
     configs = load_agency_configs()
+
+    def _matched_via_domain(key, cfg, email, rfq):
+        cfg = dict(cfg)
+        cfg["matched_by"] = f"email_domain: '{email}'"
+        log.info("AGENCY_MATCH: %s → %s (matched by email_domain: '%s') | required_forms=%s",
+                 (rfq.get("institution") or rfq.get("agency") or "?")[:40],
+                 key, email, cfg.get("required_forms", []))
+        return key, cfg
+
+    def _matched(key, cfg, pattern, source="pattern"):
+        cfg = dict(cfg)  # copy to avoid mutating
+        cfg["matched_by"] = f"{source}: '{pattern}'"
+        log.info("AGENCY_MATCH: %s → %s (matched by %s: '%s') | required_forms=%s",
+                 (rfq_data.get("institution") or rfq_data.get("agency") or "?")[:40],
+                 key, source, pattern, cfg.get("required_forms", []))
+        return key, cfg
+
+    # Domain-first: a buyer at *@calvet.ca.gov is canonically CalVet even if
+    # the body text contains "CCHCS" keywords, and vice versa. Wins over
+    # keyword scoring + history. (Mike's 2026-05-01 directive.)
+    for _ek in ("requestor_email", "email_sender", "original_sender"):
+        _ek_val = rfq_data.get(_ek, "")
+        _domain_key = _agency_from_email_domain(_ek_val)
+        if _domain_key and _domain_key in configs:
+            return _matched_via_domain(_domain_key, configs[_domain_key],
+                                        _ek_val, rfq_data)
 
     search_text = " ".join([
         str(rfq_data.get("agency", "")),
@@ -331,14 +406,6 @@ def match_agency(rfq_data):
         str(rfq_data.get("solicitation_number", "")),
         str(rfq_data.get("email_subject", "")),
     ]).upper()
-
-    def _matched(key, cfg, pattern, source="pattern"):
-        cfg = dict(cfg)  # copy to avoid mutating
-        cfg["matched_by"] = f"{source}: '{pattern}'"
-        log.info("AGENCY_MATCH: %s → %s (matched by %s: '%s') | required_forms=%s",
-                 (rfq_data.get("institution") or rfq_data.get("agency") or "?")[:40],
-                 key, source, pattern, cfg.get("required_forms", []))
-        return key, cfg
 
     # Check Barstow before general CalVet (more specific first)
     for key in ["calvet_barstow", "dsh"]:
