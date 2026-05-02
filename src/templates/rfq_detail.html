@@ -85,50 +85,49 @@
       703A/B/C, 704B, bid package, DSH attachments, or generic attachment.
       Calls POST /api/rfq/<rid>/contract-upload, then reloads the page. -->
  {% set _t = r.get('templates') or {} %}
- {% set _es = r.get('email_screenshot') or {} %}
  <div id="contract-builder-card" style="margin-top:14px;padding:14px 16px;border-radius:10px;background:linear-gradient(180deg,rgba(88,166,255,.06),rgba(88,166,255,.02));border:1px solid rgba(88,166,255,.35)">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap">
    <div style="display:flex;align-items:center;gap:10px">
     <span style="font-size:15px;font-weight:700;color:#58a6ff">📎 Contract Builder</span>
     <span style="font-size:12px;color:var(--tx2)">drop anything — auto-routes to slots</span>
    </div>
+   {# Slot row is agency-aware. Each agency surfaces only the buyer-issued #}
+   {# document slots the form_classifier can actually route to for that   #}
+   {# workflow. CalVet/DGS/CalFire RFQs don't ship 703B/704B at all —     #}
+   {# surfacing those slots was misleading (Mike, 2026-05-01). DSH ships  #}
+   {# AttA/B/C; the classifier already has slots for those. The buyer's   #}
+   {# email is reachable via the 📬 Gmail-thread link in the header (B1), #}
+   {# so the email-screenshot upload slot is no longer surfaced here.    #}
+   {% set _ak = (agency_key or 'cchcs')|lower %}
+   {% if _ak == 'cchcs' %}
+    {% set _slot_defs = [('703b','📄','703B'),('703c','📄','703C'),('704b','📋','704B'),('bidpkg','📦','BidPkg')] %}
+   {% elif _ak == 'dsh' %}
+    {% set _slot_defs = [('dsh_attA','📄','AttA'),('dsh_attB','📄','AttB'),('dsh_attC','📄','AttC')] %}
+   {% else %}
+    {# CalVet, CalVet-Barstow, DGS, CalFire, and any other non-CCHCS    #}
+    {# / non-DSH agency: no buyer-form slots. The drop zone still       #}
+    {# accepts the RFQ PDF; it lands in the attachments table.          #}
+    {% set _slot_defs = [] %}
+   {% endif %}
+   {% if _slot_defs %}
    <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:11px">
-    {# Slot row is agency-aware. Each agency surfaces only the buyer-issued #}
-    {# document slots the form_classifier can actually route to for that   #}
-    {# workflow. CalVet/DGS/CalFire RFQs don't ship 703B/704B at all —     #}
-    {# surfacing those slots was misleading (Mike, 2026-05-01). DSH ships  #}
-    {# AttA/B/C; the classifier already has slots for those. For agencies  #}
-    {# without classifier slots, only Email is tracked here — the buyer's  #}
-    {# RFQ PDF lands in the attachments table and surfaces in that section.#}
-    {% set _ak = (agency_key or 'cchcs')|lower %}
-    {% if _ak == 'cchcs' %}
-     {% set _slot_defs = [('email_screenshot','📧','Email'),('703b','📄','703B'),('703c','📄','703C'),('704b','📋','704B'),('bidpkg','📦','BidPkg')] %}
-    {% elif _ak == 'dsh' %}
-     {% set _slot_defs = [('email_screenshot','📧','Email'),('dsh_attA','📄','AttA'),('dsh_attB','📄','AttB'),('dsh_attC','📄','AttC')] %}
-    {% else %}
-     {# CalVet, CalVet-Barstow, DGS, CalFire, and any other non-CCHCS    #}
-     {# agency: only the Email slot. RFQ PDF goes to attachments.        #}
-     {% set _slot_defs = [('email_screenshot','📧','Email')] %}
-    {% endif %}
     {% for slot, icon, label in _slot_defs %}
-     {% set _filled = (slot == 'email_screenshot' and _es.get('path')) or (slot != 'email_screenshot' and _t.get(slot)) %}
+     {% set _filled = _t.get(slot) %}
      <span style="padding:3px 9px;border-radius:5px;font-weight:600;{% if _filled %}background:rgba(63,185,80,.12);color:#3fb950;border:1px solid rgba(63,185,80,.3){% else %}background:var(--sf2);color:var(--tx2);border:1px solid var(--bd){% endif %}" title="{{ 'uploaded' if _filled else 'missing' }}">{{ icon }} {{ label }}{% if _filled %} ✓{% endif %}</span>
     {% endfor %}
    </div>
+   {% endif %}
   </div>
   <div id="cb-drop" ondragover="event.preventDefault();this.style.borderColor='#58a6ff';this.style.background='rgba(88,166,255,.08)'" ondragleave="this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent'" ondrop="event.preventDefault();this.style.borderColor='rgba(88,166,255,.4)';this.style.background='transparent';_cbUpload(event.dataTransfer.files)" onclick="document.getElementById('cb-input').click()" style="cursor:pointer;padding:18px;border:2px dashed rgba(88,166,255,.4);border-radius:8px;text-align:center;color:var(--tx2);font-size:13px;transition:all .15s">
    <div style="font-size:20px;margin-bottom:4px">⬆️</div>
    <div><strong style="color:var(--tx)">Drop files or click to upload</strong></div>
    <div style="margin-top:4px;font-size:12px">
     {% if _ak == 'cchcs' %}PDFs (703B, 703C, 704B, bid package){% elif _ak == 'dsh' %}PDFs (Attachments A, B, C){% else %}RFQ PDFs and supporting documents{% endif %}
-    · Images (email screenshot as contract) · Anything else → attachment
+    · Anything else → attachment
    </div>
    <input type="file" id="cb-input" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.bmp,.tif,.tiff" style="display:none" onchange="_cbUpload(this.files)">
   </div>
   <div id="cb-results" style="display:none;margin-top:10px;padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;font-size:12px;font-family:'JetBrains Mono',monospace"></div>
-  {% if _es.get('path') %}
-  <div style="margin-top:8px;padding:8px 12px;background:rgba(63,185,80,.06);border:1px solid rgba(63,185,80,.2);border-radius:6px;font-size:12px;color:#3fb950">📧 Email contract: <strong>{{ _es.get('original_filename') or _es.get('filename') }}</strong> · {{ (_es.get('bytes',0)/1024)|round|int }} KB · {{ _es.get('uploaded_at','')[:19] }}</div>
-  {% endif %}
  </div>
  <script>
  async function _cbUpload(fileList) {
