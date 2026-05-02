@@ -1328,8 +1328,25 @@
 <div class="card" style="padding:16px 20px">
  <div style="font-size:16px;font-weight:700;color:var(--tx);margin-bottom:12px">📋 Status</div>
 
+ {# Bug-2 (2026-05-02): make the Status banner click-to-Mark-Sent when the
+    RFQ hasn't already reached a terminal state. Mike screenshotted a 'draft'
+    RFQ where the Status section was just static text "DRAFT" with no obvious
+    way to flip it. The primary-action-bar Mark Sent button only renders for
+    statuses ∈ (generated, ready, ready_to_send) — it was invisible on draft.
+    Now: any non-terminal status surfaces both (a) a clickable banner, and
+    (b) the Mark Sent button below. Terminal states stay read-only. #}
+ {% set _terminal_statuses = ('won', 'lost', 'no_bid', 'cancelled') %}
+ {% set _is_terminal = r.status in _terminal_statuses %}
+ {% set _allow_mark_sent = r.status not in ('sent',) + _terminal_statuses %}
  <!-- Current status banner -->
- <div id="rfq-status-banner" style="padding:12px 16px;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:10px;margin-bottom:14px;
+ <div id="rfq-status-banner"
+      {% if _allow_mark_sent %}role="button" tabindex="0" data-testid="rfq-status-banner-mark-sent"
+        onclick="openMarkSentModal()"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openMarkSentModal();}"
+        title="Click to mark this RFQ as sent (e.g. you emailed it from Gmail directly)"
+        aria-label="Mark RFQ as sent — current status: {{ r.status|upper }}"
+      {% endif %}
+      style="padding:12px 16px;border-radius:8px;font-size:15px;display:flex;align-items:center;gap:10px;margin-bottom:14px;{% if _allow_mark_sent %}cursor:pointer;{% endif %}
   {% if r.status == 'generated' %}background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.25);color:#58a6ff
   {% elif r.status == 'sent' %}background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.25);color:#d29922
   {% elif r.status == 'won' %}background:rgba(46,160,67,.08);border:1px solid rgba(46,160,67,.25);color:#3fb950
@@ -1339,7 +1356,7 @@
   <span style="font-size:22px">
    {% if r.status == 'new' %}📥{% elif r.status == 'ready' %}✅{% elif r.status == 'generated' %}📦{% elif r.status == 'ready_to_send' %}✅📨{% elif r.status == 'sent' %}📨{% elif r.status == 'won' %}🏆{% elif r.status == 'lost' %}❌{% elif r.status == 'no_bid' %}🚫{% elif r.status == 'cancelled' %}🗑️{% else %}📋{% endif %}
   </span>
-  <div>
+  <div style="flex:1">
    <b style="font-size:16px">{{ r.status|upper }}</b>
    {% if r.status == 'sent' and r.get('sent_at') %} · Sent {{ r.sent_at[:10] }}{% endif %}
    {% if r.status == 'generated' %} · Package ready for review{% endif %}
@@ -1347,6 +1364,9 @@
    {% if r.status == 'won' and r.get('outcome_date') %} · Won {{ r.outcome_date[:10] }}{% endif %}
    {% if r.status == 'lost' and r.get('outcome_reason') %} · {{ r.outcome_reason }}{% endif %}
   </div>
+  {% if _allow_mark_sent %}
+  <span style="font-size:13px;opacity:.7;white-space:nowrap">📨 Click to Mark Sent</span>
+  {% endif %}
  </div>
 
  <!-- Action buttons based on current status -->
@@ -1354,7 +1374,14 @@
   {% if r.status in ('new', 'ready') %}
    <button onclick="updateRfqStatus('generated')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(79,140,255,.15);color:#58a6ff;border:1px solid rgba(79,140,255,.3);border-radius:6px" aria-label="Mark as generated">📦 Mark Generated</button>
   {% endif %}
-  {# Mark Sent lives in the primary action bar above. #}
+  {# Bug-2 (2026-05-02): Mark Sent button now lives in the Status card too,
+     not just the primary action bar. Always available unless RFQ is already
+     in a terminal state — Mike's draft RFQ had no Mark Sent affordance at
+     all because the primary-bar button only renders for generated/ready/
+     ready_to_send. The banner above is also click-to-Mark-Sent. #}
+  {% if _allow_mark_sent %}
+   <button onclick="openMarkSentModal()" class="btn" data-testid="rfq-status-mark-sent" style="font-size:15px;padding:8px 18px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700" aria-label="Mark this RFQ as sent" title="Use when you emailed the package outside the app">📨 Mark Sent</button>
+  {% endif %}
   {% if r.status in ('sent', 'generated', 'ready_to_send') %}
    <button onclick="recordRfqOutcome('won')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(46,160,67,.15);color:#3fb950;border:1px solid rgba(46,160,67,.3);border-radius:6px" aria-label="Mark as won">🏆 Won</button>
    <button onclick="recordRfqOutcome('lost')" class="btn" style="font-size:15px;padding:8px 18px;background:rgba(248,81,73,.15);color:#f85149;border:1px solid rgba(248,81,73,.3);border-radius:6px" aria-label="Mark as lost">❌ Lost</button>

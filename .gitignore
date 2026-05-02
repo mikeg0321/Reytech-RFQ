@@ -81,3 +81,4 @@ deadline_snooze_screenshot.png
 tmp_audit/
 baseline_pc_detail_pre_pr3a.png
 baseline_*.png
+.chrome_verify/
