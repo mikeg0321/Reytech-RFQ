@@ -921,8 +921,64 @@ def delete_order(order_id: str, actor: str = "user", reason: str = "") -> bool:
 # Revenue & Lifecycle (migrated from order_lifecycle.py)
 # ═══════════════════════════════════════════════════════════════════════
 
+
+def canonical_year_revenue_total(year: int = None) -> float:
+    """Single canonical YTD revenue number for the given calendar year.
+
+    Reads from `v_revenue_year_2026` (created by migration 36) — the
+    one place that defines what "this year's revenue" means: orders
+    UNION revenue_log filtered to `[YYYY-01-01, YYYY+1-01-01)` with
+    is_test rows excluded.
+
+    Pre-canonical, three callers each computed this number their own
+    way and disagreed: `update_revenue_tracker` took max() over four
+    unfiltered sources (orders.json, quotes.won, QB, manual), pinning
+    closed_revenue to all-time orders since the orders query had no
+    year filter. `get_goal_progress` used FISCAL_YEAR_START='2025-07-01'.
+    `get_revenue_ytd` used calendar year but counted any order in
+    paid/invoiced/delivered. This helper replaces all three.
+
+    Returns the SUM of `amount` from the view; 0.0 on any error.
+    """
+    from src.core.db import get_db
+    from src.core.canonical_state import REVENUE_YEAR
+    if year is None:
+        year = REVENUE_YEAR
+    if year != REVENUE_YEAR:
+        # Only v_revenue_year_2026 exists today. Future years get a
+        # new view in a new migration (per the comment on migration 36).
+        log.warning(
+            "canonical_year_revenue_total: year=%d but only %d view exists; "
+            "returning 0.0 (add v_revenue_year_%d via migration to enable)",
+            year, REVENUE_YEAR, year,
+        )
+        return 0.0
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(amount), 0) AS total "
+                "FROM v_revenue_year_2026"
+            ).fetchone()
+            if row is None:
+                return 0.0
+            total = row["total"] if hasattr(row, "keys") else row[0]
+            return float(total or 0)
+    except Exception as e:
+        log.error("canonical_year_revenue_total(%d): %s", year, e)
+        return 0.0
+
+
 def get_revenue_ytd() -> dict:
-    """YTD revenue from paid/invoiced orders + revenue_log."""
+    """YTD revenue from paid/invoiced orders + revenue_log.
+
+    Headline `revenue` number now comes from
+    `canonical_year_revenue_total()` so it agrees with the goal-progress
+    panel and the home-page tracker. The legacy
+    `SUM(CASE WHEN status IN ('paid','invoiced','delivered') ...)`
+    is still computed for one deploy cycle — Scientist-style dual-emit
+    — and any disagreement is logged so we can spot writers stamping
+    the wrong column before deleting the legacy path.
+    """
     from src.core.db import get_db
     from datetime import timedelta
     try:
@@ -962,11 +1018,21 @@ def get_revenue_ytd() -> dict:
                 ORDER BY invoice_date ASC
             """, ((now - timedelta(days=30)).strftime("%Y-%m-%d"),)).fetchall()
 
+            legacy_revenue = round(order_rev[1] or 0, 2)
+            canonical_revenue = round(canonical_year_revenue_total(now.year), 2)
+            if abs(legacy_revenue - canonical_revenue) > 0.01:
+                log.info(
+                    "revenue_ytd dual-emit: canonical=%s legacy=%s diff=%s",
+                    canonical_revenue, legacy_revenue,
+                    round(canonical_revenue - legacy_revenue, 2),
+                )
+
             return {
                 "ok": True,
                 "ytd": {
                     "total_orders": order_rev[0] or 0,
-                    "revenue": round(order_rev[1] or 0, 2),
+                    "revenue": canonical_revenue,
+                    "revenue_legacy": legacy_revenue,
                     "collected": round(order_rev[2] or 0, 2),
                     "logged_revenue": round((logged_rev[0] or 0), 2),
                 },
