@@ -11,19 +11,20 @@ been GC'd.
 
 PR-4 routes every "active orders" / "POs to source" counter through
 `get_active_orders()`, which applies the canonical `is_sourceable_po`
-predicate. Scientist-style dual-emit logs the legacy count alongside
-the canonical one for one deploy cycle.
+predicate.
+
+PR-4 originally landed with a Scientist-style dual-emit (canonical +
+legacy + diff log). PR-6 (#696) deleted the legacy half once the
+canonical numbers stabilized — the assertions below reflect the
+post-cleanup shape.
 
 Locks:
   - canonical sourceable count excludes invoiced/paid/closed/cancelled
   - already-quoted orders are excluded (sourcing handled by us)
   - sentinel po_numbers (N/A, TBD, ?) are excluded
-  - dual-emit log line fires when canonical and legacy disagree
   - the 3 home-page surfaces all read the same number
 """
 from __future__ import annotations
-
-import logging
 
 import pytest
 
@@ -49,9 +50,9 @@ class TestCanonicalSourceableSemantics:
         out = metrics.get_active_orders()
         # Only the 'new' row is sourceable.
         assert out["total"] == 1
-        # Legacy filter (status not in cancelled/test/deleted) keeps
-        # all three. Diff = 2; surfaces in the dual-emit log.
-        assert out["total_legacy"] == 3
+        # PR-6 (#696): the dual-emit `total_legacy` field was removed
+        # once canonical numbers settled.
+        assert "total_legacy" not in out
 
     def test_excludes_already_quoted(self):
         """Order with quote_number populated = already sourced
@@ -95,9 +96,10 @@ class TestCanonicalSourceableSemantics:
             "sentinel po_numbers (N/A/TBD/?) shouldn't count"
         )
 
-    def test_dual_emit_logs_diff(self, caplog):
-        """When canonical and legacy disagree by ≥1, an info-level
-        log line must fire so we can spot the discrepancy."""
+    def test_invoiced_counted_separately(self, caplog):
+        """Invoiced rows aren't sourceable — they show up under
+        `closed` / `invoiced_value` so the orders dashboard can still
+        render its 'completed' badge alongside the active backlog."""
         from src.core import metrics
         from src.core.order_dal import save_order
         save_order("ord-pr4-8", {"status": "invoiced", "total": 500,
@@ -106,13 +108,11 @@ class TestCanonicalSourceableSemantics:
         save_order("ord-pr4-9", {"status": "new", "total": 100,
                                   "po_number": "0000088009"},
                    actor="t")
-        with caplog.at_level(logging.INFO):
-            metrics.get_active_orders()
-        diff_lines = [r for r in caplog.records
-                      if "active_orders dual-emit" in r.getMessage()]
-        assert diff_lines, (
-            "Expected dual-emit log when canonical < legacy: "
-            "invoiced row counted by legacy, dropped by canonical"
+        out = metrics.get_active_orders()
+        assert out["total"] == 1, "only the 'new' row is sourceable"
+        assert out["closed"] >= 1, (
+            "invoiced row should be counted under `closed` so the "
+            "orders dashboard can render the completed badge"
         )
 
 

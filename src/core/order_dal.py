@@ -969,15 +969,15 @@ def canonical_year_revenue_total(year: int = None) -> float:
 
 
 def get_revenue_ytd() -> dict:
-    """YTD revenue from paid/invoiced orders + revenue_log.
+    """YTD revenue from canonical view + collected/overdue from orders.
 
-    Headline `revenue` number now comes from
-    `canonical_year_revenue_total()` so it agrees with the goal-progress
-    panel and the home-page tracker. The legacy
-    `SUM(CASE WHEN status IN ('paid','invoiced','delivered') ...)`
-    is still computed for one deploy cycle — Scientist-style dual-emit
-    — and any disagreement is logged so we can spot writers stamping
-    the wrong column before deleting the legacy path.
+    Headline `revenue` number is the canonical sum (PR-2 / migration 36
+    / `canonical_year_revenue_total`). Collected and monthly breakdowns
+    still pull from `orders` directly because they need per-status
+    totals the canonical view doesn't surface (paid / invoiced /
+    delivered split, monthly buckets, overdue 30+ day invoices).
+    Those are display fields; the canonical revenue answer is the
+    headline number consumers can rely on.
     """
     from src.core.db import get_db
     from datetime import timedelta
@@ -988,12 +988,10 @@ def get_revenue_ytd() -> dict:
         with get_db() as conn:
             order_rev = conn.execute("""
                 SELECT COUNT(*) as count,
-                       SUM(CASE WHEN status IN ('paid','invoiced','delivered') THEN total ELSE 0 END) as revenue,
-                       SUM(CASE WHEN status = 'paid' THEN COALESCE(payment_amount, total) ELSE 0 END) as collected,
-                       SUM(CASE WHEN status = 'invoiced' AND invoice_date < ? THEN total ELSE 0 END) as overdue
+                       SUM(CASE WHEN status = 'paid' THEN COALESCE(payment_amount, total) ELSE 0 END) as collected
                 FROM orders
                 WHERE created_at >= ?
-            """, ((now - timedelta(days=30)).isoformat(), year_start)).fetchone()
+            """, (year_start,)).fetchone()
 
             logged_rev = conn.execute("""
                 SELECT SUM(amount) as total FROM revenue_log
@@ -1018,22 +1016,12 @@ def get_revenue_ytd() -> dict:
                 ORDER BY invoice_date ASC
             """, ((now - timedelta(days=30)).strftime("%Y-%m-%d"),)).fetchall()
 
-            legacy_revenue = round(order_rev[1] or 0, 2)
-            canonical_revenue = round(canonical_year_revenue_total(now.year), 2)
-            if abs(legacy_revenue - canonical_revenue) > 0.01:
-                log.info(
-                    "revenue_ytd dual-emit: canonical=%s legacy=%s diff=%s",
-                    canonical_revenue, legacy_revenue,
-                    round(canonical_revenue - legacy_revenue, 2),
-                )
-
             return {
                 "ok": True,
                 "ytd": {
                     "total_orders": order_rev[0] or 0,
-                    "revenue": canonical_revenue,
-                    "revenue_legacy": legacy_revenue,
-                    "collected": round(order_rev[2] or 0, 2),
+                    "revenue": round(canonical_year_revenue_total(now.year), 2),
+                    "collected": round(order_rev[1] or 0, 2),
                     "logged_revenue": round((logged_rev[0] or 0), 2),
                 },
                 "monthly": [{"month": r[0], "orders": r[1], "revenue": round(r[2] or 0, 2)} for r in monthly],
