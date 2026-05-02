@@ -182,11 +182,18 @@ def list_message_ids(service, query: str = "", max_results: int = 500) -> List[s
     return ids[:max_results]
 
 
-def get_raw_message(service, msg_id: str) -> bytes:
+def get_raw_message(service, msg_id: str, return_thread_id: bool = False):
     """Fetch a message in raw RFC 2822 format.
 
     Returns bytes that can be parsed with email.message_from_bytes().
     This is the same format IMAP returns with BODY.PEEK[].
+
+    When ``return_thread_id=True``, returns a 2-tuple ``(raw_bytes,
+    gmail_thread_id)``. The threadId is the Gmail-internal ID used by the
+    API to group messages into threads — distinct from the RFC 2822
+    Message-ID. Both are needed for reply-on-thread send: Message-ID for
+    the In-Reply-To/References headers, threadId for the API's
+    `users.messages.send` / `users.drafts.create` body.
     """
     try:
         result = service.users().messages().get(
@@ -194,7 +201,10 @@ def get_raw_message(service, msg_id: str) -> bytes:
         ).execute()
         raw = result.get("raw", "")
         # Gmail API returns base64url-encoded RFC 2822
-        return base64.urlsafe_b64decode(raw)
+        raw_bytes = base64.urlsafe_b64decode(raw)
+        if return_thread_id:
+            return raw_bytes, result.get("threadId", "")
+        return raw_bytes
     except Exception as e:
         log.error("Gmail API get_raw_message error for %s: %s", msg_id, e)
         raise
@@ -203,20 +213,25 @@ def get_raw_message(service, msg_id: str) -> bytes:
 def get_message_metadata(service, msg_id: str) -> dict:
     """Fetch lightweight message metadata (headers only).
 
-    Returns dict with 'subject', 'from', 'date', 'message_id' keys.
+    Returns dict with 'subject', 'from', 'date', 'message_id', 'thread_id',
+    'gmail_id' keys. ``thread_id`` is the Gmail-internal threadId; needed
+    for reply-on-thread when sending or drafting.
     """
     try:
         result = service.users().messages().get(
             userId="me", id=msg_id, format="metadata",
-            metadataHeaders=["Subject", "From", "Date", "Message-ID"]
+            metadataHeaders=["Subject", "From", "Date", "Message-ID", "To", "Cc"]
         ).execute()
         headers = {h["name"].lower(): h["value"]
                    for h in result.get("payload", {}).get("headers", [])}
         return {
             "subject": headers.get("subject", ""),
             "from": headers.get("from", ""),
+            "to": headers.get("to", ""),
+            "cc": headers.get("cc", ""),
             "date": headers.get("date", ""),
             "message_id": headers.get("message-id", ""),
+            "thread_id": result.get("threadId", ""),
             "gmail_id": msg_id,
         }
     except Exception as e:
@@ -428,6 +443,10 @@ def save_draft(
     cc=None,
     bcc=None,
     attachments: Optional[List[str]] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    label_ids: Optional[List[str]] = None,
     from_name: Optional[str] = None,
     from_addr: Optional[str] = None,
     extra_headers: Optional[Dict[str, str]] = None,
@@ -437,6 +456,20 @@ def save_draft(
     Mirrors send_message() semantics but calls users.drafts.create instead of
     messages.send. Returns the Gmail API draft response (typically
     {'id': str, 'message': {'id': str, 'threadId': str, 'labelIds': [...]}}).
+
+    Threading parameters (added 2026-05-01 for PR-B1's reply-on-original-
+    thread send flow):
+      - ``in_reply_to``: RFC 2822 Message-ID of the message being replied to
+        (anchors the reply in the *initial* received email per Mike's
+        directive — clean threading, not threading-to-latest).
+      - ``references``: full reference chain (defaults to in_reply_to).
+      - ``thread_id``: Gmail's internal threadId from the inbound message;
+        Gmail uses this to group the draft with the buyer's original thread
+        (deeplinks then work; reply lands in the right Gmail thread). Set on
+        ``body.message.threadId`` per the API spec.
+
+    ``label_ids`` lets callers tag the draft (e.g. ``["CalVet"]`` so the
+    Sent view groups by agency). Empty/None = default labels only.
 
     Requires the same gmail.send (or gmail.compose) scope as send_message —
     refresh token must include it or Google returns 403.
@@ -449,6 +482,8 @@ def save_draft(
         cc=cc,
         bcc=bcc,
         attachments=attachments,
+        in_reply_to=in_reply_to,
+        references=references,
         from_name=from_name,
         from_addr=from_addr,
         extra_headers=extra_headers,
@@ -457,7 +492,12 @@ def save_draft(
     raw_bytes = msg.as_bytes()
     raw_b64url = base64.urlsafe_b64encode(raw_bytes).decode("ascii")
 
-    body: Dict[str, object] = {"message": {"raw": raw_b64url}}
+    inner: Dict[str, object] = {"raw": raw_b64url}
+    if thread_id:
+        inner["threadId"] = thread_id
+    if label_ids:
+        inner["labelIds"] = list(label_ids)
+    body: Dict[str, object] = {"message": inner}
 
     try:
         response = service.users().drafts().create(
@@ -469,9 +509,11 @@ def save_draft(
 
     to_summary = to if isinstance(to, str) else ", ".join(_split_list(to))
     log.info(
-        "Gmail API save_draft ok: draft_id=%s to=%s",
+        "Gmail API save_draft ok: draft_id=%s to=%s thread=%s in_reply_to=%s",
         response.get("id", "?"),
         to_summary,
+        thread_id or "(new)",
+        (in_reply_to or "")[:40],
     )
     return response
 

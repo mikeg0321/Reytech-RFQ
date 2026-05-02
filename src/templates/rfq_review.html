@@ -105,6 +105,9 @@
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <span id="rv-status-badge" style="font-size:13px;padding:4px 10px;border-radius:4px;font-weight:600;background:rgba(139,148,158,.15);color:#8b949e">{{ manifest.overall_status|upper }}</span>
+      {% if r.get('email_thread_id') %}
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);text-decoration:none" title="Open the original buyer email thread in Gmail — replies will land on this thread">📬 Gmail thread</a>
+      {% endif %}
       <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">← Back to RFQ</a>
     </div>
   </div>

@@ -34,6 +34,9 @@
       </div>
     </div>
     <div style="display:flex;gap:8px">
+      {% if r.get('email_thread_id') %}
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ r.email_thread_id }}" target="_blank" rel="noopener" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);border:1px solid rgba(79,140,255,.3);color:var(--ac);text-decoration:none" title="Open the original buyer email thread in Gmail">📬 Gmail thread</a>
+      {% endif %}
       <a href="/rfq/{{ rid }}" class="btn btn-sm" style="font-size:13px">📋 Full RFQ</a>
       {% if manifest %}<a href="/rfq/{{ rid }}/review-package" class="btn btn-sm" style="font-size:13px">📦 Review</a>{% endif %}
     </div>
