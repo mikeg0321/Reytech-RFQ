@@ -783,6 +783,74 @@
   </div>
 </div>
 
+{# ── Sent-at integrity (PR-5 #695) ── #}
+{# Counts rows whose send timestamp duplicates the creation timestamp #}
+{# — the writer-stamping bug Mike caught 2026-05-02. PR-3's canonical #}
+{# is_real_sent already hides these from the Awaiting widget; this    #}
+{# card surfaces them so the operator can see the cleanup volume.    #}
+{# Run `python scripts/sweep_sent_at_integrity.py --apply` to drain.  #}
+{% set _si = sent_at_integrity|default({"status":"unknown","total_bad":0,"quotes_bad":0,"rfqs_bad":0,"price_checks_bad":0,"samples":[]}) %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-t">
+    Sent-at integrity —
+    {% if _si.status == 'healthy' %}<span style="color:#3fb950">✓ 0 bug-shape rows</span>
+    {% elif _si.status == 'warn' %}<span style="color:#d29922">⚠ {{ _si.total_bad }} rows with duplicate send/creation timestamps</span>
+    {% else %}<span style="color:#6e7681">unknown</span>{% endif %}
+  </div>
+  <div style="padding:10px 12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _si.total_bad }}</div>
+        <div style="font-size:11px;color:#8b949e">TOTAL</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _si.quotes_bad }}</div>
+        <div style="font-size:11px;color:#8b949e">QUOTES</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _si.rfqs_bad }}</div>
+        <div style="font-size:11px;color:#8b949e">RFQs</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700">{{ _si.price_checks_bad }}</div>
+        <div style="font-size:11px;color:#8b949e">PCs</div>
+      </div>
+    </div>
+    <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
+      {% if _si.total_bad == 0 %}
+        Every sent row has a real, distinct send timestamp. Canonical predicate <code>is_real_sent</code> is happy.
+      {% else %}
+        These rows have an identical send and creation timestamp — almost certainly residue from a defunct backfill. They're hidden from the Awaiting widget already (canonical predicate filters at read time). To clear: <code>python scripts/sweep_sent_at_integrity.py --apply</code>.
+      {% endif %}
+    </div>
+    {% if _si.samples %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">Sample bug-shape rows ({{ _si.samples|length }})</summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">Table</th>
+            <th style="padding:4px 8px">ID</th>
+            <th style="padding:4px 8px">Status</th>
+            <th style="padding:4px 8px">duplicate timestamp</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for s in _si.samples %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace">{{ s.table }}</td>
+            <td style="padding:4px 8px;font-family:monospace">{{ s.id }}</td>
+            <td style="padding:4px 8px">{{ s.status }}</td>
+            <td style="padding:4px 8px;font-family:monospace">{{ s.created_at }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% endif %}
+  </div>
+</div>
+
 {# ── Agent runtime health (Plan §4.3 sub-4) ── #}
 {# Surveys the 14 src/agents/*.py modules that expose get_agent_status().    #}
 {# A failing import = boot regression; surfaces here BEFORE a user hits the  #}
