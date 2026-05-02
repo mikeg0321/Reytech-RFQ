@@ -165,7 +165,8 @@ def validate_header_field(field: str, val) -> tuple:
     """Validate an RFQ/PC header field value.
     Returns (sanitized_value, error_or_None)."""
     if field in ("solicitation_number", "pc_number", "requestor_name",
-                 "requestor_email", "institution", "agency_name"):
+                 "requestor_email", "institution", "agency_name",
+                 "reytech_quote_number"):
         return validate_text(val, max_len=200, default="")
     elif field in ("due_date", "due_time"):
         return validate_text(val, max_len=30, default="")
