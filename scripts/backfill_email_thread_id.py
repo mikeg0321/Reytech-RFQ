@@ -169,33 +169,46 @@ def _fmt_row(c: dict, tid: str = "") -> str:
 
 
 def run(db_path: Optional[str], *, apply: bool = False,
-        only: Optional[str] = None, max_records: int = 200) -> int:
+        only: Optional[str] = None, max_records: int = 200) -> dict:
+    """Run the backfill and return a structured result dict.
+
+    Result keys:
+      ok          : bool
+      mode        : "apply" | "dry-run"
+      db_path     : resolved DB path used
+      total_found : number of records that needed a thread_id
+      flipped     : number for which a thread_id was found
+      not_found   : number for which Gmail had no match
+      capped_at   : the --max value (or None if uncapped)
+      records     : per-record list of dicts:
+        {kind, id, source, value, thread_id, applied}
+      error       : populated on hard failure (DB missing, gmail unconfigured)
+    """
     resolved = _resolve_db_path(db_path)
     if not resolved or not os.path.exists(resolved):
-        print(f"ERROR: DB not found: {resolved or '/data/reytech.db'}",
-              file=sys.stderr)
-        return 2
+        return {"ok": False,
+                "error": f"DB not found: {resolved or '/data/reytech.db'}",
+                "mode": "apply" if apply else "dry-run",
+                "records": []}
 
     kinds: Iterable[str] = ("pc", "rfq")
     if only:
         if only not in ("pc", "rfq"):
-            print(f"ERROR: --only must be 'pc' or 'rfq', got {only!r}",
-                  file=sys.stderr)
-            return 1
+            return {"ok": False,
+                    "error": f"--only must be 'pc' or 'rfq', got {only!r}",
+                    "records": []}
         kinds = (only,)
-
-    print(f"{'APPLY' if apply else 'DRY-RUN'} backfill_email_thread_id "
-          f"on {resolved} (max={max_records})")
 
     try:
         from src.core.gmail_api import get_service, is_configured
     except Exception as e:
-        print(f"ERROR: cannot import gmail_api: {e}", file=sys.stderr)
-        return 1
+        return {"ok": False, "error": f"cannot import gmail_api: {e}",
+                "records": []}
 
     if not is_configured():
-        print("ERROR: Gmail not configured (no refresh token).", file=sys.stderr)
-        return 1
+        return {"ok": False,
+                "error": "Gmail not configured (no refresh token).",
+                "records": []}
     service = get_service("sales")
 
     conn = sqlite3.connect(resolved)
@@ -203,35 +216,75 @@ def run(db_path: Optional[str], *, apply: bool = False,
         all_candidates = []
         for kind in kinds:
             all_candidates.extend(_scan(conn, kind))
-        print(f"Found {len(all_candidates)} record(s) needing thread_id.")
-        if max_records and len(all_candidates) > max_records:
-            print(f"Capping at --max {max_records}.")
+        total_found = len(all_candidates)
+        capped_at = None
+        if max_records and total_found > max_records:
+            capped_at = max_records
             all_candidates = all_candidates[:max_records]
 
+        records = []
         flipped = 0
         not_found = 0
         for c in all_candidates:
             tid = _fetch_thread_id(service,
                                    gmail_id=c["gmail_id"],
                                    rfc822_id=c["rfc822_id"])
-            print(_fmt_row(c, tid))
+            applied = False
             if tid:
                 if apply:
                     _apply_one(conn, c, tid)
+                    applied = True
                 flipped += 1
             else:
                 not_found += 1
+            records.append({
+                "kind": c["kind"],
+                "id": c["id"],
+                "source": "gmail_id" if c["gmail_id"] else (
+                    "rfc822msgid" if c["rfc822_id"] else "none"),
+                "value": (c["gmail_id"] or c["rfc822_id"] or "")[:60],
+                "thread_id": tid or "",
+                "applied": applied,
+            })
 
         if apply:
             conn.commit()
-            print(f"\n[OK] Backfilled thread_id on {flipped} record(s); "
-                  f"{not_found} not found.")
-        else:
-            print(f"\nDry-run: would backfill {flipped} record(s); "
-                  f"{not_found} not findable. Pass --apply to commit.")
-        return 0
+
+        return {
+            "ok": True,
+            "mode": "apply" if apply else "dry-run",
+            "db_path": resolved,
+            "total_found": total_found,
+            "flipped": flipped,
+            "not_found": not_found,
+            "capped_at": capped_at,
+            "records": records,
+        }
     finally:
         conn.close()
+
+
+def _print_report(result: dict) -> int:
+    """Render a run() result as the legacy CLI text output. Returns exit code."""
+    if not result.get("ok"):
+        print(f"ERROR: {result.get('error', 'unknown')}", file=sys.stderr)
+        return 2 if "DB not found" in (result.get("error") or "") else 1
+    print(f"{result['mode'].upper()} backfill_email_thread_id "
+          f"on {result['db_path']}")
+    print(f"Found {result['total_found']} record(s) needing thread_id.")
+    if result.get("capped_at"):
+        print(f"Capping at --max {result['capped_at']}.")
+    for r in result["records"]:
+        tail = f"→ {r['thread_id']}" if r["thread_id"] else "→ (not found)"
+        print(f"  {r['kind'].upper():3s} {r['id'][:14]:14s} "
+              f"{r['source']}={r['value'][:40]:40s} {tail}")
+    if result["mode"] == "apply":
+        print(f"\n[OK] Backfilled thread_id on {result['flipped']} record(s); "
+              f"{result['not_found']} not found.")
+    else:
+        print(f"\nDry-run: would backfill {result['flipped']} record(s); "
+              f"{result['not_found']} not findable. Pass --apply to commit.")
+    return 0
 
 
 def main(argv: Optional[list] = None) -> int:
@@ -247,8 +300,9 @@ def main(argv: Optional[list] = None) -> int:
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    return run(args.db, apply=args.apply, only=args.only,
-               max_records=args.max_records)
+    result = run(args.db, apply=args.apply, only=args.only,
+                 max_records=args.max_records)
+    return _print_report(result)
 
 
 if __name__ == "__main__":
