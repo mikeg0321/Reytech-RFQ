@@ -957,6 +957,28 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
   background:none;border:none;color:var(--tx);cursor:pointer;white-space:nowrap;
 }
 #global-dismiss-popup button:hover { background:rgba(79,140,255,.15); }
+/* Bug 4 (2026-05-02): right-click context menu for queue rows.
+   Mike's image #5 — operator emails outside the app, then needs to
+   reach Mark Sent without clicking into each RFQ. Same popup styling
+   as the dismiss menu so right-click and dismiss-X feel like one
+   coherent action surface. */
+#global-queue-ctx-menu {
+  display:none;position:fixed;background:var(--sf2);border:1px solid var(--bd);
+  border-radius:8px;padding:6px 0;min-width:200px;z-index:99999;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);
+}
+#global-queue-ctx-menu button,
+#global-queue-ctx-menu a {
+  display:block;width:100%;text-align:left;padding:8px 14px;font-size:13px;
+  background:none;border:none;color:var(--tx);cursor:pointer;white-space:nowrap;
+  text-decoration:none;
+}
+#global-queue-ctx-menu button:hover,
+#global-queue-ctx-menu a:hover { background:rgba(79,140,255,.15); }
+#global-queue-ctx-menu button[disabled] {
+  color:var(--tx2);opacity:.5;cursor:not-allowed;
+}
+#global-queue-ctx-menu button[disabled]:hover { background:none; }
 </style>
 <!-- Global dismiss popup (lives outside tables) -->
 <div id="global-dismiss-popup">
@@ -968,6 +990,14 @@ fetch('/api/dashboard/init').then(r=>r.json()).then(d=>{
  <button onclick="doDismiss('other')" aria-label="Other">Other</button>
  <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
  <button onclick="doDismiss('delete')" style="color:#f85149" aria-label="Permanently Delete">🗑 Permanently Delete</button>
+</div>
+<!-- Right-click context menu for queue rows (Bug 4, 2026-05-02) -->
+<div id="global-queue-ctx-menu" data-testid="queue-row-context-menu">
+ <div style="padding:6px 14px;font-size:11px;color:var(--tx2);font-weight:700;text-transform:uppercase;letter-spacing:.5px" data-testid="queue-ctx-title">Quick Actions</div>
+ <button id="queue-ctx-mark-sent" data-testid="queue-ctx-mark-sent" onclick="_quickMarkSent()" aria-label="Mark Sent (manual)" title="Use when you emailed this outside the app">📨 Mark Sent</button>
+ <a id="queue-ctx-open" data-testid="queue-ctx-open" href="#" target="_blank" rel="noopener" aria-label="Open in new tab">↗️ Open in new tab</a>
+ <div style="border-top:1px solid var(--bd);margin:4px 0"></div>
+ <button onclick="document.getElementById('global-queue-ctx-menu').style.display='none'" style="color:var(--tx2)" aria-label="Cancel">Cancel</button>
 </div>
 <script>
 // Global dismiss state
@@ -1083,7 +1113,99 @@ document.addEventListener('click', function(e) {
   if (!e.target.closest('#global-dismiss-popup') && !e.target.closest('.dismiss-x-btn')) {
     document.getElementById('global-dismiss-popup').style.display = 'none';
   }
+  if (!e.target.closest('#global-queue-ctx-menu')) {
+    var ctx = document.getElementById('global-queue-ctx-menu');
+    if (ctx) ctx.style.display = 'none';
+  }
 });
+
+/* Bug 4 (2026-05-02): right-click context menu for queue rows.
+ * Mike's image #5 — operator emails outside the app, then needs to
+ * reach Mark Sent without clicking into each RFQ.
+ *
+ * showQueueContextMenu(type, id, event) — pops the menu at the cursor.
+ * _quickMarkSent() — POSTs to /api/{type}/<id>/mark-sent-manually with
+ *   the row's buyer email as sent_to (server falls back to it when
+ *   the form omits it). Then fades the row + decrements counters,
+ *   matching the dismiss flow.
+ *
+ * Disabled state: Mark Sent is grayed out for already-sent or terminal
+ * statuses (`sent`, `won`, `lost`, `no_bid`, `cancelled`). Cancel + the
+ * Open-in-new-tab link still work in those rows. */
+var _ctxType = '';
+var _ctxId = '';
+var _ctxRow = null;
+var TERMINAL_STATUSES = ['sent', 'won', 'lost', 'no_bid', 'cancelled'];
+
+function showQueueContextMenu(type, id, e) {
+  e.stopPropagation();
+  e.preventDefault();
+  _ctxType = type;
+  _ctxId = id;
+  _ctxRow = document.getElementById(type + '-row-' + id);
+  var menu = document.getElementById('global-queue-ctx-menu');
+  if (!menu) return false;
+  // Position at cursor; clamp to viewport so the menu doesn't overflow.
+  var x = Math.min(e.clientX, window.innerWidth - 220);
+  var y = Math.min(e.clientY, window.innerHeight - 180);
+  menu.style.display = 'block';
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.right = 'auto';
+  // Gate Mark Sent on row status. Server-side guarantees no double-send,
+  // but graying the option avoids confusing the operator.
+  var status = _ctxRow ? (_ctxRow.getAttribute('data-status') || '') : '';
+  var btn = document.getElementById('queue-ctx-mark-sent');
+  if (btn) btn.disabled = TERMINAL_STATUSES.indexOf(status) !== -1;
+  // Wire the Open link to the row's URL.
+  var openLink = document.getElementById('queue-ctx-open');
+  if (openLink && _ctxRow) {
+    openLink.href = _ctxRow.getAttribute('data-url') || '#';
+  }
+  return false;
+}
+
+function _quickMarkSent() {
+  var menu = document.getElementById('global-queue-ctx-menu');
+  if (menu) menu.style.display = 'none';
+  if (!_ctxType || !_ctxId) return;
+  var endpoint = (_ctxType === 'pc' ? '/api/pricecheck/' : '/api/rfq/')
+                 + _ctxId + '/mark-sent-manually';
+  // Empty FormData — server defaults sent_to to the record's buyer email
+  // and sent_at to now(). Multipart content-type matches the modal flow.
+  var fd = new FormData();
+  fd.append('notes', 'Marked sent via queue right-click');
+  fetch(endpoint, {method: 'POST', credentials: 'same-origin', body: fd})
+    .then(function(r) { return r.json().then(function(d){return [r.ok, d];}); })
+    .then(function(pair) {
+      var ok = pair[0], d = pair[1];
+      if (!ok || !d.ok) {
+        showMsg('Mark Sent failed: ' + (d && d.error || 'unknown'), 'err');
+        return;
+      }
+      showMsg('✅ Marked sent · #' + (d.sent_to || _ctxId), 'ok');
+      // Mirror the dismiss-row fade so the row leaves the active queue
+      // and the count badges update without a full page reload.
+      if (_ctxRow) {
+        _ctxRow.style.transition = 'opacity .3s';
+        _ctxRow.style.opacity = '0';
+        var t = _ctxType;
+        setTimeout(function() {
+          if (_ctxRow) _ctxRow.remove();
+          recomputeQueueCounts(t);
+        }, 300);
+      }
+      var countId = (_ctxType === 'pc' ? 'pc' : 'rfq') + '-queue-count';
+      var countEl = document.getElementById(countId);
+      if (countEl) {
+        var cur = parseInt(countEl.textContent) || 0;
+        countEl.textContent = Math.max(0, cur - 1);
+      }
+    })
+    .catch(function(err) {
+      showMsg('Mark Sent error: ' + err.message, 'err');
+    });
+}
 // Client-side table sort (E3: saves preference to localStorage)
 function sortTable(th, col) {
  var table = th.closest('table');
