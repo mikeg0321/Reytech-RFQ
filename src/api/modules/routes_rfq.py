@@ -2659,6 +2659,35 @@ def review_package(rid):
             "forms_checklist": [],
         }
 
+    # ── Draft state (PR-B3): pre-flight scan + Gmail draft pointer ──
+    # The "Send" UX is now: create Gmail draft (with double-sig pre-flight)
+    # → operator reviews in Gmail → operator sends from Gmail. The pane on
+    # /review-package surfaces (a) any double-sig issues that would block
+    # creation, (b) whether a draft already exists, (c) the Gmail link.
+    draft_state = {
+        "draft_id": (r.get("gmail_draft_id") or "").strip(),
+        "thread_id": (r.get("email_thread_id") or "").strip(),
+        "draft_created_at": r.get("draft_created_at", ""),
+        "double_sig_issues": [],
+        "has_attachments": False,
+        "to": "",
+    }
+    try:
+        from src.api.draft_builder import (
+            build_recipients, resolve_attachments,
+        )
+        from src.forms.double_sig_scanner import scan_package_for_double_sigs
+        atts = resolve_attachments(r, manifest, DATA_DIR)
+        draft_state["has_attachments"] = bool(atts)
+        if atts:
+            draft_state["double_sig_issues"] = scan_package_for_double_sigs(
+                [(os.path.basename(p), p) for p in atts]
+            )
+        _to, _cc = build_recipients(r)
+        draft_state["to"] = _to
+    except Exception as _dse:
+        log.debug("draft_state compute: %s", _dse)
+
     return render_page("rfq_review.html",
         r=r, rid=rid, sol=sol,
         manifest=manifest,
@@ -2667,6 +2696,7 @@ def review_package(rid):
         timeline=timeline,
         bidpkg_internal=_bidpkg_internal,
         alignment=alignment,
+        draft_state=draft_state,
         active_page="Home")
 
 
@@ -2728,6 +2758,162 @@ def api_bind_email(rid):
     log.info("Email bound to RFQ %s: thread=%s msg=%s",
              rid, thr_id[:30], msg_id[:50])
     return jsonify({"ok": True, "thread_id": thr_id, "message_id": msg_id})
+
+
+@bp.route("/api/rfq/<rid>/create-draft", methods=["POST"])
+@auth_required
+@safe_route
+def api_create_draft(rid):
+    """Create a Gmail draft for this RFQ — replaces direct-send (PR-B3).
+
+    Mike's directive: "do not direct send, i want to see eveyrhting
+    first". So instead of firing the send, we save a draft into Gmail
+    (threaded onto the buyer's original email when bound), let the
+    operator review it in Gmail's own draft UI, and click Send there.
+
+    Pre-flight gate: runs `scan_package_for_double_sigs` on attachments
+    first. If any issue is found we return 422 with the details — the
+    /review-package UI surfaces these and blocks draft creation until
+    they're resolved (per the "Never double-sign" rule in CLAUDE.md).
+
+    Returns:
+      {ok, draft_id, gmail_draft_url, thread_id, attachments, ...}
+    """
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    try:
+        from src.core import gmail_api
+        from src.api.draft_builder import (
+            build_draft_params, resolve_attachments, agency_label_name,
+            gmail_draft_url,
+        )
+        from src.forms.double_sig_scanner import scan_package_for_double_sigs
+        from src.core.dal import get_latest_manifest
+        from src.core.agency_config import match_agency
+    except Exception as e:
+        log.error("create-draft: import error: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": f"import error: {e}"}), 500
+
+    if not gmail_api.is_configured():
+        return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
+
+    manifest = get_latest_manifest(rid)
+    attachments = resolve_attachments(r, manifest, DATA_DIR)
+    if not attachments:
+        return jsonify({
+            "ok": False,
+            "error": "No package PDFs found — generate the package first.",
+        }), 400
+
+    # Pre-flight: hard-block double-signed packages. Buyers reject those.
+    sig_issues = scan_package_for_double_sigs(
+        [(os.path.basename(p), p) for p in attachments]
+    )
+    if sig_issues:
+        log.warning("create-draft blocked for %s — %d double-sig issue(s)",
+                    rid, len(sig_issues))
+        return jsonify({
+            "ok": False,
+            "error": "Double-signature pre-flight failed",
+            "double_sig_issues": sig_issues,
+        }), 422
+
+    # Build params + agency label
+    params = build_draft_params(r, manifest, attachments)
+    if not params.get("to"):
+        return jsonify({
+            "ok": False,
+            "error": "No recipient — set requestor_email or use Locate Gmail thread.",
+        }), 400
+
+    # Resolve agency Gmail label → labelId (best-effort; absence is silent)
+    label_ids = []
+    try:
+        _ak, _ = match_agency(r)
+        label_name = agency_label_name(_ak or "")
+        if label_name:
+            service = gmail_api.get_send_service()
+            labels = service.users().labels().list(userId="me").execute()
+            for lbl in (labels.get("labels") or []):
+                if lbl.get("name", "").lower() == label_name.lower():
+                    label_ids.append(lbl["id"])
+                    break
+    except Exception as _le:
+        log.debug("agency label lookup failed: %s", _le)
+
+    # Discard any prior draft so we don't leave orphans in Gmail Drafts
+    prior = (r.get("gmail_draft_id") or "").strip()
+    if prior:
+        try:
+            service = gmail_api.get_send_service()
+            service.users().drafts().delete(userId="me", id=prior).execute()
+            log.info("create-draft: discarded prior draft %s", prior[:20])
+        except Exception as _de:
+            log.debug("prior draft discard failed (may already be sent): %s", _de)
+
+    # Save the draft
+    try:
+        service = gmail_api.get_send_service()
+        response = gmail_api.save_draft(
+            service,
+            label_ids=label_ids or None,
+            **params,
+        )
+    except Exception as e:
+        log.error("save_draft failed for %s: %s", rid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    draft_id = response.get("id", "")
+    msg = response.get("message", {})
+    msg_thread = msg.get("threadId", "")
+
+    # Persist draft id
+    r["gmail_draft_id"] = draft_id
+    r["draft_created_at"] = datetime.now().isoformat()
+    rfqs[rid] = r
+    _save_single_rfq(rid, r)
+
+    log.info("Draft created for RFQ %s: draft=%s thread=%s attachments=%d",
+             rid, draft_id[:20], msg_thread[:20], len(attachments))
+
+    return jsonify({
+        "ok": True,
+        "draft_id": draft_id,
+        "gmail_draft_url": gmail_draft_url(response),
+        "thread_id": msg_thread or params.get("thread_id") or "",
+        "to": params.get("to"),
+        "subject": params.get("subject"),
+        "attachments": [os.path.basename(p) for p in attachments],
+        "label_applied": bool(label_ids),
+    })
+
+
+@bp.route("/api/rfq/<rid>/discard-draft", methods=["POST"])
+@auth_required
+@safe_route
+def api_discard_draft(rid):
+    """Discard the current Gmail draft for this RFQ (operator escape hatch)."""
+    rfqs = load_rfqs()
+    r = rfqs.get(rid)
+    if not r:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    draft_id = (r.get("gmail_draft_id") or "").strip()
+    if not draft_id:
+        return jsonify({"ok": True, "message": "No draft to discard"})
+    try:
+        from src.core import gmail_api
+        service = gmail_api.get_send_service()
+        service.users().drafts().delete(userId="me", id=draft_id).execute()
+    except Exception as e:
+        # Even if Gmail rejected (e.g. already sent), clear the local pointer
+        log.warning("discard-draft Gmail API error for %s: %s", rid, e)
+    r["gmail_draft_id"] = ""
+    rfqs[rid] = r
+    _save_single_rfq(rid, r)
+    return jsonify({"ok": True})
 
 
 @bp.route("/rfq/<rid>/support")

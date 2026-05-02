@@ -1700,6 +1700,11 @@ def _migrate_columns():
         # send, and operator-side email locator for manual RFQs.
         ("rfqs", "email_thread_id", "TEXT DEFAULT ''"),
         ("price_checks", "email_thread_id", "TEXT DEFAULT ''"),
+        # PR-B3 (2026-05-01) — Gmail draft id, set when /api/rfq/<id>/
+        # create-draft writes a draft. Lets /review-package surface "draft
+        # created, open in Gmail" state and lets re-create supersede.
+        ("rfqs", "gmail_draft_id", "TEXT DEFAULT ''"),
+        ("price_checks", "gmail_draft_id", "TEXT DEFAULT ''"),
         # ── Orders V2: structured columns on orders (currently only in data_json blob) ──
         ("orders", "buyer_name", "TEXT DEFAULT ''"),
         ("orders", "buyer_email", "TEXT DEFAULT ''"),

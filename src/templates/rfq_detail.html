@@ -1313,32 +1313,12 @@
   </div>
  </form>
  <script>
+ // PR-B3: Inline-composer Send is now a redirect to /review-package, which
+ // is the single Send entry point with double-sig pre-flight + Gmail draft
+ // creation. The composer below is still useful as a pre-flight scratch pad
+ // for the body/recipient, but the actual send happens on review-package.
  function rfqComposeSend() {
-   var btn = document.getElementById('rfqSendBtn');
-   var toEl = document.getElementById('emailTo');
-   var subjEl = document.getElementById('emailSubject');
-   var bodyEl = document.getElementById('emailBody');
-   var statusEl = document.getElementById('emailStatus');
-   if (!toEl || !toEl.value.includes('@')) { alert('Enter a valid email address'); return; }
-   btn.disabled = true; btn.textContent = '⏳ Sending...';
-   if (statusEl) statusEl.textContent = '';
-   fetch('/api/rfq/{{rid}}/send-quote', {
-     method: 'POST', credentials: 'same-origin',
-     headers: {'Content-Type': 'application/json'},
-     body: JSON.stringify({to: toEl.value.trim(), subject: subjEl.value.trim(), body: bodyEl.value})
-   }).then(function(r){return r.json()}).then(function(d){
-     if (d.ok) {
-       btn.textContent = '✅ Sent!'; btn.style.background = '#238636';
-       if (statusEl) { statusEl.textContent = 'Sent to ' + toEl.value; statusEl.style.color = '#3fb950'; }
-       setTimeout(function(){ location.reload(); }, 2000);
-     } else {
-       btn.disabled = false; btn.textContent = '📨 Send Quote';
-       if (statusEl) { statusEl.textContent = '❌ ' + (d.error || 'Send failed'); statusEl.style.color = '#f85149'; }
-     }
-   }).catch(function(e){
-     btn.disabled = false; btn.textContent = '📨 Send Quote';
-     if (statusEl) { statusEl.textContent = '❌ Network error'; statusEl.style.color = '#f85149'; }
-   });
+   location.href = '/rfq/{{rid}}/review-package';
  }
  </script>
 </div>
@@ -3229,34 +3209,12 @@ function saveDraft(){
   form.submit();
 }
 
-// E8: Send Quote Email — scroll to embedded composer panel
+// PR-B3: Send Quote button → redirect to /review-package, which is now
+// the single Send entry point. Direct-send is disabled (Mike: "do not
+// direct send, i want to see eveyrhting first"). The review page has
+// the double-sig pre-flight, draft creation, and Gmail open-in-new-tab.
 function sendQuoteEmail(){
- var composer = document.getElementById('emailForm');
- if(composer){
-  composer.scrollIntoView({behavior:'smooth'});
-  // Flash the composer card border to draw attention
-  var card = composer.closest('.card');
-  if(card){
-   card.style.borderColor = '#58a6ff';
-   card.style.boxShadow = '0 0 20px rgba(88,166,255,.3)';
-   setTimeout(function(){ card.style.borderColor = ''; card.style.boxShadow = ''; }, 2000);
-  }
-  // Pre-fill To if empty
-  var toEl = document.getElementById('emailTo');
-  if(toEl && !toEl.value){
-   var buyerEmail = {{ (r.get('original_sender', '') or r.get('requestor_email', '') or '')|tojson }};
-   toEl.value = buyerEmail;
-  }
- } else {
-  // Composer not rendered (wrong status) — fall back to alert
-  alert('Email composer is only available after generating the package.\nGenerate the package first, then use the Email Composer below.');
- }
-}
-// Auto-scroll to email composer when arriving from review page via #emailForm
-if(window.location.hash === '#emailForm'){
- window.addEventListener('DOMContentLoaded', function(){
-  setTimeout(function(){ sendQuoteEmail(); }, 300);
- });
+ location.href = '/rfq/{{ rid }}/review-package';
 }
 
 function generateOBS1600(){
