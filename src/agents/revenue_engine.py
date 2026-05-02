@@ -38,7 +38,9 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 ANNUAL_GOAL = 2_000_000  # $2M target
-FISCAL_YEAR_START = "2025-07-01"  # CA fiscal year
+# FISCAL_YEAR_START retired in PR-6 (#696) — revenue is calendar-year
+# now (`canonical_state.REVENUE_YEAR`). Mike confirmed Jan 1 – Dec 31
+# on 2026-05-02 when the home page was reading $1.8M lifetime as YTD.
 
 
 # ── Revenue Reconciliation ────────────────────────────────────────────────────
@@ -490,35 +492,15 @@ def get_margin_analysis() -> dict:
 def get_goal_progress() -> dict:
     """Track progress toward annual revenue goal.
 
-    YTD comes from `canonical_year_revenue_total()` (calendar year, per
-    Mike 2026-05-02 — fiscal-year split was retired). The legacy
-    `revenue_log >= FISCAL_YEAR_START` query is still computed for
-    one deploy cycle so we can log disagreements before removing.
+    YTD = `canonical_year_revenue_total()` (calendar year, per Mike
+    2026-05-02). The legacy `FISCAL_YEAR_START='2025-07-01'` cutoff
+    was retired in PR-2; the dual-emit transition wrapper was removed
+    in PR-6 once the canonical numbers settled.
     """
-    from src.core.canonical_state import (
-        REVENUE_YEAR, revenue_year_start,
-    )
+    from src.core.canonical_state import REVENUE_YEAR, revenue_year_start
     from src.core.order_dal import canonical_year_revenue_total
     try:
-        # Canonical YTD (the new authoritative number)
-        canonical_ytd = canonical_year_revenue_total(REVENUE_YEAR)
-
-        # Legacy YTD (kept for one deploy cycle, dual-emit logging)
-        with get_db() as conn:
-            ytd = conn.execute("""
-                SELECT COALESCE(SUM(amount), 0) as total
-                FROM revenue_log
-                WHERE logged_at >= ? AND amount > 0
-            """, (FISCAL_YEAR_START,)).fetchone()
-            legacy_ytd = ytd["total"] if ytd else 0
-
-        if abs(canonical_ytd - legacy_ytd) > 0.01:
-            log.info(
-                "goal_progress dual-emit: canonical=%.2f legacy=%.2f diff=%.2f",
-                canonical_ytd, legacy_ytd, canonical_ytd - legacy_ytd,
-            )
-
-        total_ytd = canonical_ytd
+        total_ytd = canonical_year_revenue_total(REVENUE_YEAR)
 
         # Pipeline forecast (separate DB call — avoid lock deadlock)
         forecast = forecast_pipeline()
@@ -544,7 +526,6 @@ def get_goal_progress() -> dict:
             "ok": True,
             "goal": ANNUAL_GOAL,
             "ytd_revenue": round(total_ytd, 2),
-            "ytd_revenue_legacy": round(legacy_ytd, 2),
             "pct_of_goal": pct_of_goal,
             "weighted_pipeline": round(weighted_pipeline, 2),
             "projected_with_pipeline": round(total_ytd + weighted_pipeline, 2),

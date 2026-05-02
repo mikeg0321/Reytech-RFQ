@@ -110,10 +110,11 @@ class TestActiveOrders:
         assert result["closed"] == 1
         # Pre-PR-4: total = 2 (both rows counted regardless of closed
         # status). Post-PR-4: closed orders are NOT sourceable, so
-        # total reflects only the new (sourceable) row. Legacy total
-        # is preserved in `total_legacy` for the Scientist diff log.
+        # total reflects only the new (sourceable) row.
         assert result["total"] == 1
-        assert result["total_legacy"] == 2
+        # PR-6 (#696): the dual-emit `total_legacy` field was removed
+        # once canonical numbers settled.
+        assert "total_legacy" not in result
 
 
 class TestInboxCounts:

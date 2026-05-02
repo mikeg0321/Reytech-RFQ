@@ -230,8 +230,9 @@ def test_get_revenue_ytd_uses_canonical_for_headline(temp_data_dir):
     out = get_revenue_ytd()
     assert out["ok"] is True
     assert out["ytd"]["revenue"] == round(canonical, 2)
-    # Legacy still emitted for one cycle so the diff log can fire.
-    assert "revenue_legacy" in out["ytd"]
+    # PR-6 (#696): the dual-emit `revenue_legacy` field was removed
+    # once canonical numbers settled.
+    assert "revenue_legacy" not in out["ytd"]
 
 
 def test_get_goal_progress_uses_canonical_ytd(temp_data_dir):
@@ -247,7 +248,9 @@ def test_get_goal_progress_uses_canonical_ytd(temp_data_dir):
     out = get_goal_progress()
     assert out["ok"] is True
     assert out["ytd_revenue"] == round(canonical, 2)
-    assert "ytd_revenue_legacy" in out
+    # PR-6 (#696): the dual-emit `ytd_revenue_legacy` field was removed
+    # once canonical numbers settled.
+    assert "ytd_revenue_legacy" not in out
 
 
 def test_update_revenue_tracker_closed_revenue_is_canonical(temp_data_dir):
@@ -282,34 +285,16 @@ def test_update_revenue_tracker_closed_revenue_is_canonical(temp_data_dir):
     out = update_revenue_tracker()
     assert out["ok"] is True
     assert out["closed_revenue"] == round(canonical, 2)
-    # Legacy still surfaced in the dual-emit field — should be the
-    # *bigger* number that proves the bug existed pre-canonical.
-    assert out["closed_revenue_legacy"] >= 1_000_000.0
+    # PR-6 (#696): the dual-emit `closed_revenue_legacy` field was removed
+    # once canonical numbers settled.
+    assert "closed_revenue_legacy" not in out
 
 
-# ─── Dual-emit logging ───────────────────────────────────────────────────
-
-
-def test_get_revenue_ytd_logs_dual_emit_diff(temp_data_dir, caplog):
-    """When canonical disagrees with legacy, one info-level diff line
-    is logged so we can spot writers stamping the wrong column."""
-    import logging
-    from src.agents.sales_intel import update_revenue_tracker
-    with _conn() as c:
-        _wipe(c)
-        # Legacy max() will pick up the all-time order (no year filter).
-        # Canonical will not. → diff > 0.01 → log fires.
-        _seed_order(c, order_id="ord-old", total=1_000_000.0,
-                    created_at="2024-01-15T00:00:00")
-        _seed_order(c, order_id="ord-new", total=100.0,
-                    created_at="2026-04-15T00:00:00")
-        c.commit()
-    with caplog.at_level(logging.INFO):
-        update_revenue_tracker()
-    # Look across all loggers — Flask app loggers vary by name.
-    diff_lines = [r for r in caplog.records
-                  if "revenue_tracker dual-emit" in r.getMessage()]
-    assert diff_lines, (
-        "Expected at least one dual-emit log line when canonical and "
-        "legacy disagree — that's the whole point of the Scientist pattern."
-    )
+# ─── PR-6 (#696): dual-emit machinery removed ────────────────────────────
+#
+# Earlier in this arc we kept a legacy reading alongside the canonical
+# one and logged the diff (Scientist pattern). Once the canonical numbers
+# stabilized on prod, the legacy paths became dead weight — they could
+# only ever be wrong relative to the new source of truth. PR-6 deletes
+# them. The historical regression remains covered by
+# `test_update_revenue_tracker_closed_revenue_is_canonical` above.

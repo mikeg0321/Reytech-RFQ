@@ -114,93 +114,66 @@ def get_win_rate() -> dict:
 # 3. Active orders — real orders excluding test/cancelled
 # ═══════════════════════════════════════════════════════════════════════
 
-# Consistent exclusion list: test, cancelled, deleted. And PO numbers
-# containing "TEST" (belt + suspenders with is_test column).
-ORDER_EXCLUDE_STATUSES = ("cancelled", "test", "deleted")
-
-
 def get_active_orders() -> dict:
     """Order counts and value, by canonical sourceable definition.
 
-    PR-4 (#694): `total` and `total_value` now reflect canonical
-    "POs to source" — orders that are actively pending sourcing
-    (not invoiced, not paid, not closed, not test, real po_number,
-    not yet quote-linked). Pre-canonical, this counter excluded
-    only {cancelled, test, deleted} + a TEST-prefix po filter, so a
-    DB with 99 invoiced/paid/cancelled-but-not-closed orders read
-    back as 99 "active orders" — that's the home-page funnel
-    surface Mike flagged on 2026-05-02 ("99 POs? doesnt even make
-    sense"). Routing through `v_sourceable_pos` makes the headline
-    number agree with the operator's intuition (POs awaiting work
-    by us), and Scientist-style dual-emit logs the legacy count for
-    one deploy cycle so we can spot any caller relying on the looser
-    semantic before PR-6 deletes it.
+    Headline `total` / `total_value` are the canonical sourceable PO
+    count (`is_sourceable_po` from canonical_state — excludes
+    invoiced / paid / closed / cancelled, sentinel po_numbers, test
+    rows, already-quoted orders). PR-4 (#694) introduced the cutover
+    with Scientist-style dual-emit; PR-6 (#696) removed the legacy
+    transition fields after the canonical numbers settled.
 
-    Returns: {total, active, closed, total_value, invoiced_value,
-              total_legacy, total_value_legacy}
+    `closed` and `invoiced_value` still count separately so the
+    orders dashboard can render its "completed" badge alongside
+    the active backlog.
+
+    Returns: {total, active, closed, total_value, invoiced_value}
     """
     result = {
         "total": 0, "active": 0, "closed": 0,
         "total_value": 0.0, "invoiced_value": 0.0,
-        "total_legacy": 0, "total_value_legacy": 0.0,
     }
     try:
-        from src.core.canonical_state import is_sourceable_po
+        from src.core.canonical_state import (
+            INVOICED_OR_PAID_STATUSES,
+            is_sourceable_po,
+        )
         with _db() as conn:
-            # ── Canonical: pull every order, apply predicate ────
-            # We use the Python predicate (not just the view) so the
-            # number stays correct when migration 36 hasn't run on
-            # a brand-new test DB. The view is an optimization, not
-            # the source of truth — that lives in canonical_state.
-            all_rows = conn.execute("""
+            # Pull every order, apply canonical predicate. Python-side
+            # rather than via v_sourceable_pos so the number stays
+            # correct even when migration 36 hasn't run on a brand-new
+            # test DB. The view is an optimization, not source of
+            # truth — that lives in canonical_state.
+            rows = conn.execute("""
                 SELECT id, status, total, po_number, quote_number, is_test
                 FROM orders
             """).fetchall()
-            canonical_total = 0
-            canonical_value = 0.0
-            for r in all_rows:
+            sourceable_total = 0
+            sourceable_value = 0.0
+            invoiced_count = 0
+            invoiced_value = 0.0
+            for r in rows:
                 rec = {
                     "status": r["status"],
                     "po_number": r["po_number"],
                     "quote_number": r["quote_number"],
                     "is_test": r["is_test"],
                 }
+                amount = float(r["total"] or 0)
                 if is_sourceable_po(rec):
-                    canonical_total += 1
-                    canonical_value += float(r["total"] or 0)
-            result["total"] = canonical_total
-            result["total_value"] = round(canonical_value, 2)
-            result["active"] = canonical_total
-
-            # ── Legacy: kept for one deploy cycle (Scientist) ────
-            legacy_rows = conn.execute("""
-                SELECT status, COUNT(*) as c, COALESCE(SUM(total), 0) as v
-                FROM orders
-                WHERE status NOT IN (?, ?, ?)
-                  AND COALESCE(po_number, '') NOT LIKE '%TEST%'
-                GROUP BY status
-            """, ORDER_EXCLUDE_STATUSES).fetchall()
-            legacy_total = 0
-            legacy_value = 0.0
-            invoiced_count = 0
-            invoiced_value = 0.0
-            for r in legacy_rows:
-                legacy_total += r["c"]
-                legacy_value += r["v"]
-                if r["status"] in ("closed", "invoiced"):
-                    invoiced_count += r["c"]
-                    invoiced_value += r["v"]
-            result["total_legacy"] = legacy_total
-            result["total_value_legacy"] = round(legacy_value, 2)
+                    sourceable_total += 1
+                    sourceable_value += amount
+                else:
+                    norm = (rec.get("status") or "").strip().lower()
+                    if norm in INVOICED_OR_PAID_STATUSES:
+                        invoiced_count += 1
+                        invoiced_value += amount
+            result["total"] = sourceable_total
+            result["active"] = sourceable_total
+            result["total_value"] = round(sourceable_value, 2)
             result["closed"] = invoiced_count
             result["invoiced_value"] = round(invoiced_value, 2)
-
-            if abs(result["total"] - legacy_total) > 0:
-                log.info(
-                    "active_orders dual-emit: canonical=%d legacy=%d diff=%d",
-                    result["total"], legacy_total,
-                    result["total"] - legacy_total,
-                )
     except Exception as e:
         log.debug("get_active_orders: %s", e)
     return result
