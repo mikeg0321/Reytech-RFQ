@@ -417,12 +417,17 @@ def home():
         return False
     user_pcs = {k: v for k, v in user_pcs.items() if _keep_pc(v)}
     # Split: active queue vs sent/completed
-    # `needs_review` is the PR-A triage status — body-only RFQs and
-    # placeholder-flipped records land here. Excluding it from the
-    # actionable set hid them from the home queue table; the orange
-    # "Needs Review" badge shipped in PR #666 had nowhere to render.
-    _pc_actionable = {"new", "draft", "parsed", "parse_error", "priced", "ready", "auto_drafted", "quoted", "generated", "enriching", "enriched", "needs_review"}
-    active_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in _pc_actionable}
+    # PR-3 (#693): migrated from ad-hoc allow-list to canonical
+    # `is_active_queue` deny-list. The previous _pc_actionable set
+    # required every actionable status to be enumerated explicitly;
+    # any new status (or empty status from a partial write) silently
+    # disappeared from the queue — that's how Mike's "Queue (5)"
+    # screenshot hid 68 stale rows on 2026-05-02. Canonical defines
+    # the *excluded* set ({sent, won, lost, no_bid, cancelled}) and
+    # everything else stays visible by default. Test rows still drop
+    # via `is_test=0` baked into the predicate.
+    from src.core.canonical_state import is_active_queue
+    active_pcs = {k: v for k, v in user_pcs.items() if is_active_queue(v)}
     sent_pcs = {k: v for k, v in user_pcs.items() if v.get("status", "") in ("sent", "pending_award", "won", "lost")}
 
     # ── Ghost filter + dedup-by-number (audit items D + E, 2026-04-22) ──
@@ -595,11 +600,12 @@ def home():
     for pid, pc in sorted_pcs.items():
         _compute_urgency(pc)
 
-    # Same for RFQs — split active from sent/completed. `needs_review` is
-    # the PR-A triage status (see _pc_actionable comment above).
-    _actionable_rfq = {"new", "draft", "ready", "generated", "parsed", "priced", "needs_review"}
+    # Same for RFQs — split active from sent/completed.
+    # PR-3 (#693): migrated to canonical `is_active_queue` (see PC
+    # comment above). Same justification: deny-list over allow-list
+    # so partial-write statuses don't disappear from the queue.
     all_rfqs = load_rfqs()
-    active_rfqs = {k: v for k, v in all_rfqs.items() if v.get("status", "") in _actionable_rfq}
+    active_rfqs = {k: v for k, v in all_rfqs.items() if is_active_queue(v)}
     # Filter ghost RFQs: 0 items + no real solicitation
     active_rfqs = {k: v for k, v in active_rfqs.items()
                    if len(v.get("line_items", v.get("items", []))) > 0
