@@ -2891,6 +2891,57 @@ def api_create_draft(rid):
     })
 
 
+@bp.route("/api/admin/backfill-email-thread-ids", methods=["POST"])
+@auth_required
+@safe_route
+def api_backfill_email_thread_ids():
+    """Run the email_thread_id backfill from the prod pod (B1 follow-up).
+
+    Wraps scripts/backfill_email_thread_id.py:run() so we can dry-run +
+    apply against the Railway-volume DB without shell access. `railway
+    run` from Windows mis-resolves /data → C:\\data so it's not a
+    viable channel for SQLite-on-volume work.
+
+    Body params (JSON, all optional):
+      - apply (bool, default false) : commit changes; dry-run by default.
+      - only  (str)                 : "pc" | "rfq" to limit scan.
+      - max   (int, default 200)    : cap on Gmail API calls.
+
+    Returns the run() result dict — total_found, flipped, not_found,
+    capped_at, per-record list with applied flag.
+    """
+    data = request.get_json(silent=True) or {}
+    apply_flag = bool(data.get("apply", False))
+    only = data.get("only")
+    if only and only not in ("pc", "rfq"):
+        return jsonify({"ok": False, "error": "only must be 'pc' or 'rfq'"}), 400
+    try:
+        max_records = int(data.get("max", 200))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "max must be an integer"}), 400
+    if max_records < 1 or max_records > 5000:
+        return jsonify({"ok": False, "error": "max must be 1..5000"}), 400
+
+    try:
+        from scripts.backfill_email_thread_id import run as _run_backfill
+    except Exception as e:
+        log.error("backfill import failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": f"import: {e}"}), 500
+
+    try:
+        result = _run_backfill(db_path=None, apply=apply_flag,
+                               only=only, max_records=max_records)
+    except Exception as e:
+        log.error("backfill run failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+    log.info("backfill-email-thread-ids: mode=%s found=%s flipped=%s not_found=%s",
+             result.get("mode"), result.get("total_found"),
+             result.get("flipped"), result.get("not_found"))
+    status = 200 if result.get("ok") else 500
+    return jsonify(result), status
+
+
 @bp.route("/api/rfq/<rid>/discard-draft", methods=["POST"])
 @auth_required
 @safe_route
