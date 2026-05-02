@@ -1130,12 +1130,15 @@
  <div id="rfq-files-list"></div>
 </div>
 
-<!-- Template / Agency Status Card -->
-{# Package form selection lives at /settings/packages (agency-wide, app-level).
-   This card shows per-RFQ upload + template status only. Renamed from
-   "Package Settings" on 2026-04-20 to avoid confusion with the app-level page. #}
-<details class="card" id="form-templates-card" style="padding:0">
- <summary style="padding:14px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:8px;list-style:none"><span style="font-size:16px">📎</span> Templates &amp; Files <span style="font-size:12px;font-weight:400;opacity:.7;margin-left:4px">Uploaded RFQ forms</span><span style="margin-left:auto;font-size:12px;opacity:.5">▸</span></summary><div style="padding:0 16px 16px">
+<!-- Tools card — Templates & Files + QB Export (Bug 3, 2026-05-02) -->
+{# Bug 3 (2026-05-02): merged the standalone QB Export card INTO the existing
+   Templates & Files details so the two utility surfaces share one
+   collapsible "Tools" section instead of two always-visible cards burning
+   screen real estate (Mike's image #4: "this is just taking up space").
+   Package form selection lives at /settings/packages (agency-wide, app-level).
+   This card shows per-RFQ upload + template status only. #}
+<details class="card" id="rfq-tools-card" style="padding:0">
+ <summary data-testid="rfq-tools-summary" style="padding:14px 16px;cursor:pointer;font-size:14px;font-weight:600;color:var(--tx2);display:flex;align-items:center;gap:8px;list-style:none"><span style="font-size:16px">🛠</span> Tools <span style="font-size:12px;font-weight:400;opacity:.7;margin-left:4px">Forms · Files{% if r.get('output_files') %} · QB Export{% endif %}</span><span style="margin-left:auto;font-size:12px;opacity:.5">▸</span></summary><div style="padding:0 16px 16px">
  {% set t = r.get('templates', {}) %}
  {% set is_generic = r.get('form_type') == 'generic_rfq' %}
 
@@ -1197,6 +1200,19 @@
   Which forms ship in the package is configured agency-wide at
   <a href="/settings/packages" style="color:var(--ac);text-decoration:underline">Settings → Packages</a>.
  </div>
+ {# Bug 3 (2026-05-02): QB Export folded into the Tools section. Only
+    renders when there's a generated package; before that the export
+    actions don't have anything to act on. #}
+ {% if r.get('output_files') %}
+ <div data-testid="rfq-qb-export-block" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--bd)">
+  <div style="font-size:14px;font-weight:700;color:var(--tx);margin-bottom:8px">📊 QB Export</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+   <a href="/api/rfq/{{ rid }}/export-invoice" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);color:var(--ac);flex:1;text-align:center;padding:8px">📄 Invoice (Excel)</a>
+   <a href="/api/rfq/{{ rid }}/export-supplier-po" class="btn btn-sm" style="font-size:13px;background:rgba(63,185,80,.1);color:#3fb950;flex:1;text-align:center;padding:8px">📦 Supplier PO (Excel)</a>
+   <button onclick="exportBookkeeper()" class="btn btn-sm" style="font-size:13px;background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.3);flex:1;text-align:center;padding:8px">📊 QBO CSV Export</button>
+  </div>
+ </div>
+ {% endif %}
 </div></details>
 
 <!-- SCPRS Results Panel (populated by JS after lookup) -->
@@ -1251,16 +1267,7 @@
 </div>
 {% endif %}
 
-{% if r.get('output_files') %}
-  <div class="card" style="padding:12px 16px">
-    <div style="font-size:15px;font-weight:700;color:var(--tx);margin-bottom:8px">📊 QB Export</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <a href="/api/rfq/{{ rid }}/export-invoice" class="btn btn-sm" style="font-size:13px;background:rgba(79,140,255,.1);color:var(--ac);flex:1;text-align:center;padding:8px">📄 Invoice (Excel)</a>
-      <a href="/api/rfq/{{ rid }}/export-supplier-po" class="btn btn-sm" style="font-size:13px;background:rgba(63,185,80,.1);color:#3fb950;flex:1;text-align:center;padding:8px">📦 Supplier PO (Excel)</a>
-      <button onclick="exportBookkeeper()" class="btn btn-sm" style="font-size:13px;background:rgba(52,211,153,.12);color:#34d399;border:1px solid rgba(52,211,153,.3);flex:1;text-align:center;padding:8px">📊 QBO CSV Export</button>
-    </div>
-  </div>
-  {% endif %}
+<!-- QB Export was folded into the Tools section above (Bug 3, 2026-05-02). -->
 
 <!-- PDF Preview Modal -->
 <div id="pdfPreviewModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:1100;padding:20px" onclick="if(event.target===this)this.style.display='none'">
