@@ -11,7 +11,9 @@ from unittest.mock import patch
 
 import pytest
 
-from src.api.email_locator import build_locator_query, locate_candidate_emails
+from src.api.email_locator import (
+    build_locator_query, build_locator_queries, locate_candidate_emails,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -140,3 +142,92 @@ class TestLocateCandidateEmails:
             cands = locate_candidate_emails(service=object(), rfq=rfq)
         # Two good candidates survive
         assert [c["gmail_id"] for c in cands] == ["good", "good2"]
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Bug-8 — progressive query broadening for forwarded mail
+# ─────────────────────────────────────────────────────────────────────────
+
+class TestProgressiveQueryBroadening:
+    """Bug-8 2026-05-02: a forwarded RFQ has From: = operator's own
+    address, not the buyer's. Tier-1 from:<buyer> filter excludes it.
+    Tier-2 must drop the from: filter and search by sol# alone, which
+    matches the forwarded message's body. Mike hit this on rfq_7813c4e1
+    (forwarded the buyer's email to himself, locator returned 0 hits)."""
+
+    def test_forwarded_rfq_emits_sol_only_tier(self):
+        rfq = {
+            "requestor_email": "mike@reytechinc.com",
+            "original_sender": "keith@calvet.ca.gov",
+            "solicitation_number": "R26Q38",
+        }
+        qs = build_locator_queries(rfq)
+        assert len(qs) >= 2, "Expected tier-1 + tier-2 for forwarded RFQ"
+        # Tier 1 has from: filter
+        assert "from:" in qs[0]
+        # Tier 2 is sol# only — no from: filter
+        assert qs[1].startswith('"R26Q38"')
+        assert "from:" not in qs[1]
+
+    def test_direct_rfq_still_emits_sol_only_tier_as_fallback(self):
+        # Even when from: matches the buyer, run the sol-only tier as a
+        # safety net (e.g. buyer used a different reply address that we
+        # don't have on file).
+        rfq = {"requestor_email": "k@x.gov", "solicitation_number": "ABC"}
+        qs = build_locator_queries(rfq)
+        assert len(qs) == 2
+        assert "from:" in qs[0]
+        assert qs[1] == '"ABC" newer_than:120d in:anywhere'
+
+    def test_no_sol_subject_only_single_tier(self):
+        rfq = {"email_subject": "Bid for Veterans Home Wipes"}
+        qs = build_locator_queries(rfq)
+        # Only one tier — subject keywords with no from: filter
+        assert len(qs) == 1
+        assert "Veterans" in qs[0]
+
+    def test_runs_tier2_when_tier1_returns_zero(self):
+        """The locator accumulates across tiers — if tier-1 (with from:)
+        returns nothing, tier-2 (sol-only) still gets a chance."""
+        rfq = {
+            "requestor_email": "mike@reytechinc.com",  # forwarder
+            "solicitation_number": "R26Q38",
+        }
+        # First call (T1, with from:) returns nothing; second (T2 sol-only) returns one
+        list_calls = []
+
+        def _list_side(service, query="", max_results=10):
+            list_calls.append(query)
+            if "from:" in query:
+                return []
+            return ["g_via_body"]
+
+        with patch("src.core.gmail_api.list_message_ids",
+                   side_effect=_list_side), \
+             patch("src.core.gmail_api.get_message_metadata",
+                   return_value={"thread_id": "thr1", "subject": "Fwd: bid",
+                                 "from": "mike@reytechinc.com", "to": "",
+                                 "cc": "", "date": "", "message_id": "<m@x>"}):
+            cands = locate_candidate_emails(service=object(), rfq=rfq)
+        # Both tiers were tried
+        assert len(list_calls) == 2
+        assert "from:" in list_calls[0]
+        assert "from:" not in list_calls[1]
+        # And tier-2 result is in the candidates with match_tier=2
+        assert len(cands) == 1
+        assert cands[0]["gmail_id"] == "g_via_body"
+        assert cands[0]["match_tier"] == 2
+
+    def test_dedupes_across_tiers(self):
+        """The same gmail_id surfacing in tier-1 + tier-2 is reported once
+        (with tier=1, since that's where it matched first)."""
+        rfq = {"requestor_email": "k@x.gov", "solicitation_number": "ABC"}
+        with patch("src.core.gmail_api.list_message_ids",
+                   side_effect=lambda svc, query="", max_results=10: ["dup_g"]), \
+             patch("src.core.gmail_api.get_message_metadata",
+                   return_value={"thread_id": "thr", "subject": "s",
+                                 "from": "k@x.gov", "to": "", "cc": "",
+                                 "date": "", "message_id": "<m>"}):
+            cands = locate_candidate_emails(service=object(), rfq=rfq)
+        assert len(cands) == 1
+        assert cands[0]["match_tier"] == 1
