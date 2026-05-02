@@ -1038,6 +1038,100 @@ MIGRATIONS = [
         DROP TABLE IF EXISTS po_line_items;
         DROP TABLE IF EXISTS purchase_orders;
     """),
+
+    (36, "canonical_state_views", """
+        -- Single-source-of-truth views for the questions every panel
+        -- asks: "is this active queue?", "is this really sent?", "is
+        -- this PO sourceable?", "did this revenue land in 2026?".
+        --
+        -- Definitions mirror src/core/canonical_state.py exactly. Any
+        -- consumer that needs a SQL filter should SELECT from these
+        -- views instead of writing inline `WHERE status IN ...`. The
+        -- pre-push lint guard (added in this PR) blocks new inline
+        -- status/timestamp filters outside core/ to keep them in sync.
+        --
+        -- DROP first so re-running the migration after a definition
+        -- change refreshes the view body. CREATE VIEW IF NOT EXISTS
+        -- silently keeps the old body, which is exactly what we
+        -- don't want when the canonical definition evolves.
+        --
+        -- Note: `rfqs` and `price_checks` tables don't have an
+        -- `is_test` column at the schema level. Test-row flagging
+        -- for those tables lives inside the `data_json` JSON blob;
+        -- the views use json_extract to pull it out, defaulting to
+        -- 0 (not test) when the key is missing or data_json is NULL.
+
+        DROP VIEW IF EXISTS v_active_queue_rfqs;
+        CREATE VIEW v_active_queue_rfqs AS
+        SELECT *
+        FROM rfqs
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'won', 'lost', 'no_bid', 'cancelled');
+
+        DROP VIEW IF EXISTS v_active_queue_pcs;
+        CREATE VIEW v_active_queue_pcs AS
+        SELECT *
+        FROM price_checks
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'won', 'lost', 'no_bid', 'cancelled');
+
+        -- v_real_sent: quotes the buyer actually received. Three checks:
+        --   1. status='sent'
+        --   2. sent_at populated
+        --   3. sent_at != created_at (catches the bug where a writer
+        --      stamped created_at into the sent_at column, making the
+        --      Sent table render "today" for every row).
+        DROP VIEW IF EXISTS v_real_sent;
+        CREATE VIEW v_real_sent AS
+        SELECT *
+        FROM quotes
+        WHERE COALESCE(is_test, 0) = 0
+          AND LOWER(COALESCE(status, '')) = 'sent'
+          AND sent_at IS NOT NULL
+          AND TRIM(sent_at) != ''
+          AND sent_at != created_at;
+
+        -- v_sourceable_pos: orders that are still actionable for
+        -- vendor sourcing. Excludes: invoiced/paid/closed/cancelled,
+        -- sentinel po_numbers (N/A, TBD, ?, etc), already-quoted POs.
+        DROP VIEW IF EXISTS v_sourceable_pos;
+        CREATE VIEW v_sourceable_pos AS
+        SELECT *
+        FROM orders
+        WHERE COALESCE(is_test, 0) = 0
+          AND po_number IS NOT NULL
+          AND TRIM(po_number) != ''
+          AND LOWER(TRIM(po_number)) NOT IN
+              ('n/a', 'na', 'tbd', 'pending', 'none', 'null', 'test')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('invoiced', 'paid', 'closed', 'cancelled')
+          AND (quote_number IS NULL OR TRIM(quote_number) = '');
+
+        -- v_revenue_year_2026: the calendar-year filter Mike confirmed.
+        -- When 2027 starts, add v_revenue_year_2027 (don't mutate this
+        -- one — historical reports may still want to ask about 2026).
+        -- Half-open interval `[2026-01-01, 2027-01-01)` so Dec 31
+        -- 23:59:59 is included and Jan 1 of the next year isn't.
+        DROP VIEW IF EXISTS v_revenue_year_2026;
+        CREATE VIEW v_revenue_year_2026 AS
+        SELECT 'order' AS source_kind, id, total AS amount, created_at AS dated_at,
+               quote_number, po_number, status, agency, is_test
+        FROM orders
+        WHERE COALESCE(is_test, 0) = 0
+          AND created_at >= '2026-01-01' AND created_at < '2027-01-01'
+        UNION ALL
+        SELECT 'revenue_log' AS source_kind, id, amount, logged_at AS dated_at,
+               quote_number, po_number, NULL AS status, agency, is_test
+        FROM revenue_log
+        WHERE COALESCE(is_test, 0) = 0
+          AND logged_at >= '2026-01-01' AND logged_at < '2027-01-01';
+    """),
 ]
 
 
