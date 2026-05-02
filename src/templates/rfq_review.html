@@ -64,6 +64,28 @@
 .rv-rollup-check.unknown{color:var(--tx2)}
 /* Items alignment table */
 .rv-items-section{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin-bottom:18px}
+/* PR-B3: Send / Draft pane — single source of truth for the Send action.
+   Replaces the inline composer that lived on /rfq/<id>. */
+.rv-draft{background:var(--sf);border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.rv-draft.ready{border-color:rgba(63,185,80,.3)}
+.rv-draft.blocked{border-color:rgba(248,81,73,.4);background:rgba(248,81,73,.04)}
+.rv-draft.draft-exists{border-color:rgba(79,140,255,.3);background:rgba(79,140,255,.04)}
+.rv-draft-icon{font-size:26px;line-height:1;flex-shrink:0}
+.rv-draft-body{flex:1;min-width:240px}
+.rv-draft-headline{font-size:16px;font-weight:700;color:var(--tx);margin-bottom:2px}
+.rv-draft-sub{font-size:13px;color:var(--tx2);line-height:1.4}
+.rv-draft-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0}
+.rv-draft-btn{padding:8px 16px;border-radius:6px;border:1px solid var(--bd);font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.rv-draft-btn.primary{background:#238636;color:#fff;border-color:#238636}
+.rv-draft-btn.primary:hover{background:#2ea043}
+.rv-draft-btn.primary:disabled{background:#5a5a5a;border-color:#5a5a5a;cursor:not-allowed;opacity:.6}
+.rv-draft-btn.secondary{background:transparent;color:var(--tx)}
+.rv-draft-btn.secondary:hover{background:rgba(79,140,255,.08)}
+.rv-draft-issues{margin:8px 0 0 0;padding:0 0 0 18px;color:#f85149;font-size:13px;line-height:1.5}
+.rv-draft-issues li{margin:2px 0}
+.rv-draft-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid var(--bd);background:var(--bg);margin-right:4px}
+.rv-draft-pill.thread{color:#58a6ff;border-color:rgba(79,140,255,.3)}
+.rv-draft-pill.no-thread{color:#d29922;border-color:rgba(210,153,34,.3)}
 .rv-items-title{font-size:14px;text-transform:uppercase;color:var(--tx2);letter-spacing:.5px;margin-bottom:10px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
 .rv-items-banner{background:rgba(210,153,34,.08);border:1px solid rgba(210,153,34,.2);border-radius:6px;padding:10px 12px;font-size:14px;color:#d29922;margin-bottom:10px;line-height:1.5}
 .rv-items-table{width:100%;border-collapse:collapse;font-size:15px}
@@ -212,6 +234,103 @@
     <div class="rv-items-empty">No line items on this RFQ — add items before generating the package.</div>
     {% endif %}
   </details>
+
+  {# ── Send / Draft pane (PR-B3) — replaces direct-send composer ── #}
+  {% set _ds = draft_state|default({}) %}
+  {% set _has_draft = _ds.get('draft_id') %}
+  {% set _sig_issues = _ds.get('double_sig_issues', []) %}
+  {% set _has_atts = _ds.get('has_attachments', False) %}
+  {% set _has_thread = _ds.get('thread_id') %}
+  {% set _to = _ds.get('to', '') %}
+  {% if r.get('status') == 'sent' %}
+  <div class="rv-draft draft-exists" data-testid="rv-draft" data-state="sent">
+    <div class="rv-draft-icon">📤</div>
+    <div class="rv-draft-body">
+      <div class="rv-draft-headline">Sent</div>
+      <div class="rv-draft-sub">
+        {% if r.get('sent_at') %}On {{ r.sent_at[:16].replace('T',' ') }}{% endif %}
+        {% if r.get('sent_to') %}to {{ r.sent_to }}{% endif %}.
+        {% if _has_thread %}Thread bound to original buyer email.{% endif %}
+      </div>
+    </div>
+    <div class="rv-draft-actions">
+      {% if _has_thread %}
+      <a href="https://mail.google.com/mail/u/0/#inbox/{{ _has_thread }}" target="_blank" rel="noopener" class="rv-draft-btn secondary">📬 Open thread</a>
+      {% endif %}
+    </div>
+  </div>
+  {% elif _sig_issues %}
+  <div class="rv-draft blocked" data-testid="rv-draft" data-state="blocked-double-sig">
+    <div class="rv-draft-icon">🚫</div>
+    <div class="rv-draft-body">
+      <div class="rv-draft-headline">Send blocked — {{ _sig_issues|length }} signature issue(s)</div>
+      <div class="rv-draft-sub">
+        Double-signed forms in this package would be rejected by buyers.
+        Re-generate the affected forms before creating the draft.
+      </div>
+      <ul class="rv-draft-issues">
+        {% for iss in _sig_issues %}
+        <li>{{ iss.filename }} · pg {{ iss.page }} · {{ iss.kind|replace('_',' ') }} — {{ iss.detail }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+  {% elif _has_draft %}
+  <div class="rv-draft draft-exists" data-testid="rv-draft" data-state="draft-created">
+    <div class="rv-draft-icon">📧</div>
+    <div class="rv-draft-body">
+      <div class="rv-draft-headline">Draft created in Gmail</div>
+      <div class="rv-draft-sub">
+        Review + send from Gmail.
+        {% if _ds.get('draft_created_at') %}Created {{ _ds.draft_created_at[:16].replace('T',' ') }} ·{% endif %}
+        {% if _has_thread %}<span class="rv-draft-pill thread">📎 Threaded reply</span>{% else %}<span class="rv-draft-pill no-thread">📨 New thread</span>{% endif %}
+        {% if _to %}To: {{ _to }}{% endif %}
+      </div>
+    </div>
+    <div class="rv-draft-actions">
+      <a href="https://mail.google.com/mail/u/0/#drafts/{{ _has_draft }}" target="_blank" rel="noopener" class="rv-draft-btn primary">📬 Open in Gmail</a>
+      <button onclick="recreateDraft()" class="rv-draft-btn secondary" title="Discard the current draft and rebuild it from the latest package">🔄 Recreate</button>
+    </div>
+  </div>
+  {% elif not _has_atts %}
+  <div class="rv-draft blocked" data-testid="rv-draft" data-state="no-package">
+    <div class="rv-draft-icon">📦</div>
+    <div class="rv-draft-body">
+      <div class="rv-draft-headline">No package generated yet</div>
+      <div class="rv-draft-sub">Generate the package on the RFQ detail page first, then return here to create a Gmail draft.</div>
+    </div>
+    <div class="rv-draft-actions">
+      <a href="/rfq/{{ rid }}" class="rv-draft-btn secondary">← Back to RFQ</a>
+    </div>
+  </div>
+  {% elif not _to %}
+  <div class="rv-draft blocked" data-testid="rv-draft" data-state="no-recipient">
+    <div class="rv-draft-icon">✉️</div>
+    <div class="rv-draft-body">
+      <div class="rv-draft-headline">No buyer email — can't draft yet</div>
+      <div class="rv-draft-sub">
+        Set <code>requestor_email</code> on the RFQ, or use 🔍 Locate Gmail thread on the detail view to bind to the original message.
+      </div>
+    </div>
+    <div class="rv-draft-actions">
+      <a href="/rfq/{{ rid }}" class="rv-draft-btn secondary">← Edit on RFQ</a>
+    </div>
+  </div>
+  {% else %}
+  <div class="rv-draft ready" data-testid="rv-draft" data-state="ready">
+    <div class="rv-draft-icon">📧</div>
+    <div class="rv-draft-body">
+      <div class="rv-draft-headline">Ready to draft</div>
+      <div class="rv-draft-sub">
+        To: <b>{{ _to }}</b> ·
+        {% if _has_thread %}<span class="rv-draft-pill thread">📎 Will reply on buyer's original thread</span>{% else %}<span class="rv-draft-pill no-thread">📨 Will start a new thread</span>{% endif %}
+      </div>
+    </div>
+    <div class="rv-draft-actions">
+      <button id="rv-create-draft-btn" onclick="createDraft()" class="rv-draft-btn primary">📧 Create Gmail Draft</button>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="rv-3col">
     <!-- LEFT: Form Checklist (filenames + sizes + QA) -->
@@ -801,6 +920,48 @@ document.addEventListener('DOMContentLoaded',function(){
  if(first)first.click();
  updateProgress();
 });
+
+// ── PR-B3: Send / Draft pane handlers ─────────────────────────────────
+function createDraft(){
+  // POST /api/rfq/<id>/create-draft. Server runs double-sig pre-flight,
+  // saves a Gmail draft (threaded onto the buyer's original email when
+  // bound), and returns the Gmail web URL so the operator can review.
+  var btn = document.getElementById('rv-create-draft-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creating draft...'; }
+  fetch('/api/rfq/{{ rid }}/create-draft', {
+    method: 'POST', credentials: 'same-origin'
+  }).then(function(r){
+    return r.json().then(function(d){ return {status:r.status, body:d}; });
+  }).then(function(res){
+    if (res.status === 422 && res.body && res.body.double_sig_issues) {
+      // Pre-flight blocked. Reload so the rendered pane reflects the issues.
+      alert('Send blocked — double-signature issue detected.\n\n' +
+            res.body.double_sig_issues.map(function(i){
+              return '• '+i.filename+' pg '+i.page+': '+i.detail;
+            }).join('\n'));
+      location.reload();
+      return;
+    }
+    if (!res.body || !res.body.ok) {
+      if (btn) { btn.disabled = false; btn.textContent = '📧 Create Gmail Draft'; }
+      alert('Could not create draft: ' + (res.body && res.body.error || 'unknown error'));
+      return;
+    }
+    // Success — open Gmail draft in new tab + reload to show "draft created" state
+    window.open(res.body.gmail_draft_url, '_blank');
+    setTimeout(function(){ location.reload(); }, 500);
+  }).catch(function(e){
+    if (btn) { btn.disabled = false; btn.textContent = '📧 Create Gmail Draft'; }
+    alert('Network error: ' + e);
+  });
+}
+
+function recreateDraft(){
+  // Discard the existing draft + create a fresh one (e.g. after re-generating
+  // forms). Server's /create-draft endpoint handles the discard internally.
+  if (!confirm('Discard the current Gmail draft and create a new one from the latest package?')) return;
+  createDraft();
+}
 </script>
 
 <style>

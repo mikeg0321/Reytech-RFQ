@@ -610,158 +610,23 @@ def api_qa_effectiveness():
 @auth_required
 @safe_route
 def send_quote_email(rid):
-    """Send the generated quote PDF via email directly from the detail page."""
-    rfqs = load_rfqs()
-    r = rfqs.get(rid)
-    if not r:
-        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    """DEPRECATED 2026-05-01 (PR-B3) — direct-send disabled.
 
-    data = request.get_json(silent=True) or {}
-    # Prefer original buyer email (from forwarded emails) over requestor fields
-    to_email = data.get("to") or r.get("original_sender") or r.get("requestor_email", "")
-    # Build reply subject from original email subject
-    import re as _re_subj
-    orig_subject = r.get("email_subject", "")
-    if orig_subject and not data.get("subject"):
-        clean_subj = _re_subj.sub(r'^(Re:\s*|Fwd?:\s*|FW:\s*)*', '', orig_subject, flags=_re_subj.IGNORECASE).strip()
-        subject = f"Re: {clean_subj}" if clean_subj else f"Quote — Solicitation #{r.get('solicitation_number', rid)}"
-    else:
-        subject = data.get("subject") or f"Quote — Solicitation #{r.get('solicitation_number', rid)}"
-    body = data.get("body") or _default_quote_email_body(r)
-    pdf_path = data.get("pdf_path") or ""
+    Mike's directive: "do not direct send, i want to see eveyrhting first."
+    All RFQ sends now route through the draft-and-review flow:
+        POST /api/rfq/<id>/create-draft → save Gmail draft (with double-sig
+        pre-flight + thread binding) → operator reviews + sends from Gmail.
+    The /rfq/<id>/review-package screen is the canonical Send entry point.
 
-    if not to_email:
-        return jsonify({"ok": False, "error": "No recipient email"}), 400
-
-    # Find the latest generated PDF — broader search across multiple locations
-    if not pdf_path:
-        sol = r.get("solicitation_number", "")
-
-        # Priority 1: stored paths on the RFQ record
-        for _stored_key in ("reytech_quote_pdf", "output_pdf"):
-            _sp = r.get(_stored_key, "")
-            if _sp and os.path.exists(_sp):
-                pdf_path = _sp
-                break
-
-        # Priority 2: output_files list
-        if not pdf_path and r.get("output_files"):
-            for _of in r["output_files"]:
-                for _base in [os.path.join(DATA_DIR, "output", sol), os.path.join(DATA_DIR, "output", rid)]:
-                    _fp = os.path.join(_base, _of)
-                    if os.path.exists(_fp):
-                        pdf_path = _fp
-                        break
-                if pdf_path:
-                    break
-
-        # Priority 3: scan output directory by solicitation number
-        if not pdf_path and sol:
-            output_dir = os.path.join(DATA_DIR, "output", sol)
-            if os.path.isdir(output_dir):
-                pdfs = sorted([f for f in os.listdir(output_dir) if f.endswith(".pdf")], reverse=True)
-                if pdfs:
-                    pdf_path = os.path.join(output_dir, pdfs[0])
-
-        # Priority 4: scan output directory by RFQ ID
-        if not pdf_path:
-            output_dir_rid = os.path.join(DATA_DIR, "output", rid)
-            if os.path.isdir(output_dir_rid):
-                pdfs = sorted([f for f in os.listdir(output_dir_rid) if f.endswith(".pdf")], reverse=True)
-                if pdfs:
-                    pdf_path = os.path.join(output_dir_rid, pdfs[0])
-
-        # Priority 5: rfq_files DB
-        if not pdf_path:
-            try:
-                from src.core.db import get_db
-                with get_db() as conn:
-                    row = conn.execute(
-                        "SELECT id, filename FROM rfq_files WHERE rfq_id = ? AND filename LIKE '%.pdf' ORDER BY uploaded_at DESC LIMIT 1",
-                        (rid,)).fetchone()
-                    if row:
-                        from src.api.modules.routes_rfq import get_rfq_file
-                        f = get_rfq_file(row[0])
-                        if f and f.get("data"):
-                            import tempfile
-                            _tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False, prefix="rfq_send_")
-                            _tmp.write(f["data"])
-                            _tmp.close()
-                            pdf_path = _tmp.name
-            except Exception as _db_err:
-                log.debug("rfq_files PDF lookup: %s", _db_err)
-
-    # Send via Gmail API (OAuth refresh token — replaces smtplib.SMTP_SSL +
-    # app-password. See project_gmail_api_send_gap_2026_04_21 / IN-5).
-    try:
-        from src.core import gmail_api
-        if not gmail_api.is_configured():
-            return jsonify({"ok": False, "error": "Gmail API not configured"}), 400
-
-        service = gmail_api.get_send_service()
-
-        email_message_id = r.get("email_message_id", "") or None
-        attachments = [pdf_path] if (pdf_path and os.path.exists(pdf_path)) else None
-
-        gmail_api.send_message(
-            service,
-            to=to_email,
-            subject=subject,
-            body_plain=body,
-            attachments=attachments,
-            in_reply_to=email_message_id,
-            references=email_message_id,
-        )
-
-        # Record in DB
-        r["status"] = "sent"
-        r["sent_at"] = datetime.now().isoformat()
-        r["sent_to"] = to_email
-        rfqs[rid] = r
-        _save_single_rfq(rid, r)
-
-        # Log to email_log (sender = authenticated Gmail account)
-        sender_addr = os.environ.get("GMAIL_ADDRESS", "sales@reytechinc.com")
-        try:
-            from src.core.db import get_db
-            with get_db() as conn:
-                conn.execute("""INSERT INTO email_log
-                    (direction, sender, recipient, subject, body_preview, status, logged_at)
-                    VALUES (?,?,?,?,?,?,?)""",
-                    ("outbound", sender_addr, to_email, subject, body[:200], "sent",
-                     datetime.now().isoformat()))
-        except Exception as _e:
-            log.debug('suppressed in send_quote_email: %s', _e)
-
-        log.info("Quote sent for RFQ %s to %s", rid, to_email)
-        
-        # ── Google Drive: archive sent quote email ──
-        try:
-            from src.agents.drive_triggers import on_quote_sent
-            on_quote_sent(r, body, to_email)
-        except Exception as _gde:
-            log.debug("Drive trigger (quote_sent): %s", _gde)
-        
-        return jsonify({"ok": True, "sent_to": to_email})
-
-    except Exception as e:
-        log.error("Failed to send quote email for %s: %s", rid, e)
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-def _default_quote_email_body(r):
-    sol = r.get("solicitation_number", "")
-    requestor = r.get("requestor_name", "").split(",")[0].split("@")[0].strip()
-    if not requestor or "@" in requestor:
-        requestor = "Procurement Officer"
-    # Use first name only
-    first_name = requestor.split()[0] if requestor and " " in requestor else requestor
-    
-    # Plain text only — Gmail auto-appends the configured signature
-    return (f"Dear {first_name},\n\n"
-            f"Please find attached our bid response for Solicitation #{sol}.\n\n"
-            f"Please let us know if you have any questions.\n\n"
-            f"Thank you for the opportunity.")
+    Kept as a hard 410 (not a redirect) so any stale automation that still
+    POSTs here gets a loud, observable failure rather than a silent send.
+    """
+    return jsonify({
+        "ok": False,
+        "deprecated": True,
+        "error": "Direct send disabled. Use /rfq/<id>/review-package → Create Gmail Draft.",
+        "redirect": f"/rfq/{rid}/review-package",
+    }), 410
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

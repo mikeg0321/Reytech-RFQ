@@ -690,9 +690,23 @@ def save_gmail_draft(rid):
 @auth_required
 @safe_route
 def send_email_enhanced(rid):
-    """Send email with editable fields and DB-stored attachments.
-    Form fields: to, subject, body, attach_files (comma-separated file IDs)
+    """DEPRECATED 2026-05-01 (PR-B3) — direct-send disabled.
+
+    Mike's directive: "do not direct send, i want to see eveyrhting first."
+    All RFQ sends now route through /rfq/<id>/review-package → Create
+    Gmail Draft (with double-sig pre-flight + thread binding) → operator
+    reviews + sends from Gmail itself.
+
+    Redirect rather than 410 here because this route was hit via HTML
+    <form action="..."> POST — a JSON 410 would render an unhelpful raw
+    page in the browser. Redirect lands the operator on the right place.
     """
+    flash("Send happens on the review page now — create a Gmail draft + review there.",
+          "info")
+    return redirect(f"/rfq/{rid}/review-package")
+
+
+def _send_email_enhanced_legacy_DISABLED(rid):
     from src.api.trace import Trace
     t = Trace("email_send", rfq_id=rid)
 
