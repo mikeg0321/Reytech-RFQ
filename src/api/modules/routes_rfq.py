@@ -3167,7 +3167,13 @@ def api_lookup_tax_rate(rid):
             # exactly what the RFQ detail page's "✅ Verified" badge
             # should gate on — no more 7.25% fallbacks getting the
             # green-check treatment.
-            r["tax_validated"] = bool(res.get("validated"))
+            #
+            # Bug-5b 2026-05-02: never claim a 0% rate is "validated"
+            # even when the source is canonical. Mike hit a CalVet
+            # record where CDTFA returned rate=0 (likely cached
+            # null-response) and the green ✅ FRESNO badge survived
+            # while the KPI Tax cell read $0. Force the badge red.
+            r["tax_validated"] = bool(res.get("validated")) and rate_pct > 0
             r["tax_source"] = res.get("source", "")
             r["tax_jurisdiction"] = res.get("jurisdiction", "")
             # PR-1e also persists the canonical facility code so the

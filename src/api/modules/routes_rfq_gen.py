@@ -1523,8 +1523,13 @@ def generate_rfq_package(rid):
             try:
                 from src.core.quote_contract import tax_for_address
                 _tax_r = tax_for_address(r["delivery_location"]) or {}
-                if _tax_r and _tax_r.get("rate"):
-                    r["tax_rate"] = round(_tax_r["rate"] * 100, 3)
+                # Bug-5b 2026-05-02: tax_for_address returns rate as a
+                # decimal (0.0775 for 7.75%); zero-rate responses must
+                # not flip the validated flag — that paints a green
+                # ✅ check on a record that will silently render $0 tax.
+                _resolved_pct = round((_tax_r.get("rate") or 0) * 100, 3)
+                if _resolved_pct > 0:
+                    r["tax_rate"] = _resolved_pct
                     r["tax_validated"] = True
                     r["tax_source"] = _tax_r.get("source", "cdtfa_api")
                     r["tax_jurisdiction"] = _tax_r.get("jurisdiction", "")
