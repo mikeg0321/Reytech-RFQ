@@ -560,11 +560,27 @@ def find_sb_admin_for_agencies() -> dict:
 # ═══════════════════════════════════════════════════════════════════════
 
 def update_revenue_tracker() -> dict:
-    """Aggregate all revenue data toward the $2M goal."""
+    """Aggregate all revenue data toward the $2M goal.
+
+    `closed_revenue` comes from `canonical_year_revenue_total()` —
+    a single canonical SUM over orders+revenue_log filtered to the
+    revenue year (calendar 2026, per canonical_state.REVENUE_YEAR).
+
+    The legacy max-over-unfiltered-sources logic is preserved for one
+    deploy cycle (Scientist-style dual-emit) so any disagreement is
+    visible in the logs before the legacy paths are deleted in PR-6.
+    The pre-canonical bug: orders_revenue had NO year filter, so
+    all-time orders sums dominated the max() and the home page showed
+    $1.8M (lifetime) as "revenue YTD". Fixed by sourcing from the
+    canonical view; legacy values still computed only for the diff log.
+    """
+    from src.core.canonical_state import REVENUE_YEAR
+    from src.core.order_dal import canonical_year_revenue_total
+
     # Sources: revenue_log DB (primary), orders, quotes won, QB data, manual entries
     revenue = _load_json(REVENUE_FILE)
     if not isinstance(revenue, dict):
-        revenue = {"goal": REVENUE_GOAL, "year": 2026, "entries": [], "manual_entries": []}
+        revenue = {"goal": REVENUE_GOAL, "year": REVENUE_YEAR, "entries": [], "manual_entries": []}
 
     # ── Ensure revenue_log is fresh (sync orders → revenue_log) ──
     try:
@@ -573,7 +589,14 @@ def update_revenue_tracker() -> dict:
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 
-    # ── Primary: SQLite revenue_log (authoritative source) ──────
+    # ── Canonical YTD — the new authoritative number ────────────
+    canonical_revenue = canonical_year_revenue_total(REVENUE_YEAR)
+
+    # ── Legacy sources (kept for one deploy cycle, dual-emit) ───
+    # Each of these queries had a different definition of "revenue".
+    # We still compute them so the diff log shows what the legacy
+    # surface would have rendered. Do NOT add new callers — this
+    # block disappears in PR-6.
     db_revenue = 0
     try:
         from src.core.db import get_db
@@ -587,9 +610,7 @@ def update_revenue_tracker() -> dict:
             db_revenue = row["total"] if row else 0
     except Exception as _e:
         log.debug("suppressed: %s", _e)
-    # ── End DB revenue ──────────────────────────────────────────
 
-    # ── Orders (confirmed purchases = real revenue) ─────────────
     orders_revenue = 0
     try:
         from src.core.db import get_db
@@ -603,10 +624,8 @@ def update_revenue_tracker() -> dict:
             orders_revenue = row["total"] if row else 0
     except Exception as _e:
         log.debug("suppressed: %s", _e)
-    # (orders.json fallback removed — SQLite is single source of truth)
-    # ── End orders ──────────────────────────────────────────────
 
-    # Pull from quotes (fallback)
+    # Pull from quotes (kept for the quotes_won_value display field)
     try:
         quotes_data = _load_json(os.path.join(DATA_DIR, "quotes_log.json"))
         if isinstance(quotes_data, list):
@@ -617,7 +636,6 @@ def update_revenue_tracker() -> dict:
     except Exception:
         quotes_revenue = 0
 
-    # Also check SQLite quotes for won totals
     try:
         from src.core.db import get_db
         with get_db() as conn:
@@ -629,7 +647,7 @@ def update_revenue_tracker() -> dict:
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 
-    # Pull from QB if available
+    # Pull from QB if available (still surfaced separately as qb_collected)
     qb_revenue = 0
     try:
         from src.agents.qb_agent import get_financial_context, qb_configured
@@ -640,10 +658,11 @@ def update_revenue_tracker() -> dict:
     except Exception as _e:
         log.debug("suppressed: %s", _e)
 
-    # Manual entries
+    # Manual entries (still added to legacy max for diff comparison)
     manual_total = sum(e.get("amount", 0) for e in revenue.get("manual_entries", []))
 
-    # Pipeline value (pending + sent quotes)
+    # Pipeline value (pending + sent quotes) — unchanged, this isn't
+    # part of the closed-revenue dispute.
     try:
         if isinstance(quotes_data, list):
             pipeline = sum(q.get("total", 0) for q in quotes_data
@@ -653,7 +672,6 @@ def update_revenue_tracker() -> dict:
     except Exception:
         pipeline = 0
 
-    # SQLite pipeline (more accurate than stale JSON)
     try:
         from src.core.db import get_db
         with get_db() as conn:
@@ -673,7 +691,17 @@ def update_revenue_tracker() -> dict:
             if p.get("outreach_status") in ("responded", "won"):
                 growth_pipeline += p.get("total_spend", 0) * 0.1  # 10% capture estimate
 
-    closed = max(db_revenue, orders_revenue, quotes_revenue, qb_revenue, manual_total)
+    # ── Dual-emit: canonical vs legacy max() ────────────────────
+    legacy_closed = max(db_revenue, orders_revenue, quotes_revenue, qb_revenue, manual_total)
+    if abs(canonical_revenue - legacy_closed) > 0.01:
+        log.info(
+            "revenue_tracker dual-emit: canonical=%.2f legacy_max=%.2f diff=%.2f "
+            "(db=%.2f orders=%.2f quotes=%.2f qb=%.2f manual=%.2f)",
+            canonical_revenue, legacy_closed, canonical_revenue - legacy_closed,
+            db_revenue, orders_revenue, quotes_revenue, qb_revenue, manual_total,
+        )
+
+    closed = canonical_revenue
     total_pipeline = pipeline + growth_pipeline
 
     now = datetime.now()
@@ -686,8 +714,9 @@ def update_revenue_tracker() -> dict:
 
     tracker = {
         "goal": REVENUE_GOAL,
-        "year": now.year,
+        "year": REVENUE_YEAR,
         "closed_revenue": round(closed, 2),
+        "closed_revenue_legacy": round(legacy_closed, 2),
         "pipeline_value": round(total_pipeline, 2),
         "growth_pipeline": round(growth_pipeline, 2),
         "quotes_won_value": round(quotes_revenue, 2),

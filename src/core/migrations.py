@@ -1132,6 +1132,36 @@ MIGRATIONS = [
         WHERE COALESCE(is_test, 0) = 0
           AND logged_at >= '2026-01-01' AND logged_at < '2027-01-01';
     """),
+    (37, "fix_v_revenue_year_2026_dedup", """
+        -- PR-2 follow-up: v_revenue_year_2026 from migration 36
+        -- double-counted because `reconcile_revenue` copies every
+        -- orders row into revenue_log with source='order'. UNION ALL
+        -- across both tables then summed each order twice — the
+        -- canonical helper would return $24,690 for a single $12,345
+        -- order. Replace with a deduplicated view that only counts
+        -- a revenue_log row when it isn't already an orders mirror.
+        --
+        -- Semantics: orders is source-of-truth for confirmed-purchase
+        -- revenue. revenue_log carries (a) orders mirrors (skipped
+        -- here via source filter) and (b) manual entries / non-order
+        -- sources (kept). This matches `reconcile_revenue`'s own
+        -- "skip if already an order entry" logic, just enforced at
+        -- the read side instead of trusting upstream dedup.
+        DROP VIEW IF EXISTS v_revenue_year_2026;
+        CREATE VIEW v_revenue_year_2026 AS
+        SELECT 'order' AS source_kind, id, total AS amount, created_at AS dated_at,
+               quote_number, po_number, status, agency, is_test
+        FROM orders
+        WHERE COALESCE(is_test, 0) = 0
+          AND created_at >= '2026-01-01' AND created_at < '2027-01-01'
+        UNION ALL
+        SELECT 'revenue_log' AS source_kind, id, amount, logged_at AS dated_at,
+               quote_number, po_number, NULL AS status, agency, is_test
+        FROM revenue_log
+        WHERE COALESCE(is_test, 0) = 0
+          AND logged_at >= '2026-01-01' AND logged_at < '2027-01-01'
+          AND COALESCE(source, '') != 'order';
+    """),
 ]
 
 
