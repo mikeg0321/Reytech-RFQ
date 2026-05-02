@@ -870,8 +870,12 @@
  </div>
  {# Sticky bar is `position:fixed`; reserve viewport space below the
     main content so the last few rows aren't permanently hidden behind
-    it. The 64px target matches the bar's rendered height + padding. #}
- <div data-testid="rfq-sticky-spacer" aria-hidden="true" style="height:64px;display:none"></div>
+    it. Height is sized at runtime via ResizeObserver — the old 64px
+    constant under-reserved on narrow viewports where the bar wraps to
+    2 rows (KPI chips + 3 buttons), letting the bar overlap and block
+    clicks on activity-row buttons / Send-Notes input. The 80px floor
+    covers the single-row case before the observer's first callback. #}
+ <div data-testid="rfq-sticky-spacer" aria-hidden="true" style="height:80px;display:none"></div>
 
  <script>
  // PR-3b: Sticky CTA wiring.
@@ -896,10 +900,30 @@
    var sticky = document.getElementById('rfq-sticky-cta');
    var spacer = document.querySelector('[data-testid="rfq-sticky-spacer"]');
    var inline = document.querySelector('[data-testid="rfq-primary-actions"]');
+   // Bug 1 (2026-05-02): keep the spacer height in sync with the sticky
+   // bar's actual rendered height. The old fixed 64px under-reserved on
+   // narrow viewports where the KPI chips + buttons row wrap to 2 rows
+   // (~96-112px), letting the bar overlap and intercept clicks on the
+   // bottom of the page. ResizeObserver fires on every height change.
+   function _syncSpacerHeight(){
+     if (!sticky || !spacer) return;
+     var h = sticky.offsetHeight;
+     // Floor at 80px in case the bar is briefly display:none mid-toggle
+     // and offsetHeight reads 0 — never under-reserve.
+     spacer.style.height = (h && h > 0 ? h : 80) + 'px';
+   }
+   if (sticky && 'ResizeObserver' in window){
+     try {
+       var ro = new ResizeObserver(function(){ _syncSpacerHeight(); });
+       ro.observe(sticky);
+     } catch(e) { /* older browser fallthrough — 80px floor still applies */ }
+   }
    function _show(yes){
      if (!sticky) return;
      sticky.style.display = yes ? 'block' : 'none';
      if (spacer) spacer.style.display = yes ? 'block' : 'none';
+     // Resize after toggle so the just-shown bar's height lands in the spacer.
+     if (yes) _syncSpacerHeight();
    }
    if (sticky && inline && 'IntersectionObserver' in window){
      var io = new IntersectionObserver(function(entries){
