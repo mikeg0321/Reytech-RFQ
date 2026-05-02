@@ -295,6 +295,28 @@ def api_rfq_mark_sent_manually(rid):
     r["sent_at"] = sent_at
     r["sent_to"] = sent_to
     r["sent_method"] = "manual"
+
+    # Bug-2 audit (2026-05-02): the SCPRS award_tracker enrollment query
+    # filters `WHERE total > 0`. If `r.total` was never persisted (some
+    # paths only compute it lazily at PDF render time), the row gets
+    # silently skipped from the award poll loop — sent quote never
+    # triggers SCPRS won/lost detection. Compute total from items here
+    # if it's missing so mark-sent always lands the row in the poll.
+    try:
+        if not float(r.get("total") or 0):
+            _items = r.get("items") or r.get("line_items") or []
+            _computed = sum(
+                float(it.get("price_per_unit") or it.get("unit_price") or it.get("bid_price") or 0)
+                * float(it.get("qty") or 1)
+                for it in _items
+                if isinstance(it, dict)
+            )
+            if _computed > 0:
+                r["total"] = round(_computed, 2)
+                log.info("RFQ %s: backfilled total=%.2f at mark-sent for award_tracker enrollment",
+                         rid, r["total"])
+    except (TypeError, ValueError) as _te:
+        log.debug("total backfill failed for %s: %s", rid, _te)
     r["manual_sent_metadata"] = {
         "marked_at": now_iso,
         "sent_at_reported": sent_at,
