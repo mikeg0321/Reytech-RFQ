@@ -3206,7 +3206,14 @@ def rfq_update_field(rid):
     changed = []
     allowed = ["solicitation_number", "requestor_name", "requestor_email",
                "due_date", "due_time", "ship_to", "delivery_location", "institution",
-               "agency_name", "notes"]
+               "agency_name", "notes",
+               # Operator-cleanup of phantom assignments (incident
+               # rfq_7813c4e1 / R26Q45 2026-05-01): allow clearing or
+               # correcting `reytech_quote_number` so a ghost-bound seq
+               # can be released. The ghost-data gate in routes_rfq_gen
+               # then refuses re-allocation until the underlying RFQ is
+               # clean (real sol#, real items, real buyer).
+               "reytech_quote_number"]
     from src.core.validation import validate_header_field
     for field in allowed:
         if field in data:
