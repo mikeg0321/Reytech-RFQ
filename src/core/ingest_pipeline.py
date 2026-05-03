@@ -81,6 +81,7 @@ def process_buyer_request(
     email_uid: str = "",
     existing_record_id: str = "",
     existing_record_type: str = "",
+    email_received_at: str = "",
 ) -> IngestResult:
     """Single entry point for every buyer request.
 
@@ -92,6 +93,9 @@ def process_buyer_request(
         email_uid: email UID for dedup (optional)
         existing_record_id: if re-parsing an existing PC/RFQ, pass its ID
         existing_record_type: "pc" or "rfq" when re-parsing
+        email_received_at: RFC822 Date header from the buyer email (Gmail
+            poller passes msg["Date"]). When provided, persisted as
+            `received_at`; otherwise falls back to ingest time.
 
     Returns: IngestResult with the classification, record_id,
     linked_pc_id, and any errors/warnings.
@@ -252,6 +256,7 @@ def process_buyer_request(
                 record_type, items, header, classification,
                 primary_path, email_subject, email_sender, email_uid,
                 email_body=email_body,
+                email_received_at=email_received_at,
             )
         result.record_id = record_id
     except Exception as e:
@@ -660,6 +665,7 @@ def _create_record(
     email_sender: str,
     email_uid: str,
     email_body: str = "",
+    email_received_at: str = "",
 ) -> str:
     """Create a new PC or RFQ with the classification stored on it."""
     now = datetime.now().isoformat()
@@ -671,10 +677,31 @@ def _create_record(
     # extractor isn't wired yet. Mark needs_review so it surfaces as triage.
     initial_status = "needs_review" if not items else "parsed"
 
+    # Canonicalize institution via facility_registry so two different
+    # buyer-text labels for the same facility (e.g. "CSP-SAC" and
+    # "CSP-Sacramento") collapse to one canonical code. Drift #3 from
+    # the 2026-04-30 codebase audit. Fall back to whatever the
+    # classifier/header gave us when the registry can't resolve.
+    raw_institution = classification.institution or header.get("institution", "") or classification.agency or ""
+    canonical_institution = raw_institution
+    try:
+        from src.core.facility_registry import resolve as _resolve_facility
+        _fac = _resolve_facility(raw_institution)
+        if _fac:
+            canonical_institution = _fac.code
+    except Exception as _e:
+        log.debug("facility_registry resolve skipped: %s", _e)
+
+    # received_at = email arrival time when poller passed it through,
+    # else ingest time. Stored as RFC822 string when from Gmail; downstream
+    # readers already coerce both shapes.
+    received_at = email_received_at or now
+
     record: Dict[str, Any] = {
         "id": f"{record_type}_{short_id}",
         "created_at": now,
         "updated_at": now,
+        "received_at": received_at,
         "status": initial_status,
         "source": "ingest_v2",
         "email_uid": email_uid,
@@ -684,9 +711,13 @@ def _create_record(
         "_classification": classification.to_dict(),
         # Common header fields pulled from either the classifier or parser
         "solicitation_number": classification.solicitation_number or header.get("solicitation_number", "") or header.get("pc_number", ""),
-        "institution": classification.institution or header.get("institution", ""),
+        "institution": canonical_institution,
         "agency": classification.agency,
         "requestor_email": email_sender,
+        # contact_email mirrors requestor_email at write time so the buyer-
+        # rollup surfaces (PR #621-era) and quote-keyed views see the same
+        # buyer regardless of which column they read.
+        "contact_email": email_sender,
         "requestor_name": header.get("requestor", "") or header.get("requestor_name", ""),
         # Persist email body so the support view can show it as a copy-paste
         # reference when the body extractor missed items (operator-fallback per

@@ -1900,6 +1900,7 @@ def process_rfq_email(rfq_email):
                     or rfq_email.get("sender", "")
                 ),
                 email_uid=rfq_email.get("email_uid", ""),
+                email_received_at=rfq_email.get("date", ""),
             )
             if _v2_result.ok and _v2_result.record_id:
                 log.info(
