@@ -357,7 +357,7 @@
 {# Surfaces divergence between unified `record_po`/order_dal write path     #}
 {# and legacy paths. Gate per PLAN_ONCE_AND_FOR_ALL §5.1 = "100 PO writes   #}
 {# zero divergence". This card IS the metric that gate reads.                #}
-{% set _od = orders_drift|default({"total_orders": 0, "orders_no_po": 0, "duplicate_po_numbers": 0, "won_quotes_no_order": 0, "total_won_quotes": 0, "drift_pct": 0.0}) %}
+{% set _od = orders_drift|default({"total_orders": 0, "orders_no_po": 0, "duplicate_po_numbers": 0, "won_quotes_no_order": 0, "orders_quote_not_won": 0, "total_won_quotes": 0, "drift_pct": 0.0, "orders_quote_not_won_rows": []}) %}
 <div class="card" style="margin-bottom:14px">
   <div class="card-t">
     Orders drift —
@@ -367,7 +367,7 @@
     {% else %}<span style="color:#6e7681">no won-quote baseline yet</span>{% endif %}
   </div>
   <div style="padding:10px 12px">
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
       <div style="text-align:center">
         <div style="font-size:22px;font-weight:700">{{ _od.total_orders }}</div>
         <div style="font-size:11px;color:#8b949e">TOTAL ORDERS</div>
@@ -382,7 +382,11 @@
       </div>
       <div style="text-align:center">
         <div style="font-size:22px;font-weight:700;color:{% if _od.drift_pct >= 20 %}#f85149{% elif _od.drift_pct >= 5 %}#d29922{% else %}#3fb950{% endif %}">{{ _od.won_quotes_no_order }}/{{ _od.total_won_quotes }}</div>
-        <div style="font-size:11px;color:#8b949e" title="won quotes with no orders row">ORPHAN WON</div>
+        <div style="font-size:11px;color:#8b949e" title="won quotes with no orders row (forward drift)">ORPHAN WON</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:22px;font-weight:700;color:{% if _od.orders_quote_not_won > 0 %}#f85149{% else %}#3fb950{% endif %}">{{ _od.orders_quote_not_won }}</div>
+        <div style="font-size:11px;color:#8b949e" title="orders with quote_number where paired quote.status != 'won' (PR #664 hook regression)">ORDERS NOT WON</div>
       </div>
     </div>
     <div style="margin-top:10px;padding:6px 10px;font-size:12px;color:#8b949e;border-top:1px solid #21262d">
@@ -390,6 +394,7 @@
        <strong style="color:#f85149">⛔ Divergence detected.</strong>
        {% if _od.duplicate_po_numbers > 0 %}<code>{{ _od.duplicate_po_numbers }}</code> po_numbers appear on 2+ orders rows — UNIQUE constraint can't land until these are deduped.{% endif %}
        {% if _od.drift_pct >= 20 %} {{ _od.won_quotes_no_order }} won quotes have no matching orders row ({{ _od.drift_pct }}% drift). Mark Won is firing without writing the order.{% endif %}
+       {% if _od.orders_quote_not_won > 0 %} <code>{{ _od.orders_quote_not_won }}</code> orders have a quote_number whose paired quote isn't 'won' — PR #664 hook regressed. Run <code>python scripts/backfill_orders_quotes_drift.py --apply</code> to clear, then audit the write path.{% endif %}
      {% elif _od.status == 'warn' %}
        <strong style="color:#d29922">⚠ Drift below systemic threshold.</strong>
        {% if _od.orders_no_po > 0 %}{{ _od.orders_no_po }} active orders are missing po_number — legacy write path skipped it.{% endif %}
@@ -459,6 +464,39 @@
       </table>
       <div style="margin-top:6px;font-size:10px;color:#6e7681">
         Dedupe is destructive (merging or deleting orders rows) — needs explicit go before bulk action. Tracked in <code>docs/PLAN_ONCE_AND_FOR_ALL.md</code> §5.1 (S3-prep PR-2).
+      </div>
+    </details>
+    {% endif %}
+
+    {% if _od.orders_quote_not_won_rows %}
+    <details style="margin-top:8px;border-top:1px solid #21262d;padding-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:#8b949e">
+        Orders without won-quote ({{ _od.orders_quote_not_won_rows|length }}{% if _od.orders_quote_not_won_rows|length == 20 and _od.orders_quote_not_won > 20 %} of {{ _od.orders_quote_not_won }}{% endif %}) — PR #664 hook should have flipped these
+      </summary>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:6px">
+        <thead>
+          <tr style="color:#8b949e;text-align:left;border-bottom:1px solid #30363d">
+            <th style="padding:4px 8px">Order ID</th>
+            <th style="padding:4px 8px">Quote #</th>
+            <th style="padding:4px 8px">PO #</th>
+            <th style="padding:4px 8px">Quote status</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for r in _od.orders_quote_not_won_rows %}
+          <tr style="border-bottom:1px solid #21262d">
+            <td style="padding:4px 8px;font-family:monospace;font-size:10px;color:#8b949e">{{ r.order_id }}</td>
+            <td style="padding:4px 8px;font-family:monospace">
+              <a href="/quote/{{ r.quote_number }}" style="color:#58a6ff">{{ r.quote_number }}</a>
+            </td>
+            <td style="padding:4px 8px;font-family:monospace">{{ r.po_number or '—' }}</td>
+            <td style="padding:4px 8px;color:#d29922">{{ r.quote_status or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div style="margin-top:6px;font-size:10px;color:#6e7681">
+        Safe fix: <code>python scripts/backfill_orders_quotes_drift.py --apply</code>. Then audit which write path bypassed <code>save_order</code>'s PR #664 hook.
       </div>
     </details>
     {% endif %}

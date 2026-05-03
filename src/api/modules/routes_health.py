@@ -743,7 +743,7 @@ def _build_orders_drift_card():
     PLAN_ONCE_AND_FOR_ALL.md §5.1 is "100 PO writes with zero
     divergence" — this card is the metric that gate reads.
 
-    Three counters:
+    Four counters:
       • orders_no_po — orders with status open/shipped/closed but
         po_number is NULL/empty. A real PO-tracking gap; the unified
         path always writes po_number, legacy paths sometimes skip it.
@@ -754,12 +754,19 @@ def _build_orders_drift_card():
       • won_quotes_no_order — quote.status='won' but no orders row
         references the quote_number. The operator marked-won via the
         quote page but no order materialized → write-path hole.
+      • orders_quote_not_won — INVERSE direction. Order with a real
+        quote_number but the paired quote.status is still in-flight
+        (open/sent/priced/etc.). PR #664 wired the auto-flip hook in
+        save_order, so > 0 = the hook regressed (or a path is writing
+        orders without going through save_order). Mirrors the
+        backfill at scripts/backfill_orders_quotes_drift.py.
 
     drift_pct = won_quotes_no_order / total_won_quotes. Status:
-      • `error`    — duplicate_po_numbers > 0 OR drift_pct ≥ 20%
-                     (systemic write-path break)
+      • `error`    — duplicate_po_numbers > 0 OR drift_pct ≥ 20% OR
+                     orders_quote_not_won > 0 (PR #664 hook regression)
       • `warn`     — drift_pct 5-20% OR orders_no_po > 0
-      • `healthy`  — drift_pct < 5%, no missing POs, no duplicates
+      • `healthy`  — drift_pct < 5%, no missing POs, no duplicates,
+                     no inverse drift
       • `unknown`  — no won quotes yet (no signal)
     """
     result = {
@@ -768,6 +775,7 @@ def _build_orders_drift_card():
         "orders_no_po": 0,
         "duplicate_po_numbers": 0,
         "won_quotes_no_order": 0,
+        "orders_quote_not_won": 0,
         "total_won_quotes": 0,
         "drift_pct": 0.0,
         # Actionable detail surfaced under <details> on the card so the
@@ -775,6 +783,7 @@ def _build_orders_drift_card():
         # so a 100% drift state doesn't dump 100 rows into the page.
         "orphan_quotes": [],         # [{quote_number, agency, total, sent_at}]
         "duplicate_pos": [],         # [{po_number, count, quote_numbers}]
+        "orders_quote_not_won_rows": [],  # [{order_id, quote_number, po, quote_status}]
     }
     try:
         with get_db() as conn:
@@ -845,6 +854,44 @@ def _build_orders_drift_card():
                     "sent_at": (row["sent_at"] or "")[:10],
                 })
 
+            # Inverse-direction drift: orders with a quote_number where
+            # the paired quote is still in-flight. Mirrors the SQL in
+            # `backfill_orders_quotes_drift` so the card and the
+            # backfill agree on what counts as drift. > 0 = PR #664
+            # hook regressed (or some write path bypasses save_order).
+            r = conn.execute("""
+                SELECT COUNT(*) AS n
+                FROM orders o
+                JOIN quotes q ON q.quote_number = o.quote_number
+                WHERE COALESCE(o.is_test,0)=0
+                  AND COALESCE(o.quote_number,'') != ''
+                  AND COALESCE(o.status,'') NOT IN ('cancelled','voided','deleted')
+                  AND LOWER(COALESCE(q.status,''))
+                      IN ('open','pending','priced','sent','draft','new','')
+            """).fetchone()
+            result["orders_quote_not_won"] = int(r["n"] or 0) if r else 0
+
+            inv_rows = conn.execute("""
+                SELECT o.id AS order_id, o.quote_number, o.po_number,
+                       q.status AS quote_status, o.created_at
+                FROM orders o
+                JOIN quotes q ON q.quote_number = o.quote_number
+                WHERE COALESCE(o.is_test,0)=0
+                  AND COALESCE(o.quote_number,'') != ''
+                  AND COALESCE(o.status,'') NOT IN ('cancelled','voided','deleted')
+                  AND LOWER(COALESCE(q.status,''))
+                      IN ('open','pending','priced','sent','draft','new','')
+                ORDER BY o.created_at DESC
+                LIMIT 20
+            """).fetchall()
+            for row in inv_rows:
+                result["orders_quote_not_won_rows"].append({
+                    "order_id": row["order_id"] or "",
+                    "quote_number": row["quote_number"] or "",
+                    "po_number": row["po_number"] or "",
+                    "quote_status": row["quote_status"] or "",
+                })
+
             # Duplicate-PO detail: for each po_number that appears on
             # 2+ orders rows, list the quote_numbers using it. Bounded
             # to 20 PO groups (and 5 quote refs each) so the page stays
@@ -878,6 +925,9 @@ def _build_orders_drift_card():
         )
 
     if result["duplicate_po_numbers"] > 0:
+        result["status"] = "error"
+    elif result["orders_quote_not_won"] > 0:
+        # PR #664 hook should hold this at zero. Any drift = regression.
         result["status"] = "error"
     elif result["drift_pct"] >= 20:
         result["status"] = "error"
