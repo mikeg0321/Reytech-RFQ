@@ -286,6 +286,28 @@ def api_simple_submit_generate():
 
         # Generate Reytech quote PDF
         try:
+            # Ghost-data gate (parallel to PR #675's RFQ-side gate).
+            # `generate_quote()` allocates a fresh quote number from
+            # the counter when its `quote_number` arg is None — and
+            # this route never passes one. So a placeholder pc_number
+            # / RFQ sol# would burn the counter inside the library
+            # call. Refuse here instead so we never reach allocation
+            # on a ghost record.
+            from src.api.dashboard import (
+                is_ready_for_pc_quote_allocation,
+                is_ready_for_quote_allocation,
+            )
+            _gate = is_ready_for_pc_quote_allocation if doc_type == "pc" \
+                else is_ready_for_quote_allocation
+            _ok, _reasons = _gate(doc)
+            if not _ok:
+                results["quote_error"] = (
+                    "Cannot allocate a Reytech quote number — "
+                    + "; ".join(_reasons)
+                )
+                results["quote_blocked_reasons"] = _reasons
+                return jsonify(results)
+
             from src.forms.quote_generator import generate_quote
             header = _get_header(doc)
             quote_data = {

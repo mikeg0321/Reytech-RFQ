@@ -3657,6 +3657,24 @@ def pricecheck_generate_quote(pcid):
     locked_qn = pc.get("reytech_quote_number", "")
     # Allocate quote number BEFORE generating to prevent burns on repeated clicks
     if not locked_qn:
+        # Ghost-data gate (parallel to PR #675's RFQ-side gate at
+        # routes_rfq_gen.py:2057-2071): never burn a real counter seq
+        # on a PC that hasn't passed ingest sanity — placeholder
+        # pc_number, zero items, Reytech buyer.
+        from src.api.dashboard import is_ready_for_pc_quote_allocation
+        _ok, _reasons = is_ready_for_pc_quote_allocation(pc)
+        if not _ok:
+            t.fail("Quote number allocation BLOCKED — ghost data",
+                   reasons=_reasons)
+            return jsonify({
+                "ok": False,
+                "error": (
+                    "Cannot allocate a Reytech quote number — "
+                    + "; ".join(_reasons)
+                    + ". Fix the issues on the PC detail page, then re-generate."
+                ),
+                "reasons": _reasons,
+            })
         from src.forms.quote_generator import _next_quote_number
         locked_qn = _next_quote_number()
         pc["reytech_quote_number"] = locked_qn
