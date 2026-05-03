@@ -3753,3 +3753,85 @@ def api_rfq_upload_edited_quote(rid):
         "flat_pdf_path": flat_path,
         "edits": edits,
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PR-C2 — pre-send win-validation soft warnings (UI badges)
+# ═══════════════════════════════════════════════════════════════════════
+
+@bp.route("/api/rfq/<rid>/win-warnings")
+@auth_required
+@safe_route
+def api_rfq_win_warnings(rid):
+    """Return soft win-risk warnings for the operator before send.
+
+    Pure read endpoint. The work splits into two layers:
+
+      1. *Lookup* — for each line item that has a part_number or
+         description, query `_last_won_price_for_buyer` against this RFQ's
+         contact_email. The route owns the SQLite connection so we open
+         it once for the whole pass instead of N times.
+      2. *Compute* — pre-enriched items go to
+         `compute_win_warnings()` (pure function, no I/O).
+
+    Returns:
+      {ok: true, warnings: [...], counts: {red, orange, yellow}}
+
+    The endpoint never blocks send. Warnings are advisory only; the
+    operator is the final gate (per `feedback_ten_minute_escape_valve`).
+    """
+    from src.api.dashboard import load_rfqs
+    from src.core.win_validation import compute_win_warnings
+    rfq = load_rfqs().get(rid)
+    if not rfq:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    items = list(rfq.get("line_items") or rfq.get("items") or [])
+    contact_email = (rfq.get("contact_email")
+                     or rfq.get("requestor_email") or "").strip()
+    quote_number = (rfq.get("reytech_quote_number") or "").strip()
+
+    # ── Layer 1: pre-enrich items with last-won lookups ──
+    if contact_email and items:
+        try:
+            from src.api.modules.routes_growth_intel import (
+                _last_won_price_for_buyer,
+            )
+            with get_db() as conn:
+                conn.row_factory = __import__("sqlite3").Row
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    desc = item.get("description") or ""
+                    pn = (item.get("part_number")
+                          or item.get("item_number") or "")
+                    lw = _last_won_price_for_buyer(
+                        conn, contact_email, desc, pn,
+                        exclude_quote_number=quote_number,
+                    )
+                    if lw and lw.get("price"):
+                        item["last_won_price"] = lw["price"]
+                        item["last_won_quote"] = lw.get("quote_number", "")
+        except Exception as e:
+            # Lookup is best-effort — never fail the warnings call because
+            # of a buyer-history hiccup. compute_win_warnings still runs
+            # the line-level + quote-level checks without last-won data.
+            log.warning("win-warnings last-won enrichment failed for %s: %s",
+                        rid, e)
+
+    rfq_for_compute = dict(rfq)
+    rfq_for_compute["line_items"] = items
+
+    warnings = compute_win_warnings(rfq_for_compute)
+
+    counts = {"red": 0, "orange": 0, "yellow": 0}
+    for w in warnings:
+        lvl = w.get("level")
+        if lvl in counts:
+            counts[lvl] += 1
+
+    return jsonify({
+        "ok": True,
+        "warnings": warnings,
+        "counts": counts,
+    })
