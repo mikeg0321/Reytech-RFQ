@@ -1395,9 +1395,12 @@ def _link_rfq_to_pc(rfq_data, _trace):
         if _pc_desc and not rfq_item.get("description"):
             rfq_item["description"] = _pc_desc
 
-        # Qty/UOM: keep RFQ's values (from the formal doc), don't overwrite
-        if not rfq_item.get("qty") and match.get("qty"):
+        # Qty/UOM: keep RFQ's values (from the formal doc), don't overwrite.
+        # Write `qty` AND `quantity` to the same value so consumers reading
+        # either key see consistent data (PR-B mirror, 2026-05-03).
+        if not rfq_item.get("qty") and not rfq_item.get("quantity") and match.get("qty"):
             rfq_item["qty"] = match["qty"]
+            rfq_item["quantity"] = match["qty"]
         if not rfq_item.get("uom") and match.get("uom"):
             rfq_item["uom"] = match["uom"]
 

@@ -655,6 +655,35 @@ def _dispatch_parser(
 
 # ── Record creation ─────────────────────────────────────────────────────
 
+def _derive_requestor_name(email_sender: str) -> str:
+    """Derive a display name from an email address when the PDF header
+    didn't capture a Requestor.
+
+    Priority:
+      1. RFC822 display part — "Valentina Demidenko <addr>" → "Valentina Demidenko"
+      2. Local-part heuristic — "valentina.demidenko@cdcr.ca.gov"
+         → "Valentina Demidenko"
+      3. Empty string when input is empty/garbage.
+
+    Drift surface #4 from project_ams704_ingest_drift_2026_05_03.md.
+    Real human display names from the PDF header always take priority
+    over this fallback (see _create_record).
+    """
+    if not email_sender:
+        return ""
+    try:
+        from email.utils import parseaddr
+        disp, addr = parseaddr(email_sender)
+        if disp:
+            return disp.strip().strip('"').strip("'")
+        if addr and "@" in addr:
+            local = addr.split("@", 1)[0]
+            return local.replace(".", " ").replace("_", " ").title()
+    except Exception:
+        pass
+    return ""
+
+
 def _create_record(
     record_type: str,
     items: List[Dict[str, Any]],
@@ -718,7 +747,14 @@ def _create_record(
         # rollup surfaces (PR #621-era) and quote-keyed views see the same
         # buyer regardless of which column they read.
         "contact_email": email_sender,
-        "requestor_name": header.get("requestor", "") or header.get("requestor_name", ""),
+        # requestor_name: PDF header takes priority; if blank, derive from
+        # email-sender display part or local-part heuristic. Drift surface
+        # #4 from project_ams704_ingest_drift_2026_05_03.md.
+        "requestor_name": (
+            header.get("requestor", "")
+            or header.get("requestor_name", "")
+            or _derive_requestor_name(email_sender)
+        ),
         # Persist email body so the support view can show it as a copy-paste
         # reference when the body extractor missed items (operator-fallback per
         # project_email_body_rfq_parser_gap.md fix shape #3).
