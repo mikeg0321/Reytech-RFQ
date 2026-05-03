@@ -1072,6 +1072,24 @@
   <div style="width:1px;height:24px;background:rgba(63,185,80,.2)"></div>
   <button type="button" id="revise-quote-btn" onclick="reviseQuote()" class="btn" style="background:rgba(88,166,255,.15);color:#58a6ff;border:1px solid rgba(88,166,255,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Regenerate only the quote PDF with current pricing" aria-label="Revise quote PDF">✏️ Revise Quote</button>
   <button type="button" id="download-quote-btn" onclick="downloadCurrentQuote()" class="btn" style="background:rgba(63,185,80,.15);color:#3fb950;border:1px solid rgba(63,185,80,.3);font-size:14px;padding:8px 18px;font-weight:600" title="Download current quote PDF" aria-label="Download quote PDF">⬇ Download Quote{% if r.get('quote_revision') %} (Rev {{ r.quote_revision }}){% endif %}</button>
+  {# PR-D4 (2026-05-03) — editable working copy. Mike's 10-min escape valve: #}
+  {# operator downloads, edits buyer/ship-to in any PDF viewer, uploads back. #}
+  <button type="button" id="download-editable-btn" data-testid="download-editable-quote"
+          onclick="window.open('/api/rfq/' + RID + '/quote-editable.pdf', '_blank')"
+          class="btn"
+          style="background:rgba(210,153,34,.15);color:#d29922;border:1px solid rgba(210,153,34,.3);font-size:14px;padding:8px 14px;font-weight:600"
+          title="Download AcroForm working copy — buyer/ship-to fields editable in Adobe Reader / Preview / Chrome PDF viewer"
+          aria-label="Download editable quote PDF">📝 Editable</button>
+  <button type="button" id="upload-edited-btn" data-testid="upload-edited-quote"
+          onclick="document.getElementById('upload-edited-input').click()"
+          class="btn"
+          style="background:rgba(120,130,200,.15);color:#a0aec0;border:1px solid rgba(120,130,200,.3);font-size:14px;padding:8px 14px;font-weight:600"
+          title="Upload an edited copy of the quote PDF — server flattens + syncs the buyer/ship-to changes to this RFQ"
+          aria-label="Upload edited quote PDF">⬆ Upload Edited</button>
+  <input type="file" id="upload-edited-input" accept="application/pdf"
+         style="display:none" onchange="handleUploadEdited(this.files[0])">
+  <span id="upload-edited-status" data-testid="upload-edited-status"
+        style="display:none;font-size:13px;color:var(--tx2);margin-left:8px"></span>
   {% if r.get('quote_revision') %}<a href="#" onclick="loadRevisionHistory(event)" style="color:#58a6ff;font-size:13px;margin-left:auto">📋 History</a>{% endif %}
  </div>
  {% if r.get('quote_revision') %}
@@ -4013,6 +4031,41 @@ function downloadCurrentQuote(){
  var sol={{r.get('solicitation_number','')|tojson}};
  var safeSol=sol.replace(/[^a-zA-Z0-9_-]/g,'_');
  window.open('/api/download/'+encodeURIComponent(sol)+'/'+safeSol+'_Quote_Reytech.pdf','_blank');
+}
+
+// PR-D4: handle Upload Edited PDF (operator's edits in Adobe Reader / Preview)
+function handleUploadEdited(file){
+ if(!file){return;}
+ var statusEl=document.getElementById('upload-edited-status');
+ if(statusEl){statusEl.style.display='inline';statusEl.style.color='var(--tx2)';statusEl.textContent='Uploading…';}
+ var fd=new FormData();
+ fd.append('pdf',file);
+ fetch('/api/rfq/'+RID+'/upload-edited-quote',{
+  method:'POST',body:fd,credentials:'same-origin'
+ }).then(function(r){return r.json().then(function(d){return{ok:r.ok,d:d}});})
+ .then(function(res){
+  if(!res.ok||!res.d.ok){
+   if(statusEl){statusEl.style.color='#f85149';statusEl.textContent='Failed: '+(res.d.error||'unknown');}
+   return;
+  }
+  if(!res.d.applied){
+   if(statusEl){statusEl.style.color='#d29922';statusEl.textContent=res.d.message||'No changes detected';}
+   return;
+  }
+  var diff=res.d.diff||{};
+  var nKeys=Object.keys(diff).length;
+  if(statusEl){
+   statusEl.style.color='#3fb950';
+   statusEl.textContent='✓ Synced '+nKeys+' edit'+(nKeys===1?'':'s')+' — reloading…';
+  }
+  setTimeout(function(){window.location.reload();},900);
+ })
+ .catch(function(e){
+  if(statusEl){statusEl.style.color='#f85149';statusEl.textContent='Network error: '+e.message;}
+ });
+ // Reset input so re-uploading the same file fires change again
+ var inp=document.getElementById('upload-edited-input');
+ if(inp){inp.value='';}
 }
 function loadRevisionHistory(e){
  e.preventDefault();

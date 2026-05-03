@@ -3616,3 +3616,140 @@ def api_rfq_re_extract_requirements(rid):
     except Exception as e:
         log.error("Re-extract requirements error: %s", e, exc_info=True)
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# PR-D4: editable Quote PDF (download editable copy, upload edited copy)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Mike's 10-min escape valve (per feedback_ten_minute_escape_valve):
+#   1. Operator downloads /api/rfq/<rid>/quote-editable.pdf — AcroForm
+#      working copy with buyer/ship-to fields editable in any PDF viewer.
+#   2. Operator edits in Adobe Reader / Preview / Chrome's PDF viewer.
+#   3. Operator POSTs the edited file to /api/rfq/<rid>/upload-edited-quote.
+#      Server flattens via PR-D3, applies diff_to_quote_fields to the RFQ
+#      row, audit-logs the diff. Future Mark Sent flow uses the flat copy
+#      as the buyer attachment.
+#
+# Editable fields cover the buyer/ship-to block (PR-D1 scope). Line items,
+# quote_number, dates remain flat (counter collision risk + scope deferral).
+
+
+@bp.route("/api/rfq/<rid>/quote-editable.pdf")
+@auth_required
+@safe_route
+def api_rfq_quote_editable(rid):
+    """Generate the AcroForm editable working copy on demand. Returns PDF bytes."""
+    from src.api.dashboard import load_rfqs
+    from src.core.quote_model import Quote
+    from src.forms.quote_generator import generate_quote_pdf
+
+    rfq = load_rfqs().get(rid)
+    if not rfq:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+    try:
+        quote = Quote.from_legacy_dict(rfq)
+        pdf_bytes = generate_quote_pdf(quote, editable=True)
+    except Exception as e:
+        log.error("quote-editable.pdf failed for %s: %s", rid, e, exc_info=True)
+        return jsonify({"ok": False, "error": f"generation failed: {e}"}), 500
+    sol = re.sub(r"[^a-zA-Z0-9_-]", "_", str(rfq.get("solicitation_number") or rid))[:40]
+    fname = f"{sol}_Quote_Editable.pdf"
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Quote-Mode": "editable",
+        },
+    )
+
+
+@bp.route("/api/rfq/<rid>/upload-edited-quote", methods=["POST"])
+@auth_required
+@safe_route
+def api_rfq_upload_edited_quote(rid):
+    """Operator uploaded an edited PDF. Read AcroForm fields, sync to RFQ
+    row, audit-log the diff, store the flattened bytes as the buyer copy.
+
+    Returns JSON: {ok, applied, diff, flat_pdf_path, edits}
+    """
+    from src.api.dashboard import load_rfqs, _save_single_rfq
+    from src.forms.quote_pdf_flatten import diff_to_quote_fields, flatten_quote_pdf
+
+    rfq = load_rfqs().get(rid)
+    if not rfq:
+        return jsonify({"ok": False, "error": "RFQ not found"}), 404
+
+    f = request.files.get("pdf")
+    if not f:
+        return jsonify({"ok": False, "error": "no pdf file in upload (form field 'pdf')"}), 400
+
+    try:
+        editable_bytes = f.read()
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"upload read failed: {e}"}), 400
+
+    if not editable_bytes or not editable_bytes.startswith(b"%PDF-"):
+        return jsonify({"ok": False, "error": "upload is not a PDF"}), 400
+
+    flat_bytes, edits = flatten_quote_pdf(editable_bytes)
+    if not edits:
+        return jsonify({
+            "ok": False,
+            "error": "no editable AcroForm fields found in upload — was the file generated from /api/rfq/<rid>/quote-editable.pdf?",
+        }), 400
+
+    canonical = diff_to_quote_fields(edits)
+    if not canonical:
+        return jsonify({
+            "ok": True,
+            "applied": False,
+            "message": "AcroForm fields present but all empty — nothing to sync",
+            "edits": edits,
+        })
+
+    # Capture diff vs current row values for audit
+    diff = {}
+    for k, new in canonical.items():
+        old = rfq.get(k)
+        if old != new:
+            diff[k] = {"before": old, "after": new}
+
+    # Apply edits to the row
+    rfq.update(canonical)
+    rfq["last_edited_via_pdf_at"] = datetime.now().isoformat()
+
+    # Persist flat bytes alongside the row so Mark Sent can reuse them.
+    flat_path = None
+    try:
+        out_dir = OUTPUT_DIR if OUTPUT_DIR else DATA_DIR
+        os.makedirs(out_dir, exist_ok=True)
+        flat_path = os.path.join(out_dir, f"rfq_{rid}_quote_flat.pdf")
+        with open(flat_path, "wb") as fh:
+            fh.write(flat_bytes)
+        rfq["reytech_quote_pdf_flat"] = flat_path
+    except Exception as fe:
+        log.warning("upload-edited-quote: writing flat copy failed: %s", fe)
+
+    _save_single_rfq(rid, rfq)
+
+    # Audit log — best-effort, never block the apply.
+    try:
+        from src.core.audit_log import log_event
+        log_event(
+            actor=session.get("user", "operator"),
+            event_type="quote_pdf_edited_externally",
+            target_id=rid,
+            details={"diff": diff, "flat_pdf_path": flat_path, "field_count": len(edits)},
+        )
+    except Exception as ae:
+        log.debug("audit log skipped (PR-D4 upload-edited): %s", ae)
+
+    return jsonify({
+        "ok": True,
+        "applied": True,
+        "diff": diff,
+        "flat_pdf_path": flat_path,
+        "edits": edits,
+    })
