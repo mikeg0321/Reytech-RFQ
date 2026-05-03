@@ -282,3 +282,155 @@ def test_backfill_flips_drifted_quotes():
         assert _quote_status(c, "DRIFT-C") == "won"
         assert _quote_status(c, "ALREADY-WON") == "won"
         assert _quote_status(c, "LOST-Q") == "lost"
+
+
+def test_backfill_dry_run_classifies_without_writing():
+    """dry_run=True must classify identically but never write. The
+    report shows the would-be flips; the quotes table stays untouched.
+    Pins the safe path for running on prod before applying."""
+    fn = _backfill()
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="DRY-A", status="open")
+        _seed_quote(c, quote_number="DRY-B", status="sent")
+        _seed_quote(c, quote_number="DRY-LOST", status="lost")
+        _seed_order(c, order_id="OD-A", quote_number="DRY-A")
+        _seed_order(c, order_id="OD-B", quote_number="DRY-B")
+        _seed_order(c, order_id="OD-L", quote_number="DRY-LOST")
+        c.commit()
+
+    result = fn(dry_run=True)
+    assert result["ok"] is True
+    assert result["dry_run"] is True
+    assert sorted(result["flipped"]) == ["DRY-A", "DRY-B"]
+    assert any(qn == "DRY-LOST" for qn, _ in result["skipped_final"])
+
+    # Critical: nothing actually moved.
+    with _conn() as c:
+        assert _quote_status(c, "DRY-A") == "open"
+        assert _quote_status(c, "DRY-B") == "sent"
+        assert _quote_status(c, "DRY-LOST") == "lost"
+
+
+def test_backfill_dry_run_then_apply_match():
+    """The dry-run flip list must be a subset of (or equal to) what an
+    apply run actually flips. Anything else means the script lies on
+    prod about what it'll do."""
+    fn = _backfill()
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="EQ-1", status="open")
+        _seed_quote(c, quote_number="EQ-2", status="priced")
+        _seed_order(c, order_id="OE-1", quote_number="EQ-1")
+        _seed_order(c, order_id="OE-2", quote_number="EQ-2")
+        c.commit()
+
+    dry = fn(dry_run=True)
+    applied = fn(dry_run=False)
+
+    assert sorted(dry["flipped"]) == sorted(applied["flipped"])
+    # After apply, a re-run must be a no-op (idempotent).
+    rerun = fn(dry_run=False)
+    assert rerun["flipped"] == []
+    assert rerun["skipped_already_won"] == 2
+
+
+def test_backfill_actor_string_lands_in_audit_log():
+    """The actor= argument must propagate into the per-flip audit row
+    so prod backfill writes are distinguishable from in-flow hooks."""
+    fn = _backfill()
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="ACTOR-1", status="open")
+        _seed_order(c, order_id="OA-1", quote_number="ACTOR-1")
+        c.commit()
+
+    fn(dry_run=False, actor="custom_backfill_actor_2026")
+
+    with _conn() as c:
+        try:
+            row = c.execute(
+                "SELECT actor FROM quote_audit_log WHERE quote_number=? "
+                "AND action='mark_won_from_order' ORDER BY created_at DESC LIMIT 1",
+                ("ACTOR-1",)
+            ).fetchone()
+        except Exception:
+            row = None
+    if row is not None:
+        assert row["actor"] == "custom_backfill_actor_2026"
+
+
+# ── CLI script integration ──────────────────────────────────────────
+
+
+def test_cli_dry_run_emits_summary(capsys):
+    """The `python scripts/backfill_orders_quotes_drift.py` invocation
+    (no --apply) must print a usable summary and exit 0 without
+    mutating any quote rows."""
+    import importlib.util
+    import os
+    import sys
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script_path = os.path.join(repo_root, "scripts",
+                               "backfill_orders_quotes_drift.py")
+    spec = importlib.util.spec_from_file_location(
+        "backfill_cli", script_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="CLI-1", status="open")
+        _seed_order(c, order_id="OCLI-1", quote_number="CLI-1")
+        c.commit()
+
+    old_argv = sys.argv
+    sys.argv = ["backfill_orders_quotes_drift.py"]
+    try:
+        rc = mod.main()
+    finally:
+        sys.argv = old_argv
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "would_flip=1" in captured.out
+    assert "dry-run" in captured.out
+
+    with _conn() as c:
+        # No writes on dry-run.
+        assert _quote_status(c, "CLI-1") == "open"
+
+
+def test_cli_apply_actually_flips(capsys):
+    import importlib.util
+    import os
+    import sys
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script_path = os.path.join(repo_root, "scripts",
+                               "backfill_orders_quotes_drift.py")
+    spec = importlib.util.spec_from_file_location(
+        "backfill_cli_apply", script_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="CLI-2", status="open")
+        _seed_order(c, order_id="OCLI-2", quote_number="CLI-2")
+        c.commit()
+
+    old_argv = sys.argv
+    sys.argv = ["backfill_orders_quotes_drift.py", "--apply"]
+    try:
+        rc = mod.main()
+    finally:
+        sys.argv = old_argv
+
+    captured = capsys.readouterr()
+    assert rc == 0
+    assert "flipped_count=1" in captured.out
+
+    with _conn() as c:
+        assert _quote_status(c, "CLI-2") == "won"

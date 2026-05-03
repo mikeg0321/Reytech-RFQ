@@ -118,14 +118,24 @@ def ensure_quote_won_for_order(quote_number: str, order_id: str = "",
             "prev_status": prev_status, "error": ""}
 
 
-def backfill_orders_quotes_drift() -> dict:
+def backfill_orders_quotes_drift(*, dry_run: bool = False,
+                                  actor: str = "backfill") -> dict:
     """One-time scan: every order with a quote_number where the quote is
     still in a flippable status, flip the quote to 'won'.
 
     Closes the gap that recent-wins shows orders for but quotes don't
-    reflect. Run once via:
-        railway ssh "python -c 'from src.core.quotes_backfill import \\
-            backfill_orders_quotes_drift; print(backfill_orders_quotes_drift())'"
+    reflect.
+
+    Args:
+        dry_run: When True, walk the same query and classify what
+            *would* be flipped, but never call `ensure_quote_won_for_order`
+            so no rows mutate. Returned `flipped` lists the would-be
+            flips. Use this on prod first to see scale before applying.
+        actor: Audit-log actor string for the real run. Ignored on dry-run.
+
+    Use the CLI wrapper:
+        python scripts/backfill_orders_quotes_drift.py            # dry-run
+        python scripts/backfill_orders_quotes_drift.py --apply    # apply
     """
     from src.core.db import get_db
     flipped = []
@@ -154,9 +164,13 @@ def backfill_orders_quotes_drift() -> dict:
         if prev not in _FLIPPABLE_QUOTE_STATUSES:
             skipped_final.append((r["quote_number"], prev))
             continue
+        if dry_run:
+            # Same row set ensure_quote_won_for_order would touch — no write.
+            flipped.append(r["quote_number"])
+            continue
         result = ensure_quote_won_for_order(
             r["quote_number"], order_id=r["order_id"],
-            po_number=r["po_number"] or "", actor="backfill",
+            po_number=r["po_number"] or "", actor=actor,
         )
         if result["ok"] and result["flipped"]:
             flipped.append(r["quote_number"])
@@ -165,6 +179,7 @@ def backfill_orders_quotes_drift() -> dict:
 
     return {
         "ok": True, "examined": len(rows),
+        "dry_run": dry_run,
         "flipped": flipped,
         "skipped_already_won": skipped_already_won,
         "skipped_final": skipped_final,
