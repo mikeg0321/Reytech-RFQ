@@ -894,6 +894,7 @@ def generate_quote(
     expiry_days: int = 45,
     notes: str = None,
     revision: int = None,
+    editable: bool = False,
 ) -> dict:
     """
     Generate a professional Reytech quote PDF.
@@ -902,6 +903,24 @@ def generate_quote(
         institution, ship_to_name, ship_to_address[], rfq_number,
         bill_to_name?, bill_to_address[]?,
         line_items: [{line_number, part_number, qty, uom, description, unit_price}]
+
+    editable (PR-D1, 2026-05-03):
+        When True, emits AcroForm text fields for the buyer/ship-to block so
+        the operator can edit values directly in Adobe Reader / Preview /
+        Chrome's built-in PDF viewer. Used as the operator's working copy
+        before flatten-on-send (PR-D3). When False (default), the PDF is
+        flat — every value rendered as static drawString, no form fields.
+
+        Editable fields in this PR (Mike's Q4-D2 80% case):
+          buyer_name, buyer_addr_<N>      — Bill To block
+          to_name,    to_addr_<N>          — To: block (left column)
+          ship_name,  ship_addr_<N>        — Ship To Location block
+
+        Letterhead, quote_number, dates, totals, line items remain flat
+        in PR-D1. Line items get AcroForm in a follow-up PR.
+
+        On AcroForm-emit failure, fall back to flat output (F1 from the
+        scope decision) — never raises out of editable=True.
     """
     # ── Setup ──────────────────────────────────────────────────────────────────
     if not agency:
@@ -1153,6 +1172,54 @@ def generate_quote(
         else:
             c.drawString(x, rl_y, s)
 
+    # ── PR-D1 (2026-05-03): editable AcroForm overlay ─────────────────────────
+    # When the caller asks for an editable working copy, replace flat text with
+    # AcroForm textfields at the same baseline so the operator can edit any
+    # buyer/ship-to value in Adobe Reader / Preview / Chrome's built-in PDF
+    # viewer before flatten-on-send.
+    #
+    # Falls back to flat text on any failure — never raises out of
+    # editable=True (F1 from the locked scope, see
+    # `project_editable_quote_pdf_2026_05_03.md`).
+    _editable_field_names: list[str] = []  # tracks emitted field names for tests + read-back
+
+    def text_or_field(x, yt, txt, *, field_name=None, field_w=200, field_h=12,
+                      font="Helvetica", size=9, color=BLACK, align="left"):
+        """Draw flat text OR (if editable=True and field_name set) emit an
+        AcroForm textfield at the same baseline.
+
+        AcroForm coords: (x, y) is bottom-left of the field box. We align
+        the bottom of the field with the text baseline so the rendered
+        value sits visually where flat text would.
+        """
+        if editable and field_name:
+            try:
+                rl_y_baseline = Y(yt)
+                # Field box bottom sits 2pt below baseline so descenders fit.
+                field_y = rl_y_baseline - 2
+                c.acroForm.textfield(
+                    name=field_name,
+                    value=_sanitize(txt or ""),
+                    x=x,
+                    y=field_y,
+                    width=field_w,
+                    height=field_h,
+                    fontName=font,
+                    fontSize=size,
+                    textColor=color,
+                    fillColor=Color(0.98, 0.98, 1.0, 0.35),  # very faint blue tint
+                    borderColor=Color(0.85, 0.85, 0.92),
+                    borderWidth=0.4,
+                    forceBorder=False,
+                )
+                _editable_field_names.append(field_name)
+                return
+            except Exception as _afe:
+                log.warning("AcroForm field %s emit failed, falling back to flat: %s",
+                            field_name, _afe)
+                # fall through to flat text() below
+        text(x, yt, txt, font=font, size=size, color=color, align=align)
+
     # ══════════════════════════════════════════════════════════════════════════
     # PAGE 1 HEADER  (all y values are "from top of page")
     # ══════════════════════════════════════════════════════════════════════════
@@ -1237,15 +1304,19 @@ def generate_quote(
     BILL_X = 396
     ADDR_LBL_X = ML + 10   # label "To:" indented slightly from margin
     ADDR_VAL_X = ML + 10   # address content same x, line below label
+    BILL_W = MR - BILL_X   # ~198pt of horizontal room
+    LEFT_W = MR // 2 - ADDR_VAL_X  # left column ~283pt
     bill_bottom_y = info_y
     if show_bill:
         bill_y = qbox_bottom + 12   # comfortable gap below DATE box
-        text(BILL_X, bill_y, "Bill to:", "Helvetica-Bold", 10)
+        text(BILL_X, bill_y, "Bill to:", "Helvetica-Bold", 10)  # static label
         by = bill_y + 15            # 15pt gap: label to first content line
-        text(BILL_X, by, bill_name, "Helvetica", 9)
+        text_or_field(BILL_X, by, bill_name, field_name="bill_name",
+                      field_w=BILL_W, font="Helvetica", size=9)
         by += 12
-        for bl in bill_lines:
-            text(BILL_X, by, bl, "Helvetica", 9)
+        for _ix, bl in enumerate(bill_lines):
+            text_or_field(BILL_X, by, bl, field_name=f"bill_addr_{_ix+1}",
+                          field_w=BILL_W, font="Helvetica", size=9)
             by += 11
         bill_bottom_y = max(bill_bottom_y, by)
 
@@ -1253,27 +1324,35 @@ def generate_quote(
     addr_y = max(info_y, bill_bottom_y) + 6
 
     # Left column: "To:" label, then name + address below
-    text(ADDR_LBL_X, addr_y, "To:", "Helvetica-Bold", 10)
+    text(ADDR_LBL_X, addr_y, "To:", "Helvetica-Bold", 10)  # static label
     ay = addr_y + 15                 # 15pt gap below label
-    text(ADDR_VAL_X, ay, to_name, "Helvetica", 10)
+    text_or_field(ADDR_VAL_X, ay, to_name, field_name="to_name",
+                  field_w=LEFT_W, font="Helvetica", size=10, field_h=13)
     ay += 12
-    for line in to_addr:
-        text(ADDR_VAL_X, ay, line, "Helvetica", 10)
+    for _ix, line in enumerate(to_addr):
+        text_or_field(ADDR_VAL_X, ay, line, field_name=f"to_addr_{_ix+1}",
+                      field_w=LEFT_W, font="Helvetica", size=10, field_h=13)
         ay += 11
     if to_addr and "united states" not in " ".join(to_addr).lower():
-        text(ADDR_VAL_X, ay, "United States", "Helvetica", 10)
+        text_or_field(ADDR_VAL_X, ay, "United States",
+                      field_name=f"to_addr_{len(to_addr)+1}",
+                      field_w=LEFT_W, font="Helvetica", size=10, field_h=13)
         ay += 11
 
     # Right column: "Ship to Location:" label, then facility + address below
-    text(BILL_X, addr_y, "Ship to Location:", "Helvetica-Bold", 10)
+    text(BILL_X, addr_y, "Ship to Location:", "Helvetica-Bold", 10)  # static label
     sy = addr_y + 15                 # 15pt gap below label
-    text(BILL_X, sy, ship_name, "Helvetica", 10)
+    text_or_field(BILL_X, sy, ship_name, field_name="ship_name",
+                  field_w=BILL_W, font="Helvetica", size=10, field_h=13)
     sy += 12
-    for line in ship_addr:
-        text(BILL_X, sy, line, "Helvetica", 10)
+    for _ix, line in enumerate(ship_addr):
+        text_or_field(BILL_X, sy, line, field_name=f"ship_addr_{_ix+1}",
+                      field_w=BILL_W, font="Helvetica", size=10, field_h=13)
         sy += 11
     if ship_addr and "united states" not in " ".join(ship_addr).lower():
-        text(BILL_X, sy, "United States", "Helvetica", 10)
+        text_or_field(BILL_X, sy, "United States",
+                      field_name=f"ship_addr_{len(ship_addr)+1}",
+                      field_w=BILL_W, font="Helvetica", size=10, field_h=13)
         sy += 11
 
 
@@ -2209,7 +2288,7 @@ def generate_quote_from_rfq(rfq: dict, output_path: str, **kwargs) -> dict:
 # fill_engine entry point — generated fill_mode
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_quote_pdf(quote) -> bytes:
+def generate_quote_pdf(quote, editable: bool = False) -> bytes:
     """Render the Reytech quote letterhead PDF for a Quote object.
 
     Used by `fill_engine._fill_generated()` when a profile has
@@ -2218,6 +2297,11 @@ def generate_quote_pdf(quote) -> bytes:
     Agency-agnostic — the same letterhead template is used for every agency
     (CCHCS, CalVet, CDCR, …). The agency only changes the To:/Ship To:/Bill To:
     blocks, which come from the Quote's header and ship_to.
+
+    editable (PR-D1, 2026-05-03):
+        When True, emits AcroForm text fields for the buyer/ship-to block so
+        operator can edit before flatten-on-send. See `generate_quote()`
+        docstring for the full field list.
     """
     import tempfile
     from src.core.quote_model import Quote
@@ -2233,7 +2317,7 @@ def generate_quote_pdf(quote) -> bytes:
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tf:
         tmp_path = tf.name
     try:
-        kwargs = {}
+        kwargs = {"editable": editable}
         # Honor a pre-allocated quote number if the Quote carries one.
         qno = (quote.header.solicitation_number or "").strip()
         if qno:
