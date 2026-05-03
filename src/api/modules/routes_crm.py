@@ -1908,6 +1908,24 @@ def api_quote_from_price_check():
 
     locked_qn = pc.get("reytech_quote_number", "")  # reuse if regenerating
 
+    # Ghost-data gate (parallel to PR #675's RFQ-side gate). Only
+    # check when we'd be allocating a fresh number — regenerate of
+    # an already-locked PC is fine even if the data is otherwise
+    # questionable, because the seq was burned on a prior cycle.
+    if not locked_qn:
+        from src.api.dashboard import is_ready_for_pc_quote_allocation
+        _ok, _reasons = is_ready_for_pc_quote_allocation(pc)
+        if not _ok:
+            return jsonify({
+                "ok": False,
+                "error": (
+                    "Cannot allocate a Reytech quote number — "
+                    + "; ".join(_reasons)
+                    + ". Fix the PC before generating."
+                ),
+                "reasons": _reasons,
+            })
+
     logs = []
     t0 = time.time()
 

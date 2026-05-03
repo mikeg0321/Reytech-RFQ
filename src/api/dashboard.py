@@ -1699,6 +1699,48 @@ def is_ready_for_quote_allocation(rfq: dict) -> tuple[bool, list[str]]:
     return (len(reasons) == 0, reasons)
 
 
+def is_ready_for_pc_quote_allocation(pc: dict) -> tuple[bool, list[str]]:
+    """PC-side mirror of `is_ready_for_quote_allocation`.
+
+    Same three rules — placeholder identifier, zero items, Reytech buyer —
+    applied to a Price Check record. The only field-name difference is
+    `pc_number` (PC) vs `solicitation_number` (RFQ); everything else
+    aligns since both tables carry `items` and `requestor_email`.
+
+    Why a separate helper: PC routes return JSON (not HTML redirects),
+    so callers want a parallel grep-able function name to gate at, and
+    the field-name swap is small enough that a generalized helper would
+    make every PC site read awkwardly. Keep them parallel and obvious.
+
+    Hard rules (block allocation):
+      1. pc_number is a placeholder per `_is_placeholder_number`
+         (covers WORKSHEET / GOOD / RFQ / blank / single all-caps junk)
+      2. Zero line items (nothing to quote)
+      3. Buyer email is a Reytech address (Reytech is never the buyer)
+    """
+    reasons: list[str] = []
+
+    pc_num = pc.get("pc_number") or ""
+    if _is_placeholder_number(pc_num):
+        reasons.append(
+            f"pc_number is a placeholder ({pc_num!r}) — fix the "
+            f"PC number on the price-check detail page before generating"
+        )
+
+    items = pc.get("items") or pc.get("line_items") or []
+    if not items:
+        reasons.append("zero line items — nothing to quote")
+
+    buyer_email = (pc.get("requestor_email") or "").lower().strip()
+    if buyer_email.endswith("@reytechinc.com"):
+        reasons.append(
+            f"buyer email {buyer_email!r} is a Reytech address — "
+            "Reytech is never the buyer (parser misclassified sender)"
+        )
+
+    return (len(reasons) == 0, reasons)
+
+
 def _extract_due_date(text):
     """Extract due date from text (email subject, body, PDF text).
     Normalizes all dates to MM/DD/YYYY format."""
