@@ -387,3 +387,98 @@ def test_health_quoting_html_renders_orphan_quotes_details(auth_client):
     body = resp.data.decode("utf-8", errors="replace")
     assert "Orphan won quotes" in body
     assert "ORPHAN-X" in body
+
+
+# ── Inverse-direction drift (orders with non-won paired quote) ─────────
+
+
+def test_inverse_drift_zero_when_paired_quote_is_won():
+    """The PR #664 hook should hold this at zero. Order + paired won
+    quote = no inverse drift."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="OK-1", status="won")
+        _seed_order(c, order_id="O-OK-1", quote_number="OK-1",
+                   po_number="PO-OK-1", status="open")
+        c.commit()
+    out = _build()
+    assert out["orders_quote_not_won"] == 0
+    assert out["orders_quote_not_won_rows"] == []
+
+
+def test_inverse_drift_flags_open_paired_quote():
+    """Order with quote_number where paired quote is still 'open' =
+    PR #664 hook regression. Card surfaces it as error."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="DRIFT-A", status="open")
+        _seed_order(c, order_id="O-DRIFT-A", quote_number="DRIFT-A",
+                   po_number="PO-DRIFT", status="open")
+        c.commit()
+    out = _build()
+    assert out["orders_quote_not_won"] == 1
+    assert out["status"] == "error"
+    assert any(
+        r["quote_number"] == "DRIFT-A" and r["quote_status"] == "open"
+        for r in out["orders_quote_not_won_rows"]
+    )
+
+
+def test_inverse_drift_ignores_lost_quotes():
+    """Lost is a final operator decision — not a hook regression.
+    Order paired with a lost quote should NOT register as inverse drift."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="LOST-Q", status="lost")
+        _seed_order(c, order_id="O-LOST", quote_number="LOST-Q",
+                   po_number="PO-LOST", status="open")
+        c.commit()
+    out = _build()
+    assert out["orders_quote_not_won"] == 0
+
+
+def test_inverse_drift_ignores_cancelled_orders():
+    """Cancelled orders are bookkeeping-only — they don't represent
+    real PO arrivals so the hook isn't expected to flip the quote."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="CANC-Q", status="open")
+        _seed_order(c, order_id="O-CANC", quote_number="CANC-Q",
+                   po_number="PO-CANC", status="cancelled")
+        c.commit()
+    out = _build()
+    assert out["orders_quote_not_won"] == 0
+
+
+def test_inverse_drift_detail_capped_at_20():
+    """Don't dump 100 rows into the page on a regression event."""
+    with _conn() as c:
+        _wipe(c)
+        for i in range(25):
+            qn = f"INV-{i:02d}"
+            _seed_quote(c, quote_number=qn, status="open")
+            _seed_order(c, order_id=f"o-inv-{i}", quote_number=qn,
+                       po_number=f"PO-INV-{i}")
+        c.commit()
+    out = _build()
+    assert out["orders_quote_not_won"] == 25
+    assert len(out["orders_quote_not_won_rows"]) == 20
+
+
+def test_health_quoting_html_renders_inverse_drift_details(auth_client):
+    """In an inverse-drift error state, the new <details> drawer
+    must render with the quote/order list and the backfill hint."""
+    with _conn() as c:
+        _wipe(c)
+        _seed_quote(c, quote_number="INV-X", status="open")
+        _seed_order(c, order_id="O-INV-X", quote_number="INV-X",
+                   po_number="PO-INV-X", status="open")
+        c.commit()
+    resp = auth_client.get("/health/quoting")
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8", errors="replace")
+    assert "Orders without won-quote" in body
+    assert "INV-X" in body
+    assert "backfill_orders_quotes_drift" in body
+    # KPI cell label should appear too.
+    assert "ORDERS NOT WON" in body
