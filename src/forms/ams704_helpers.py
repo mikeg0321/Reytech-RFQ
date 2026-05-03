@@ -110,11 +110,18 @@ class LineItem:
         )
 
     def to_dict(self) -> dict:
-        """Convert back to dict for backward compatibility with existing code."""
+        """Convert back to dict for backward compatibility with existing code.
+
+        Writes BOTH `qty` and `quantity` set to the same value. Most readers
+        in the codebase only know `qty`, but a few use `quantity`. Mirroring
+        at write time prevents silent schema drift like the 2026-05-03
+        Demidenko PCs (project_ams704_ingest_drift_2026_05_03.md).
+        """
         return {
             "line_number": self.line_number,
             "description": self.description,
             "qty": self.qty,
+            "quantity": self.qty,
             "uom": self.uom,
             "price_per_unit": self.unit_price,
             "unit_price": self.unit_price,
