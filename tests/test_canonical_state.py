@@ -57,7 +57,14 @@ def test_active_queue_excluded_set_matches_glossary():
     of active queue.
     """
     assert ACTIVE_QUEUE_EXCLUDED_STATUSES == frozenset({
+        # Workflow-progressed (sent or final).
         "sent", "pending_award", "won", "lost", "no_bid", "cancelled",
+        # Operator-dismissed (added 2026-05-03 — was Mike's "X button
+        # doesn't stick" finding; bulk-action endpoint writes these
+        # statuses on dismiss/archive but the queue read filter wasn't
+        # honoring them, so the row reappeared on reload).
+        "dismissed", "archived", "duplicate", "no_response", "not_responding",
+        "expired", "reclassified",
     })
 
 
@@ -88,6 +95,19 @@ def test_active_queue_includes_pre_send_statuses(status):
     "SENT", "Won", "LOST",  # case-insensitive
 ])
 def test_active_queue_excludes_closed_statuses(status):
+    assert is_active_queue({"status": status}) is False
+
+
+@pytest.mark.parametrize("status", [
+    "dismissed", "archived", "duplicate", "no_response", "not_responding",
+    "expired", "reclassified",
+    "DISMISSED", "Archived", "DUPLICATE",  # case-insensitive
+])
+def test_active_queue_excludes_operator_dismissed_statuses(status):
+    """Mike's 2026-05-03 finding: the X button on the home queue calls a
+    bulk action that writes status='dismissed', but the queue page kept
+    showing the row because dismissed wasn't in the exclusion set. All
+    operator-dismissed states (and their close variants) belong out."""
     assert is_active_queue({"status": status}) is False
 
 
