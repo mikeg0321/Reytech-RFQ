@@ -93,7 +93,18 @@ REVENUE_YEAR: int = 2026
 #: the active queue. Added 2026-05-02 (PR-3) when migrating the
 #: home page filters off ad-hoc allow-lists.
 ACTIVE_QUEUE_EXCLUDED_STATUSES: frozenset[str] = frozenset({
+    # Workflow-progressed (sent or final): the original set.
     "sent", "pending_award", "won", "lost", "no_bid", "cancelled",
+    # Operator-dismissed (added 2026-05-03 by Mike's "the X button doesn't
+    # stick" finding): the bulk-action endpoint at routes_analytics.py
+    # writes these statuses on dismiss/archive/follow-up-dead, but the
+    # active queue was reading them as still-active because they weren't
+    # in the exclusion set. The "Not Responding" pill on the home queue
+    # was the symptom — see routes_pricecheck_pricing.py:481-486 for the
+    # status->display map. All of these mean "operator says don't show me
+    # this anymore"; they belong out of the active queue.
+    "dismissed", "archived", "duplicate", "no_response", "not_responding",
+    "expired", "reclassified",
 })
 
 #: Statuses where we've handed off to the buyer and are now waiting

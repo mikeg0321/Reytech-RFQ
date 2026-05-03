@@ -1190,6 +1190,40 @@ MIGRATIONS = [
           AND LOWER(COALESCE(status, '')) NOT IN
               ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled');
     """),
+    (39, "active_queue_views_exclude_dismissed_states", """
+        -- 2026-05-03: ACTIVE_QUEUE_EXCLUDED_STATUSES grew to cover the
+        -- operator-dismissed states (dismissed/archived/duplicate/
+        -- no_response/not_responding/expired/reclassified). Mike's
+        -- "X button doesn't stick" finding: the bulk-action endpoint
+        -- writes status='dismissed' but the queue view didn't honor it
+        -- (those statuses weren't in the exclusion list), so dismissed
+        -- rows kept reappearing on home/queue. Recreate the views to
+        -- match the Python predicate `is_active_queue` so view + Python
+        -- predicate stay in lockstep.
+        DROP VIEW IF EXISTS v_active_queue_rfqs;
+        CREATE VIEW v_active_queue_rfqs AS
+        SELECT *
+        FROM rfqs
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled',
+               'dismissed', 'archived', 'duplicate', 'no_response',
+               'not_responding', 'expired', 'reclassified');
+
+        DROP VIEW IF EXISTS v_active_queue_pcs;
+        CREATE VIEW v_active_queue_pcs AS
+        SELECT *
+        FROM price_checks
+        WHERE COALESCE(
+                json_extract(data_json, '$.is_test'), 0
+              ) IN (0, '0', 'false', '')
+          AND LOWER(COALESCE(status, '')) NOT IN
+              ('sent', 'pending_award', 'won', 'lost', 'no_bid', 'cancelled',
+               'dismissed', 'archived', 'duplicate', 'no_response',
+               'not_responding', 'expired', 'reclassified');
+    """),
 ]
 
 
