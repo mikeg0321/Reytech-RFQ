@@ -1742,6 +1742,12 @@ def _migrate_columns():
         # filter aggregates with AND is_test=0.
         ("orders", "is_test", "INTEGER DEFAULT 0"),
         ("revenue_log", "is_test", "INTEGER DEFAULT 0"),
+        # ── Orphan-review queue (PR feat/orphan-review-queue, 2026-05-03) ──
+        # Tags an order as "operator entered manually, no quote ever flowed
+        # through the app, do not surface in orphan-review backfills". Once
+        # set, the queue + link_orphan_orders pass skip the row. See
+        # `project_orphan_orders_finding.md` open scope question #3.
+        ("orders", "is_intentional_orphan", "INTEGER DEFAULT 0"),
     ]
     try:
         conn = sqlite3.connect(DB_PATH, timeout=30)

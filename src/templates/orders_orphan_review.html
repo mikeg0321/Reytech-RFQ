@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Orphan Order Review — Reytech{% endblock %}
+{% block content %}
+{# Orphan-review queue (2026-05-03 — feat/orphan-review-queue).        #}
+{# Surfaces orders without a quote_number alongside ranked candidates  #}
+{# from `find_quote_candidates`. Each row has 3 actions: Link, Skip,   #}
+{# Mark Intentional. No autonomous writes — operator picks every time. #}
+<style>
+.orph-wrap{max-width:1280px;margin:0 auto;padding:8px 12px}
+.orph-header{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--bd);margin-bottom:12px}
+.orph-header h2{margin:0;font-size:18px;color:var(--tx)}
+.orph-empty{padding:48px 24px;text-align:center;color:var(--tx2);background:var(--sf);border:1px solid var(--bd);border-radius:8px}
+.orph-row{background:var(--sf);border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;overflow:hidden}
+.orph-row .head{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--sf2)}
+.orph-row .head .ident{display:flex;flex-direction:column;gap:2px}
+.orph-row .head .ident .id{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--tx);font-weight:600}
+.orph-row .head .ident .meta{font-size:12px;color:var(--tx2)}
+.orph-row .head .total{font-size:18px;font-weight:700;color:#3fb950;font-family:'JetBrains Mono',monospace}
+.orph-row .body{padding:8px 14px}
+.orph-row .body .cands{margin-bottom:8px}
+.orph-row .body .cand{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;border:1px solid var(--bd);margin-bottom:5px;background:var(--sf2)}
+.orph-row .body .cand:hover{background:rgba(88,166,255,.06)}
+.orph-row .body .cand .qn{font-family:'JetBrains Mono',monospace;font-weight:600;color:#58a6ff;font-size:13px;min-width:120px}
+.orph-row .body .cand .tier{font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px;min-width:80px;text-align:center}
+.orph-row .body .cand .ttotal{font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--tx)}
+.orph-row .body .cand .tdays{font-size:11px;color:var(--tx2)}
+.orph-row .body .cand .tdelta{font-size:11px;color:#d29922;font-family:'JetBrains Mono',monospace}
+.orph-row .body .cand .spacer{flex:1}
+.tier-100{background:rgba(63,185,80,.18);color:#3fb950}
+.tier-80 {background:rgba(63,185,80,.12);color:#3fb950}
+.tier-60 {background:rgba(210,153,34,.15);color:#d29922}
+.tier-40 {background:rgba(210,153,34,.1);color:#d29922}
+.tier-20 {background:rgba(139,148,158,.15);color:#8b949e}
+.orph-row .body .actions{display:flex;gap:8px;padding-top:6px;border-top:1px dashed var(--bd)}
+.orph-row .body .actions button{font-size:12px;padding:6px 12px;border-radius:5px;cursor:pointer;border:1px solid;font-weight:600}
+.btn-link{background:rgba(63,185,80,.15);color:#3fb950;border-color:rgba(63,185,80,.3)}
+.btn-link:hover{background:rgba(63,185,80,.25)}
+.btn-mark{background:rgba(139,148,158,.12);color:#8b949e;border-color:rgba(139,148,158,.3)}
+.btn-mark:hover{background:rgba(139,148,158,.2)}
+.cand-status{font-size:11px;font-weight:600;margin-left:8px}
+.cand-status.applied{color:#3fb950}
+.cand-status.error{color:#f85149}
+.no-cands{font-size:12px;color:var(--tx2);font-style:italic;padding:6px 10px}
+</style>
+
+<div class="orph-wrap">
+ <div class="orph-header">
+  <h2>📦 Orphan Order Review</h2>
+  <div id="orph-summary" data-testid="orph-summary" style="font-size:13px;color:var(--tx2)">Loading...</div>
+ </div>
+ <div id="orph-list" data-testid="orph-list"></div>
+</div>
+
+<script>
+(function(){
+ var listEl=document.getElementById('orph-list');
+ var sumEl=document.getElementById('orph-summary');
+
+ function tierClass(score){
+  if(score>=100) return 'tier-100';
+  if(score>=80)  return 'tier-80';
+  if(score>=60)  return 'tier-60';
+  if(score>=40)  return 'tier-40';
+  return 'tier-20';
+ }
+ function fmtMoney(n){
+  if(n==null) return '—';
+  var v=Number(n)||0;
+  return '$'+v.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+ }
+ function fmtDays(d){return d==null?'—':(d+'d apart');}
+ function esc(s){return String(s||'').replace(/[<>&"']/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];});}
+
+ function render(orphans){
+  if(!orphans.length){
+   listEl.innerHTML='<div class="orph-empty">🎉 No orphan orders — every order has a paired quote_number or has been marked intentional.</div>';
+   sumEl.textContent='0 orphans';
+   return;
+  }
+  sumEl.textContent=orphans.length+' orphan order'+(orphans.length===1?'':'s');
+  listEl.innerHTML=orphans.map(function(o){
+   var cands=(o.candidates||[]).map(function(c){
+    return ''
+    + '<div class="cand" data-testid="cand-row">'
+    +  '<span class="qn">'+esc(c.quote_number)+'</span>'
+    +  '<span class="tier '+tierClass(c.score)+'">'+esc(c.tier)+'</span>'
+    +  '<span class="ttotal">'+fmtMoney(c.total)+'</span>'
+    +  (c.total_delta_pct!=null?'<span class="tdelta">Δ '+c.total_delta_pct.toFixed(1)+'%</span>':'')
+    +  '<span class="tdays">'+fmtDays(c.days_apart)+'</span>'
+    +  '<span class="spacer"></span>'
+    +  '<button class="btn-link" data-testid="btn-link" onclick="linkOrphan(\''+esc(o.id)+'\',\''+esc(c.quote_number)+'\',this)">Link →</button>'
+    + '</div>';
+   }).join('');
+   if(!cands) cands='<div class="no-cands">No candidate quotes found — this order may be a buyer-direct send. Use "Mark Intentional" if so.</div>';
+   return ''
+   + '<div class="orph-row" data-testid="orph-row" data-order-id="'+esc(o.id)+'">'
+   +  '<div class="head">'
+   +   '<div class="ident">'
+   +     '<span class="id">'+esc(o.id)+'</span>'
+   +     '<span class="meta">'
+   +       (o.po_number?('PO '+esc(o.po_number)+' · '):'no PO · ')
+   +       esc(o.agency||'?')+' · '+esc((o.created_at||'').slice(0,10))
+   +       (o.buyer_email?(' · '+esc(o.buyer_email)):'')
+   +     '</span>'
+   +   '</div>'
+   +   '<span class="total">'+fmtMoney(o.total)+'</span>'
+   +  '</div>'
+   +  '<div class="body">'
+   +   '<div class="cands">'+cands+'</div>'
+   +   '<div class="actions">'
+   +    '<button class="btn-mark" data-testid="btn-mark-intentional" onclick="markIntentional(\''+esc(o.id)+'\',this)">Mark Intentional (no quote)</button>'
+   +    '<span class="cand-status" data-status-for="'+esc(o.id)+'"></span>'
+   +   '</div>'
+   +  '</div>'
+   + '</div>';
+  }).join('');
+ }
+
+ window.linkOrphan=function(orderId, quoteNumber, btnEl){
+  if(!confirm('Link order '+orderId+' to quote '+quoteNumber+'?')) return;
+  btnEl.disabled=true; btnEl.textContent='Linking...';
+  fetch('/api/orders/'+encodeURIComponent(orderId)+'/link-quote',{
+   method:'POST', headers:{'Content-Type':'application/json'},
+   credentials:'same-origin',
+   body:JSON.stringify({quote_number:quoteNumber}),
+  }).then(function(r){return r.json();}).then(function(d){
+   var stat=document.querySelector('[data-status-for="'+orderId+'"]');
+   if(d.ok){
+    if(stat){stat.textContent='Linked ✓'; stat.className='cand-status applied';}
+    setTimeout(load, 800);
+   } else {
+    if(stat){stat.textContent='Error: '+(d.error||'unknown'); stat.className='cand-status error';}
+    btnEl.disabled=false; btnEl.textContent='Link →';
+   }
+  }).catch(function(e){
+   var stat=document.querySelector('[data-status-for="'+orderId+'"]');
+   if(stat){stat.textContent='Network error'; stat.className='cand-status error';}
+   btnEl.disabled=false; btnEl.textContent='Link →';
+  });
+ };
+
+ window.markIntentional=function(orderId, btnEl){
+  if(!confirm('Mark '+orderId+' as intentional (no quote was sent through the app)?\\nThis hides it from future orphan-review runs.')) return;
+  btnEl.disabled=true; btnEl.textContent='Marking...';
+  fetch('/api/orders/'+encodeURIComponent(orderId)+'/mark-intentional',{
+   method:'POST', credentials:'same-origin',
+  }).then(function(r){return r.json();}).then(function(d){
+   if(d.ok){ setTimeout(load, 600); }
+   else { btnEl.disabled=false; btnEl.textContent='Mark Intentional (no quote)'; alert('Error: '+(d.error||'unknown')); }
+  }).catch(function(e){
+   btnEl.disabled=false; btnEl.textContent='Mark Intentional (no quote)';
+   alert('Network error');
+  });
+ };
+
+ function load(){
+  fetch('/api/orders/orphan-review',{credentials:'same-origin'})
+   .then(function(r){return r.ok?r.json():null;})
+   .then(function(d){
+    if(!d||!d.ok){ sumEl.textContent='Failed to load'; return; }
+    render(d.orphans||[]);
+   })
+   .catch(function(e){ sumEl.textContent='Failed to load: '+e; });
+ }
+ load();
+})();
+</script>
+{% endblock %}

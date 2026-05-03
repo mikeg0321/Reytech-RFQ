@@ -3848,3 +3848,132 @@ def api_order_tracking_candidates(oid):
         "count": len(candidates),
         "candidates": candidates,
     })
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Orphan-review queue (2026-05-03 — feat/orphan-review-queue)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Backfills the 64 known orphan orders that the conservative
+# `link_orphan_orders --apply` pass left behind. Surfaces ranked quote
+# candidates per orphan and lets the operator pick / skip / mark
+# intentional. No autonomous writes — every action is a single click.
+#
+# See `project_orphan_orders_finding.md` for context. The scoring tiers
+# live in `src.core.orders_link_orphans.find_quote_candidates`.
+
+
+@bp.route("/api/orders/orphan-review")
+@auth_required
+@safe_route
+def api_orders_orphan_review():
+    """Return all orphan orders + ranked quote candidates per orphan.
+
+    JSON shape:
+        {
+          "ok": True,
+          "count": 64,
+          "orphans": [{
+            "id": ...,
+            "po_number": ...,
+            "agency": ...,
+            "total": ...,
+            "created_at": ...,
+            "candidates": [{quote_number, score, tier, total, days_apart, ...}],
+          }, ...]
+        }
+
+    Empty `candidates` list is normal — buyer-direct-send orders may
+    have no matching quote at all and need the "Mark Intentional"
+    action, not a link.
+    """
+    from src.core.db import get_db
+    from src.core.orders_link_orphans import (
+        find_orphan_orders,
+        find_quote_candidates,
+    )
+    try:
+        with get_db() as conn:
+            import sqlite3 as _sqlite3
+            conn.row_factory = _sqlite3.Row
+            orphans = find_orphan_orders(conn)
+            out = []
+            for orphan in orphans:
+                cands = find_quote_candidates(conn, orphan, limit=5)
+                out.append({
+                    "id": orphan.get("id"),
+                    "po_number": orphan.get("po_number") or "",
+                    "po_canonical": orphan.get("po_canonical") or "",
+                    "agency": orphan.get("agency") or "",
+                    "institution": orphan.get("institution") or "",
+                    "total": orphan.get("total") or 0,
+                    "status": orphan.get("status") or "",
+                    "created_at": orphan.get("created_at") or "",
+                    "buyer_email": orphan.get("buyer_email") or "",
+                    "candidates": cands,
+                })
+        return jsonify({"ok": True, "count": len(out), "orphans": out})
+    except Exception as e:
+        log.error("orphan-review fetch failed: %s", e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/orders/<oid>/link-quote", methods=["POST"])
+@auth_required
+@safe_route
+def api_orders_link_quote(oid):
+    """Link an orphan order to an operator-chosen quote_number.
+
+    Body: {quote_number: "R26Q38"}. Goes through `save_order` so the
+    PR #664 hook flips the paired quote → won automatically.
+    """
+    from src.core.db import get_db
+    from src.core.orders_link_orphans import link_orphan_to_quote
+    from flask import session
+    payload = request.get_json(silent=True) or {}
+    quote_number = (payload.get("quote_number") or "").strip()
+    if not quote_number:
+        return jsonify({"ok": False, "error": "quote_number required"}), 400
+    actor = session.get("user", "operator") + ":orphan_review"
+    try:
+        with get_db() as conn:
+            ok = link_orphan_to_quote(conn, oid, quote_number, actor=actor)
+        if not ok:
+            return jsonify({
+                "ok": False,
+                "error": "order is no longer orphan (already linked or not found)",
+            }), 409
+        return jsonify({"ok": True, "order_id": oid, "quote_number": quote_number})
+    except Exception as e:
+        log.error("orphan-review link failed for %s -> %s: %s",
+                  oid, quote_number, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/api/orders/<oid>/mark-intentional", methods=["POST"])
+@auth_required
+@safe_route
+def api_orders_mark_intentional(oid):
+    """Flag an orphan order as intentional (buyer-direct, no quote).
+    The order disappears from the orphan-review queue + future
+    `link_orphan_orders` backfill runs.
+    """
+    from src.core.db import get_db
+    from src.core.orders_link_orphans import mark_intentional_orphan
+    from flask import session
+    actor = session.get("user", "operator") + ":orphan_review"
+    try:
+        with get_db() as conn:
+            flipped = mark_intentional_orphan(conn, oid, actor=actor)
+        return jsonify({"ok": True, "order_id": oid, "flipped": flipped})
+    except Exception as e:
+        log.error("mark-intentional failed for %s: %s", oid, e, exc_info=True)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@bp.route("/orders/orphan-review")
+@auth_required
+@safe_route
+def page_orders_orphan_review():
+    """Render the orphan-review queue page."""
+    return render_page("orders_orphan_review.html")
