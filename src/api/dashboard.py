@@ -1649,6 +1649,12 @@ def _is_placeholder_number(value: str) -> bool:
     if s.lower() in {"unknown", "rfq", "quote", "request", "worksheet", "good",
                      "bid", "vendor", "price", "check", "form"}:
         return True
+    # Pure-digit short numerics — `"3"`, `"42"`. Real CA gov sol#s are 10+
+    # chars with prefixes (CalVet `8955-00000…`, CCHCS `4500…`, DSH `4440-…`),
+    # so 1-2 digit pure numerics are parser artifacts, not real solicitations.
+    # Authorised 2026-05-03 after `ba4d3457` shipped sol="3" through the gate.
+    if s.isdigit() and len(s) <= 2:
+        return True
     return False
 
 

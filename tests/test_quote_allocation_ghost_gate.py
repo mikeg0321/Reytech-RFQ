@@ -208,3 +208,24 @@ class TestPlaceholderHelperVocabulary:
         assert _is_placeholder_number("8955-00001234") is False
         assert _is_placeholder_number("4500750017") is False
         assert _is_placeholder_number("4440-RFQ-2026-001") is False
+
+    def test_short_numeric_sol_is_placeholder(self):
+        """Pure-digit 1-2 char sol#s are parser artifacts.
+
+        Authorised 2026-05-03 after RFQ `ba4d3457` got sol="3" through the
+        existing gate. Real CA gov solicitations are 10+ chars with agency
+        prefixes (CalVet `8955-`, CCHCS `4500…`, DSH `4440-`), so a bare
+        single or double digit is junk.
+        """
+        for s in ("3", "1", "8", "9", "12", "42", "00", "99"):
+            assert _is_placeholder_number(s) is True, (
+                f"short numeric {s!r} should be flagged as placeholder")
+
+    def test_three_plus_digit_numeric_still_passes(self):
+        """Don't tighten beyond what we can defend. 3+ digit pure numerics
+        could be internal codes or short county refs — leave them alone
+        until we see a concrete miss."""
+        for s in ("123", "1234", "12345"):
+            assert _is_placeholder_number(s) is False, (
+                f"3+ digit numeric {s!r} should NOT be flagged "
+                "(would block real short-form sol#s)")
