@@ -530,6 +530,11 @@
  {% endif %}
 
  <form method="POST" action="/rfq/{{rid}}/update" id="pf">
+ {# PR-C2 (2026-05-03) — pre-send win-validation soft warnings.            #}
+ {# Populated by JS via /api/rfq/<rid>/win-warnings. Hidden when no       #}
+ {# warnings; chip + line-level badges are advisory only (operator        #}
+ {# is the final gate per feedback_ten_minute_escape_valve).              #}
+ <div id="win-warnings-banner" data-testid="win-warnings-banner" style="display:none;margin-bottom:8px"></div>
  <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
  <table class="it" style="min-width:1500px">
   {# Bundle-6 PR-6b (RFQ-UI-1): MFG# / Part # column moved LEFT of Description. #}
@@ -553,8 +558,8 @@
   </td></tr>
   {% endif %}
   {% for i in (r.get("line_items") or r.get("items") or []) %}
-  <tr>
-   <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number or (loop.index0 + 1)}}" readonly ondblclick="this.removeAttribute('readonly');this.select()" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;cursor:default" title="Line # (double-click to edit)"></td>
+  <tr data-line-no="{{ i.line_number or (loop.index0 + 1) }}">
+   <td style="font-size:13px"><input type="text" name="linenum_{{loop.index0}}" value="{{i.line_number or (loop.index0 + 1)}}" readonly ondblclick="this.removeAttribute('readonly');this.select()" style="width:32px;text-align:center;font-weight:700;font-size:13px;color:#8b949e;font-family:'JetBrains Mono',monospace;background:transparent;border:1px solid transparent;border-radius:4px;padding:2px;cursor:default" title="Line # (double-click to edit)"><span class="win-warn-slot" data-testid="win-warn-line-{{ i.line_number or (loop.index0 + 1) }}" style="display:block;margin-top:2px"></span></td>
    <td><input type="number" name="qty_{{loop.index0}}" value="{{i.qty}}" min="1" max="999999" class="num-in" style="width:55px;font-size:16px;font-weight:700;padding:6px 8px;text-align:center" oninput="recalc()" aria-label="Quantity">{% if i.get('qty_changed') and i.get('pc_original_qty') %}<div data-testid="line-qty-changed-badge" title="Qty drifted from Price Check ({{ i.pc_original_qty }} → {{ i.qty }}). Price may need re-review." style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(210,153,34,.18);color:#d29922;border-radius:3px;font-weight:600;text-align:center">Δ PC {{ i.pc_original_qty }}</div>{% elif i.get('repriced_reason') == 'qty_change' %}<div data-testid="line-repriced-badge" title="Auto-repriced because qty drifted from Price Check" style="font-size:10px;margin-top:2px;padding:1px 4px;background:rgba(63,185,80,.15);color:#3fb950;border-radius:3px;font-weight:600;text-align:center">✓ reprice</div>{% endif %}</td>
    <td><input type="text" name="uom_{{loop.index0}}" value="{{(i.uom or 'EA')|upper}}" class="text-in" style="width:55px;font-size:14px;font-weight:600;padding:6px 4px;text-align:center;text-transform:uppercase" maxlength="6" aria-label="Unit of measure"></td>
    <td><input type="text" name="part_{{loop.index0}}" value="{{i.item_number}}" class="text-in mono" style="width:90px;font-size:14px;padding:6px 8px"></td>
@@ -4344,6 +4349,70 @@ function submitMarkSent(ev) {
       panel.innerHTML = '<div class="card" style="padding:12px 16px">' + hdr + rows + '</div>';
     })
     .catch(function(e){ console.debug('fill-plan fetch failed:', e); });
+})();
+
+// ── PR-C2 (2026-05-03) — pre-send win-validation soft warnings ──
+// Fetches /api/rfq/<RID>/win-warnings and paints a header chip + per-line badges.
+// Soft only — never blocks send (per feedback_ten_minute_escape_valve).
+(function(){
+ var banner=document.getElementById('win-warnings-banner');
+ if(!banner) return;
+ function levelStyle(lvl){
+  if(lvl==='red')    return {bg:'rgba(248,81,73,.12)', br:'rgba(248,81,73,.4)', fg:'#f85149', icon:'⛔'};
+  if(lvl==='orange') return {bg:'rgba(210,153,34,.12)',br:'rgba(210,153,34,.4)',fg:'#d29922', icon:'⚠️'};
+  return {bg:'rgba(88,166,255,.10)',br:'rgba(88,166,255,.3)', fg:'#58a6ff', icon:'ℹ️'};
+ }
+ function esc(s){return String(s||'').replace(/[<>&"']/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c];});}
+ fetch('/api/rfq/'+RID+'/win-warnings',{credentials:'same-origin'})
+  .then(function(r){return r.ok?r.json():null;})
+  .then(function(d){
+   if(!d||!d.ok||!d.warnings||!d.warnings.length){
+    banner.style.display='none';
+    return;
+   }
+   var counts=d.counts||{red:0,orange:0,yellow:0};
+   var topLvl=counts.red>0?'red':(counts.orange>0?'orange':'yellow');
+   var s=levelStyle(topLvl);
+   var summary=[];
+   if(counts.red)    summary.push(counts.red+' critical');
+   if(counts.orange) summary.push(counts.orange+' warning');
+   if(counts.yellow) summary.push(counts.yellow+' note');
+   var rows=d.warnings.map(function(w){
+    var ws=levelStyle(w.level);
+    var loc = (w.line_no==null) ? 'Quote' : ('Line '+w.line_no);
+    return '<div data-testid="win-warn-row" style="display:flex;gap:10px;align-items:flex-start;padding:6px 10px;border-bottom:1px solid '+ws.br+';font-size:13px">'
+        +  '<span style="min-width:64px;font-weight:700;color:'+ws.fg+'">'+ws.icon+' '+esc(loc)+'</span>'
+        +  '<span style="color:#c9d1d9;flex:1">'+esc(w.message)+'</span>'
+        +  '</div>';
+   }).join('');
+   banner.innerHTML =
+    '<details data-testid="win-warnings-summary" style="background:'+s.bg+';border:1px solid '+s.br+';border-radius:8px;padding:0">'
+   +  '<summary style="list-style:none;cursor:pointer;padding:8px 12px;display:flex;align-items:center;gap:8px;font-weight:600;color:'+s.fg+'">'
+   +    '<span style="font-size:16px">'+s.icon+'</span>'
+   +    '<span data-testid="win-warnings-chip">Pre-send check: '+esc(summary.join(' · '))+'</span>'
+   +    '<span style="margin-left:auto;font-size:12px;color:#8b949e;font-weight:400">click to expand</span>'
+   +  '</summary>'
+   +  '<div style="padding:0 6px 6px 6px">'+rows+'</div>'
+   +'</details>';
+   banner.style.display='block';
+   // ── per-line badges ──
+   d.warnings.forEach(function(w){
+    if(w.line_no==null) return;
+    var slots=document.querySelectorAll('tr[data-line-no="'+w.line_no+'"] .win-warn-slot');
+    if(!slots.length) return;
+    var ws=levelStyle(w.level);
+    slots.forEach(function(slot){
+     // Append (multiple warnings on one line are possible, e.g. cost+margin)
+     var b=document.createElement('span');
+     b.setAttribute('data-testid','win-warn-badge');
+     b.title=w.message;
+     b.style.cssText='display:inline-block;font-size:10px;padding:1px 4px;border-radius:3px;background:'+ws.bg+';color:'+ws.fg+';font-weight:700;line-height:1.3;border:1px solid '+ws.br+';margin:1px 1px 0 0';
+     b.textContent=ws.icon;
+     slot.appendChild(b);
+    });
+   });
+  })
+  .catch(function(e){console.debug('win-warnings fetch failed:',e);});
 })();
 </script>
 
