@@ -427,7 +427,7 @@
             <td style="padding:4px 8px;font-family:monospace">
               <a href="/quote/{{ q.quote_number }}" style="color:#58a6ff">{{ q.quote_number }}</a>
             </td>
-            <td style="padding:4px 8px">{{ q.agency }}</td>
+            <td style="padding:4px 8px">{{ q.agency|agency_display }}</td>
             <td style="padding:4px 8px;text-align:right">${{ '%.2f'|format(q.total) }}</td>
             <td style="padding:4px 8px;color:#8b949e">{{ q.sent_at or '—' }}</td>
           </tr>
