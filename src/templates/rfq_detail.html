@@ -852,13 +852,22 @@
     when the operator scrolls back into view. Doesn't duplicate
     handlers — clicks delegate into the canonical inline buttons via
     testid lookup, so QA gating, busy-state toggles, and click logging
-    all flow through the existing primary-bar code path. #}
+    all flow through the existing primary-bar code path.
+
+    QA blocker chip lives in its OWN fixed bar (#rfq-sticky-qa-bar)
+    pinned just above the CTA, so the action buttons keep a stable
+    vertical position regardless of whether blockers are present.
+    Before this split the chip lived inside #rfq-sticky-cta — when
+    blockers fired, the bar grew taller and the buttons row crowded /
+    wrapped on narrow viewports, partially hiding the action buttons. #}
+ <div id="rfq-sticky-qa-bar" data-testid="rfq-sticky-qa-bar" role="region" aria-label="Sticky QA blockers" style="position:fixed;left:0;right:0;bottom:0;z-index:41;background:rgba(13,17,23,.96);border-top:1px solid var(--bd);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:6px 16px;display:none">
+  {# QA gate chip — slim version of the inline banner. Click to scroll  #}
+  {# to the inline banner for the full bullet list. The wrapping bar's  #}
+  {# `bottom` is sized at runtime to the CTA bar's offsetHeight so the  #}
+  {# chip floats exactly on top of it.                                  #}
+  <div id="sticky-qa-gate-chip" data-testid="sticky-qa-gate-chip" onclick="document.getElementById('rfq-qa-gate-banner').scrollIntoView({behavior:'smooth',block:'center'})" style="max-width:1400px;margin:0 auto;padding:6px 10px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);border-radius:6px;color:#f85149;font-size:12px;font-weight:600;cursor:pointer;line-height:1.4"></div>
+ </div>
  <div id="rfq-sticky-cta" data-testid="rfq-sticky-cta" role="region" aria-label="Sticky quote actions" style="position:fixed;bottom:0;left:0;right:0;z-index:40;background:rgba(13,17,23,.96);border-top:1px solid var(--bd);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:10px 16px;display:none;box-shadow:0 -4px 18px rgba(0,0,0,.45)">
-  {# QA gate chip — slim version of the inline banner, lives INSIDE the #}
-  {# sticky CTA so when the user is scrolled past the inline action bar #}
-  {# the blocker count + most-urgent message travels with the buttons.  #}
-  {# Click to scroll to the inline banner for the full bullet list.     #}
-  <div id="sticky-qa-gate-chip" data-testid="sticky-qa-gate-chip" onclick="document.getElementById('rfq-qa-gate-banner').scrollIntoView({behavior:'smooth',block:'center'})" style="display:none;max-width:1400px;margin:0 auto 8px auto;padding:6px 10px;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.4);border-radius:6px;color:#f85149;font-size:12px;font-weight:600;cursor:pointer;line-height:1.4"></div>
   <div style="max-width:1400px;margin:0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;justify-content:space-between">
    <div style="display:flex;align-items:center;gap:18px;font-size:12px;color:var(--tx2);min-width:0">
     <div><span style="text-transform:uppercase;font-size:9px;letter-spacing:.5px;color:var(--tx2);margin-right:6px">Total</span><span id="sticky-total" data-testid="sticky-total" style="font-family:'JetBrains Mono',monospace;color:var(--tx);font-weight:700;font-size:15px">$0.00</span></div>
@@ -902,6 +911,7 @@
    window._stickyClick = _stickyClick;
 
    var sticky = document.getElementById('rfq-sticky-cta');
+   var qaBar = document.getElementById('rfq-sticky-qa-bar');
    var spacer = document.querySelector('[data-testid="rfq-sticky-spacer"]');
    var inline = document.querySelector('[data-testid="rfq-primary-actions"]');
    // Bug 1 (2026-05-02): keep the spacer height in sync with the sticky
@@ -909,25 +919,48 @@
    // narrow viewports where the KPI chips + buttons row wrap to 2 rows
    // (~96-112px), letting the bar overlap and intercept clicks on the
    // bottom of the page. ResizeObserver fires on every height change.
+   //
+   // Bug 2 (2026-05-04): split the QA blocker chip into its own fixed
+   // bar pinned ABOVE the CTA so the action buttons keep a stable
+   // height. _syncSpacerHeight now also (a) anchors the QA bar to the
+   // CTA's top edge via `bottom: ctaH px` and (b) reserves spacer space
+   // for both bars when the QA bar is visible.
    function _syncSpacerHeight(){
      if (!sticky || !spacer) return;
-     var h = sticky.offsetHeight;
+     var ctaH = sticky.offsetHeight;
+     var qaH = (qaBar && qaBar.style.display !== 'none') ? qaBar.offsetHeight : 0;
+     if (qaBar) qaBar.style.bottom = (ctaH && ctaH > 0 ? ctaH : 0) + 'px';
      // Floor at 80px in case the bar is briefly display:none mid-toggle
      // and offsetHeight reads 0 — never under-reserve.
-     spacer.style.height = (h && h > 0 ? h : 80) + 'px';
+     var total = ctaH + qaH;
+     spacer.style.height = (total && total > 0 ? total : 80) + 'px';
    }
    if (sticky && 'ResizeObserver' in window){
      try {
        var ro = new ResizeObserver(function(){ _syncSpacerHeight(); });
        ro.observe(sticky);
+       if (qaBar) ro.observe(qaBar);
      } catch(e) { /* older browser fallthrough — 80px floor still applies */ }
    }
+   // Render the QA bar based on (CTA visible) AND (blockers present).
+   // applyGate sets `dataset.hasBlockers` on the bar; _show sets the
+   // CTA visibility. Both feed into this single render path.
+   function _renderQaBar(){
+     if (!qaBar) return;
+     var hasBlockers = qaBar.dataset.hasBlockers === '1';
+     var ctaShown = sticky && sticky.style.display && sticky.style.display !== 'none';
+     qaBar.style.display = (hasBlockers && ctaShown) ? 'block' : 'none';
+     _syncSpacerHeight();
+   }
+   window._renderRfqStickyQaBar = _renderQaBar;
    function _show(yes){
      if (!sticky) return;
      sticky.style.display = yes ? 'block' : 'none';
      if (spacer) spacer.style.display = yes ? 'block' : 'none';
      // Resize after toggle so the just-shown bar's height lands in the spacer.
      if (yes) _syncSpacerHeight();
+     // Keep QA bar in lockstep with CTA visibility.
+     _renderQaBar();
    }
    if (sticky && inline && 'IntersectionObserver' in window){
      var io = new IntersectionObserver(function(entries){
@@ -1510,10 +1543,18 @@ var _landedSummary = {{landed_summary|default({})|tojson}};
     var blockers = (report && report.issues || []).filter(function(i){ return i.severity === 'blocker'; });
     var banner = document.getElementById('rfq-qa-gate-banner');
     var stickyChip = document.getElementById('sticky-qa-gate-chip');
+    var stickyQaBar = document.getElementById('rfq-sticky-qa-bar');
     var btns = document.querySelectorAll('[data-qa-gated="1"]');
+    // Helper: set the QA bar's blocker state and re-render. The bar's
+    // visibility is gated by both this state AND the CTA being visible
+    // — see _renderRfqStickyQaBar in the sticky-CTA wiring block.
+    function _markBlockers(yes){
+      if (stickyQaBar) stickyQaBar.dataset.hasBlockers = yes ? '1' : '0';
+      if (typeof window._renderRfqStickyQaBar === 'function') window._renderRfqStickyQaBar();
+    }
     if (!blockers.length) {
       if (banner) banner.style.display = 'none';
-      if (stickyChip) stickyChip.style.display = 'none';
+      _markBlockers(false);
       btns.forEach(function(b){
         if (b.dataset._qaDisabled === '1') {
           b.disabled = false;
@@ -1539,8 +1580,8 @@ var _landedSummary = {{landed_summary|default({})|tojson}};
       var top = blockers[0];
       var topMsg = (top && (top.message || top.field)) || 'blocker';
       stickyChip.innerHTML = '🚫 <b>' + blockers.length + ' QA blocker' + (blockers.length === 1 ? '' : 's') + '</b> — ' + topMsg + (blockers.length > 1 ? ' <span style="opacity:.7">(+' + (blockers.length - 1) + ' more — click to view)</span>' : '');
-      stickyChip.style.display = 'block';
     }
+    _markBlockers(true);
     btns.forEach(function(b){
       b.disabled = true;
       b.style.opacity = '0.5';
