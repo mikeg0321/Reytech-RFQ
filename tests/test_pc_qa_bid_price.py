@@ -144,3 +144,82 @@ class TestPcUnitPriceStillWorks:
         msgs = [i["message"] for i in report["issues"] if i.get("severity") == BLOCKER]
         assert not any("no sell price" in m.lower() for m in msgs), msgs
         assert not any("have no price" in m for m in msgs), msgs
+
+
+class TestCostMarkupFallback:
+    """Incident 2026-05-04 (PC AUTO_177b18e6, Auralis Plus Mat Connect):
+    catalog imported cost=$215, operator set markup=60%, UI showed bid=$344
+    live (cost × 1.6). Operator clicked Re-run QA before any input blurred,
+    so autosave's debounce hadn't fired and `unit_price` was still 0 on disk.
+    QA fired the false-positive "Cost exists but no sell price set" blocker
+    even though the displayed bid was correct.
+
+    Fix: when no price field is persisted but cost+markup are, derive the
+    price from cost × (1 + markup/100). Mirrors what the UI shows live."""
+
+    def _item_cost_markup_only(self, **overrides):
+        """Cost + markup persisted; no unit_price/bid_price/recommended_price
+        — the displayed≠persisted state."""
+        base = {
+            "item_number": "1",
+            "description": "Assy, Auralis Plus Mat Connect",
+            "mfg_number": "636612",
+            "qty": 2,
+            "uom": "CASE",
+            "no_bid": False,
+            "pricing": {"unit_cost": 215.00, "markup_pct": 60},
+        }
+        base.update(overrides)
+        return base
+
+    def test_completeness_clears_when_cost_and_markup_persisted(self):
+        """The exact prod symptom: red banner clears when cost+markup are
+        on disk even if the price-field write hadn't been flushed yet."""
+        rfq = _rfq(items=[self._item_cost_markup_only()])
+        rfq["profit_summary"] = {}  # force per-item math
+        report = run_qa(rfq, use_llm=False)
+        msgs = [i["message"] for i in report["issues"]
+                if i.get("severity") == BLOCKER and i.get("category") == CAT_COMPLETE]
+        assert not any("no sell price set" in m.lower() for m in msgs), (
+            f"QA still flagged sell-price missing despite cost×markup fallback. "
+            f"Blockers: {msgs}"
+        )
+        assert not any("have no price" in m for m in msgs), msgs
+
+    def test_fallback_value_matches_ui_math(self):
+        """$215 × 1.60 = $344.00. _verify_totals must read the derived bid
+        so calculated_total == subtotal in the UI ($688 for qty=2)."""
+        rfq = _rfq(items=[self._item_cost_markup_only()])
+        rfq["profit_summary"] = {}
+        report = run_qa(rfq, use_llm=False)
+        totals = report.get("totals_check") or {}
+        # 2 × 344.00 = 688.00 ± rounding
+        assert abs(totals.get("calculated_total", 0) - 688.00) < 0.01, (
+            f"derived bid math mismatch: {totals}"
+        )
+
+    def test_fallback_does_not_fire_without_markup(self):
+        """Cost-only (no markup yet) is genuinely unpriced — keep the blocker."""
+        rfq = _rfq(items=[self._item_cost_markup_only(
+            pricing={"unit_cost": 215.00})])  # markup_pct missing
+        rfq["profit_summary"] = {}
+        report = run_qa(rfq, use_llm=False)
+        msgs = [i["message"] for i in report["issues"]
+                if i.get("severity") == BLOCKER and i.get("category") == CAT_COMPLETE]
+        assert any("no sell price set" in m.lower() for m in msgs), (
+            "Cost-only (markup missing) should still trigger the blocker — "
+            f"operator hasn't priced this yet. Got: {msgs}"
+        )
+
+    def test_persisted_price_wins_over_fallback(self):
+        """When unit_price IS persisted, use it — don't override with derived."""
+        rfq = _rfq(items=[self._item_cost_markup_only(
+            unit_price=999.99,  # operator override; cost×markup would say $344
+            pricing={"unit_cost": 215.00, "markup_pct": 60})])
+        rfq["profit_summary"] = {}
+        report = run_qa(rfq, use_llm=False)
+        totals = report.get("totals_check") or {}
+        # 2 × 999.99 = 1999.98 — proves persisted wins
+        assert abs(totals.get("calculated_total", 0) - 1999.98) < 0.01, (
+            f"derived value wrongly overrode persisted unit_price: {totals}"
+        )
