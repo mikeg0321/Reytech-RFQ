@@ -54,18 +54,38 @@ def _sell_price(item: dict, pricing: dict | None = None) -> float:
     Falling through to `pricing.recommended_price` catches auto-priced
     items whose operator value hasn't been persisted yet.
 
+    Final fallback: derive from `cost × (1 + markup/100)` when both cost
+    and markup are persisted but no price field is. Matches what the UI
+    renders live in JS as Bid Price. Without this, a row that was catalog-
+    priced (cost set) and operator-marked-up (markup set) but whose
+    autosave debounce hadn't yet fired the price field shows a $344 bid
+    in the DOM while QA reads `price=0` and fires the false-positive
+    "Cost exists but no sell price set" blocker (incident 2026-05-04,
+    Mike P0 mid-quote on PC AUTO_177b18e6).
+
     Until this helper was added, every QA price read in this module was
     PC-only — which silently reported 0 for every RFQ, disabling Generate
     Package on every priced RFQ.
     """
     p = pricing if pricing is not None else (item.get("pricing") or {})
-    return float(
+    persisted = float(
         item.get("bid_price")
         or item.get("unit_price")
         or item.get("price_per_unit")
         or p.get("recommended_price")
         or 0
     )
+    if persisted > 0:
+        return persisted
+    # Fallback: cost × markup, matching what the UI shows as Bid Price.
+    try:
+        cost = float(p.get("unit_cost") or item.get("vendor_cost") or 0)
+        markup = float(p.get("markup_pct") or item.get("markup_pct") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if cost > 0 and markup > 0:
+        return round(cost * (1 + markup / 100.0), 2)
+    return 0.0
 
 
 def run_qa(pc: dict, use_llm: bool = True) -> dict:
