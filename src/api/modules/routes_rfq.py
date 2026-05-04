@@ -2653,7 +2653,11 @@ def review_package(rid):
         alignment = compute_review_alignment(
             rfq=r, manifest=manifest, agency_cfg=_ac2,
             output_dir=_output_dir if _output_dir and os.path.isdir(_output_dir) else None,
-            bidpkg_internal=_bidpkg_internal or None,
+            # Pass the actual computed set (may be empty for CalVet et al.)
+            # NOT `_bidpkg_internal or None` — that turns set() into None and
+            # the callee re-defaults to the 7-form filter, hiding standalone
+            # forms (incident 2026-05-04, RFQ 7d3c0fee).
+            bidpkg_internal=_bidpkg_internal,
             source_items=None,
         )
     except Exception as _ae:
