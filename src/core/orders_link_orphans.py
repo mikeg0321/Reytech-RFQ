@@ -111,14 +111,34 @@ def _coerce_float(v) -> float:
 
 
 def _agency_canonical(s) -> str:
-    """Lightweight agency normalization for candidate matching only.
+    """Normalize agency text to a canonical umbrella-agency key for matching.
 
-    Full canonicalization lives in `agency_config.match_agency`. The
-    orphan list is small, so cheap lower+strip is enough — quote rows
-    are written by paths where the canonical agency was already resolved
-    upstream, so misspellings don't usually appear here.
+    Quotes write the institution NAME ("CSP California State Prison -
+    Sacramento") into the `agency` column, while orders carry the
+    canonical agency code ("CCHCS"). A naive lower+strip compare leaves
+    those two side-by-side rows looking unrelated, so the matcher would
+    demote real same-agency matches to tier `total_only` (score 20)
+    instead of `total_agency_60d` (score 80) — which is exactly what
+    happened on the 2026-05-04 prod triage of 64 orphans (55 of them
+    landed in the score-20 bucket with Δ=0% and d<30, all valid).
+
+    Fix: pass through `facility_registry.resolve()` first and pull the
+    `parent_agency` (the umbrella code: CDCR / CCHCS / CalVet). Falls
+    back to lower+strip when the resolver can't place the string — that
+    covers operator-typed free text and preserves the original behavior
+    for already-canonical inputs (CCHCS resolves to itself via aliases).
     """
-    return (s or "").strip().lower()
+    raw = (s or "").strip()
+    if not raw:
+        return ""
+    try:
+        from src.core.agency_config import match_agency
+        key, _cfg = match_agency({"agency": raw})
+        if key and key != "other":
+            return key
+    except Exception:
+        pass
+    return raw.lower()
 
 
 def _days_apart(order_created_at: str, quote_when: str) -> Optional[int]:

@@ -111,6 +111,44 @@ class TestFuzzyCandidateScoring:
             cands = find_quote_candidates(conn, orphan)
         assert cands == []
 
+    def test_institution_named_quote_resolves_to_parent_agency(self, seed_db_quote):
+        """Regression for the 2026-05-04 prod triage finding: quotes write
+        the institution NAME ("CSP California State Prison - Sacramento")
+        into the agency column while orders carry the canonical agency
+        code ("CCHCS"). Naive lower+strip leaves these unmatched, so 55 of
+        64 prod orphans landed in tier `total_only` (score 20) instead of
+        `total_agency_60d` (score 80) despite Δ=0% and d<30. After
+        canonicalizing through facility_registry, both sides resolve to
+        'cchcs' and the high-tier match fires.
+        """
+        from src.core.db import get_db
+        from src.core.orders_link_orphans import find_quote_candidates
+        seed_db_quote(
+            "Q-CCHCS-INSTNAME",
+            agency="CSP California State Prison - Sacramento",
+            total=99.69,
+        )
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE quotes SET sent_at = ? WHERE quote_number = ?",
+                ("2026-04-30T10:00:00", "Q-CCHCS-INSTNAME"),
+            )
+            conn.commit()
+            orphan = {
+                "id": "ORD-INSTNAME", "po_number": "", "po_canonical": "",
+                "agency": "CCHCS", "total": 99.69,
+                "created_at": "2026-05-01T00:00:00",
+            }
+            cands = find_quote_candidates(conn, orphan)
+        assert cands, "expected the candidate to surface — naive matcher would have returned []"
+        top = cands[0]
+        assert top["quote_number"] == "Q-CCHCS-INSTNAME"
+        assert top["score"] == 80, (
+            f"expected score 80 (total_agency_60d) after parent_agency "
+            f"canonicalization, got {top['score']} ({top['tier']})"
+        )
+        assert top["tier"] == "total_agency_60d"
+
     def test_score_sort_prioritizes_higher_tier(self, seed_db_quote):
         """When multiple candidates fire, higher score wins."""
         from src.core.db import get_db
