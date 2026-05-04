@@ -158,3 +158,31 @@ def test_qa_bar_sync_wiring_present(client, temp_data_dir, sample_rfq):
     # applyGate stamps the bar's blocker state instead of toggling chip
     # display directly — that's the whole point of the split.
     assert "dataset.hasBlockers" in html
+
+
+def test_deadline_sidebar_stacking_wired(client, temp_data_dir, sample_rfq):
+    """Bug 3 (2026-05-04): the global #deadline-sidebar (base.html, z:900,
+    bottom:0) was painting OVER the CTA buttons. _syncSpacerHeight reads
+    its height and sets `sticky.style.bottom = dlH + 'px'` so the CTA
+    floats above it; the QA bar sits at `dlH + ctaH`. Lock the wiring
+    sentinels so a future tidy-pass doesn't accidentally drop the
+    deadline-sidebar from the stack calculation.
+
+    Also pin the lazy-resolve pattern: deadline-sidebar is rendered AFTER
+    the content block in base.html, so the IIFE can't capture it at
+    init time — the lookup must be deferred (via _resolveDeadlineBar +
+    DOMContentLoaded). Caching at IIFE start would re-introduce the
+    overlap."""
+    rid = _seed(temp_data_dir, sample_rfq)
+    html = _fetch(client, rid)
+    # The CTA's `bottom` is now JS-driven, not hardcoded — sentinel.
+    assert "sticky.style.bottom = dlH" in html
+    # Deadline-sidebar lookup must be lazy (helper exists).
+    assert "_resolveDeadlineBar" in html
+    # MutationObserver watches the .show class flip (deadline bar
+    # toggles visibility via class swap, not via height).
+    assert "new MutationObserver" in html
+    assert "attributeFilter: ['class', 'style']" in html
+    # Observers wire on DOMContentLoaded so the deadline element is
+    # in the DOM when ResizeObserver attaches.
+    assert "_wireObservers" in html

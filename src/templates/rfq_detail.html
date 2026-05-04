@@ -912,6 +912,14 @@
 
    var sticky = document.getElementById('rfq-sticky-cta');
    var qaBar = document.getElementById('rfq-sticky-qa-bar');
+   // #deadline-sidebar is defined in base.html AFTER the content block,
+   // so it isn't in the DOM at the time this IIFE runs. Look it up
+   // lazily inside _syncSpacerHeight (and cache once it's available).
+   var deadlineBar = null;
+   function _resolveDeadlineBar(){
+     if (!deadlineBar) deadlineBar = document.getElementById('deadline-sidebar');
+     return deadlineBar;
+   }
    var spacer = document.querySelector('[data-testid="rfq-sticky-spacer"]');
    var inline = document.querySelector('[data-testid="rfq-primary-actions"]');
    // Bug 1 (2026-05-02): keep the spacer height in sync with the sticky
@@ -922,25 +930,58 @@
    //
    // Bug 2 (2026-05-04): split the QA blocker chip into its own fixed
    // bar pinned ABOVE the CTA so the action buttons keep a stable
-   // height. _syncSpacerHeight now also (a) anchors the QA bar to the
-   // CTA's top edge via `bottom: ctaH px` and (b) reserves spacer space
-   // for both bars when the QA bar is visible.
+   // height.
+   //
+   // Bug 3 (2026-05-04): the global #deadline-sidebar (base.html, z:900,
+   // bottom:0) was painting OVER the CTA buttons (z:40, bottom:0) — the
+   // visible "buttons obstructed" symptom from Mike's screenshot. Stack
+   // all three bars so the deadline strip is at the bottom, the CTA
+   // sits above it, and the QA chip rides above the CTA. _syncSpacerHeight
+   // computes the offsets and reserves spacer space for the full stack.
    function _syncSpacerHeight(){
      if (!sticky || !spacer) return;
+     var dl = _resolveDeadlineBar();
+     var dlH = (dl && getComputedStyle(dl).display !== 'none') ? dl.offsetHeight : 0;
+     // CTA floats just above the deadline sidebar.
+     sticky.style.bottom = dlH + 'px';
      var ctaH = sticky.offsetHeight;
      var qaH = (qaBar && qaBar.style.display !== 'none') ? qaBar.offsetHeight : 0;
-     if (qaBar) qaBar.style.bottom = (ctaH && ctaH > 0 ? ctaH : 0) + 'px';
+     // QA chip floats just above the CTA.
+     if (qaBar) qaBar.style.bottom = (dlH + ctaH) + 'px';
      // Floor at 80px in case the bar is briefly display:none mid-toggle
      // and offsetHeight reads 0 — never under-reserve.
-     var total = ctaH + qaH;
+     var total = dlH + ctaH + qaH;
      spacer.style.height = (total && total > 0 ? total : 80) + 'px';
    }
-   if (sticky && 'ResizeObserver' in window){
-     try {
-       var ro = new ResizeObserver(function(){ _syncSpacerHeight(); });
-       ro.observe(sticky);
-       if (qaBar) ro.observe(qaBar);
-     } catch(e) { /* older browser fallthrough — 80px floor still applies */ }
+   // Wire ResizeObserver + MutationObserver after DOMContentLoaded so the
+   // deadline-sidebar (rendered later in base.html) is in the DOM when
+   // we attach observers. The first _syncSpacerHeight runs immediately
+   // and re-runs when the deadline bar's class flips to `.show`.
+   function _wireObservers(){
+     if (sticky && 'ResizeObserver' in window){
+       try {
+         var ro = new ResizeObserver(function(){ _syncSpacerHeight(); });
+         ro.observe(sticky);
+         if (qaBar) ro.observe(qaBar);
+         var dl = _resolveDeadlineBar();
+         if (dl) ro.observe(dl);
+       } catch(e) { /* older browser fallthrough — 80px floor still applies */ }
+     }
+     // The deadline sidebar toggles visibility via class swap (`.show`)
+     // not via a height change, so ResizeObserver may miss the 0→shown
+     // transition. Watch its class attribute too.
+     var dl = _resolveDeadlineBar();
+     if (dl && 'MutationObserver' in window){
+       try {
+         var mo = new MutationObserver(function(){ _syncSpacerHeight(); });
+         mo.observe(dl, { attributes: true, attributeFilter: ['class', 'style'] });
+       } catch(e) { /* no-op — ResizeObserver covers the height-change case */ }
+     }
+   }
+   if (document.readyState === 'loading'){
+     document.addEventListener('DOMContentLoaded', _wireObservers);
+   } else {
+     _wireObservers();
    }
    // Render the QA bar based on (CTA visible) AND (blockers present).
    // applyGate sets `dataset.hasBlockers` on the bar; _show sets the
