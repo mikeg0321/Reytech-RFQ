@@ -125,3 +125,28 @@ class TestReviewPackageRoute:
         assert "AMS 704B" in body
         # The blocked rollup should mention it
         assert ("Missing required forms" in body and "AMS 704B" in body)
+
+    def test_approve_reject_buttons_visible_in_default_wide_mode(self, auth_client, seed_rfq):
+        """P0 2026-05-04: Mike couldn't find Approve/Reject from the default
+        Wide preview mode. The right audit panel and floating bar were both
+        gated by view-mode toggles, so a fresh page load showed neither.
+
+        Toolbar Approve/Reject must always be in the rendered HTML — no JS
+        or class toggle should hide them. The buttons must call
+        reviewCurrent('approved'/'rejected') directly so they hit the same
+        code path as the Audit/Full mode buttons.
+        """
+        rid = seed_rfq
+        _seed_manifest(rid)
+        r = auth_client.get(f"/rfq/{rid}/review-package")
+        body = r.get_data(as_text=True)
+        # Toolbar approve/reject IDs must be present as plain elements
+        # (no display:none) regardless of view mode.
+        assert 'id="rv-toolbar-approve"' in body, (
+            "Approve button missing from toolbar — Mike has no way to approve "
+            "from default Wide mode without first clicking Audit or Full"
+        )
+        assert 'id="rv-toolbar-reject"' in body
+        # Both must wire to the same handler the audit-mode buttons use
+        assert "reviewCurrent('approved')" in body
+        assert "reviewCurrent('rejected')" in body

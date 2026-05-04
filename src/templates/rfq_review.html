@@ -404,8 +404,12 @@
 
     <!-- CENTER: PDF Preview -->
     <div class="rv-preview">
-      <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <span id="rv-preview-title" style="font-size:14px;font-weight:600;color:var(--tx);flex:1">Select a form to preview</span>
+      <div style="padding:8px 12px;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <span id="rv-preview-title" style="font-size:14px;font-weight:600;color:var(--tx);flex:1;min-width:200px">Select a form to preview</span>
+        <!-- Always-visible Approve/Reject — no longer requires Audit or Full mode (P0 2026-05-04) -->
+        <button id="rv-toolbar-approve" class="rv-expand-btn" style="background:rgba(63,185,80,.15);color:#3fb950;border-color:rgba(63,185,80,.3);font-weight:600" onclick="reviewCurrent('approved')" title="Approve the currently-previewed document">✅ Approve</button>
+        <button id="rv-toolbar-reject" class="rv-expand-btn" style="background:rgba(248,81,73,.15);color:#f85149;border-color:rgba(248,81,73,.3);font-weight:600" onclick="reviewCurrent('rejected')" title="Reject the currently-previewed document">❌ Reject</button>
+        <span style="width:1px;height:24px;background:var(--bd);margin:0 4px"></span>
         <button class="rv-expand-btn active" onclick="toggleView('')" title="Wide preview (default)">📄 Wide</button>
         <button class="rv-expand-btn" onclick="toggleView('collapse-left')" title="Hide form list, max viewer width">⤢ Max</button>
         <button class="rv-expand-btn" onclick="toggleView('show-audit')" title="Show review/audit panel">🛈 Audit</button>
