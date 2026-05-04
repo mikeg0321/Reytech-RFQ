@@ -16,6 +16,56 @@ from datetime import datetime, timedelta, timezone
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Contract-extracted forms helper — public for unit tests
+# ═══════════════════════════════════════════════════════════════════════
+# Allowlist of canonical form_ids that the generation path knows how to
+# fill. Anything outside this set is dropped — protects against OCR noise
+# or a future requirement_extractor change smuggling in unsupported forms
+# that would 500 downstream.
+_CANONICAL_FORM_IDS = frozenset({
+    "quote", "703b", "703c", "704b", "bidpkg",
+    "std204", "std205", "std1000", "std21",
+    "dvbe843", "darfur_act", "calrecycle74", "bidder_decl",
+    "sellers_permit", "cv012_cuf", "barstow_cuf",
+    "w9", "obs_1600", "drug_free", "genai_708",
+    "dsh_atta", "dsh_attb", "dsh_attc",
+})
+
+
+def extract_contract_forms(requirements_json):
+    """Return the set of canonical form_ids referenced by the contract.
+
+    Reads `requirements_json` (either a JSON string or a dict — accepts
+    both because some code paths persist as JSON text and others hand a
+    dict directly). Pulls `forms_required`, lowercases each entry, and
+    keeps only canonical form_ids the generator knows how to render.
+
+    Returns an empty set on any error (missing field, bad JSON, wrong
+    type) — the caller treats this as "no extra forms" and the agency
+    defaults still apply. Never raises.
+    """
+    if not requirements_json:
+        return set()
+    try:
+        data = (json.loads(requirements_json)
+                if isinstance(requirements_json, str)
+                else requirements_json)
+        if not isinstance(data, dict):
+            return set()
+        forms = data.get("forms_required") or []
+        if not isinstance(forms, list):
+            return set()
+        out = set()
+        for f in forms:
+            fn = str(f).strip().lower()
+            if fn in _CANONICAL_FORM_IDS:
+                out.add(fn)
+        return out
+    except Exception:
+        return set()
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Screenshot URL Parser — parse screenshot → dedup → scrape → enrich
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -1476,7 +1526,29 @@ def generate_rfq_package(rid):
             _opt_forms = set()
             _agency_key = "cchcs"
             _agency_cfg = {"name": "CCHCS / CDCR (fallback)", "required_forms": list(_req_forms)}
-        
+
+        # ── Contract-extracted forms: union r["requirements_json"].forms_required ──
+        # Mike's recurring P0 (2026-05-04, "for the 10thousanth time"): operator
+        # uploads the buyer's email contract → /api/rfq/<rid>/contract-upload
+        # → _auto_extract_email_on_upload() OCRs it and writes
+        # `r["requirements_json"]` with a `forms_required` list extracted by
+        # requirement_extractor.py (canonical form_ids std204/dvbe843/cv012_cuf/etc).
+        #
+        # Until this block existed, that field was written and never read. The
+        # generate path used only agency_cfg.required_forms, so an RFQ where
+        # the buyer asked for STD 205 + Drug-Free + Bidder Decl on top of the
+        # base CalVet set silently lost those forms. The 10-min escape valve
+        # was "manually tick all the boxes again" — exactly the manual rework
+        # the contract upload was supposed to eliminate.
+        _added_from_contract = extract_contract_forms(r.get("requirements_json"))
+        _net_added = _added_from_contract - _req_forms
+        if _net_added:
+            _req_forms.update(_net_added)
+            t.step(f"Contract upload: added {sorted(_net_added)} "
+                   f"from requirements_json.forms_required")
+            log.info("GENERATE %s: contract added forms %s (now %d total)",
+                     rid, sorted(_net_added), len(_req_forms))
+
         # Helper: should this form be included?
         _user_forms = r.get("package_forms", {})
         def _include(form_id):
