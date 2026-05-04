@@ -1194,7 +1194,32 @@ def api_download_file(sol, filename):
             filepath = _old_path
             filename = _old_name
     if not os.path.exists(filepath):
-        # Fallback: try serving from DB
+        # Fallback 1: search every output subdir for the filename (P0 incident
+        # 2026-05-04, RFQ 7d3c0fee Auralis). The sol slug in the URL came from
+        # r.solicitation_number = "GOOD" (a known parser-junk value listed in
+        # dashboard.py:1648), but generation correctly used rfq_number=
+        # "RFQ-Auralis" for the output dir — so the file lives at
+        # /data/output/RFQ-Auralis/... while the URL points at
+        # /data/output/GOOD/... and 404s. Filenames within OUTPUT_DIR are
+        # uniquely prefixed by sol, so a directory scan for an exact filename
+        # match is safe — at most one hit. Path traversal is blocked at line
+        # 1186 above, so the os.path.basename() filename can't escape.
+        try:
+            if os.path.isdir(OUTPUT_DIR):
+                for _subdir in os.listdir(OUTPUT_DIR):
+                    _candidate = os.path.join(OUTPUT_DIR, _subdir, filename)
+                    if os.path.isfile(_candidate):
+                        log.info("Download fallback: %s/%s found at %s/%s "
+                                 "(sol slug mismatch)", sol, filename, _subdir,
+                                 filename)
+                        from flask import send_file as _sf
+                        return _sf(_candidate, mimetype="application/pdf",
+                                   download_name=filename)
+        except Exception as _fs_e:
+            log.warning("FS subdir fallback failed for %s/%s: %s",
+                        sol, filename, _fs_e)
+
+        # Fallback 2: try serving from DB
         # sol might be solicitation number OR rfq_id — try both
         try:
             found_file = None
@@ -1217,6 +1242,25 @@ def api_download_file(sol, filename):
                                 break
                         if found_file:
                             break
+            # Last-resort fallback: filename-only DB search (any rfq, any
+            # category). Filenames embed sol+agency so collisions are extremely
+            # unlikely; if more than one row matches we just serve the first —
+            # bytes are equivalent for the same generated artifact.
+            if not found_file:
+                try:
+                    from src.core.db import get_db as _db
+                    with _db() as _conn:
+                        _row = _conn.execute(
+                            "SELECT id FROM rfq_files WHERE filename = ? "
+                            "ORDER BY id DESC LIMIT 1", (filename,)
+                        ).fetchone()
+                        if _row:
+                            found_file = {"id": _row["id"], "filename": filename}
+                            log.info("Download fallback: %s served via "
+                                     "filename-only DB lookup (id=%s)",
+                                     filename, _row["id"])
+                except Exception as _fn_e:
+                    log.debug("filename-only DB fallback: %s", _fn_e)
             if found_file:
                 full = get_rfq_file(found_file["id"])
                 if full and full.get("data"):
