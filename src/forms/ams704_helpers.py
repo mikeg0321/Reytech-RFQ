@@ -549,44 +549,23 @@ def enrich_pc_description(item: dict, clean_fn=None) -> str:
     desc_clean = clean_fn(desc_source) if clean_fn else desc_source
     desc_final = desc_clean or desc_source
 
-    pricing = item.get("pricing") or {}
-
-    # MFG#/UPC does NOT belong in description. The AMS 704 has a dedicated
-    # SUBSTITUTED ITEM column for the manufacturer part / UPC; jamming MFG#
-    # into description was making the field overflow and clip leading +
-    # trailing characters in the rendered PDF (Mike's 2026-05-05 row-2
-    # mangling: "ads Hair..." with leading N clipped + truncated UPC).
-    # build_pc_substitute_text now always populates that column when MFG#
-    # is present, so the inline copy here is redundant.
-
-    # REF ASIN — only when item_link is an Amazon URL with /dp/<asin>/.
-    # Reads from the operator-confirmed link, NOT from pricing.amazon_asin
-    # (which can be poisoned by a wrong-product match — Mike's 2026-05-05
-    # Heel Donut → Echo Dot residue showed the cached ASIN was wrong).
-    item_link = (item.get("item_link") or "").strip()
-    if item_link:
-        import re as _re_asin
-        m = _re_asin.search(r'/dp/([A-Z0-9]{10})\b', item_link)
-        if m:
-            asin_from_link = m.group(1)
-            if asin_from_link not in desc_final:
-                desc_final = f"{desc_final}\nREF ASIN: {asin_from_link}"
-
-    # QTY per UOM — Mike's 2026-05-05 spec: "add ... QTY Per UOM: if known
-    # in description as well too." Was previously labeled "Pack: N/box".
-    qpu = item.get("qty_per_uom", 1)
-    try:
-        qpu = int(float(qpu)) if qpu else 1
-    except (ValueError, TypeError):
-        qpu = 1
-    if qpu > 1:
-        desc_final = f"{desc_final}\nQTY per UOM: {qpu}"
-
-    # User notes
-    notes = (item.get("notes") or "").strip()
-    if notes:
-        desc_final = f"{desc_final}\nNote: {notes}"
-
+    # 704 PC = buyer's market-test worksheet. Per Mike's 2026-05-05 rule
+    # (echoed in CLAUDE.md "PC → RFQ Workflow"):
+    #     "704 (PC) = market test. Buyer's descriptions unchanged.
+    #      Only pricing added."
+    # Mike's 2026-05-05 23:35Z clarification: "the description only for
+    # RFQs, this is a 704 which should match what buyer sent, remember we
+    # made that rule." So no MFG#, no REF ASIN, no QTY per UOM, no notes
+    # appended on the PC. Whatever the buyer wrote stands.
+    #
+    # All description enrichment (MFG#, REF ASIN, QTY per UOM, ASIN, pack
+    # size, operator notes) belongs on the RFQ side (704B / fill_704b in
+    # reytech_filler_v4.py), where Reytech writes its own response with
+    # catalog data.
+    #
+    # The MFG#/UPC for the SUBSTITUTED column on a 704 PC is handled by
+    # build_pc_substitute_text — that column IS the canonical home for
+    # the identifier on a PC, separate from the description.
     return desc_final
 
 

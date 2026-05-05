@@ -297,76 +297,89 @@ class TestComputeLineTotals:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# enrich_pc_description — buyer description + REF ASIN + QTY per UOM
+# enrich_pc_description — 704 PC keeps BUYER DESCRIPTION UNCHANGED
 # build_pc_substitute_text — MFG#/UPC always populates SUBSTITUTED column
-# Regression for Mike's 2026-05-05 row-2 mangling: MFG# was being jammed into
-# description (overflowing the form field, clipping leading "N" of "Nads" and
-# the trailing digit of the UPC) AND substituted column was blank because
-# build_pc_substitute_text gated on is_substitute=True.
-# Per Mike's spec: "catalog contains all data, buyer output (704) or RFQ
-# determines what gets published" + "apply MFG/item number if not provided
-# and add REF ASIN: ... and QTY Per UOM: in description as well too."
+#
+# Mike's 2026-05-05 23:35Z rule: "the description only for RFQs, this is a
+# 704 which should match what buyer sent, remember we made that rule."
+# Echoed in CLAUDE.md "PC → RFQ Workflow":
+#   "704 (PC) = market test. Buyer's descriptions unchanged. Only pricing added."
+#   "704B (RFQ) = Reytech's response. Use catalog descriptions, proper MFG#,
+#    ASIN in description."
+#
+# So enrich_pc_description (which feeds the PC-side fill_ams704 path, NOT
+# the RFQ fill_704b path) must NEVER append MFG#, REF ASIN, QTY per UOM,
+# pack size, or operator notes. Whatever the buyer wrote stands.
+#
+# Earlier today (PRs #762/#763) I had this wrong — appended decorations
+# that overflowed the PDF form field and clipped buyer text. PR #764
+# strips them entirely.
 # ═══════════════════════════════════════════════════════════════════════════
 
 class TestEnrichPcDescription:
 
-    def test_no_mfg_in_description(self):
-        """MFG# now lives in SUBSTITUTED column — never inline-appended to description."""
+    def test_buyer_description_returned_unchanged(self):
+        """The core rule: PC description == buyer's description. Period."""
+        buyer_text = "Heel Donut Cushions, Heel Cups, Silicon Insoles, One Size Fits All - 1 Pair"
+        item = {"description": buyer_text}
+        assert enrich_pc_description(item) == buyer_text
+
+    def test_no_mfg_appended_even_when_present(self):
+        """Even with mfg_number on the item, description stays buyer-text only."""
         item = {"description": "Nads Hair Removal Body Wax Strips for Normal Skin",
                 "mfg_number": "0063899500192"}
         out = enrich_pc_description(item)
-        assert "MFG#" not in out, f"MFG# should not be in description, got: {out!r}"
-        assert "0063899500192" not in out, f"UPC should not be in description, got: {out!r}"
-        assert out.startswith("Nads Hair Removal Body Wax Strips")
+        assert "MFG#" not in out, f"MFG# must not be in PC description, got: {out!r}"
+        assert "0063899500192" not in out, f"UPC must not be in PC description, got: {out!r}"
+        assert out == "Nads Hair Removal Body Wax Strips for Normal Skin"
 
-    def test_qty_per_uom_appended_when_known(self):
-        """Mike's 2026-05-05 spec: 'QTY per UOM: N' in description."""
-        item = {"description": "Nads Hair Removal Body Wax Strips",
-                "qty_per_uom": 24, "uom": "BX"}
-        out = enrich_pc_description(item)
-        assert "QTY per UOM: 24" in out, f"Should label as 'QTY per UOM: 24', got: {out!r}"
-
-    def test_ref_asin_extracted_from_item_link(self):
-        """REF ASIN comes from the operator-confirmed item_link, NOT from
-        cached pricing.amazon_asin (which can carry a wrong-product ASIN
-        from a prior bad match — Mike's Heel Donut → Echo Dot residue)."""
+    def test_no_ref_asin_appended_even_with_amazon_link(self):
+        """REF ASIN belongs on the RFQ side, not the PC."""
         item = {
             "description": "Nads Hair Removal Body Wax Strips",
             "item_link": "https://www.amazon.com/Nads-Body-Wax-Strips-24/dp/B000NQ4JGM?th=1",
-            "pricing": {"amazon_asin": "B08TVK1JQS"},  # poisoned cache from prior mismatch
         }
         out = enrich_pc_description(item)
-        assert "REF ASIN: B000NQ4JGM" in out, \
-            f"Should use ASIN from item_link, got: {out!r}"
-        assert "B08TVK1JQS" not in out, \
-            f"Must NOT use cached pricing.amazon_asin (poisoned), got: {out!r}"
+        assert "REF ASIN" not in out, f"No REF ASIN on PC, got: {out!r}"
+        assert "B000NQ4JGM" not in out
 
-    def test_no_ref_asin_when_no_item_link(self):
-        """REF ASIN omitted when there's no Amazon item_link to confirm it."""
-        item = {"description": "Generic widget",
-                "pricing": {"amazon_asin": "B0CHH87PT2"}}  # cache only, no link
+    def test_no_qty_per_uom_appended(self):
+        """QTY per UOM belongs on the RFQ side, not the PC."""
+        item = {"description": "Nads Hair Removal Body Wax Strips",
+                "qty_per_uom": 24, "uom": "BX"}
         out = enrich_pc_description(item)
-        assert "REF ASIN" not in out, \
-            f"No item_link → no REF ASIN even if cached ASIN exists, got: {out!r}"
+        assert "QTY per UOM" not in out, f"No QTY per UOM on PC, got: {out!r}"
+        assert "24" not in out
 
-    def test_no_ref_asin_for_non_amazon_link(self):
-        """item_link to a non-Amazon supplier shouldn't produce a REF ASIN line."""
-        item = {"description": "Widget",
-                "item_link": "https://www.grainger.com/product/12345"}
+    def test_no_notes_appended(self):
+        """Operator notes don't go on the PC PDF."""
+        item = {"description": "Heel Donut Cushions",
+                "notes": "Verify before quoting"}
         out = enrich_pc_description(item)
-        assert "REF ASIN" not in out, f"Grainger link → no REF ASIN, got: {out!r}"
+        assert "Note:" not in out, f"No notes on PC, got: {out!r}"
+        assert "Verify before quoting" not in out
 
-    def test_buyer_description_preserved_verbatim(self):
-        """Per Mike: 'you keep the buyer description.' Don't modify, don't
-        prepend, don't trim — append decorations only."""
-        buyer_text = "Heel Donut Cushions, Heel Cups, Silicon Insoles, One Size Fits All - 1 Pair"
-        item = {"description": buyer_text}
-        out = enrich_pc_description(item)
-        assert out.startswith(buyer_text), \
-            f"Buyer text must lead, got: {out!r}"
+    def test_clean_fn_still_applied(self):
+        """Basic cleaning (clean_description) is still allowed — strips OCR
+        artifacts, font specs, etc. — because the *output* is still the
+        buyer's intended text, just denoised."""
+        captured = []
+        def fake_clean(s):
+            captured.append(s)
+            return s.upper()
+        item = {"description": "heel donut cushions"}
+        out = enrich_pc_description(item, clean_fn=fake_clean)
+        assert captured == ["heel donut cushions"]
+        assert out == "HEEL DONUT CUSHIONS"
 
     def test_empty_description_returns_empty(self):
-        assert enrich_pc_description({"qty_per_uom": 24}) == ""
+        assert enrich_pc_description({"qty_per_uom": 24, "mfg_number": "X"}) == ""
+
+    def test_description_raw_used_when_description_missing(self):
+        """Fallback to description_raw when description is absent — the
+        original buyer text is what we want either way."""
+        item = {"description_raw": "Original buyer text from PDF"}
+        assert enrich_pc_description(item) == "Original buyer text from PDF"
 
 
 class TestBuildPcSubstituteText:
