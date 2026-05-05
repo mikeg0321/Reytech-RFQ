@@ -1149,6 +1149,7 @@ def _overlay_signature_png(
 
     # Scan every page for matching signature widgets.
     hits = []  # (page_index, rect, annot, matched_target_name)
+    seen_sig_fields = []  # all field names with /FT == /Sig (for diagnostics)
     for page_idx, page in enumerate(writer.pages):
         annots = page.get("/Annots")
         if annots is None:
@@ -1163,6 +1164,9 @@ def _overlay_signature_png(
                 full = _full_field_name(annot)
                 if not full:
                     continue
+                # Collect /Sig fields for diagnostic logging when nothing matches
+                if str(annot.get("/FT", "")) == "/Sig":
+                    seen_sig_fields.append((page_idx, full))
                 matched_target = None
                 for t in _SIGNATURE_TARGETS:
                     if full == t or full.endswith(t):
@@ -1184,7 +1188,22 @@ def _overlay_signature_png(
                 continue
 
     if not hits:
-        log.debug("cchcs signature overlay: no signature widgets found")
+        # Audit P1 #12 (2026-05-06): bumped from log.debug to log.warning and
+        # surface the /Sig field names we found. When CCHCS releases a new
+        # form version, the hardcoded _SIGNATURE_TARGETS list can drift out of
+        # sync — pre-fix this failed silently. Now operations sees what fields
+        # ARE on the form so _SIGNATURE_TARGETS can be updated quickly.
+        if seen_sig_fields:
+            log.warning(
+                "cchcs signature overlay: 0 of %d targets matched. Found %d "
+                "/Sig fields with these names — update _SIGNATURE_TARGETS: %s",
+                len(_SIGNATURE_TARGETS), len(seen_sig_fields), seen_sig_fields,
+            )
+        else:
+            log.warning(
+                "cchcs signature overlay: no signature widgets found on any "
+                "page (form may have been flattened)"
+            )
         return False
 
     drawn = 0
