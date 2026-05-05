@@ -586,6 +586,11 @@
      </script>
 
      <!-- ═══ STAGE-AWARE ACTION BAR ═══ -->
+     {# Surface #12 (2026-05-04): operator escape valve — Mark Sent must be
+        reachable in any non-sent, non-terminal stage so a stuck status flip
+        never blocks the send. Mirrors RFQ's `_allow_mark_sent` logic. #}
+     {% set _pc_terminal_statuses = ('won','lost','no_bid','no_response','cancelled','archived','duplicate','reclassified','expired') %}
+     {% set _pc_allow_mark_sent = pc.get('status','new') not in ('sent','dismissed') + _pc_terminal_statuses %}
      <div class="action-bar" style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center" id="actionBar">
       {% set st = pc.get('status','new') %}
       {% if st in ('sent',) %}
@@ -629,7 +634,15 @@
         <hr style="border-color:#30363d;margin:6px 0">
         <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">History</div>
         <button class="btn btn-sm" style="width:100%;text-align:left;background:none;color:#a78bfa;border:none;padding:9px 12px;font-size:14px;border-radius:6px" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="showRevisions();this.closest('details').open=false">Revision History</button>
-        <!-- Send Quote removed — already in main action bar -->
+        {% if _pc_allow_mark_sent %}
+        {# Surface #12: out-of-band escape valve — operator emailed the 704
+           outside the app and needs a one-click way to flip status. Mirrors
+           RFQ's Mark Sent Manually modal so the action stays operator-
+           overridable in <10 min per feedback_ten_minute_escape_valve. #}
+        <hr style="border-color:#30363d;margin:6px 0">
+        <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Send</div>
+        <button class="btn btn-sm" data-testid="pc-mark-sent-manually" style="width:100%;text-align:left;background:none;color:#d29922;border:none;padding:9px 12px;font-size:14px;border-radius:6px;font-weight:600" onmouseover="this.style.background='#21262d'" onmouseout="this.style.background='none'" onclick="openPcMarkSentModal();this.closest('details').open=false">📨 Mark Sent Manually</button>
+        {% endif %}
         <!-- ADMIN section -->
         <hr style="border-color:#30363d;margin:6px 0">
         <div style="font-size:11px;color:#484f58;padding:4px 12px 2px;text-transform:uppercase;letter-spacing:.8px;font-weight:600">Admin</div>
@@ -5961,6 +5974,105 @@ try { window.tierCascadeRescan(); } catch(e) { console.error('tierCascadeRescan 
   }
 })();
 </script>
+
+{# ═════════════════════════════════════════════════════════════════════ #}
+{# Surface #12 (2026-05-04): Mark Sent Manually modal — operator escape    #}
+{# valve when 704 was emailed outside the app. Mirrors rfq_detail.html's   #}
+{# Bundle-5 PR-5b modal; POSTs to /api/pricecheck/<pcid>/mark-sent-manually#}
+{# which already handles status flip + lifecycle log + activity log.       #}
+{# ═════════════════════════════════════════════════════════════════════ #}
+{% if _pc_allow_mark_sent %}
+<div id="pc-mark-sent-modal" role="dialog" aria-modal="true" aria-labelledby="pc-mark-sent-title"
+     style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);align-items:center;justify-content:center">
+ <div style="background:var(--bg,#0d1117);border:1px solid var(--bd,#30363d);border-radius:10px;padding:24px;min-width:420px;max-width:560px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+  <h3 id="pc-mark-sent-title" style="margin:0 0 12px 0;color:var(--tx)">📨 Mark PC as Sent Manually</h3>
+  <div style="font-size:13px;color:var(--tx2);margin-bottom:16px">
+   Use this when you emailed the 704 outside the app (e.g. manual Gmail send).
+   The PC will flip to <b>Sent</b> and stop surfacing in the active queue.
+  </div>
+  <form id="pc-mark-sent-form" onsubmit="return submitPcMarkSent(event)">
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Sent to (email)</label>
+   <input type="email" name="sent_to" value="{{ pc.get('requestor_email') or pc.get('contact_email') or pc.get('requestor','') }}"
+          style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:12px" />
+
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Sent at (ISO datetime, defaults to now)</label>
+   <input type="text" name="sent_at" placeholder="2026-05-04T14:30:00"
+          style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:12px" />
+
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Attachment (what you actually sent — optional)</label>
+   <input type="file" name="attachment" accept=".pdf,.doc,.docx"
+          style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:12px" />
+
+   <label style="display:block;font-size:13px;color:var(--tx2);margin-bottom:4px">Notes (optional, saved to activity log)</label>
+   <textarea name="notes" rows="3"
+             style="width:100%;padding:8px 10px;background:var(--sf2);border:1px solid var(--bd);border-radius:6px;color:var(--tx);margin-bottom:16px;font-family:inherit"></textarea>
+
+   <div id="pc-mark-sent-err" style="display:none;margin-bottom:10px;padding:8px 12px;background:rgba(248,81,73,.1);border:1px solid rgba(248,81,73,.3);border-radius:6px;color:#f85149;font-size:13px"></div>
+
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button type="button" onclick="closePcMarkSentModal()" class="btn"
+            style="padding:8px 16px;background:var(--sf2);color:var(--tx);border:1px solid var(--bd);border-radius:6px">Cancel</button>
+    <button type="submit" id="pc-mark-sent-submit" class="btn"
+            style="padding:8px 16px;background:#d29922;color:#000;border:none;border-radius:6px;font-weight:700">Mark Sent</button>
+   </div>
+  </form>
+ </div>
+</div>
+
+<script>
+function openPcMarkSentModal() {
+  var el = document.getElementById('pc-mark-sent-modal');
+  if (el) { el.style.display = 'flex'; }
+}
+function closePcMarkSentModal() {
+  var el = document.getElementById('pc-mark-sent-modal');
+  if (el) { el.style.display = 'none'; }
+  var err = document.getElementById('pc-mark-sent-err');
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+}
+function submitPcMarkSent(ev) {
+  ev.preventDefault();
+  var form = document.getElementById('pc-mark-sent-form');
+  var btn = document.getElementById('pc-mark-sent-submit');
+  var err = document.getElementById('pc-mark-sent-err');
+  if (err) { err.style.display = 'none'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Marking sent…'; }
+  var fd = new FormData(form);
+  var pcid = {{ pcid|tojson }};
+  fetch('/api/pricecheck/' + pcid + '/mark-sent-manually', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    body: fd
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d && d.ok) {
+      closePcMarkSentModal();
+      var toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:20px;right:20px;background:#0d1f0d;border:1px solid #3fb950;border-radius:8px;padding:12px 18px;z-index:9999;color:#3fb950;font-size:14px;font-weight:600';
+      toast.textContent = '✅ Marked sent manually → ' + (d.sent_to || '');
+      document.body.appendChild(toast);
+      setTimeout(function(){ location.reload(); }, 900);
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Mark Sent'; }
+      if (err) {
+        err.textContent = '❌ ' + ((d && d.error) || 'Request failed');
+        err.style.display = 'block';
+      }
+    }
+  })
+  .catch(function(e){
+    if (btn) { btn.disabled = false; btn.textContent = 'Mark Sent'; }
+    if (err) {
+      err.textContent = '❌ Network error: ' + (e && e.message ? e.message : 'unknown');
+      err.style.display = 'block';
+    }
+  });
+  return false;
+}
+</script>
+{% endif %}
     </body></html>
 
 {% endblock %}
