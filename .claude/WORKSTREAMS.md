@@ -11,7 +11,8 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
-| fix/auto-pc-display-name-from-attachment | (auto session) | `C:\Users\mikeg\rfq-auto-pc-display-name-from-attachment` | Active | Surface #17 follow-on: queue list shows attachment title for AUTO_<hex> PCs/RFQs (read-side override in `normalize_queue_item`; record's pc_number left intact for routing/identity). 9 source-level guard tests. | 2026-05-05 |
+| fix/asin-recycle-detection | (auto session) | `C:\Users\mikeg\rfq-asin-recycle-detection` | Active | Surface #6: Amazon ASIN recycling — `product_research._cache_store` flags `recycled_suspected` when an `asin:<ASIN>` cache write has token-overlap < 0.30 with the previous title; PC QA emits a soft WARNING for items whose ASIN is flagged. 18 tests. | 2026-05-05 |
+| fix/auto-pc-display-name-from-attachment | (auto session) | `C:\Users\mikeg\rfq-auto-pc-display-name-from-attachment` | Merged PR #733 | Surface #17 follow-on: queue list shows attachment title for AUTO_<hex> PCs/RFQs (read-side override in `normalize_queue_item`; record's pc_number left intact for routing/identity). 9 source-level guard tests. | 2026-05-05 |
 | fix/price-history-band-click-target | (auto session) | `C:\Users\mikeg\rfq-price-history-band-click-target` | Merged PR #728 | Surface #14: PRICE HISTORY INTELLIGENCE band whole-band click target. | 2026-05-04 |
 | fix/ship-to-autofill-facility-registry | (auto session) | `C:\Users\mikeg\rfq-ship-to-autofill-facility-registry` | Merged PR #726 | Surface #15: auto-fill ship_to from facility_registry at ingest. | 2026-05-04 |
 | fix/kill-profit-floor | (auto session) | `C:\Users\mikeg\rfq-kill-profit-floor` | Merged PR #724 | Surface #16: kill profit floor entirely. | 2026-05-04 |

@@ -124,13 +124,100 @@ def _cache_lookup(query: str) -> Optional[dict]:
     return entry
 
 
+_TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+RECYCLE_TITLE_OVERLAP_THRESHOLD = 0.30
+
+
+def _title_token_overlap(a: str, b: str) -> float:
+    """Jaccard overlap of alphanumeric tokens, lowercased.
+
+    Used as a cheap "different product?" heuristic for ASIN-recycle
+    detection. Empty inputs return 1.0 (treated as "no signal — not
+    a divergence") so an empty cached title doesn't false-positive on
+    every refresh of a brand-new ASIN.
+    """
+    if not a or not b:
+        return 1.0
+    ta = set(_TITLE_TOKEN_RE.findall((a or "").lower()))
+    tb = set(_TITLE_TOKEN_RE.findall((b or "").lower()))
+    if not ta or not tb:
+        return 1.0
+    return len(ta & tb) / len(ta | tb)
+
+
 def _cache_store(query: str, result: dict):
+    """Store a research result in the cache.
+
+    Surface #6 (2026-05-04 Heel Donut chain): Amazon ASINs get recycled —
+    listing B08TVK1JQS pointed to an Echo Dot once, points to a Heel Donut
+    today. When the cache refreshes, naively overwriting the title means
+    every PC that gets matched to that ASIN downstream silently inherits
+    the new product's metadata under what was the same ASIN.
+
+    Per `feedback_item_identity` we don't auto-mutate stored item descriptions,
+    but we DO need to surface the suspicion. Detection runs on `asin:<ASIN>`
+    keys: when a fresh result arrives whose title token-overlap with the
+    cached title is < threshold, we flag the cache entry `recycled_suspected`
+    and stash the previous title under `previous_title`. The QA agent reads
+    that flag and emits a warning when any PC item references a recycled
+    ASIN — operator decides whether to keep the old description or refresh.
+    """
     cache = _load_cache()
     key = _cache_key(query)
+
+    recycled_suspected = False
+    previous_title = ""
+    if key.startswith("asin:") or query.lower().startswith("asin:"):
+        # ASIN-keyed lookups have stable cache keys (the ASIN itself), so
+        # a divergent title between old and new entries is the recycle signal.
+        prior = cache.get(key) or {}
+        prior_title = (prior.get("title") or "").strip()
+        new_title = (result.get("title") or "").strip()
+        if prior_title and new_title:
+            overlap = _title_token_overlap(prior_title, new_title)
+            if overlap < RECYCLE_TITLE_OVERLAP_THRESHOLD:
+                recycled_suspected = True
+                previous_title = prior_title
+                log.warning(
+                    "ASIN recycle suspected for %s: cached title %r differs from "
+                    "new title %r (token overlap %.2f < %.2f)",
+                    query, prior_title, new_title, overlap,
+                    RECYCLE_TITLE_OVERLAP_THRESHOLD,
+                )
+
     result["cached_at"] = datetime.now(timezone.utc).isoformat()
     result["query"] = query
+    if recycled_suspected:
+        result["recycled_suspected"] = True
+        result["previous_title"] = previous_title
+        result["recycled_at"] = result["cached_at"]
     cache[key] = result
     _save_cache(cache)
+
+
+def is_asin_cache_recycled(asin: str) -> dict:
+    """Return recycle-suspicion metadata for a given ASIN, or empty dict.
+
+    Read-only; safe to call on every QA run. Returns:
+        {} when the ASIN has no cache entry or no recycle flag
+        {"recycled": True, "previous_title": str, "current_title": str,
+         "recycled_at": str} when the cached entry is flagged.
+    """
+    if not asin:
+        return {}
+    try:
+        cache = _load_cache()
+    except Exception:
+        return {}
+    entry = cache.get(_cache_key(f"asin:{asin}")) or {}
+    if not entry.get("recycled_suspected"):
+        return {}
+    return {
+        "recycled": True,
+        "previous_title": entry.get("previous_title", ""),
+        "current_title": entry.get("title", ""),
+        "recycled_at": entry.get("recycled_at", ""),
+    }
 
 
 # ─── MFG Info Extraction ────────────────────────────────────────────────────
