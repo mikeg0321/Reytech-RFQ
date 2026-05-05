@@ -3618,7 +3618,8 @@ def _get_vendor_reg():
         reg = {v["key"]: {"status":"not_started","registered_at":None,"account_number":""} for v in VENDOR_REGISTRATION_LIST}
         with open(reg_path,"w") as f: _json.dump(reg, f, indent=2)
         return reg
-    return _json.load(open(reg_path))
+    with open(reg_path) as f:
+        return _json.load(f)
 
 @bp.route("/api/vendor/registration", methods=["GET"])
 @auth_required
