@@ -13,16 +13,7 @@ Every meaningful user action or pipeline step calls:
         "duration_ms": 3400,
     })
 
-Events are written to the `utilization_events` SQLite table. An
-admin dashboard at `/api/admin/utilization/summary` aggregates the
-last N days and returns:
-
-    - Top 10 features by usage count
-    - Dead features (zero uses in window)
-    - Average duration per feature
-    - Error rate per feature
-    - Per-user breakdown (for internal attribution)
-
+Events are written to the `utilization_events` SQLite table.
 Writes are fire-and-forget — a tracking failure can NEVER break
 the user action. The recorder swallows every exception.
 
