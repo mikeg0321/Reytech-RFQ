@@ -2315,6 +2315,37 @@ def predictive_lookup(partial: str, limit: int = 10) -> list:
 # Auto-Match Engine — Match PC/RFQ line items to catalog products
 # ═══════════════════════════════════════════════════════════════════════
 
+def _is_real_part_number(pn) -> bool:
+    """Junk-pn guard (Mike P0 2026-05-05): when buyer forms use placeholder
+    pns like "1", "2", ..., "8" (positional indices, not actual part #s),
+    the catalog matcher's exact-pn strategies (Strategies 0 / 1) would
+    otherwise hit any catalog row whose own sku/name/mfg happens to be
+    that same placeholder string and stamp 98% confidence on a wildly
+    wrong product. Refuse to use a "pn" as a lookup key unless it has
+    enough shape to plausibly be a real part number.
+
+    A real part# is at least 4 characters after stripping whitespace.
+    The 4-char threshold matches `smart_search`'s literal-SKU short-
+    circuit (line 2129) — a deliberate consistency.
+
+    Examples (True / False):
+      "1"        → False (single digit)
+      "12"       → False
+      "123"      → False
+      "1234"     → True  (4-digit codes can be legitimate)
+      "12345"    → True
+      "AB"       → False
+      "ABC"      → False
+      "ABCD"     → True
+      "AB-12"    → True
+      "B0CHH87PT2" → True
+    """
+    if pn is None:
+        return False
+    s = str(pn).strip()
+    return len(s) >= 4
+
+
 def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str = "") -> list:
     """
     Find best catalog matches for a line item from a Price Check or RFQ.
@@ -2344,7 +2375,10 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
         log.debug("suppressed: %s", _e)
 
     # Strategy -1: Supplier SKU reverse lookup (if part_number matches a known supplier SKU)
-    if part_number and part_number.strip() and not part_number.strip().isdigit():
+    # Junk-pn guard: refuse to use placeholder pns ("1", "ab", etc.) as
+    # exact-match keys (Mike P0 2026-05-05).
+    if (part_number and part_number.strip() and not part_number.strip().isdigit()
+            and _is_real_part_number(part_number)):
         _sku_matches = find_by_supplier_sku(part_number.strip())
         for r in _sku_matches:
             if r["id"] not in seen_ids and str(r["id"]) not in _rejected_ids:
@@ -2376,8 +2410,14 @@ def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str
         except Exception as _e:
             log.debug("suppressed: %s", _e)  # upc column may not exist yet
 
-    # Strategy 1: Exact part number match (highest confidence)
-    if part_number and part_number.strip():
+    # Strategy 1: Exact part number match (highest confidence).
+    # Junk-pn guard (Mike P0 2026-05-05): when buyer 704 forms use
+    # placeholder pns "1".."8", any catalog row whose sku/name/mfg
+    # happens to equal that placeholder gets stamped at 98% confidence
+    # on every line. Refuse to do an exact-pn match unless pn has the
+    # shape of a real part number (≥4 chars).
+    if (part_number and part_number.strip()
+            and _is_real_part_number(part_number)):
         pn = part_number.strip()
         # RE-AUDIT-4: exclude is_test rows.
         rows = conn.execute(
@@ -3729,6 +3769,21 @@ def add_to_catalog(description: str, part_number: str = "", cost: float = 0,
     init_catalog_db()
     conn = _get_conn()
     now = datetime.now(timezone.utc).isoformat()
+
+    # Junk-pn sanitation (Mike P0 2026-05-05): when a buyer 704 form
+    # uses placeholder pns like "1", "2", ..., "8", the auto-enrichment
+    # pipeline used to write those literal strings into product_catalog
+    # as sku / mfg_number / name. That polluted the table so any future
+    # match_item("...", pn="1") found those rows by exact-match and
+    # stamped 98% confidence on a wildly wrong product. Strip junk pn /
+    # mfg_number BEFORE the catalog row is created so this row contains
+    # only the description-derived name and real metadata. The matching
+    # path's `_is_real_part_number` guard is the runtime backstop;
+    # sanitizing on the write path keeps new pollution out at the source.
+    if part_number and not _is_real_part_number(part_number):
+        part_number = ""
+    if mfg_number and not _is_real_part_number(mfg_number):
+        mfg_number = ""
 
     if not description and not part_number:
         conn.close()
