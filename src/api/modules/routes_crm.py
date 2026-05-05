@@ -53,11 +53,10 @@ def _save_customers(customers):
             return
     except Exception as _e:
         log.debug("Suppressed: %s", _e)
-    # Fallback to JSON
+    # Fallback to JSON — atomic write to prevent corruption on crash.
+    from src.core.data_guard import atomic_json_save
     os.makedirs(DATA_DIR, exist_ok=True)
-    path = os.path.join(DATA_DIR, "customers.json")
-    with open(path, "w") as f:
-        json.dump(customers, f, indent=2)
+    atomic_json_save(os.path.join(DATA_DIR, "customers.json"), customers)
 
 @bp.route("/api/supplier-profiles")
 @auth_required

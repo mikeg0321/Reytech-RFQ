@@ -102,8 +102,12 @@ def _load_pending_pos():
     return _pending_po_reviews
 
 def _save_pending_pos():
-    with open(os.path.join(DATA_DIR, "pending_po_reviews.json"), "w") as f:
-        json.dump(_pending_po_reviews, f, indent=2, default=str)
+    # Atomic write: temp file + os.replace. A crash mid-write would otherwise
+    # corrupt pending_po_reviews.json and the home banner couldn't render
+    # until the next email re-scan rebuilt the queue.
+    from src.core.data_guard import atomic_json_save
+    atomic_json_save(os.path.join(DATA_DIR, "pending_po_reviews.json"),
+                     _pending_po_reviews)
 
 def _dedupe_pending_pos(entries: list) -> list:
     """Collapse duplicate PO entries by po_number, keeping the one with
