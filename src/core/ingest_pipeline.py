@@ -684,6 +684,55 @@ def _derive_requestor_name(email_sender: str) -> str:
     return ""
 
 
+def _attachment_filename_title(primary_path: str) -> str:
+    """Derive a display-quality title from the attachment filename when the
+    PDF/PRICE-CHECK number field is empty.
+
+    Surface #17 fix (2026-05-04). Pre-fix, when the AMS 704 PRICE CHECK field
+    was blank (which buyers leave blank routinely per
+    project_ams704_ingest_drift_2026_05_03.md surface #1), the cascade
+    immediately fell to `AUTO_<short_id>` — a useless 8-char hex hash on the
+    queue. Mike's screenshot showed "AMS 704 - Heel Donut - 04.29.26" working
+    on some rows (where the title slipped through some other path) and
+    "AUTO_db670ad9" on others, on the same buyer.
+
+    This helper inserts a 4th cascade step: use the email-attachment
+    filename, stripped of:
+      - .pdf / .docx / .xlsx extension
+      - leading boilerplate prefixes ("AMS 704 -", "Quote -", "RFQ -",
+        "Price Check -")
+      - trailing whitespace and underscores
+
+    Returns "" when no usable title can be derived (operator handles via
+    rename UI in pc_detail.html).
+    """
+    if not primary_path:
+        return ""
+    try:
+        import os as _os
+        import re as _re
+        base = _os.path.basename(primary_path)
+        # Strip extension (handles .pdf, .docx, .xlsx, double-extensions)
+        title, _ext = _os.path.splitext(base)
+        # Strip leading boilerplate (case-insensitive)
+        title = _re.sub(
+            r"^\s*(AMS\s*704|Quote|RFQ|Price\s*Check|PC)\s*[-_:]\s*",
+            "",
+            title,
+            flags=_re.IGNORECASE,
+        )
+        title = title.strip().strip("_-").strip()
+        # Reject if too short, looks like a hash, or got stripped to empty
+        if not title or len(title) < 3:
+            return ""
+        # Reject pure hex/uuid-shaped titles — they're worse than AUTO_
+        if _re.fullmatch(r"[0-9a-f]{8,}", title, flags=_re.IGNORECASE):
+            return ""
+        return title
+    except Exception:
+        return ""
+
+
 def _create_record(
     record_type: str,
     items: List[Dict[str, Any]],
@@ -780,10 +829,17 @@ def _create_record(
         "body_text": (email_body or "")[:10000],
     }
 
+    # Surface #17 (2026-05-04): when the buyer's PRICE CHECK / Solicitation #
+    # field is blank, fall back to the email-attachment filename BEFORE the
+    # AUTO_<hash> last resort. Shared helper so PC and RFQ cascades stay in
+    # parity per feedback_global_fix_not_one_off.
+    _attachment_title = _attachment_filename_title(primary_path)
+
     if record_type == "pc":
         record["pc_number"] = (
             classification.solicitation_number
             or header.get("pc_number", "")
+            or _attachment_title
             or f"AUTO_{short_id}"
         )
         record["items"] = items
@@ -798,6 +854,7 @@ def _create_record(
         record["rfq_number"] = (
             classification.solicitation_number
             or header.get("solicitation_number", "")
+            or _attachment_title
             or f"AUTO_{short_id}"
         )
         record["line_items"] = items
