@@ -1,4 +1,31 @@
 """Normalize PC and RFQ dicts into a common schema for the unified queue table."""
+import re
+
+_AUTO_NUMBER_RE = re.compile(r"^AUTO_[0-9a-f]+$", re.IGNORECASE)
+
+
+def _resolve_display_number(number, raw):
+    """If `number` is a placeholder AUTO_<hex> id, try to substitute the
+    attachment-derived title so the queue shows something human-readable.
+
+    Surface #17 follow-on (2026-05-05): PR #727 wired the cascade at ingest,
+    but PCs/RFQs ingested before that fix still display AUTO_db670ad9 etc.
+    on the queue. This is read-side only — the underlying record's
+    pc_number / rfq_number is left intact (it's the canonical id; URL routing
+    uses item_id which is independent).
+    """
+    if not number or not _AUTO_NUMBER_RE.match(str(number)):
+        return number
+    source_pdf = raw.get("source_pdf") or ""
+    if not source_pdf:
+        return number
+    try:
+        from src.core.ingest_pipeline import _attachment_filename_title
+        title = _attachment_filename_title(source_pdf)
+    except Exception:
+        title = ""
+    return title or number
+
 
 STATUS_DISPLAY = {
     "new": "New", "parsed": "New", "parse_error": "New",
@@ -80,6 +107,8 @@ def normalize_queue_item(raw, queue_type, item_id):
         institution = raw.get("institution") or raw.get("agency_name") or "\u2014"
         url = "/rfq/" + item_id
         quote_number = raw.get("reytech_quote_number") or ""
+
+    number = _resolve_display_number(number, raw)
 
     return {
         "id": item_id,
