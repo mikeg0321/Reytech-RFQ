@@ -713,13 +713,31 @@ def _create_record(
     # classifier/header gave us when the registry can't resolve.
     raw_institution = classification.institution or header.get("institution", "") or classification.agency or ""
     canonical_institution = raw_institution
+    canonical_ship_to = ""
     try:
         from src.core.facility_registry import resolve as _resolve_facility
         _fac = _resolve_facility(raw_institution)
         if _fac:
             canonical_institution = _fac.code
+            # Surface #15 (2026-05-04): when the institution resolves to a
+            # known facility, populate ship_to from the canonical record at
+            # ingest. Pre-fix Mike retyped "100 Prison Road, Represa, CA
+            # 95671" on every CSP-SAC PC even though facility_registry
+            # already had it. Per feedback_app_is_source_of_truth the registry
+            # IS source-of-truth; per feedback_canonical_not_verbatim the
+            # buyer's free-form text is not authoritative.
+            canonical_ship_to = f"{_fac.address_line1}, {_fac.address_line2}"
     except Exception as _e:
         log.debug("facility_registry resolve skipped: %s", _e)
+
+    # Buyer's explicit ship_to in the parsed PDF/email overrides the canonical
+    # registry only when it's substantive (>3 chars, not just "CA"). A
+    # blank/whitespace/2-char header value is treated as absent.
+    _hdr_ship_to = (
+        (header.get("ship_to") or "").strip()
+        or (header.get("delivery_address") or "").strip()
+    )
+    resolved_ship_to = _hdr_ship_to if len(_hdr_ship_to) > 3 else canonical_ship_to
 
     # received_at = email arrival time when poller passed it through,
     # else ingest time. Stored as RFC822 string when from Gmail; downstream
@@ -741,6 +759,7 @@ def _create_record(
         # Common header fields pulled from either the classifier or parser
         "solicitation_number": classification.solicitation_number or header.get("solicitation_number", "") or header.get("pc_number", ""),
         "institution": canonical_institution,
+        "ship_to": resolved_ship_to,
         "agency": classification.agency,
         "requestor_email": email_sender,
         # contact_email mirrors requestor_email at write time so the buyer-
