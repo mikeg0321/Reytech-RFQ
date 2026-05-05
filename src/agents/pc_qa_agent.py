@@ -306,8 +306,20 @@ def _check_agency(pc: dict, items: list) -> list:
                         "category": CAT_AGENCY,
                         "message": "No PC number or solicitation number"})
 
-    # Requestor / buyer name
-    requestor = (pc.get("requestor") or "").strip()
+    # Requestor / buyer name. Surface #9 (2026-05-04 calvet quote chain):
+    # ingest_pipeline.py:772 writes the buyer's name to `requestor_name`
+    # (not `requestor`), so reading only `pc.get("requestor")` produced a
+    # false-positive "empty" warning while the UI clearly showed the buyer.
+    # Same field-name-drift family as PR #720 (`requirements_json` written
+    # at ingest but unread at generate). Be tolerant of both keys + the
+    # email-derived fallbacks the PC also persists.
+    requestor = (
+        pc.get("requestor")
+        or pc.get("requestor_name")
+        or pc.get("contact_name")
+        or pc.get("buyer")
+        or ""
+    ).strip()
     if not requestor:
         issues.append({"severity": WARNING, "item_index": -1, "field": "requestor",
                         "category": CAT_AGENCY,
