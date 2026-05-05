@@ -28,17 +28,49 @@ _TOKEN_RE = re.compile(r"[a-z0-9]+")
 DEFAULT_OVERLAP_THRESHOLD = 0.75
 DEFAULT_DESC_THRESHOLD = 0.65
 
+# Known agency keys the resolver returns (per src/core/institution_resolver.py).
+# When an input is a raw agency string (e.g. ingest stamped "cchcs" directly
+# without going through the resolver), we promote it into the same agency:
+# bucket so it matches resolver-normalized siblings.
+_KNOWN_AGENCY_KEYS = frozenset({"cchcs", "cdcr", "calvet", "dsh", "dgs", "csu"})
+
 
 def _normalize_institution(s: str) -> str:
     """Canonical institution key for cross-record matching.
 
-    Lowercase + strip + collapse whitespace. The institution_resolver
-    elsewhere in the app already canonicalizes at ingest, so equality
-    after normalization is the right shape.
+    Per `feedback_institution_resolver_canonical`: any code comparing
+    institution strings MUST route through `institution_resolver.resolve()`
+    and compare on the agency bucket. The resolver maps CIW / CHCF / SAC
+    / "Chino-Corona" / ZIP 92880 / etc. all to agency=`cchcs` — string
+    comparison says different, the resolver says same.
+
+    Returns one of:
+      "agency:<key>"  — resolver-canonicalized to a known agency bucket
+                        (cchcs/cdcr/calvet/dsh/dgs/csu)
+      raw lowercase   — when the resolver can't classify (e.g. a vendor
+                        name or unknown institution); records with
+                        identical raw strings still match.
+      ""              — empty input; never matches.
     """
     if not s:
         return ""
-    return re.sub(r"\s+", " ", str(s).strip().lower())
+    raw = re.sub(r"\s+", " ", str(s).strip().lower())
+    # Path 1: resolver maps facility-level names to agency.
+    try:
+        from src.core.institution_resolver import resolve
+        result = resolve(s)
+        agency = (result.get("agency") or "").lower()
+        if agency:
+            return f"agency:{agency}"
+    except Exception:
+        pass
+    # Path 2: input is already a raw agency string ("cchcs" / "cdcr" /
+    # etc.) that the resolver doesn't round-trip. Match it to the same
+    # bucket the resolver would have used so a CHCF-tagged PC and a
+    # cchcs-tagged ingest still group together.
+    if raw in _KNOWN_AGENCY_KEYS:
+        return f"agency:{raw}"
+    return raw
 
 
 def _tokens(s: str) -> set:
