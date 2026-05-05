@@ -2080,6 +2080,29 @@ def process_rfq_email(rfq_email):
     # Inline PC detection — can't import from routes_rfq (bp not defined at import time)
     def _is_pc_filename(path):
         bn = os.path.basename(path).lower()
+        # 2026-05-05 incident (Sommony Pech / CCHCS, solicitation 10838974):
+        # an attachment named "RFQ - Informal Competitive - Attachment 1-_
+        # 10838974.pdf" was auto-classified as a PC because the PDF-form-
+        # field heuristic at the bottom matched on
+        # {Requestor, EXTENSIONRow1, ...} — many CCHCS-flavored RFQs share
+        # those field names with AMS 704 templates. Once on the PC candidate
+        # list, the email-poller path in dashboard.py creates a PC directly,
+        # bypassing src/core/request_classifier.classify_request entirely.
+        # Filename is the more reliable signal when it carries an explicit
+        # RFQ marker. Hard-reject filenames that START with rfq /
+        # solicitation / informal competitive (word-anchored) so the
+        # field-set heuristic never gets a chance to false-positive.
+        # Exception: AMS-704-prefixed names always pass through to the rest
+        # of the checks — operators sometimes label PC responses with "rfq"
+        # mid-filename and those should still be PC.
+        if not bn.startswith(("ams 704", "ams_704", "ams704")):
+            import re as _re_pcname
+            # Use a negative-lookahead `(?![a-z])` instead of `\b` because
+            # `\b` doesn't fire between `rfq` and `_`/digits (both are word
+            # chars). E.g. "RFQ_10838974.pdf" needs to reject; `\b` would
+            # let it through.
+            if _re_pcname.match(r"^(rfq|solicitation|informal\s+competitive)(?![a-z])", bn):
+                return False
         if any(x in bn for x in ["704b", "703b", "bid package", "bid_package", "quote worksheet"]):
             return False
         # Office docs: filename-only check (can't inspect content like PDFs)
