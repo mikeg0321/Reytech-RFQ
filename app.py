@@ -442,6 +442,16 @@ def create_app():
         except Exception as e:
             logging.getLogger("reytech").warning("CS-draft purge on boot: %s", e)
 
+        # AUTO_<hex> rename backfill (Mike P0 cont. of PR #727): re-run
+        # the attachment-filename-title cascade against PC/RFQ records
+        # that landed with `AUTO_<8-hex>` BEFORE PR #727 added the
+        # filename fallback. Idempotent — already-renamed rows skip.
+        try:
+            from src.core.ingest_pipeline import rename_auto_hex_records
+            rename_auto_hex_records()
+        except Exception as e:
+            logging.getLogger("reytech").warning("AUTO_<hex> rename backfill on boot: %s", e)
+
         # Structured logging already initialized in create_app()
         try:
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog

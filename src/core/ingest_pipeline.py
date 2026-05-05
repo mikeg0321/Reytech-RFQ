@@ -733,6 +733,108 @@ def _attachment_filename_title(primary_path: str) -> str:
         return ""
 
 
+def rename_auto_hex_records(dry_run: bool = False) -> dict:
+    """Boot backfill (Mike P0 cont. 2026-05-06): re-run the
+    `_attachment_filename_title` cascade against PC/RFQ records that
+    landed with `AUTO_<8-hex>` as their pc_number/rfq_number BEFORE
+    PR #727 added the attachment-filename fallback.
+
+    PR #727 fixed the cascade for new ingests. Pre-#727 records still
+    show `#AUTO_db670ad9` in the queue UI even though their primary
+    attachment carries a perfectly readable title like
+    "AMS 704 - Heel Donut - 04.29.26.pdf". This backfill walks every
+    PC + RFQ on prod, and for each one whose pc_number/rfq_number
+    matches `^AUTO_[0-9a-f]{8}$`, re-runs the helper against the stored
+    `source_pdf` path and rewrites the field if a usable title comes
+    back.
+
+    Idempotent: re-runs find nothing because the previous run already
+    rewrote any record where the helper returned non-empty. Records
+    where the helper returns empty (e.g. no source_pdf, or the filename
+    is itself a hex blob) stay as AUTO_<hex> — operator handles those
+    via the rename UI on pc_detail.html.
+
+    Returns dict: {"pcs_renamed", "rfqs_renamed", "scanned",
+                   "auto_hex_skipped"}.
+    """
+    import re as _re
+    AUTO_HEX = _re.compile(r"^AUTO_[0-9a-f]{8}$", _re.IGNORECASE)
+    counts = {"pcs_renamed": 0, "rfqs_renamed": 0,
+              "scanned": 0, "auto_hex_skipped": 0}
+    try:
+        from src.api.dashboard import (
+            _load_price_checks, _save_single_pc,
+            load_rfqs, _save_single_rfq,
+        )
+    except Exception as e:
+        log.warning("rename_auto_hex_records: import failed: %s", e)
+        return counts
+
+    # ── PCs ──────────────────────────────────────────────────────
+    try:
+        pcs = _load_price_checks() or {}
+    except Exception as e:
+        log.warning("rename_auto_hex_records: PC load failed: %s", e)
+        pcs = {}
+    for pc_id, pc in list(pcs.items()):
+        if not isinstance(pc, dict):
+            continue
+        counts["scanned"] += 1
+        pn = (pc.get("pc_number") or "").strip()
+        if not AUTO_HEX.match(pn):
+            continue
+        new_title = _attachment_filename_title(pc.get("source_pdf") or "")
+        if not new_title:
+            counts["auto_hex_skipped"] += 1
+            continue
+        log.info("AUTO_HEX RENAME: pc %s %r -> %r", pc_id, pn, new_title)
+        if dry_run:
+            counts["pcs_renamed"] += 1
+            continue
+        try:
+            pc["pc_number"] = new_title
+            _save_single_pc(pc_id, pc)
+            counts["pcs_renamed"] += 1
+        except Exception as e:
+            log.error("AUTO_HEX RENAME pc %s save failed: %s", pc_id, e)
+
+    # ── RFQs ─────────────────────────────────────────────────────
+    try:
+        rfqs = load_rfqs() or {}
+    except Exception as e:
+        log.warning("rename_auto_hex_records: RFQ load failed: %s", e)
+        rfqs = {}
+    for rfq_id, rfq in list(rfqs.items()):
+        if not isinstance(rfq, dict):
+            continue
+        counts["scanned"] += 1
+        rn = (rfq.get("rfq_number") or "").strip()
+        if not AUTO_HEX.match(rn):
+            continue
+        new_title = _attachment_filename_title(rfq.get("source_pdf") or "")
+        if not new_title:
+            counts["auto_hex_skipped"] += 1
+            continue
+        log.info("AUTO_HEX RENAME: rfq %s %r -> %r", rfq_id, rn, new_title)
+        if dry_run:
+            counts["rfqs_renamed"] += 1
+            continue
+        try:
+            rfq["rfq_number"] = new_title
+            _save_single_rfq(rfq_id, rfq)
+            counts["rfqs_renamed"] += 1
+        except Exception as e:
+            log.error("AUTO_HEX RENAME rfq %s save failed: %s", rfq_id, e)
+
+    if counts["pcs_renamed"] or counts["rfqs_renamed"]:
+        log.info(
+            "AUTO_HEX RENAME: backfill renamed %d PCs + %d RFQs (skipped %d, scanned %d)",
+            counts["pcs_renamed"], counts["rfqs_renamed"],
+            counts["auto_hex_skipped"], counts["scanned"],
+        )
+    return counts
+
+
 def _create_record(
     record_type: str,
     items: List[Dict[str, Any]],
