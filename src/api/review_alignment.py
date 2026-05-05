@@ -71,10 +71,20 @@ def compute_review_alignment(rfq, manifest, agency_cfg, output_dir=None,
         forms_checklist  — [{form_id, display_name, required, generated,
                              filename, size_kb, qa_verdict, missing}]
     """
-    bidpkg_internal = bidpkg_internal or {
-        "dvbe843", "sellers_permit", "calrecycle74", "darfur_act",
-        "bidder_decl", "std21", "genai_708"
-    }
+    # Distinguish "no filter wanted" (caller passed empty set) from "use
+    # defaults" (caller passed None). The truthy `or` here was clobbering
+    # an explicit empty set into the default 7-form filter, hiding 5 of 9
+    # CalVet deliverables (P0 incident 2026-05-04, RFQ 7d3c0fee Auralis):
+    # routes_rfq.py builds _bidpkg_internal=set() when there's no bidpkg
+    # in the manifest, then passes `_bidpkg_internal or None` — `set() or
+    # None` evaluates to None, and we'd re-default. The agency-required
+    # standalone forms then got filtered as if they were inside a bid
+    # package that doesn't exist.
+    if bidpkg_internal is None:
+        bidpkg_internal = {
+            "dvbe843", "sellers_permit", "calrecycle74", "darfur_act",
+            "bidder_decl", "std21", "genai_708"
+        }
 
     forms = _build_forms_checklist(
         manifest=manifest, agency_cfg=agency_cfg,

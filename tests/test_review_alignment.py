@@ -212,6 +212,54 @@ class TestFormsChecklist:
         assert "dvbe843" not in ids, "DVBE843 lives inside bidpkg — not standalone"
         assert "calrecycle74" not in ids
 
+    def test_empty_bidpkg_internal_set_does_not_default(self):
+        """Caller passes an empty set when there's no bidpkg in the package
+        (e.g. CalVet). The callee must NOT re-default to the 7-form filter —
+        all standalone forms must show in the sidebar.
+
+        P0 incident 2026-05-04, RFQ 7d3c0fee Auralis: route built
+        _bidpkg_internal=set() (no bidpkg in CalVet manifest), passed
+        `_bidpkg_internal or None` → None → callee defaulted to filtering
+        out dvbe843 + sellers_permit + calrecycle74 + darfur_act + bidder_decl,
+        hiding 5 of 9 generated CalVet deliverables from the sidebar."""
+        ag = {"name": "CalVet", "required_forms":
+              ["quote", "calrecycle74", "bidder_decl", "dvbe843",
+               "darfur_act", "cv012_cuf", "std204", "std205",
+               "std1000", "sellers_permit"]}
+        m = _manifest(required_forms=ag["required_forms"], reviews=[
+            {"form_id": fid, "form_filename": f"{fid}.pdf", "verdict": "pending"}
+            for fid in ag["required_forms"]
+        ])
+        # Explicit empty set — caller knows there's no bidpkg, no filter wanted.
+        a = compute_review_alignment(rfq=_rfq(), manifest=m, agency_cfg=ag,
+                                     output_dir=None, source_items=None,
+                                     bidpkg_internal=set())
+        ids = [f["form_id"] for f in a["forms_checklist"]]
+        # All 10 CalVet forms must surface as standalone deliverables —
+        # NOT filtered by the default bidpkg_internal set.
+        for expected in ("dvbe843", "sellers_permit", "calrecycle74",
+                         "darfur_act", "bidder_decl", "std205"):
+            assert expected in ids, (
+                f"{expected} was filtered out despite empty bidpkg_internal — "
+                f"the `or None` truthy check is back. Got: {ids}"
+            )
+
+    def test_none_bidpkg_internal_uses_defaults(self):
+        """When caller passes None (legacy callers / tests), keep defaulting
+        to the 7-form filter — backwards compatibility."""
+        ag = {"name": "CCHCS", "required_forms":
+              ["quote", "703b", "704b", "bidpkg", "dvbe843", "calrecycle74"]}
+        m = _manifest(required_forms=ag["required_forms"], reviews=[
+            {"form_id": fid, "form_filename": f"{fid}.pdf", "verdict": "pending"}
+            for fid in ag["required_forms"]
+        ])
+        a = compute_review_alignment(rfq=_rfq(), manifest=m, agency_cfg=ag,
+                                     output_dir=None, source_items=None,
+                                     bidpkg_internal=None)
+        ids = [f["form_id"] for f in a["forms_checklist"]]
+        assert "dvbe843" not in ids
+        assert "calrecycle74" not in ids
+
 
 # ── Items alignment ─────────────────────────────────────────────────────────
 
