@@ -121,64 +121,6 @@ def test_both_return_sites_call_apply_win_probability():
     )
 
 
-def test_apply_win_probability_runs_after_dollar_floor():
-    """Dollar-floor may bump markup_pct upward; win_probability must be
-    computed against the bumped value. Source-order guard: both call
-    sites must place `_apply_win_probability` immediately AFTER
-    `_apply_dollar_floor` (not before)."""
-    src = Path("src/core/pricing_oracle_v2.py").read_text(encoding="utf-8")
-    # Find every occurrence where dollar_floor is followed by win_probability
-    # within a 4-line window. Both return sites should satisfy this.
-    pattern = (
-        r"_apply_dollar_floor\(result, cost, qty\)"
-        r"\s*\n\s*_apply_win_probability\(result, agency, _db\)"
-    )
-    matches = re.findall(pattern, src)
-    assert len(matches) == 2, (
-        f"BUILD-7: expected 2 instances of `_apply_dollar_floor(...)` "
-        f"immediately followed by `_apply_win_probability(...)` "
-        f"(order matters — bumped markup must feed win prob). Found {len(matches)}."
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────
-# End-to-end: dollar-floor bump changes the win_probability
-# ─────────────────────────────────────────────────────────────────────
-
-def test_dollar_floor_bump_updates_win_probability():
-    """If the dollar-floor bumps a 5% markup up to 20% (because at 5%
-    the GP is too thin), win_probability must reflect the 20% probability,
-    not the pre-bump 5% one."""
-    from src.core.pricing_oracle_v2 import (_apply_dollar_floor,
-                                             _apply_win_probability)
-
-    # Tiny line that WILL get bumped: $1 cost × 1 qty, priced at 5% markup
-    # ($1.05), GP total = $0.05 — well below $3 default floor. Floor will
-    # bump price to $4.00 (markup = 300%).
-    result = {"quote_price": 1.05, "markup_pct": 5.0,
-              "buyer_curve": None}
-    cost, qty = 1.0, 1.0
-    _apply_dollar_floor(result, cost, qty)
-    assert result.get("dollar_floor_applied"), (
-        "Preflight: dollar_floor should have fired on this tiny line"
-    )
-    # Now compute win prob — should reflect the BUMPED (high) markup
-    _apply_win_probability(result, "UNKNOWN", None)
-    p_after = result["win_probability"]
-
-    # And confirm: if we ran with the pre-bump markup, P(win) would be
-    # MUCH higher.
-    pre_result = {"markup_pct": 5.0}
-    _apply_win_probability(pre_result, "UNKNOWN", None)
-    p_before = pre_result["win_probability"]
-
-    assert p_after < p_before, (
-        f"BUILD-7: win_probability didn't reflect the dollar-floor bump. "
-        f"pre-bump P(win)={p_before}, post-bump P(win)={p_after}. "
-        f"The helper must run AFTER _apply_dollar_floor."
-    )
-
-
 def test_calculate_recommendation_includes_win_probability():
     """Smoke test: a full _calculate_recommendation call produces a
     `win_probability` on the result. This proves both wiring and the

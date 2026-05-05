@@ -3285,15 +3285,12 @@ def fill_bid_package(input_path, rfq_data, config, output_path):
 def calculate_recommended_price(cost, scprs_price, source_type, config):
     rules = config["pricing_rules"]
     undercut = rules["scprs_undercut_pct"]
-    floor = rules["profit_floor_amazon"] if source_type == "amazon" else rules["profit_floor_general"]
     if not scprs_price:
         return None, None, "no_scprs_data"
     recommended = round(scprs_price * (1 - undercut), 2)
     profit = recommended - cost
     if cost >= scprs_price:
         return recommended, None, "below_cost"
-    if profit < floor:
-        return recommended, round((profit / recommended) * 100, 1), "low_margin"
     return recommended, round((profit / recommended) * 100, 1), "good"
 
 

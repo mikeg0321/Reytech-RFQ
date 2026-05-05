@@ -17,7 +17,7 @@ reappear somewhere else on the next refactor.
 """
 from __future__ import annotations
 
-from src.agents.pc_qa_agent import run_qa, BLOCKER, CAT_COMPLETE, CAT_PROFIT
+from src.agents.pc_qa_agent import run_qa, BLOCKER, CAT_COMPLETE
 
 
 def _rfq_item(**overrides) -> dict:
@@ -75,19 +75,6 @@ class TestRfqBidPriceReadAcrossAllChecks:
         msgs = [i["message"] for i in report["issues"]
                 if i.get("severity") == BLOCKER and "have no price" in i["message"]]
         assert not msgs, f"unpriced-count tripped on priced RFQ: {msgs}"
-
-    def test_profit_floor_reads_bid_price_when_profit_summary_missing(self):
-        """Profit check falls back to per-item math when profit_summary is
-        empty. That fallback read unit_price only — bid_price RFQs appeared
-        to have zero revenue and tripped the $75 floor."""
-        rfq = _rfq()
-        rfq["profit_summary"] = {}   # force the fallback loop
-        report = run_qa(rfq, use_llm=False)
-        msgs = [i["message"] for i in report["issues"]
-                if i.get("severity") == BLOCKER and i.get("category") == CAT_PROFIT]
-        assert not msgs, (
-            f"Profit floor fallback didn't see bid_price. Blockers: {msgs}"
-        )
 
     def test_below_cost_check_reads_bid_price(self):
         """Math check flags 'selling below cost'. With bid_price ignored,

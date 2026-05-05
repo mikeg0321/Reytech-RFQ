@@ -4789,11 +4789,6 @@ def bulk_calculate_recommended(default_margin: float = 25.0) -> dict:
 
             recommended = round(effective_cost * (1 + margin / 100), 2)
 
-        # Ensure minimum profit floor
-        min_profit = 25 if effective_cost > 100 else 10 if effective_cost > 20 else 5
-        if recommended - effective_cost < min_profit:
-            recommended = round(effective_cost + min_profit, 2)
-
         # Determine strategy
         if p.get("scprs_last_price"):
             strategy = "scprs_guided"
