@@ -877,6 +877,140 @@ def _create_record(
     return record["id"]
 
 
+_PRESERVE_FIELDS_ON_REPARSE = (
+    # Operator-set pricing dict (unit_cost, recommended_price, markup_pct, ...)
+    "pricing",
+    # Top-level pricing fields (legacy — newer code keeps everything in `pricing`)
+    "vendor_cost",
+    "unit_price",
+    "markup_pct",
+    # Operator-curated supplier link + label
+    "item_link",
+    "item_supplier",
+    # Operator notes + bid intent
+    "notes",
+    "no_bid",
+    # Catalog enrichment — don't lose the resolved match
+    "catalog_match",
+)
+
+
+_DESC_TOKEN_RE = None  # lazy-compiled
+
+
+def _desc_tokens(s: str) -> set:
+    """Lowercase, split on non-alphanumeric, drop 1-char tokens.
+    Mirrors `_smart_tokenize` in agents/product_catalog.py — same word-split
+    semantics so descriptions tokenize the same way regardless of comma /
+    hyphen / slash punctuation differences between buyer's two emails."""
+    import re
+    global _DESC_TOKEN_RE
+    if _DESC_TOKEN_RE is None:
+        _DESC_TOKEN_RE = re.compile(r"[^a-zA-Z0-9]+")
+    return {t for t in _DESC_TOKEN_RE.split((s or "").lower()) if len(t) >= 2}
+
+
+def _desc_jaccard(a: str, b: str) -> float:
+    """Token-set Jaccard similarity; 0.0 when either side has no tokens."""
+    ta, tb = _desc_tokens(a), _desc_tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _match_old_to_new(
+    old_items: List[Dict[str, Any]],
+    new_item: Dict[str, Any],
+    used_old_indexes: Optional[set] = None,
+) -> Optional[Dict[str, Any]]:
+    """Find an old item that corresponds to `new_item`. Strategies in order:
+      1. Exact MFG# match (case-insensitive, whitespace-stripped)
+      2. Description token-Jaccard ≥ 0.85
+      3. row_index match (legacy AMS704 form-field re-parse fallback)
+    Returns the first old item that hasn't already been claimed
+    (`used_old_indexes` tracks claims), or None.
+    """
+    used = used_old_indexes if used_old_indexes is not None else set()
+
+    new_mfg = (new_item.get("mfg_number") or "").strip().upper()
+    if new_mfg:
+        for i, old in enumerate(old_items):
+            if i in used:
+                continue
+            if (old.get("mfg_number") or "").strip().upper() == new_mfg:
+                return old
+
+    new_desc = (new_item.get("description") or "").strip()
+    if new_desc:
+        for i, old in enumerate(old_items):
+            if i in used:
+                continue
+            if _desc_jaccard(new_desc, old.get("description") or "") >= 0.85:
+                return old
+
+    new_ri = new_item.get("row_index")
+    if new_ri:
+        for i, old in enumerate(old_items):
+            if i in used:
+                continue
+            if old.get("row_index") == new_ri:
+                return old
+
+    return None
+
+
+def _merge_items_preserving_pricing(
+    old_items: List[Dict[str, Any]],
+    new_items: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Merge a freshly-parsed item list into an existing one, preserving
+    operator-set pricing/links/notes on items that match.
+
+    Match strategy: MFG# → description Jaccard ≥ 0.85 → row_index.
+
+    Semantics:
+      - Matched: copy `_PRESERVE_FIELDS_ON_REPARSE` from old onto new
+        (when old has a non-None value). Buyer's qty/desc/uom on the new
+        item wins over old.
+      - New, unmatched: appended as-is (net-new items from buyer).
+      - Old, unmatched: KEPT UNCHANGED (don't delete on buyer-email re-parse —
+        buyers who say "please add this item" rarely restate the original;
+        operator-driven removal must be explicit, not implicit).
+
+    Each old item can only be claimed once (no double-attribution of pricing
+    when the new parse contains duplicates).
+    """
+    used_old_idx: set = set()
+    merged: List[Dict[str, Any]] = []
+
+    for new in new_items:
+        old = _match_old_to_new(old_items, new, used_old_idx)
+        if old is not None:
+            try:
+                old_idx = old_items.index(old)
+                used_old_idx.add(old_idx)
+            except ValueError:
+                pass
+            for field in _PRESERVE_FIELDS_ON_REPARSE:
+                v = old.get(field)
+                if v is None:
+                    continue
+                # Don't overwrite a non-empty new value with old (rare —
+                # would happen only if the parser pre-fills pricing)
+                if new.get(field):
+                    continue
+                new[field] = v
+        merged.append(new)
+
+    # Old items not matched survive — buyer's add-an-item email did not
+    # ask to remove them. Operator can trim explicitly via UI.
+    for i, old in enumerate(old_items):
+        if i not in used_old_idx:
+            merged.append(old)
+
+    return merged
+
+
 def _update_existing_record(
     record_id: str,
     record_type: str,
@@ -886,7 +1020,15 @@ def _update_existing_record(
     primary_path: Optional[str],
 ) -> str:
     """Re-run classification + parsing on an existing record.
-    Used when the operator clicks 'Re-parse' on an already-created PC/RFQ.
+    Used when the operator clicks 'Re-parse' on an already-created PC/RFQ
+    AND when a buyer's reply email triggers an automated re-ingest.
+
+    Item handling: NEW items are merged into existing via
+    `_merge_items_preserving_pricing` so operator-set pricing on existing
+    items survives the re-parse. Pre-2026-05-05 this path destructively
+    overwrote items, which silently wiped Mike's pricing every time a
+    buyer re-emailed (regression incident: pc_177b18e6, 22 hours of
+    operator pricing lost).
     """
     from src.api.dashboard import _load_price_checks, _save_single_pc
     if record_type == "pc":
@@ -894,16 +1036,18 @@ def _update_existing_record(
         pc = pcs.get(record_id) or {}
         pc["_classification"] = classification.to_dict()
         if items:
-            pc["items"] = items
+            pc["items"] = _merge_items_preserving_pricing(
+                pc.get("items") or [], items,
+            )
         if primary_path:
             pc["source_pdf"] = primary_path
         pc["updated_at"] = datetime.now().isoformat()
         _save_single_pc(record_id, pc)
-        # Re-parse replaces items — refresh catalog MSRP for the new set too
+        # Re-parse replaces items — refresh catalog MSRP for the merged set too
         if items:
             try:
                 from src.agents.product_catalog import refresh_prices_for_items_async
-                refresh_prices_for_items_async(items, context=f"reparse_pc_{record_id[:8]}")
+                refresh_prices_for_items_async(pc["items"], context=f"reparse_pc_{record_id[:8]}")
             except Exception as _e:
                 log.debug("refresh_prices_for_items_async skipped on reparse: %s", _e)
     else:  # rfq
@@ -912,7 +1056,9 @@ def _update_existing_record(
         rfq = rfqs.get(record_id) or {}
         rfq["_classification"] = classification.to_dict()
         if items:
-            rfq["line_items"] = items
+            rfq["line_items"] = _merge_items_preserving_pricing(
+                rfq.get("line_items") or [], items,
+            )
         if primary_path:
             rfq["source_pdf"] = primary_path
             # Register the uploaded file under rfq["templates"] so the
@@ -942,7 +1088,7 @@ def _update_existing_record(
         if items:
             try:
                 from src.agents.product_catalog import refresh_prices_for_items_async
-                refresh_prices_for_items_async(items, context=f"reparse_rfq_{record_id[:8]}")
+                refresh_prices_for_items_async(rfq["line_items"], context=f"reparse_rfq_{record_id[:8]}")
             except Exception as _e:
                 log.debug("refresh_prices_for_items_async skipped on reparse: %s", _e)
     return record_id
