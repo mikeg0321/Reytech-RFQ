@@ -3344,7 +3344,11 @@ def api_item_link_lookup():
     """
     import time as _time
     _t0 = _time.monotonic()
-    _ENDPOINT_BUDGET = 14.0  # seconds — client timeout is 15s
+    # Bumped 14→42s on 2026-05-05 (Mike P0): "rather it take time and work,
+    # validate item, then time out." Client budget is 45s — leaving 3s headroom
+    # for Flask + Railway round-trip. shared_item_utils.js holds the matching
+    # _LOOKUP_BUDGET_MS = 45000 constant in lockstep.
+    _ENDPOINT_BUDGET = 42.0
 
     data = request.get_json(force=True, silent=True) or {}
     url = (data.get("url") or "").strip()
