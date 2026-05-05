@@ -2346,6 +2346,90 @@ def _is_real_part_number(pn) -> bool:
     return len(s) >= 4
 
 
+def cleanup_polluted_catalog_rows() -> dict:
+    """Boot backfill (Mike P0 2026-05-05 cont.): NULL out junk sku/mfg_number
+    on rows that pre-date PR #741's `add_to_catalog` sanitizer.
+
+    PR #741 stopped NEW pollution at the write path but left existing rows
+    intact. Two known polluted rows on prod (id=840 sku="1" mfg="1" name=
+    "Engraved two line name tag", id=841 sku="2" mfg="2" name="Copy paper")
+    were created when buyer 704 placeholder pns ("1", "2", ...) were
+    written straight into product_catalog by the old auto-enrichment pipeline.
+
+    Until those rows are scrubbed, match_item Strategy 1 still has a path
+    to surface the wrong product on any line whose placeholder pn happens
+    to equal an existing junk sku — even though Strategy 1 itself now
+    refuses to USE the buyer's junk pn (PR #741 gate). The PR #741 gate
+    closes one direction; this backfill closes the other.
+
+    Idempotent: re-runs are safe (already-empty rows won't be touched
+    again because the WHERE clause excludes them). Logs every row it
+    changes for audit. Called from app.py _deferred_init() on every boot.
+
+    Returns dict with counts: {"sku_cleared", "mfg_cleared", "rows_touched"}.
+    """
+    init_catalog_db()
+    conn = _get_conn()
+    try:
+        # Find every row whose sku or mfg_number fails _is_real_part_number.
+        # `LENGTH(TRIM(...)) BETWEEN 1 AND 3` is the SQL equivalent of the
+        # Python helper's "non-empty but < 4 chars" rule — junk placeholder.
+        rows = conn.execute(
+            """
+            SELECT id, name, sku, mfg_number
+              FROM product_catalog
+             WHERE (sku IS NOT NULL AND LENGTH(TRIM(sku)) BETWEEN 1 AND 3)
+                OR (mfg_number IS NOT NULL AND LENGTH(TRIM(mfg_number)) BETWEEN 1 AND 3)
+            """
+        ).fetchall()
+
+        sku_cleared = 0
+        mfg_cleared = 0
+        rows_touched = 0
+        for r in rows:
+            rid = r["id"]
+            new_sku = r["sku"]
+            new_mfg = r["mfg_number"]
+            changed = False
+            if r["sku"] and not _is_real_part_number(r["sku"]):
+                new_sku = ""
+                sku_cleared += 1
+                changed = True
+            if r["mfg_number"] and not _is_real_part_number(r["mfg_number"]):
+                new_mfg = ""
+                mfg_cleared += 1
+                changed = True
+            if not changed:
+                continue
+            conn.execute(
+                "UPDATE product_catalog SET sku=?, mfg_number=?, "
+                " updated_at=? WHERE id=?",
+                (new_sku, new_mfg, datetime.now(timezone.utc).isoformat(), rid),
+            )
+            rows_touched += 1
+            log.warning(
+                "CATALOG CLEANUP: row id=%d name=%r — cleared sku=%r mfg=%r",
+                rid, (r["name"] or "")[:60], r["sku"], r["mfg_number"],
+            )
+        if rows_touched:
+            conn.commit()
+            log.info(
+                "CATALOG CLEANUP: scrubbed %d polluted rows (sku=%d, mfg=%d)",
+                rows_touched, sku_cleared, mfg_cleared,
+            )
+        return {
+            "rows_touched": rows_touched,
+            "sku_cleared": sku_cleared,
+            "mfg_cleared": mfg_cleared,
+        }
+    except Exception as e:
+        log.error("CATALOG CLEANUP failed: %s", e, exc_info=True)
+        return {"rows_touched": 0, "sku_cleared": 0, "mfg_cleared": 0,
+                "error": str(e)}
+    finally:
+        conn.close()
+
+
 def match_item(description: str, part_number: str = "", top_n: int = 3, upc: str = "") -> list:
     """
     Find best catalog matches for a line item from a Price Check or RFQ.

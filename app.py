@@ -422,6 +422,16 @@ def create_app():
         except Exception as e:
             logging.getLogger("reytech").warning("Enrichment recovery on boot: %s", e)
 
+        # Junk-pn cleanup (Mike P0 cont. of PR #741): scrub catalog rows
+        # whose sku/mfg_number is a buyer placeholder (1-3 chars). Stops
+        # match_item Strategy 1 from surfacing the wrong product on lines
+        # whose placeholder pn happens to equal an existing junk sku.
+        try:
+            from src.agents.product_catalog import cleanup_polluted_catalog_rows
+            cleanup_polluted_catalog_rows()
+        except Exception as e:
+            logging.getLogger("reytech").warning("Catalog junk-pn cleanup on boot: %s", e)
+
         # Structured logging already initialized in create_app()
         try:
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
