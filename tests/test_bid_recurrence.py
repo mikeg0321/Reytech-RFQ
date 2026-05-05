@@ -36,10 +36,36 @@ from src.core.bid_recurrence import (
 
 # ─── Building blocks ─────────────────────────────────────────────────────
 
-def test_normalize_institution_canonical():
-    assert _normalize_institution("CCHCS") == "cchcs"
-    assert _normalize_institution("  CIW  RHU ") == "ciw rhu"
-    assert _normalize_institution("CIW   RHU") == "ciw rhu"  # collapse spaces
+def test_normalize_institution_routes_through_resolver():
+    """Per `feedback_institution_resolver_canonical` — CIW / CCHCS / CHCF
+    must all canonicalize to the same agency bucket. Mike's 2026-05-05
+    incident: PR #737 shipped with raw string match; his manual `CIW RHU`
+    PC and the new `cchcs` ingest didn't connect because the matcher
+    didn't route through the resolver."""
+    assert _normalize_institution("CCHCS") == "agency:cchcs"
+    assert _normalize_institution("CIW RHU") == "agency:cchcs"
+    assert _normalize_institution("  CIW  RHU ") == "agency:cchcs"
+    assert _normalize_institution("CIW") == "agency:cchcs"
+    assert _normalize_institution("CHCF") == "agency:cchcs"
+    # All of those must compare equal — that's the whole point.
+    canonical = _normalize_institution("cchcs")
+    # CDCR facility codes the resolver knows about — these are the
+    # variants Mike actually sees on incoming forms. Full-name strings
+    # like "California Institution for Women" aren't yet in the resolver
+    # match dict; if a buyer uses one, ingest should normalize it first.
+    for variant in ("CCHCS", "CIW RHU", "CIW", "CHCF", "CMC", "SAC"):
+        assert _normalize_institution(variant) == canonical, (
+            f"{variant!r} must canonicalize to the same bucket as 'cchcs'"
+        )
+
+
+def test_normalize_institution_unknown_falls_back_to_raw():
+    """When the resolver can't classify (e.g., a vendor name), keep the
+    raw lowercase string so identical inputs still match each other —
+    the matcher just won't cross-link unknowns to known agencies."""
+    out = _normalize_institution("Some Random Vendor LLC")
+    assert out == "some random vendor llc"  # raw fallback
+    # Empty / None short-circuit cleanly
     assert _normalize_institution(None) == ""
     assert _normalize_institution("") == ""
 
@@ -170,11 +196,31 @@ def _new_recurrence_pc():
     }
 
 
+def test_find_recurring_bids_matches_mikes_exact_cross_naming_case():
+    """Mike's 2026-05-05 P0 follow-on: his manual PC institution is
+    'CIW RHU' and the auto ingest came in tagged 'cchcs'. Without
+    resolver-backed canonicalization the chip didn't fire. With it,
+    both records bucket as agency:cchcs and the recurrence matches."""
+    manual = _carolyn_pc()
+    manual["institution"] = "CIW RHU"  # explicit — what he typed
+    auto = _new_recurrence_pc()
+    auto["institution"] = "cchcs"  # what the auto-ingest stamped
+    matches = find_recurring_bids(
+        auto, {"manual": manual}, record_id="self",
+    )
+    assert len(matches) == 1, (
+        "CIW RHU and cchcs MUST match via institution_resolver — "
+        "this is exactly the case PR #737 missed and Mike called out."
+    )
+
+
 def test_find_recurring_bids_matches_carolyn_to_new():
     new = _new_recurrence_pc()
     all_records = {
         "pc_old": _carolyn_pc(),
         "pc_unrelated": {
+            # Same agency (cchcs) but completely different items — must
+            # not match. Tests the items-overlap gate independently.
             "institution": "CCHCS",
             "items": [{"description": "Echo Dot", "qty": 1}],
             "pc_number": "X",
