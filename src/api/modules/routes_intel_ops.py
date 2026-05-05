@@ -5105,6 +5105,17 @@ def api_admin_orders_po_rewrite():
             "error": "order_id and new_po are required",
         }), 400
 
+    # Sanitize sentinel po_numbers (N/A, TBD, ?, X, ...) before write.
+    # Operator could paste "N/A" or "?" by mistake; clean_po_number
+    # rejects those and prevents pollution of orders.po_number.
+    from src.core.order_dal import clean_po_number
+    new_po = clean_po_number(new_po)
+    if not new_po:
+        return jsonify({
+            "ok": False,
+            "error": "new_po failed sanitization (sentinel like N/A/TBD/?/X — provide a real PO number)",
+        }), 400
+
     with get_db() as conn:
         row = conn.execute(
             "SELECT id, po_number FROM orders WHERE id = ?",
