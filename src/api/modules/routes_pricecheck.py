@@ -54,7 +54,8 @@ def _load_pc_revisions():
     path = _pc_revisions_path()
     if os.path.exists(path):
         try:
-            return json.load(open(path))
+            with open(path) as f:
+                return json.load(f)
         except Exception:
             return {}
     return {}
@@ -1784,8 +1785,9 @@ def pricecheck_save_prices(pcid):
     try:
         return _do_save_prices(pcid)
     except Exception as e:
-        log.error("SAVE-PRICES %s CRASHED: %s", pcid, e)
-        import traceback; traceback.print_exc()
+        # exc_info=True captures the traceback into the log sink (vs
+        # traceback.print_exc which writes to stderr only).
+        log.error("SAVE-PRICES %s CRASHED: %s", pcid, e, exc_info=True)
         return jsonify({"ok": False, "error": f"Server error: {e}"})
 
 
@@ -1852,7 +1854,11 @@ def _recompute_unit_price(item: dict) -> None:
         new_price = round(cost_f * (1 + markup_f / 100.0), 2)
         item["unit_price"] = new_price
         item["pricing"]["recommended_price"] = new_price
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as _e:
+        # Operator-edited cost or markup wasn't numeric — skip the recompute
+        # and leave the persisted unit_price as-is. Logged at debug so a
+        # mysterious "price didn't update" is traceable.
+        log.debug("_recompute_unit_price skipped (non-numeric input): %s", _e)
         return
 
 
