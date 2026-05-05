@@ -432,6 +432,16 @@ def create_app():
         except Exception as e:
             logging.getLogger("reytech").warning("Catalog junk-pn cleanup on boot: %s", e)
 
+        # Stale cs_drafts purge: remove untouched auto-drafts >30d old
+        # from the email outbox. 132 stale drafts surfaced 2026-05-04;
+        # operator never triaged them, original buyer email is past
+        # responding-window. Sent / approved / dismissed drafts kept.
+        try:
+            from src.agents.cs_agent import purge_stale_cs_drafts
+            purge_stale_cs_drafts(max_age_days=30)
+        except Exception as e:
+            logging.getLogger("reytech").warning("CS-draft purge on boot: %s", e)
+
         # Structured logging already initialized in create_app()
         try:
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
