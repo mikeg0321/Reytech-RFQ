@@ -107,6 +107,7 @@ def run_qa(pc: dict, use_llm: bool = True) -> dict:
         issues.extend(_check_math(idx, item, p))
         issues.extend(_check_completeness(idx, item, p))
         issues.extend(_check_identity(idx, item, p))
+        issues.extend(_check_sources_disagree(idx, item, p))
 
     # ═══ PC-LEVEL CHECKS ═════════════════════════════════════════════════
 
@@ -271,6 +272,69 @@ def _check_identity(idx: int, item: dict, p: dict) -> list:
                         "category": CAT_IDENTITY,
                         "message": "No MFG#/part number — 704 will have an empty field"})
 
+    return issues
+
+
+# ─── PRICING: source disagreement (Surface #8, 2026-05-04) ────────────────
+
+def _check_sources_disagree(idx: int, item: dict, p: dict) -> list:
+    """Surface 'sources disagree' warning when pricing sources span >3×.
+
+    Surface #8 (Mike's 2026-05-04 chain, Heel Donut item): SCPRS fuzzy match
+    pulled $49.99 while the real Amazon price was $7.99 — a 6× disagreement.
+    The existing 3× rule (CLAUDE.md "Cost Sanity Guardrail" + quote_model.py:
+    265 + pc_detail.html:1575) only fires when operator-typed `unit_cost`
+    exceeds 3× a reference. It never fires when sources disagree AMONG
+    THEMSELVES, so a noisy SCPRS fuzzy match silently inflates the highest
+    reference and skews the operator's cost decision.
+
+    This check is the inverse: when SCPRS/Catalog/Amazon/Web prices for the
+    same item have a max/min ratio >= 3, flag it for operator review. It is
+    a WARNING (per feedback_ten_minute_escape_valve — soft warnings only,
+    no hard gates), and explicitly NOT a blocker.
+    """
+    issues = []
+    if item.get("no_bid"):
+        return issues
+
+    sources = []
+    for key, label in (
+        ("scprs_last_price", "SCPRS"),
+        ("catalog_cost",     "Catalog"),
+        ("amazon_price",     "Amazon"),
+        ("web_cost",         "Web"),
+    ):
+        try:
+            v = float(p.get(key) or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > 0:
+            sources.append((label, v))
+
+    if len(sources) < 2:
+        return issues  # Need at least 2 sources to disagree.
+
+    prices = [v for _, v in sources]
+    lo = min(prices)
+    hi = max(prices)
+    if lo <= 0 or hi / lo < 3.0:
+        return issues
+
+    breakdown = ", ".join(f"{label} ${v:.2f}" for label, v in sources)
+    issues.append({
+        "severity": WARNING, "item_index": idx, "field": "pricing",
+        "category": CAT_MATH,
+        "message": (
+            f"Sources disagree by {hi/lo:.1f}x ({breakdown}) — likely "
+            f"fuzzy match on the highest source. Verify before pricing."
+        ),
+        "value": {
+            "min": round(lo, 2),
+            "max": round(hi, 2),
+            "ratio": round(hi / lo, 1),
+            "sources": {label: v for label, v in sources},
+        },
+    })
     return issues
 
 
