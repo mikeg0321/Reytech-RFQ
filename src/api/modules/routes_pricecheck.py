@@ -3210,8 +3210,16 @@ def _generate_pc_pdf(pcid):
                             "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
                             (pcid,)
                         ).fetchone()
-                    except Exception as _e:
-                        log.debug("Suppressed: %s", _e)
+                    except Exception as _ea_e:
+                        # Audit P1 #11 (2026-05-06): bumped from log.debug to
+                        # log.warning. Schema drift here was masked as a
+                        # generic "Source PDF not found" — operator spent 20
+                        # min uploading when email_attachments table was the
+                        # actual cause.
+                        log.warning(
+                            "PC %s: email_attachments lookup failed (likely "
+                            "schema drift) — %s", pcid, _ea_e,
+                        )
                 if row and row["data"]:
                     restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
                     os.makedirs(restore_dir, exist_ok=True)
@@ -3528,8 +3536,16 @@ def _do_generate_original(pcid):
                             "SELECT data, filename FROM email_attachments WHERE pc_id=? ORDER BY id DESC LIMIT 1",
                             (pcid,)
                         ).fetchone()
-                    except Exception as _e:
-                        log.debug("Suppressed: %s", _e)
+                    except Exception as _ea_e:
+                        # Audit P1 #11 (2026-05-06): bumped from log.debug to
+                        # log.warning. Schema drift here was masked as a
+                        # generic "Source PDF not found" — operator spent 20
+                        # min uploading when email_attachments table was the
+                        # actual cause.
+                        log.warning(
+                            "PC %s: email_attachments lookup failed (likely "
+                            "schema drift) — %s", pcid, _ea_e,
+                        )
                 if row and row["data"]:
                     restore_dir = os.path.join(DATA_DIR, "pc_pdfs")
                     os.makedirs(restore_dir, exist_ok=True)
