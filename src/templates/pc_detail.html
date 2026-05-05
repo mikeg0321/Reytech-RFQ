@@ -783,6 +783,32 @@
        <span id="parseQualityBadge" style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:{{ _clr }}20;color:{{ _clr }};border:1px solid {{ _clr }}40;margin-left:8px;cursor:help" title="Parse Quality: {{ pq.score }}/100 | Expected ~{{ pq.expected_items }} items, parsed {{ pq.parsed_items }}{% for w in pq.get('warnings', []) %} | {{ w }}{% endfor %}">Parse {{ _g }} ({{ pq.score }}%)</span>
      {% endif %}
      </h3>
+     <!-- ═══ BID RECURRENCE CHIP ═══ -->
+     {# 2026-05-05 Mike's ask: surface prior PCs at the same institution
+        whose item set matches >=75%. Government buyers re-bid same SKUs on
+        a cadence; reusing the prior pricing is the operator-leverage win. #}
+     {% if recurring_bids %}
+     <div id="bid-recurrence-chip" data-testid="bid-recurrence-chip"
+          style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.3);border-radius:8px;margin-bottom:12px;font-size:13px;flex-wrap:wrap">
+       <span style="font-size:18px" aria-hidden="true">🔁</span>
+       <span style="color:#58a6ff;font-weight:600">Prior bids at this institution:</span>
+       {% for rb in recurring_bids %}
+         <a href="{{ rb.url }}"
+            data-testid="bid-recurrence-link"
+            style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#58a6ff;text-decoration:none;font-family:'JetBrains Mono',monospace;font-size:12px"
+            title="{{ rb.matched_items }}/{{ rb.total_items }} items match (qty + description). Status: {{ rb.status }}{% if rb.requestor %} | Requestor: {{ rb.requestor }}{% endif %}">
+           #{{ rb.pc_number or rb.id }}
+           <span style="color:#8b949e">·</span>
+           <span style="color:#8b949e">{{ rb.matched_items }}/{{ rb.total_items }}</span>
+           {% if rb.status %}
+           <span style="color:#8b949e">·</span>
+           <span style="color:{% if rb.status == 'won' %}#3fb950{% elif rb.status == 'lost' %}#f85149{% else %}#8b949e{% endif %}">{{ rb.status }}</span>
+           {% endif %}
+         </a>
+       {% endfor %}
+       <span style="color:#8b949e;font-size:12px;margin-left:auto">Reuse prior pricing as a starting point</span>
+     </div>
+     {% endif %}
      <!-- ═══ STICKY MARGIN STRIP ═══ -->
      <div id="pc-margin-summary" style="display:flex;padding:10px 14px;background:#21262d;border:1px solid #30363d;border-radius:8px;font-size:14px;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:12px;position:sticky;top:0;z-index:15;min-height:40px">
       <div id="pc-ms-coverage" style="display:flex;align-items:center;gap:8px;min-width:120px">

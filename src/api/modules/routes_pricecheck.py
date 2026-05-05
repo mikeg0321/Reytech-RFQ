@@ -1388,6 +1388,23 @@ def _pricecheck_detail_inner(pcid):
             except (ValueError, TypeError):
                 continue
 
+    # Bid recurrence detection: surface prior PCs at the same institution
+    # whose item set substantially matches the current one. Mike's
+    # 2026-05-05 ask — government buyers re-bid the same SKUs on a cadence,
+    # so a "we bid this for them before — click to see prior pricing"
+    # chip is the operator-leverage payoff. Read-side only (no writes).
+    _recurring_bids = []
+    try:
+        from src.core.bid_recurrence import find_recurring_bids
+        _all_pcs_for_recurrence = _load_price_checks()
+        _recurring_bids = find_recurring_bids(
+            {"institution": pc.get("institution", ""), "items": items},
+            _all_pcs_for_recurrence,
+            record_id=pcid,
+        )
+    except Exception as _br_e:
+        log.debug("bid_recurrence: %s", _br_e)
+
     html = render_page("pc_detail.html", active_page="PCs",
         pcid=pcid, pc=pc, items=items, items_html=items_html,
         tier_counts=tier_counts,
@@ -1406,6 +1423,7 @@ def _pricecheck_detail_inner(pcid):
         bundle_siblings=_bundle_siblings,
         due_date_iso=_due_date_iso,
         due_time_hhmm=_due_time_hhmm,
+        recurring_bids=_recurring_bids,
     )
     # Sanitize any surrogate chars that could cause UnicodeEncodeError
     return html.encode("utf-8", "replace").decode("utf-8")
