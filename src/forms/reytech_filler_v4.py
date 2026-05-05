@@ -719,16 +719,22 @@ def fill_703b(input_path, rfq_data, config, output_path):
     if rfq_data.get("delivery_location"):
         values[f"{p}Dropdown2"] = rfq_data["delivery_location"]
 
-    # Check if template has /Sig fields (if so, fill_and_sign_pdf handles signature)
+    # Check if template has any /Sig field (if so, the form is "modern" and the
+    # signature belongs in the field, not at a fixed position).
+    # Detect by /FT == /Sig, NOT by name — variant /Sig field names (e.g.
+    # DigitalSignature, AuthorizedSignature_Alt) on third-party 703B templates
+    # would otherwise miss the guard and double-stamp via positional overlay.
     _reader_check = PdfReader(input_path)
     _has_sig_field = False
     for _pg in _reader_check.pages:
         if "/Annots" in _pg:
             for _ann in _pg["/Annots"]:
                 _obj = _ann.get_object()
-                if str(_obj.get("/FT", "")) == "/Sig" and str(_obj.get("/T", "")) in SIGN_FIELDS:
+                if str(_obj.get("/FT", "")) == "/Sig":
                     _has_sig_field = True
                     break
+        if _has_sig_field:
+            break
 
     fill_and_sign_pdf(input_path, values, output_path, sign_date=sign_date)
 
