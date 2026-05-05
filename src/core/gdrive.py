@@ -393,6 +393,26 @@ def _get_or_create_legacy_year_folder(year: str) -> str:
     return _get_or_create_folder(canonical, GOOGLE_DRIVE_ROOT_FOLDER_ID)
 
 
+def _find_legacy_quarter_folder(legacy_year_id: str, quarter: str,
+                                year: str) -> Optional[str]:
+    """Find a quarter subfolder under a legacy year folder.
+
+    Tolerates two naming conventions observed in production:
+      - Canonical: `Q1`, `Q2`, `Q3`, `Q4` (used by 2024/2025/2026
+        legacy folders — created via `_get_or_create_folder`).
+      - Year-suffixed: `Q1 2023`, `Q2 2023`, ... (used by the
+        `2023 - Purchase orders` legacy folder; verified via prod
+        path-probe 2026-05-06).
+
+    Canonical names are tried first so the common case short-circuits
+    to one `find_folder` call.
+    """
+    qid = find_folder(quarter, legacy_year_id)
+    if qid:
+        return qid
+    return find_folder(f"{quarter} {year}", legacy_year_id)
+
+
 def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
     """Resolve a PO's Drive folder ID. Searches BOTH archive trees:
 
@@ -403,6 +423,12 @@ def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
            - `PO-` prefix: `PO-8955-0000063707`
            - `PO ` (space) prefix: `PO 4500736218`
            - trailing whitespace on year folder, lowercase 'orders'
+           - quarter naming `Q1` (canonical) or `Q1 2023` (legacy 2023)
+         Cross-year scan: target year first, then prior 3 years. Reason:
+         Mike files by PO award/receipt date, which can be in a prior
+         fiscal year vs the order's `created_at`. 2026-05-06 prod smoke
+         (PR #758) showed `8955-0000071826` lives in 2025/Q2 while its
+         order's audit-derived year was 2026 — cross-year fallback finds it.
       2. **App tree** (legacy auto-trigger output — 1 PO ever wrote here):
          `{year}/{quarter}/PO-{po}/`. Searched as a fallback so the lone
          fossil PO stays findable.
@@ -421,30 +447,49 @@ def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
         return None
 
     # 1. Legacy tree (Mike's filing — 89/90 POs).
-    # First try the requested quarter; if no match there, scan all 4
-    # quarters under the legacy year folder. Reason: orders.created_at
-    # gives us the order-creation quarter, but Mike files based on PO
-    # award/receipt date which can land in a different quarter. The
-    # 2026-05-06 prod smoke showed 58/100 audited rows missed because
-    # of exactly this quarter mismatch.
-    legacy_year_id = _find_legacy_year_folder(year)
-    if legacy_year_id:
-        # Try requested quarter first (cheapest path when it matches)
-        quarter_id = find_folder(quarter, legacy_year_id)
-        if quarter_id:
-            try:
-                children = _list_subfolders(quarter_id)
-            except Exception as e:
-                log.warning("find_po_folder: list legacy quarter failed: %s", e)
-                children = []
-            for child in children:
-                if _normalize_po_name(child.get("name", "")) == target:
-                    return child["id"]
-        # Quarter mismatch fallback — scan all 4 quarters
+    # Iterate target year + 3 prior years. Bounded so unarchived POs
+    # still terminate in finite API calls. Live `on_po_received` always
+    # passes the current year + current quarter and short-circuits on
+    # the first match (test_canonical_q_naming_still_short_circuits +
+    # test_cross_year_does_not_kick_in_when_found_in_target_year pin
+    # this perf invariant).
+    candidate_years = [year]
+    try:
+        y = int(year)
+        candidate_years.extend(str(y - n) for n in (1, 2, 3))
+    except (ValueError, TypeError):
+        # Non-numeric year (e.g. audit's `Q?` parse-failure path) —
+        # try only what we were given.
+        pass
+
+    for try_year in candidate_years:
+        legacy_year_id = _find_legacy_year_folder(try_year)
+        if not legacy_year_id:
+            continue
+
+        # In the target year, try the audit-derived quarter first
+        # (cheapest path when it matches).
+        if try_year == year:
+            quarter_id = _find_legacy_quarter_folder(
+                legacy_year_id, quarter, try_year,
+            )
+            if quarter_id:
+                try:
+                    children = _list_subfolders(quarter_id)
+                except Exception as e:
+                    log.warning("find_po_folder: list legacy quarter failed: %s", e)
+                    children = []
+                for child in children:
+                    if _normalize_po_name(child.get("name", "")) == target:
+                        return child["id"]
+
+        # Scan all 4 quarters (skip the one already tried in target year).
         for fallback_q in ("Q1", "Q2", "Q3", "Q4"):
-            if fallback_q == quarter:
-                continue  # already tried
-            fq_id = find_folder(fallback_q, legacy_year_id)
+            if try_year == year and fallback_q == quarter:
+                continue
+            fq_id = _find_legacy_quarter_folder(
+                legacy_year_id, fallback_q, try_year,
+            )
             if not fq_id:
                 continue
             try:
@@ -452,15 +497,23 @@ def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
             except Exception as e:
                 log.warning(
                     "find_po_folder: list legacy %s/%s failed: %s",
-                    year, fallback_q, e,
+                    try_year, fallback_q, e,
                 )
                 continue
             for child in children:
                 if _normalize_po_name(child.get("name", "")) == target:
-                    log.info(
-                        "find_po_folder: matched %s in %s/%s (audited "
-                        "quarter was %s)", target, year, fallback_q, quarter,
-                    )
+                    if try_year != year:
+                        log.info(
+                            "find_po_folder: matched %s in %s/%s "
+                            "(audited year=%s, quarter=%s)",
+                            target, try_year, fallback_q, year, quarter,
+                        )
+                    elif fallback_q != quarter:
+                        log.info(
+                            "find_po_folder: matched %s in %s/%s "
+                            "(audited quarter was %s)",
+                            target, year, fallback_q, quarter,
+                        )
                     return child["id"]
 
     # 2. App tree fossil fallback (1 PO as of 2026-04-28). Same

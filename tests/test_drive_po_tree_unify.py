@@ -103,7 +103,7 @@ def test_find_po_folder_keeps_app_tree_fallback():
     writes — that's Option A's end state per scope doc."""
     body = (REPO / "src/core/gdrive.py").read_text(encoding="utf-8")
     fn_start = body.find("def find_po_folder(")
-    fn_body = body[fn_start:fn_start + 4000]
+    fn_body = body[fn_start:fn_start + 8000]
     # The function should still call `find_folder(year, ROOT)` for the
     # bare-year app-tree branch
     assert "find_folder(year, GOOGLE_DRIVE_ROOT_FOLDER_ID)" in fn_body, (
