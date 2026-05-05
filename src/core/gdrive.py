@@ -315,23 +315,136 @@ def find_folder(name: str, parent_id: str) -> Optional[str]:
     return files[0]["id"] if files else None
 
 
-def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
-    """Resolve `{year}/{quarter}/PO-{po_number}/` to a Drive folder ID,
-    or None if any segment is missing. Read-only.
+def _list_subfolders(parent_id: str) -> List[dict]:
+    """List all subfolders under `parent_id`. Returns [{id, name}, ...].
+    Paginated. Read-only — doesn't create anything.
+    """
+    service = _get_service()
+    out: List[dict] = []
+    page_token = None
+    query = (
+        f"'{parent_id}' in parents and "
+        "mimeType='application/vnd.google-apps.folder' and trashed=false"
+    )
+    while True:
+        results = service.files().list(
+            q=query, fields="files(id,name),nextPageToken", pageSize=100,
+            pageToken=page_token,
+            supportsAllDrives=True, includeItemsFromAllDrives=True,
+        ).execute()
+        out.extend(results.get("files", []))
+        page_token = results.get("nextPageToken")
+        if not page_token:
+            break
+    return out
 
-    Per drive_triggers.on_po_received, PO folders are named
-    `PO-{po_number}` (with `PO-` prepended if not already present).
+
+def _normalize_po_name(name: str) -> str:
+    """Strip surrounding whitespace + leading 'PO-' / 'PO ' prefix to
+    expose the bare PO number. Used to compare folder names across
+    legacy filing variants observed in Drive:
+      - 'PO-8955-0000063707' (app trigger output)
+      - 'PO 4500736218'      (Mike's manual filing, space prefix)
+      - '4500750017'         (bare, most common in legacy)
+      - '8955-0000071826 '   (trailing space, Drive preserves these)
+    All four normalize to the same bare PO key.
+    """
+    s = (name or "").strip()
+    upper = s.upper()
+    if upper.startswith("PO-"):
+        s = s[3:].strip()
+    elif upper.startswith("PO "):
+        s = s[3:].strip()
+    return s
+
+
+def _find_legacy_year_folder(year: str) -> Optional[str]:
+    """Find Mike's legacy `{year} - Purchase Orders` folder under root.
+    Tolerates the three variants observed in production Drive:
+      - '2024 - Purchase Orders'   (canonical going forward)
+      - '2024 - Purchase Orders '  (trailing space — Drive preserves)
+      - '2023 - Purchase orders'   (lowercase 'orders' — old folder)
+    Returns None if no match found.
     """
     if not GOOGLE_DRIVE_ROOT_FOLDER_ID:
         return None
-    folder_name = po_number if po_number.startswith("PO-") else f"PO-{po_number}"
+    try:
+        children = _list_subfolders(GOOGLE_DRIVE_ROOT_FOLDER_ID)
+    except Exception as e:
+        log.warning("_find_legacy_year_folder: list root failed: %s", e)
+        return None
+    target_lower = f"{year} - purchase orders"
+    # Prefer exact match (case-insensitive, whitespace-stripped)
+    for c in children:
+        if (c.get("name") or "").strip().lower() == target_lower:
+            return c["id"]
+    return None
+
+
+def _get_or_create_legacy_year_folder(year: str) -> str:
+    """Find existing legacy year folder, or create canonical
+    `{year} - Purchase Orders` under root. Used by the PO-folder write
+    path so new POs land in Mike's existing filing convention.
+    """
+    existing = _find_legacy_year_folder(year)
+    if existing:
+        return existing
+    canonical = f"{year} - Purchase Orders"
+    return _get_or_create_folder(canonical, GOOGLE_DRIVE_ROOT_FOLDER_ID)
+
+
+def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
+    """Resolve a PO's Drive folder ID. Searches BOTH archive trees:
+
+      1. **Legacy tree** (Mike's manual filing — 89/90 archived POs as of
+         2026-04-28): `{year} - Purchase Orders/{quarter}/{po}/`
+         Tolerates folder-name variants:
+           - bare PO: `4500750017`
+           - `PO-` prefix: `PO-8955-0000063707`
+           - `PO ` (space) prefix: `PO 4500736218`
+           - trailing whitespace on year folder, lowercase 'orders'
+      2. **App tree** (legacy auto-trigger output — 1 PO ever wrote here):
+         `{year}/{quarter}/PO-{po}/`. Searched as a fallback so the lone
+         fossil PO stays findable.
+
+    Read-only. Per scope doc PR #756 / Phase 3.5: hybrid path (Option C)
+    that converges on legacy tree once new app-tree writes stop. App-tree
+    branch below is intentionally kept for the fossil and can be dropped
+    in a follow-up PR (= Option A's end state).
+
+    Returns None if not found in either tree.
+    """
+    if not GOOGLE_DRIVE_ROOT_FOLDER_ID:
+        return None
+    target = _normalize_po_name(po_number)
+    if not target:
+        return None
+
+    # 1. Legacy tree (Mike's filing — 89/90 POs)
+    legacy_year_id = _find_legacy_year_folder(year)
+    if legacy_year_id:
+        quarter_id = find_folder(quarter, legacy_year_id)
+        if quarter_id:
+            try:
+                children = _list_subfolders(quarter_id)
+            except Exception as e:
+                log.warning("find_po_folder: list legacy quarter failed: %s", e)
+                children = []
+            for child in children:
+                if _normalize_po_name(child.get("name", "")) == target:
+                    return child["id"]
+
+    # 2. App tree fossil fallback (1 PO as of 2026-04-28)
     year_id = find_folder(year, GOOGLE_DRIVE_ROOT_FOLDER_ID)
-    if not year_id:
-        return None
-    quarter_id = find_folder(quarter, year_id)
-    if not quarter_id:
-        return None
-    return find_folder(folder_name, quarter_id)
+    if year_id:
+        quarter_id = find_folder(quarter, year_id)
+        if quarter_id:
+            for variant in (po_number, f"PO-{po_number}", f"PO {po_number}"):
+                fid = find_folder(variant, quarter_id)
+                if fid:
+                    return fid
+
+    return None
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -462,26 +575,45 @@ def _process_task(task: dict):
 
 
 def _create_po_folder_with_contents(task: dict):
-    """Create PO folder structure and copy files from Pending."""
-    po_number = task.get("po_number", "")
+    """Create PO folder structure in the LEGACY tree and copy files from
+    Pending. Output: `{year} - Purchase Orders/{quarter}/{po}/` + standard
+    subfolders (matches Mike's existing filing convention — see scope doc
+    PR #756 / Phase 3.5 Option C).
+
+    `po_number` may arrive with a 'PO-' prefix from older callers; we
+    strip it so the folder name matches the bare-PO style used in 99% of
+    legacy folders.
+    """
+    raw_po = task.get("po_number", "")
     year = task.get("year", str(datetime.now().year))
     quarter = task.get("quarter", _current_quarter())
     sol_number = task.get("solicitation_number", "")
 
-    if not po_number:
+    if not raw_po:
         return
 
-    # Create PO folder with subfolders
-    po_folder_id = get_folder_path(year, quarter, po_number)
+    # Strip any incoming 'PO-' or 'PO ' prefix — legacy tree uses bare PO.
+    po_number = _normalize_po_name(raw_po) or raw_po
 
-    # Copy files from Pending if they exist
+    # Create/get legacy-tree path: {year} - Purchase Orders/{quarter}/{po}/
+    legacy_year_id = _get_or_create_legacy_year_folder(year)
+    quarter_id = _get_or_create_folder(quarter, legacy_year_id)
+    po_folder_id = _get_or_create_folder(po_number, quarter_id)
+
+    # Standard subfolders inside the PO folder
+    for sf in FOLDER_STRUCTURE["subfolders_per_po"]:
+        _get_or_create_folder(sf, po_folder_id)
+
+    # Copy files from Pending if they exist. Pending lives under the
+    # bare-year tree (`{year}/Pending/`) — that path is shared with
+    # other workflows (Lost, Price_Checks) and is not changing.
     if sol_number:
         try:
             pending_id = get_folder_path(year, category="Pending")
             sol_folder_id = _get_or_create_folder(sol_number, pending_id)
             pending_files = list_files(sol_folder_id)
-            rfq_folder_id = get_folder_path(year, quarter, po_number, subfolder="RFQ")
-            
+            rfq_folder_id = _get_or_create_folder("RFQ", po_folder_id)
+
             service = _get_service()
             for pf in pending_files:
                 # Copy file to PO/RFQ/ subfolder
