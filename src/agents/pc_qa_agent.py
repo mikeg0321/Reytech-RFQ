@@ -108,6 +108,7 @@ def run_qa(pc: dict, use_llm: bool = True) -> dict:
         issues.extend(_check_completeness(idx, item, p))
         issues.extend(_check_identity(idx, item, p))
         issues.extend(_check_sources_disagree(idx, item, p))
+        issues.extend(_check_asin_recycled(idx, item, p))
 
     # ═══ PC-LEVEL CHECKS ═════════════════════════════════════════════════
 
@@ -333,6 +334,62 @@ def _check_sources_disagree(idx: int, item: dict, p: dict) -> list:
             "max": round(hi, 2),
             "ratio": round(hi / lo, 1),
             "sources": {label: v for label, v in sources},
+        },
+    })
+    return issues
+
+
+def _check_asin_recycled(idx: int, item: dict, p: dict) -> list:
+    """Surface 'ASIN recycled' warning when an item references an Amazon ASIN
+    whose cached title has been overwritten with substantially different text.
+
+    Surface #6 (Mike's 2026-05-04 chain, Heel Donut item): Amazon ASIN
+    B08TVK1JQS pointed to an Echo Dot once and a Heel Donut today. Naively
+    overwriting the cached title means a downstream lookup serves the WRONG
+    description for the same ASIN. Per `feedback_item_identity` we don't
+    auto-mutate stored item descriptions — but we DO surface the suspicion
+    so the operator can decide.
+
+    Detection happens at cache-write time in `product_research._cache_store`;
+    this check just reads the flag. It is a WARNING (not a blocker) per
+    `feedback_ten_minute_escape_valve`.
+    """
+    issues = []
+    if item.get("no_bid"):
+        return issues
+
+    # ASIN can live on the item, on its pricing dict, or be embedded in a
+    # research result merged in from `lookup_amazon_product`.
+    asin = (
+        (item.get("asin") or "").strip()
+        or (p.get("asin") or "").strip()
+    )
+    if not asin or len(asin) != 10:
+        return issues
+
+    try:
+        from src.agents.product_research import is_asin_cache_recycled
+        recycle = is_asin_cache_recycled(asin)
+    except Exception:
+        recycle = {}
+    if not recycle.get("recycled"):
+        return issues
+
+    prev_title = (recycle.get("previous_title") or "").strip()
+    cur_title = (recycle.get("current_title") or "").strip()
+    issues.append({
+        "severity": WARNING, "item_index": idx, "field": "asin",
+        "category": CAT_IDENTITY,
+        "message": (
+            f"ASIN {asin} may be recycled — Amazon now shows {cur_title!r} "
+            f"but our cache previously had {prev_title!r}. Verify the item "
+            f"description still matches what the buyer asked for."
+        ),
+        "value": {
+            "asin": asin,
+            "previous_title": prev_title,
+            "current_title": cur_title,
+            "recycled_at": recycle.get("recycled_at", ""),
         },
     })
     return issues
