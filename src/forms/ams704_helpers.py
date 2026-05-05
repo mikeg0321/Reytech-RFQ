@@ -551,28 +551,36 @@ def enrich_pc_description(item: dict, clean_fn=None) -> str:
 
     pricing = item.get("pricing") or {}
 
-    # MFG#
-    mfg_num = (item.get("mfg_number") or pricing.get("mfg_number")
-               or pricing.get("manufacturer_part") or "")
-    if mfg_num and mfg_num.lower() not in desc_final.lower():
-        desc_final = f"{desc_final}\nMFG#: {mfg_num}"
+    # MFG#/UPC does NOT belong in description. The AMS 704 has a dedicated
+    # SUBSTITUTED ITEM column for the manufacturer part / UPC; jamming MFG#
+    # into description was making the field overflow and clip leading +
+    # trailing characters in the rendered PDF (Mike's 2026-05-05 row-2
+    # mangling: "ads Hair..." with leading N clipped + truncated UPC).
+    # build_pc_substitute_text now always populates that column when MFG#
+    # is present, so the inline copy here is redundant.
 
-    # ASIN for substitutes without MFG#
-    if item.get("is_substitute") and not mfg_num:
-        asin = pricing.get("amazon_asin", "")
-        if asin and asin not in desc_final:
-            desc_final = f"{desc_final}\nASIN: {asin}"
+    # REF ASIN — only when item_link is an Amazon URL with /dp/<asin>/.
+    # Reads from the operator-confirmed link, NOT from pricing.amazon_asin
+    # (which can be poisoned by a wrong-product match — Mike's 2026-05-05
+    # Heel Donut → Echo Dot residue showed the cached ASIN was wrong).
+    item_link = (item.get("item_link") or "").strip()
+    if item_link:
+        import re as _re_asin
+        m = _re_asin.search(r'/dp/([A-Z0-9]{10})\b', item_link)
+        if m:
+            asin_from_link = m.group(1)
+            if asin_from_link not in desc_final:
+                desc_final = f"{desc_final}\nREF ASIN: {asin_from_link}"
 
-    # Pack size
+    # QTY per UOM — Mike's 2026-05-05 spec: "add ... QTY Per UOM: if known
+    # in description as well too." Was previously labeled "Pack: N/box".
     qpu = item.get("qty_per_uom", 1)
     try:
         qpu = int(float(qpu)) if qpu else 1
     except (ValueError, TypeError):
         qpu = 1
     if qpu > 1:
-        uom_raw = (item.get("uom") or "EA").upper().strip()
-        uom_label = _UOM_LABELS.get(uom_raw, uom_raw.lower())
-        desc_final = f"{desc_final}\nPack: {qpu}/{uom_label}"
+        desc_final = f"{desc_final}\nQTY per UOM: {qpu}"
 
     # User notes
     notes = (item.get("notes") or "").strip()
@@ -617,6 +625,15 @@ def resolve_pc_price(item: dict, strategy: "FillStrategy") -> float:
 def build_pc_substitute_text(item: dict, clean_desc: str = "") -> str:
     """Build the SUBSTITUTED ITEM field text for a PC item.
 
+    Per Mike's 2026-05-05 spec: "catalog contains all data, buyer output (704)
+    or RFQ determines what gets published" + "you apply the MFG/item number
+    if not provided" — the SUBSTITUTED column is the canonical home for the
+    MFG#/UPC/part number, ALWAYS, regardless of whether the item is flagged
+    as a substitute. The previous `is_substitute=True` gate left the column
+    blank on every non-substitute item even when it had an MFG#, forcing
+    operators to manually re-add the identifier and pushing it into the
+    description (where it doesn't fit).
+
     Args:
         item: Raw PC item dict.
         clean_desc: Pre-cleaned description (from clean_description).
@@ -624,18 +641,31 @@ def build_pc_substitute_text(item: dict, clean_desc: str = "") -> str:
     Returns:
         Substitute text (max 120 chars) or empty string.
     """
-    if not item.get("is_substitute"):
-        # Check for DOCX-parsed substituted_item field
-        sub_raw = (item.get("substituted_item") or "").strip()
-        return sub_raw[:120] if sub_raw else ""
-
     pricing = item.get("pricing") or {}
-    sub_text = clean_desc or (item.get("description") or "")
+
+    # 1) Buyer-provided substitute text (DOCX-parsed substituted_item field)
+    #    — preserve buyer text verbatim when present.
+    sub_raw = (item.get("substituted_item") or "").strip()
+    if sub_raw:
+        return sub_raw[:120]
+
     mfg = (item.get("mfg_number") or pricing.get("mfg_number")
-           or pricing.get("manufacturer_part") or "")
-    if mfg and mfg.lower() not in sub_text.lower():
-        sub_text = f"MFG#: {mfg}\n{sub_text}"
-    return sub_text.strip()[:120]
+           or pricing.get("manufacturer_part") or "").strip()
+    if not mfg:
+        return ""
+
+    # 2) Substitutes: qualify the MFG# with the substitute's description so
+    #    the buyer sees what we substituted. Same as before this change.
+    if item.get("is_substitute"):
+        sub_text = clean_desc or (item.get("description") or "")
+        if mfg.lower() not in sub_text.lower():
+            return f"MFG#: {mfg}\n{sub_text}".strip()[:120]
+        return sub_text.strip()[:120]
+
+    # 3) Non-substitute with an MFG#/UPC: the bare identifier is what belongs
+    #    in this column (matches AMS 704 buyer convention — see the row-1
+    #    Heel Donut "5CAIS1G9WZZC" example on every CSP-SAC PC).
+    return mfg[:120]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
