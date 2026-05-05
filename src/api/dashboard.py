@@ -5511,8 +5511,6 @@ _ROUTE_MODULES = [
     "routes_intelligence",    # Intelligence layer: documents, NL query, compliance matrix
     "routes_cchcs_packet",    # CCHCS Non-IT RFQ Packet generation (Phase 4 — fills 18-page packet end to end)
     "routes_feature_flags",   # P0 resilience Item C: runtime flag admin endpoints
-    "routes_utilization",     # Phase 4: utilization tracking dashboard endpoints
-    "routes_classifier_debug", # Followup: POST /api/admin/classifier/classify debug endpoint
     "routes_health",          # Quoting Health Dashboard: /health/quoting + /api/health/quoting
     "routes_simple_submit",   # Phase 0: Simple Submit — fast-path quoting for PCs + RFQs
     "routes_deadlines",       # Phase 0.5: Deadline tracking API + hard alerts

@@ -1,11 +1,17 @@
-"""Tests for src/core/utilization.py and /api/admin/utilization/*.
+"""Tests for src/core/utilization.py write-side telemetry.
 
 Phase 4 of the PC↔RFQ refactor. Verifies:
   - record_feature_use writes events to the DB without crashing
   - time_feature context manager records duration + ok status
   - DB errors are swallowed (tracking never breaks callers)
   - summary / top_features / dead_features queries work
-  - /api/admin/utilization/* endpoints return usable data
+
+Note: the read-side `/api/admin/utilization/*` HTTP endpoints (formerly
+in routes_utilization.py) were removed 2026-05-05 as a dead-route
+cleanup — the dashboard surface had no UI callers. The write-side
+telemetry collection (record_feature_use, time_feature, flush_now)
+remains live and is heavily used by routes_rfq, routes_pricecheck,
+routes_cchcs_packet, ingest_pipeline, etc.
 """
 import time
 
@@ -118,7 +124,7 @@ class TestDeadFeatures:
         assert "alive.feature" not in dead
 
 
-class TestSummaryEndpoint:
+class TestSummaryQuery:
     def test_summary_returns_structure(self, temp_data_dir):
         from src.core.utilization import record_feature_use, summary, flush_now
         record_feature_use("endpoint.test", duration_ms=100)
@@ -127,45 +133,6 @@ class TestSummaryEndpoint:
         assert s["ok"] is True
         assert s["total_events"] >= 1
         assert "top_features" in s
-
-    def test_summary_endpoint_route(self, client, temp_data_dir):
-        """GET /api/admin/utilization/summary returns valid JSON."""
-        from src.core.utilization import record_feature_use, flush_now
-        record_feature_use("route.test", duration_ms=50)
-        flush_now()
-        r = client.get("/api/admin/utilization/summary?days=1")
-        assert r.status_code == 200
-        d = r.get_json()
-        assert d["ok"] is True
-        assert "top_features" in d
-
-    def test_top_endpoint_route(self, client, temp_data_dir):
-        from src.core.utilization import record_feature_use, flush_now
-        record_feature_use("toproute.test")
-        flush_now()
-        r = client.get("/api/admin/utilization/top?days=1&limit=5")
-        assert r.status_code == 200
-        d = r.get_json()
-        assert d["ok"] is True
-        assert isinstance(d["top"], list)
-
-    def test_dead_endpoint_route(self, client, temp_data_dir):
-        r = client.get("/api/admin/utilization/dead?days=30")
-        assert r.status_code == 200
-        d = r.get_json()
-        assert d["ok"] is True
-        assert "dead" in d
-        assert "tracked" in d
-
-    def test_feature_series_endpoint(self, client, temp_data_dir):
-        from src.core.utilization import record_feature_use, flush_now
-        record_feature_use("series.test", duration_ms=10)
-        flush_now()
-        r = client.get("/api/admin/utilization/feature/series.test?days=1")
-        assert r.status_code == 200
-        d = r.get_json()
-        assert d["ok"] is True
-        assert d["feature"] == "series.test"
 
 
 class TestIngestPipelineEmitsTelemetry:
