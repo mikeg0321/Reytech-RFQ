@@ -714,6 +714,37 @@ def _run_pipeline(pc_id: str, force: bool):
                     _asin = result.get("asin", "")
                     _url = result.get("url", "")
                     _prod_name = result.get("product_name", "")[:200]
+                    # Semantic match gate (Phase 2 fix 2026-05-05): Grok's own
+                    # confidence is on its OWN answer, not on whether the answer
+                    # describes the same product as the buyer's line item. Without
+                    # this gate, Step 4b stamps a URL/cost/manufacturer onto the
+                    # wrong line — exactly the cross-contamination shape that
+                    # PR #483 closed for one URL surface. Mirror Step 5b's pattern.
+                    _sem_ok = True
+                    if _prod_name and desc:
+                        try:
+                            from src.agents.item_link_lookup import claude_semantic_match
+                            _sem = claude_semantic_match(desc, _prod_name, _price)
+                            if _sem.get("ok") and _sem.get("confidence", 1) < 0.60:
+                                _sem_ok = False
+                                log.info(
+                                    "ENRICH %s: Grok '%s' rejected by semantic match (%.0f%%) for line '%s'",
+                                    pc_id, _prod_name[:40],
+                                    _sem.get("confidence", 0) * 100, desc[:40],
+                                )
+                                p["llm_suggestion"] = _prod_name
+                                p["llm_suggestion_price"] = _price
+                                p["llm_suggestion_url"] = _url
+                                p["llm_suggestion_confidence"] = _sem.get("confidence", 0)
+                                p["_needs_web_search"] = True
+                        except Exception as _e:
+                            log.debug("suppressed (semantic match): %s", _e)
+                    if not _sem_ok:
+                        _fp_calls += 1
+                        _update_status(pc_id, "llm_first_pass",
+                                       f"{_fp_calls}/{_LLM_FIRST_LIMIT} validated")
+                        time.sleep(0.5)
+                        continue
                     # Apply to item (set cost if not already set or Grok is more confident)
                     if not _has_cost or _grok_conf > _best_conf:
                         p["unit_cost"] = _price
