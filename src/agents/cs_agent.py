@@ -948,6 +948,76 @@ def purge_stale_cs_drafts(max_age_days: int = 30) -> dict:
     return {"purged": purged, "kept": len(new_outbox), "errors": errors}
 
 
+# Statuses considered "untouched draft" — never approved by operator,
+# never queued for send. The gmail_send card (PR #618) treats these +
+# `queued` + `approved` as "pending"; we deliberately exclude `queued`
+# and `approved` from the purge because those represent operator
+# intent to send. If they sit, that's a delivery problem, not a
+# triage one.
+_STALE_OUTBOX_STATUSES = (
+    "cs_draft",
+    "draft",
+    "outreach_draft",
+    "follow_up_draft",
+)
+
+
+def purge_stale_email_outbox(max_age_days: int = 30) -> dict:
+    """SQLite companion to `purge_stale_cs_drafts`. The JSON outbox and
+    the SQLite `email_outbox` table are two parallel data stores —
+    `purge_stale_cs_drafts` only sweeps the JSON file. The 272 pending
+    drafts the gmail_send card surfaces on prod (Phase 3.3) live in
+    SQLite and were untouched until this function ran.
+
+    Targets only the four "untouched draft" statuses (see
+    `_STALE_OUTBOX_STATUSES`). `queued` and `approved` are deliberately
+    skipped: those represent operator intent to send. Stale `queued`
+    rows are a separate problem (delivery failure) and need different
+    handling.
+
+    Idempotent — re-runs are no-ops because the WHERE clause filters by
+    age, and once a row is gone it stays gone.
+
+    Returns dict: {"purged", "kept", "errors"}. `kept` counts surviving
+    rows whose status is in `_STALE_OUTBOX_STATUSES`, mirroring the
+    JSON purge's accounting.
+    """
+    if not HAS_DB:
+        return {"purged": 0, "kept": 0, "errors": 0}
+    placeholders = ",".join("?" for _ in _STALE_OUTBOX_STATUSES)
+    cutoff_clause = f"datetime(created_at) < datetime('now', '-{int(max_age_days)} days')"
+    try:
+        with get_db() as conn:
+            del_cur = conn.execute(
+                f"""
+                DELETE FROM email_outbox
+                 WHERE status IN ({placeholders})
+                   AND created_at IS NOT NULL AND created_at != ''
+                   AND {cutoff_clause}
+                """,
+                _STALE_OUTBOX_STATUSES,
+            )
+            purged = del_cur.rowcount or 0
+            kept_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS n FROM email_outbox
+                 WHERE status IN ({placeholders})
+                """,
+                _STALE_OUTBOX_STATUSES,
+            ).fetchone()
+            kept = int((kept_row["n"] if kept_row else 0) or 0)
+            conn.commit()
+    except Exception as e:
+        log.error("EMAIL-OUTBOX PURGE: SQL failed: %s", e)
+        return {"purged": 0, "kept": 0, "errors": 1}
+    if purged:
+        log.info(
+            "EMAIL-OUTBOX PURGE: removed %d stale draft rows (>%dd, statuses=%s), %d kept",
+            purged, max_age_days, ",".join(_STALE_OUTBOX_STATUSES), kept,
+        )
+    return {"purged": purged, "kept": kept, "errors": 0}
+
+
 def get_agent_status() -> dict:
     return {
         "agent": "cs_agent",

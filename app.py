@@ -442,6 +442,17 @@ def create_app():
         except Exception as e:
             logging.getLogger("reytech").warning("CS-draft purge on boot: %s", e)
 
+        # SQLite-side companion (Phase 3.3 2026-05-05): the JSON purge
+        # above only sweeps email_outbox.json. Prod 2026-05-04 surfaced
+        # 268+ pending drafts living in the SQLite email_outbox table —
+        # an entirely separate data store. This boot job is the SQL
+        # counterpart that actually drains the gmail_send card pile.
+        try:
+            from src.agents.cs_agent import purge_stale_email_outbox
+            purge_stale_email_outbox(max_age_days=30)
+        except Exception as e:
+            logging.getLogger("reytech").warning("Email-outbox SQL purge on boot: %s", e)
+
         # Structured logging already initialized in create_app()
         try:
             from src.core.scheduler import start_backup_scheduler, register_job, start_watchdog
