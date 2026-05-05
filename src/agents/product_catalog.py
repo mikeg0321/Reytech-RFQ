@@ -3333,6 +3333,31 @@ def enrich_catalog_product(product_id: int, **fields):
     elif _cost and float(_cost) > 0:
         try:
             if _cost_source in ("operator", "catalog_confirmed"):
+                # 3x TYPO GUARD (Audit P1 #10, 2026-05-06):
+                # Operator typed an extra zero (e.g. $2500 instead of $25)?
+                # If we already have a non-zero cost on file and the new value
+                # is >3x higher, refuse the update. Operator must re-enter to
+                # confirm — better to flag a possible typo than to permanently
+                # corrupt the catalog cost. (3x catches the common
+                # extra-zero mistake; legitimate price hikes >3x in one move
+                # are rare enough to warrant manual confirmation.)
+                _existing = conn.execute(
+                    "SELECT best_cost FROM product_catalog WHERE id=?",
+                    (product_id,)
+                ).fetchone()
+                _existing_cost = float(_existing[0]) if _existing and _existing[0] else 0.0
+                if _existing_cost > 0 and float(_cost) > 3 * _existing_cost:
+                    log.warning(
+                        "enrich_catalog_product #%d REFUSED operator cost=%.2f — "
+                        ">3x existing cost %.2f. Likely typo (extra digit). "
+                        "Operator must re-enter to confirm.",
+                        product_id, float(_cost), _existing_cost,
+                    )
+                    _record_enrich_error(product_id, "best_cost_typo_refused",
+                                         _cost, f"3x guard: existing={_existing_cost}")
+                    conn.commit()
+                    conn.close()
+                    return updated
                 # Authoritative — always overwrite
                 conn.execute(
                     "UPDATE product_catalog SET best_cost=?, cost=?, "
