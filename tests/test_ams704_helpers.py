@@ -15,6 +15,8 @@ from src.forms.ams704_helpers import (
     split_description,
     compute_line_totals,
     TotalsResult,
+    enrich_pc_description,
+    build_pc_substitute_text,
 )
 
 
@@ -292,3 +294,129 @@ class TestComputeLineTotals:
     def test_returns_totals_result_type(self):
         result = compute_line_totals([{"qty": 1, "unit_price": 10}])
         assert isinstance(result, TotalsResult)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# enrich_pc_description — buyer description + REF ASIN + QTY per UOM
+# build_pc_substitute_text — MFG#/UPC always populates SUBSTITUTED column
+# Regression for Mike's 2026-05-05 row-2 mangling: MFG# was being jammed into
+# description (overflowing the form field, clipping leading "N" of "Nads" and
+# the trailing digit of the UPC) AND substituted column was blank because
+# build_pc_substitute_text gated on is_substitute=True.
+# Per Mike's spec: "catalog contains all data, buyer output (704) or RFQ
+# determines what gets published" + "apply MFG/item number if not provided
+# and add REF ASIN: ... and QTY Per UOM: in description as well too."
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEnrichPcDescription:
+
+    def test_no_mfg_in_description(self):
+        """MFG# now lives in SUBSTITUTED column — never inline-appended to description."""
+        item = {"description": "Nads Hair Removal Body Wax Strips for Normal Skin",
+                "mfg_number": "0063899500192"}
+        out = enrich_pc_description(item)
+        assert "MFG#" not in out, f"MFG# should not be in description, got: {out!r}"
+        assert "0063899500192" not in out, f"UPC should not be in description, got: {out!r}"
+        assert out.startswith("Nads Hair Removal Body Wax Strips")
+
+    def test_qty_per_uom_appended_when_known(self):
+        """Mike's 2026-05-05 spec: 'QTY per UOM: N' in description."""
+        item = {"description": "Nads Hair Removal Body Wax Strips",
+                "qty_per_uom": 24, "uom": "BX"}
+        out = enrich_pc_description(item)
+        assert "QTY per UOM: 24" in out, f"Should label as 'QTY per UOM: 24', got: {out!r}"
+
+    def test_ref_asin_extracted_from_item_link(self):
+        """REF ASIN comes from the operator-confirmed item_link, NOT from
+        cached pricing.amazon_asin (which can carry a wrong-product ASIN
+        from a prior bad match — Mike's Heel Donut → Echo Dot residue)."""
+        item = {
+            "description": "Nads Hair Removal Body Wax Strips",
+            "item_link": "https://www.amazon.com/Nads-Body-Wax-Strips-24/dp/B000NQ4JGM?th=1",
+            "pricing": {"amazon_asin": "B08TVK1JQS"},  # poisoned cache from prior mismatch
+        }
+        out = enrich_pc_description(item)
+        assert "REF ASIN: B000NQ4JGM" in out, \
+            f"Should use ASIN from item_link, got: {out!r}"
+        assert "B08TVK1JQS" not in out, \
+            f"Must NOT use cached pricing.amazon_asin (poisoned), got: {out!r}"
+
+    def test_no_ref_asin_when_no_item_link(self):
+        """REF ASIN omitted when there's no Amazon item_link to confirm it."""
+        item = {"description": "Generic widget",
+                "pricing": {"amazon_asin": "B0CHH87PT2"}}  # cache only, no link
+        out = enrich_pc_description(item)
+        assert "REF ASIN" not in out, \
+            f"No item_link → no REF ASIN even if cached ASIN exists, got: {out!r}"
+
+    def test_no_ref_asin_for_non_amazon_link(self):
+        """item_link to a non-Amazon supplier shouldn't produce a REF ASIN line."""
+        item = {"description": "Widget",
+                "item_link": "https://www.grainger.com/product/12345"}
+        out = enrich_pc_description(item)
+        assert "REF ASIN" not in out, f"Grainger link → no REF ASIN, got: {out!r}"
+
+    def test_buyer_description_preserved_verbatim(self):
+        """Per Mike: 'you keep the buyer description.' Don't modify, don't
+        prepend, don't trim — append decorations only."""
+        buyer_text = "Heel Donut Cushions, Heel Cups, Silicon Insoles, One Size Fits All - 1 Pair"
+        item = {"description": buyer_text}
+        out = enrich_pc_description(item)
+        assert out.startswith(buyer_text), \
+            f"Buyer text must lead, got: {out!r}"
+
+    def test_empty_description_returns_empty(self):
+        assert enrich_pc_description({"qty_per_uom": 24}) == ""
+
+
+class TestBuildPcSubstituteText:
+
+    def test_mfg_populates_for_non_substitute(self):
+        """The pc_177b18e6 row-2 regression: item with MFG# but is_substitute
+        unset → SUBSTITUTED column was blank. Now it always populates."""
+        item = {"description": "Nads Hair Removal Body Wax Strips",
+                "mfg_number": "0063899500192"}
+        assert build_pc_substitute_text(item) == "0063899500192"
+
+    def test_mfg_populates_for_upc_style_identifier(self):
+        """13-digit UPC must round-trip in full (the 2026-05-05 PDF render
+        was clipping the trailing '2' off '0063899500192' because the value
+        was crammed into description; here we verify the source string is
+        what we claim before the PDF field even gets it)."""
+        item = {"mfg_number": "0063899500192"}
+        out = build_pc_substitute_text(item)
+        assert out == "0063899500192"
+        assert len(out) == 13
+
+    def test_mfg_populates_for_alphanumeric_part(self):
+        """Heel-Donut style mfg matches buyer's row-1 convention."""
+        item = {"description": "Heel Donut Cushions",
+                "mfg_number": "5CAIS1G9WZZC"}
+        assert build_pc_substitute_text(item) == "5CAIS1G9WZZC"
+
+    def test_buyer_substituted_item_field_takes_precedence(self):
+        """When buyer's PDF parsed a substituted_item value, preserve it
+        verbatim (don't replace with our MFG# lookup)."""
+        item = {"substituted_item": "BUYER-PROVIDED-XYZ-001",
+                "mfg_number": "INTERNAL-456"}
+        assert build_pc_substitute_text(item) == "BUYER-PROVIDED-XYZ-001"
+
+    def test_substitute_keeps_qualifying_format(self):
+        """Substitutes still get 'MFG#: N\\nDescription' format so buyer sees
+        what we substituted (preserves the previous behavior for is_substitute=True)."""
+        item = {"description": "Heel Donut Cushions",
+                "mfg_number": "5CAIS1G9WZZC",
+                "is_substitute": True}
+        out = build_pc_substitute_text(item, "Heel Donut Cushions")
+        assert "5CAIS1G9WZZC" in out
+        assert "MFG#:" in out
+
+    def test_no_mfg_returns_empty(self):
+        item = {"description": "Some product"}
+        assert build_pc_substitute_text(item) == ""
+
+    def test_capped_at_120_chars(self):
+        """SUBSTITUTED field has limited width — never exceed 120 chars."""
+        item = {"mfg_number": "X" * 200}
+        out = build_pc_substitute_text(item)
+        assert len(out) <= 120
