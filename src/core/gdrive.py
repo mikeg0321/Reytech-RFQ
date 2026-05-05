@@ -420,9 +420,16 @@ def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
     if not target:
         return None
 
-    # 1. Legacy tree (Mike's filing — 89/90 POs)
+    # 1. Legacy tree (Mike's filing — 89/90 POs).
+    # First try the requested quarter; if no match there, scan all 4
+    # quarters under the legacy year folder. Reason: orders.created_at
+    # gives us the order-creation quarter, but Mike files based on PO
+    # award/receipt date which can land in a different quarter. The
+    # 2026-05-06 prod smoke showed 58/100 audited rows missed because
+    # of exactly this quarter mismatch.
     legacy_year_id = _find_legacy_year_folder(year)
     if legacy_year_id:
+        # Try requested quarter first (cheapest path when it matches)
         quarter_id = find_folder(quarter, legacy_year_id)
         if quarter_id:
             try:
@@ -433,15 +440,50 @@ def find_po_folder(year: str, quarter: str, po_number: str) -> Optional[str]:
             for child in children:
                 if _normalize_po_name(child.get("name", "")) == target:
                     return child["id"]
+        # Quarter mismatch fallback — scan all 4 quarters
+        for fallback_q in ("Q1", "Q2", "Q3", "Q4"):
+            if fallback_q == quarter:
+                continue  # already tried
+            fq_id = find_folder(fallback_q, legacy_year_id)
+            if not fq_id:
+                continue
+            try:
+                children = _list_subfolders(fq_id)
+            except Exception as e:
+                log.warning(
+                    "find_po_folder: list legacy %s/%s failed: %s",
+                    year, fallback_q, e,
+                )
+                continue
+            for child in children:
+                if _normalize_po_name(child.get("name", "")) == target:
+                    log.info(
+                        "find_po_folder: matched %s in %s/%s (audited "
+                        "quarter was %s)", target, year, fallback_q, quarter,
+                    )
+                    return child["id"]
 
-    # 2. App tree fossil fallback (1 PO as of 2026-04-28)
+    # 2. App tree fossil fallback (1 PO as of 2026-04-28). Same
+    # quarter-mismatch handling: scan all 4 quarters if the requested
+    # one doesn't match — the lone fossil 8955-0000076737 actually
+    # lives at 2026/Q2 even though its order shows Q1.
     year_id = find_folder(year, GOOGLE_DRIVE_ROOT_FOLDER_ID)
     if year_id:
-        quarter_id = find_folder(quarter, year_id)
-        if quarter_id:
+        quarters_to_try = [quarter] + [q for q in ("Q1", "Q2", "Q3", "Q4")
+                                       if q != quarter]
+        for q in quarters_to_try:
+            quarter_id = find_folder(q, year_id)
+            if not quarter_id:
+                continue
             for variant in (po_number, f"PO-{po_number}", f"PO {po_number}"):
                 fid = find_folder(variant, quarter_id)
                 if fid:
+                    if q != quarter:
+                        log.info(
+                            "find_po_folder: matched %s in app-tree %s/%s "
+                            "(audited quarter was %s)",
+                            po_number, year, q, quarter,
+                        )
                     return fid
 
     return None
