@@ -48,7 +48,6 @@ log = logging.getLogger("reytech.cchcs_gate")
 
 # Tolerances and thresholds
 PRICE_TO_COST_CEILING_RATIO = 5.0   # price > 5x cost = likely scrape error
-MARKUP_WARN_LOW = 0.10              # <10% markup = below Reytech floor
 MARKUP_WARN_HIGH = 2.00             # >200% markup = suspicious
 EXTENSION_TOLERANCE_CENTS = 1       # $0.01 tolerance for rounding
 
@@ -169,11 +168,7 @@ def _check_line_item_pricing(
                 )
             else:
                 markup = (unit_price - unit_cost) / unit_cost
-                if markup < MARKUP_WARN_LOW:
-                    warnings.append(
-                        f"row {row}: markup {markup:.1%} below {MARKUP_WARN_LOW:.0%} floor"
-                    )
-                elif markup > MARKUP_WARN_HIGH:
+                if markup > MARKUP_WARN_HIGH:
                     warnings.append(
                         f"row {row}: markup {markup:.1%} above {MARKUP_WARN_HIGH:.0%} ceiling"
                     )
@@ -446,6 +441,5 @@ def gate_validate(
 __all__ = [
     "gate_validate",
     "PRICE_TO_COST_CEILING_RATIO",
-    "MARKUP_WARN_LOW",
     "MARKUP_WARN_HIGH",
 ]

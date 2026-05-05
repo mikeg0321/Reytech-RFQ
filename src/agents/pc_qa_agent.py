@@ -9,7 +9,6 @@ By the time Save & Generate fires, pricing has already been validated through:
 
 This QA agent does NOT re-audit pricing decisions. It checks:
 - MATH: does the arithmetic add up?
-- PROFIT: do we meet the $75 floor?
 - COMPLETENESS: all fields filled, all items accounted for?
 - IDENTITY: MFG#s and item numbers correct format?
 - SHIPPING/AGENCY: ship-to, delivery, agency info present?
@@ -33,7 +32,6 @@ INFO = "info"         # FYI — might be intentional
 
 # ─── Categories ────────────────────────────────────────────────────────────
 CAT_MATH = "math"
-CAT_PROFIT = "profit"
 CAT_COMPLETE = "completeness"
 CAT_IDENTITY = "identity"
 CAT_SHIPPING = "shipping"
@@ -41,8 +39,6 @@ CAT_AGENCY = "agency"
 CAT_SPELLING = "spelling"
 CAT_DUPLICATE = "duplicate"
 CAT_REQUIREMENTS = "requirements"  # Email-as-contract gaps
-
-PROFIT_FLOOR = 75.00  # Minimum total profit to justify the quote
 
 
 def _sell_price(item: dict, pricing: dict | None = None) -> float:
@@ -114,7 +110,6 @@ def run_qa(pc: dict, use_llm: bool = True) -> dict:
 
     # ═══ PC-LEVEL CHECKS ═════════════════════════════════════════════════
 
-    issues.extend(_check_profit(pc, items))
     issues.extend(_check_shipping(pc))
     issues.extend(_check_agency(pc, items))
     issues.extend(_check_duplicates(items))
@@ -208,61 +203,6 @@ def _check_math(idx: int, item: dict, p: dict) -> list:
                             "message": f"Extension math: {qty:.0f} x ${price:.2f} = ${calc_ext:.2f}, "
                                        f"but stored as ${stored_ext:.2f}",
                             "value": stored_ext, "expected": calc_ext})
-
-    return issues
-
-
-# ─── PROFIT: do we meet the $75 floor? ─────────────────────────────────────
-
-def _check_profit(pc: dict, items: list) -> list:
-    """Profit-floor check. Skips when any active item lacks a sell price —
-    in that state, the per-item `_sell_price` returns 0 while `unit_cost`
-    is set, so iterating the items computes profit as `(0 - cost) * qty`
-    on the unpriced lines. That produces a giant negative number that
-    looks like a real loss but is actually a "missing price" signal.
-    The per-item "Cost exists but no sell price set" + aggregate "N of M
-    active items have no price" blockers in `_check_completeness` already
-    cover the actionable state; firing the profit floor on top of them
-    just confuses the operator with a fictional profit figure (incident
-    2026-05-01, Mike's screenshot)."""
-    issues = []
-
-    active = [it for it in items if not it.get("no_bid")]
-    unpriced_active = sum(
-        1 for it in active
-        if _sell_price(it, it.get("pricing") or {}) <= 0
-        and float((it.get("pricing") or {}).get("unit_cost") or it.get("vendor_cost") or 0) > 0
-    )
-    if unpriced_active:
-        return issues  # profit unknowable until prices are set
-
-    profit_summary = pc.get("profit_summary") or {}
-    total_revenue = float(profit_summary.get("total_revenue") or 0)
-    total_cost = float(profit_summary.get("total_cost") or 0)
-    gross_profit = float(profit_summary.get("gross_profit") or 0)
-
-    if not gross_profit and total_revenue and total_cost:
-        gross_profit = total_revenue - total_cost
-
-    # Fallback: calculate from items directly. Safe now that we've gated on
-    # unpriced_active above — every active item has a sell price ≥ 0.
-    if not gross_profit:
-        for it in active:
-            p = it.get("pricing") or {}
-            price = _sell_price(it, p)
-            cost = float(p.get("unit_cost") or it.get("vendor_cost") or 0)
-            qty = float(it.get("qty") or 0)
-            gross_profit += (price - cost) * qty
-
-    if gross_profit < PROFIT_FLOOR:
-        issues.append({
-            "severity": BLOCKER, "item_index": -1, "field": "profit",
-            "category": CAT_PROFIT,
-            "message": f"Total profit ${gross_profit:.2f} is below ${PROFIT_FLOOR:.2f} floor — "
-                       f"not worth the operational cost to quote",
-            "value": f"${gross_profit:.2f}",
-            "expected": f">= ${PROFIT_FLOOR:.2f}",
-        })
 
     return issues
 

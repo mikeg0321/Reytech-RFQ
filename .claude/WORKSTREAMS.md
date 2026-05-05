@@ -11,6 +11,7 @@ Track all in-progress work across Claude Code context windows.
 
 | Branch | Context | Worktree | Status | Description | Started |
 |--------|---------|----------|--------|-------------|---------|
+| fix/kill-profit-floor | (auto session) | `C:\Users\mikeg\rfq-kill-profit-floor` | Active | Surface #16: kill profit floor entirely. Mike doctrine: "10000 $20 > 5 $100." Deletes _check_profit (pc_qa_agent), _apply_dollar_floor (pricing_oracle_v2), MARKUP_WARN_LOW (cchcs_packet_gate), reytech_config.json profit_floor_* keys, product_catalog min_profit, reytech_filler_v4 low_margin status. + 6 doctrine contract tests. | 2026-05-04 |
 | fix/ci-staging-pipeline | Window 1 | `C:\Users\mikeg\Reytech-RFQ` (main checkout) | Active | Fix CI pre-deploy, add staging gate, branch protection | 2026-04-11 |
 | fix/amazon-garbage-title-filter | Window 2 | `C:\Users\mikeg\rfq-amazon-garbage-title-filter` | Active | Filter garbage "Amazon.com" titles so Claude tier fires + bump max_tokens | 2026-04-15 |
 | feat/quote-engine-unified | (merged) | `C:\Users\mikeg\rfq-quote-engine-unified` | Merged PR #135 | Unified quote_engine orchestrator + boot profile validator + parse_engine fix | 2026-04-17 |

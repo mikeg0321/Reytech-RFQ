@@ -15,8 +15,6 @@
   },
   "pricing_rules": {
     "scprs_undercut_pct": 0.01,
-    "profit_floor_general": 100,
-    "profit_floor_amazon": 50,
     "default_markup_pct": 0.25
   },
   "email": {
