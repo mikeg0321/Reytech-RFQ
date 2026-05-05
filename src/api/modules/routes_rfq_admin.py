@@ -1500,17 +1500,21 @@ def api_rfq_price_intel(rid):
         except Exception as _e:
             log.debug('suppressed in api_rfq_price_intel: %s', _e)
 
-        # Catalog match
+        # Catalog match — switched from search_catalog to match_item on
+        # 2026-05-05 (Mike P0): same popularity-sort fallthrough bug as
+        # routes_rfq._enrich_items_with_intel. Confidence ≥ 0.50 gates
+        # weak matches out of the price-intel surface.
         try:
-            from src.core.catalog import search_catalog
-            matches = search_catalog(pn or desc[:40], limit=1)
-            if matches:
+            from src.agents.product_catalog import match_item
+            matches = match_item(desc, pn, top_n=1)
+            if matches and matches[0].get("match_confidence", 0) >= 0.50:
                 m = matches[0]
                 result["catalog"] = {
-                    "sku": m.get("sku", ""),
-                    "typical_cost": m.get("typical_cost", 0),
-                    "list_price": m.get("list_price", 0),
+                    "sku": m.get("sku") or m.get("name", ""),
+                    "typical_cost": m.get("cost") or m.get("best_cost") or 0,
+                    "list_price": m.get("sell_price", 0),
                     "category": m.get("category", ""),
+                    "match_confidence": m.get("match_confidence", 0),
                 }
         except Exception as _e:
             log.debug('suppressed in api_rfq_price_intel: %s', _e)

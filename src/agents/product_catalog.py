@@ -2147,9 +2147,27 @@ def smart_search(query: str, limit: int = 20, category: str = "",
             return results
 
     tokens = _smart_tokenize(query)
+    _stripped_query = (query or "").strip()
 
-    # Empty/garbage query → popularity sort with optional filters
+    # Empty/garbage query branching (Mike P0 2026-05-05):
+    #
+    # Two distinct cases used to share the same popularity-sort fallthrough:
+    #   (a) query == "" or whitespace → caller wants browse mode ("show me
+    #       the top of the catalog") — popularity-sort is correct.
+    #   (b) query has content but tokenizes to nothing — e.g. "1", "ab",
+    #       "the". Caller is asking "find a match for THIS specific item
+    #       I'm holding"; falling through to popularity-sort returns the
+    #       single most-quoted product (DEMENTIA & ALZHEIMERS pack, sku=8
+    #       in prod) for EVERY un-tokenizable query, polluting every
+    #       enrichment call site with the same wrong answer (cf.
+    #       routes_rfq._enrich_items_with_intel on RFQ a5b09b56 where 8
+    #       items with placeholder pn "1"-"8" all got the same DEMENTIA
+    #       stamp). Token overlap couldn't have been computed for an
+    #       un-tokenizable query, so there is no real "match" — return [].
     if not tokens:
+        if _stripped_query:
+            conn.close()
+            return []
         # RE-AUDIT-4: is_test=0 keeps pytest / staging rows out of the
         # popularity-sorted "top of catalog" view.
         where, params = ["COALESCE(is_test,0)=0"], []

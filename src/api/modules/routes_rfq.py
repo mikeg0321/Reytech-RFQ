@@ -196,19 +196,43 @@ def _enrich_items_with_intel(items, rfq_number="", agency=""):
         if not desc and not pn:
             continue
 
-        # 1. Catalog match
+        # 1. Catalog match — uses match_item (proper item matcher with
+        # tiered UPC → exact part# → token Jaccard ≥ 0.65 strategy + post-
+        # match verification penalty), NOT the previous `search_catalog`
+        # which fell through to popularity-sort for short / placeholder
+        # part numbers and stamped the single most-quoted catalog row on
+        # every item (Mike P0 2026-05-05: RFQ a5b09b56 had 8 lines all
+        # bearing the same DEMENTIA pack catalog_match because every
+        # item's placeholder pn "1"..."8" tokenized to empty).
+        # Confidence ≥ 0.50 mirrors the matcher's internal final-filter
+        # threshold so weak matches don't surface as "catalog match".
+        #
+        # Self-heal pre-fix entries: any existing catalog_match without
+        # the new `match_confidence` field is from the old buggy path —
+        # clear it so this render computes a fresh, correct match (or
+        # no match). Without this, RFQ a5b09b56's wrong DEMENTIA stamps
+        # would persist forever since the gate below skips re-evaluation
+        # when catalog_match is already set.
+        _existing = item.get("catalog_match")
+        if _existing and not isinstance(_existing, dict):
+            item["catalog_match"] = None
+            _existing = None
+        if _existing and "match_confidence" not in _existing:
+            item["catalog_match"] = None
         if not item.get("catalog_match"):
             try:
-                from src.core.catalog import search_catalog
-                matches = search_catalog(pn or desc[:40], limit=1)
-                if matches:
+                from src.agents.product_catalog import match_item
+                matches = match_item(desc, pn, top_n=1)
+                if matches and matches[0].get("match_confidence", 0) >= 0.50:
                     m = matches[0]
                     item["catalog_match"] = {
-                        "sku": m.get("sku", ""),
+                        "sku": m.get("sku") or m.get("name", ""),
                         "name": m.get("name", ""),
-                        "typical_cost": m.get("typical_cost", 0),
-                        "list_price": m.get("list_price", 0),
+                        "typical_cost": m.get("cost") or m.get("best_cost") or 0,
+                        "list_price": m.get("sell_price", 0),
                         "category": m.get("category", ""),
+                        "match_confidence": m.get("match_confidence", 0),
+                        "match_reason": m.get("match_reason", ""),
                     }
             except Exception as _e:
                 log.debug('suppressed in _enrich_items_with_intel: %s', _e)
