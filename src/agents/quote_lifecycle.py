@@ -154,6 +154,16 @@ def process_reply_signal(quote_number: str, signal: str, confidence: float = 0.0
     if not quote_number:
         return {"ok": False, "error": "no quote_number"}
 
+    # Sanitize sentinel po_numbers (N/A, TBD, ?, X, ...) before any write.
+    # PR #633 wired clean_po_number through the canonical save_order path;
+    # this site bypasses it. Without sanitization, sentinels leak into
+    # quotes.po_number AND orders.po_number via _auto_create_order.
+    try:
+        from src.core.order_dal import clean_po_number
+        po_number = clean_po_number(po_number)
+    except ImportError:
+        pass
+
     now = datetime.now(timezone.utc).isoformat()
 
     # BUILD-11: track which outcome to feed calibrate_from_outcome AFTER
