@@ -3336,8 +3336,12 @@ def _generate_pc_pdf(pcid):
         pc["generation_strategy"] = pipe_result.strategy_used
         pc["generation_attempts"] = len(pipe_result.attempts)
         # Don't downgrade: if already sent/won, keep that status (this is a revision)
+        # Surface #11+#13 fix 2026-05-04: flip to "completed" not "draft" so the
+        # workflow guide pill highlights "Generated" and the action bar exposes
+        # Send Quote (gated on st in ('completed','converted'). Was: "draft" →
+        # mapped to "Priced" step → action bar stuck on Save & Generate forever.
         if pc.get("status") not in ("sent", "pending_award", "won", "lost", "no_response"):
-            _transition_status(pc, "draft", actor="system", notes="704 PDF filled (verified 100%)")
+            _transition_status(pc, "completed", actor="system", notes="704 PDF filled (verified 100%)")
         else:
             _transition_status(pc, pc["status"], actor="system", notes="704 PDF revised (verified 100%)")
         pc["summary"] = pipe_result.summary
@@ -3853,8 +3857,10 @@ def pricecheck_convert_to_quote(pcid):
     rfqs[rfq_id] = rfq
     save_rfqs(rfqs)
 
-    # Update PC status
-    _transition_status(pc, "draft", actor="system", notes="Reytech quote generated")
+    # Update PC status — "converted" indicates the PC has been promoted to an
+    # RFQ (carries the converted_rfq_id), distinct from a fresh PC at "draft".
+    # Maps to the "Generated" workflow step (pc_detail.html:565).
+    _transition_status(pc, "converted", actor="system", notes="Reytech quote generated")
     pc["converted_rfq_id"] = rfq_id
     _save_single_pc(pcid, pc)
 
