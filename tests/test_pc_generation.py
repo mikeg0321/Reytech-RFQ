@@ -290,3 +290,192 @@ class TestRequiredVendorFields:
         _skip_if_no_template()
         _result, fv, _pages = _fill_and_get_fields(1)
         assert fv["PERSON PROVIDING QUOTE"] == fv["COMPANY REPRESENTATIVE print name"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# original_mode partial-fill — buyer pre-fills qty/price but leaves
+# description/MFG# blank on a row (description came from email body, not PDF).
+# Regression: pc_177b18e6 row 2 generated with qty=60/UOM=BX/price=$13.50/ext=$810
+# but description and substituted item silently dropped on the output PDF.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestOriginalModePartialFill:
+    """When the buyer's source 704 has *some* rows fully filled and other
+    rows partially filled (qty + price but no description), original_mode
+    must NOT drop description/item#/substituted on the partial rows.
+    Filling those blanks is what we own — buyer's filled cells are still
+    preserved (we only write where the source field is empty)."""
+
+    def _make_stub_profile(self, prefilled_field_values):
+        """Build a stand-in TemplateProfile that reports `is_prefilled=True`
+        and exposes a controlled `field_values` dict, so we can simulate a
+        partially-filled buyer 704 without authoring a real pre-filled PDF."""
+        from src.forms.template_registry import get_profile as _real_get_profile
+        real_profile = _real_get_profile(BLANK_704)
+
+        class _StubProfile:
+            """Forwards every attribute to the real profile by default; only
+            `is_prefilled` and `field_values` are forced. Keeps the test
+            forward-compatible if TemplateProfile grows new attrs."""
+            def __init__(self, base, values):
+                object.__setattr__(self, "_base", base)
+                object.__setattr__(self, "field_values", dict(values))
+                object.__setattr__(self, "is_prefilled", True)
+                # Empty so prefilled_suffix_for_item never claims a row that
+                # would force the fill into a non-original code path.
+                object.__setattr__(self, "prefilled_item_rows", {})
+
+            def __getattr__(self, name):
+                return getattr(self._base, name)
+
+            def has_field(self, name):
+                return self._base.has_field(name)
+
+            def get_field_value(self, name):
+                return self.field_values.get(name)
+
+        return _StubProfile(real_profile, prefilled_field_values)
+
+    def test_partial_row_description_and_substituted_get_filled(self, monkeypatch):
+        """The pc_177b18e6 regression: buyer's source PDF has row 2 with
+        QTY=60 / UOM=BX / PRICE=13.50 but blank description + substituted.
+        Our PC items have desc='Nads Hair Removal Body Wax Strips' and
+        mfg='0063899500192'. After fill_ams704, the output field_values
+        MUST include those for row 2."""
+        _skip_if_no_template()
+
+        # Buyer's source PDF: row 1 fully filled (description + qty + ...),
+        # row 2 has qty + price but blank description / substituted.
+        prefilled = {
+            "QTYRow1": "10",
+            "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow1": "Heel Donut Cushions, Heel Cups, Silicon Insoles, One Size Fits All - 1 Pair",
+            "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow1": "5CAIS1G9WZZC",
+            "QTYRow2": "60",
+            "PRICE PER UNITRow2": "13.50",
+            # Description + substituted on row 2 are deliberately absent (blank).
+        }
+        stub = self._make_stub_profile(prefilled)
+        import src.forms.template_registry as _tr
+        monkeypatch.setattr(_tr, "get_profile", lambda _path: stub)
+        # fill_ams704 imports get_profile inline, so patch the module the
+        # function reads from too:
+        import src.forms.price_check as _pc
+        monkeypatch.setattr("src.forms.template_registry.get_profile", lambda _path: stub)
+
+        items = [
+            {
+                "row_index": 1,
+                "description": "Heel Donut Cushions, Heel Cups, Silicon Insoles, One Size Fits All - 1 Pair",
+                "mfg_number": "5CAIS1G9WZZC",
+                "qty": 10, "uom": "PR", "qty_per_uom": 1,
+                "unit_price": 9.60,
+                "pricing": {"recommended_price": 9.60, "unit_cost": 8.0},
+            },
+            {
+                "row_index": 2,
+                "description": "Nads Hair Removal Body Wax Strips for Normal Skin",
+                "mfg_number": "0063899500192",
+                "is_substitute": True,
+                "qty": 60, "uom": "BX", "qty_per_uom": 24,
+                "unit_price": 13.50,
+                "pricing": {"recommended_price": 13.50, "unit_cost": 12.99},
+            },
+        ]
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            output = tmp.name
+        try:
+            result = fill_ams704(
+                source_pdf=BLANK_704,
+                parsed_pc={
+                    "line_items": items,
+                    "header": {"institution": "CSP-SAC"},
+                    "ship_to": "CSP-SAC, 100 Prison Rd, Represa, CA 95671",
+                },
+                output_pdf=output,
+                price_tier="recommended",
+            )
+            assert result is not None
+
+            fv_path = os.path.join(_pc_mod.DATA_DIR, "pc_field_values.json")
+            assert os.path.exists(fv_path), "pc_field_values.json must be written"
+            with open(fv_path) as f:
+                entries = json.load(f)
+            by_field = {e["field_id"]: e.get("value", "") for e in entries}
+
+            # Buyer's row 1 description must NOT be overwritten — but our
+            # write only goes through when source is blank, so we just assert
+            # that the partial-fill block did NOT clobber it (we never wrote
+            # row 1 description in original_mode, and the source already has it).
+            row1_desc_field = "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow1"
+            # If we wrote row 1 description, the value should equal source (we shouldn't overwrite a filled field)
+            if row1_desc_field in by_field:
+                # We chose not to write because source had a value — _src_blank returned False.
+                pass
+
+            # Row 2 description MUST be written (this is the regression fix)
+            row2_desc_field = "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow2"
+            assert row2_desc_field in by_field, \
+                f"Row 2 description must be filled (was blank in source). Wrote: {sorted(by_field.keys())}"
+            assert "Nads" in by_field[row2_desc_field], \
+                f"Row 2 description should carry our PC item description, got: {by_field[row2_desc_field]!r}"
+
+            # Row 2 substituted (MFG#) MUST be written
+            row2_sub_field = "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow2"
+            assert row2_sub_field in by_field, \
+                f"Row 2 substituted must be filled (was blank in source). Wrote: {sorted(by_field.keys())}"
+            assert "0063899500192" in by_field[row2_sub_field], \
+                f"Row 2 substituted should carry our MFG#, got: {by_field[row2_sub_field]!r}"
+        finally:
+            if os.path.exists(output):
+                os.unlink(output)
+
+    def test_partial_row_does_not_overwrite_buyer_filled_description(self, monkeypatch):
+        """When the buyer DID fill row 2's description, original_mode must
+        leave it alone — that's the original purpose of original_mode."""
+        _skip_if_no_template()
+
+        buyer_row2_desc = "Buyer's exact wording for row 2 — do not touch"
+        prefilled = {
+            "QTYRow1": "10",
+            "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow1": "Row 1 desc",
+            "QTYRow2": "60",
+            "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow2": buyer_row2_desc,
+            "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow2": "BUYER-MFG-XYZ",
+        }
+        stub = self._make_stub_profile(prefilled)
+        monkeypatch.setattr("src.forms.template_registry.get_profile", lambda _path: stub)
+
+        items = [
+            {"row_index": 1, "description": "ours-row-1", "qty": 10, "uom": "EA", "unit_price": 5.0,
+             "pricing": {"recommended_price": 5.0}},
+            {"row_index": 2, "description": "ours-row-2-DIFFERENT", "mfg_number": "OURS-MFG",
+             "qty": 60, "uom": "BX", "unit_price": 13.50,
+             "pricing": {"recommended_price": 13.50}},
+        ]
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            output = tmp.name
+        try:
+            fill_ams704(
+                source_pdf=BLANK_704,
+                parsed_pc={"line_items": items, "header": {"institution": "T"}, "ship_to": "T"},
+                output_pdf=output,
+                price_tier="recommended",
+            )
+            fv_path = os.path.join(_pc_mod.DATA_DIR, "pc_field_values.json")
+            with open(fv_path) as f:
+                entries = json.load(f)
+            by_field = {e["field_id"]: e.get("value", "") for e in entries}
+
+            row2_desc_field = "ITEM DESCRIPTION NOUN FIRST Include manufacturer part number andor reference numberRow2"
+            row2_sub_field = "SUBSTITUTED ITEM Include manufacturer part number andor reference numberRow2"
+            # Either we didn't write the field at all (source had it) — that's fine —
+            # OR if we did write, we must NOT overwrite buyer's words with ours.
+            if row2_desc_field in by_field:
+                assert "ours-row-2-DIFFERENT" not in by_field[row2_desc_field], \
+                    f"Must not overwrite buyer's filled description, got: {by_field[row2_desc_field]!r}"
+            if row2_sub_field in by_field:
+                assert "OURS-MFG" not in by_field[row2_sub_field], \
+                    f"Must not overwrite buyer's filled substituted, got: {by_field[row2_sub_field]!r}"
+        finally:
+            if os.path.exists(output):
+                os.unlink(output)

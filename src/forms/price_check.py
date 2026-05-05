@@ -2837,6 +2837,37 @@ def fill_ams704(
             qpu_field = ROW_FIELDS["qty_per_uom"].format(n=row) + _field_suffix
             field_values.append({"field_id": qpu_field, "page": _page_num, "value": str(_qpu) if _qpu > 1 else ""})
 
+            # ── Per-row partial-fill: when buyer pre-filled qty/price on a row
+            #    but left description / item# / substituted blank (description
+            #    came from the email body, not the PDF), we still own filling
+            #    those blanks from our enriched data. Without this, original_mode
+            #    silently drops description+MFG# on partially-filled rows. ──
+            def _src_blank(field_id):
+                if not _profile or not _profile.has_field(field_id):
+                    return False  # field not on template — don't try to write
+                v = _profile.get_field_value(field_id)
+                return not (v and str(v).strip())
+
+            _item_num_field = ROW_FIELDS["item_number"].format(n=row) + _field_suffix
+            if _src_blank(_item_num_field):
+                field_values.append({"field_id": _item_num_field, "page": _page_num, "value": str(seq)})
+
+            _desc_field = ROW_FIELDS["description"].format(n=row) + _field_suffix
+            if _src_blank(_desc_field):
+                _desc_final = enrich_pc_description(item, clean_fn=clean_description)
+                if _desc_final:
+                    field_values.append({"field_id": _desc_field, "page": _page_num, "value": _desc_final})
+                    log.info("fill_ams704 ORIGINAL row=%d: filled blank description (%d chars)",
+                             row, len(_desc_final))
+
+            _sub_field = ROW_FIELDS["substituted"].format(n=row) + _field_suffix
+            if _src_blank(_sub_field):
+                _sub_text = build_pc_substitute_text(item, clean_description(item.get("description", "")))
+                if _sub_text:
+                    field_values.append({"field_id": _sub_field, "page": _page_num, "value": _sub_text})
+                    log.info("fill_ams704 ORIGINAL row=%d: filled blank substituted ('%s')",
+                             row, _sub_text[:40])
+
             continue
 
         # ── NORMAL MODE: write all fields ──
